@@ -667,6 +667,7 @@ export function renderCityHub(citySlug: string): RenderResult {
         ctaBlock(
             `Get a fixed quote in ${city.name}`,
             'Tell us about your job and we will send a clear, no-obligation price. Most quotes back the same day.',
+            city.slug,
         ),
     ]
         .filter(Boolean)
@@ -778,6 +779,7 @@ export function renderServiceCity(
         ctaBlock(
             `Book ${service.label.toLowerCase()} in ${city.name}`,
             'Send us the details and we will come back with a clear fixed price, usually the same day.',
+            citySlug,
         ),
     ]
         .filter(Boolean)
@@ -899,6 +901,7 @@ export function renderJobSuburb(
         ctaBlock(
             `Book ${service.label.toLowerCase()} in ${suburb.name}`,
             `Tell us about your job in ${suburb.name} and we will send a fixed quote, usually the same day.`,
+            citySlug,
         ),
     ]
         .filter(Boolean)

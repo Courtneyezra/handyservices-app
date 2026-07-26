@@ -290,9 +290,14 @@ function Router() {
             <SmartBanner />
             <Switch>
                 {/* ============ PUBLIC ROUTES ============ */}
-                {/* Landing Pages */}
-                <Route path="/landing">
+                {/* Landing Pages — cities are the canonical landings.
+                    /nottingham = primary city landing; /landing kept as a
+                    redirect so old ads/links keep working. */}
+                <Route path="/nottingham">
                     <HandymanLanding />
+                </Route>
+                <Route path="/landing">
+                    <Redirect to="/nottingham" />
                 </Route>
                 <Route path="/v2">
                     <HandymanV2 city="nottingham" />
@@ -1084,7 +1089,7 @@ function Router() {
 
                 {/* SPA redirect — do NOT use window.location.href (causes full page reload + HMR drop) */}
                 <Route path="/">
-                    <Redirect to="/admin" />
+                    <Redirect to="/nottingham" />
                 </Route>
 
                 <Route>

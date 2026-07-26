@@ -74,9 +74,16 @@ router.get("/:city/:service", async (req, res, next) => {
     res.send(result.html);
 });
 
+// Cities whose bare /:city URL serves the rich React landing (via the SPA)
+// instead of the generated SEO hub. Deeper T2/T3 service/suburb pages still
+// render as SEO. The T1 hubs were low value (Derby's was noindex); the React
+// landings carry the brand, team roster and conversion flow.
+const FULL_LANDING_CITIES = new Set(["nottingham", "derby"]);
+
 // ── T1: /:city ──────────────────────────────────────────────────────────────
 router.get("/:city", (req, res, next) => {
     if (!SEO_CITY_SLUGS.has(req.params.city)) return next();
+    if (FULL_LANDING_CITIES.has(req.params.city)) return next(); // → SPA React landing
     const result = renderCityHub(req.params.city);
     res.status(result.status).setHeader("Content-Type", "text/html");
     res.send(result.html);

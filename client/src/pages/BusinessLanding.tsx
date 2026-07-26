@@ -644,7 +644,7 @@ function MultiTaskJobsSection() {
 
 
 export default function BusinessLanding() {
-    const { variant, trackConversion } = useLandingPage("landing");
+    const { trackConversion } = useLandingPage("landing");
     const [showSticky, setShowSticky] = useState(false);
 
     useEffect(() => {
@@ -675,10 +675,10 @@ export default function BusinessLanding() {
                 location="Nottingham"
                 headline={finalHeadline}
                 subhead={finalSubhead}
-                ctaText={variant?.content?.ctaText || "Get Instant Quote"}
-                mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
-                desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
-                bannerText={variant?.content?.bannerText || "⚡️ Fastest growing property services team in {{location}}"}
+                ctaText="Get Instant Quote"
+                mobileCtaText="Call Now"
+                desktopCtaText="Get a Price"
+                bannerText="⚡️ Fastest growing property services team in {{location}}"
                 onConversion={trackConversion}
             />
 

@@ -95,6 +95,15 @@ interface ContractorOption {
   categorySlugs: string[];
 }
 
+// Built-in static skins — generated contractor asset sets that front a quote
+// without a DB contractor row (server resolves skinContractorId "static:<key>"
+// in resolveQuoteSkin; <key> matches SKINNED_HERO_SETS for the job-scene set).
+const STATIC_SKINS: { value: string; name: string; avatar: string }[] = [
+  { value: 'static:emile', name: 'Emile', avatar: '/assets/avatars/emile-avatar-1.webp' },
+  { value: 'static:courtnee', name: 'Courtnee', avatar: '/assets/avatars/courtnee-avatar-1.webp' },
+  { value: 'static:neil', name: 'Neil', avatar: '/assets/avatars/neil-avatar-1.webp' },
+];
+
 interface LineItem {
   id: string;
   description: string;
@@ -3262,26 +3271,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                       />
                     )}
                   </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Urgency</Label>
-                    <div className="mt-1 grid grid-cols-3 gap-1.5">
-                      {URGENCY_OPTIONS.map((opt) => (
-                        <button
-                          type="button"
-                          key={opt.value}
-                          onClick={() => setSignals((prev) => ({ ...prev, urgency: opt.value }))}
-                          className={`h-12 px-2 rounded-md border text-xs font-semibold transition-[transform,background-color,border-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] ${
-                            signals.urgency === opt.value
-                              ? 'bg-handy-navy text-white border-handy-navy shadow-sm'
-                              : 'bg-white text-handy-navy/70 border-handy-grid hover:border-handy-navy/40 hover:text-handy-navy'
-                          }`}
-                        >
-                          <div>{opt.label}</div>
-                          <div className={`text-[9px] font-normal mt-0.5 ${signals.urgency === opt.value ? 'text-handy-yellow' : 'text-handy-muted/70'}`}>{opt.helper}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {/* Urgency selector removed (23 Jul declutter) — signals.urgency
+                      stays 'standard' by default and still round-trips on edit. */}
                 </div>
               </CardContent>
             </Card>
@@ -4124,67 +4115,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 Details above; the legacy vaContext string is composed
                 deterministically at submit time. */}
 
-            {/* ─── Section 4c: Property Context (Phase 4b — drives scheduling, not pricing) ─── */}
-            <Card className="overflow-hidden border-handy-grid shadow-sm">
-              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
-                <CardTitle className="text-base font-bold text-white tracking-tight">Property Context</CardTitle>
-                <p className="text-xs text-white/70 mt-1">
-                  Drives scheduling math — adds floor/parking/presence overhead. Doesn't change price.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Floor number</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={50}
-                      placeholder="0 = ground"
-                      value={floorNumber ?? ''}
-                      onChange={(e) => setFloorNumber(e.target.value === '' ? null : parseInt(e.target.value) || 0)}
-                      className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Lift in building?</Label>
-                    <Select value={hasLift === null ? '__unset' : hasLift ? 'yes' : 'no'} onValueChange={(v) => setHasLift(v === '__unset' ? null : v === 'yes')}>
-                      <SelectTrigger className="mt-1 h-10 text-base sm:h-8 sm:text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__unset">— unknown —</SelectItem>
-                        <SelectItem value="yes">Yes (lift)</SelectItem>
-                        <SelectItem value="no">No lift</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Parking</Label>
-                    <Select value={parkingDistance ?? '__unset'} onValueChange={(v) => setParkingDistance(v === '__unset' ? null : v as any)}>
-                      <SelectTrigger className="mt-1 h-10 text-base sm:h-8 sm:text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__unset">— unknown —</SelectItem>
-                        <SelectItem value="on_drive">On their drive</SelectItem>
-                        <SelectItem value="street_outside">Street, just outside</SelectItem>
-                        <SelectItem value="street_within_50m">Street, within 50m</SelectItem>
-                        <SelectItem value="50m_plus">Further than 50m</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Customer present?</Label>
-                    <Select value={customerPresent === null ? '__unset' : customerPresent ? 'yes' : 'no'} onValueChange={(v) => setCustomerPresent(v === '__unset' ? null : v === 'yes')}>
-                      <SelectTrigger className="mt-1 h-10 text-base sm:h-8 sm:text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__unset">— unknown —</SelectItem>
-                        <SelectItem value="yes">Will be on site</SelectItem>
-                        <SelectItem value="no">Won't be present</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
+            {/* Property Context card removed (23 Jul declutter) — floor/lift/
+                parking/presence state remains and still round-trips on edit;
+                the fields default to unknown. */}
 
             {/* ─── Section 4d: Customer Photos (shown on the quote page under the price card) ─── */}
             <Card id="cq-photos-section" className="overflow-hidden border-handy-grid shadow-sm">
@@ -4242,12 +4175,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               </CardContent>
             </Card>
 
-            {/* ─── Section 5a: Contractor fit (informational only — system auto-assigns at reserve time) ─── */}
-            <ContractorFitPanel
-              categorySlugs={lineItems.map(li => li.category)}
-              coordinates={coordinates}
-              requiredDays={liveRequiredDays}
-            />
+            {/* "Who fits this job" panel removed (23 Jul declutter) —
+                the quote-fit engine still resolves the candidate pool +
+                lead contractor server-side at create time. */}
 
             {/* ─── Section 5b: Crew & quote skin ─── */}
             <Card>
@@ -4318,11 +4248,31 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                         <SelectValue placeholder="Default (Craig)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="default">Default (Craig)</SelectItem>
+                        <SelectItem value="default">
+                          <span className="flex items-center gap-2">
+                            <img src="/assets/avatars/craig-avatar-1.webp" alt="" className="w-5 h-5 rounded-full object-cover" />
+                            Default (Craig)
+                          </span>
+                        </SelectItem>
+                        {STATIC_SKINS.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            <span className="flex items-center gap-2">
+                              <img src={s.avatar} alt="" className="w-5 h-5 rounded-full object-cover" />
+                              {s.name} · Nottingham
+                            </span>
+                          </SelectItem>
+                        ))}
                         {(contractors ?? []).map((c) => (
                           <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                            {c.city ? ` · ${c.city}` : ''}
+                            <span className="flex items-center gap-2">
+                              {c.profileImageUrl ? (
+                                <img src={c.profileImageUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
+                              ) : (
+                                <span className="w-5 h-5 rounded-full bg-slate-200 shrink-0" />
+                              )}
+                              {c.name}
+                              {c.city ? ` · ${c.city}` : ''}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -4371,42 +4321,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             </Card>
 
 
-            {/* ─── Decomposed pricing (admin eval) — per-quote only, never live ─── */}
-            <div className="rounded-lg border border-dashed border-amber-400/60 bg-amber-50/60 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <Label htmlFor="preview-decomposed" className="text-sm font-semibold text-amber-900 cursor-pointer">
-                    Apply decomposed pricing (preview)
-                  </Label>
-                  <p className="text-xs text-amber-800/80 mt-0.5">
-                    Adds £25 call-out + travel + collection to this quote only. Live pricing unchanged.
-                  </p>
-                </div>
-                <Switch
-                  id="preview-decomposed"
-                  checked={previewDecomposed}
-                  onCheckedChange={setPreviewDecomposed}
-                />
-              </div>
-              {previewDecomposed && (
-                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-amber-300/50">
-                  <Label htmlFor="preview-travel-miles" className="text-xs text-amber-900 whitespace-nowrap">
-                    Travel distance (mi)
-                  </Label>
-                  <Input
-                    id="preview-travel-miles"
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    placeholder="0"
-                    value={previewTravelMiles}
-                    onChange={(e) => setPreviewTravelMiles(e.target.value)}
-                    className="h-8 w-24 bg-white"
-                  />
-                  <span className="text-xs text-amber-800/70">free under 8mi · £20 per 6mi band</span>
-                </div>
-              )}
-            </div>
+            {/* Decomposed-pricing preview toggle removed (23 Jul declutter) —
+                previewDecomposed stays false; the global engine setting is
+                untouched. */}
 
             {/* Edit mode — copy is preserved by default (frozen). This opt-in re-runs
                 the LLM wording + batch discount for the next save only. */}

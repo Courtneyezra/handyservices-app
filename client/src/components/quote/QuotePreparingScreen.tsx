@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Loader2, ShieldCheck, Star, Wrench } from 'lucide-react';
 import handyLogo from '@/assets/handy-logo-transparent.png';
+import { ROSTER_ORBIT_AVATARS } from '@/lib/contractor-roster';
 
 /**
  * "Preparing your quote" waiting screen — stage 1 of the TWO-stage journey
@@ -48,10 +49,9 @@ const STEP_MS = 900;     // custom-steps (visit flow) checklist dwell fallback
 // actual roster (Joe, Alex, Kane — real handyman_profiles rows). The chosen
 // skin's avatar is injected as a satellite so the resolve picks it "out of"
 // the orbit rather than conjuring a stranger.
-const POOL_AVATARS = [
-  '/assets/avatars/craig-avatar-1.webp',
-  '/assets/avatars/bezent-avatar-1.webp',
-];
+// The orbiting pool = the shared contractor roster (one source of truth for
+// every surface: orbit, landing team grids, landing hero cluster).
+const POOL_AVATARS = ROSTER_ORBIT_AVATARS;
 const POOL_INITIALS = ['J', 'A', 'K'];
 
 interface QuotePreparingScreenProps {

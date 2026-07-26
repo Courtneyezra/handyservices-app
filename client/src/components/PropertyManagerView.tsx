@@ -3,6 +3,7 @@ import { HassleComparisonSection } from "@/components/HassleComparisonSection";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { GoogleReviewsBadge } from "@/components/LandingShared";
+import { TeamCarousel } from "@/components/TeamCarousel";
 import teamMember1 from "@assets/Untitled design (22)_1764599239600.webp";
 import teamMember2 from "@assets/Untitled design (23)_1764599239600.webp";
 import teamMember3 from "@assets/Untitled design (24)_1764599239599.webp";
@@ -39,12 +40,6 @@ export function PropertyManagerView() {
 // Actually for robustness I must include the sub-components definitions.
 
 function TeamSection() {
-    const team = [
-        { name: "Richard", role: "Lead Handyman", rating: "4.9/5", reviews: "80+ Reviews", specialty: "General Repairs", icon: <Wrench className="w-5 h-5" />, image: teamMember1 },
-        { name: "Barry", role: "Senior Carpenter", rating: "4.8/5", reviews: "50+ Reviews", specialty: "Joinery & Woodwork", icon: <Hammer className="w-5 h-5" />, image: teamMember2 },
-        { name: "Vinny", role: "Decorator", rating: "4.8/5", reviews: "15+ Reviews", specialty: "Painting & Finishing", icon: <Paintbrush className="w-5 h-5" />, image: teamMember3 },
-    ];
-
     return (
         <section id="team" className="bg-slate-800 px-4 lg:px-8 py-16 lg:py-24">
             <div className="max-w-7xl mx-auto">
@@ -56,23 +51,7 @@ function TeamSection() {
                         Reliable professionals who understand property management protocols.
                     </p>
                 </div>
-                <div className="grid grid-cols-3 gap-2 md:gap-8 lg:gap-12">
-                    {team.map((member, idx) => (
-                        <div key={idx} className="bg-slate-700/50 rounded-xl md:rounded-3xl p-2 md:p-8 text-center hover:bg-slate-700 transition-colors">
-                            <img src={member.image} alt={member.name} className="w-16 h-16 md:w-32 md:h-32 lg:w-40 lg:h-40 mx-auto mb-2 md:mb-6 object-contain" />
-                            <div className="flex items-center justify-center gap-1 md:gap-2 text-amber-400 font-semibold mb-1 md:mb-2">
-                                <span className="hidden md:inline">{member.icon}</span>
-                                <span className="text-xs md:text-xl font-semibold">{member.name}</span>
-                            </div>
-                            <p className="text-white/60 text-xs md:text-base mb-2 md:mb-4">{member.role}</p>
-                            <div className="bg-slate-800 rounded-lg md:rounded-xl p-2 md:p-4 mb-2 md:mb-4">
-                                <p className="text-amber-400 font-bold text-sm md:text-2xl">{member.rating}</p>
-                                <p className="text-white/50 text-xs">{member.reviews}</p>
-                            </div>
-                            <p className="text-white/70 text-xs hidden md:block">Specialty: {member.specialty}</p>
-                        </div>
-                    ))}
-                </div>
+                <TeamCarousel city="Nottingham" />
             </div>
         </section>
     );

@@ -88,7 +88,7 @@ export function resolveQuoteSkin(skin: ServerQuoteSkin | null | undefined): Quot
  * brand set. getHeroImage/ValueGuarantee/ContractorProfile resolve into the
  * skin's own set when its key is here, else fall back to the Craig set.
  */
-export const SKINNED_HERO_SETS = new Set(['craig', 'bezent']);
+export const SKINNED_HERO_SETS = new Set(['craig', 'bezent', 'emile', 'courtnee', 'neil']);
 
 /** Asset-set key for a skin, or null when it has no dedicated job-scene set. */
 export function skinAssetKey(skin: QuoteSkin): string | null {

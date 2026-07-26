@@ -4,6 +4,8 @@ import { WistiaFacade } from "@/components/quote/WistiaFacade";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { IntakeHero } from "@/components/IntakeHero";
+import { TeamCarousel } from "@/components/TeamCarousel";
+import { usePageSeo } from "@/hooks/usePageSeo";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
 import { ChatHandymanPopup } from "@/components/ChatHandymanPopup";
@@ -25,7 +27,6 @@ import realJobKitchen from "@assets/4cc2f0fa-125e-412b-9929-4e03a055b760_1764687
 import realJobBlinds from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_1764694548068.webp";
 import beforeImage from "@assets/74cb4082-17d2-48b1-bd98-bf51f85bc7a5_(1)_1764694445995.webp";
 import afterImage from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
-import { useLandingPage } from "@/hooks/useLandingPage";
 import {
     registerSuperProperties as posthogRegister,
     trackEvent as posthogTrack,
@@ -38,13 +39,8 @@ const PHONE_NUMBER = "+447449501762";
 
 
 function TeamSection() {
-    // Person-led brand: the SAME real handymen the quote assigns — one consistent
-    // cast across the whole journey, and the same team that serves Derby.
-    // ⚠️ Ratings / job counts are PLACEHOLDERS pending real profile data (C5).
-    const team = [
-        { name: "Craig", role: "Lead handyman", img: "/assets/quote-images/craig-banner.webp", meta: "4.9 · 214 jobs completed" },
-        { name: "Joe", role: "Handyman & carpenter", img: "/assets/quote-images/joe-estimator.webp", meta: "4.9 · vetted, DBS-checked" },
-    ];
+    // Person-led brand: the SAME real handymen the quote assigns, from the
+    // shared contractor roster (rendered by TeamCarousel / contractor-roster.ts).
     const recentWork = [
         { url: "/assets/quote-images/craig-bathroom.webp", label: "Bathroom reseal" },
         { url: "/assets/quote-images/craig-tiling.webp", label: "Tiling" },
@@ -65,23 +61,8 @@ function TeamSection() {
                     </p>
                 </div>
 
-                {/* The handymen — portrait cards, one per core tech */}
-                <div className="grid sm:grid-cols-2 gap-5 lg:gap-8 mb-10 lg:mb-14 max-w-3xl mx-auto">
-                    {team.map((m) => (
-                        <div key={m.name} className="relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
-                            <img src={m.img} alt={`${m.name}, your Derby handyman`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/10 to-transparent" />
-                            <div className="absolute bottom-0 left-0 right-0 p-5">
-                                <div className="text-white text-2xl font-extrabold leading-none">{m.name}</div>
-                                <div className="text-amber-400 font-semibold text-sm mt-1">{m.role} · HandyServices</div>
-                                <div className="flex items-center gap-1.5 mt-2 text-white/90 text-sm">
-                                    <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                                    <span className="text-white/80">{m.meta}</span>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                {/* The handymen — shared auto-advancing swipe carousel. */}
+                <TeamCarousel city="Derby" />
 
                 {/* Shared trust + recent work */}
                 <div className="max-w-4xl mx-auto">
@@ -659,10 +640,15 @@ export default function DerbyLanding({
     headline,
     subhead,
 }: HandymanLandingProps) {
-    const { variant, isLoading, trackConversion } = useLandingPage("derby");
     const [showSticky, setShowSticky] = useState(false);
     const [activeSegment, setActiveSegment] = useState<'residential' | 'property-manager' | 'business'>('residential');
     const contentRef = useRef<HTMLDivElement>(null);
+
+    usePageSeo({
+        title: "Handyman in Derby | Handy Services",
+        description: "Trusted handyman, painting, gutter cleaning and home improvements across Derby, Derbyshire. £2M insured, 4.9★ rated. Get a free fixed quote.",
+        canonical: "https://www.handyservices.app/derby",
+    });
 
     // PostHog split-test instrumentation. Tagged as the Derby control for
     // comparison against /v2/derby treatment in PostHog funnel dashboards.
@@ -684,7 +670,6 @@ export default function DerbyLanding({
             city: LANDING_CITY,
             source: source || "unknown",
         });
-        trackConversion(source);
     };
 
     const handleSegmentChange = (segment: 'residential' | 'property-manager' | 'business') => {
@@ -708,9 +693,9 @@ export default function DerbyLanding({
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // Use variant content from admin, then props, then defaults (multi-tier format with ||)
-    const finalHeadline = variant?.content?.heroHeadline || headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
-    const finalSubhead = variant?.content?.heroSubhead || subhead || "Call or WhatsApp for an instant fixed-price quote";
+    // Static hero content (A/B variant system removed — a new test will be built).
+    const finalHeadline = headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
+    const finalSubhead = subhead || "Call or WhatsApp for an instant fixed-price quote";
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
@@ -738,9 +723,9 @@ export default function DerbyLanding({
                         location="Derby"
                         headline={finalHeadline}
                         subhead={finalSubhead}
-                        ctaText={variant?.content?.ctaText || "Get Instant Quote"}
-                        mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
-                        desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
+                        ctaText="Get Instant Quote"
+                        mobileCtaText="Call Now"
+                        desktopCtaText="Get a Price"
                         bannerReviews
                         onConversion={trackConversionWithEvent}
                         transparentBg={true}

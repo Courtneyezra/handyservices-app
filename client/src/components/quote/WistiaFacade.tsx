@@ -40,6 +40,7 @@ export const WistiaFacade = ({
   const [previewInView, setPreviewInView] = useState(false);
   const wrapRef = useRef<HTMLButtonElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const warmedRef = useRef(false);
 
   // Reliable Wistia thumbnail. The `swatch` endpoint always resolves for a
   // public media; `posterUrl` lets callers pass the exact high-res still.
@@ -86,17 +87,35 @@ export const WistiaFacade = ({
     return () => v.removeEventListener('canplay', play);
   }, [previewInView]);
 
+  // Warm the connection + pull the ~1 MB player runtime AHEAD of the click, on
+  // the first hint of intent (hover / focus / touch-start). By the time the tap
+  // registers the runtime is usually cached, so play starts almost immediately —
+  // without paying that cost for visitors who never interact. Idempotent.
+  const warm = () => {
+    if (warmedRef.current) return;
+    warmedRef.current = true;
+    for (const href of ['https://fast.wistia.com', 'https://embed-ssl.wistia.com']) {
+      if (!document.querySelector(`link[rel="preconnect"][href="${href}"]`)) {
+        const l = document.createElement('link');
+        l.rel = 'preconnect';
+        l.href = href;
+        l.crossOrigin = '';
+        document.head.appendChild(l);
+      }
+    }
+    if (!document.querySelector('script[src*="wistia.com/player.js"]')) {
+      const s = document.createElement('script');
+      s.src = 'https://fast.wistia.com/player.js';
+      s.async = true;
+      document.body.appendChild(s);
+    }
+  };
+
   const activate = () => {
     if (activated) return;
+    warm(); // ensure the runtime is (already) loading before we mount the player
     setActivated(true);
-    // Inject the Wistia loader scripts on demand (same pair the page used
-    // before, just gated behind the click instead of an IntersectionObserver).
-    if (!document.querySelector('script[src*="wistia.com/player.js"]')) {
-      const script1 = document.createElement('script');
-      script1.src = 'https://fast.wistia.com/player.js';
-      script1.async = true;
-      document.body.appendChild(script1);
-    }
+    // The per-media embed module — mounts/configures the <wistia-player> element.
     if (!document.querySelector(`script[src*="wistia.com/embed/${mediaId}.js"]`)) {
       const script2 = document.createElement('script');
       script2.src = `https://fast.wistia.com/embed/${mediaId}.js`;
@@ -127,6 +146,9 @@ export const WistiaFacade = ({
       ref={wrapRef}
       type="button"
       onClick={activate}
+      onPointerEnter={warm}
+      onFocus={warm}
+      onTouchStart={warm}
       aria-label="Play video"
       className="group absolute inset-0 h-full w-full cursor-pointer overflow-hidden"
       data-testid="wistia-facade-play"
