@@ -130,10 +130,11 @@ header.site .container{gap:12px}
   header.site a.brand .wordmark{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   header.site .brand-logo{width:30px;height:30px}
   header.site a.book{padding:9px 15px;font-size:13.5px}
-  /* Keep each hero trust item on one line (no mid-phrase break like "130+ / Google reviews"); trim size so it still fits to 320px.
-     Scoped under .hero so it beats the later base .trust-hero rule at equal specificity. */
-  .hero .trust-hero{font-size:13px;gap:8px 14px}
+  /* Hero trust items as a tidy 2-col grid with amber ticks (no ragged wrap / stray dot separators). */
+  .hero .trust-hero{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;font-size:13px;margin-top:20px}
   .hero .trust-hero li{white-space:nowrap}
+  .hero .trust-hero li+li::before{display:none}
+  .hero .trust-hero li::before{content:"\\2713";color:var(--amber);font-weight:900;margin-right:7px}
 }
 @media(max-width:380px){
   header.site a.book{font-size:0}
@@ -258,10 +259,11 @@ section.block h2{font-size:clamp(24px,3.2vw,34px);line-height:1.12;letter-spacin
 .proof .score{text-align:center;border-right:1px solid rgba(255,255,255,.16);padding-right:26px}
 .proof .score .num{font-size:52px;font-weight:800;line-height:1;color:#fff}
 .proof .score .stars{color:var(--star);font-size:20px;letter-spacing:2px;margin-top:4px}
-.proof .score .rc{color:rgba(255,255,255,.7);font-size:13px;margin-top:6px}
+.proof .score .rc{display:inline-block;margin-top:9px;color:var(--amber);font-weight:700;font-size:13px;border-bottom:none}
+.proof .score .rc:hover{text-decoration:underline;opacity:1}
 .proof .say{font-size:19px;font-weight:600;line-height:1.4;color:#fff}
 .proof .facts{list-style:none;display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0;padding:0}
-.proof .facts li{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:rgba(255,255,255,.92)}
+.proof .facts li{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:rgba(255,255,255,.92)}
 .proof .facts .tick{color:var(--amber);font-weight:800}
 
 /* ---- link mesh (chips + cards) ---- */
@@ -307,7 +309,9 @@ footer.site a{color:var(--slate);font-weight:600}
   .hero-split .hero-media{order:1}
   .hero-split .hero-copy{order:2}
   .hero-img{aspect-ratio:16/9;max-height:230px}
-  .team-ava img{width:46px;height:46px}
+  /* stack cred row so names + rating each sit on one full-width line (no wrap) */
+  .team{flex-direction:column;align-items:flex-start;gap:10px}
+  .team-ava img{width:44px;height:44px}
   .hero-cta{gap:10px}
   .hero-cta .btn{flex:1 1 100%;text-align:center;justify-content:center}
   .proof .in{grid-template-columns:1fr;gap:18px}
