@@ -160,22 +160,37 @@ header.site .container{gap:12px}
 .trust-hero b{color:#fff;font-weight:800}
 .hero-img{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:100%;height:100%;object-fit:cover;aspect-ratio:4/3;background:linear-gradient(135deg,var(--navy-2),var(--navy-3))}
 
-/* variant A / C: split */
-.hero-split .hero-inner{display:grid;grid-template-columns:1.05fr .95fr;gap:44px;align-items:center;padding:64px 20px 72px}
-.hero-split.var-c .hero-copy{order:2}
-.hero-split.var-c .hero-media{order:1}
+/* Google reviews strip (amber), mirrors the landing top band */
+.rev-strip{display:inline-flex;align-items:center;gap:8px;background:var(--amber);color:var(--navy-3);font-weight:800;font-size:14px;padding:7px 14px;border-radius:999px;margin:0 0 20px}
+.rev-strip .g{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--navy-3);color:var(--amber);font-weight:900;font-size:13px}
+.rev-strip .rstars{color:var(--navy-3);letter-spacing:1px}
+
+/* "Meet your handymen" team cluster */
+.team{margin:0 0 22px}
+.team-pill{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;padding:7px 14px;border-radius:999px}
+.team-ava{display:flex;margin:14px 0 10px}
+.team-ava img{width:52px;height:52px;border-radius:50%;object-fit:cover;border:3px solid var(--navy);margin-left:-12px;box-shadow:0 4px 12px rgba(0,0,0,.35)}
+.team-ava img:first-child{margin-left:0;border-color:var(--amber)}
+.team-names{margin:0;color:rgba(255,255,255,.9);font-size:15px}
+.team-names b{color:#fff;font-weight:800}
+
+/* dual CTA row */
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn-wa{background:#25D366;color:#fff;font-weight:800}
+.btn-wa:hover{background:#1eb457}
+
+/* split hero: copy + crisp image card (no muddy scrim) */
+.hero-split .hero-inner{display:grid;grid-template-columns:1.05fr .95fr;gap:44px;align-items:center;padding:56px 20px 64px}
 .hero-media{position:relative}
 .hero-media::after{content:"";position:absolute;left:22px;bottom:-14px;right:22px;height:40px;background:rgba(245,166,35,.25);filter:blur(26px);border-radius:50%;z-index:-1}
-
-/* variant B: full-bleed image with overlay */
-.hero-full{min-height:460px;display:flex;align-items:center}
-.hero-full .hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
-.hero-full .hero-scrim{position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,rgba(15,28,51,.94) 0%,rgba(27,42,74,.86) 45%,rgba(27,42,74,.5) 100%)}
-.hero-full .hero-inner{position:relative;z-index:2;padding:72px 20px;max-width:640px}
 
 /* ---- section scaffolding ---- */
 section.block{padding:56px 0}
 section.block.soft{background:var(--soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+/* Dark band for rhythm (like the landing's alternating sections) — white step cards pop on it. */
+section.block.navy{background:linear-gradient(135deg,var(--navy) 0%,var(--navy-3) 100%);border:none}
+section.block.navy h2{color:#fff}
+section.block.navy .section-lead{color:rgba(255,255,255,.8)}
 section.block h2{font-size:clamp(24px,3.2vw,34px);line-height:1.12;letter-spacing:-.01em;color:var(--navy);margin:0 0 8px;font-weight:800}
 .kicker{display:inline-block;color:var(--amber-600);font-weight:800;text-transform:uppercase;letter-spacing:.13em;font-size:12.5px;margin:0 0 10px}
 .section-lead{color:var(--slate);font-size:18px;margin:0 0 26px;max-width:60ch}
@@ -289,10 +304,14 @@ footer.site a{color:var(--slate);font-weight:600}
 .ben-fab .lab small{font-size:11px;color:var(--muted);font-weight:600}
 @media(max-width:760px){.ben-fab{bottom:88px;right:12px;padding:6px}.ben-fab .lab{display:none}}
 @media (max-width:760px){
-  .hero-split .hero-inner{grid-template-columns:1fr;gap:26px;padding:40px 20px 46px}
-  .hero-split.var-c .hero-copy{order:1}
-  .hero-split.var-c .hero-media{order:2}
-  .hero-img{aspect-ratio:16/10}
+  .hero-split .hero-inner{grid-template-columns:1fr;gap:22px;padding:26px 18px 40px}
+  /* image on top as a capped banner, copy below — keeps the hero short on mobile */
+  .hero-split .hero-media{order:1}
+  .hero-split .hero-copy{order:2}
+  .hero-img{aspect-ratio:16/9;max-height:230px}
+  .team-ava img{width:46px;height:46px}
+  .hero-cta{gap:10px}
+  .hero-cta .btn{flex:1 1 100%;text-align:center;justify-content:center}
   .proof .in{grid-template-columns:1fr;gap:18px}
   .proof .score{border-right:0;border-bottom:1px solid rgba(255,255,255,.16);padding-right:0;padding-bottom:16px;display:flex;align-items:center;justify-content:center;gap:16px}
   .steps{grid-template-columns:repeat(2,1fr);gap:14px}

@@ -81,12 +81,14 @@ const CHECK_ICON =
     '<span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>';
 
 /** Hero trust strip (on navy): stars + rating, insured, fixed quotes. City-specific review count. */
-function heroTrust(reviewCount: number): string {
+function heroTrust(_reviewCount?: number): string {
+    // Rating + count now live in the amber reviews strip; keep the trust facts here.
     return [
         '                    <ul class="trust-hero">',
-        `                        <li><span class="stars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</span> <b>${escapeHtml(SEO_BRAND.ratingValue)}</b> from ${reviewCount}+ Google reviews</li>`,
         `                        <li>${escapeHtml(SEO_BRAND.insured)}</li>`,
+        '                        <li>Vetted local team</li>',
         '                        <li>Fixed quotes</li>',
+        '                        <li>Work guaranteed</li>',
         '                    </ul>',
     ].join('\n');
 }
@@ -115,6 +117,48 @@ function waLink(placeLabel: string, serviceLabel?: string, sourceUrl?: string): 
     return `https://wa.me/${SEO_BRAND.whatsapp}?text=${encodeURIComponent(text)}`;
 }
 
+/** The real team, mirroring the React landing's "Meet your handymen" cluster. */
+const HERO_TEAM: { src: string; name: string }[] = [
+    { src: '/assets/avatars/craig-avatar-1.webp', name: 'Craig' },
+    { src: '/assets/quote-images/joe-estimator.webp', name: 'Joe' },
+    { src: '/assets/avatars/emile-avatar-1.webp', name: 'Emile' },
+    { src: '/assets/avatars/bezent-avatar-1.webp', name: 'Bezent' },
+];
+
+/** "Meet your handymen" avatar cluster — real faces, person-led brand. */
+function teamCluster(): string {
+    const avatars = HERO_TEAM.map(
+        (t) =>
+            `                            <img src="${escapeHtml(t.src)}" alt="${escapeHtml(t.name)}" width="52" height="52" loading="lazy" decoding="async">`,
+    ).join('\n');
+    return [
+        '                    <div class="team">',
+        '                        <span class="team-pill">&#128101; Meet your handymen</span>',
+        '                        <div class="team-ava">',
+        avatars,
+        '                        </div>',
+        '                        <p class="team-names"><b>Craig, Joe, Emile</b> &amp; the local team</p>',
+        '                    </div>',
+    ].join('\n');
+}
+
+/** Google-reviews strip (amber), mirroring the landing's top band. */
+function reviewStrip(reviewCount: number): string {
+    return [
+        '                    <div class="rev-strip">',
+        '                        <span class="g" aria-hidden="true">G</span>',
+        '                        <span class="rstars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</span>',
+        `                        <b>${escapeHtml(SEO_BRAND.ratingValue)}</b> &middot; ${reviewCount}+ Google reviews`,
+        '                    </div>',
+    ].join('\n');
+}
+
+/**
+ * Hero — cloned from the React landing's look: amber reviews strip, real team
+ * ("Meet your handymen") avatar cluster, bold H1, subhead, amber + WhatsApp
+ * CTAs, and the per-trade image as a crisp card (no muddy full-bleed scrim).
+ * Split layout on desktop; stacks (capped image on top) on mobile.
+ */
 function heroSection(opts: {
     variant: Variant;
     eyebrow: string;
@@ -124,34 +168,26 @@ function heroSection(opts: {
     imageAlt: string;
     reviewCount: number;
 }): string {
-    const { variant, eyebrow, h1, intro, imageSrc, imageAlt, reviewCount } = opts;
+    const { eyebrow, h1, intro, imageSrc, imageAlt, reviewCount } = opts;
     const img = escapeHtml(imageSrc);
     const alt = escapeHtml(imageAlt);
+    const waText = `Hi, I'd like a free quote — ${eyebrow}`;
+    const wa = `https://wa.me/${SEO_BRAND.whatsapp}?text=${encodeURIComponent(waText)}`;
     const copy = [
+        reviewStrip(reviewCount),
+        teamCluster(),
         `                    <p class="eyebrow">${escapeHtml(eyebrow)}</p>`,
         `                    <h1>${escapeHtml(h1)}</h1>`,
         `                    <p class="lede">${escapeHtml(intro)}</p>`,
-        '                    <a class="btn btn-amber btn-arrow" href="/">Get a free quote</a>',
+        '                    <div class="hero-cta">',
+        '                        <a class="btn btn-amber btn-arrow" href="/">Get a free quote</a>',
+        `                        <a class="btn btn-wa" href="${wa}" target="_blank" rel="noopener">WhatsApp us</a>`,
+        '                    </div>',
         heroTrust(reviewCount),
     ].join('\n');
 
-    if (variant === 'b') {
-        // Full-bleed image with navy overlay + text on top.
-        return [
-            '        <section class="hero hero-full">',
-            `            <img class="hero-bg" src="${img}" alt="${alt}" width="1280" height="720" loading="eager" decoding="async">`,
-            '            <div class="hero-scrim"></div>',
-            '            <div class="container hero-inner">',
-            copy,
-            '            </div>',
-            '        </section>',
-        ].join('\n');
-    }
-
-    // Split hero — variant 'a' = image right, 'c' = image left.
-    const variantClass = variant === 'c' ? 'hero hero-split var-c' : 'hero hero-split var-a';
     return [
-        `        <section class="${variantClass}">`,
+        '        <section class="hero hero-split">',
         '            <div class="container hero-inner">',
         '                <div class="hero-copy">',
         copy,
@@ -258,7 +294,7 @@ function howItWorksSection(): string {
         )
         .join('\n');
     return [
-        '        <section class="block soft">',
+        '        <section class="block navy">',
         '            <div class="container">',
         '                <p class="kicker">Simple from start to finish</p>',
         '                <h2>How it works</h2>',
