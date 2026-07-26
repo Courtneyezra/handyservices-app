@@ -180,10 +180,10 @@ function heroSection(opts: {
     const waText = `Hi, I'd like a free quote — ${eyebrow}`;
     const wa = `https://wa.me/${SEO_BRAND.whatsapp}?text=${encodeURIComponent(waText)}`;
     const copy = [
-        compactCred(reviewCount),
         `                    <p class="eyebrow">${escapeHtml(eyebrow)}</p>`,
         `                    <h1>${escapeHtml(h1)}</h1>`,
         `                    <p class="lede">${escapeHtml(firstSentence(intro))}</p>`,
+        compactCred(reviewCount),
         '                    <div class="hero-cta">',
         '                        <a class="btn btn-amber btn-arrow" href="/">Get a free quote</a>',
         `                        <a class="btn btn-wa" href="${wa}" target="_blank" rel="noopener">WhatsApp us</a>`,
