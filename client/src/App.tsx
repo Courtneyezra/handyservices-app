@@ -979,6 +979,8 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                {/* Convenience alias: /seo -> the admin SEO Command Centre */}
+                <Route path="/seo"><Redirect to="/admin/seo" /></Route>
                 <Route path="/admin/disputes">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
