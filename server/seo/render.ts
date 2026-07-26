@@ -125,30 +125,25 @@ const HERO_TEAM: { src: string; name: string }[] = [
     { src: '/assets/avatars/bezent-avatar-1.webp', name: 'Bezent' },
 ];
 
-/** "Meet your handymen" avatar cluster — real faces, person-led brand. */
-function teamCluster(): string {
+/**
+ * Compact credibility row — real team faces + names + rating in ONE tidy block.
+ * Replaces the old stacked (reviews strip + "Meet your handymen" pill + avatars
+ * + names), which was too heavy above the headline.
+ */
+function compactCred(reviewCount: number): string {
     const avatars = HERO_TEAM.map(
         (t) =>
-            `                            <img src="${escapeHtml(t.src)}" alt="${escapeHtml(t.name)}" width="52" height="52" loading="lazy" decoding="async">`,
+            `                            <img src="${escapeHtml(t.src)}" alt="${escapeHtml(t.name)}" width="40" height="40" loading="lazy" decoding="async">`,
     ).join('\n');
     return [
         '                    <div class="team">',
-        '                        <span class="team-pill">&#128101; Meet your handymen</span>',
         '                        <div class="team-ava">',
         avatars,
         '                        </div>',
-        '                        <p class="team-names"><b>Craig, Joe, Emile</b> &amp; the local team</p>',
-        '                    </div>',
-    ].join('\n');
-}
-
-/** Google-reviews strip (amber), mirroring the landing's top band. */
-function reviewStrip(reviewCount: number): string {
-    return [
-        '                    <div class="rev-strip">',
-        '                        <span class="g" aria-hidden="true">G</span>',
-        '                        <span class="rstars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</span>',
-        `                        <b>${escapeHtml(SEO_BRAND.ratingValue)}</b> &middot; ${reviewCount}+ Google reviews`,
+        '                        <div class="team-meta">',
+        '                            <p class="team-names"><b>Craig, Joe</b> &amp; the local team</p>',
+        `                            <p class="team-rev"><span class="rstars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</span> <b>${escapeHtml(SEO_BRAND.ratingValue)}</b> &middot; ${reviewCount}+ Google reviews</p>`,
+        '                        </div>',
         '                    </div>',
     ].join('\n');
 }
@@ -174,8 +169,7 @@ function heroSection(opts: {
     const waText = `Hi, I'd like a free quote — ${eyebrow}`;
     const wa = `https://wa.me/${SEO_BRAND.whatsapp}?text=${encodeURIComponent(waText)}`;
     const copy = [
-        reviewStrip(reviewCount),
-        teamCluster(),
+        compactCred(reviewCount),
         `                    <p class="eyebrow">${escapeHtml(eyebrow)}</p>`,
         `                    <h1>${escapeHtml(h1)}</h1>`,
         `                    <p class="lede">${escapeHtml(intro)}</p>`,

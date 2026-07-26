@@ -160,19 +160,17 @@ header.site .container{gap:12px}
 .trust-hero b{color:#fff;font-weight:800}
 .hero-img{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:100%;height:100%;object-fit:cover;aspect-ratio:4/3;background:linear-gradient(135deg,var(--navy-2),var(--navy-3))}
 
-/* Google reviews strip (amber), mirrors the landing top band */
-.rev-strip{display:inline-flex;align-items:center;gap:8px;background:var(--amber);color:var(--navy-3);font-weight:800;font-size:14px;padding:7px 14px;border-radius:999px;margin:0 0 20px}
-.rev-strip .g{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--navy-3);color:var(--amber);font-weight:900;font-size:13px}
-.rev-strip .rstars{color:var(--navy-3);letter-spacing:1px}
-
-/* "Meet your handymen" team cluster */
-.team{margin:0 0 22px}
-.team-pill{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;padding:7px 14px;border-radius:999px}
-.team-ava{display:flex;margin:14px 0 10px}
-.team-ava img{width:52px;height:52px;border-radius:50%;object-fit:cover;border:3px solid var(--navy);margin-left:-12px;box-shadow:0 4px 12px rgba(0,0,0,.35)}
+/* Compact credibility row: small team faces + names + rating, one tidy block */
+.team{display:flex;align-items:center;gap:13px;margin:0 0 24px}
+.team-ava{display:flex;flex:none}
+.team-ava img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--navy);margin-left:-10px;box-shadow:0 4px 12px rgba(0,0,0,.35)}
 .team-ava img:first-child{margin-left:0;border-color:var(--amber)}
-.team-names{margin:0;color:rgba(255,255,255,.9);font-size:15px}
+.team-meta{min-width:0}
+.team-names{margin:0;color:#fff;font-size:14.5px;line-height:1.3}
 .team-names b{color:#fff;font-weight:800}
+.team-rev{margin:2px 0 0;color:rgba(255,255,255,.82);font-size:13.5px;line-height:1.3}
+.team-rev .rstars{color:var(--star);letter-spacing:1px}
+.team-rev b{color:#fff;font-weight:800}
 
 /* dual CTA row */
 .hero-cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
