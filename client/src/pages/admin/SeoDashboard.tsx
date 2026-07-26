@@ -103,6 +103,13 @@ function prettyCity(c: string): string {
   return c.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
+// Admin API auth: requireAdmin expects a Bearer token. Every request here must
+// send it (raw fetch without this 401s and the dashboard stays empty).
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = localStorage.getItem("adminToken");
+  return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(extra || {}) };
+}
+
 function timeAgo(iso: string | null): string {
   if (!iso) return "never";
   const then = new Date(iso).getTime();
@@ -199,7 +206,7 @@ export default function SeoDashboard() {
       const { id, ...body } = vars;
       const res = await fetch(`/api/admin/seo/keywords/${id}/publish`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to update publish gates");
@@ -214,7 +221,7 @@ export default function SeoDashboard() {
   const { data: overview, isLoading: overviewLoading } = useQuery<SeoOverview>({
     queryKey: ["seo-overview"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/seo/overview");
+      const res = await fetch("/api/admin/seo/overview", { headers: authHeaders() });
       if (!res.ok) throw new Error("Failed to fetch SEO overview");
       return res.json();
     },
@@ -223,7 +230,7 @@ export default function SeoDashboard() {
   const { data: keywords, isLoading: keywordsLoading } = useQuery<KeywordRow[]>({
     queryKey: ["seo-keywords"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/seo/keywords");
+      const res = await fetch("/api/admin/seo/keywords", { headers: authHeaders() });
       if (!res.ok) throw new Error("Failed to fetch SEO keywords");
       return res.json();
     },
@@ -232,7 +239,7 @@ export default function SeoDashboard() {
   const { data: gmb } = useQuery<GmbRow[]>({
     queryKey: ["seo-gmb"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/seo/gmb");
+      const res = await fetch("/api/admin/seo/gmb", { headers: authHeaders() });
       if (!res.ok) throw new Error("Failed to fetch GMB metrics");
       return res.json();
     },
@@ -241,7 +248,7 @@ export default function SeoDashboard() {
   const { data: automation } = useQuery<AutomationStatus>({
     queryKey: ["seo-automation"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/seo/automation");
+      const res = await fetch("/api/admin/seo/automation", { headers: authHeaders() });
       if (!res.ok) throw new Error("Failed to fetch automation status");
       return res.json();
     },
@@ -254,7 +261,7 @@ export default function SeoDashboard() {
 
   const runJob = useMutation({
     mutationFn: async (job: "track" | "gmb") => {
-      const res = await fetch(`/api/admin/seo/${job}/run`, { method: "POST" });
+      const res = await fetch(`/api/admin/seo/${job}/run`, { method: "POST", headers: authHeaders() });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Failed to start run");
