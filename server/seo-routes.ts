@@ -4,6 +4,9 @@ import { db } from "./db";
 import { keywordTargets, rankSnapshots, gmbMetrics } from "@shared/schema";
 import { desc, eq, sql } from "drizzle-orm";
 import { requireAdmin } from "./auth";
+import {
+    getAutomationStatus, runRankTracking, runGmbPull,
+} from "./seo-automation";
 
 const router = Router();
 
@@ -180,6 +183,60 @@ router.get("/api/admin/seo/gmb", requireAdmin, async (_req, res) => {
     console.error("[SEO] Error fetching GMB metrics:", error);
     res.status(500).json({ error: "Failed to fetch GMB metrics" });
   }
+});
+
+// ── GET /api/admin/seo/automation ────────────────────────────────────────────
+// Scheduler status for the rank-tracking + GMB jobs: enabled (creds present),
+// schedule, this-process last-run summary, plus the persistent "last data"
+// timestamp derived from the newest snapshot in the DB (survives restarts).
+router.get("/api/admin/seo/automation", requireAdmin, async (_req, res) => {
+  try {
+    const status = getAutomationStatus();
+
+    const [rankLatest] = await db
+      .select({ at: sql<Date | null>`max(${rankSnapshots.capturedAt})` })
+      .from(rankSnapshots);
+    const [gmbLatest] = await db
+      .select({ at: sql<Date | null>`max(${gmbMetrics.capturedAt})` })
+      .from(gmbMetrics);
+
+    res.json({
+      rank: { ...status.rank, lastDataAt: rankLatest?.at ?? null },
+      gmb: { ...status.gmb, lastDataAt: gmbLatest?.at ?? null },
+    });
+  } catch (error) {
+    console.error("[SEO] Error fetching automation status:", error);
+    res.status(500).json({ error: "Failed to fetch automation status" });
+  }
+});
+
+// ── POST /api/admin/seo/track/run ─────────────────────────────────────────────
+// Fire a rank-tracking run now (fire-and-forget — a full run takes minutes).
+// The shared run-state guard prevents overlap with the cron run. Poll
+// /automation for progress/result.
+router.post("/api/admin/seo/track/run", requireAdmin, (_req, res) => {
+  const { rank } = getAutomationStatus();
+  if (!rank.enabled) {
+    return res.status(409).json({ error: "Rank tracking is disabled — APIFY_TOKEN not set." });
+  }
+  if (rank.running) {
+    return res.status(409).json({ error: "A rank-tracking run is already in progress." });
+  }
+  void runRankTracking("manual"); // don't await — poll /automation for result
+  res.status(202).json({ started: true });
+});
+
+// ── POST /api/admin/seo/gmb/run ───────────────────────────────────────────────
+router.post("/api/admin/seo/gmb/run", requireAdmin, (_req, res) => {
+  const { gmb } = getAutomationStatus();
+  if (!gmb.enabled) {
+    return res.status(409).json({ error: "GMB pull is disabled — GOOGLE_GBP_* not set." });
+  }
+  if (gmb.running) {
+    return res.status(409).json({ error: "A GMB pull is already in progress." });
+  }
+  void runGmbPull("manual");
+  res.status(202).json({ started: true });
 });
 
 export default router;

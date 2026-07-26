@@ -4,6 +4,9 @@ import { db } from "./db";
 import { personalizedQuotes, contractorBookingRequests, handymanProfiles, users } from "@shared/schema";
 import { lt, and, eq, isNull, gte, lte, inArray, not, sql } from "drizzle-orm";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
+import {
+    runRankTracking, runGmbPull, rankEnabled, gmbEnabled, RANK_SCHEDULE, GMB_SCHEDULE,
+} from "./seo-automation";
 
 // Initialize Cron Jobs
 export function setupCronJobs() {
@@ -45,6 +48,24 @@ export function setupCronJobs() {
         console.log("[DayBefore] Running day-before customer reminders...");
         await sendDayBeforeCustomerReminders();
     });
+
+    // ==========================================
+    // SEO AUTOMATION — self-activates only when the relevant credentials are set,
+    // so the scheduler stays quiet before go-live (see server/seo-automation.ts).
+    // ==========================================
+    if (rankEnabled()) {
+        cron.schedule(RANK_SCHEDULE.cron, () => runRankTracking("cron"));
+        console.log(`[Cron] SEO rank tracking scheduled (${RANK_SCHEDULE.label}).`);
+    } else {
+        console.log("[Cron] SEO rank tracking NOT scheduled — APIFY_TOKEN not set.");
+    }
+
+    if (gmbEnabled()) {
+        cron.schedule(GMB_SCHEDULE.cron, () => runGmbPull("cron"));
+        console.log(`[Cron] SEO GMB metrics pull scheduled (${GMB_SCHEDULE.label}).`);
+    } else {
+        console.log("[Cron] SEO GMB metrics pull NOT scheduled — GOOGLE_GBP_* not set.");
+    }
 
     console.log("[Cron] Scheduler running.");
 }

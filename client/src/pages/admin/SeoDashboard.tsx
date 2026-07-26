@@ -17,6 +17,10 @@ import {
   TrendingUp,
   ArrowUpDown,
   ExternalLink,
+  RefreshCw,
+  Clock,
+  Play,
+  AlertTriangle,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -73,6 +77,22 @@ interface GmbRow {
   capturedAt: string;
 }
 
+interface JobStatus {
+  key: "rank" | "gmb";
+  enabled: boolean;
+  schedule: string;
+  running: boolean;
+  lastRunAt: string | null;
+  lastTrigger: "cron" | "manual" | null;
+  lastResult: string | null;
+  lastError: string | null;
+  lastDataAt: string | null;
+}
+interface AutomationStatus {
+  rank: JobStatus;
+  gmb: JobStatus;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtNum(v: number): string {
@@ -81,6 +101,20 @@ function fmtNum(v: number): string {
 
 function prettyCity(c: string): string {
   return c.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "never";
+  const s = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
 }
 
 function prettyTrade(t: string): string {
@@ -204,6 +238,37 @@ export default function SeoDashboard() {
     },
   });
 
+  const { data: automation } = useQuery<AutomationStatus>({
+    queryKey: ["seo-automation"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/seo/automation");
+      if (!res.ok) throw new Error("Failed to fetch automation status");
+      return res.json();
+    },
+    // Poll fast while a job is running so progress/result show without a manual refresh.
+    refetchInterval: (q) => {
+      const d = q.state.data as AutomationStatus | undefined;
+      return d && (d.rank.running || d.gmb.running) ? 4000 : 30000;
+    },
+  });
+
+  const runJob = useMutation({
+    mutationFn: async (job: "track" | "gmb") => {
+      const res = await fetch(`/api/admin/seo/${job}/run`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to start run");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      // Refetch status right away, then the poller keeps it fresh while running.
+      queryClient.invalidateQueries({ queryKey: ["seo-automation"] });
+      queryClient.invalidateQueries({ queryKey: ["seo-keywords"] });
+      queryClient.invalidateQueries({ queryKey: ["seo-gmb"] });
+    },
+  });
+
   const sortedKeywords = useMemo(() => {
     if (!keywords) return [];
     const arr = [...keywords];
@@ -319,6 +384,42 @@ export default function SeoDashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Automation — rank tracking + GMB scheduler status and manual triggers */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-slate-400" /> Automation
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {!automation ? (
+            <div className="h-20 bg-slate-100 rounded-xl animate-pulse" />
+          ) : (
+            <>
+              <JobRow
+                title="Rank tracking"
+                subtitle="Google organic + Local Pack + AI engines"
+                job={automation.rank}
+                busy={runJob.isPending}
+                onRun={() => runJob.mutate("track")}
+                disabledHint="Set APIFY_TOKEN to enable"
+              />
+              <JobRow
+                title="Google Business Profile"
+                subtitle="Views, calls, directions & reviews"
+                job={automation.gmb}
+                busy={runJob.isPending}
+                onRun={() => runJob.mutate("gmb")}
+                disabledHint="Set GOOGLE_GBP_* creds to enable"
+              />
+              {runJob.isError && (
+                <p className="text-xs text-red-600">{(runJob.error as Error).message}</p>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Keyword universe table */}
       <Card>
@@ -440,6 +541,62 @@ export default function SeoDashboard() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function JobRow({
+  title,
+  subtitle,
+  job,
+  busy,
+  onRun,
+  disabledHint,
+}: {
+  title: string;
+  subtitle: string;
+  job: JobStatus;
+  busy: boolean;
+  onRun: () => void;
+  disabledHint: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-slate-900">{title}</span>
+          {job.enabled ? (
+            <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200">Active</Badge>
+          ) : (
+            <Badge variant="outline" className="bg-slate-100 text-slate-500 border-slate-200">Disabled</Badge>
+          )}
+          {job.running && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-600">
+              <RefreshCw className="h-3 w-3 animate-spin" /> running…
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-slate-500">{subtitle}</div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-slate-500">
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" /> {job.enabled ? job.schedule : disabledHint}
+          </span>
+          <span>Last data: <span className="text-slate-700">{timeAgo(job.lastDataAt)}</span></span>
+          {job.lastResult && <span className="text-slate-600">{job.lastResult}</span>}
+          {job.lastError && (
+            <span className="inline-flex items-center gap-1 text-red-600">
+              <AlertTriangle className="h-3 w-3" /> {job.lastError}
+            </span>
+          )}
+        </div>
+      </div>
+      <button
+        onClick={onRun}
+        disabled={!job.enabled || job.running || busy}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Play className="h-3.5 w-3.5" /> Run now
+      </button>
     </div>
   );
 }
