@@ -82,13 +82,17 @@ const CHECK_ICON =
 
 /** Hero trust strip (on navy): stars + rating, insured, fixed quotes. City-specific review count. */
 function heroTrust(_reviewCount?: number): string {
-    // Rating + count now live in the amber reviews strip; keep the trust facts here.
+    // Rating + count live in the cred row; these are the trust facts, each with its own icon.
+    const svg = (paths: string) => `<svg class="ti" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+    const items: { icon: string; label: string }[] = [
+        { icon: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>'), label: SEO_BRAND.insured },
+        { icon: svg('<circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4"/><path d="M15 11l2 2 4-4"/>'), label: 'Vetted local team' },
+        { icon: svg('<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.4"/>'), label: 'Fixed quotes' },
+        { icon: svg('<circle cx="12" cy="8" r="6"/><path d="M15.5 12.9 17 22l-5-3-5 3 1.5-9.1"/>'), label: 'Work guaranteed' },
+    ];
     return [
         '                    <ul class="trust-hero">',
-        `                        <li>${escapeHtml(SEO_BRAND.insured)}</li>`,
-        '                        <li>Vetted local team</li>',
-        '                        <li>Fixed quotes</li>',
-        '                        <li>Work guaranteed</li>',
+        ...items.map((i) => `                        <li>${i.icon} ${escapeHtml(i.label)}</li>`),
         '                    </ul>',
     ].join('\n');
 }

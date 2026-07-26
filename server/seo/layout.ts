@@ -130,11 +130,10 @@ header.site .container{gap:12px}
   header.site a.brand .wordmark{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   header.site .brand-logo{width:30px;height:30px}
   header.site a.book{padding:9px 15px;font-size:13.5px}
-  /* Hero trust items as a tidy 2-col grid with amber ticks (no ragged wrap / stray dot separators). */
-  .hero .trust-hero{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;font-size:13px;margin-top:20px}
+  /* Hero trust items as a tidy 2-col grid; each has its own icon. */
+  .hero .trust-hero{display:grid;grid-template-columns:1fr 1fr;gap:11px 16px;font-size:13px;margin-top:20px}
   .hero .trust-hero li{white-space:nowrap}
-  .hero .trust-hero li+li::before{display:none}
-  .hero .trust-hero li::before{content:"\\2713";color:var(--amber);font-weight:900;margin-right:7px}
+  .hero .trust-hero .ti{width:16px;height:16px}
 }
 @media(max-width:380px){
   header.site a.book{font-size:0}
@@ -154,9 +153,9 @@ header.site .container{gap:12px}
 .hero h1{font-size:clamp(30px,5vw,50px);line-height:1.06;letter-spacing:-.02em;margin:0 0 16px;color:#fff;font-weight:800}
 .hero .lede{font-size:clamp(17px,2.1vw,21px);color:rgba(255,255,255,.82);margin:0 0 26px;max-width:44ch}
 .eyebrow{display:inline-block;color:var(--amber);font-weight:800;text-transform:uppercase;letter-spacing:.14em;font-size:13px;margin:0 0 14px}
-.trust-hero{list-style:none;display:flex;flex-wrap:wrap;gap:10px 18px;margin:26px 0 0;padding:0;font-size:15px;color:rgba(255,255,255,.9)}
-.trust-hero li{display:inline-flex;align-items:center;gap:7px;font-weight:600}
-.trust-hero li+li::before{content:"";width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.35);margin-right:11px}
+.trust-hero{list-style:none;display:flex;flex-wrap:wrap;gap:10px 20px;margin:26px 0 0;padding:0;font-size:15px;color:rgba(255,255,255,.9)}
+.trust-hero li{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.trust-hero .ti{width:18px;height:18px;flex:none;stroke:var(--amber);fill:none;stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round}
 .trust-hero .stars{color:var(--star);letter-spacing:1px}
 .trust-hero b{color:#fff;font-weight:800}
 .hero-img{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:100%;height:100%;object-fit:cover;aspect-ratio:4/3;background:linear-gradient(135deg,var(--navy-2),var(--navy-3))}
