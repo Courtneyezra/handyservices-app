@@ -39,6 +39,13 @@ function absUrl(path: string): string {
     return `${ORIGIN}/${path.replace(/^\/+/, '')}`;
 }
 
+/** First sentence only — a short, punchy hero subhead. The full paragraph lives
+ *  in the body (same SEO text, just not crammed into the hero). */
+function firstSentence(text: string): string {
+    const m = text.match(/^[\s\S]*?[.!?](?=\s|$)/);
+    return m ? m[0].trim() : text;
+}
+
 /** Substitute {service}/{place}/{city} tokens in a template string. */
 function subst(template: string, v: { service: string; place: string; city: string }): string {
     return template
@@ -176,7 +183,7 @@ function heroSection(opts: {
         compactCred(reviewCount),
         `                    <p class="eyebrow">${escapeHtml(eyebrow)}</p>`,
         `                    <h1>${escapeHtml(h1)}</h1>`,
-        `                    <p class="lede">${escapeHtml(intro)}</p>`,
+        `                    <p class="lede">${escapeHtml(firstSentence(intro))}</p>`,
         '                    <div class="hero-cta">',
         '                        <a class="btn btn-amber btn-arrow" href="/">Get a free quote</a>',
         `                        <a class="btn btn-wa" href="${wa}" target="_blank" rel="noopener">WhatsApp us</a>`,
@@ -769,6 +776,7 @@ export function renderServiceCity(
     });
 
     const introSection = proseSection([
+        `                <p>${escapeHtml(intro)}</p>`,
         `                <p>Whether it is a quick fix or a full project, ${escapeHtml(SEO_BRAND.name)} matches you with vetted, insured ${escapeHtml(service.label.toLowerCase())} specialists working right across ${escapeHtml(city.name)}. You get a fixed price agreed up front, a tradesperson who turns up when they say they will, and a finish that is guaranteed.</p>`,
         `                <p><a href="/${escapeHtml(citySlug)}">All ${escapeHtml(city.name)} services</a> &middot; ${escapeHtml(SEO_BRAND.insured)} &middot; work guaranteed.</p>`,
     ]);
@@ -888,6 +896,7 @@ export function renderJobSuburb(
     });
 
     const localised = proseSection([
+        `                <p>${escapeHtml(intro)}</p>`,
         `                <p>Looking for a reliable ${escapeHtml(service.label.toLowerCase())} in ${escapeHtml(suburb.name)}? ${escapeHtml(SEO_BRAND.name)} covers ${escapeHtml(suburb.name)}${suburb.postcodeArea ? ` (${escapeHtml(suburb.postcodeArea)})` : ''} and the surrounding ${escapeHtml(city.name)} area. Our tradespeople know the local streets and housing, turn up on time, and give you a fixed price before starting so there are no surprises.</p>`,
         `                <p>Whether it is a small repair or a bigger project in ${escapeHtml(suburb.name)}, you get the same promise every time: a clear quote, ${escapeHtml(SEO_BRAND.insured)} cover, and a job that is not finished until you are happy with it.</p>`,
         `                <p><a href="/${escapeHtml(citySlug)}/${escapeHtml(serviceSlug)}">All ${escapeHtml(service.label.toLowerCase())} in ${escapeHtml(city.name)}</a> &middot; <a href="/${escapeHtml(citySlug)}">${escapeHtml(city.name)} home services</a></p>`,
