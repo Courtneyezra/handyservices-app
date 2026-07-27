@@ -314,7 +314,8 @@ footer.site a{color:var(--slate);font-weight:600}
   .hero-cta{gap:10px}
   .hero-cta .btn{flex:1 1 100%;text-align:center;justify-content:center}
   .proof .in{grid-template-columns:1fr;gap:18px}
-  .proof .score{border-right:0;border-bottom:1px solid rgba(255,255,255,.16);padding-right:0;padding-bottom:16px;display:flex;align-items:center;justify-content:center;gap:16px}
+  .proof .score{border-right:0;border-bottom:1px solid rgba(255,255,255,.16);padding-right:0;padding-bottom:16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 14px}
+  .proof .score .rc{flex-basis:100%;white-space:nowrap;margin-top:2px}
   .steps{grid-template-columns:repeat(2,1fr);gap:14px}
   .steps li:not(:last-child)::before{display:none}
   .pricing{grid-template-columns:1fr}
