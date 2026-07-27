@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, X, ScanLine, ShieldCheck, Star, BadgeCheck } from "lucide-react";
+import { AxaLogo } from "@/components/AxaInsuredBadge";
 import { QRCodeSVG } from "qrcode.react";
 
 /**
@@ -243,6 +244,7 @@ export function ChatHandymanPopup({
                             <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                                 <ShieldCheck className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} style={{ color: HS_GREEN_DARK }} />
                                 £2M insured
+                                <AxaLogo className="w-3.5 h-3.5 shrink-0 rounded-[1.5px]" title="Underwritten by AXA" />
                             </span>
                             <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                                 <Star className="w-3.5 h-3.5 shrink-0 fill-amber-400 text-amber-400" strokeWidth={2.4} />

@@ -2,6 +2,7 @@ import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift, Star, Users } f
 import { SiGoogle, SiWhatsapp } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { DesktopLeadForm } from "@/components/DesktopLeadForm";
+import { AxaLogo } from "@/components/AxaInsuredBadge";
 import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
 import defaultHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 
@@ -207,6 +208,7 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 <div className="flex items-center gap-2">
                   <Shield className="w-5 h-5 text-amber-400" />
                   <span>Fully insured</span>
+                  <AxaLogo className="w-4 h-4 rounded-[2px]" title="Underwritten by AXA" />
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-amber-400" />

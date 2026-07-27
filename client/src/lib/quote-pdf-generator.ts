@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { AXA_DATA_URL } from './quote-pdf-axa-asset';
 import { format } from 'date-fns';
 
 /** The quote's real validity window in whole hours, from its timestamps
@@ -295,6 +296,21 @@ export function buildQuotePdf(data: QuotePDFData, brand?: QuotePdfBrand): jsPDF 
       doc.line(M + cellW * i, y + 2, M + cellW * i, y + badgeH - 2);
     }
   });
+
+  // Underwriter attribution — small AXA mark + factual caption, centered under
+  // the badge strip. Names the insurer behind the "£2M Public Liability" claim.
+  const axaCaption = 'Public liability underwritten by AXA';
+  doc.setFont(FONT, 'normal');
+  doc.setFontSize(7);
+  const capW = doc.getTextWidth(axaCaption);
+  const axaSz = 3.6;
+  const gap = 1.6;
+  const groupW = axaSz + gap + capW;
+  const gx = M + (contentW - groupW) / 2;
+  const cy = y + badgeH + 4;
+  doc.addImage(AXA_DATA_URL, 'PNG', gx, cy - axaSz + 0.6, axaSz, axaSz);
+  doc.setTextColor(120, 120, 120);
+  doc.text(axaCaption, gx + axaSz + gap, cy);
 
   // ── 5. Scope of works — itemised table (contextual) or free text (fallback) ──
   y += badgeH + 12;

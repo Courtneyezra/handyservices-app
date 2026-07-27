@@ -216,7 +216,7 @@ function GuaranteesSection() {
         { icon: <Clock className="w-6 h-6" />, title: "We turn up", subtitle: "Punctuality guaranteed" },
         { icon: <Star className="w-6 h-6" />, title: "Top-rated", subtitle: "Trusted by locals" },
         { icon: <CheckCircle className="w-6 h-6" />, title: "No hidden charges", subtitle: "Transparent pricing" },
-        { icon: <Shield className="w-6 h-6" />, title: "Fully insured", subtitle: "Peace of mind" },
+        { icon: <Shield className="w-6 h-6" />, title: "Fully insured", subtitle: "£2M, underwritten by AXA" },
     ];
     return (
         <section className="bg-slate-100 px-4 lg:px-8 py-16 lg:py-24">
