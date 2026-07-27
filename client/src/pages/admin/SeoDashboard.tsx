@@ -93,6 +93,35 @@ interface AutomationStatus {
   gmb: JobStatus;
 }
 
+interface TrendKeyword {
+  id: number;
+  keyword: string;
+  city: string;
+  trade: string;
+  deliverability: string;
+  avgMonthlySearches: number;
+  organic: (number | null)[];
+  pack: (number | null)[];
+}
+interface SeoTrends {
+  runs: string[];
+  keywords: TrendKeyword[];
+  summary: {
+    latestRunAt: string | null;
+    prevRunAt: string | null;
+    tracked: number;
+    rankingOrganic: number;
+    top10: number;
+    top3: number;
+    newlyRanking: number;
+    improved: number;
+    declined: number;
+    avgPositionLatest: number | null;
+    publishedPages: number;
+    rankingPages: number;
+  };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtNum(v: number): string {
@@ -245,6 +274,15 @@ export default function SeoDashboard() {
     },
   });
 
+  const { data: trends } = useQuery<SeoTrends>({
+    queryKey: ["seo-trends"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/seo/trends", { headers: authHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch SEO trends");
+      return res.json();
+    },
+  });
+
   const { data: automation } = useQuery<AutomationStatus>({
     queryKey: ["seo-automation"],
     queryFn: async () => {
@@ -388,6 +426,28 @@ export default function SeoDashboard() {
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Progress — rank-trend chart + this-week movement (populates as the weekly cron runs) */}
+      {trends && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-slate-400" /> Ranking progress
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
+              <MiniStat label="Ranking" value={trends.summary.rankingOrganic} sub={`of ${trends.summary.tracked} tracked`} />
+              <MiniStat label="Top 10" value={trends.summary.top10} accent="text-emerald-600" />
+              <MiniStat label="Top 3" value={trends.summary.top3} accent="text-emerald-600" />
+              <MiniStat label="New this run" value={trends.summary.newlyRanking} accent="text-blue-600" />
+              <MiniStat label="Avg position" value={trends.summary.avgPositionLatest ?? "—"} />
+              <MiniStat label="Pages ranking" value={trends.summary.rankingPages} sub={`of ${trends.summary.publishedPages} live`} />
+            </div>
+            <RankTrendChart trends={trends} />
           </CardContent>
         </Card>
       )}
@@ -604,6 +664,87 @@ function JobRow({
       >
         <Play className="h-3.5 w-3.5" /> Run now
       </button>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, sub, accent }: { label: string; value: number | string; sub?: string; accent?: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-2.5">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`text-xl font-bold ${accent || "text-slate-900"}`}>{value}</div>
+      {sub && <div className="text-[11px] text-slate-400">{sub}</div>}
+    </div>
+  );
+}
+
+// Inline-SVG rank-trend chart (no external deps). Position on the Y axis with #1
+// at the top; one line per keyword that ranks. Fills in as the weekly cron runs.
+function RankTrendChart({ trends }: { trends: SeoTrends }) {
+  const { runs, keywords } = trends;
+  const ranking = keywords.filter((k) => k.organic.some((p) => p != null));
+  if (ranking.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-400">
+        No keywords ranking on Google yet. This chart fills in as pages get indexed and the weekly tracker runs.
+      </div>
+    );
+  }
+
+  const W = 820, H = 300, padL = 34, padR = 14, padT = 14, padB = 46;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const observedMax = Math.max(...ranking.flatMap((k) => k.organic.filter((p): p is number => p != null)));
+  const maxPos = Math.max(10, Math.min(30, observedMax));
+  const xFor = (i: number) => (runs.length <= 1 ? padL + plotW / 2 : padL + (i / (runs.length - 1)) * plotW);
+  const yFor = (pos: number) => padT + ((Math.min(pos, maxPos) - 1) / (maxPos - 1)) * plotH;
+  const colors = ["#F5A623", "#1B2A4A", "#16a34a", "#2563eb", "#db2777", "#0891b2", "#7c3aed", "#ca8a04"];
+  const short = (d: string) => d.slice(5); // MM-DD
+
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, display: "block" }} role="img" aria-label="Rank trend chart">
+        {/* top-10 threshold band */}
+        <line x1={padL} y1={yFor(10)} x2={W - padR} y2={yFor(10)} stroke="#e2e8f0" strokeDasharray="4 4" />
+        <text x={padL} y={yFor(10) - 4} fontSize="10" fill="#94a3b8">top 10</text>
+        {/* Y labels */}
+        {[1, maxPos].map((p) => (
+          <text key={p} x={padL - 6} y={yFor(p) + 3} fontSize="10" fill="#94a3b8" textAnchor="end">#{p}</text>
+        ))}
+        {/* X labels */}
+        {runs.map((d, i) => (
+          <text key={d} x={xFor(i)} y={H - padB + 16} fontSize="10" fill="#94a3b8" textAnchor="middle">{short(d)}</text>
+        ))}
+        {/* lines + points */}
+        {ranking.map((k, idx) => {
+          const col = colors[idx % colors.length];
+          const pts = k.organic
+            .map((p, i) => (p != null ? { x: xFor(i), y: yFor(p) } : null))
+            .filter((p): p is { x: number; y: number } => p != null);
+          return (
+            <g key={k.id}>
+              {pts.length >= 2 && (
+                <polyline points={pts.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke={col} strokeWidth="2" />
+              )}
+              {pts.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill={col} />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+      {/* legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+        {ranking.slice(0, 10).map((k, idx) => (
+          <span key={k.id} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+            <span className="inline-block w-3 h-1.5 rounded-full" style={{ background: colors[idx % colors.length] }} />
+            {k.keyword}
+          </span>
+        ))}
+        {ranking.length > 10 && <span className="text-xs text-slate-400">+{ranking.length - 10} more</span>}
+      </div>
+      {runs.length <= 1 && (
+        <p className="text-xs text-slate-400 mt-2">One tracking run so far — the trend lines build each weekly run (or hit “Run now” above).</p>
+      )}
     </div>
   );
 }

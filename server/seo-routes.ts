@@ -239,4 +239,85 @@ router.post("/api/admin/seo/gmb/run", requireAdmin, (_req, res) => {
   res.status(202).json({ started: true });
 });
 
+// ── GET /api/admin/seo/trends ─────────────────────────────────────────────
+// Rank history for the progress chart + "this week" movement summary. Groups
+// rank_snapshots into daily runs and returns, per keyword, the organic/pack
+// position across runs, plus a latest-vs-previous movement summary.
+router.get("/api/admin/seo/trends", requireAdmin, async (_req, res) => {
+  try {
+    const kws = await db
+      .select({
+        id: keywordTargets.id,
+        keyword: keywordTargets.keyword,
+        city: keywordTargets.city,
+        trade: keywordTargets.trade,
+        deliverability: keywordTargets.deliverability,
+        avgMonthlySearches: keywordTargets.avgMonthlySearches,
+        pagePublished: keywordTargets.pagePublished,
+      })
+      .from(keywordTargets);
+
+    const snaps = await db
+      .select({
+        kid: rankSnapshots.keywordTargetId,
+        engine: rankSnapshots.engine,
+        position: rankSnapshots.position,
+        capturedAt: rankSnapshots.capturedAt,
+      })
+      .from(rankSnapshots)
+      .orderBy(rankSnapshots.capturedAt);
+
+    const day = (d: Date) => new Date(d).toISOString().slice(0, 10);
+    const runsSet = new Set<string>();
+    const cell: Record<string, number | null> = {}; // `${kid}|${engine}|${day}` -> latest position that day
+    for (const s of snaps) {
+      const d = day(s.capturedAt as Date);
+      runsSet.add(d);
+      cell[`${s.kid}|${s.engine}|${d}`] = s.position ?? null; // ordered asc, so last wins
+    }
+    const runs = [...runsSet].sort();
+    const li = runs.length - 1;
+    const pi = runs.length - 2;
+
+    const keywords = kws.map((k) => ({
+      id: k.id,
+      keyword: k.keyword,
+      city: k.city,
+      trade: k.trade,
+      deliverability: k.deliverability,
+      avgMonthlySearches: k.avgMonthlySearches,
+      organic: runs.map((d) => cell[`${k.id}|google_organic|${d}`] ?? null),
+      pack: runs.map((d) => cell[`${k.id}|google_pack|${d}`] ?? null),
+    }));
+
+    const at = (arr: (number | null)[], i: number) => (i >= 0 ? arr[i] ?? null : null);
+    let rankingOrganic = 0, top10 = 0, top3 = 0, newlyRanking = 0, improved = 0, declined = 0, sumPos = 0, posCount = 0;
+    for (const k of keywords) {
+      const cur = at(k.organic, li);
+      const prev = at(k.organic, pi);
+      if (cur != null) { rankingOrganic++; if (cur <= 10) top10++; if (cur <= 3) top3++; sumPos += cur; posCount++; }
+      if (cur != null && prev == null) newlyRanking++;
+      if (cur != null && prev != null) { if (cur < prev) improved++; else if (cur > prev) declined++; }
+    }
+    const publishedPages = new Set(kws.filter((k) => k.pagePublished).map((k) => k.trade)).size;
+    const rankingPages = new Set(keywords.filter((k) => at(k.organic, li) != null).map((k) => k.trade)).size;
+
+    res.json({
+      runs,
+      keywords,
+      summary: {
+        latestRunAt: runs[li] ?? null,
+        prevRunAt: runs[pi] ?? null,
+        tracked: kws.length,
+        rankingOrganic, top10, top3, newlyRanking, improved, declined,
+        avgPositionLatest: posCount ? Math.round((sumPos / posCount) * 10) / 10 : null,
+        publishedPages, rankingPages,
+      },
+    });
+  } catch (error) {
+    console.error("[SEO] Error fetching trends:", error);
+    res.status(500).json({ error: "Failed to fetch SEO trends" });
+  }
+});
+
 export default router;
