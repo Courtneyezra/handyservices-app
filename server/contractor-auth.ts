@@ -388,6 +388,39 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 });
 
+// ── Brute-force guard for the code login ──────────────────────────────────
+// Code-only auth is a small keyspace, so throttle per client IP: after
+// MAX_FAILS wrong codes inside WINDOW_MS, lock that IP out for LOCK_MS. A
+// success clears the counter. In-memory is fine for a single-instance server;
+// the map is pruned so it can't grow unbounded.
+const LOGIN_MAX_FAILS = 5;
+const LOGIN_WINDOW_MS = 60_000;      // count fails within a rolling minute
+const LOGIN_LOCK_MS = 10 * 60_000;   // then lock the IP for 10 minutes
+const loginAttempts = new Map<string, { fails: number; windowStart: number; lockUntil: number }>();
+
+function clientIp(req: Request): string {
+    const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+    return fwd || req.ip || 'unknown';
+}
+function loginBlockedFor(ip: string): number {
+    const rec = loginAttempts.get(ip);
+    if (!rec) return 0;
+    const remaining = rec.lockUntil - Date.now();
+    return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+}
+function recordLoginFail(ip: string) {
+    const now = Date.now();
+    let rec = loginAttempts.get(ip);
+    if (!rec || now - rec.windowStart > LOGIN_WINDOW_MS) rec = { fails: 0, windowStart: now, lockUntil: 0 };
+    rec.fails += 1;
+    if (rec.fails >= LOGIN_MAX_FAILS) rec.lockUntil = now + LOGIN_LOCK_MS;
+    loginAttempts.set(ip, rec);
+    if (loginAttempts.size > 5000) {
+        for (const [k, v] of loginAttempts) if (v.lockUntil < now && now - v.windowStart > LOGIN_WINDOW_MS) loginAttempts.delete(k);
+    }
+}
+function clearLoginFails(ip: string) { loginAttempts.delete(ip); }
+
 // GET /api/contractor/roster - the login picker: active contractors who have a
 // keycode set (i.e. can actually log in). Name + avatar only, no sensitive data.
 router.get('/roster', async (_req: Request, res: Response) => {
@@ -423,6 +456,13 @@ router.get('/roster', async (_req: Request, res: Response) => {
 // Name matches first name OR "first last" (case-insensitive); code is the secret.
 router.post('/code-login', async (req: Request, res: Response) => {
     try {
+        const ip = clientIp(req);
+        const lockedFor = loginBlockedFor(ip);
+        if (lockedFor > 0) {
+            res.setHeader('Retry-After', String(lockedFor));
+            return res.status(429).json({ error: `Too many attempts. Try again in ${Math.ceil(lockedFor / 60)} min.` });
+        }
+
         const name = String(req.body?.name ?? '').trim();
         const code = String(req.body?.code ?? '').trim();
         const profileId = String(req.body?.profileId ?? '').trim();
@@ -461,11 +501,13 @@ router.post('/code-login', async (req: Request, res: Response) => {
 
         const match = rows[0];
         if (!match) {
+            recordLoginFail(ip);
             return res.status(401).json({ error: 'Name or code not recognised' });
         }
         if (match.isActive === false) {
             return res.status(403).json({ error: 'Account is deactivated' });
         }
+        clearLoginFails(ip);
 
         // Ensure they have a my-week token (mint once, reuse after).
         let appToken = match.appToken;
