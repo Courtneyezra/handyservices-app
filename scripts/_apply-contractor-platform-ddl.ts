@@ -9,6 +9,8 @@ import { db } from '../server/db';
 const STATEMENTS = [
   `ALTER TABLE "handyman_profiles" ADD COLUMN IF NOT EXISTS "delivery_tier" varchar(20) NOT NULL DEFAULT 'adhoc'`,
   `ALTER TABLE "handyman_profiles" ADD COLUMN IF NOT EXISTS "delivery_priority" integer`,
+  `ALTER TABLE "handyman_profiles" ADD COLUMN IF NOT EXISTS "app_token" varchar(80)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "idx_handyman_profiles_app_token" ON "handyman_profiles" ("app_token")`,
   `ALTER TABLE "personalized_quotes" ADD COLUMN IF NOT EXISTS "lead_contractor_id" varchar REFERENCES "handyman_profiles"("id")`,
   `ALTER TABLE "personalized_quotes" ADD COLUMN IF NOT EXISTS "team_plan" jsonb`,
   `CREATE TABLE IF NOT EXISTS "contractor_commitments" (

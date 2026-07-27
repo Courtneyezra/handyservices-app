@@ -543,6 +543,14 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     // contractor_type column from the skin work (merged 23 Jul).
     deliveryTier: varchar("delivery_tier", { length: 20 }).notNull().default('adhoc'), // 'partner' | 'core' | 'adhoc'
     deliveryPriority: integer("delivery_priority"), // routing order within a tier — lower = picked first (Craig = 1); null = unranked
+    // Contractor app entry — unguessable per-contractor link token (no login).
+    // /my-week/:token → availability harvesting. Issued lazily from the Hub.
+    appToken: varchar("app_token", { length: 80 }).unique(),
+
+    // Simple field-login: contractor enters their name + this short keycode at
+    // /partner/login → resolves to their app_token → my-week. Low-friction by
+    // design (the token URL is already unguessed-link security).
+    accessCode: varchar("access_code", { length: 12 }),
 
     // Availability freshness — updated when contractor toggles availability
     lastAvailabilityRefresh: timestamp("last_availability_refresh"),
@@ -1046,6 +1054,10 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // lane. Holds NO capacity — hard reservation still happens at deposit (bookingSlotLocks).
     leadContractorId: varchar("lead_contractor_id").references(() => handymanProfiles.id), // soft-assigned lead
     teamPlan: jsonb("team_plan"), // { lead, assignments:[{contractorId,role,coveredCategories}], uncoveredCategories } — the "steer, then compose" suggestion Ben confirms
+    // 'manual' = Ben forced the lead in the quote builder → live fit recomputes
+    // (public availability, admin panels) must keep steering this lead first.
+    // 'auto'/null = engine's own pick, free to move as the roster changes.
+    leadContractorSource: varchar("lead_contractor_source").$type<'auto' | 'manual'>(),
 
     // Booking Lock
     bookingLockedAt: timestamp("booking_locked_at"),
@@ -1282,9 +1294,14 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
     // Day-of Operations
     scheduledSlot: scheduledSlotEnum("scheduled_slot"), // AM/PM/FULL_DAY
     // Phase 24 — multi-day jobs. 1 = single-day (legacy default, backward-compatible).
-    // 2+ = consecutive working days starting at scheduledDate. confirmBooking
-    // inserts ONE row per job; the booking engine treats N days as one reservation.
+    // 2+ = working days starting at scheduledDate. confirmBooking inserts ONE
+    // row per job; the booking engine treats N days as one reservation.
     durationDays: integer("duration_days").notNull().default(1),
+    // Phase 24e — the ACTUAL dates the span occupies (YYYY-MM-DD[]). A span is
+    // the contractor's next N available days, so it can skip weekends/days off.
+    // Null on legacy rows → readers fall back to consecutive-day expansion via
+    // shared/schedule-composition.expandSpanDates. Always read spans through it.
+    scheduledDates: jsonb("scheduled_dates").$type<string[] | null>(),
     dayOfStatus: dayOfStatusEnum("day_of_status").default('scheduled'),
     enRouteAt: timestamp("en_route_at"),
     arrivedAt: timestamp("arrived_at"),
@@ -1345,6 +1362,71 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
 export const insertExpenseSchema = createInsertSchema(expenses);
 export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+
+// ==========================================
+// QUOTE-ACCURACY: EXPENSE-CARD RECONCILIATION
+// ==========================================
+//
+// Captures ACTUAL materials spend per job (from the Handy expense card the
+// contractor sources on) so it can be compared to the materials cost QUOTED at
+// build time. This is the accuracy feedback loop that lets Ben's comp eventually
+// reward accuracy, not just close rate: a materials over-spend is Handy's to eat
+// (its card, fixed markup), so systematic under-quoting is a real cost.
+//
+// One row per spend transaction (a job can have several receipts / card lines),
+// linked to the quote. Quoted materials + quoter attribution are read live from
+// personalized_quotes at aggregation time (no snapshot here → no double-count
+// across a job's many rows). ADDITIVE / merge-safe: a brand-new table only.
+export const jobMaterialExpenses = pgTable("job_material_expenses", {
+    id: varchar("id").primaryKey().notNull(),
+    // The quote/job this spend belongs to. Nullable so a card line can be
+    // imported first and matched to a job afterwards.
+    quoteId: varchar("quote_id").references(() => personalizedQuotes.id),
+    // Optional link to the booking (contractorBookingRequests.id) for the job.
+    bookingRequestId: varchar("booking_request_id"),
+    // Who spent it (the sourcing contractor), optional.
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id),
+
+    // The ACTUAL spend on this line/transaction, in pence.
+    amountPence: integer("amount_pence").notNull(),
+    vendor: varchar("vendor", { length: 160 }), // e.g. "Screwfix", "Toolstation"
+    description: text("description"),
+    spendDate: varchar("spend_date", { length: 10 }), // YYYY-MM-DD (card txn date)
+
+    // Provenance so we can trust/aggregate correctly.
+    source: varchar("source", { length: 20 }).notNull().default('manual'), // 'manual' | 'csv' | 'card_api'
+    // Card txn id / receipt ref — the dedupe key for CSV/card imports.
+    externalRef: varchar("external_ref", { length: 160 }),
+    receiptUrl: text("receipt_url"),
+
+    // Who keyed/imported it (admin/VA), denormalised for a quick audit trail.
+    enteredBy: varchar("entered_by"),
+    enteredByName: varchar("entered_by_name", { length: 100 }),
+
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_jme_quote").on(table.quoteId),
+    index("idx_jme_contractor").on(table.contractorId),
+    index("idx_jme_spend_date").on(table.spendDate),
+    // NULLs are distinct in Postgres, so many manual rows (null ref) coexist;
+    // this only blocks re-importing the same card/receipt reference twice.
+    uniqueIndex("uq_jme_external_ref").on(table.externalRef),
+]);
+
+export const jobMaterialExpensesRelations = relations(jobMaterialExpenses, ({ one }) => ({
+    quote: one(personalizedQuotes, {
+        fields: [jobMaterialExpenses.quoteId],
+        references: [personalizedQuotes.id],
+    }),
+    contractor: one(handymanProfiles, {
+        fields: [jobMaterialExpenses.contractorId],
+        references: [handymanProfiles.id],
+    }),
+}));
+
+export const insertJobMaterialExpenseSchema = createInsertSchema(jobMaterialExpenses);
+export type JobMaterialExpense = typeof jobMaterialExpenses.$inferSelect;
+export type InsertJobMaterialExpense = z.infer<typeof insertJobMaterialExpenseSchema>;
 
 // ==========================================
 // WHATSAPP CRM SCHEMA
@@ -2984,9 +3066,11 @@ export const bookingSlotLocks = pgTable('booking_slot_locks', {
     scheduledDate: timestamp('scheduled_date').notNull(),
     scheduledSlot: scheduledSlotEnum('scheduled_slot').notNull(),
     // Phase 24 — multi-day jobs. 1 = single-day (legacy default). 2+ means the
-    // lock spans `durationDays` consecutive working days starting at
-    // scheduledDate. Conflict checks must consider every day in the span.
+    // lock spans `durationDays` working days starting at scheduledDate.
+    // Conflict checks must consider every day in the span.
     durationDays: integer('duration_days').notNull().default(1),
+    // Phase 24e — actual span dates (see contractorBookingRequests.scheduledDates).
+    scheduledDates: jsonb('scheduled_dates').$type<string[] | null>(),
     expiresAt: timestamp('expires_at').notNull(), // 5 min TTL
     createdAt: timestamp('created_at').defaultNow().notNull(),
 });

@@ -1,0 +1,231 @@
+# Contractor app — availability harvesting (solo v1)
+
+> **Status: BUILT (22 Jul 2026), API verified live; teams variant pending.**
+> PRD §5/§6: the contractor app, Craig first, the template every Core
+> contractor copies. This doc covers v1 = the harvest surface. Jobs,
+> accept/decline, en-route and earnings come later.
+
+## The problem it solves
+
+The operating model (locked 22 Jul) sells customers a **buffered calendar of
+confirmed contractor availability** — but availability capture depended on
+Ben manually keying days into `/admin/availability-mobile` ("needs
+per-contractor discipline"). Contractors had no self-serve surface: the old
+portal's CalendarTab required an email+password account nobody has. Discipline
+dies at a password prompt.
+
+## The model
+
+**Two provider types: solo and team.** Solo is built; the teams variant forks
+on `provider.type` in the same payload (a team will harvest crew capacity per
+day — heads available — rather than one person's AM/PM; no schema for that
+yet, deliberately).
+
+**Entry = an unguessable per-contractor link, no login** — the dispatch-link
+trust model, not the portal-login one:
+
+- `handyman_profiles.app_token` (varchar 80, unique, nullable — additive).
+- Issued lazily and idempotently: `POST /api/admin/contractor-hub/:id/app-link`
+  (the **App link** button in the Hub contractor modal copies the full URL),
+  or `npx tsx scripts/_issue-app-token.ts [contractorId]`.
+- The link is durable — texting it twice is fine; it IS the credential.
+
+**Surface = `/my-week/:token`** (`client/src/pages/contractor/MyWeekPage.tsx`),
+mobile-first, dark, based on the old portal CalendarTab:
+
+- **3 week rows** (this week / next week / w/c …), 7 day-cells each. Tap a
+  day → bottom sheet: Morning 9–1 / Afternoon 2–6 / Full day / Not available.
+- **Booked slots are locked** (blue, padlock) — bookings always overlay.
+  Past days are dimmed and dead.
+- **"Your usual week"** — 7 pattern chips (tap cycles Full → AM → PM → Off),
+  explicit save. Single-day taps above override the pattern (engine
+  precedence: override wins → weekly pattern → off).
+- Freshness footer shows `lastAvailabilityRefresh`.
+
+## Writes land where the engine already reads
+
+No new availability model — the app writes the exact rows the customer quote
+day-picker, the Hub grid and Ben's mobile tool already share:
+
+| Action | Table | Semantics |
+|---|---|---|
+| Day tap | `contractor_availability_dates` | one override row per calendar day, slot-typed via `@shared/slot-times`; **off = explicit `isAvailable:false` row** (must beat the weekly pattern) |
+| Usual week | `handyman_availability` | one row per weekday, `off` → `isActive:false` |
+| Every write | `handyman_profiles.lastAvailabilityRefresh` | bumped — feeds the staleness accountability punch-list item |
+
+An opened day is **immediately bookable** by customers (same
+`buildAvailabilityResponse` sources); a day the contractor closes drops out
+of the customer calendar on next recompute.
+
+## Pieces
+
+| Piece | File |
+|---|---|
+| Routes (GET week / POST day / POST pattern) | `server/contractor-app-routes.ts` (mounted `/api/contractor-app`, public — token is the credential) |
+| Pure helpers + validation | `server/lib/contractor-app.ts` (+ `.test.ts`, 7 vitest cases incl. off-beats-pattern round-trip through `resolveWeek`) |
+| Grid resolution | reuses `server/lib/contractor-week.ts` `resolveWeek` |
+| Page | `client/src/pages/contractor/MyWeekPage.tsx`, route `/my-week/:token` in `App.tsx` |
+| Link issuance | `POST /:id/app-link` in `server/contractor-hub-routes.ts` + Hub modal button in `OperatingSystem.tsx` |
+| Ops script | `scripts/_issue-app-token.ts` |
+| DDL | `scripts/_apply-contractor-platform-ddl.ts` (applied 22 Jul) |
+
+Verified live 22 Jul: GET returns Craig's real resolved grid (booked 29 Jul
+locked, 30–31 open), day write round-trips, past-date and bad-token rejected.
+
+## Quote-skin integration (phase 1 BUILT, 22 Jul — commit 7179792)
+
+The app and the skinned quote are two faces of one spine (`leadContractorId`
++ `booking_assignments`); the app now shows the demand side:
+
+- **`GET /:token/pipeline`** — his soft-lead unpaid quotes, privacy-gated
+  like dispatch links: **outward postcode + trimmed description only**, no
+  customer name/address/contact pre-deposit (`outwardPostcode` /
+  `trimDescription` in `lib/contractor-app.ts`). Live = unexpired.
+- **Week tab strip** — "N live quotes showing your days to customers right
+  now" → makes harvesting feel consequential; taps through to the tab.
+- **Quotes tab** — per quote: value, area badge, seen-state (`viewedAt` /
+  `viewCount`), sent + expiry countdown, footer explaining the skin link.
+
+Ownership split (locked in design): Craig owns availability/photo/intro +
+(later) placing flex onto his own open days; admin owns skills, tier,
+priority, pricing — anything that changes routing or customer promises. The
+app never shows pay guarantees (floor is unpapered; piece-rate only).
+
+## Phase 2 — Jobs tab + flex self-place (BUILT 22 Jul, commit e1b4c38)
+
+Craig fills his own empty days — the piece-rate answer to calendar
+commitment:
+
+- **`GET /:token/jobs`** — upcoming booked work (post-deposit: customer
+  names allowed) + his flex queue (paid, `flexBookingWithinDays`, unbooked,
+  his lead). Each placeable flex job carries **top-3 ranked suggestions**.
+- **Placement scorer** (`lib/contractor-flex-score.ts`, pure, 6 tests) —
+  optimises for what a contractor wants, with reasons in words:
+  clustering (+40 same outward code that day), day-completion (+25 fills the
+  other half of a part-booked day), soonest (+15, −3/day), fragment
+  protection (−10 half-day job burning an empty full-open day). Transparent
+  filter+pick, NOT a route solver (right-sized per the scheduling design).
+  Same scorer can later serve the Hub place action + Fill-Up Packs.
+- **`POST /:token/flex/:quoteId/place`** — validates his/paid/flex/unbooked/
+  in-window, then `reserveSlot` → `confirmBooking` (`flex-self-place`). The
+  engine's **travel-aware day-fit is the authority** (geocodes + rejects
+  overfull slots); the suggester budgets `TRAVEL_ALLOWANCE_MIN = 45` so
+  work + travel overflowing a half slot steers to full-day. Engine
+  rejections surface inline on the card and trigger a re-rank.
+- **Multi-day flex** is excluded from self-place ("Handy will schedule this
+  with you") — Ben places via the Hub.
+- Jobs nav slot live with a needs-a-day badge; deadline countdown per card;
+  overdue shows "call us".
+
+Verified live end-to-end 22 Jul: suggest → two-tap confirm → booked →
+grid cell locked; the engine's 409 (210min work + 38min travel > 240 PM cap)
+exercised the fallback path. Synthetic rows fully scrubbed (booking +
+assignments + locks + quote).
+
+**Still manual:** customer comms when a flex date is confirmed (Ben,
+WhatsApp — keep Handy-branded); the ~48h-runway "unplaced flex" alert to Ben
+is not built yet.
+
+## Multi-job days v1 — anchor + filler packing (BUILT 22 Jul, commit b95f007)
+
+Books multiple jobs into one day without a route solver. **Dated customer
+bookings = anchors** (one per slot, protected — their window is a paid
+promise). **Flex jobs = fillers** packed around anchors:
+
+- `reserveSlot`/`confirmBooking` gain `allowSlotSharing` — set ONLY by the
+  flex place paths. Relaxes the binary one-booking-per-slot block; the
+  engine's existing capacity gates (slot fit + `computeDayItinerary` with
+  real geocoded inter-job travel, 8h cap) still police every placement.
+- **Guardrails** (`canCoexist`, pure, 8 tests): packing requires a
+  same-outward-code job already on the day; max **3 stops/day**; day ceiling
+  **85% of cap** (408min incl. 20min/hop) — deliberate slack, reliability-
+  per-promise over utilisation; half-slot window ceiling (240min) so the
+  arrival-window promise stays keepable; full-day jobs never pack.
+- Suggester emits packed candidates (tagged **2ND JOB** in the app);
+  ranking naturally prefers completing the other half of an anchored day
+  over sharing the same window. Grid shows **×N** on packed days.
+- Both AM jobs carry the same honest 9–1 window; run order is fixed
+  morning-of (en-route timing = later phase).
+
+Verified live 22 Jul: anchored a 90-min NG16 job on an open morning; a
+60-min NG16 job then suggested `30 PM (completes day) > 30 AM packed > 31`,
+packed successfully into the same AM window (`bookedCountByDate: 2`); a DE7
+filler was refused ("packing requires a job in the same postcode area").
+Synthetic rows scrubbed.
+
+**v2 (not built):** customer picker offers partially-loaded days for small
+dated jobs (public blast radius — after v1 proves out). **v3:** within-day
+run-order optimization + en-route pings. Watch promise-kept rate weekly
+once packed days exist in the wild.
+
+## Day Builder (BUILT 22 Jul, commit c939e63)
+
+"Build my days" on the Jobs tab (shows at ≥2 placeable flex jobs): the pool
+composed into candidate day-packs by the REAL dispatch optimiser —
+`runDispatchOptimizer` gained additive `scopeContractorId` + `poolQuoteIds`
+opts (network console untouched) — under a goal Craig picks:
+
+| Preset | DispatchGoal |
+|---|---|
+| Best £/day | `day_margin` · balanced |
+| Fewest days | `throughput` · dense |
+| Cash soonest | `customer_speed` · fast |
+
+Cards show date, total £, the optimiser's margin rationale, member jobs
+(committed anchors marked with a padlock — the optimiser co-locates fillers
+around booked work). **Lock this day** commits the whole pack: sequential
+`placeFlexJob` (extracted, shared with single place) so guardrails re-run as
+the day fills; partial failures reported per job. Unassignable jobs surface
+with the reason (e.g. skills gap = recruiting signal).
+
+Pooling economics (the "wait for better packing" question): option value is
+real but decays against deadline runway — policy is last-responsible-moment,
+NOT max-wait. The 48h runway backstop (next) is the floor; a ~85%-packed day
+should prompt locking. Thicker pool ⇒ denser days ⇒ funds deeper flex
+discounts (two-sided pricing loop, supply half).
+
+Verified live 22 Jul: 3-job NG16 pool → Thu pack £248 ("margin +£98 ·
+revenue £248 · day £150"), one-tap lock booked both (AM+PM); electrical job
+correctly unassignable (Craig has no electrical skill tagged). Pool loader
+note: line items need `category` (not `categorySlug`) for pool jobs.
+
+## Incoming-quote simulation (23 Jul — harness + findings)
+
+`scripts/_sim-incoming-quotes.ts seed|scrub` — isolated Newcastle test
+contractor (8mi radius; ids on the `test_q_flex_` fence so real surfaces
+never see them; day-plans auto-detects an all-dummy lead pool → optimiser
+test mode). Pool: 3-day block £2,400 · covered multi-skill £680 ·
+skills-gap job £450 (roofing) · 4 minors · 1 out-of-radius outlier.
+
+**Outcome (the spec, achieved):** block claimed Mon–Wed; multi-skill
+full-day took Thu; minors packed 2-up onto the two days opened via
+harvest-coaching; skills-gap + outlier surfaced as the only exceptions —
+£3,540 of £4,070 booked, sequence: lock block first → everything
+recomposed around it (P0's blocks-first thesis confirmed empirically).
+
+**Five defects found + fixed (commit 9e8bfce):** optimiser proposing
+never-opened days (→ `openSlotKeys` true-grid override); dropped jobs
+vanishing (→ re-surfaced in unassignable); full-day jobs labelled `am`
+(→ placement slot coercion); ghost fallback suppressed by same-day packs
+(→ always renders); same-area rule vetoing optimiser-endorsed cross-area
+packs (→ `canCoexist.requireSameArea=false` for `fromPack` locks).
+
+**Filed, not fixed:** engine matches availability by UTC day while every
+writer stores LOCAL midnight — invisible on UTC prod, ±1-day shift on
+non-UTC machines (chip task_e5d1e107; fix after the span task lands).
+Design decision open: the per-job suggester is skill-blind (lead
+assignment = Ben's steering), so a skills-gap job still counts as "ready"
+in the payslip — decide whether payslip should exclude optimiser-refused
+jobs.
+
+## Next (in order)
+
+1. **Flex-runway alert** — flex job unplaced with <48h to deadline → alert
+   Ben (Pushover/WhatsApp) to place it via the Hub.
+2. **Phase 3 — profile self-serve**: photo + intro → directly edits his quote
+   skin; skill *requests* approved by Ben in the Hub.
+3. **Phase 4 — earnings**: once `booking_assignments.payout_pence` math lands.
+4. **Teams variant** — `provider.type: 'team'`: crew capacity per day (heads
+   free), needs a team/crew model in schema first (none exists — greenfield).
+5. WhatsApp nudge loop — weekly "top up your week" message carrying the link;
+   staleness alert drops stale contractors from the buffered picker.

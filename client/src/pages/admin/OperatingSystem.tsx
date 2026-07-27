@@ -143,6 +143,16 @@ export default function OperatingSystem() {
     try { await sendJSON(`/api/admin/contractor-hub/${modalC.id}/skills/${slug}`, 'DELETE'); setSkills((s) => s.filter((x) => x !== slug)); refreshHub(); }
     catch (e: any) { setMsg(e.message); }
   };
+  // Issue (idempotent) + copy the contractor's availability-app link (/my-week/:token).
+  const copyAppLink = async () => {
+    if (!modalC) return;
+    try {
+      const r = await sendJSON<{ path: string }>(`/api/admin/contractor-hub/${modalC.id}/app-link`, 'POST');
+      const url = `${window.location.origin}${r.path}`;
+      await navigator.clipboard.writeText(url);
+      setMsg(`App link copied — text it to ${modalC.name.split(' ')[0]}: ${url}`);
+    } catch (e: any) { setMsg(e.message); }
+  };
   const onAvatarFile = async (e: any) => {
     const f = e.target.files?.[0];
     if (!f || !modalC) return;
@@ -381,7 +391,8 @@ export default function OperatingSystem() {
                 <div className="text-base font-medium truncate">{modalC.name}</div>
                 <div className="text-xs text-gray-500 capitalize">{modalC.tier}{modalC.priority ? ` · priority ${modalC.priority}` : ''}</div>
               </div>
-              <button onClick={closeModal} className="ml-auto text-gray-400 hover:text-gray-700 text-2xl leading-none" aria-label="Close">×</button>
+              <button onClick={copyAppLink} className="ml-auto text-xs text-blue-600 border border-blue-200 rounded-md px-2.5 py-1.5 hover:bg-blue-50 shrink-0" title="Copy their availability app link (no login — text it over WhatsApp)">App link</button>
+              <button onClick={closeModal} className="text-gray-400 hover:text-gray-700 text-2xl leading-none" aria-label="Close">×</button>
             </div>
 
             <div className="p-5">
