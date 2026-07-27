@@ -16,7 +16,7 @@ import {
     renderJobSuburb,
     renderSitemapXml,
 } from "./seo/render";
-import { ROLLOUT, getPublishedTrades } from "./seo/rollout";
+import { ROLLOUT, getPublishedTradesByCity, isTradePublished } from "./seo/rollout";
 
 const router = Router();
 
@@ -28,10 +28,10 @@ const SEO_CITY_SLUGS = new Set(SEO_CITIES.map((c) => c.slug));
 // while they ship noindex (ROLLOUT.T3_INDEXABLE) — a noindex URL must not
 // appear in the sitemap.
 router.get("/sitemap.xml", async (_req, res) => {
-    const published = await getPublishedTrades();
+    const publishedByCity = await getPublishedTradesByCity();
     res.setHeader("Content-Type", "application/xml");
     res.send(
-        renderSitemapXml([...published], { includeSuburbs: ROLLOUT.T3_INDEXABLE }),
+        renderSitemapXml(publishedByCity, { includeSuburbs: ROLLOUT.T3_INDEXABLE }),
     );
 });
 
@@ -66,9 +66,9 @@ router.get("/:city/:service/:suburb", (req, res, next) => {
 // Indexable only when the trade is published (per-trade stagger control).
 router.get("/:city/:service", async (req, res, next) => {
     if (!SEO_CITY_SLUGS.has(req.params.city)) return next();
-    const published = await getPublishedTrades();
+    const indexable = await isTradePublished(req.params.city, req.params.service);
     const result = renderServiceCity(req.params.city, req.params.service, {
-        indexable: published.has(req.params.service),
+        indexable,
     });
     res.status(result.status).setHeader("Content-Type", "text/html");
     res.send(result.html);

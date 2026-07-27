@@ -81,7 +81,7 @@ export interface SeoRenderApi {
     renderCityHub(citySlug: string): RenderResult;
     renderServiceCity(citySlug: string, serviceSlug: string): RenderResult;
     renderJobSuburb(citySlug: string, serviceSlug: string, suburbSlug: string): RenderResult;
-    renderSitemapXml(publishedServiceSlugs?: string[]): string;
+    renderSitemapXml(publishedByCity?: Map<string, Set<string>>, opts?: { includeSuburbs?: boolean }): string;
 }
 
 // ---- Authoritative constants (single source of truth) -------------------

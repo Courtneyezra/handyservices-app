@@ -13,7 +13,7 @@
 import { db } from '../db';
 import { keywordTargets } from '@shared/schema';
 import { eq } from 'drizzle-orm';
-import { SEO_SERVICES } from './contract';
+import { SEO_SERVICES, SEO_CITIES } from './contract';
 
 export const ROLLOUT = {
     /**
@@ -28,30 +28,46 @@ export const ROLLOUT = {
 const CORE_SLUGS = SEO_SERVICES.filter((s) => s.deliverability === 'core').map((s) => s.slug);
 
 const TTL_MS = 60_000;
-let cache: { at: number; slugs: Set<string> } | null = null;
+let cache: { at: number; byCity: Map<string, Set<string>> } | null = null;
 
 /**
- * Trades whose T2 page is live (indexable + listed in the sitemap). Read from
- * keywordTargets.pagePublished, cached ~60s to avoid a DB hit per pageview.
- * An empty result (dev / unseeded DB) falls back to all core trades so local
- * previews render normally — go-live is gated by seeding + flipping the flag.
+ * Published T2 trades PER CITY — read from keywordTargets (city, trade) where
+ * pagePublished=true, cached ~60s to avoid a DB hit per pageview. Publishing is
+ * per-city: a trade published for Nottingham does NOT publish it for Derby, so
+ * we can grow one city's footprint without dragging the other along.
+ * An empty result (dev / unseeded DB) falls back to all core trades in every
+ * city so local previews render normally — go-live is gated by seeding +
+ * flipping the flag.
  */
-export async function getPublishedTrades(): Promise<Set<string>> {
+export async function getPublishedTradesByCity(): Promise<Map<string, Set<string>>> {
     const now = Date.now();
-    if (cache && now - cache.at < TTL_MS) return cache.slugs;
+    if (cache && now - cache.at < TTL_MS) return cache.byCity;
 
-    let slugs: string[] = [];
+    const byCity = new Map<string, Set<string>>();
     try {
         const rows = await db
-            .selectDistinct({ trade: keywordTargets.trade })
+            .selectDistinct({ city: keywordTargets.city, trade: keywordTargets.trade })
             .from(keywordTargets)
             .where(eq(keywordTargets.pagePublished, true));
-        slugs = rows.map((r) => r.trade).filter(Boolean) as string[];
+        for (const r of rows) {
+            if (!r.city || !r.trade) continue;
+            let set = byCity.get(r.city);
+            if (!set) { set = new Set(); byCity.set(r.city, set); }
+            set.add(r.trade);
+        }
     } catch (err) {
-        console.error('[SEO] getPublishedTrades failed, defaulting to core services:', err);
+        console.error('[SEO] getPublishedTradesByCity failed, defaulting to core services:', err);
     }
-    if (slugs.length === 0) slugs = CORE_SLUGS;
+    if (byCity.size === 0) {
+        for (const city of SEO_CITIES) byCity.set(city.slug, new Set(CORE_SLUGS));
+    }
 
-    cache = { at: now, slugs: new Set(slugs) };
-    return cache.slugs;
+    cache = { at: now, byCity };
+    return cache.byCity;
+}
+
+/** Is a given trade's T2 page published (indexable + in sitemap) for this city? */
+export async function isTradePublished(city: string, trade: string): Promise<boolean> {
+    const byCity = await getPublishedTradesByCity();
+    return byCity.get(city)?.has(trade) ?? false;
 }

@@ -983,15 +983,17 @@ export function renderJobSuburb(
 // ---- sitemap ------------------------------------------------------------
 
 export function renderSitemapXml(
-    publishedServiceSlugs?: string[],
+    publishedByCity?: Map<string, Set<string>>,
     opts?: { includeSuburbs?: boolean },
 ): string {
     const cities = content.listCities();
     const coreServices = content.listServices({ deliverability: 'core' });
     const includeSuburbs = opts?.includeSuburbs === true;
 
-    const allowService = (slug: string): boolean =>
-        !publishedServiceSlugs || publishedServiceSlugs.includes(slug);
+    // Per-city gate: a trade is listed for a city only when published FOR THAT
+    // city. Undefined map = allow all (dev / unseeded fallback).
+    const allowService = (citySlug: string, serviceSlug: string): boolean =>
+        !publishedByCity || (publishedByCity.get(citySlug)?.has(serviceSlug) ?? false);
 
     const urls: string[] = [];
     const push = (loc: string) => {
@@ -1010,7 +1012,7 @@ export function renderSitemapXml(
 
         const suburbs = content.getSuburbs(city.slug);
         for (const service of coreServices) {
-            if (!allowService(service.slug)) continue;
+            if (!allowService(city.slug, service.slug)) continue;
             // T2 service x city
             push(absUrl(`${city.slug}/${service.slug}`));
             // T3 service x city x suburb — only when suburb pages are indexable
