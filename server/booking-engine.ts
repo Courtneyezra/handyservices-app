@@ -1082,6 +1082,27 @@ export async function assignFromPool(params: {
                 })
                 .returning();
 
+            // c2. Snapshot the lead's pay (Model C + Core uplift) onto a booking_assignments
+            // row — mirrors confirmBooking. Without this the app's "you earn" (which reads
+            // booking_assignments.payout_pence) shows £0 for every deposit-auto-booked job.
+            // A pool assignment is solo: one lead covering all lines.
+            const [poolTierRow] = await tx.select({ tier: handymanProfiles.deliveryTier })
+                .from(handymanProfiles).where(eq(handymanProfiles.id, contractorIdStr)).limit(1);
+            const poolPay = computeContractorPay((quote.pricingLineItems as any[]) || [], poolTierRow?.tier);
+            await tx.insert(bookingAssignments).values({
+                id: uuidv4(),
+                bookingId,
+                contractorId: contractorIdStr,
+                role: 'lead',
+                status: 'accepted',
+                payoutPence: poolPay.totalPayPence,
+                scheduledDate,
+                scheduledSlot: slot,
+                offeredVia: 'auto',
+                assignedAt: new Date(),
+                acceptedAt: new Date(),
+            });
+
             // d. Generate the job sheet from the quote line items (mirrors confirmBooking,
             // including the wtbp_rate_card-derived contractorRatePence).
             const lineItems = (quote.pricingLineItems as any[]) || [];
