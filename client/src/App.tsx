@@ -60,7 +60,6 @@ const GenerateContextualQuote = lazy(() => import("@/pages/admin/GenerateContext
 const SendPage = lazy(() => import("@/pages/admin/SendPage"));
 const SkuLibraryPage = lazy(() => import("@/pages/admin/SkuLibraryPage"));
 const QuoteAnalyticsPage = lazy(() => import("@/pages/admin/QuoteAnalyticsPage"));
-const QuoteAccuracyPage = lazy(() => import("@/pages/admin/QuoteAccuracyPage"));
 const QuoteTestLab = lazy(() => import("@/pages/admin/QuoteTestLab"));
 const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
 const ContentLibrary = lazy(() => import("@/pages/admin/ContentLibrary"));
@@ -917,13 +916,6 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <QuoteAnalyticsPage />
-                        </SidebarLayout>
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/admin/quote-accuracy">
-                    <ProtectedRoute role="admin">
-                        <SidebarLayout>
-                            <QuoteAccuracyPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
