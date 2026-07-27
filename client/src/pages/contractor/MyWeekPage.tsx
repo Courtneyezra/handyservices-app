@@ -9,11 +9,11 @@
  * provider.type. See docs/contractor-platform/04-contractor-app.md.
  */
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useRoute } from 'wouter';
+import { useRoute, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut } from 'lucide-react';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
@@ -209,7 +209,16 @@ const isVideo = (url: string) => /\.(mp4|mov|webm|m4v|ogg)(\?|$)/i.test(url);
 export default function MyWeekPage() {
   const [, params] = useRoute('/my-week/:token');
   const token = params?.token ?? '';
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+
+  // Log out → drop to the contractor login screen. Clearing any account session
+  // is best-effort and fire-and-forget: navigation must never hang on it (the
+  // field app itself is token-based, so there may be no session at all).
+  const handleLogout = () => {
+    fetch('/api/contractor/logout', { method: 'POST' }).catch(() => { /* no session is fine */ });
+    setLocation('/partner/login');
+  };
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -223,15 +232,21 @@ export default function MyWeekPage() {
   const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
   const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
 
-  const { data, isLoading, isError } = useQuery<AppPayload>({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<AppPayload>({
     queryKey: ['contractor-app', token],
     queryFn: async () => {
       const res = await fetch(`/api/contractor-app/${token}`);
-      if (!res.ok) throw new Error('load failed');
+      // 404 = token genuinely unknown (dead/wrong link). Anything else
+      // (500 DB blip, network drop, timeout) is transient — never tell the
+      // contractor their link is dead when the backend just hiccuped.
+      if (!res.ok) throw new Error(res.status === 404 ? 'not_found' : 'load_failed');
       return res.json();
     },
     enabled: !!token,
+    retry: (count, err) => (err as Error)?.message !== 'not_found' && count < 4,
+    retryDelay: (count) => Math.min(1000 * 2 ** count, 8000),
   });
+  const badLink = (error as Error | null)?.message === 'not_found';
 
   // Scorecard — his real career stats (pay booked/completed, jobs, tier).
   const { data: score } = useQuery<{
@@ -518,12 +533,33 @@ export default function MyWeekPage() {
 
   // ── Render ──
 
-  if (!token || isError) {
+  // Only a genuine 404 means the link is dead. A transient failure (DB blip,
+  // network drop) gets a retry — never send the contractor chasing a "fresh
+  // link" for a backend hiccup that fixes itself.
+  if (!token || badLink) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
         <div className="text-center">
           <div className="text-lg font-bold text-white mb-1">Link not recognised</div>
           <p className="text-sm text-slate-400">Ask Handy Services to send you a fresh link.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <div className="text-center max-w-xs">
+          <div className="text-lg font-bold text-white mb-1">Can't load right now</div>
+          <p className="text-sm text-slate-400 mb-5">Your link's fine — we just couldn't reach the server. Check your signal and try again.</p>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="px-6 py-3 rounded-xl bg-emerald-500 text-slate-950 font-bold text-sm active:scale-95 transition-transform disabled:opacity-60"
+          >
+            {isFetching ? 'Trying…' : 'Try again'}
+          </button>
         </div>
       </div>
     );
@@ -537,35 +573,46 @@ export default function MyWeekPage() {
     <div className="min-h-screen bg-slate-950 text-white">
       <div className="max-w-md mx-auto px-4 pt-6 pb-32">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-1">
-          {data?.provider.imageUrl ? (
-            <img src={data.provider.imageUrl} alt="" className="w-10 h-10 rounded-full object-cover border border-slate-700" />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center">
-              <CalendarCheck2 size={18} className="text-slate-400" />
-            </div>
-          )}
-          <div>
-            <h1 className="text-xl font-bold leading-tight">
-              {isLoading ? 'Loading…' : tab === 'home' ? `Hi, ${data?.provider.firstName}` : tab === 'profile' ? `${data?.provider.firstName}'s stats` : `${data?.provider.firstName}'s week`}
-            </h1>
-            <div className="flex items-center gap-3 text-[11px]">
-              {openCount > 0 && <span className="text-emerald-400 font-semibold">{openCount} days open</span>}
-              {bookedCount > 0 && <span className="text-blue-400 font-semibold">{bookedCount} booked</span>}
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <div className="flex items-center gap-3 min-w-0">
+            {data?.provider.imageUrl ? (
+              <img src={data.provider.imageUrl} alt="" className="w-10 h-10 rounded-full object-cover border border-slate-700" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center">
+                <CalendarCheck2 size={18} className="text-slate-400" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold leading-tight truncate">
+                {isLoading ? 'Loading…' : tab === 'home' ? `Hi, ${data?.provider.firstName}` : tab === 'profile' ? `${data?.provider.firstName}'s stats` : `${data?.provider.firstName}'s week`}
+              </h1>
+              <div className="flex items-center gap-3 text-[11px]">
+                {openCount > 0 && <span className="text-emerald-400 font-semibold">{openCount} days open</span>}
+                {bookedCount > 0 && <span className="text-blue-400 font-semibold">{bookedCount} booked</span>}
+              </div>
             </div>
           </div>
+          <button
+            onClick={handleLogout}
+            aria-label="Log out"
+            className="shrink-0 w-9 h-9 rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
+          >
+            <LogOut size={16} />
+          </button>
         </div>
-        <p className="text-xs text-slate-500 mb-4 mt-2">
-          {tab === 'home'
-            ? 'Your week at a glance — what you’ve earned and what needs a day.'
-            : tab === 'profile'
-            ? 'Your career with Handy — earnings, jobs and your tier.'
-            : tab === 'quotes'
-            ? 'Live quotes going out with your name and photo on them.'
-            : tab === 'jobs'
-              ? 'Your plan: booked days, jobs grouped onto days, and the money waiting.'
-              : 'Tap a day to open or close it. Customers can only book days you open.'}
-        </p>
+        {(() => {
+          const subtitle =
+            tab === 'home'
+              ? 'Your week at a glance — what you’ve earned and what needs a day.'
+              : tab === 'profile'
+              ? 'Your career with Handy — earnings, jobs and your tier.'
+              : tab === 'quotes'
+              ? 'Live quotes going out with your name and photo on them.'
+              : tab === 'jobs'
+                ? ''
+                : 'Tap a day to open or close it. Customers can only book days you open.';
+          return subtitle ? <p className="text-xs text-slate-500 mb-4 mt-2">{subtitle}</p> : null;
+        })()}
 
         {/* ── HOME dashboard — the cockpit Craig opens to ── */}
         {tab === 'home' && jobs && data && (() => {

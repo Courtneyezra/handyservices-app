@@ -3,9 +3,10 @@ import { geocodeAddress } from './lib/geocoding';
 import { AutoSkuGenerator } from './services/auto-sku-generator';
 import { db } from './db';
 import { users, handymanProfiles, contractorSessions, productizedServices, handymanSkills } from '../shared/schema';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, sql } from 'drizzle-orm';
 
 import { v4 as uuidv4 } from 'uuid';
+import { randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 
@@ -343,6 +344,16 @@ router.post('/login', async (req: Request, res: Response) => {
             .where(eq(handymanProfiles.userId, user.id))
             .limit(1);
 
+        // Ensure the contractor has a my-week field-app token so login lands in
+        // the NEW app, not the legacy dashboard. Idempotent: mint once, reuse after.
+        let appToken = profileResult[0]?.appToken ?? null;
+        if (profileResult[0] && !appToken) {
+            appToken = randomBytes(24).toString('base64url'); // 32 chars, matches app-link mint
+            await db.update(handymanProfiles)
+                .set({ appToken, updatedAt: new Date() })
+                .where(eq(handymanProfiles.id, profileResult[0].id));
+        }
+
         // Create session
         const sessionToken = generateSessionToken();
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
@@ -369,9 +380,105 @@ router.post('/login', async (req: Request, res: Response) => {
                 role: user.role,
             },
             profileId: profileResult[0]?.id || null,
+            appToken,
         });
     } catch (error) {
         console.error('[ContractorAuth] Login error:', error);
+        res.status(500).json({ error: 'Failed to login' });
+    }
+});
+
+// GET /api/contractor/roster - the login picker: active contractors who have a
+// keycode set (i.e. can actually log in). Name + avatar only, no sensitive data.
+router.get('/roster', async (_req: Request, res: Response) => {
+    try {
+        const rows = await db
+            .select({
+                id: handymanProfiles.id,
+                firstName: users.firstName,
+                imageUrl: handymanProfiles.profileImageUrl,
+                heroUrl: handymanProfiles.heroImageUrl,
+            })
+            .from(handymanProfiles)
+            .innerJoin(users, eq(users.id, handymanProfiles.userId))
+            .where(and(
+                sql`${handymanProfiles.accessCode} is not null`,
+                or(eq(users.isActive, true), sql`${users.isActive} is null`),
+            ));
+        res.json({
+            contractors: rows.map((r) => ({
+                id: r.id,
+                firstName: r.firstName ?? 'Partner',
+                imageUrl: r.imageUrl ?? r.heroUrl ?? null,
+            })),
+        });
+    } catch (error) {
+        console.error('[ContractorAuth] Roster error:', error);
+        res.status(500).json({ error: 'Failed to load roster' });
+    }
+});
+
+// POST /api/contractor/code-login - Simple field login: name + keycode.
+// Resolves to the contractor's my-week app_token (minting one if missing).
+// Name matches first name OR "first last" (case-insensitive); code is the secret.
+router.post('/code-login', async (req: Request, res: Response) => {
+    try {
+        const name = String(req.body?.name ?? '').trim();
+        const code = String(req.body?.code ?? '').trim();
+        const profileId = String(req.body?.profileId ?? '').trim();
+        if (!code) {
+            return res.status(400).json({ error: 'Enter your code' });
+        }
+
+        // The code alone identifies the contractor (codes are unique per person).
+        // An optional profileId/name narrows it further if the caller supplies one.
+        const identity = profileId
+            ? eq(handymanProfiles.id, profileId)
+            : name
+                ? or(
+                    sql`lower(${users.firstName}) = ${name.toLowerCase()}`,
+                    sql`lower(${users.firstName} || ' ' || ${users.lastName}) = ${name.toLowerCase()}`,
+                )
+                : undefined;
+        const whereClause = identity
+            ? and(eq(handymanProfiles.accessCode, code), identity)
+            : eq(handymanProfiles.accessCode, code);
+
+        const rows = await db
+            .select({
+                profileId: handymanProfiles.id,
+                appToken: handymanProfiles.appToken,
+                firstName: users.firstName,
+                lastName: users.lastName,
+                isActive: users.isActive,
+                imageUrl: handymanProfiles.profileImageUrl,
+                heroUrl: handymanProfiles.heroImageUrl,
+            })
+            .from(handymanProfiles)
+            .innerJoin(users, eq(users.id, handymanProfiles.userId))
+            .where(whereClause)
+            .limit(1);
+
+        const match = rows[0];
+        if (!match) {
+            return res.status(401).json({ error: 'Name or code not recognised' });
+        }
+        if (match.isActive === false) {
+            return res.status(403).json({ error: 'Account is deactivated' });
+        }
+
+        // Ensure they have a my-week token (mint once, reuse after).
+        let appToken = match.appToken;
+        if (!appToken) {
+            appToken = randomBytes(24).toString('base64url');
+            await db.update(handymanProfiles)
+                .set({ appToken, updatedAt: new Date() })
+                .where(eq(handymanProfiles.id, match.profileId));
+        }
+
+        res.json({ success: true, firstName: match.firstName, imageUrl: match.imageUrl ?? match.heroUrl ?? null, appToken });
+    } catch (error) {
+        console.error('[ContractorAuth] Code-login error:', error);
         res.status(500).json({ error: 'Failed to login' });
     }
 });

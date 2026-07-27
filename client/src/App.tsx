@@ -60,6 +60,7 @@ const GenerateContextualQuote = lazy(() => import("@/pages/admin/GenerateContext
 const SendPage = lazy(() => import("@/pages/admin/SendPage"));
 const SkuLibraryPage = lazy(() => import("@/pages/admin/SkuLibraryPage"));
 const QuoteAnalyticsPage = lazy(() => import("@/pages/admin/QuoteAnalyticsPage"));
+const QuoteAccuracyPage = lazy(() => import("@/pages/admin/QuoteAccuracyPage"));
 const QuoteTestLab = lazy(() => import("@/pages/admin/QuoteTestLab"));
 const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
 const ContentLibrary = lazy(() => import("@/pages/admin/ContentLibrary"));
@@ -147,6 +148,7 @@ const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
+const PartnerShowcase = lazy(() => import("@/pages/PartnerShowcase"));
 const JoinPage = lazy(() => import("@/pages/JoinPage"));
 const CancellationPolicy = lazy(() => import("@/pages/CancellationPolicy"));
 
@@ -310,7 +312,12 @@ function Router() {
                 <Route path="/cleaning" component={CleaningLanding} />
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
                 <Route path="/careers" component={CareersPage} />
-                <Route path="/partner" component={PartnerPage} />
+                {/* /partner = the partner showcase (offering + sign-in). Its login
+                    button → /partner/login → each contractor's my-week app. Legacy
+                    marketing page preserved at /partner-info; recruitment at /join. */}
+                <Route path="/partner" component={PartnerShowcase} />
+                <Route path="/partner/login" component={ContractorLogin} />
+                <Route path="/partner-info" component={PartnerPage} />
                 <Route path="/join" component={JoinPage} />
                 <Route path="/cancellation-policy" component={CancellationPolicy} />
                 <Route path="/l/:slug" component={LandingPageRender} />
@@ -897,6 +904,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <QuoteAnalyticsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quote-accuracy">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <QuoteAccuracyPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
