@@ -638,10 +638,13 @@ export default function MyWeekPage() {
           const toneText = doNow.tone === 'red' ? 'text-red-300' : doNow.tone === 'amber' ? 'text-amber-300' : 'text-emerald-300';
           return (
             <div className="space-y-3">
-              {/* Pay hero — day-rate brag + share */}
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-slate-900/40 border border-emerald-500/25">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70">Your rate</div>
+              {/* Pay hero — the day-rate brag, the app's centrepiece */}
+              <div className="relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br from-emerald-500/25 via-emerald-500/5 to-slate-900/50 border border-emerald-400/30 shadow-lg shadow-emerald-500/10">
+                <div className="absolute -top-14 -right-12 w-44 h-44 rounded-full bg-emerald-400/15 blur-3xl pointer-events-none" />
+                <div className="relative flex items-center justify-between mb-2.5">
+                  <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-emerald-300">
+                    <Flame size={13} className="text-amber-400 fill-amber-400/40" /> Your rate
+                  </div>
                   {bookedCount > 0 && (
                     <button
                       onClick={async () => {
@@ -652,7 +655,7 @@ export default function MyWeekPage() {
                       }}
                       disabled={sharing}
                       aria-label="Share your day rate"
-                      className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded-lg px-2.5 py-1 active:scale-95 transition-transform disabled:opacity-50"
+                      className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-950 bg-emerald-400 rounded-lg px-3 py-1.5 active:scale-95 transition-transform disabled:opacity-50"
                     >
                       <Share2 size={12} /> {sharing ? '…' : 'Share'}
                     </button>
@@ -660,19 +663,19 @@ export default function MyWeekPage() {
                 </div>
                 {bookedCount > 0 ? (
                   <>
-                    <div className="flex items-baseline gap-1.5 flex-wrap">
-                      <span className="text-4xl font-black">£{Math.round(perDayPence / 100).toLocaleString()}</span>
-                      <span className="text-base text-slate-300 font-semibold">a day</span>
+                    <div className="relative flex items-baseline gap-2">
+                      <span className="text-[3.25rem] leading-none font-black tracking-tight text-white">£{Math.round(perDayPence / 100).toLocaleString()}</span>
+                      <span className="text-lg text-emerald-200/90 font-bold">a day</span>
                     </div>
-                    <div className="text-xs text-slate-400 font-semibold mt-1.5 leading-relaxed">
-                      avg over your next {bookedCount} booked {bookedCount === 1 ? 'day' : 'days'} · <span className="text-emerald-400">~£{(monthlyPence / 100 / 1000).toFixed(1)}k/month at this pace</span>
+                    <div className="relative text-xs text-slate-300/80 font-semibold mt-3 leading-relaxed">
+                      avg over your next {bookedCount} booked {bookedCount === 1 ? 'day' : 'days'} · <span className="text-emerald-300 font-bold">~£{(monthlyPence / 100 / 1000).toFixed(1)}k/month at this pace</span>
                     </div>
                   </>
                 ) : (
-                  <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className="text-3xl font-black">£0</span>
+                  <div className="relative flex items-baseline gap-2 flex-wrap">
+                    <span className="text-4xl font-black text-white">£0</span>
                     <span className="text-xs text-slate-400 font-semibold">booked</span>
-                    {readyPence > 0 && <span className="text-lg font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
+                    {readyPence > 0 && <span className="text-lg font-bold text-emerald-300">+£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
                   </div>
                 )}
               </div>
