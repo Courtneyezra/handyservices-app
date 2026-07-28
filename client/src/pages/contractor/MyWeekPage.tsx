@@ -609,7 +609,7 @@ export default function MyWeekPage() {
         {(() => {
           const subtitle =
             tab === 'home'
-              ? 'Your week at a glance — what you’ve earned and what needs a day.'
+              ? ''
               : tab === 'profile'
               ? 'Your career with Handy — earnings, jobs and your tier.'
               : tab === 'quotes'
