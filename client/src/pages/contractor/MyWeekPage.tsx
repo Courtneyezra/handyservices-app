@@ -13,7 +13,8 @@ import { useRoute, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut, Share2 } from 'lucide-react';
+import { sharePartnerBragCard } from '@/lib/partner-brag-card';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
@@ -219,6 +220,7 @@ export default function MyWeekPage() {
     fetch('/api/contractor/logout', { method: 'POST' }).catch(() => { /* no session is fine */ });
     setLocation('/partner/login');
   };
+  const [sharing, setSharing] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -570,6 +572,7 @@ export default function MyWeekPage() {
   // Contractors think in day rates: what a booked day averages. A day packed with
   // two half-jobs counts once, so packing well raises the figure.
   const perDayPence = bookedCount > 0 ? Math.round(bookedPence / bookedCount) : 0;
+  const monthlyPence = perDayPence * 20; // ~20 working days — "at this pace" projection
   const selectedDay = data?.days.find((d) => d.date === selectedDate);
 
   return (
@@ -635,18 +638,34 @@ export default function MyWeekPage() {
           const toneText = doNow.tone === 'red' ? 'text-red-300' : doNow.tone === 'amber' ? 'text-amber-300' : 'text-emerald-300';
           return (
             <div className="space-y-3">
-              {/* Pay hero */}
+              {/* Pay hero — day-rate brag + share */}
               <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-slate-900/40 border border-emerald-500/25">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70 mb-1">Your pay · per day</div>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70">Your rate</div>
+                  {bookedCount > 0 && (
+                    <button
+                      onClick={async () => {
+                        setSharing(true);
+                        try { await sharePartnerBragCard({ name: data?.provider.firstName ?? 'Partner', perDayPence, days: bookedCount, monthlyPence }); }
+                        catch { /* cancelled */ }
+                        finally { setSharing(false); }
+                      }}
+                      disabled={sharing}
+                      aria-label="Share your day rate"
+                      className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded-lg px-2.5 py-1 active:scale-95 transition-transform disabled:opacity-50"
+                    >
+                      <Share2 size={12} /> {sharing ? '…' : 'Share'}
+                    </button>
+                  )}
+                </div>
                 {bookedCount > 0 ? (
                   <>
                     <div className="flex items-baseline gap-1.5 flex-wrap">
-                      <span className="text-3xl font-black">£{Math.round(perDayPence / 100).toLocaleString()}</span>
-                      <span className="text-sm text-slate-300 font-semibold">a day</span>
+                      <span className="text-4xl font-black">£{Math.round(perDayPence / 100).toLocaleString()}</span>
+                      <span className="text-base text-slate-300 font-semibold">a day</span>
                     </div>
-                    <div className="text-xs text-slate-400 font-semibold mt-1.5">
-                      {bookedCount} {bookedCount === 1 ? 'day' : 'days'} booked · £{Math.round(bookedPence / 100).toLocaleString()} total
-                      {readyPence > 0 && <span className="text-emerald-400"> · +£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
+                    <div className="text-xs text-slate-400 font-semibold mt-1.5 leading-relaxed">
+                      avg over your next {bookedCount} booked {bookedCount === 1 ? 'day' : 'days'} · <span className="text-emerald-400">~£{(monthlyPence / 100 / 1000).toFixed(1)}k/month at this pace</span>
                     </div>
                   </>
                 ) : (
