@@ -1387,7 +1387,7 @@ export default function MyWeekPage() {
             { key: 'home' as const, label: 'Home', icon: Home, live: true, badge: 0 },
             { key: 'week' as const, label: 'Week', icon: CalendarDays, live: true, badge: 0 },
             { key: 'jobs' as const, label: 'Jobs', icon: Briefcase, live: true, badge: jobs?.flex.length ?? 0 },
-            { key: 'quotes' as const, label: 'Quotes', icon: FileText, live: true, badge: pipeline?.liveCount ?? 0 },
+            { key: 'quotes' as const, label: 'Pending', icon: Clock, live: true, badge: pipeline?.liveCount ?? 0 },
             { key: 'profile' as const, label: 'Stats', icon: UserRound, live: true, badge: 0 },
           ]).map((item) => {
             const active = item.live && tab === item.key;
