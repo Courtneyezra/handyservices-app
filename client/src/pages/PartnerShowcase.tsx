@@ -18,10 +18,10 @@ const rise = {
 };
 
 const TIERS = [
-  { tier: 'Specialist', pct: 55, floor: 28, work: 'Electrics · plumbing · kitchens · bathrooms' },
-  { tier: 'Skilled', pct: 50, floor: 22, work: 'Carpentry · tiling · plastering · doors · locks' },
-  { tier: 'General', pct: 45, floor: 18, work: 'Fixing · flat-pack · painting · mounting · shelving' },
-  { tier: 'Outdoor', pct: 45, floor: 16, work: 'Fencing · guttering · pressure-washing · waste' },
+  { tier: 'Specialist', dayMin: 200, work: 'Electrics · plumbing · kitchens · bathrooms' },
+  { tier: 'Skilled', dayMin: 160, work: 'Carpentry · tiling · plastering · doors · locks' },
+  { tier: 'General', dayMin: 130, work: 'Fixing · flat-pack · painting · mounting · shelving' },
+  { tier: 'Outdoor', dayMin: 120, work: 'Fencing · guttering · pressure-washing · waste' },
 ];
 
 const PILLARS = [
@@ -61,9 +61,9 @@ export default function PartnerShowcase() {
   const [, go] = useLocation();
 
   return (
-    <div className="min-h-screen bg-[#0b1020] text-slate-100 antialiased selection:bg-emerald-400/30">
+    <div className="min-h-screen bg-slate-900 text-slate-100 antialiased selection:bg-amber-400/30">
       {/* Nav */}
-      <header className="sticky top-0 z-40 backdrop-blur-md bg-[#0b1020]/80 border-b border-white/5">
+      <header className="sticky top-0 z-40 backdrop-blur-md bg-slate-900/80 border-b border-white/5">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img src="/logo.png" alt="Handy Services" className="w-9 h-9 object-contain" />
@@ -82,10 +82,10 @@ export default function PartnerShowcase() {
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 -z-10">
           <img src="/assets/quote-images/craig-banner.webp" alt="" className="w-full h-full object-cover opacity-[0.18]" />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0b1020]/70 via-[#0b1020]/85 to-[#0b1020]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-900/70 via-slate-900/85 to-slate-900" />
         </div>
         <div className="max-w-6xl mx-auto px-5 pt-20 pb-16 md:pt-28 md:pb-24">
-          <motion.p variants={rise} initial="hidden" animate="show" className="text-emerald-400 font-semibold text-sm tracking-wide mb-5">
+          <motion.p variants={rise} initial="hidden" animate="show" className="text-amber-400 font-semibold text-sm tracking-wide mb-5">
             For skilled trades in the East Midlands
           </motion.p>
           <motion.h1
@@ -93,7 +93,7 @@ export default function PartnerShowcase() {
             className="font-black tracking-tight leading-[0.95] text-[clamp(2.6rem,8vw,5.5rem)] max-w-4xl"
           >
             Keep the work.<br />
-            <span className="text-emerald-400">Lose the admin.</span>
+            <span className="text-amber-400">Lose the admin.</span>
           </motion.h1>
           <motion.p
             variants={rise} initial="hidden" animate="show" custom={2}
@@ -104,7 +104,7 @@ export default function PartnerShowcase() {
           <motion.div variants={rise} initial="hidden" animate="show" custom={3} className="mt-9 flex flex-wrap items-center gap-3">
             <button
               onClick={() => go('/join')}
-              className="group inline-flex items-center gap-2 bg-emerald-400 text-[#0b1020] font-bold px-6 py-3.5 rounded-xl hover:bg-emerald-300 transition-colors"
+              className="group inline-flex items-center gap-2 bg-amber-400 text-slate-900 font-bold px-6 py-3.5 rounded-xl hover:bg-amber-300 transition-colors"
             >
               Become a partner
               <ArrowRight size={18} className="group-hover:translate-x-0.5 transition-transform" />
@@ -119,7 +119,7 @@ export default function PartnerShowcase() {
           <motion.div variants={rise} initial="hidden" animate="show" custom={4} className="mt-12 flex items-center gap-4 text-sm text-slate-400">
             <div className="flex -space-x-2.5">
               {['craig', 'bezent', 'emile', 'neil'].map((n) => (
-                <img key={n} src={`/assets/avatars/${n}-avatar-1.webp`} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-[#0b1020]" />
+                <img key={n} src={`/assets/avatars/${n}-avatar-1.webp`} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-slate-900" />
               ))}
             </div>
             <span>Trusted by the core team already earning on the platform</span>
@@ -130,10 +130,10 @@ export default function PartnerShowcase() {
       {/* Pay model */}
       <section className="max-w-6xl mx-auto px-5 py-20 md:py-28">
         <motion.div variants={rise} initial="hidden" whileInView="show" viewport={{ once: true, margin: '-80px' }} className="max-w-2xl mb-14">
-          <p className="text-emerald-400 font-semibold text-sm mb-3">The pay model</p>
-          <h2 className="font-black tracking-tight text-[clamp(2rem,5vw,3.25rem)] leading-tight">A share of the job, with a floor under it.</h2>
+          <p className="text-amber-400 font-semibold text-sm mb-3">The pay model</p>
+          <h2 className="font-black tracking-tight text-[clamp(2rem,5vw,3.25rem)] leading-tight">Paid by the day, not the hour.</h2>
           <p className="mt-5 text-slate-300 text-lg leading-relaxed">
-            No arbitrary day rate. You&apos;re paid a share of the labour on every job, set by trade, and every job carries an hourly floor, so a cheap job never pays badly. You always take the higher of the two.
+            No clock-watching. You&apos;re booked full days, priced by trade, with a guaranteed minimum every day you work and a share of the upside on the bigger jobs. You always take the higher of the two.
           </p>
         </motion.div>
 
@@ -142,15 +142,15 @@ export default function PartnerShowcase() {
             <motion.div
               key={t.tier}
               variants={rise} initial="hidden" whileInView="show" viewport={{ once: true }} custom={i}
-              className="bg-[#0e1428] p-6 flex flex-col"
+              className="bg-[#1D2D3D] p-6 flex flex-col"
             >
               <div className="text-slate-400 text-sm font-semibold">{t.tier}</div>
               <div className="mt-3 flex items-baseline gap-0.5">
-                <span className="text-2xl font-black text-emerald-400">£</span>
-                <span className="text-5xl font-black text-white tracking-tight">{t.floor}</span>
-                <span className="text-lg font-semibold text-slate-400 ml-0.5">/hr</span>
+                <span className="text-2xl font-black text-amber-400">£</span>
+                <span className="text-5xl font-black text-white tracking-tight">{t.dayMin}</span>
+                <span className="text-lg font-semibold text-slate-400 ml-1">a day</span>
               </div>
-              <div className="mt-1 text-sm text-slate-400">floor, plus a share of every job</div>
+              <div className="mt-1 text-sm text-slate-400">minimum, plus a share of every job</div>
               <div className="mt-5 pt-5 border-t border-white/5 text-[13px] text-slate-400 leading-relaxed">{t.work}</div>
             </motion.div>
           ))}
@@ -158,10 +158,10 @@ export default function PartnerShowcase() {
 
         <motion.div
           variants={rise} initial="hidden" whileInView="show" viewport={{ once: true }}
-          className="mt-8 flex flex-col md:flex-row md:items-center gap-6 md:gap-10 bg-emerald-400/10 border border-emerald-400/20 rounded-2xl p-7"
+          className="mt-8 flex flex-col md:flex-row md:items-center gap-6 md:gap-10 bg-amber-400/10 border border-amber-400/20 rounded-2xl p-7"
         >
           <div>
-            <div className="text-sm font-semibold text-emerald-300 mb-1">Worked example</div>
+            <div className="text-sm font-semibold text-amber-300 mb-1">Worked example</div>
             <p className="text-slate-200 text-lg leading-snug max-w-md">A full bathroom day, priced and booked before you arrive.</p>
           </div>
           <div className="flex items-center gap-3 md:ml-auto">
@@ -175,7 +175,7 @@ export default function PartnerShowcase() {
       </section>
 
       {/* Pillars — alternating rows */}
-      <section className="border-y border-white/5 bg-[#080c1a]">
+      <section className="border-y border-white/5 bg-slate-950">
         <div className="max-w-6xl mx-auto px-5 divide-y divide-white/5">
           {PILLARS.map((p, i) => (
             <motion.div
@@ -184,7 +184,7 @@ export default function PartnerShowcase() {
               className={`grid md:grid-cols-2 gap-8 md:gap-14 items-center py-16 md:py-20 ${i % 2 ? 'md:[&>*:first-child]:order-2' : ''}`}
             >
               <div>
-                <div className="inline-flex items-center gap-2 text-emerald-400 font-semibold text-sm mb-4">
+                <div className="inline-flex items-center gap-2 text-amber-400 font-semibold text-sm mb-4">
                   <p.icon size={17} />
                   {p.kicker}
                 </div>
@@ -208,7 +208,7 @@ export default function PartnerShowcase() {
         <div className="grid md:grid-cols-3 gap-8">
           {HANDLES.map((h, i) => (
             <motion.div key={h.label} variants={rise} initial="hidden" whileInView="show" viewport={{ once: true }} custom={i} className="flex gap-4">
-              <div className="shrink-0 w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-emerald-400">
+              <div className="shrink-0 w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-amber-400">
                 <h.icon size={20} />
               </div>
               <div>
@@ -222,7 +222,7 @@ export default function PartnerShowcase() {
 
       {/* Closing CTA + login */}
       <section className="relative overflow-hidden border-t border-white/5">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-emerald-400/[0.07] to-transparent" />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-amber-400/[0.07] to-transparent" />
         <div className="max-w-3xl mx-auto px-5 py-24 md:py-32 text-center">
           <motion.div variants={rise} initial="hidden" whileInView="show" viewport={{ once: true }} className="flex items-center justify-center gap-1.5 text-amber-300 mb-6">
             {[0, 1, 2, 3, 4].map((s) => <Star key={s} size={16} className="fill-amber-300" />)}
@@ -235,7 +235,7 @@ export default function PartnerShowcase() {
             Apply in minutes. Already partnered? Sign in and set your week.
           </motion.p>
           <motion.div variants={rise} initial="hidden" whileInView="show" viewport={{ once: true }} custom={3} className="mt-10 flex flex-wrap items-center justify-center gap-3">
-            <button onClick={() => go('/join')} className="group inline-flex items-center gap-2 bg-emerald-400 text-[#0b1020] font-bold px-7 py-4 rounded-xl hover:bg-emerald-300 transition-colors">
+            <button onClick={() => go('/join')} className="group inline-flex items-center gap-2 bg-amber-400 text-slate-900 font-bold px-7 py-4 rounded-xl hover:bg-amber-300 transition-colors">
               Apply to partner
               <ArrowRight size={18} className="group-hover:translate-x-0.5 transition-transform" />
             </button>
