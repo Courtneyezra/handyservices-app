@@ -150,7 +150,7 @@ export default function PartnerShowcase() {
                 <span className="text-5xl font-black text-white tracking-tight">{t.dayMin}</span>
                 <span className="text-lg font-semibold text-slate-400 ml-1">a day</span>
               </div>
-              <div className="mt-1 text-sm text-slate-400">minimum, plus a share of every job</div>
+              <div className="mt-1 text-xl font-black uppercase tracking-wider text-amber-400">Minimum</div>
               <div className="mt-5 pt-5 border-t border-white/5 text-[13px] text-slate-400 leading-relaxed">{t.work}</div>
             </motion.div>
           ))}
