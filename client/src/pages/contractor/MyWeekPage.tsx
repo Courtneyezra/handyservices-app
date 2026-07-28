@@ -567,6 +567,9 @@ export default function MyWeekPage() {
 
   const openCount = data?.days.filter((d) => d.date >= data.today && (d.am === 'open' || d.pm === 'open')).length ?? 0;
   const bookedCount = data?.days.filter((d) => d.am === 'booked' || d.pm === 'booked').length ?? 0;
+  // Contractors think in day rates: what a booked day averages. A day packed with
+  // two half-jobs counts once, so packing well raises the figure.
+  const perDayPence = bookedCount > 0 ? Math.round(bookedPence / bookedCount) : 0;
   const selectedDay = data?.days.find((d) => d.date === selectedDate);
 
   return (
@@ -634,12 +637,25 @@ export default function MyWeekPage() {
             <div className="space-y-3">
               {/* Pay hero */}
               <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-slate-900/40 border border-emerald-500/25">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70 mb-1">Your pay · this week</div>
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className="text-3xl font-black">£{Math.round(bookedPence / 100).toLocaleString()}</span>
-                  <span className="text-xs text-slate-400 font-semibold">booked</span>
-                  {readyPence > 0 && <span className="text-lg font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
-                </div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70 mb-1">Your pay · per day</div>
+                {bookedCount > 0 ? (
+                  <>
+                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                      <span className="text-3xl font-black">£{Math.round(perDayPence / 100).toLocaleString()}</span>
+                      <span className="text-sm text-slate-300 font-semibold">a day</span>
+                    </div>
+                    <div className="text-xs text-slate-400 font-semibold mt-1.5">
+                      {bookedCount} {bookedCount === 1 ? 'day' : 'days'} booked · £{Math.round(bookedPence / 100).toLocaleString()} total
+                      {readyPence > 0 && <span className="text-emerald-400"> · +£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-3xl font-black">£0</span>
+                    <span className="text-xs text-slate-400 font-semibold">booked</span>
+                    {readyPence > 0 && <span className="text-lg font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
+                  </div>
+                )}
               </div>
 
               {/* Do this now */}
