@@ -66,7 +66,7 @@ export default function PartnerShowcase() {
       <header className="sticky top-0 z-40 backdrop-blur-md bg-[#0b1020]/80 border-b border-white/5">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-400 flex items-center justify-center text-[#0b1020] font-black text-lg leading-none">H</div>
+            <img src="/logo.png" alt="Handy Services" className="w-9 h-9 object-contain" />
             <span className="font-bold tracking-tight text-[15px]">Handy <span className="text-slate-400 font-medium">Partners</span></span>
           </div>
           <button
