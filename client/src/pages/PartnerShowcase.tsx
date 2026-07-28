@@ -99,7 +99,7 @@ export default function PartnerShowcase() {
             variants={rise} initial="hidden" animate="show" custom={2}
             className="mt-7 text-slate-300 text-lg md:text-xl leading-relaxed max-w-2xl"
           >
-            Earn <span className="text-white font-semibold">45–55% of every job</span>, paid within <span className="text-white font-semibold">48 hours</span>, with materials on our card and your days planned around your van. You bring the craft. Handy brings the rest.
+            Earn well on every job, <span className="text-white font-semibold">paid within 48 hours</span>, with materials on our card and your days planned around your van. You bring the craft. Handy brings the rest.
           </motion.p>
           <motion.div variants={rise} initial="hidden" animate="show" custom={3} className="mt-9 flex flex-wrap items-center gap-3">
             <button
@@ -133,7 +133,7 @@ export default function PartnerShowcase() {
           <p className="text-emerald-400 font-semibold text-sm mb-3">The pay model</p>
           <h2 className="font-black tracking-tight text-[clamp(2rem,5vw,3.25rem)] leading-tight">A share of the job, with a floor under it.</h2>
           <p className="mt-5 text-slate-300 text-lg leading-relaxed">
-            No arbitrary day rate. You earn a percentage of the labour on every job, set by trade. And every job carries an hourly floor, so a cheap job never pays badly. You always take the higher of the two.
+            No arbitrary day rate. You&apos;re paid a share of the labour on every job, set by trade, and every job carries an hourly floor, so a cheap job never pays badly. You always take the higher of the two.
           </p>
         </motion.div>
 
@@ -145,11 +145,12 @@ export default function PartnerShowcase() {
               className="bg-[#0e1428] p-6 flex flex-col"
             >
               <div className="text-slate-400 text-sm font-semibold">{t.tier}</div>
-              <div className="mt-3 flex items-baseline gap-1">
-                <span className="text-5xl font-black text-white tracking-tight">{t.pct}</span>
-                <span className="text-2xl font-black text-emerald-400">%</span>
+              <div className="mt-3 flex items-baseline gap-0.5">
+                <span className="text-2xl font-black text-emerald-400">£</span>
+                <span className="text-5xl font-black text-white tracking-tight">{t.floor}</span>
+                <span className="text-lg font-semibold text-slate-400 ml-0.5">/hr</span>
               </div>
-              <div className="mt-1 text-sm text-slate-400">of labour, or £{t.floor}/hr floor</div>
+              <div className="mt-1 text-sm text-slate-400">floor, plus a share of every job</div>
               <div className="mt-5 pt-5 border-t border-white/5 text-[13px] text-slate-400 leading-relaxed">{t.work}</div>
             </motion.div>
           ))}
@@ -161,14 +162,14 @@ export default function PartnerShowcase() {
         >
           <div>
             <div className="text-sm font-semibold text-emerald-300 mb-1">Worked example</div>
-            <p className="text-slate-200 text-lg leading-snug max-w-md">A £900 bathroom job, priced and booked before you arrive.</p>
+            <p className="text-slate-200 text-lg leading-snug max-w-md">A full bathroom day, priced and booked before you arrive.</p>
           </div>
           <div className="flex items-center gap-3 md:ml-auto">
             <div className="text-right">
               <div className="text-4xl font-black text-white tracking-tight">£495</div>
-              <div className="text-sm text-slate-400">yours, in 48 hours</div>
+              <div className="text-sm text-slate-400">take-home, in 48 hours</div>
             </div>
-            <div className="text-slate-500 text-sm max-w-[9rem] leading-tight">55% specialist share, plus Core partner uplift</div>
+            <div className="text-slate-500 text-sm max-w-[9rem] leading-tight">plus materials on your Handy card</div>
           </div>
         </motion.div>
       </section>
