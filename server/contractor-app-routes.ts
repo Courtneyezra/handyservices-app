@@ -904,10 +904,41 @@ router.post('/:token/jobs/:bookingId/complete', async (req: Request, res: Respon
     const placeId = process.env.GOOGLE_PLACE_ID || '';
     const reviewUrl = placeId ? `https://search.google.com/local/writereview?placeid=${placeId}` : null;
 
-    res.json({ success: true, paymentUrl, balanceDuePence, reviewUrl });
+    // Segment drives which prize-wheel set the customer sees (homeowner default).
+    let segment: string | null = null;
+    if (booking.quoteId) {
+      const [q] = await db.select({ segment: personalizedQuotes.segment })
+        .from(personalizedQuotes).where(eq(personalizedQuotes.id, booking.quoteId)).limit(1);
+      segment = q?.segment ?? null;
+    }
+
+    res.json({ success: true, paymentUrl, balanceDuePence, reviewUrl, segment });
   } catch (err: any) {
     console.error('[ContractorApp] complete failed:', err?.message);
     res.status(500).json({ error: 'Failed to complete job' });
+  }
+});
+
+// POST /:token/jobs/:bookingId/prize — record the wheel prize the customer won so
+// ops can honour it. Best-effort; stored on completionNotes (no redemption engine
+// yet — the prize is a manual note until the quote engine reads credits).
+router.post('/:token/jobs/:bookingId/prize', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+    const bookingId = req.params.bookingId;
+    const [booking] = await db.select().from(contractorBookingRequests).where(eq(contractorBookingRequests.id, bookingId)).limit(1);
+    if (!booking || (booking.assignedContractorId ?? booking.contractorId) !== profile.id) return res.status(403).json({ error: 'Not your job' });
+    const prize = typeof req.body?.prize === 'string' ? req.body.prize.slice(0, 120).trim() : '';
+    if (!prize) return res.status(400).json({ error: 'No prize' });
+    const line = `🎁 Prize won: ${prize}`;
+    const notes = booking.completionNotes ? `${booking.completionNotes}\n${line}` : line;
+    await db.update(contractorBookingRequests).set({ completionNotes: notes, updatedAt: new Date() })
+      .where(eq(contractorBookingRequests.id, bookingId));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[ContractorApp] prize record failed:', err?.message);
+    res.status(500).json({ error: 'Failed to record prize' });
   }
 });
 

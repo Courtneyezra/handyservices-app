@@ -1,25 +1,33 @@
 /**
- * Job completion — the field close. Two steps:
+ * Job completion — the field close. Three steps:
  *  1) Capture proof: photos + notes + customer signature (photo & signature required).
- *  2) On complete: invoice fires, and two QR codes show — Take payment + Leave a review.
+ *  2) On complete: invoice fires, then a prize wheel — the customer always wins a
+ *     slice (rewards completing the job, NOT reviewing — kept separate for policy).
+ *  3) Two QR codes — Take payment + Leave a review (the review ask is unconditional).
  */
 import { useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion } from 'framer-motion';
-import { X, Camera, Check, Trash2, CreditCard, Star, Loader2 } from 'lucide-react';
+import { X, Camera, Check, Trash2, CreditCard, Star, Loader2, Gift, Receipt, Clock } from 'lucide-react';
+import PrizeWheel from './PrizeWheel';
+import { slicesForSegment, type PrizeSlice } from './prize-wheel-config';
 
 interface Props {
   token: string;
   bookingId: string;
   customerName: string;
+  payoutPence?: number | null;
   onClose: () => void;
   onCompleted: () => void;
 }
+
+const gbp = (pence: number) => `£${(pence / 100).toLocaleString('en-GB', { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
 interface CompleteResult {
   paymentUrl: string | null;
   balanceDuePence: number;
   reviewUrl: string | null;
+  segment: string | null;
 }
 
 // Downscale a captured photo to keep the upload small.
@@ -99,7 +107,7 @@ function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void
   );
 }
 
-export default function CompletionSheet({ token, bookingId, customerName, onClose, onCompleted }: Props) {
+export default function CompletionSheet({ token, bookingId, customerName, payoutPence, onClose, onCompleted }: Props) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [notes, setNotes] = useState('');
@@ -107,6 +115,11 @@ export default function CompletionSheet({ token, bookingId, customerName, onClos
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<CompleteResult | null>(null);
+  // After complete fires: (1) an acknowledgement screen showing what just
+  // happened with the money, then (2) the prize wheel, then (3) the QR screen.
+  const [ackDone, setAckDone] = useState(false);
+  const [prize, setPrize] = useState<PrizeSlice | null>(null);
+  const [prizeDone, setPrizeDone] = useState(false);
 
   const addPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -140,11 +153,20 @@ export default function CompletionSheet({ token, bookingId, customerName, onClos
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Could not complete');
-      setResult({ paymentUrl: d.paymentUrl ?? null, balanceDuePence: d.balanceDuePence ?? 0, reviewUrl: d.reviewUrl ?? null });
+      setResult({ paymentUrl: d.paymentUrl ?? null, balanceDuePence: d.balanceDuePence ?? 0, reviewUrl: d.reviewUrl ?? null, segment: d.segment ?? null });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not complete');
       setBusy(false);
     }
+  };
+
+  // Record the won prize so ops can honour it (best-effort — don't block the flow).
+  const onWheelResult = (won: PrizeSlice) => {
+    setPrize(won);
+    fetch(`/api/contractor-app/${token}/jobs/${bookingId}/prize`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prize: won.reveal.title }),
+    }).catch(() => { /* non-blocking */ });
   };
 
   return (
@@ -159,8 +181,68 @@ export default function CompletionSheet({ token, bookingId, customerName, onClos
         className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-t-3xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {result ? (
-          /* ── Step 2: paid + reviewed ── */
+        {result && !ackDone ? (
+          /* ── Step 2: complete fired — what just happened with the money ── */
+          <div className="p-6 overflow-y-auto text-center">
+            <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 16, stiffness: 240 }}
+              className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center mx-auto mb-4">
+              <Check size={34} strokeWidth={3} className="text-white" />
+            </motion.div>
+            <h2 className="text-2xl font-extrabold text-white">Job complete</h2>
+            <p className="text-sm text-slate-400 mt-1 mb-6">{customerName}'s job is signed off and logged.</p>
+
+            <div className="space-y-3 text-left">
+              {/* Customer receipt / balance */}
+              <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/5 border border-white/10">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/15 flex items-center justify-center shrink-0"><Receipt size={20} className="text-sky-400" /></div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-white">Receipt sent to {customerName}</div>
+                  <div className="text-xs text-slate-400">
+                    {result.balanceDuePence > 0 ? `Balance ${gbp(result.balanceDuePence)} — they can pay on the spot` : 'Paid in full — nothing left to collect'}
+                  </div>
+                </div>
+              </div>
+
+              {/* His pay */}
+              <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0"><Clock size={20} className="text-emerald-400" /></div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-white">Your pay{payoutPence ? `: ${gbp(payoutPence)}` : ''} is queued</div>
+                  <div className="text-xs text-slate-400">Released once the office checks your photos — usually same day.</div>
+                </div>
+              </div>
+            </div>
+
+            <button onClick={() => setAckDone(true)} className="mt-6 w-full py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-bold active:scale-[0.99] transition-transform">Continue</button>
+          </div>
+        ) : result && !prizeDone ? (
+          /* ── Step 3: prize wheel (always wins; rewards the job, not a review) ── */
+          <div className="p-6 overflow-y-auto text-center">
+            <div className="w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center mx-auto mb-4">
+              <Check size={30} strokeWidth={3} className="text-white" />
+            </div>
+            <h2 className="text-xl font-bold text-white">Job complete!</h2>
+            <p className="text-sm text-slate-400 mt-1 mb-6">
+              {prize ? `Nice one, ${customerName} 🎉` : `A little thank-you, ${customerName} — give it a spin.`}
+            </p>
+
+            {!prize ? (
+              <PrizeWheel slices={slicesForSegment(result.segment)} onResult={onWheelResult} />
+            ) : (
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', damping: 18, stiffness: 220 }}>
+                <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-400/15 flex items-center justify-center mb-4">
+                  <Gift size={30} className="text-amber-400" />
+                </div>
+                <div className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mb-1">You won</div>
+                <h3 className="text-2xl font-extrabold text-white leading-tight px-2">{prize.reveal.title}</h3>
+                <p className="text-sm text-slate-400 mt-2 mb-6 px-2">{prize.reveal.message}</p>
+                <p className="text-[11px] text-slate-500 mb-5">Saved against your name — just mention it next time.</p>
+                <button onClick={() => setPrizeDone(true)} className="w-full py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-bold active:scale-[0.99] transition-transform">Continue</button>
+              </motion.div>
+            )}
+          </div>
+        ) : result ? (
+          /* ── Step 3: paid + reviewed ── */
           <div className="p-6 overflow-y-auto text-center">
             <div className="w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center mx-auto mb-4">
               <Check size={30} strokeWidth={3} className="text-white" />

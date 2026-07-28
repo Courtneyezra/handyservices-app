@@ -225,7 +225,7 @@ export default function MyWeekPage() {
     setLocation('/partner/login');
   };
   const [sharing, setSharing] = useState(false);
-  const [completeJob, setCompleteJob] = useState<{ id: string; name: string } | null>(null);
+  const [completeJob, setCompleteJob] = useState<{ id: string; name: string; payoutPence: number | null } | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -1544,7 +1544,7 @@ export default function MyWeekPage() {
 
                 {jobDetail.status === 'booked' && jobDetail.id && (
                   <button
-                    onClick={() => { setCompleteJob({ id: jobDetail.id, name: jobDetail.title }); setJobDetail(null); }}
+                    onClick={() => { setCompleteJob({ id: jobDetail.id, name: jobDetail.title, payoutPence: jobDetail.payoutPence }); setJobDetail(null); }}
                     className="mt-5 w-full py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
                   >
                     <Check size={18} strokeWidth={3} /> Mark complete
@@ -1563,6 +1563,7 @@ export default function MyWeekPage() {
             token={token}
             bookingId={completeJob.id}
             customerName={completeJob.name}
+            payoutPence={completeJob.payoutPence}
             onClose={() => setCompleteJob(null)}
             onCompleted={() => {
               setCompleteJob(null);
