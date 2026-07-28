@@ -10,7 +10,7 @@
  */
 import { useLocation } from 'wouter';
 import { motion } from 'framer-motion';
-import { ArrowRight, Banknote, CalendarClock, CreditCard, Route, ShieldCheck, Megaphone, Star } from 'lucide-react';
+import { ArrowRight, Banknote, CalendarClock, CreditCard, Route, ShieldCheck, Megaphone, Star, Sparkles, MapPin } from 'lucide-react';
 
 const rise = {
   hidden: { opacity: 0, y: 24 },
@@ -56,6 +56,67 @@ const HANDLES = [
   { icon: ShieldCheck, label: '£2M insured, one brand', sub: "You work under Handy's cover, brand and 4.9★ reputation." },
   { icon: Banknote, label: 'Quoting done for you', sub: 'Every job priced before you arrive. You do the work, not the paperwork.' },
 ];
+
+// The jobs Handy groups into one well-paid, low-travel day.
+const DAY_JOBS = [
+  { time: '9:00', title: 'Bathroom seal & repair', area: 'DE24', hop: 'start', earn: 220 },
+  { time: '12:30', title: 'Fence panels + gate', area: 'DE24', hop: '6 min away', earn: 140 },
+  { time: '15:00', title: 'Flat-pack + TV mount', area: 'DE23', hop: '9 min away', earn: 110 },
+];
+
+/** Animated "we group well-paying jobs into your day" visual. On scroll, jobs
+ *  drop into an ordered day, a route line draws down the side, total reveals. */
+function GroupedDay() {
+  const stagger = { hidden: {}, show: { transition: { staggerChildren: 0.22, delayChildren: 0.15 } } };
+  const job = { hidden: { opacity: 0, x: 24 }, show: { opacity: 1, x: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } } };
+  return (
+    <motion.div
+      initial="hidden" whileInView="show" viewport={{ once: true, margin: '-60px' }} variants={stagger}
+      className="relative bg-[#1D2D3D] rounded-2xl border border-white/10 p-5 shadow-2xl"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm font-semibold text-white">Your Tuesday, grouped</div>
+        <motion.div
+          className="text-[11px] text-amber-400 font-semibold inline-flex items-center gap-1"
+          animate={{ opacity: [0.55, 1, 0.55] }} transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          <Sparkles size={12} /> smart routing
+        </motion.div>
+      </div>
+
+      <div className="relative">
+        {/* route line the jobs hang off */}
+        <motion.div
+          className="absolute left-[7px] top-2 w-px bg-amber-400/40"
+          variants={{ hidden: { height: 0 }, show: { height: '100%', transition: { duration: 1, ease: 'easeInOut' } } }}
+        />
+        <div className="space-y-2.5">
+          {DAY_JOBS.map((j, i) => (
+            <motion.div key={i} variants={job} className="relative flex items-center gap-3 pl-5">
+              <span className="absolute left-0 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-[#1D2D3D]" />
+              <div className="flex-1 min-w-0 bg-slate-900/60 rounded-xl p-3 border border-white/5 flex items-center gap-3">
+                <div className="text-xs font-mono text-slate-500 w-11 shrink-0">{j.time}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-white truncate">{j.title}</div>
+                  <div className="text-[11px] text-slate-400 inline-flex items-center gap-1"><MapPin size={10} />{j.area} · {j.hop}</div>
+                </div>
+                <div className="text-sm font-black text-amber-400 shrink-0">£{j.earn}</div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      <motion.div variants={job} className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+        <div className="text-xs text-slate-400 max-w-[9rem] leading-tight">One area, one route, less driving.</div>
+        <div className="text-right">
+          <div className="text-[11px] text-slate-400">You earn that day</div>
+          <div className="text-2xl font-black text-white">£470</div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 export default function PartnerShowcase() {
   const [, go] = useLocation();
@@ -129,13 +190,16 @@ export default function PartnerShowcase() {
 
       {/* Pay model */}
       <section className="max-w-6xl mx-auto px-5 py-20 md:py-28">
-        <motion.div variants={rise} initial="hidden" whileInView="show" viewport={{ once: true, margin: '-80px' }} className="max-w-2xl mb-14">
-          <p className="text-amber-400 font-semibold text-sm mb-3">The pay model</p>
-          <h2 className="font-black tracking-tight text-[clamp(2rem,5vw,3.25rem)] leading-tight">Paid by the day, not the hour.</h2>
-          <p className="mt-5 text-slate-300 text-lg leading-relaxed">
-            No clock-watching. You&apos;re booked full days, priced by trade, with a guaranteed minimum every day you work and a share of the upside on the bigger jobs. You always take the higher of the two.
-          </p>
-        </motion.div>
+        <div className="grid md:grid-cols-2 gap-10 lg:gap-14 items-center mb-14">
+          <motion.div variants={rise} initial="hidden" whileInView="show" viewport={{ once: true, margin: '-80px' }}>
+            <p className="text-amber-400 font-semibold text-sm mb-3">The pay model</p>
+            <h2 className="font-black tracking-tight text-[clamp(2rem,5vw,3.25rem)] leading-tight">We pay by the job. We build the day.</h2>
+            <p className="mt-5 text-slate-300 text-lg leading-relaxed">
+              You&apos;re paid per job, not by the clock. Then trade know-how and smart routing group well-paying jobs near you into a full day, so you earn more and drive less. Every day still carries a guaranteed minimum.
+            </p>
+          </motion.div>
+          <GroupedDay />
+        </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-white/5 rounded-2xl overflow-hidden border border-white/5">
           {TIERS.map((t, i) => (
