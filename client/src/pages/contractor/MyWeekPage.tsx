@@ -909,8 +909,11 @@ export default function MyWeekPage() {
                         {q.expiresAt && new Date(q.expiresAt) > new Date() && <> · expires {formatDistanceToNow(new Date(q.expiresAt), { addSuffix: true })}</>}
                       </div>
                     </div>
-                    {q.valuePence != null && (
-                      <div className="text-lg font-bold text-white shrink-0">£{Math.round(q.valuePence / 100)}</div>
+                    {q.valuePence != null && q.valuePence > 0 && (
+                      <div className="shrink-0 text-right">
+                        <div className="text-lg font-bold text-white">£{Math.round(q.valuePence / 100)}</div>
+                        <div className="text-[9px] text-slate-500 font-semibold">you earn</div>
+                      </div>
                     )}
                   </div>
                 </div>

@@ -197,7 +197,7 @@ router.get('/:token/pipeline', async (req: Request, res: Response) => {
         id: personalizedQuotes.id,
         postcode: personalizedQuotes.postcode,
         jobDescription: personalizedQuotes.jobDescription,
-        basePrice: personalizedQuotes.basePrice,
+        pricingLineItems: personalizedQuotes.pricingLineItems,
         createdAt: personalizedQuotes.createdAt,
         viewedAt: personalizedQuotes.viewedAt,
         viewCount: personalizedQuotes.viewCount,
@@ -219,7 +219,9 @@ router.get('/:token/pipeline', async (req: Request, res: Response) => {
         id: r.id,
         postcodeArea: outwardPostcode(r.postcode),
         jobDescription: trimDescription(r.jobDescription),
-        valuePence: r.basePrice ?? null,
+        // His estimated earn (labour share), NOT the customer total — the
+        // contractor never sees the full job price. Matches the flex-job estimate.
+        valuePence: computeContractorPay((r.pricingLineItems as any[]) || [], profile.deliveryTier).totalPayPence,
         sentAt: r.createdAt,
         viewed: !!r.viewedAt,
         viewCount: r.viewCount ?? 0,
