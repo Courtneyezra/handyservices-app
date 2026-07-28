@@ -37,6 +37,8 @@ import { resolveWeek, type DayAvailability } from './lib/contractor-week';
 import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
 import { reserveSlot, confirmBooking } from './booking-engine';
+import { generateBalanceInvoice } from './invoice-generator';
+import { storageService } from './storage';
 
 const BOOKED_STATUSES = new Set(['accepted', 'completed']);
 const BOOKED_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
@@ -835,6 +837,77 @@ router.post('/:token/pattern', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[ContractorApp] pattern write failed:', err?.message);
     res.status(500).json({ error: 'Could not save your usual week' });
+  }
+});
+
+// POST /:token/jobs/:bookingId/photo — a completion photo. Base64 data URL in
+// (client resizes first), public URL out. Ownership-checked.
+router.post('/:token/jobs/:bookingId/photo', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+    const [booking] = await db
+      .select({ c: contractorBookingRequests.contractorId, a: contractorBookingRequests.assignedContractorId })
+      .from(contractorBookingRequests).where(eq(contractorBookingRequests.id, req.params.bookingId)).limit(1);
+    if (!booking || (booking.a ?? booking.c) !== profile.id) return res.status(403).json({ error: 'Not your job' });
+
+    const m = String(req.body?.dataUrl ?? '').match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'Invalid image' });
+    const buffer = Buffer.from(m[2], 'base64');
+    if (buffer.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'Image too large' });
+    const key = `completion/${req.params.bookingId}/${uuidv4()}.${(m[1].split('/')[1] || 'jpg')}`;
+    const url = await storageService.uploadPublicImage(buffer, key, m[1]);
+    res.json({ url });
+  } catch (err: any) {
+    console.error('[ContractorApp] photo upload failed:', err?.message);
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// POST /:token/jobs/:bookingId/complete — mark done with proof (photo + signature
+// required), invoice the customer, and return the pay + review links for the QRs.
+// Payout is NOT auto-released here — the 'completed' status flags it for admin.
+router.post('/:token/jobs/:bookingId/complete', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+    const bookingId = req.params.bookingId;
+    const [booking] = await db.select().from(contractorBookingRequests).where(eq(contractorBookingRequests.id, bookingId)).limit(1);
+    if (!booking || (booking.assignedContractorId ?? booking.contractorId) !== profile.id) return res.status(403).json({ error: 'Not your job' });
+
+    const evidenceUrls: string[] = Array.isArray(req.body?.evidenceUrls) ? req.body.evidenceUrls.filter((u: any) => typeof u === 'string') : [];
+    const signatureDataUrl = typeof req.body?.signatureDataUrl === 'string' ? req.body.signatureDataUrl : '';
+    const completionNotes = typeof req.body?.completionNotes === 'string' ? req.body.completionNotes.slice(0, 2000) : null;
+    if (evidenceUrls.length === 0) return res.status(400).json({ error: 'Add at least one photo' });
+    if (!signatureDataUrl.startsWith('data:image/')) return res.status(400).json({ error: 'Customer signature required' });
+
+    const now = new Date();
+    await db.update(contractorBookingRequests).set({
+      status: 'completed', assignmentStatus: 'completed', completedAt: now,
+      evidenceUrls, signatureDataUrl, completionNotes, updatedAt: now,
+    }).where(eq(contractorBookingRequests.id, bookingId));
+    await db.update(bookingAssignments).set({ status: 'completed', completedAt: now })
+      .where(eq(bookingAssignments.bookingId, bookingId));
+
+    // (b) Customer invoice/receipt + payment link for the QR.
+    let paymentUrl: string | null = null;
+    let balanceDuePence = 0;
+    try {
+      const inv = await generateBalanceInvoice(bookingId);
+      if (inv) {
+        balanceDuePence = inv.balanceDuePence;
+        const code = inv.invoiceNumber.replace('INV-', '').replace(/-/g, '');
+        paymentUrl = `${process.env.BASE_URL || 'https://www.handyservices.app'}/pay/${code}`;
+      }
+    } catch (e: any) { console.error('[ContractorApp] balance invoice failed:', e?.message); }
+
+    const placeId = process.env.GOOGLE_PLACE_ID || '';
+    const reviewUrl = placeId ? `https://search.google.com/local/writereview?placeid=${placeId}` : null;
+
+    res.json({ success: true, paymentUrl, balanceDuePence, reviewUrl });
+  } catch (err: any) {
+    console.error('[ContractorApp] complete failed:', err?.message);
+    res.status(500).json({ error: 'Failed to complete job' });
   }
 });
 

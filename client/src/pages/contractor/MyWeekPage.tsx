@@ -13,8 +13,9 @@ import { useRoute, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut, Share2 } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut, Share2, Check } from 'lucide-react';
 import { sharePartnerBragCard } from '@/lib/partner-brag-card';
+import CompletionSheet from './CompletionSheet';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
@@ -167,6 +168,7 @@ const WEEK_TITLES = ['This week', 'Next week'];
 
 // Normalised shape the job-detail modal renders (booked or flex).
 interface JobDetail {
+  id: string;
   title: string;
   area: string | null;
   whenLabel: string | null;
@@ -179,6 +181,7 @@ interface JobDetail {
   payLines: PayLine[] | null;
 }
 const bookedToDetail = (b: BookedJob): JobDetail => ({
+  id: b.id,
   title: b.customerName.trim(),
   area: b.postcodeArea,
   whenLabel: `${format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')}${(b.durationDays ?? 1) > 1 ? ` · ${b.durationDays} days` : b.slot === 'am' ? ' · 9am–1pm' : b.slot === 'pm' ? ' · 2pm–6pm' : ' · 9am–6pm'}`,
@@ -191,6 +194,7 @@ const bookedToDetail = (b: BookedJob): JobDetail => ({
   payLines: b.payLines,
 });
 const flexToDetail = (f: FlexJob): JobDetail => ({
+  id: '',
   title: f.jobDescription?.split(/[—,.]/)[0]?.trim() || 'Job',
   area: f.postcodeArea,
   whenLabel: f.deadline ? `needs a day by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : null,
@@ -221,6 +225,7 @@ export default function MyWeekPage() {
     setLocation('/partner/login');
   };
   const [sharing, setSharing] = useState(false);
+  const [completeJob, setCompleteJob] = useState<{ id: string; name: string } | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -1536,9 +1541,35 @@ export default function MyWeekPage() {
                     You source materials, plant hire and any extra (Handy-vetted) help on your Handy card, within budget. Handy keeps the receipts.
                   </p>
                 )}
+
+                {jobDetail.status === 'booked' && jobDetail.id && (
+                  <button
+                    onClick={() => { setCompleteJob({ id: jobDetail.id, name: jobDetail.title }); setJobDetail(null); }}
+                    className="mt-5 w-full py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
+                  >
+                    <Check size={18} strokeWidth={3} /> Mark complete
+                  </button>
+                )}
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Job completion — proof capture → invoice → pay + review QRs */}
+      <AnimatePresence>
+        {completeJob && (
+          <CompletionSheet
+            token={token}
+            bookingId={completeJob.id}
+            customerName={completeJob.name}
+            onClose={() => setCompleteJob(null)}
+            onCompleted={() => {
+              setCompleteJob(null);
+              queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+              queryClient.invalidateQueries({ queryKey: ['contractor-app', token] });
+            }}
+          />
         )}
       </AnimatePresence>
 
