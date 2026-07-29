@@ -41,9 +41,24 @@ const pool = new pg.Pool({
     allowExitOnIdle: false,           // Keep pool alive
 });
 
-// Handle pool errors gracefully
+// Handle pool errors gracefully. NOTE: pool.on('error') ONLY fires for clients
+// sitting idle in the pool — it does NOT cover a client that's checked out and
+// in use when its socket dies.
 pool.on('error', (err) => {
     console.error('[DB Pool] Unexpected error on idle client:', err.message);
+});
+
+// Attach a permanent error listener to EVERY client the moment it connects.
+// When Neon drops a checked-out connection mid-flight, the client emits an
+// 'error' event; with no listener, Node's default is to `throw` it as an
+// unhandled 'error' event and kill the whole process (this is what took the
+// server down repeatedly during Neon blips). Swallow + log instead — pg removes
+// the dead client from the pool on its own, and callers see their query reject
+// (handled by route try/catch + withRetry).
+pool.on('connect', (client) => {
+    client.on('error', (err: any) => {
+        console.error('[DB Client] connection error (non-fatal):', err?.message);
+    });
 });
 
 // Keep connection warm to avoid cold starts

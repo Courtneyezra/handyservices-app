@@ -11,6 +11,7 @@
  * so it stays unit-testable. See docs/contractor-platform/00-PRD.md §5a.
  */
 import { Router, Request, Response } from 'express';
+import { randomBytes } from 'crypto';
 import { and, or, eq, gte, lt, isNull, isNotNull, inArray, sql, desc } from 'drizzle-orm';
 import { startOfWeek, addDays, format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
@@ -170,15 +171,23 @@ router.get('/:id/week', async (req: Request, res: Response) => {
         .from(handymanAvailability).where(eq(handymanAvailability.handymanId, id)),
       db.select({ date: contractorAvailabilityDates.date, isAvailable: contractorAvailabilityDates.isAvailable, startTime: contractorAvailabilityDates.startTime, endTime: contractorAvailabilityDates.endTime })
         .from(contractorAvailabilityDates).where(and(eq(contractorAvailabilityDates.contractorId, id), gte(contractorAvailabilityDates.date, monday), lt(contractorAvailabilityDates.date, weekEnd))),
-      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
-        .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, monday), lt(contractorBookingRequests.scheduledDate, weekEnd), or(eq(contractorBookingRequests.contractorId, id), eq(contractorBookingRequests.assignedContractorId, id)))),
+      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, durationDays: contractorBookingRequests.durationDays, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
+        .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, addDays(monday, -14)), lt(contractorBookingRequests.scheduledDate, weekEnd), or(eq(contractorBookingRequests.contractorId, id), eq(contractorBookingRequests.assignedContractorId, id)))),
     ]);
 
     const weeklyPatterns = patternRows.map((p) => ({ dayOfWeek: p.dayOfWeek ?? 0, startTime: p.startTime ?? null, endTime: p.endTime ?? null, isActive: !!p.isActive }));
     const overrides = overrideRows.map((o) => ({ date: format(new Date(o.date as any), 'yyyy-MM-dd'), isAvailable: !!o.isAvailable, startTime: o.startTime ?? null, endTime: o.endTime ?? null }));
+    // Multi-day bookings are ONE row (durationDays=N) — expand across the span
+    // (query reaches back 14 days so spans starting pre-window still block).
     const bookings = bookingRows
       .filter((b) => ((b.status && BOOKED_SLOT_STATUSES.has(b.status)) || (b.assignmentStatus && BOOKED_SLOT_ASSIGNMENT.has(b.assignmentStatus))) && b.scheduledDate && (b.assignedContractorId ?? b.contractorId) === id)
-      .map((b) => ({ date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'), slot: (b.slot ?? null) as SlotType | null }));
+      .flatMap((b) => {
+        const dur = b.durationDays ?? 1;
+        return Array.from({ length: dur }, (_, i) => ({
+          date: format(addDays(new Date(b.scheduledDate as any), i), 'yyyy-MM-dd'),
+          slot: (dur > 1 ? 'full_day' : (b.slot ?? null)) as SlotType | null,
+        }));
+      });
 
     // Raw weekly pattern per weekday (for the editor to initialise from).
     const pattern = [0, 1, 2, 3, 4, 5, 6].map((dow) => {
@@ -258,6 +267,26 @@ router.post('/:id/flex/:jobId/place', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[Hub/place] failed:', err?.message);
     res.status(500).json({ error: 'Failed to place flex job', details: err?.message });
+  }
+});
+
+// POST /:id/app-link → issue (or return) the contractor's availability-app link.
+// Idempotent: one durable token per contractor; texting the same link twice is fine.
+router.post('/:id/app-link', async (req: Request, res: Response) => {
+  try {
+    const rows = await db.select({ id: handymanProfiles.id, appToken: handymanProfiles.appToken })
+      .from(handymanProfiles).where(eq(handymanProfiles.id, req.params.id)).limit(1);
+    if (!rows.length) return res.status(404).json({ error: 'Contractor not found' });
+
+    let token = rows[0].appToken;
+    if (!token) {
+      token = randomBytes(24).toString('base64url'); // 32 chars, unguessable
+      await db.update(handymanProfiles).set({ appToken: token, updatedAt: new Date() }).where(eq(handymanProfiles.id, rows[0].id));
+    }
+    res.json({ token, path: `/my-week/${token}` });
+  } catch (err: any) {
+    console.error('[Hub/app-link] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to issue app link', details: err?.message });
   }
 });
 

@@ -794,6 +794,11 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
             from: dateKey(start),
             days,
             requiredDays,
+            // Contractor platform — the engine's auto team plan (solo/composed/
+            // no_supply + suggested lead with covered categories). The builder's
+            // lead selector shows this as the "Auto" option Ben confirms.
+            teamPlan: fit.teamPlan,
+            availabilityContractorIds: fit.availabilityContractorIds,
         });
     } catch (error) {
         console.error('[AdminAvailability] fit error:', error);

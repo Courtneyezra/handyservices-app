@@ -9,6 +9,7 @@ import {
   PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, X, RotateCcw
 } from 'lucide-react';
 import { CardBrandStrip } from './CardBrandLogos';
+import { AxaInsuredBadge } from '@/components/AxaInsuredBadge';
 import { SkuIcon } from '@/lib/sku-icons';
 import { QuoteAddressInput } from '@/components/quote/QuoteAddressInput';
 import { Button } from '@/components/ui/button';
@@ -3030,6 +3031,12 @@ export function UnifiedQuoteCard({
             ))}
           </div>
         )}
+
+        {/* Underwriter reassurance — placed right above the commit CTA where
+            insurance anxiety peaks. Factual "underwritten by AXA" wording. */}
+        <div className="flex justify-center mt-2">
+          <AxaInsuredBadge tone={isDarkTheme ? 'dark' : 'light'} />
+        </div>
 
         {/* Payment/Book Section */}
         {/* scroll-mt clears the sticky top header (~57px) so when the sticky

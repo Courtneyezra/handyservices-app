@@ -1,5 +1,6 @@
 import { ShieldCheck, Check, Star, CalendarCheck, Hash, PlusCircle } from 'lucide-react';
 import handyLogo from '@/assets/handy-logo-transparent.png';
+import { AxaLogo } from '@/components/AxaInsuredBadge';
 
 /**
  * Admiral-style quote-page chrome (the ?v=admiral variant). Two presentational
@@ -146,6 +147,7 @@ export function AdmiralPriceHero({
         <span className="text-slate-300">·</span>
         <span className="inline-flex items-center gap-1">
           <ShieldCheck className="w-3.5 h-3.5" style={{ color: ADMIRAL_BLUE }} /> £2M Insured
+          <AxaLogo className="w-3.5 h-3.5 rounded-[1.5px]" title="Underwritten by AXA" />
         </span>
         <span className="text-slate-300">·</span>
         <span className="inline-flex items-center gap-1">

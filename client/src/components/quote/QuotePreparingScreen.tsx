@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Loader2, ShieldCheck, Star, Wrench } from 'lucide-react';
 import handyLogo from '@/assets/handy-logo-transparent.png';
+import { AxaLogo } from '@/components/AxaInsuredBadge';
 import { ROSTER_ORBIT_AVATARS } from '@/lib/contractor-roster';
 
 /**
@@ -431,6 +432,7 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
         <div className="mt-2.5 flex items-center justify-center gap-x-3 gap-y-1 flex-wrap text-xs text-slate-400 font-medium">
           <span className="inline-flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-[#7DB00E]" /> £2M Insured
+            <AxaLogo className="w-3.5 h-3.5 rounded-[1.5px]" title="Underwritten by AXA" />
           </span>
           <span className="text-slate-600">·</span>
           <span className="inline-flex items-center gap-1">
@@ -574,6 +576,7 @@ function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, sub
           <div className="mt-5 flex items-center justify-center gap-x-3 gap-y-2 flex-wrap text-xs text-slate-600 font-medium hs-prep-rise hs-prep-d4">
             <span className="inline-flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-[#7DB00E]" /> £2M Insured
+              <AxaLogo className="w-3.5 h-3.5 rounded-[1.5px]" title="Underwritten by AXA" />
             </span>
             <span className="text-slate-300">·</span>
             <span className="inline-flex items-center gap-1">

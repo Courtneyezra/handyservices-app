@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { MapPin, Star, Truck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { AxaLogo } from "@/components/AxaInsuredBadge";
 import derbyMapImage from "../assets/derby_map.webp";
 import nottinghamMapImage from "../assets/nottingham_map.webp";
 
@@ -225,7 +226,10 @@ export function LocalTrustSection({ location = "derby" }: LocalTrustSectionProps
                         </div>
                         <div>
                             <p className="text-4xl font-bold text-white mb-1">£2M</p>
-                            <p className="text-slate-500 text-sm uppercase tracking-wider">Insured</p>
+                            <div className="flex items-center justify-center gap-1.5">
+                                <p className="text-slate-500 text-sm uppercase tracking-wider">Insured</p>
+                                <AxaLogo className="h-4 w-4 rounded-[2px]" title="Underwritten by AXA" />
+                            </div>
                         </div>
                         <div>
                             <p className="text-4xl font-bold text-white mb-1">90-day</p>

@@ -1680,8 +1680,9 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
     const skippedLines = lineItems.filter((l) => !l.description && !l.guardedPricePence).length;
 
     // Run engine with batch-discount applied to labour (matches CLI script).
-    // LABOUR ONLY — the share must not include materials (company funds them;
-    // paying contractors a % of materials was a £69/job leak, fixed Jul 2026).
+    // LABOUR-ONLY: materials pass through — the contractor never earns on them
+    // (previously materialsWithMarginPence was added into the share base, which
+    // over-offered the pool; removed so dispatch matches the booking payout).
     const discountFactor = quote.batchDiscountPercent ? 1 - Number(quote.batchDiscountPercent) / 100 : 1;
     const engineLines = validLines.map((l) => ({
       categorySlug: l.category as JobCategory,
@@ -1691,6 +1692,8 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
     const materialsPassThroughPence = validLines.reduce(
       (s, l) => s + (l.materialsWithMarginPence || 0), 0);
 
+    // Dispatch offers the AD-HOC pool (uplift 0). A tier-specific offer would
+    // pass deliveryTierUplift(tier) here — the same engine either way.
     const revShare = engineLines.length > 0
       ? calculateMultiLineRevenueShare(engineLines)
       : { totalContractorPay: 0, totalPlatformKeeps: 0, totalCustomerPrice: 0, overallMarginPercent: 0, lines: [], flags: [] };

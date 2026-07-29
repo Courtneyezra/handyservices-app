@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Lock } from "lucide-react";
+import { AxaLogo } from "@/components/AxaInsuredBadge";
 import { lockSecondsLeft, formatLockTime } from "./quote/quoteLockClock";
 
 /**
@@ -386,6 +387,7 @@ export function QuoteSkeleton({ quoteKey = "quote" }: { quoteKey?: string }) {
                     <div className="flex items-center justify-center gap-x-3 gap-y-2 flex-wrap pt-4 border-t border-slate-100">
                         <span className="inline-flex items-center gap-1 text-xs text-slate-700 font-medium">
                             <span className="text-[#7DB00E]">✓</span> £2M Insured
+                            <AxaLogo className="w-3.5 h-3.5 rounded-[1.5px]" title="Underwritten by AXA" />
                         </span>
                         <span className="text-slate-300">·</span>
                         <span className="inline-flex items-center gap-1 text-xs text-slate-700 font-medium">

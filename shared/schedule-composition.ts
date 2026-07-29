@@ -58,12 +58,33 @@ export interface LineItemTimeShape {
      * `timeEstimateMinutes` (which is also what new v1 readers wrote).
      */
     scheduleMinutes?: number | null;
+    /**
+     * Human-VERIFIED on-site minutes. Authoritative and UNCLAMPED — the
+     * founder/admin override for when the pricing time (and thus the clamped
+     * schedule time) is wrong. Set via scripts/_fix-job-time.ts. This is the
+     * intervention point: `scheduleMinutes` proved to be a blind copy of the
+     * pricing time (equal on 100% of real lines), so it cannot be trusted as
+     * truth; `verifiedMinutes` is the explicit "a human vouched for this" signal.
+     */
+    verifiedMinutes?: number | null;
     setupMinutes?: number | null;
     cleanupMinutes?: number | null;
     materialCollectionMinutes?: number | null;
     materialsSupply?: 'we_supply' | 'customer_supplied' | 'labor_only' | null;
     /** Phase 11 — line was flagged "needs collection trip" by the admin. Composer adds ONE +30min trip per quote when any line has this. */
     requiresMaterialCollection?: boolean | null;
+}
+
+/**
+ * Scheduling minutes for ONE line, honouring the verified-time override.
+ *   - `verifiedMinutes` set → use it directly, UNCLAMPED (human-vouched truth).
+ *   - else → clamp the pricing/estimate time to the per-category cap (guards
+ *     against LLM pricing-time inflation leaking into the schedule).
+ */
+export function lineScheduleMinutes(line: LineItemTimeShape): number {
+    const v = line.verifiedMinutes;
+    if (v != null && Number.isFinite(Number(v)) && Number(v) > 0) return Number(v);
+    return clampLineItemMinutes(line.category, pickLineMinutes(line));
 }
 
 /**
@@ -111,13 +132,9 @@ export function composeScheduleMinutes(
 ): ScheduleBreakdown {
     const safeLines = Array.isArray(lines) ? lines : [];
 
-    // Work — clamped per category so legacy inflated quotes don't break.
-    // Phase 25: prefer explicit scheduleMinutes, fall back to timeEstimateMinutes
-    // so legacy quotes keep computing exactly the same total they always did.
-    const workMinutes = safeLines.reduce(
-        (s, l) => s + clampLineItemMinutes(l.category, pickLineMinutes(l)),
-        0,
-    );
+    // Work — a verified override wins (unclamped); otherwise the pricing time
+    // is clamped per category so legacy inflated quotes don't break the schedule.
+    const workMinutes = safeLines.reduce((s, l) => s + lineScheduleMinutes(l), 0);
 
     // Per-line buffers
     const setupMinutes = safeLines.reduce(
@@ -222,6 +239,91 @@ export function computeBookingDurationDays(
     context: QuoteContext = {},
 ): number {
     return computeRequiredDays(totalScheduleMinutes(lines, context));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 24e — multi-day SPAN semantics (single source of truth).
+//
+// A multi-day job occupies the contractor's next N AVAILABLE days from the
+// start date — days they don't work (weekends, days off, booked days) are
+// SKIPPED, not required. A 2-day job starting Friday for a Fri+Mon contractor
+// spans Fri + Mon, never Fri + Sat. Both the customer date picker
+// (public-routes buildAvailabilityResponse) and the booking engine
+// (reserveSlot) MUST walk spans through these helpers so an offered start
+// date is always a bookable start date.
+//
+// The walk is bounded by SPAN_SLACK_DAYS of skippable days so a span can hop
+// a weekend / bank holiday but can't silently stretch across a huge gap and
+// make a bad promise to the customer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Max skippable (non-working) days inside a multi-day span. */
+export const SPAN_SLACK_DAYS = 4;
+
+/** Calendar-day window a span of `requiredDays` working days may occupy. */
+export function maxSpanDays(requiredDays: number): number {
+    return requiredDays + SPAN_SLACK_DAYS;
+}
+
+const DAY_MS = 86_400_000;
+
+/** Add calendar days to a YYYY-MM-DD string (pure date math, DST-proof). */
+export function addDaysToDateStr(dateStr: string, days: number): string {
+    return new Date(Date.parse(`${dateStr}T00:00:00.000Z`) + days * DAY_MS)
+        .toISOString()
+        .slice(0, 10);
+}
+
+/**
+ * Walk the next `requiredDays` available days from `startDateStr` (inclusive),
+ * skipping days `isFreeDate` rejects, bounded by maxSpanDays(requiredDays).
+ *
+ * Returns the actual YYYY-MM-DD dates the job occupies, or null when the
+ * start day itself isn't free or the span can't be collected within the
+ * bound. `requiredDays = 1` degenerates to the single-day rule exactly:
+ * [start] iff the start day is free.
+ */
+export function collectSpanDates(
+    startDateStr: string,
+    requiredDays: number,
+    isFreeDate: (dateStr: string) => boolean,
+): string[] | null {
+    if (requiredDays < 1) return null;
+    if (!isFreeDate(startDateStr)) return null;
+    const span = [startDateStr];
+    const bound = maxSpanDays(requiredDays);
+    for (let k = 1; k < bound && span.length < requiredDays; k++) {
+        const ds = addDaysToDateStr(startDateStr, k);
+        if (isFreeDate(ds)) span.push(ds);
+    }
+    return span.length >= requiredDays ? span : null;
+}
+
+/**
+ * Expand a persisted booking/lock span into the dates it occupies.
+ *
+ * Prefers the stored actual dates (`scheduled_dates`, written at reserve /
+ * confirm time — may skip weekends). Legacy rows without them fall back to
+ * `durationDays` consecutive calendar days from the start, which was the
+ * only possible reading before scheduled_dates existed.
+ */
+export function expandSpanDates(
+    startDate: string | Date,
+    durationDays: number | null | undefined,
+    scheduledDates?: unknown,
+): string[] {
+    if (
+        Array.isArray(scheduledDates) &&
+        scheduledDates.length > 0 &&
+        scheduledDates.every((d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d))
+    ) {
+        return (scheduledDates as string[]).map((d) => d.slice(0, 10));
+    }
+    const startStr = typeof startDate === 'string'
+        ? startDate.slice(0, 10)
+        : startDate.toISOString().slice(0, 10);
+    const dur = Math.max(1, durationDays ?? 1);
+    return Array.from({ length: dur }, (_, i) => addDaysToDateStr(startStr, i));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

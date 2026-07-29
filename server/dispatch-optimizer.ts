@@ -818,13 +818,33 @@ function buildRationale(
  * scores against `goal`, searches, and emits ProposalGroup[] (each carrying goalScore +
  * an objective-aware rationale) plus the assigned / unassignable / per-bundle output.
  */
-export async function runDispatchOptimizer(goal: DispatchGoal, opts: { limit?: number; maxWindowDays?: number; testOnly?: boolean } = {}): Promise<OptimizeResult> {
-  const { limit = 50, maxWindowDays = 21, testOnly = false } = opts;
+export async function runDispatchOptimizer(goal: DispatchGoal, opts: {
+  limit?: number; maxWindowDays?: number; testOnly?: boolean;
+  /** Contractor-scoped run (Craig's Day Builder): placements target ONLY this
+   *  contractor. Additive — the network console passes nothing, unchanged. */
+  scopeContractorId?: string;
+  /** Restrict the pool to these quote ids (e.g. one contractor's lead pipeline). */
+  poolQuoteIds?: string[];
+  /** Scoped runs only: the contractor's TRUE resolved availability as
+   *  `date|slot` keys (am/pm). Overrides the context's looser network
+   *  availability (master fallbacks) so proposals land only on days the
+   *  contractor actually opened — a lock can then never hit a closed day. */
+  openSlotKeys?: Set<string>;
+} = {}): Promise<OptimizeResult> {
+  const { limit = 50, maxWindowDays = 21, testOnly = false, scopeContractorId, poolQuoteIds, openSlotKeys } = opts;
 
-  const ctx = await loadDispatchContext(maxWindowDays);
+  const ctxAll = await loadDispatchContext(maxWindowDays);
+  const ctx = scopeContractorId
+    ? {
+        ...ctxAll,
+        contractors: ctxAll.contractors.filter((c) => c.id === scopeContractorId),
+        ...(openSlotKeys ? { isAvailable: (_cid: string, d: string, _dow: number, slot: 'am' | 'pm') => openSlotKeys.has(`${d}|${slot}`) } : {}),
+      }
+    : ctxAll;
   // testOnly fences the pool: default (falsy) excludes seeded dummies so the real
   // console never sees them; true includes ONLY dummies (test-mode preview).
-  const pool = await loadDispatchPool(ctx.today, limit, testOnly);
+  const poolAll = await loadDispatchPool(ctx.today, limit, testOnly);
+  const pool = poolQuoteIds ? poolAll.filter((j) => poolQuoteIds.includes(j.quoteId)) : poolAll;
 
   const conById = new Map(ctx.contractors.map((c) => [c.id, c]));
 

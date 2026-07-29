@@ -186,6 +186,25 @@ class StorageService {
             return storedPathOrUrl; // Fallback to original
         }
     }
+
+    /**
+     * Upload a public image (e.g. a job-completion photo) from a Buffer and
+     * return a public URL. Uses S3 when configured; in dev (no S3) it writes to
+     * client/public/uploads so the URL is served statically and verifiable.
+     */
+    async uploadPublicImage(buffer: Buffer, key: string, contentType = 'image/jpeg'): Promise<string> {
+        if (this.provider === 's3' && this.s3Client) {
+            await this.s3Client.send(new PutObjectCommand({
+                Bucket: S3_BUCKET, Key: key, Body: buffer, ContentType: contentType,
+            }));
+            return S3_PUBLIC_URL_BASE ? `${S3_PUBLIC_URL_BASE}/${key}` : `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
+        }
+        const rel = `uploads/${key}`;
+        const target = path.resolve(process.cwd(), 'client', 'public', rel);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        await fs.promises.writeFile(target, buffer);
+        return `/${rel}`;
+    }
 }
 
 export const storageService = new StorageService();

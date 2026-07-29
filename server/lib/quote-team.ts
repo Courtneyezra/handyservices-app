@@ -48,6 +48,19 @@ export interface QuoteTeamPlan {
   uncoveredCategories: string[];
 }
 
+export interface ResolveTeamOptions {
+  /**
+   * Ben's manual override from the quote builder ("auto-suggest, Ben confirms").
+   * When set and the contractor is in the candidate pool, they take the lead
+   * unconditionally — solo if they cover every required category, composed
+   * otherwise (their off-skill lines go to specialists). A forced lead is kept
+   * even with ZERO coverage overlap: Ben may want a trusted face fronting a job
+   * delivered entirely by specialists. Unknown id → silently falls back to auto
+   * (callers detect this via plan.leadContractorId !== forcedLeadId).
+   */
+  forcedLeadId?: string | null;
+}
+
 const TIER_RANK: Record<DeliveryTier, number> = { partner: 0, core: 1, adhoc: 2 };
 
 /** Committed tiers get first pick of the lead role; ad-hoc leads only as a fallback. */
@@ -84,18 +97,21 @@ function pickLead(pool: TeamCandidate[]): TeamCandidate {
 export function resolveQuoteTeam(
   requiredCategories: string[],
   candidates: TeamCandidate[],
+  options?: ResolveTeamOptions,
 ): QuoteTeamPlan {
   const required = Array.from(new Set(requiredCategories.filter(Boolean)));
+  const forcedLeadId = options?.forcedLeadId ?? null;
 
   // Nothing to route.
   if (required.length === 0) {
     return { bookable: false, kind: 'no_supply', leadContractorId: null, assignments: [], uncoveredCategories: [] };
   }
 
-  // Clamp each candidate's coverage to the required set; drop non-coverers; order.
+  // Clamp each candidate's coverage to the required set; drop non-coverers
+  // (except a forced lead, who stays even with zero overlap); order.
   const pool = candidates
     .map((c) => ({ ...c, coveredCategories: c.coveredCategories.filter((cat) => required.includes(cat)) }))
-    .filter((c) => c.coveredCategories.length > 0)
+    .filter((c) => c.coveredCategories.length > 0 || c.contractorId === forcedLeadId)
     .sort(byRoutingOrder);
 
   // True supply gap: a required category nobody covers, at any tier.
@@ -106,8 +122,16 @@ export function resolveQuoteTeam(
     return { bookable: false, kind: 'no_supply', leadContractorId: null, assignments: [], uncoveredCategories: uncovered };
   }
 
+  // 0. Forced lead (Ben's override): takes the lead unconditionally — solo if
+  // they cover everything, composed otherwise. Unknown id → auto flow below.
+  const forced = forcedLeadId ? pool.find((c) => c.contractorId === forcedLeadId) : undefined;
+
   // 1. Solo (Craig-first): the best-ranked single contractor covering everything.
-  const solo = pool.find((c) => c.coveredCategories.length === required.length);
+  const solo = forced && forced.coveredCategories.length === required.length
+    ? forced
+    : forced
+      ? undefined
+      : pool.find((c) => c.coveredCategories.length === required.length);
   if (solo) {
     return {
       bookable: true,
@@ -119,7 +143,7 @@ export function resolveQuoteTeam(
   }
 
   // 2. Compose: committed lead takes what it covers; residual lines → specialists.
-  const lead = pickLead(pool);
+  const lead = forced ?? pickLead(pool);
   const leadCats = lead.coveredCategories;
   const residual = required.filter((cat) => !leadCats.includes(cat));
 
@@ -171,8 +195,9 @@ export interface TeamFit {
 export function deriveTeamFit(
   requiredCategories: string[],
   candidates: TeamCandidate[],
+  options?: ResolveTeamOptions,
 ): TeamFit {
-  const plan = resolveQuoteTeam(requiredCategories, candidates);
+  const plan = resolveQuoteTeam(requiredCategories, candidates, options);
   const required = Array.from(new Set(requiredCategories.filter(Boolean)));
 
   const fullCoverageCandidateIds =
@@ -182,8 +207,14 @@ export function deriveTeamFit(
           .filter((c) => required.every((cat) => c.coveredCategories.includes(cat)))
           .map((c) => c.contractorId);
 
+  // A manually forced lead anchors the calendar alone — the whole point of the
+  // override is that THEIR diary sets the promise, even when others could solo it.
+  const forcedWon = !!options?.forcedLeadId && plan.leadContractorId === options.forcedLeadId;
+
   let availabilityContractorIds: string[] = [];
-  if (plan.kind === 'solo') {
+  if (forcedWon) {
+    availabilityContractorIds = [plan.leadContractorId!];
+  } else if (plan.kind === 'solo') {
     availabilityContractorIds = fullCoverageCandidateIds; // union of everyone who can solo it
   } else if (plan.kind === 'composed') {
     availabilityContractorIds = plan.leadContractorId ? [plan.leadContractorId] : [];

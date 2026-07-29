@@ -150,6 +150,7 @@ const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
+const PartnerShowcase = lazy(() => import("@/pages/PartnerShowcase"));
 const JoinPage = lazy(() => import("@/pages/JoinPage"));
 const ContractorRecruitingPage = lazy(() => import("@/pages/ContractorsPage"));
 const CancellationPolicy = lazy(() => import("@/pages/CancellationPolicy"));
@@ -164,6 +165,9 @@ const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 // Contractor Job Sheet (public, token-based access — broadcast dispatch)
 const ContractorJobSheet = lazy(() => import("@/pages/contractor/ContractorJobSheet"));
 const DispatchLinkPage = lazy(() => import("@/pages/contractor/DispatchLinkPage"));
+const MyWeekPage = lazy(() => import("@/pages/contractor/MyWeekPage")); // availability app (tokenised)
+const WeekPlannerPreview = lazy(() => import("@/pages/contractor/WeekPlannerPreview")); // design mock, frontend-only
+const ScorecardPreview = lazy(() => import("@/pages/contractor/ScorecardPreview")); // design mock, frontend-only
 const DispatchPreviewPage = lazy(() => import("@/pages/contractor/DispatchPreviewPage"));
 const AdminDispatchDashboard = lazy(() => import("@/pages/admin/AdminDispatchDashboard"));
 const AdminGenerateDispatch = lazy(() => import("@/pages/admin/AdminGenerateDispatch"));
@@ -316,7 +320,12 @@ function Router() {
                 <Route path="/cleaning" component={CleaningLanding} />
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
                 <Route path="/careers" component={CareersPage} />
-                <Route path="/partner" component={PartnerPage} />
+                {/* /partner = the partner showcase (offering + sign-in). Its login
+                    button → /partner/login → each contractor's my-week app. Legacy
+                    marketing page preserved at /partner-info; recruitment at /join. */}
+                <Route path="/partner" component={PartnerShowcase} />
+                <Route path="/partner/login" component={ContractorLogin} />
+                <Route path="/partner-info" component={PartnerPage} />
                 <Route path="/join" component={JoinPage} />
                 <Route path="/contractors" component={ContractorRecruitingPage} />
                 {/* Legacy recruiting URLs → merged page with the right pill */}
@@ -385,6 +394,21 @@ function Router() {
                 </Route>
                 <Route path="/dispatch-link/:token">
                     <DispatchLinkPage />
+                </Route>
+                {/* Contractor availability app — tokenised, no login. The
+                  * harvest surface: solo contractors open/close their days.
+                  * See docs/contractor-platform/04-contractor-app.md. */}
+                <Route path="/my-week/:token">
+                    <MyWeekPage />
+                </Route>
+                {/* Week Planner design mock — frontend-only, nothing books.
+                  * Spec: docs/contractor-platform/05-week-planner-ui.md. */}
+                <Route path="/labs/week-planner">
+                    <WeekPlannerPreview />
+                </Route>
+                {/* Scorecard + win-moment design mock — frontend-only. */}
+                <Route path="/labs/scorecard">
+                    <ScorecardPreview />
                 </Route>
                 {/* Day-pack preview — frontend-only test page, no backend.
                   * Shareable URL to validate the day-pack offer UX with a real
