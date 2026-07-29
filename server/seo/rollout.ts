@@ -71,3 +71,10 @@ export async function isTradePublished(city: string, trade: string): Promise<boo
     const byCity = await getPublishedTradesByCity();
     return byCity.get(city)?.has(trade) ?? false;
 }
+
+/** Is a city "launched" — has ≥1 published trade? Gates the T1 hub's indexability
+ *  + sitemap inclusion, so expansion cities stay dark until GBP + delivery land. */
+export async function isCityLaunched(city: string): Promise<boolean> {
+    const byCity = await getPublishedTradesByCity();
+    return (byCity.get(city)?.size ?? 0) > 0;
+}

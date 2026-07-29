@@ -16,7 +16,7 @@ import {
     renderJobSuburb,
     renderSitemapXml,
 } from "./seo/render";
-import { ROLLOUT, getPublishedTradesByCity, isTradePublished } from "./seo/rollout";
+import { ROLLOUT, getPublishedTradesByCity, isTradePublished, isCityLaunched } from "./seo/rollout";
 
 const router = Router();
 
@@ -81,10 +81,13 @@ router.get("/:city/:service", async (req, res, next) => {
 const FULL_LANDING_CITIES = new Set(["nottingham", "derby"]);
 
 // ── T1: /:city ──────────────────────────────────────────────────────────────
-router.get("/:city", (req, res, next) => {
+// Indexable only once the city is launched (≥1 published trade) — expansion
+// cities render as noindex until their GBP + delivery are ready.
+router.get("/:city", async (req, res, next) => {
     if (!SEO_CITY_SLUGS.has(req.params.city)) return next();
     if (FULL_LANDING_CITIES.has(req.params.city)) return next(); // → SPA React landing
-    const result = renderCityHub(req.params.city);
+    const indexable = await isCityLaunched(req.params.city);
+    const result = renderCityHub(req.params.city, { indexable });
     res.status(result.status).setHeader("Content-Type", "text/html");
     res.send(result.html);
 });

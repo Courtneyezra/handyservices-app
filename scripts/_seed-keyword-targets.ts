@@ -136,6 +136,11 @@ const WAVE1_PUBLISHED = new Set<string>([
     'fencing', 'plasterer', 'landscaping', 'painter-decorator', 'handyman', 'gutter-cleaning',
 ]);
 
+// Only these launched cities auto-publish Wave 1. Expansion cities (Chesterfield,
+// Grantham, …) seed UNPUBLISHED — GBP-first: flip pagePublished per city in
+// /admin/seo once the city GBP exists + a crew can service it (RANK != FULFIL).
+const LAUNCHED_CITIES = new Set<string>(['nottingham', 'derby']);
+
 async function main() {
     let inserted = 0;
     for (const r of DATA) {
@@ -146,7 +151,7 @@ async function main() {
             avgMonthlySearches: r.vol, competition: r.comp,
             priorityScore,
             trackRankings: true,                          // track everything from day one
-            pagePublished: WAVE1_PUBLISHED.has(r.trade),  // Wave 1 live on fresh seed; rest via /admin/seo
+            pagePublished: LAUNCHED_CITIES.has(r.city) && WAVE1_PUBLISHED.has(r.trade),  // Wave 1 live in launched cities only
             bookingEnabled: false,      // gated on real pool capacity — RANK != FULFIL
             source: 'google_keyword_planner',
         };

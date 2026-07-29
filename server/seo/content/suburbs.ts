@@ -50,8 +50,32 @@ const DERBY_SUBURBS: SeoSuburb[] = [
     { slug: 'ockbrook', name: 'Ockbrook', citySlug: 'derby', postcodeArea: 'DE72' },
 ];
 
+// Expansion targets (kept unpublished until GBP + delivery ready — see
+// docs/SEO-CITY-EXPANSION-SCAN-2026-07.md).
+const CHESTERFIELD_SUBURBS: SeoSuburb[] = [
+    { slug: 'brampton', name: 'Brampton', citySlug: 'chesterfield', postcodeArea: 'S40' },
+    { slug: 'walton', name: 'Walton', citySlug: 'chesterfield', postcodeArea: 'S40' },
+    { slug: 'hasland', name: 'Hasland', citySlug: 'chesterfield', postcodeArea: 'S41' },
+    { slug: 'newbold', name: 'Newbold', citySlug: 'chesterfield', postcodeArea: 'S41' },
+    { slug: 'brimington', name: 'Brimington', citySlug: 'chesterfield', postcodeArea: 'S43' },
+    { slug: 'staveley', name: 'Staveley', citySlug: 'chesterfield', postcodeArea: 'S43' },
+    { slug: 'whittington', name: 'Whittington', citySlug: 'chesterfield', postcodeArea: 'S41' },
+    { slug: 'holmewood', name: 'Holmewood', citySlug: 'chesterfield', postcodeArea: 'S42' },
+];
+
+const GRANTHAM_SUBURBS: SeoSuburb[] = [
+    { slug: 'barrowby', name: 'Barrowby', citySlug: 'grantham', postcodeArea: 'NG32' },
+    { slug: 'great-gonerby', name: 'Great Gonerby', citySlug: 'grantham', postcodeArea: 'NG31' },
+    { slug: 'harlaxton', name: 'Harlaxton', citySlug: 'grantham', postcodeArea: 'NG32' },
+    { slug: 'manthorpe', name: 'Manthorpe', citySlug: 'grantham', postcodeArea: 'NG31' },
+    { slug: 'londonthorpe', name: 'Londonthorpe', citySlug: 'grantham', postcodeArea: 'NG31' },
+    { slug: 'belton', name: 'Belton', citySlug: 'grantham', postcodeArea: 'NG32' },
+];
+
 /** All suburbs, keyed for lookup by the content API. */
 export const SEO_SUBURBS: SeoSuburb[] = [
     ...NOTTINGHAM_SUBURBS,
     ...DERBY_SUBURBS,
+    ...CHESTERFIELD_SUBURBS,
+    ...GRANTHAM_SUBURBS,
 ];

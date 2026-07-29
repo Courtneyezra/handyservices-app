@@ -650,7 +650,7 @@ function finalize(
 
 // ---- T1: city hub -------------------------------------------------------
 
-export function renderCityHub(citySlug: string): RenderResult {
+export function renderCityHub(citySlug: string, opts?: { indexable?: boolean }): RenderResult {
     const city = content.getCity(citySlug);
     if (!city) return notFound();
 
@@ -733,6 +733,8 @@ export function renderCityHub(citySlug: string): RenderResult {
             ctaHref: quoteHref(citySlug),
             waHref: waLink(city.name, undefined, canonical),
             reviewCount: city.reviewCount,
+            // Expansion cities stay noindex until launched (GBP + delivery ready).
+            forceNoindex: opts?.indexable === false,
         },
         // City hub has no service FAQ; treat as satisfying the FAQ minimum so
         // the guard keys off word count + link count for hubs.
@@ -1006,7 +1008,13 @@ export function renderSitemapXml(
     const STANDARD_PAGES = ['', 'property-managers', 'businesses', 'cleaning'];
     for (const p of STANDARD_PAGES) push(absUrl(p));
 
+    // A city is "launched" when it has ≥1 published trade; unlaunched (expansion)
+    // cities stay out of the sitemap entirely. Undefined map = allow all (dev).
+    const cityLaunched = (citySlug: string): boolean =>
+        !publishedByCity || (publishedByCity.get(citySlug)?.size ?? 0) > 0;
+
     for (const city of cities) {
+        if (!cityLaunched(city.slug)) continue; // expansion cities: no hub, no T2 in sitemap
         // T1 city hub
         push(absUrl(city.slug));
 

@@ -91,6 +91,11 @@ export const SEO_CITIES: SeoCity[] = [
     // Derby's own GBP is "Homefix Handyman" (separate brand). These pages are Handy Services,
     // so they show the Handy Services brand review count (130), not Homefix's — honest + policy-safe.
     { slug: 'derby', name: 'Derby', county: 'Derbyshire', region: 'East Midlands', lat: 52.9225, lng: -1.4746, reviewCount: 130 },
+    // Expansion targets (competition scan Jul 2026 — docs/SEO-CITY-EXPANSION-SCAN-2026-07.md).
+    // Kept UNPUBLISHED (pagePublished=false → noindex, off-sitemap) until a city GBP exists +
+    // a crew can service it. reviewCount is a PLACEHOLDER — set to the city's real GBP count before publishing.
+    { slug: 'chesterfield', name: 'Chesterfield', county: 'Derbyshire', region: 'East Midlands', lat: 53.2350, lng: -1.4210, reviewCount: 130 },
+    { slug: 'grantham', name: 'Grantham', county: 'Lincolnshire', region: 'East Midlands', lat: 52.9120, lng: -0.6400, reviewCount: 130 },
 ];
 
 /** Core = safe to publish T2/T3 now. Sub = gated behind pool capacity (T2 only, when pagePublished). */
