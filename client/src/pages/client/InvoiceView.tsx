@@ -18,6 +18,9 @@ import { SectionWrapper } from "@/components/SectionWrapper";
 import { HassleComparisonCard } from "@/components/quote/HassleComparisonCard";
 import { SiVisa, SiMastercard, SiAmericanexpress, SiApplepay } from "react-icons/si";
 import handyServicesLogo from "../../assets/handy-logo.webp";
+import PrizeWheel from "@/pages/contractor/PrizeWheel";
+import { slicesForCustomerType, type PrizeSlice } from "@/pages/contractor/prize-wheel-config";
+import { Gift } from "lucide-react";
 import { generateBrandedInvoicePDF, generateSingleInvoicePDF, type BrandedInvoiceData } from "@/lib/invoice-pdf-branded";
 
 // ==========================================
@@ -86,6 +89,10 @@ interface PublicInvoiceResponse {
   jobEvidence: JobEvidence | null;
   upsells: InvoiceUpsell[];
   whatsappNumber: string;
+  customerType?: string | null;
+  showRewardWheel?: boolean;
+  reviewUrl?: string | null;
+  prizeAlreadyRecorded?: boolean;
 }
 
 // ==========================================
@@ -650,6 +657,85 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ==========================================
+// Post-payment reward wheel + review ask
+// ==========================================
+
+function ReviewAsk({ reviewUrl }: { reviewUrl: string | null }) {
+  if (!reviewUrl) return null;
+  return (
+    <a
+      href={reviewUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-5 inline-flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl bg-white text-slate-900 font-bold active:scale-[0.99] transition-transform"
+    >
+      <Star className="h-5 w-5 fill-amber-400 text-amber-400" /> Loved it? Leave us a review
+    </a>
+  );
+}
+
+function RewardWheelSection({ invoiceId, customerName, customerType, reviewUrl, alreadyRecorded }: {
+  invoiceId: string;
+  customerName: string;
+  customerType: string | null;
+  reviewUrl: string | null;
+  alreadyRecorded: boolean;
+}) {
+  const [prize, setPrize] = useState<PrizeSlice | null>(null);
+  const slices = slicesForCustomerType(customerType);
+
+  const onResult = (won: PrizeSlice) => {
+    setPrize(won);
+    // Record the won prize so ops can honour it (best-effort, non-blocking).
+    fetch(`/api/invoices/${invoiceId}/prize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prize: won.reveal.title }),
+    }).catch(() => {});
+  };
+
+  // Revisiting an already-spun paid invoice → skip the wheel, keep the review ask.
+  if (alreadyRecorded) {
+    return (
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <Card className="bg-gray-800/50 border border-gray-700/50">
+          <CardContent className="p-6 text-center">
+            <ReviewAsk reviewUrl={reviewUrl} />
+          </CardContent>
+        </Card>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+      <Card className="bg-gray-800/50 border border-gray-700/50 overflow-hidden">
+        <CardContent className="p-6 text-center">
+          {!prize ? (
+            <>
+              <div className="text-[10px] text-[#e8b323] uppercase tracking-widest font-bold mb-1">A little thank-you</div>
+              <h3 className="text-2xl font-bold text-white mb-5">Give it a spin, {customerName} 🎉</h3>
+              <PrizeWheel slices={slices} onResult={onResult} />
+            </>
+          ) : (
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", damping: 18, stiffness: 220 }}>
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-400/15 flex items-center justify-center mb-4">
+                <Gift className="h-8 w-8 text-amber-400" />
+              </div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mb-1">You won</div>
+              <h3 className="text-2xl font-extrabold text-white leading-tight px-2">{prize.reveal.title}</h3>
+              <p className="text-sm text-gray-400 mt-2 mb-3 px-2">{prize.reveal.message}</p>
+              <p className="text-[11px] text-gray-500 mb-1">Saved against your name — just mention it next time.</p>
+              <ReviewAsk reviewUrl={reviewUrl} />
+            </motion.div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+// ==========================================
 // Main Invoice Page
 // ==========================================
 
@@ -688,6 +774,10 @@ function InvoicePageContent() {
   const jobEvidence = publicQuery.data?.jobEvidence || null;
   const upsells = publicQuery.data?.upsells || [];
   const whatsappNumber = publicQuery.data?.whatsappNumber || "447123456789";
+  const showRewardWheel = publicQuery.data?.showRewardWheel ?? false;
+  const reviewUrl = publicQuery.data?.reviewUrl ?? null;
+  const customerType = publicQuery.data?.customerType ?? null;
+  const prizeAlreadyRecorded = publicQuery.data?.prizeAlreadyRecorded ?? false;
 
   // Loading
   if (isLoading) {
@@ -780,6 +870,19 @@ function InvoicePageContent() {
               </CardContent>
             </Card>
           </motion.div>
+        )}
+
+        {/* ============================================ */}
+        {/* POST-PAYMENT REWARD WHEEL + REVIEW ASK        */}
+        {/* ============================================ */}
+        {isPaid && showRewardWheel && (
+          <RewardWheelSection
+            invoiceId={invoice.id}
+            customerName={invoice.customerName}
+            customerType={customerType}
+            reviewUrl={reviewUrl}
+            alreadyRecorded={prizeAlreadyRecorded}
+          />
         )}
 
         {/* Job Summary removed — the line items table below already shows the same info. */}

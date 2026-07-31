@@ -73,6 +73,28 @@ const BUSINESS: PrizeSlice[] = [
     reveal: { title: '🌟 The golden slice — 15% off!', message: 'The rare one. 15% off your next job.' } },
 ];
 
+/** Customer types that should NOT get the wheel by default (B2B / portfolio). */
+export const NON_WHEEL_CUSTOMER_TYPES = ['landlord', 'property_manager', 'letting_agent', 'business'];
+
+/** Whether the wheel shows by default for a customer_type (homeowner-family = yes). */
+export function wheelDefaultForCustomerType(customerType?: string | null): boolean {
+  return !NON_WHEEL_CUSTOMER_TYPES.includes((customerType || '').toLowerCase());
+}
+
+/** Pick the slice set for a quote's customer_type. Defaults to the homeowner set. */
+export function slicesForCustomerType(customerType?: string | null): PrizeSlice[] {
+  switch ((customerType || '').toLowerCase()) {
+    case 'landlord':
+    case 'property_manager':
+    case 'letting_agent':
+      return LANDLORD;
+    case 'business':
+      return BUSINESS;
+    default:
+      return HOMEOWNER; // homeowner, oap_homeowner, tenant, null
+  }
+}
+
 /** Pick the slice set for a quote segment. Defaults to the homeowner set. */
 export function slicesForSegment(segment?: string | null): PrizeSlice[] {
   switch ((segment || '').toUpperCase()) {
