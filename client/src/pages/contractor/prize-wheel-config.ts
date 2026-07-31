@@ -21,22 +21,21 @@ export interface PrizeSlice {
 
 // Homeowner (owner-occupier) — levers are rebooking + referral.
 const HOMEOWNER: PrizeSlice[] = [
-  // Acquisition-tilted (demand-constrained): fat neighbour-referral + bundle
-  // (lifts £/day) + flex (fills gaps). Pure discounts kept small.
-  { id: 'refer', label: 'REFER A\nNEIGHBOUR', color: '#8b5cf6', weight: 30,
-    reveal: { title: '£20 for you, £20 for a neighbour', message: 'Send a neighbour our way — you both get £20 off. Nearby jobs mean we can come sooner, too.' } },
-  { id: 'bundle', label: 'BUNDLE\n& SAVE', color: '#f59e0b', weight: 20,
-    reveal: { title: 'Book 2+ jobs, £25 off the day', message: 'Got a list? Book two or more jobs in one visit and take £25 off.' } },
-  { id: 'flex', label: 'FLEX\n& SAVE', color: '#0ea5e9', weight: 18,
-    reveal: { title: '£15 off a flexible date', message: 'Let us pick the best day within your window and take £15 off — we slot you into the best route.' } },
-  { id: 'minijob', label: 'FREE\nMINI JOB', color: '#10b981', weight: 14,
+  // UK homeowner, retention-focused: unlock "the list" + genuine returns.
+  // Acquisition is handled by the review ask + SEO; referral lives in a separate
+  // shareable link, not the wheel. Every slice is simple to honour.
+  { id: 'bundle', label: 'CLEAR YOUR\nLIST', color: '#f59e0b', weight: 30,
+    reveal: { title: 'Book 3+ jobs — smallest one free', message: 'Got a list? Book three or more jobs in one visit and the smallest is on us.' } },
+  { id: 'minijob', label: 'FREE\nMINI JOB', color: '#10b981', weight: 24,
     reveal: { title: 'A free 15-min job next visit', message: "Next time we're round, one quick job's on us — a shelf, a handle, a hook." } },
-  { id: 'priority', label: 'SKIP THE\nQUEUE', color: '#14b8a6', weight: 9,
+  { id: 'seasonal', label: 'FREE\nCHECK', color: '#14b8a6', weight: 18,
+    reveal: { title: 'A free home check next visit', message: "Gutters, smoke alarms or draughts — whatever the season needs, we'll check it free." } },
+  { id: 'off15', label: '£15 OFF', color: '#f43f5e', weight: 15,
+    reveal: { title: '£15 off your next job', message: "We'll take £15 off your next booking." } },
+  { id: 'priority', label: 'SKIP THE\nQUEUE', color: '#8b5cf6', weight: 10,
     reveal: { title: 'Front of the queue', message: 'Your next booking jumps the line — first available slot, held for you.' } },
-  { id: 'off10', label: '£10 OFF', color: '#f43f5e', weight: 6,
-    reveal: { title: '£10 off your next job', message: "We'll knock £10 off whatever you book next." } },
-  { id: 'golden', label: 'GOLDEN\nREFERRAL', color: '#fbbf24', weight: 3, golden: true,
-    reveal: { title: '🌟 Golden — refer a neighbour, you BOTH get 25% off', message: 'The rare one. Refer a neighbour and you each get 25% off your next job.' } },
+  { id: 'golden', label: 'GOLDEN\n25% OFF', color: '#fbbf24', weight: 3, golden: true,
+    reveal: { title: '🌟 Golden — 25% off your next job', message: 'The rare one. 25% off your next job, up to £50.' } },
 ];
 
 // Landlord / property manager — key handling + portfolio referral.
