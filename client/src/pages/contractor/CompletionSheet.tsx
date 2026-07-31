@@ -10,7 +10,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { motion } from 'framer-motion';
 import { X, Camera, Check, Trash2, CreditCard, Star, Loader2, Gift, Receipt, Clock } from 'lucide-react';
 import PrizeWheel from './PrizeWheel';
-import { slicesForSegment, type PrizeSlice } from './prize-wheel-config';
+import { groupForSegment, type PrizeSlice } from './prize-wheel-config';
+import { useWheelSlices } from './useWheelSlices';
 
 interface Props {
   token: string;
@@ -120,6 +121,7 @@ export default function CompletionSheet({ token, bookingId, customerName, payout
   const [ackDone, setAckDone] = useState(false);
   const [prize, setPrize] = useState<PrizeSlice | null>(null);
   const [prizeDone, setPrizeDone] = useState(false);
+  const wheelSlices = useWheelSlices(groupForSegment(result?.segment));
 
   const addPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -227,7 +229,7 @@ export default function CompletionSheet({ token, bookingId, customerName, payout
             </p>
 
             {!prize ? (
-              <PrizeWheel slices={slicesForSegment(result.segment)} onResult={onWheelResult} />
+              <PrizeWheel slices={wheelSlices} onResult={onWheelResult} />
             ) : (
               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', damping: 18, stiffness: 220 }}>
                 <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-400/15 flex items-center justify-center mb-4">

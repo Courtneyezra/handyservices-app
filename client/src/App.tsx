@@ -65,6 +65,7 @@ const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
 const ContentLibrary = lazy(() => import("@/pages/admin/ContentLibrary"));
 const QuotePlatformPage = lazy(() => import("@/pages/admin/QuotePlatformPage"));
 const PricingSettingsPage = lazy(() => import("@/pages/admin/PricingSettingsPage"));
+const PrizeWheelPage = lazy(() => import("@/pages/admin/PrizeWheelPage"));
 const NotificationsPage = lazy(() => import("@/pages/admin/NotificationsPage"));
 const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
@@ -956,6 +957,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <SettingsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/prize-wheel">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PrizeWheelPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

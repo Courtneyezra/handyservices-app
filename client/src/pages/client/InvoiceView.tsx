@@ -19,7 +19,8 @@ import { HassleComparisonCard } from "@/components/quote/HassleComparisonCard";
 import { SiVisa, SiMastercard, SiAmericanexpress, SiApplepay } from "react-icons/si";
 import handyServicesLogo from "../../assets/handy-logo.webp";
 import PrizeWheel from "@/pages/contractor/PrizeWheel";
-import { slicesForCustomerType, type PrizeSlice } from "@/pages/contractor/prize-wheel-config";
+import { groupForCustomerType, type PrizeSlice } from "@/pages/contractor/prize-wheel-config";
+import { useWheelSlices } from "@/pages/contractor/useWheelSlices";
 import { Gift } from "lucide-react";
 import { generateBrandedInvoicePDF, generateSingleInvoicePDF, type BrandedInvoiceData } from "@/lib/invoice-pdf-branded";
 
@@ -682,7 +683,7 @@ function RewardWheelSection({ invoiceId, customerName, customerType, reviewUrl, 
   alreadyRecorded: boolean;
 }) {
   const [prize, setPrize] = useState<PrizeSlice | null>(null);
-  const slices = slicesForCustomerType(customerType);
+  const slices = useWheelSlices(groupForCustomerType(customerType));
 
   const onResult = (won: PrizeSlice) => {
     setPrize(won);

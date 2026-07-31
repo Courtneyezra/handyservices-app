@@ -73,6 +73,58 @@ const BUSINESS: PrizeSlice[] = [
     reveal: { title: '🌟 The golden slice — 15% off!', message: 'The rare one. 15% off your next job.' } },
 ];
 
+/** The three editable slice groups, keyed for admin config + weight overrides. */
+export type WheelGroup = 'homeowner' | 'landlord' | 'business';
+export const WHEEL_GROUPS: Record<WheelGroup, PrizeSlice[]> = {
+  homeowner: HOMEOWNER,
+  landlord: LANDLORD,
+  business: BUSINESS,
+};
+export const WHEEL_GROUP_LABELS: Record<WheelGroup, string> = {
+  homeowner: 'Homeowner',
+  landlord: 'Landlord / Property manager',
+  business: 'Business',
+};
+
+/** Admin-editable odds overrides: { group: { sliceId: weight } }. */
+export type WheelWeightOverrides = Partial<Record<WheelGroup, Record<string, number>>>;
+
+export function groupForCustomerType(customerType?: string | null): WheelGroup {
+  switch ((customerType || '').toLowerCase()) {
+    case 'landlord':
+    case 'property_manager':
+    case 'letting_agent':
+      return 'landlord';
+    case 'business':
+      return 'business';
+    default:
+      return 'homeowner';
+  }
+}
+
+export function groupForSegment(segment?: string | null): WheelGroup {
+  switch ((segment || '').toUpperCase()) {
+    case 'LANDLORD':
+    case 'PROP_MGR':
+      return 'landlord';
+    case 'SMALL_BIZ':
+      return 'business';
+    default:
+      return 'homeowner';
+  }
+}
+
+/** Apply admin weight overrides to a group's slices (missing ids keep their default weight). */
+export function applyWeightOverrides(group: WheelGroup, overrides?: WheelWeightOverrides): PrizeSlice[] {
+  const forGroup = overrides?.[group];
+  const slices = WHEEL_GROUPS[group];
+  if (!forGroup) return slices;
+  return slices.map((s) => {
+    const w = forGroup[s.id];
+    return typeof w === 'number' && w >= 0 ? { ...s, weight: w } : s;
+  });
+}
+
 /** Customer types that should NOT get the wheel by default (B2B / portfolio). */
 export const NON_WHEEL_CUSTOMER_TYPES = ['landlord', 'property_manager', 'letting_agent', 'business'];
 
