@@ -61,17 +61,23 @@ export default function PrizeWheel({ slices, onResult }: { slices: PrizeSlice[];
           {slices.map((s, i) => {
             const a0 = i * span, a1 = (i + 1) * span, mid = a0 + span / 2;
             const lp = rim(mid);
-            // label placed ~62% out along the mid-line, rotated to read radially
-            const lx = CX + (lp.x - CX) * 0.6, ly = CY + (lp.y - CY) * 0.6;
+            // Label sits ~70% out (where the wedge is wide) and reads tangentially.
+            const lr = 0.7;
+            const lx = CX + (lp.x - CX) * lr, ly = CY + (lp.y - CY) * lr;
+            // Flip labels on the lower half so they stay upright (not mirrored).
+            const flip = mid > 90 && mid < 270;
+            const rot = mid + (flip ? 180 : 0);
             const lines = s.label.split('\n');
+            const fs = s.golden ? 9 : 8.3;      // smaller → fits within the wedge
+            const lh = fs + 1.5;
             return (
               <g key={s.id}>
                 <path d={wedgePath(a0, a1)} fill={s.color} stroke="#0f172a" strokeWidth={1.5} />
-                <g transform={`translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${mid})`}>
+                <g transform={`translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${rot.toFixed(1)})`}>
                   {lines.map((ln, j) => (
-                    <text key={j} x={0} y={(j - (lines.length - 1) / 2) * 10 + 3}
-                      textAnchor="middle" fontSize={s.golden ? 11 : 9.5} fontWeight={800}
-                      fill={s.golden ? '#0f172a' : '#ffffff'} style={{ letterSpacing: 0.2 }}>
+                    <text key={j} x={0} y={(j - (lines.length - 1) / 2) * lh + fs * 0.34}
+                      textAnchor="middle" fontSize={fs} fontWeight={800}
+                      fill={s.golden ? '#0f172a' : '#ffffff'} style={{ letterSpacing: 0.1 }}>
                       {ln}
                     </text>
                   ))}
