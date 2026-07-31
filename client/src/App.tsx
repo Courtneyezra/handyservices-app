@@ -158,6 +158,7 @@ const CancellationPolicy = lazy(() => import("@/pages/CancellationPolicy"));
 
 // Client Portal Pages (public, token-based access)
 const InvoiceView = lazy(() => import("@/pages/client/InvoiceView"));
+const RewardsTermsPage = lazy(() => import("@/pages/RewardsTermsPage"));
 const LeaveReview = lazy(() => import("@/pages/client/LeaveReview"));
 const PaymentPage = lazy(() => import("@/pages/client/PaymentPage"));
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
@@ -385,6 +386,9 @@ function Router() {
                 </Route>
                 <Route path="/invoice/:token">
                     <InvoiceView />
+                </Route>
+                <Route path="/rewards-terms">
+                    <RewardsTermsPage />
                 </Route>
                 {/* Customer flexible-booking slot picker (public, token-based, no login) */}
                 <Route path="/confirm-slot/:token">

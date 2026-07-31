@@ -17,25 +17,43 @@ export interface PrizeSlice {
   weight: number;     // relative odds of landing here
   golden?: boolean;   // the rare "big win" slice
   reveal: { title: string; message: string };
+  terms?: string;     // the specific cap/condition for THIS prize (shown on reveal + email)
 }
 
-// Homeowner (owner-occupier) — levers are rebooking + referral.
+// Standard terms on every reward (shown on the /rewards-terms page + prize email).
+// UK ASA/CAP compliance: "free"/promo claims must be clear and bounded.
+export const STANDARD_TERMS: string[] = [
+  'One reward per customer.',
+  'Valid for 60 days from the date won — the code shows your expiry.',
+  'Applies to labour only unless stated; materials are charged separately.',
+  "Can't be combined with any other offer, reward or discount.",
+  'Subject to availability and our normal booking terms.',
+  'Handy Services may withdraw or void a reward in the event of misuse.',
+];
+
+// Homeowner (owner-occupier) — rebooking + genuine value; every offer is capped.
 const HOMEOWNER: PrizeSlice[] = [
   // UK homeowner, retention-focused: unlock "the list" + genuine returns.
   // Acquisition is handled by the review ask + SEO; referral lives in a separate
   // shareable link, not the wheel. Every slice is simple to honour.
   { id: 'bundle', label: 'CLEAR YOUR\nLIST', color: '#f59e0b', weight: 30,
-    reveal: { title: 'Book 3+ jobs — smallest one free', message: 'Got a list? Book three or more jobs in one visit and the smallest is on us.' } },
+    reveal: { title: 'Book 3+ jobs — smallest one free', message: 'Got a list? Book three or more jobs in one visit and the smallest is on us — labour up to £75.' },
+    terms: 'On 3 or more jobs booked in one visit. Free job = labour only, up to £75; materials extra.' },
   { id: 'minijob', label: 'FREE\nMINI JOB', color: '#10b981', weight: 24,
-    reveal: { title: 'A free 15-min job next visit', message: "Next time we're round, one quick job's on us — a shelf, a handle, a hook." } },
+    reveal: { title: 'A free 15-min job next visit', message: "Next time we're round, one quick job's on us — a shelf, a handle, a hook." },
+    terms: 'One task up to 15 minutes, labour only, on your next booked visit.' },
   { id: 'seasonal', label: 'FREE\nCHECK', color: '#14b8a6', weight: 18,
-    reveal: { title: 'A free home check next visit', message: "Gutters, smoke alarms or draughts — whatever the season needs, we'll check it free." } },
+    reveal: { title: 'A free home check next visit', message: "Gutters, smoke alarms or draughts — whatever the season needs, we'll check it free." },
+    terms: 'One visual home check on your next booked visit. Any repairs are quoted separately.' },
   { id: 'off15', label: '£15 OFF', color: '#f43f5e', weight: 15,
-    reveal: { title: '£15 off your next job', message: "We'll take £15 off your next booking." } },
+    reveal: { title: '£15 off your next job', message: "We'll take £15 off your next booking." },
+    terms: '£15 off labour on your next booked job (minimum job value £50).' },
   { id: 'priority', label: 'SKIP THE\nQUEUE', color: '#8b5cf6', weight: 10,
-    reveal: { title: 'Front of the queue', message: 'Your next booking jumps the line — first available slot, held for you.' } },
+    reveal: { title: 'Front of the queue', message: 'Your next booking jumps the line — first available slot, held for you.' },
+    terms: 'Priority scheduling on your next booking, subject to availability.' },
   { id: 'golden', label: 'GOLDEN\n25% OFF', color: '#fbbf24', weight: 3, golden: true,
-    reveal: { title: '🌟 Golden — 25% off your next job', message: 'The rare one. 25% off your next job, up to £50.' } },
+    reveal: { title: '🌟 Golden — 25% off your next job', message: 'The rare one. 25% off your next job, up to £50.' },
+    terms: '25% off labour on your next booked job, up to £50.' },
 ];
 
 // Landlord / property manager — key handling + portfolio referral.

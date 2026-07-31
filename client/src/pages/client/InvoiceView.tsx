@@ -675,24 +675,40 @@ function ReviewAsk({ reviewUrl }: { reviewUrl: string | null }) {
   );
 }
 
-function RewardWheelSection({ invoiceId, customerName, customerType, reviewUrl, alreadyRecorded }: {
+function RewardWheelSection({ invoiceId, customerName, customerEmail, customerType, reviewUrl, alreadyRecorded }: {
   invoiceId: string;
   customerName: string;
+  customerEmail: string | null;
   customerType: string | null;
   reviewUrl: string | null;
   alreadyRecorded: boolean;
 }) {
   const [prize, setPrize] = useState<PrizeSlice | null>(null);
+  const [email, setEmail] = useState(customerEmail || "");
+  const [claiming, setClaiming] = useState(false);
+  const [claim, setClaim] = useState<{ code: string; expiresAt: string; bookUrl: string } | null>(null);
+  const [error, setError] = useState("");
   const slices = useWheelSlices(groupForCustomerType(customerType));
 
-  const onResult = (won: PrizeSlice) => {
-    setPrize(won);
-    // Record the won prize so ops can honour it (best-effort, non-blocking).
-    fetch(`/api/invoices/${invoiceId}/prize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prize: won.reveal.title }),
-    }).catch(() => {});
+  const claimReward = async () => {
+    if (!prize) return;
+    setClaiming(true); setError("");
+    try {
+      const res = await fetch("/api/rewards/claim", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prizeId: prize.id, prizeTitle: prize.reveal.title, prizeMessage: prize.reveal.message,
+          prizeTerms: prize.terms ?? "", customerName, email, sourceType: "invoice", sourceId: invoiceId,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Something went wrong");
+      setClaim({ code: d.code, expiresAt: d.expiresAt, bookUrl: d.bookUrl });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setClaiming(false);
+    }
   };
 
   // Revisiting an already-spun paid invoice → skip the wheel, keep the review ask.
@@ -708,6 +724,8 @@ function RewardWheelSection({ invoiceId, customerName, customerType, reviewUrl, 
     );
   }
 
+  const expiryStr = claim ? new Date(claim.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : "";
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <Card className="bg-gray-800/50 border border-gray-700/50 overflow-hidden">
@@ -716,17 +734,53 @@ function RewardWheelSection({ invoiceId, customerName, customerType, reviewUrl, 
             <>
               <div className="text-[10px] text-[#e8b323] uppercase tracking-widest font-bold mb-1">A little thank-you</div>
               <h3 className="text-2xl font-bold text-white mb-5">Give it a spin, {customerName} 🎉</h3>
-              <PrizeWheel slices={slices} onResult={onResult} />
+              <PrizeWheel slices={slices} onResult={setPrize} />
             </>
-          ) : (
+          ) : !claim ? (
+            /* Reveal + email capture (the action) */
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", damping: 18, stiffness: 220 }}>
               <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-400/15 flex items-center justify-center mb-4">
                 <Gift className="h-8 w-8 text-amber-400" />
               </div>
               <div className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mb-1">You won</div>
               <h3 className="text-2xl font-extrabold text-white leading-tight px-2">{prize.reveal.title}</h3>
-              <p className="text-sm text-gray-400 mt-2 mb-3 px-2">{prize.reveal.message}</p>
-              <p className="text-[11px] text-gray-500 mb-1">Saved against your name — just mention it next time.</p>
+              <p className="text-sm text-gray-400 mt-2 mb-2 px-2">{prize.reveal.message}</p>
+              {prize.terms && (
+                <p className="text-[11px] text-gray-500 mb-4 px-4 leading-snug">
+                  {prize.terms}{" "}
+                  <a href="/rewards-terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-300">Terms apply</a>
+                </p>
+              )}
+              <div className="text-left max-w-sm mx-auto">
+                <label className="text-xs text-gray-400">Pop your email in and we'll send your prize over — yours for 60 days.</label>
+                <div className="flex gap-2 mt-2">
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com"
+                    className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#e8b323]/40" />
+                  <button onClick={claimReward} disabled={claiming || !email}
+                    className="px-5 py-3 rounded-xl bg-[#e8b323] text-[#1a1a2e] font-bold whitespace-nowrap active:scale-[0.98] transition-transform disabled:opacity-50">
+                    {claiming ? "Sending…" : "Send it"}
+                  </button>
+                </div>
+                {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
+              </div>
+            </motion.div>
+          ) : (
+            /* Claimed → code + expiry + book-now CTA + review ask */
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", damping: 18, stiffness: 220 }}>
+              <div className="mx-auto w-14 h-14 rounded-full bg-green-500 flex items-center justify-center mb-3">
+                <Check className="h-7 w-7 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-white">On its way to your inbox 📩</h3>
+              <p className="text-sm text-gray-400 mt-1 mb-4">{prize.reveal.title}</p>
+              <div className="inline-block font-mono text-lg font-extrabold tracking-[0.2em] text-white bg-white/5 border-2 border-dashed border-white/20 rounded-xl px-5 py-3">{claim.code}</div>
+              <p className="text-xs text-gray-500 mt-2 mb-5">
+                Quote this when you book · valid until {expiryStr} ·{" "}
+                <a href="/rewards-terms" target="_blank" rel="noopener noreferrer" className="underline">terms</a>
+              </p>
+              <a href={claim.bookUrl} target="_blank" rel="noopener noreferrer"
+                className="block w-full py-3.5 rounded-2xl bg-[#e8b323] text-[#1a1a2e] font-extrabold text-lg active:scale-[0.99] transition-transform">
+                Book it now →
+              </a>
               <ReviewAsk reviewUrl={reviewUrl} />
             </motion.div>
           )}
@@ -880,6 +934,7 @@ function InvoicePageContent() {
           <RewardWheelSection
             invoiceId={invoice.id}
             customerName={invoice.customerName}
+            customerEmail={invoice.customerEmail}
             customerType={customerType}
             reviewUrl={reviewUrl}
             alreadyRecorded={prizeAlreadyRecorded}

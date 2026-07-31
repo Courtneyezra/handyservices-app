@@ -2,9 +2,9 @@ import { Router } from 'express';
 import Stripe from 'stripe';
 import { db } from './db';
 import { notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
-import { invoices, contractorBookingRequests, personalizedQuotes, leads } from '../shared/schema';
+import { invoices, contractorBookingRequests, personalizedQuotes, leads, customerRewards } from '../shared/schema';
 import type { Invoice, InsertInvoice } from '../shared/schema';
-import { eq, sql, inArray } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendInvoiceEmail } from './email-service';
 import { getInvoiceUpsells, getWhatsAppNumber, type InvoiceUpsell } from './invoice-upsells';
@@ -685,7 +685,10 @@ invoiceRouter.get('/api/invoices/public/:invoiceId', async (req, res) => {
         if (/\[wheel:on\]/i.test(notesText)) showRewardWheel = true;
         const placeId = process.env.GOOGLE_PLACE_ID || '';
         const reviewUrl = placeId ? `https://search.google.com/local/writereview?placeid=${placeId}` : null;
-        const prizeAlreadyRecorded = /🎁 Prize won:/.test(notesText);
+        // Already claimed on a prior visit? (reward lives in customer_rewards now.)
+        const [existingReward] = await db.select({ id: customerRewards.id }).from(customerRewards)
+            .where(and(eq(customerRewards.sourceType, 'invoice'), eq(customerRewards.sourceId, invoice.id))).limit(1);
+        const prizeAlreadyRecorded = !!existingReward;
 
         // Fetch job evidence photos if available
         let jobEvidence: { evidenceUrls: string[]; completedAt: string | null; completionNotes: string | null } | null = null;

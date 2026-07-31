@@ -146,6 +146,72 @@ export async function sendBookingConfirmationEmail(data: BookingConfirmationData
     }
 }
 
+// Prize-wheel reward — sent when a customer claims their post-payment prize.
+interface PrizeEmailData {
+    customerName: string;
+    customerEmail: string;
+    prizeTitle: string;
+    prizeMessage: string;
+    prizeTerms?: string;
+    code: string;
+    expiresAt: Date;
+    bookUrl: string;
+}
+
+export async function sendPrizeEmail(data: PrizeEmailData): Promise<{ success: boolean; error?: string }> {
+    const resend = getResend();
+    if (!resend) {
+        console.log('[Email] Resend not configured - skipping prize email to', data.customerEmail);
+        return { success: false, error: 'Email service not configured' };
+    }
+    if (!data.customerEmail) return { success: false, error: 'No email address provided' };
+
+    const expires = data.expiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Your Handy reward</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 0; background:#f5f7fa;">
+  <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 32px; text-align:center; border-radius: 10px 10px 0 0;">
+    <div style="font-size:40px; line-height:1;">🎁</div>
+    <h1 style="color:#e8b323; margin:12px 0 0; font-size:24px;">You won a little something, ${data.customerName || 'there'}</h1>
+  </div>
+  <div style="background:#ffffff; padding:28px; border-radius:0 0 10px 10px;">
+    <div style="text-align:center; padding:20px; background:#fffbeb; border:1px solid #fde68a; border-radius:12px;">
+      <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#b45309; font-weight:700;">Your prize</div>
+      <div style="font-size:22px; font-weight:800; color:#1e293b; margin:6px 0;">${data.prizeTitle}</div>
+      <div style="font-size:14px; color:#64748b;">${data.prizeMessage}</div>
+    </div>
+    <div style="text-align:center; margin:22px 0;">
+      <div style="font-size:12px; color:#64748b; margin-bottom:6px;">Quote this code when you book</div>
+      <div style="display:inline-block; font-family:monospace; font-size:22px; font-weight:800; letter-spacing:3px; color:#0f172a; background:#f1f5f9; border:2px dashed #cbd5e1; border-radius:10px; padding:12px 20px;">${data.code}</div>
+      <div style="font-size:13px; color:#64748b; margin-top:10px;">Valid until <strong>${expires}</strong></div>
+    </div>
+    <div style="text-align:center; margin:26px 0 8px;">
+      <a href="${data.bookUrl}" style="display:inline-block; background:#e8b323; color:#1a1a2e; font-weight:800; font-size:16px; text-decoration:none; padding:14px 34px; border-radius:12px;">Book it now →</a>
+    </div>
+    ${data.prizeTerms ? `<p style="text-align:center; font-size:11px; color:#94a3b8; margin-top:20px; line-height:1.5;">${data.prizeTerms}<br><a href="${process.env.BASE_URL || 'https://www.handyservices.app'}/rewards-terms" style="color:#94a3b8;">Terms &amp; conditions apply</a></p>` : ''}
+    <p style="text-align:center; font-size:12px; color:#94a3b8; margin-top:22px;">Handy Services · handyservices.app</p>
+  </div>
+</body>
+</html>`;
+
+    try {
+        const { data: result, error } = await resend.emails.send({
+            from: 'Handy Services <bookings@handyservices.co.uk>',
+            to: [data.customerEmail],
+            subject: `🎁 Your Handy reward: ${data.prizeTitle}`,
+            html: emailHtml,
+        });
+        if (error) { console.error('[Email] Failed to send prize email:', error); return { success: false, error: error.message }; }
+        console.log(`[Email] Prize email sent to ${data.customerEmail} (ID: ${result?.id})`);
+        return { success: true };
+    } catch (err: any) {
+        console.error('[Email] Error sending prize email:', err);
+        return { success: false, error: err.message };
+    }
+}
+
 // Job assignment notification for contractors
 interface JobAssignmentEmailData {
     contractorName: string;
