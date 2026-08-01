@@ -897,6 +897,23 @@ function InvoicePageContent() {
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5 relative z-10">
 
         {/* ============================================ */}
+        {/* CUSTOMER-TYPE SKIN — warm for homeowners, professional for B2B */}
+        {/* ============================================ */}
+        {(() => {
+          const warm = !isLandlordType && (customerType || "").toLowerCase() !== "business";
+          return (
+            <div className="text-center pt-1 pb-1">
+              <h1 className="text-2xl font-extrabold text-white leading-tight text-balance">
+                {warm ? `Hi ${invoice.customerName} 👋` : `Invoice for ${invoice.customerName}`}
+              </h1>
+              <p className="text-sm text-gray-400 mt-1.5">
+                {warm ? "Thanks for choosing Handy — here's your invoice." : "Thank you for your business."}
+              </p>
+            </div>
+          );
+        })()}
+
+        {/* ============================================ */}
         {/* PAID CONFIRMATION STATE */}
         {/* ============================================ */}
         {isPaid && (
