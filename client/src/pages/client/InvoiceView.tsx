@@ -832,6 +832,7 @@ function InvoicePageContent() {
   const showRewardWheel = publicQuery.data?.showRewardWheel ?? false;
   const reviewUrl = publicQuery.data?.reviewUrl ?? null;
   const customerType = publicQuery.data?.customerType ?? null;
+  const isLandlordType = ["landlord", "property_manager", "letting_agent"].includes((customerType || "").toLowerCase());
   const prizeAlreadyRecorded = publicQuery.data?.prizeAlreadyRecorded ?? false;
 
   // Loading
@@ -1278,8 +1279,9 @@ function InvoicePageContent() {
         </SectionWrapper>
 
         {/* ============================================ */}
-        {/* LANDLORD PLATFORM PROMO */}
+        {/* LANDLORD PLATFORM PROMO — landlord / property-manager customers only */}
         {/* ============================================ */}
+        {isLandlordType && (
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -1333,6 +1335,7 @@ function InvoicePageContent() {
             </div>
           </div>
         </motion.section>
+        )}
 
         {/* ============================================ */}
         {/* CONTEXTUAL TRUST STRIP — exact quote page ContextualTrustStrip */}
