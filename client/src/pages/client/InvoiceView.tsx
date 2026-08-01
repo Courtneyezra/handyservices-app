@@ -1055,7 +1055,7 @@ function InvoicePageContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.6 }}
           >
-            <div className="rounded-2xl p-6 sm:p-8 border border-gray-700/50 bg-gradient-to-br from-gray-800/70 to-gray-900/70 backdrop-blur-sm shadow-xl">
+            <div id="pay-now" className="scroll-mt-4 rounded-2xl p-6 sm:p-8 border border-gray-700/50 bg-gradient-to-br from-gray-800/70 to-gray-900/70 backdrop-blur-sm shadow-xl">
               {/* Amount display */}
               <div className="text-center mb-6">
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold mb-1">Amount Due</p>
@@ -1341,7 +1341,31 @@ function InvoicePageContent() {
             Handy Services {"\u00A9"} {new Date().getFullYear()}
           </p>
         </motion.div>
+
+        {/* spacer so the sticky bar doesn't hide the footer */}
+        {!isPaid && hasBalance && <div className="h-20" aria-hidden />}
       </div>
+
+      {/* Sticky pay bar — follows the scroll, like the quote page */}
+      {!isPaid && hasBalance && (
+        <div className="fixed bottom-0 inset-x-0 z-50 bg-gray-900/95 backdrop-blur border-t border-gray-700/60 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
+            <div className="leading-tight">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Balance due</p>
+              <p className="text-xl font-extrabold text-[#e8b323]">{formatPence(invoice.balanceDue)}</p>
+            </div>
+            <button
+              onClick={() => {
+                document.getElementById("pay-now")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                setTimeout(() => document.querySelector<HTMLInputElement>('#pay-now input[type="email"]')?.focus(), 400);
+              }}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#7DB00E] hover:bg-[#6da000] text-white font-bold active:scale-95 transition-all shadow-lg shadow-[#7DB00E]/25"
+            >
+              <Lock className="h-4 w-4" /> Pay now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
