@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { Card, CardContent } from "@/components/ui/card";
 import { NeonBadge } from "@/components/ui/neon-badge";
@@ -147,7 +147,7 @@ const staggerItem = {
 };
 
 // ==========================================
-// Invoice Payment Form (Stripe CardElement)
+// Invoice Payment Form (Stripe PaymentElement — card + Apple/Google Pay + Link)
 // ==========================================
 
 function InvoicePaymentForm({
@@ -163,85 +163,33 @@ function InvoicePaymentForm({
   customerEmail: string | null;
   onSuccess: () => void;
 }) {
-  const stripe = useStripe();
-  const elements = useElements();
-
   const [email, setEmail] = useState(customerEmail || "");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [isLoadingIntent, setIsLoadingIntent] = useState(false);
-
+  const [error, setError] = useState<string | null>(null);
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+  // Create the PaymentIntent once the email is valid; Elements is built FROM its
+  // client secret so the PaymentElement shows the account's configured methods
+  // (card + Apple Pay + Google Pay + Link).
   useEffect(() => {
-    if (!isEmailValid) return;
-
+    if (!isEmailValid) { setClientSecret(null); return; }
     let cancelled = false;
     setIsLoadingIntent(true);
     setError(null);
-
     fetch(`/api/invoices/${invoiceId}/pay`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ payerEmail: email }),
     })
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed to initialize payment");
-        return r.json();
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setClientSecret(data.clientSecret);
-          setIsLoadingIntent(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err.message);
-          setIsLoadingIntent(false);
-        }
-      });
-
+      .then((r) => { if (!r.ok) throw new Error("Couldn't start the payment. Please try again."); return r.json(); })
+      .then((data) => { if (!cancelled) { setClientSecret(data.clientSecret); setIsLoadingIntent(false); } })
+      .catch((err) => { if (!cancelled) { setError(err.message); setIsLoadingIntent(false); } });
     return () => { cancelled = true; };
   }, [invoiceId, email, isEmailValid]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements || !clientSecret) return;
-
-    setIsProcessing(true);
-    setError(null);
-
-    try {
-      const cardElement = elements.getElement(CardElement);
-      if (!cardElement) throw new Error("Card element not found");
-
-      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(
-        clientSecret,
-        {
-          payment_method: {
-            card: cardElement,
-            billing_details: { email },
-          },
-        }
-      );
-
-      if (stripeError) throw new Error(stripeError.message);
-      if (paymentIntent?.status === "succeeded") {
-        onSuccess();
-      } else {
-        throw new Error("Payment was not successful");
-      }
-    } catch (err: any) {
-      setError(err.message || "Payment failed. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <div className="space-y-5">
       {/* Email */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-white flex items-center gap-2">
@@ -257,46 +205,20 @@ function InvoicePaymentForm({
         />
       </div>
 
-      {/* Card Element */}
-      {isEmailValid && (
-        <>
-          {isLoadingIntent ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-[#7DB00E]" />
-              <span className="ml-3 text-sm text-gray-400">Preparing secure payment...</span>
-            </div>
-          ) : clientSecret ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-[#e8b323]" />
-                Card Details
-              </label>
-              <div className="border border-gray-600 rounded-xl p-4 bg-gray-800/80 backdrop-blur-sm transition-all focus-within:border-[#7DB00E] focus-within:ring-1 focus-within:ring-[#7DB00E] focus-within:shadow-[0_0_15px_rgba(125,176,14,0.15)]">
-                <CardElement
-                  options={{
-                    hidePostalCode: false,
-                    style: {
-                      base: {
-                        fontSize: "16px",
-                        fontFamily: "system-ui, -apple-system, sans-serif",
-                        color: "#ffffff",
-                        backgroundColor: "transparent",
-                        iconColor: "#7DB00E",
-                        "::placeholder": { color: "#6b7280" },
-                      },
-                      invalid: { color: "#f87171", iconColor: "#f87171" },
-                      complete: { color: "#4ade80", iconColor: "#4ade80" },
-                    },
-                  }}
-                />
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <Lock className="h-3 w-3" />
-                <span>256-bit encrypted. Secured by Stripe.</span>
-              </div>
-            </div>
-          ) : null}
-        </>
+      {isEmailValid && isLoadingIntent && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-[#7DB00E]" />
+          <span className="ml-3 text-sm text-gray-400">Preparing secure payment…</span>
+        </div>
+      )}
+
+      {isEmailValid && clientSecret && (
+        <Elements
+          stripe={getStripe()}
+          options={{ clientSecret, appearance: { theme: "night", variables: { colorPrimary: "#7DB00E", colorBackground: "#1f2937" } } }}
+        >
+          <InvoicePayInner balanceDue={balanceDue} onSuccess={onSuccess} onError={setError} />
+        </Elements>
       )}
 
       {error && (
@@ -306,27 +228,8 @@ function InvoicePaymentForm({
         </div>
       )}
 
-      {/* Pay Button */}
-      <button
-        type="submit"
-        disabled={!stripe || isProcessing || isLoadingIntent || !clientSecret || !isEmailValid || !isStripeConfigured}
-        className="w-full h-14 bg-[#7DB00E] hover:bg-[#6da000] disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold text-lg rounded-xl shadow-lg shadow-[#7DB00E]/20 hover:shadow-[#7DB00E]/30 active:scale-[0.98] transition-all"
-      >
-        {isProcessing ? (
-          <span className="flex items-center justify-center gap-2">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Processing Payment...
-          </span>
-        ) : (
-          <span className="flex items-center justify-center gap-2">
-            <Lock className="h-4 w-4" />
-            Pay {formatPence(balanceDue)} Securely
-          </span>
-        )}
-      </button>
-
-      {/* Payment Methods Strip — real icons from quote page */}
-      <div className="flex flex-col items-center gap-2 pt-3">
+      {/* Payment Methods Strip */}
+      <div className="flex flex-col items-center gap-2 pt-1">
         <div className="flex items-center gap-3 opacity-60">
           <SiVisa className="w-7 h-7 text-[#1434CB]" />
           <SiMastercard className="w-7 h-7 text-[#EB001B]" />
@@ -335,10 +238,62 @@ function InvoicePaymentForm({
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
           <Lock className="w-3 h-3" />
-          Secure payments via Stripe {"\u00B7"} 256-bit SSL
+          Secure payments via Stripe · 256-bit SSL
         </div>
       </div>
-    </form>
+    </div>
+  );
+}
+
+// PaymentElement + confirm, inside an Elements provider that already holds the
+// client secret — renders card + Apple Pay + Google Pay + Link and confirms it.
+function InvoicePayInner({ balanceDue, onSuccess, onError }: {
+  balanceDue: number;
+  onSuccess: () => void;
+  onError: (msg: string | null) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handlePay = async () => {
+    if (!stripe || !elements) return;
+    setIsProcessing(true);
+    onError(null);
+    try {
+      const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: "if_required",
+      });
+      if (confirmError) throw new Error(confirmError.message || "Payment failed. Please try again.");
+      if (paymentIntent?.status === "succeeded") onSuccess();
+      else throw new Error("Payment wasn't completed. Please try again.");
+    } catch (err: any) {
+      onError(err.message || "Payment failed. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl p-4 bg-gray-800/80 border border-gray-600">
+        <PaymentElement options={{ layout: "tabs" }} />
+      </div>
+      <button
+        type="button"
+        onClick={handlePay}
+        disabled={!stripe || isProcessing || !isStripeConfigured}
+        className="w-full h-14 bg-[#7DB00E] hover:bg-[#6da000] disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold text-lg rounded-xl shadow-lg shadow-[#7DB00E]/20 hover:shadow-[#7DB00E]/30 active:scale-[0.98] transition-all"
+      >
+        {isProcessing ? (
+          <span className="flex items-center justify-center gap-2"><Loader2 className="h-5 w-5 animate-spin" />Processing…</span>
+        ) : (
+          <span className="flex items-center justify-center gap-2"><Lock className="h-4 w-4" />Pay {formatPence(balanceDue)} securely</span>
+        )}
+      </button>
+    </div>
   );
 }
 
