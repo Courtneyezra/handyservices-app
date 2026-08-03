@@ -1344,12 +1344,17 @@ router.post('/booking/:quoteId/reschedule', async (req: Request, res: Response) 
             }
         }
 
-        // Update booking with new date/slot
+        // Update booking with new date/slot. scheduled_dates MUST move too —
+        // readers trust that jsonb array (timezone-immune) over the timestamp;
+        // leaving it stale strands the booking on the old day and hides it.
         const parsedNewDate = new Date(newDate);
+        const { expandSpanDates } = await import('../shared/schedule-composition');
+        const newDateStr = (typeof newDate === 'string' ? newDate : parsedNewDate.toISOString()).slice(0, 10);
         const [updatedJob] = await db.update(contractorBookingRequests)
             .set({
                 scheduledDate: parsedNewDate,
                 requestedDate: parsedNewDate,
+                scheduledDates: expandSpanDates(newDateStr, job.durationDays, null),
                 scheduledSlot: newSlot,
                 requestedSlot: newSlot,
                 dayOfStatus: 'scheduled',

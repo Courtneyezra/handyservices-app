@@ -108,11 +108,16 @@ jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {
             });
         }
 
-        // Assign the job
+        // Assign the job. scheduled_dates MUST track scheduled_date — readers
+        // trust that jsonb array (timezone-immune) over the timestamp; a bare
+        // timestamp write strands the array on the old day and hides the job.
+        const { expandSpanDates } = await import('../shared/schedule-composition');
+        const newDateStr = (typeof scheduledDate === 'string' ? scheduledDate : new Date(scheduledDate).toISOString()).slice(0, 10);
         const [updatedJob] = await db.update(contractorBookingRequests)
             .set({
                 assignedContractorId: contractorId,
                 scheduledDate: targetDate,
+                scheduledDates: expandSpanDates(newDateStr, job.durationDays, null),
                 scheduledStartTime: scheduledStartTime || availableStartTime,
                 scheduledEndTime: scheduledEndTime || availableEndTime,
                 assignedAt: new Date(),
