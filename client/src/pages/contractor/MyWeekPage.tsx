@@ -179,7 +179,71 @@ interface JobDetail {
   payoutPence: number | null;
   materialsAllowancePence: number | null;
   payLines: PayLine[] | null;
+  // History-only: completion proof shown for past jobs.
+  completed?: boolean;
+  completedAt?: string | null;
+  evidenceUrls?: string[] | null;
+  signatureDataUrl?: string | null;
+  completionNotes?: string | null;
 }
+
+// Candidate days to move a booked visit onto (server-validated feasibility).
+interface MoveOptions {
+  multiDay: boolean;
+  currentDate: string | null;
+  slot: string;
+  slotLabel?: string;
+  deadline?: string | null;
+  days: Array<{ date: string; ok: boolean; reason?: string }>;
+}
+
+// One earlier week of read-only history (loaded on demand, one tap = one week back).
+interface PastJob {
+  id: string;
+  date: string;
+  durationDays: number;
+  customerName: string;
+  postcodeArea: string | null;
+  jobDescription: string | null;
+  fullDescription: string | null;
+  mapQuery: string | null;
+  photoUrls: string[] | null;
+  valuePence: number | null;
+  payoutPence: number | null;
+  materialsAllowancePence: number | null;
+  payLines: PayLine[] | null;
+  completed: boolean;
+  completedAt: string | null;
+  evidenceUrls: string[] | null;
+  signatureDataUrl: string | null;
+  completionNotes: string | null;
+}
+interface PastWeek {
+  weeksBack: number;
+  weekStart: string;
+  weekEnd: string;
+  label: string;
+  earnedPence: number;
+  jobs: PastJob[];
+}
+const pastToDetail = (j: PastJob): JobDetail => ({
+  id: j.id,
+  title: j.customerName.trim(),
+  area: j.postcodeArea,
+  whenLabel: `${format(new Date(j.date + 'T00:00:00'), 'EEE d MMM')}${(j.durationDays ?? 1) > 1 ? ` · ${j.durationDays} days` : ''}`,
+  status: 'booked',
+  fullDescription: j.fullDescription,
+  mapQuery: j.mapQuery,
+  photoUrls: j.photoUrls,
+  payoutPence: j.payoutPence,
+  materialsAllowancePence: j.materialsAllowancePence,
+  payLines: j.payLines,
+  completed: j.completed,
+  completedAt: j.completedAt,
+  evidenceUrls: j.evidenceUrls,
+  signatureDataUrl: j.signatureDataUrl,
+  completionNotes: j.completionNotes,
+});
 const bookedToDetail = (b: BookedJob): JobDetail => ({
   id: b.id,
   title: b.customerName.trim(),
@@ -238,6 +302,24 @@ export default function MyWeekPage() {
   const [lockError, setLockError] = useState<string | null>(null);
   const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
   const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
+  // Move-a-job flow: when open, the detail sheet swaps to a day picker.
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveConfirm, setMoveConfirm] = useState<string | null>(null); // date pending confirm
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const closeJobDetail = () => { setJobDetail(null); setMoveOpen(false); setMoveConfirm(null); setMoveError(null); };
+  // Read-only job history — earlier weeks loaded one tap at a time (walk back).
+  const [pastWeeks, setPastWeeks] = useState<PastWeek[]>([]);
+  const [loadingPast, setLoadingPast] = useState(false);
+  const loadEarlierWeek = async () => {
+    if (loadingPast) return;
+    const weeksBack = pastWeeks.length + 1;
+    setLoadingPast(true);
+    try {
+      const res = await fetch(`/api/contractor-app/${token}/past-jobs?weeksBack=${weeksBack}`);
+      if (res.ok) { const week: PastWeek = await res.json(); setPastWeeks((prev) => [...prev, week]); }
+    } catch { /* leave the button so they can retry */ }
+    finally { setLoadingPast(false); }
+  };
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<AppPayload>({
     queryKey: ['contractor-app', token],
@@ -377,6 +459,33 @@ export default function MyWeekPage() {
       // Re-rank — the engine knows something the suggestions didn't.
       queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
     },
+  });
+
+  // ── Move a booked visit to another day ──
+  const { data: moveOptions, isFetching: moveLoading } = useQuery<MoveOptions>({
+    queryKey: ['contractor-app-move-options', token, jobDetail?.id],
+    enabled: moveOpen && !!jobDetail?.id && jobDetail?.status === 'booked',
+    queryFn: async () => {
+      const res = await fetch(`/api/contractor-app/${token}/jobs/${jobDetail!.id}/move-options`);
+      if (!res.ok) throw new Error('Could not load days');
+      return res.json();
+    },
+  });
+  const moveMutation = useMutation({
+    mutationFn: async ({ bookingId, date }: { bookingId: string; date: string }) => {
+      const res = await fetch(`/api/contractor-app/${token}/jobs/${bookingId}/move`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Could not move the job');
+      return res.json();
+    },
+    onSuccess: () => {
+      closeJobDetail();
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-day-plans', token] });
+    },
+    onError: (e: any) => { setMoveConfirm(null); setMoveError(e?.message || 'Could not move the job'); },
   });
 
   // ── Day override mutation (optimistic) ──
@@ -1016,6 +1125,58 @@ export default function MyWeekPage() {
                 {placeError && <p className="mb-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>}
 
                 <div className="space-y-2 mb-7">
+                  {/* Walk back through history — each tap unlocks the previous week and slides it in above "This week". */}
+                  {pastWeeks.length < 12 && (
+                    <button
+                      onClick={loadEarlierWeek}
+                      disabled={loadingPast}
+                      className="w-full py-2 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-slate-500 active:text-slate-300 transition-colors disabled:opacity-50">
+                      <ChevronLeft size={13} className="rotate-90" />
+                      {loadingPast ? 'Loading…' : pastWeeks.length === 0 ? 'See earlier jobs' : 'See the week before'}
+                    </button>
+                  )}
+                  <AnimatePresence initial={false}>
+                    {[...pastWeeks].sort((a, b) => b.weeksBack - a.weeksBack).map((wk) => (
+                      <motion.div
+                        key={wk.weeksBack}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.28, ease: 'easeOut' }}
+                        className="overflow-hidden">
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 shrink-0">{wk.label}</span>
+                          <span className="flex-1 h-px bg-slate-800/70" />
+                          {wk.earnedPence > 0 && <span className="text-[10px] font-bold text-emerald-500/80 shrink-0">£{Math.round(wk.earnedPence / 100)} earned</span>}
+                        </div>
+                        {wk.jobs.length === 0 ? (
+                          <p className="py-2 text-[11px] text-slate-600">No jobs this week</p>
+                        ) : (
+                          <div className="space-y-1.5 mt-1.5">
+                            {wk.jobs.map((j) => (
+                              <button
+                                key={j.id}
+                                onClick={() => setJobDetail(pastToDetail(j))}
+                                className="w-full text-left p-3 rounded-xl bg-slate-900/50 border border-slate-800 active:scale-[0.99] transition-transform">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-bold text-slate-300 truncate">
+                                    {format(new Date(j.date + 'T00:00:00'), 'EEE d')} · {j.customerName.trim()}{j.postcodeArea ? ` · ${j.postcodeArea}` : ''}
+                                  </span>
+                                  {j.completed
+                                    ? <span className="shrink-0 flex items-center gap-1 text-[9px] font-bold text-emerald-400"><Check size={11} />Done</span>
+                                    : <span className="shrink-0 text-[9px] font-bold text-slate-500">Past</span>}
+                                </div>
+                                <div className="flex items-baseline gap-1.5 mt-1">
+                                  {j.payoutPence != null && <span className="text-sm font-bold text-slate-200">£{Math.round(j.payoutPence / 100)}</span>}
+                                  {j.jobDescription && <span className="text-[10px] text-slate-500 truncate">{j.jobDescription}</span>}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                   {planRows.map((row, rowIdx) => {
                     // Proposed block span-days are ghosts (not yet booked) — only real bookings are 'busy'.
                     const state = row.booked.length > 0 ? 'busy' : row.block || row.blockSpan || row.pack || row.suggested ? 'ghost' : row.g && (row.g.am === 'open' || row.g.pm === 'open') ? 'open' : 'off';
@@ -1430,7 +1591,7 @@ export default function MyWeekPage() {
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setJobDetail(null)}
+            onClick={closeJobDetail}
           >
             <motion.div
               initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
@@ -1447,7 +1608,7 @@ export default function MyWeekPage() {
                       {jobDetail.area ? jobDetail.area : ''}{jobDetail.area && jobDetail.whenLabel ? ' · ' : ''}{jobDetail.whenLabel}
                     </div>
                   </div>
-                  <button onClick={() => setJobDetail(null)} className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 shrink-0" aria-label="Close"><X size={16} /></button>
+                  <button onClick={closeJobDetail} className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 shrink-0" aria-label="Close"><X size={16} /></button>
                 </div>
 
                 {/* Directions */}
@@ -1469,16 +1630,60 @@ export default function MyWeekPage() {
                     <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-400/80">You earn</div>
                     <div className="text-lg font-black text-emerald-300 leading-none mt-0.5">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</div>
                   </div>
-                  <div className="flex-1 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700">
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Materials · your card</div>
-                    <div className="text-lg font-black text-slate-200 leading-none mt-0.5">£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</div>
-                  </div>
+                  {/* "Your card" is a forward-looking spend budget — irrelevant for finished history jobs. */}
+                  {jobDetail.materialsAllowancePence != null && (
+                    <div className="flex-1 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700">
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Materials · your card</div>
+                      <div className="text-lg font-black text-slate-200 leading-none mt-0.5">£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</div>
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Scroll region — the ONLY variable-height part, so 1-task and
                 * 20-task jobs share an identical frame. */}
               <div className="p-5 pt-4 overflow-y-auto">
+                {moveOpen ? (
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <button onClick={() => { setMoveOpen(false); setMoveConfirm(null); setMoveError(null); }} className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 shrink-0" aria-label="Back"><ChevronLeft size={15} /></button>
+                      <span className="text-sm font-bold text-white">Move to another day</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mb-3 ml-9">
+                      Same time ({moveOptions?.slotLabel ?? 'same slot'}), same pay. The customer gets told the new day.
+                    </p>
+                    {moveError && <p className="mb-2 text-[11px] font-semibold text-red-400">{moveError}</p>}
+                    {moveLoading ? (
+                      <p className="py-6 text-center text-xs text-slate-500">Finding open days…</p>
+                    ) : moveOptions?.multiDay ? (
+                      <p className="py-6 text-center text-xs text-slate-400">This is a multi-day job — message Handy and we'll reschedule the whole block with you.</p>
+                    ) : (() => {
+                      const okDays = (moveOptions?.days ?? []).filter((d) => d.ok);
+                      if (okDays.length === 0) return <p className="py-6 text-center text-xs text-slate-400">No open days in the window. Free up a day first, then move it here.</p>;
+                      return (
+                        <div className="space-y-1.5">
+                          {okDays.map((d) => {
+                            const confirming = moveConfirm === d.date;
+                            const dObj = new Date(d.date + 'T00:00:00');
+                            return (
+                              <button
+                                key={d.date}
+                                disabled={moveMutation.isPending}
+                                onClick={() => (confirming ? moveMutation.mutate({ bookingId: jobDetail.id, date: d.date }) : (setMoveConfirm(d.date), setMoveError(null)))}
+                                className={`w-full flex items-center justify-between gap-2 p-3 rounded-xl border transition-all active:scale-[0.99] ${confirming ? 'bg-emerald-500 border-emerald-400 text-slate-950' : 'bg-slate-800/50 border-slate-700 text-slate-200'}`}>
+                                <span className="text-sm font-bold">{format(dObj, 'EEEE d MMM')}</span>
+                                <span className={`text-[11px] font-bold ${confirming ? 'text-slate-900' : 'text-blue-300'}`}>
+                                  {confirming ? (moveMutation.isPending ? 'Moving…' : 'Confirm move ›') : 'Move here'}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                <>
                 {/* Photos from the quote */}
                 {jobDetail.photoUrls && jobDetail.photoUrls.length > 0 && (
                   <div className="mb-4 -mx-1">
@@ -1499,6 +1704,34 @@ export default function MyWeekPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* COMPLETION PROOF — history only: what Craig handed over (finished-work photos + customer signature) */}
+                {jobDetail.completed && (jobDetail.evidenceUrls?.length || jobDetail.signatureDataUrl) && (
+                  <div className="mb-4 p-3 rounded-2xl bg-emerald-500/8 border border-emerald-500/25">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Check size={13} className="text-emerald-400" strokeWidth={3} />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                        Completed{jobDetail.completedAt ? ` · ${format(new Date(jobDetail.completedAt + 'T00:00:00'), 'd MMM')}` : ''}
+                      </span>
+                    </div>
+                    {jobDetail.evidenceUrls && jobDetail.evidenceUrls.length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5">
+                        {jobDetail.evidenceUrls.map((url, i) => (
+                          <button key={i} onClick={() => setLightbox({ urls: jobDetail.evidenceUrls!, index: i })} className="shrink-0 active:scale-95 transition-transform">
+                            <img src={url} alt="" loading="lazy" className="w-20 h-20 rounded-xl object-cover border border-emerald-500/30" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {jobDetail.signatureDataUrl && (
+                      <div className="mt-2">
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Customer signature</div>
+                        <img src={jobDetail.signatureDataUrl} alt="Signature" className="h-14 rounded-lg bg-white/95 px-2 border border-slate-700" />
+                      </div>
+                    )}
+                    {jobDetail.completionNotes && <p className="mt-2 text-[11px] text-slate-400 leading-snug">{jobDetail.completionNotes}</p>}
                   </div>
                 )}
 
@@ -1542,13 +1775,23 @@ export default function MyWeekPage() {
                   </p>
                 )}
 
-                {jobDetail.status === 'booked' && jobDetail.id && (
-                  <button
-                    onClick={() => { setCompleteJob({ id: jobDetail.id, name: jobDetail.title, payoutPence: jobDetail.payoutPence }); setJobDetail(null); }}
-                    className="mt-5 w-full py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
-                  >
-                    <Check size={18} strokeWidth={3} /> Mark complete
-                  </button>
+                {jobDetail.status === 'booked' && jobDetail.id && !jobDetail.completed && (
+                  <div className="mt-5 space-y-2">
+                    <button
+                      onClick={() => { setCompleteJob({ id: jobDetail.id, name: jobDetail.title, payoutPence: jobDetail.payoutPence }); closeJobDetail(); }}
+                      className="w-full py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
+                    >
+                      <Check size={18} strokeWidth={3} /> Mark complete
+                    </button>
+                    <button
+                      onClick={() => { setMoveOpen(true); setMoveConfirm(null); setMoveError(null); }}
+                      className="w-full py-3 rounded-2xl bg-slate-800 border border-slate-700 text-slate-200 font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
+                    >
+                      <CalendarDays size={16} /> Move to another day
+                    </button>
+                  </div>
+                )}
+                </>
                 )}
               </div>
             </motion.div>

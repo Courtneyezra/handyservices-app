@@ -16,6 +16,7 @@ import {
 import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
 import { planToAssignments } from './lib/quote-team';
 import { computeContractorPay } from './lib/contractor-pay';
+import { activeLineItems } from '../shared/split-scope';
 import { v4 as uuidv4 } from 'uuid';
 import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as CanonicalSlotType } from '../shared/slot-times';
 import { findBestContractorForJob } from './auto-assignment-engine';
@@ -158,7 +159,7 @@ export async function buildJobSheetLineItems(tx: any, pricingLineItems: any[]): 
  * engine would happily lock a contractor who has NO availability that day (it only
  * checked for conflicting bookings/locks), handing out holds the contractor can't keep.
  */
-async function isContractorAvailableForSlot(
+export async function isContractorAvailableForSlot(
     tx: any,
     contractorIdStr: string,
     scheduledDate: Date,
@@ -256,6 +257,7 @@ export async function reserveSlot(params: {
             coordinates: personalizedQuotes.coordinates,
             postcode: personalizedQuotes.postcode,
             lines: personalizedQuotes.pricingLineItems,
+            deferredLineItems: personalizedQuotes.deferredLineItems,
             floorNumber: personalizedQuotes.floorNumber,
             hasLift: personalizedQuotes.hasLift,
             parkingDistanceCategory: personalizedQuotes.parkingDistanceCategory,
@@ -296,7 +298,9 @@ export async function reserveSlot(params: {
     // Compose honest schedule minutes from line items + quote context.
     // (Pricing reads timeEstimateMinutes directly; this is for scheduling only.)
     const { composeScheduleMinutes, computeRequiredDays, collectSpanDates, expandSpanDates, addDaysToDateStr, maxSpanDays } = await import('../shared/schedule-composition');
-    const lines: any[] = Array.isArray(quoteRow?.lines) ? (quoteRow!.lines as any[]) : [];
+    // Kept scope only — a "choose what to do now" split leaves the deferred
+    // lines on the quote; they must not inflate the reserved duration.
+    const lines: any[] = activeLineItems(quoteRow?.lines, (quoteRow as any)?.deferredLineItems);
     const scheduleBreakdown = composeScheduleMinutes(lines, quoteContext);
     const jobDurationMinutes = scheduleBreakdown.totalMinutes;
 
@@ -786,7 +790,9 @@ export async function confirmBooking(params: {
             // offers them on WhatsApp (offered_via='manual') and marks them
             // accepted once the specialist confirms. Covered categories fall back
             // to the quote's line-item categories when the plan is absent.
-            const payLines = (quote.pricingLineItems as any[]) || [];
+            // Kept scope only — a "choose what to do now" split leaves deferred
+            // lines on the quote; pay snapshot + covered categories exclude them.
+            const payLines = activeLineItems(quote.pricingLineItems, (quote as any).deferredLineItems);
             const fallbackCats = Array.from(new Set(payLines.map((li: any) => li.categorySlug || li.category).filter(Boolean)));
             const assignmentSpecs = planToAssignments(quote.teamPlan as any, contractorIdStr, fallbackCats);
 
@@ -828,7 +834,8 @@ export async function confirmBooking(params: {
             // f. Generate job sheet from quote line items. contractorRatePence is
             // derived from the wtbp_rate_card when the quote line doesn't carry one
             // (it never does for contextual quotes) — see buildJobSheetLineItems.
-            const lineItems = (quote.pricingLineItems as any[]) || [];
+            // Kept scope only — deferred lines don't belong on this visit's sheet.
+            const lineItems = activeLineItems(quote.pricingLineItems, (quote as any).deferredLineItems);
             const jobSheetLineItems = await buildJobSheetLineItems(tx, lineItems);
 
             const accessInstructions = await buildAccessInstructions(tx, propertyId, (quote as any).customerAccessNotes);
@@ -1088,7 +1095,8 @@ export async function assignFromPool(params: {
             // A pool assignment is solo: one lead covering all lines.
             const [poolTierRow] = await tx.select({ tier: handymanProfiles.deliveryTier })
                 .from(handymanProfiles).where(eq(handymanProfiles.id, contractorIdStr)).limit(1);
-            const poolPay = computeContractorPay((quote.pricingLineItems as any[]) || [], poolTierRow?.tier);
+            // Kept scope only — deferred ("do later") lines don't count toward pay.
+            const poolPay = computeContractorPay(activeLineItems(quote.pricingLineItems, (quote as any).deferredLineItems), poolTierRow?.tier);
             await tx.insert(bookingAssignments).values({
                 id: uuidv4(),
                 bookingId,
@@ -1104,8 +1112,8 @@ export async function assignFromPool(params: {
             });
 
             // d. Generate the job sheet from the quote line items (mirrors confirmBooking,
-            // including the wtbp_rate_card-derived contractorRatePence).
-            const lineItems = (quote.pricingLineItems as any[]) || [];
+            // including the wtbp_rate_card-derived contractorRatePence). Kept scope only.
+            const lineItems = activeLineItems(quote.pricingLineItems, (quote as any).deferredLineItems);
             const jobSheetLineItems = await buildJobSheetLineItems(tx, lineItems);
 
             const accessInstructions = await buildAccessInstructions(tx, propertyId, (quote as any).customerAccessNotes);

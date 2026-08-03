@@ -146,6 +146,62 @@ export async function sendBookingConfirmationEmail(data: BookingConfirmationData
     }
 }
 
+// Visit moved — sent when the contractor reschedules a booked visit to a new day.
+interface VisitRescheduledData {
+    customerName: string;
+    customerEmail: string;
+    jobDescription: string;
+    newDateLabel: string; // e.g. "Thursday 7 August, 9am–6pm"
+    contractorName?: string;
+}
+
+export async function sendVisitRescheduledEmail(data: VisitRescheduledData): Promise<{ success: boolean; error?: string }> {
+    const resend = getResend();
+    if (!resend) {
+        console.log('[Email] Resend not configured - would notify', data.customerEmail, 'of new date', data.newDateLabel);
+        return { success: false, error: 'Email service not configured' };
+    }
+    if (!data.customerEmail) return { success: false, error: 'No email address provided' };
+
+    const firstName = (data.customerName || '').trim().split(/\s+/)[0] || 'there';
+    const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Your visit has moved</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="color: #e8b323; margin: 0; font-size: 26px;">Your visit has been rescheduled</h1>
+    </div>
+    <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+        <p>Hi ${firstName},</p>
+        <p>Just to let you know${data.contractorName ? ` — ${data.contractorName}` : ' — your handyman'} has moved your visit to a new day:</p>
+        <div style="background: #e8f5e9; border: 1px solid #43a047; border-radius: 8px; padding: 18px; margin: 20px 0; text-align: center;">
+            <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #2e7d32; font-weight: bold;">New date</div>
+            <div style="font-size: 20px; font-weight: bold; color: #1b5e20; margin-top: 4px;">${data.newDateLabel}</div>
+        </div>
+        <p style="color:#555;"><strong>What we're doing:</strong> ${data.jobDescription}</p>
+        <p>Nothing else changes — same price, same job. If the new day doesn't suit you, just reply to this email and we'll sort it.</p>
+    </div>
+    <div style="text-align: center; padding: 16px;"><p style="color: #999; margin: 0; font-size: 12px;">Handy Services · <a href="https://handyservices.co.uk" style="color: #b8860b;">handyservices.co.uk</a></p></div>
+</body>
+</html>`;
+
+    try {
+        const { data: result, error } = await resend.emails.send({
+            from: 'Handy Services <bookings@handyservices.co.uk>',
+            to: [data.customerEmail],
+            subject: `Your visit has moved to ${data.newDateLabel}`,
+            html: emailHtml,
+        });
+        if (error) { console.error('[Email] Failed to send reschedule notice:', error); return { success: false, error: error.message }; }
+        console.log(`[Email] Reschedule notice sent to ${data.customerEmail} (ID: ${result?.id})`);
+        return { success: true };
+    } catch (err: any) {
+        console.error('[Email] Error sending reschedule notice:', err);
+        return { success: false, error: err.message };
+    }
+}
+
 // Prize-wheel reward — sent when a customer claims their post-payment prize.
 interface PrizeEmailData {
     customerName: string;

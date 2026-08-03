@@ -238,3 +238,27 @@ export function trimDescription(desc: string | null | undefined, max = 90): stri
   const cut = clean.slice(0, max);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 20))}…`;
 }
+
+// The kept-scope filter lives with the rest of the split logic in
+// shared/split-scope.ts (so the booking engine shares one implementation);
+// re-exported here for the contractor-app call sites that already import it.
+export { activeLineItems } from '../../shared/split-scope';
+
+/** A human label for one priced line (falls back through the naming fields). */
+export function lineItemLabel(l: any): string {
+  return (
+    l?.skuName || l?.skuCustomerDescription || l?.customerDescription ||
+    l?.description || l?.label || 'Task'
+  );
+}
+
+/**
+ * A task list rebuilt from line items — used to describe the KEPT scope of a
+ * split booking, so the contractor never reads deferred ("do later") tasks in
+ * the job description. Returns null for an empty list (caller keeps the
+ * original quote prose).
+ */
+export function lineItemsToDescription(lines: any[]): string | null {
+  const labels = (Array.isArray(lines) ? lines : []).map(lineItemLabel).filter(Boolean);
+  return labels.length ? labels.join(', ') : null;
+}
