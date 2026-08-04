@@ -32,6 +32,7 @@ import {
 } from '../shared/schema';
 import { timeRangeCoversSlot, SLOT_CAPACITY_MIN, type SlotType } from '../shared/slot-times';
 import { totalScheduleMinutes, computeBookingDurationDays, expandSpanDates } from '../shared/schedule-composition';
+import { ukToday, ukWeekStartDay, ukDayStartUTC } from '../shared/uk-time';
 import { computeContractorPay } from './lib/contractor-pay';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
 import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, activeLineItems, lineItemsToDescription, type DayMode, type DayLoadBooking } from './lib/contractor-app';
@@ -77,7 +78,7 @@ router.get('/:token', async (req: Request, res: Response) => {
     const profile = await findByAppToken(req.params.token);
     if (!profile) return res.status(404).json({ error: 'Link not recognised' });
 
-    const monday = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const monday = ukDayStartUTC(ukWeekStartDay()); // UK business week
     const end = addDays(monday, WEEKS_SERVED * 7);
     const weekDates = Array.from({ length: WEEKS_SERVED * 7 }, (_, i) => {
       const d = addDays(monday, i);
@@ -132,7 +133,7 @@ router.get('/:token', async (req: Request, res: Response) => {
         imageUrl: profile.profileImageUrl ?? profile.heroImageUrl ?? null,
         lastAvailabilityRefresh: profile.lastAvailabilityRefresh,
       },
-      today: format(new Date(), 'yyyy-MM-dd'),
+      today: ukToday(),
       weekStart: format(monday, 'yyyy-MM-dd'),
       days: resolveWeek({ weekDates, weeklyPatterns, overrides, bookings }),
       bookedCountByDate,
@@ -271,8 +272,7 @@ function scheduleContext(q: any) {
  *  When `deliveryTier` is passed, booked jobs are enriched with the pay
  *  breakdown (labour + materials allowance + per-line) for the modal. */
 async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const todayStart = ukDayStartUTC(ukToday()); // UK 'today' — the business day boundary
   const end = addDays(todayStart, JOBS_HORIZON_DAYS);
 
   const bookedRows = await db
@@ -358,7 +358,7 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
     // Keep a job listed until its LAST actual span day has passed.
     .filter((b) => {
       const span = expandSpanDates(b.scheduledDate as any, b.durationDays ?? 1, b.scheduledDates);
-      return span[span.length - 1] >= format(todayStart, 'yyyy-MM-dd');
+      return span[span.length - 1] >= ukToday();
     })
     .sort((a, b) => new Date(a.scheduledDate as any).getTime() - new Date(b.scheduledDate as any).getTime())
     .map((b) => {
@@ -402,9 +402,14 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
 // Sunday, weeksBack=2 → the week before that, etc. Craig walks back through the
 // timeline one tap at a time; each tap loads exactly one week.
 async function loadPastWeek(profileId: string, deliveryTier: string | null | undefined, weeksBack: number) {
-  const thisMonday = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const weekStart = addDays(thisMonday, -7 * weeksBack);
-  const weekEnd = addDays(weekStart, 7); // exclusive
+  const thisMonday = ukDayStartUTC(ukWeekStartDay()); // UK business week
+  const todayStart = ukDayStartUTC(ukToday());
+  // weeksBack=1 = THIS week's already-elapsed days [Monday, today) — so a job
+  // done (or missed) earlier this week doesn't fall between the forward-looking
+  // "This week" grid and last week's history. weeksBack>=2 = full prior weeks.
+  const isThisWeek = weeksBack === 1;
+  const weekStart = isThisWeek ? thisMonday : addDays(thisMonday, -7 * (weeksBack - 1));
+  const weekEnd = isThisWeek ? todayStart : addDays(weekStart, 7); // exclusive
   const weekStartStr = format(weekStart, 'yyyy-MM-dd');
   const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
 
@@ -487,8 +492,8 @@ async function loadPastWeek(profileId: string, deliveryTier: string | null | und
   return {
     weeksBack,
     weekStart: weekStartStr,
-    weekEnd: format(addDays(weekStart, 6), 'yyyy-MM-dd'),
-    label: `Week of ${format(weekStart, 'd MMM')}`,
+    weekEnd: format(addDays(weekEnd, -1), 'yyyy-MM-dd'),
+    label: isThisWeek ? 'Earlier this week' : `Week of ${format(weekStart, 'd MMM')}`,
     earnedPence,
     jobs,
     hasMore: true, // client stops when a fetched week returns empty AND older weeks empty; keep simple
@@ -537,7 +542,7 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
         .orderBy(desc(personalizedQuotes.depositPaidAt)).limit(20),
     ]);
 
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = ukToday();
     // Span-expanded day loads (multi-day bookings occupy every day they span).
     const bookedByDate = spanByDate;
 
@@ -639,7 +644,7 @@ async function placeFlexJob(
   if (!isIsoDate(date) || !['am', 'pm', 'full_day'].includes(slot)) {
     return { ok: false, status: 400, error: 'date (YYYY-MM-DD) and slot (am|pm|full_day) required' };
   }
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = ukToday();
   if (date < today) return { ok: false, status: 400, error: 'That day is in the past' };
 
   const quoteRows = await db.select({
@@ -715,7 +720,7 @@ router.post('/:token/flex/:quoteId/place-block', async (req: Request, res: Respo
 
     const { startDate } = req.body || {};
     if (!isIsoDate(startDate)) return res.status(400).json({ error: 'startDate (YYYY-MM-DD) required' });
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = ukToday();
     if (startDate < today) return res.status(400).json({ error: 'That day is in the past' });
 
     const quoteRows = await db.select({
@@ -854,7 +859,7 @@ router.get('/:token/jobs/:bookingId/move-options', async (req: Request, res: Res
       return res.json({ multiDay: true, currentDate: ctx.currentDate, slot: ctx.slot, days: [] });
     }
 
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = ukToday();
     const { spanByDate } = await loadJobsAndGrid(profile.id);
     const horizon = ctx.deadline ? new Date(ctx.deadline + 'T00:00:00') : addDays(new Date(today + 'T00:00:00'), JOBS_HORIZON_DAYS);
 
@@ -886,7 +891,7 @@ router.post('/:token/jobs/:bookingId/move', async (req: Request, res: Response) 
     if ('error' in ctx) return res.status(ctx.error.status).json({ error: ctx.error.msg });
     if (ctx.requiredDays > 1) return res.status(400).json({ error: 'Multi-day job — Handy will reschedule this with you' });
 
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = ukToday();
     const { spanByDate } = await loadJobsAndGrid(profile.id);
     const verdict = await moveDayVerdict(ctx, date, today, spanByDate);
     if (!verdict.ok) return res.status(409).json({ error: `Can't move to that day — ${verdict.reason}` });
@@ -1083,7 +1088,7 @@ router.post('/:token/day', async (req: Request, res: Response) => {
 
     const { date, mode } = req.body || {};
     if (!isIsoDate(date) || !isDayMode(mode)) return res.status(400).json({ error: 'date (YYYY-MM-DD) and mode (am|pm|full|off) required' });
-    if (!isEditableDate(date, format(new Date(), 'yyyy-MM-dd'))) return res.status(400).json({ error: 'That day is in the past' });
+    if (!isEditableDate(date, ukToday())) return res.status(400).json({ error: 'That day is in the past' });
 
     const window = modeToWindow(mode as DayMode);
     // UTC midnight — a pure calendar-day override, read the same everywhere.
