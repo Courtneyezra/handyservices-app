@@ -4159,6 +4159,7 @@ export default function PersonalizedQuotePage() {
         // back to the Craig default inside the helper.
         matchedHandymen={quote ? skinToMatchedHandymen(quoteSkin) : undefined}
         vertical={(quote as any)?.vertical}
+        brandPending={!quote}
         holdBeat={theatreMode === 'checklist' || theatreMode === 'reveal' ? theatreMode : undefined}
         // ONE-PAGE offer: for at_home offers the orbit's resolved header slides
         // up and this body rises in beneath it on the SAME screen — no separate

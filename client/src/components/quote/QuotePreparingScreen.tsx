@@ -100,6 +100,10 @@ interface QuotePreparingScreenProps {
   onOfferShown?: () => void;
   /** Brand vertical — decides the orbit pool, wordmark and trade copy. */
   vertical?: string;
+  /** The quote (hence its vertical) hasn't loaded yet — hold ALL brand-specific
+   *  visuals (roster faces, wordmark suffix) and the resolve, so a cleaning quote
+   *  never flashes the handyman theatre during the cold-load fetch window. */
+  brandPending?: boolean;
 }
 
 export function QuotePreparingScreen(props: QuotePreparingScreenProps) {
@@ -112,10 +116,13 @@ export function QuotePreparingScreen(props: QuotePreparingScreenProps) {
 // Orbit loader — the default quote flow
 // ═══════════════════════════════════════════════════════════════════════════
 
-function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy, matchedHandymen, postcode, instant = false, holdBeat, offerNode, onOfferShown, vertical }: QuotePreparingScreenProps) {
+function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy, matchedHandymen, postcode, instant = false, holdBeat, offerNode, onOfferShown, vertical, brandPending = false }: QuotePreparingScreenProps) {
   const cfg = verticalConfig(vertical);
-  const [brandA, brandB] = brandWordmark(vertical);
-  const POOL_AVATARS = orbitAvatarsForVertical(vertical);
+  const [brandA, rawBrandB] = brandWordmark(vertical);
+  // Until the quote's vertical is known, stay brand-neutral: "Handy" with no
+  // coloured suffix, and an EMPTY orbit pool (Ben + generic initials only).
+  const brandB = brandPending ? '' : rawBrandB;
+  const POOL_AVATARS = brandPending ? [] : orbitAvatarsForVertical(vertical);
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
   const matched = (matchedHandymen && matchedHandymen.length > 0) ? matchedHandymen : defaultMatchForVertical(vertical);
   const chosen = matched[0];
@@ -142,11 +149,13 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
   const flipFromRef = useRef<DOMRect | null>(null);
 
   // Orbit → resolve after ORBIT_MS ('checklist' hold freezes the orbit).
+  // While the brand is pending (quote still loading), hold the orbit — never
+  // resolve onto a fallback face before the real skin/vertical is known.
   useEffect(() => {
-    if (resolved || instant || holdBeat === 'checklist') return;
+    if (resolved || instant || holdBeat === 'checklist' || brandPending) return;
     const t = setTimeout(() => setResolved(true), ORBIT_MS);
     return () => clearTimeout(t);
-  }, [resolved, instant, holdBeat]);
+  }, [resolved, instant, holdBeat, brandPending]);
 
   // With an in-stage offer: after the centred hold, slide the header up and
   // reveal the offer HERE. No onComplete — accept/decline advance the flow.
@@ -217,8 +226,10 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
   const jobs = pricingSettings?.jobsCompleted ?? '500+';
 
   // Satellites: the chosen skin + the rest of the pool (no duplicate of the
-  // chosen face), padded with roster initials to 5 orbiters.
-  const satelliteAvatars = [
+  // chosen face), padded with roster initials to 5 orbiters. While the brand is
+  // pending, show NO faces (initials only) — the chosen face is a handyman
+  // fallback until the real vertical loads.
+  const satelliteAvatars = brandPending ? [] : [
     chosen.avatarUrl,
     ...POOL_AVATARS.filter((a) => a !== chosen.avatarUrl),
   ];
