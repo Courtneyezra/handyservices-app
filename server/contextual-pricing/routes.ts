@@ -1457,6 +1457,8 @@ const contextualQuoteInputSchema = z.object({
   crewType: z.enum(['solo', 'team']).optional(),
   skinContractorId: z.string().optional(),
   skinTeamId: z.string().optional(),
+  // Brand vertical fronting the quote (theatre/avatars/copy). Default handyman.
+  vertical: z.enum(['handyman', 'cleaning']).optional(),
 
   // ── Materials & equipment logistics (Jul 2026) ────────────────────────
   // Longest supplier lead time (days) across the job's materials — gates the
@@ -2036,6 +2038,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Contractor assignment — shows their profile on the customer quote page
       contractorId: input.contractorId || null,
 
+      // Brand vertical fronting the quote (theatre/avatars/copy).
+      vertical: input.vertical || 'handyman',
       // Crew & skin selection — solo/team pool + whose face fronts the quote.
       // Falls back to the contractorId pick so an operator choosing a
       // contractor profile gets that skin without a second selection.

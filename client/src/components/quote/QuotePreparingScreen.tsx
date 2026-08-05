@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Check, Loader2, ShieldCheck, Star, Wrench } from 'lucide-react';
 import handyLogo from '@/assets/handy-logo-transparent.png';
 import { AxaLogo } from '@/components/AxaInsuredBadge';
-import { ROSTER_ORBIT_AVATARS } from '@/lib/contractor-roster';
+import { orbitAvatarsForVertical } from '@/lib/contractor-roster';
+import { verticalConfig } from '@shared/verticals';
 
 /**
  * "Preparing your quote" waiting screen — stage 1 of the TWO-stage journey
@@ -30,9 +31,17 @@ export interface MatchedHandyman {
   rating?: string;
   jobsLabel?: string;
 }
-const DEFAULT_MATCH: MatchedHandyman[] = [
-  { name: 'Craig', avatarUrl: '/assets/avatars/craig-avatar-1.webp', role: 'Your Nottingham handyman', rating: '4.9', jobsLabel: '214 jobs' },
-];
+/** Default cast (per vertical) when no matched skin is passed. */
+function defaultMatchForVertical(vertical?: string): MatchedHandyman[] {
+  const face = verticalConfig(vertical).defaultFace;
+  return [{ name: face.name, avatarUrl: face.avatarUrl, role: face.roleSolo, rating: '4.9', jobsLabel: '214 jobs' }];
+}
+
+/** Brand wordmark parts: "Handy" + coloured "Services"/"Cleaning". */
+function brandWordmark(vertical?: string): [string, string] {
+  const parts = verticalConfig(vertical).brandName.split(/\s+/);
+  return [parts[0] ?? 'Handy', parts.slice(1).join(' ') || 'Services'];
+}
 
 // ── Pacing ────────────────────────────────────────────────────────────────
 // Two beats only. Cadence learning from the checklist era: felt speed is the
@@ -50,9 +59,9 @@ const STEP_MS = 900;     // custom-steps (visit flow) checklist dwell fallback
 // actual roster (Joe, Alex, Kane — real handyman_profiles rows). The chosen
 // skin's avatar is injected as a satellite so the resolve picks it "out of"
 // the orbit rather than conjuring a stranger.
-// The orbiting pool = the shared contractor roster (one source of truth for
-// every surface: orbit, landing team grids, landing hero cluster).
-const POOL_AVATARS = ROSTER_ORBIT_AVATARS;
+// The orbiting pool = the vertical's roster (one source of truth for every
+// surface: orbit, landing team grids, landing hero cluster). Resolved per
+// render inside OrbitLoader from the `vertical` prop.
 const POOL_INITIALS = ['J', 'A', 'K'];
 
 interface QuotePreparingScreenProps {
@@ -89,6 +98,8 @@ interface QuotePreparingScreenProps {
   offerNode?: ReactNode;
   /** Fired once when the in-stage offer becomes visible (impression tracking). */
   onOfferShown?: () => void;
+  /** Brand vertical — decides the orbit pool, wordmark and trade copy. */
+  vertical?: string;
 }
 
 export function QuotePreparingScreen(props: QuotePreparingScreenProps) {
@@ -101,9 +112,12 @@ export function QuotePreparingScreen(props: QuotePreparingScreenProps) {
 // Orbit loader — the default quote flow
 // ═══════════════════════════════════════════════════════════════════════════
 
-function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy, matchedHandymen, postcode, instant = false, holdBeat, offerNode, onOfferShown }: QuotePreparingScreenProps) {
+function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy, matchedHandymen, postcode, instant = false, holdBeat, offerNode, onOfferShown, vertical }: QuotePreparingScreenProps) {
+  const cfg = verticalConfig(vertical);
+  const [brandA, brandB] = brandWordmark(vertical);
+  const POOL_AVATARS = orbitAvatarsForVertical(vertical);
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
-  const matched = (matchedHandymen && matchedHandymen.length > 0) ? matchedHandymen : DEFAULT_MATCH;
+  const matched = (matchedHandymen && matchedHandymen.length > 0) ? matchedHandymen : defaultMatchForVertical(vertical);
   const chosen = matched[0];
   const skinFirstName = chosen.name.split(/\s+/)[0];
   const outwardPostcode = postcode?.trim().split(/\s+/)[0]?.toUpperCase();
@@ -233,7 +247,7 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
       <div className="flex items-center justify-center gap-2 pt-7 hs-prep-rise">
         <img src={handyLogo} alt="" className="w-7 h-7 object-contain" />
         <span className="text-base font-extrabold tracking-tight">
-          Handy<span className="text-[#7DB00E]">Services</span>
+          {brandA}<span className="text-[#7DB00E]">{brandB}</span>
         </span>
       </div>
 
@@ -326,7 +340,7 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
           {resolved ? (
             <div style={{ animation: 'hs-prep-rise .5s cubic-bezier(.23,1,.32,1) both' }}>
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#a3d65f]">
-                {matched.length > 1 ? 'Your team' : 'Your handyman'}
+                {matched.length > 1 ? 'Your team' : `Your ${cfg.tradeNoun}`}
               </p>
               <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">
                 {matched.length > 1
@@ -450,7 +464,8 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
 // Checklist loader — custom-steps callers only (the diagnostic-visit flow)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, subcopy, steps, instant = false }: QuotePreparingScreenProps) {
+function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, subcopy, steps, instant = false, vertical }: QuotePreparingScreenProps) {
+  const [brandA, brandB] = brandWordmark(vertical);
   const STEPS_TO_USE = steps ?? [];
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
   const [activeStep, setActiveStep] = useState(instant ? STEPS_TO_USE.length : 0);
@@ -504,7 +519,7 @@ function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, sub
           <div className="flex items-center gap-2 mb-7 hs-prep-rise">
             <img src={handyLogo} alt="" className="w-7 h-7 object-contain" />
             <span className="text-base font-extrabold tracking-tight text-white">
-              Handy<span className="text-[#7DB00E]">Services</span>
+              {brandA}<span className="text-[#7DB00E]">{brandB}</span>
             </span>
           </div>
           <div className="relative hs-prep-rise hs-prep-d1">

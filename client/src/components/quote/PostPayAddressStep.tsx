@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Loader2, MapPin, Search, Star } from 'lucide-react';
 import { loadGooglePlacesScript } from '@/components/live-call/AddressInput';
+import { verticalConfig } from '@shared/verticals';
 
 // Dark-themed styling for Google's autocomplete dropdown (this step sits on the
 // #1D2D3D card). Mirrors QuoteAddressInput's palette so the PAC reads native.
@@ -42,6 +43,7 @@ export interface PostPayAddressStepProps {
   /** Quote skin — the contractor/team fronting this quote. Defaults to Craig. */
   skinName?: string;
   skinAvatarUrl?: string;
+  vertical?: string;
 }
 
 type SavedAddress = { line1: string; line2?: string; city: string; postcode: string; accessNotes?: string };
@@ -54,7 +56,9 @@ export function PostPayAddressStep({
   onSaved,
   skinName = 'Craig',
   skinAvatarUrl = '/assets/avatars/craig-avatar-1.webp',
+  vertical,
 }: PostPayAddressStepProps) {
+  const cfg = verticalConfig(vertical);
   const [line1, setLine1] = useState(initialSaved?.line1 ?? initialLine1 ?? '');
   const [line2, setLine2] = useState(initialSaved?.line2 ?? '');
   const [city, setCity] = useState(initialSaved?.city ?? '');
@@ -200,12 +204,12 @@ export function PostPayAddressStep({
         {/* Skin letterhead — the person turning up at this address */}
         <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shrink-0">
-            <img src={skinAvatarUrl} alt={`${skinName}, your assigned handyman`} className="w-full h-full object-cover" />
+            <img src={skinAvatarUrl} alt={`${skinName}, your assigned ${cfg.tradeNoun}`} className="w-full h-full object-cover" />
           </div>
           <div className="min-w-0 text-left">
-            <div className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">Your assigned handyman</div>
+            <div className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">{cfg.copy.assignedLabel}</div>
             <div className="text-white font-bold leading-tight">
-              {skinName} <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
+              {skinName} <span className="text-[#7DB00E] text-sm font-normal">from {cfg.brandSuffix}</span>
             </div>
             <p className="flex items-center gap-1 text-[11px] text-slate-300 mt-0.5">
               <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />

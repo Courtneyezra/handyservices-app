@@ -913,13 +913,19 @@ const STATIC_SKINS: Record<string, { name: string; avatarUrl: string; bannerUrl:
     emile: { name: 'Emile', avatarUrl: '/assets/avatars/emile-avatar-1.webp', bannerUrl: '/assets/quote-images/emile-banner.webp' },
     courtnee: { name: 'Courtnee', avatarUrl: '/assets/avatars/courtnee-avatar-1.webp', bannerUrl: '/assets/quote-images/courtnee-banner.webp' },
     neil: { name: 'Neil', avatarUrl: '/assets/avatars/neil-avatar-1.webp', bannerUrl: '/assets/quote-images/neil-banner.webp' },
+    // Cleaning personas (Handy Cleaning) — placeholder AI faces, rename in shared/verticals.ts.
+    sofia: { name: 'Sofia', avatarUrl: '/assets/avatars/sofia-avatar-1.webp', bannerUrl: '/assets/quote-images/sofia-banner.webp' },
+    maria: { name: 'Maria', avatarUrl: '/assets/avatars/maria-avatar-1.webp', bannerUrl: '/assets/quote-images/maria-banner.webp' },
+    lena: { name: 'Lena', avatarUrl: '/assets/avatars/lena-avatar-1.webp', bannerUrl: '/assets/quote-images/lena-banner.webp' },
 };
 
 async function resolveQuoteSkin(quote: {
     skinTeamId?: string | null;
     skinContractorId?: string | null;
     contractorId?: string | null;
+    vertical?: string | null;
 }): Promise<QuoteSkinPayload | null> {
+    const vcfg = verticalConfig(quote.vertical);
     try {
         if (quote.skinContractorId?.startsWith('static:')) {
             const s = STATIC_SKINS[quote.skinContractorId.slice('static:'.length)];
@@ -985,7 +991,7 @@ async function resolveQuoteSkin(quote: {
                     : [];
                 return {
                     kind: 'contractor',
-                    name: row.firstName || row.businessName || 'Your handyman',
+                    name: row.firstName || row.businessName || `Your ${vcfg.tradeNoun}`,
                     fullName: [row.firstName, row.lastName].filter(Boolean).join(' ') || row.businessName,
                     avatarUrl: row.profileImageUrl,
                     bannerUrl: row.heroImageUrl,
@@ -2640,6 +2646,7 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
 import { twilioClient } from './twilio-client';
 import { sendWhatsAppMessage } from './meta-whatsapp';
 import { getWhatsAppValueLines } from '@shared/hassle-comparisons';
+import { verticalConfig } from '@shared/verticals';
 import { calls } from '@shared/schema';
 
 const instantQuoteSchema = z.object({

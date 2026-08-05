@@ -12,6 +12,8 @@
  * (bio, work gallery, banner) that real contractor profiles may not have yet.
  */
 
+import { verticalConfig, SKINNED_HERO_SETS_BY_VERTICAL } from '@shared/verticals';
+
 /** Shape of the server-resolved skin on the quote payload (see server/quotes.ts). */
 export interface ServerQuoteSkin {
   kind: 'contractor' | 'team';
@@ -44,37 +46,52 @@ export interface QuoteSkin {
   isDefault: boolean;
 }
 
-export const DEFAULT_QUOTE_SKIN: QuoteSkin = {
-  kind: 'contractor',
-  name: 'Craig',
-  possessive: "Craig's",
-  avatarUrl: '/assets/avatars/craig-avatar-1.webp',
-  bannerUrl: '/assets/quote-images/craig-banner.webp',
-  bio: null,
-  gallery: [],
-  rating: '4.9',
-  jobsLabel: '214 jobs',
-  role: 'Your Nottingham handyman',
-  isDefault: true,
-};
+const SKIN_RATING = '4.9';
+const SKIN_JOBS_LABEL = '214 jobs';
 
-export function resolveQuoteSkin(skin: ServerQuoteSkin | null | undefined): QuoteSkin {
-  if (!skin) return DEFAULT_QUOTE_SKIN;
+/**
+ * The default brand skin for a vertical — used when no skin was selected at
+ * generation. Handyman → Craig, cleaning → Sofia (see shared/verticals.ts).
+ */
+export function defaultSkin(vertical?: string | null): QuoteSkin {
+  const face = verticalConfig(vertical).defaultFace;
+  return {
+    kind: 'contractor',
+    name: face.name,
+    possessive: `${face.name}'s`,
+    avatarUrl: face.avatarUrl,
+    bannerUrl: face.bannerUrl,
+    bio: null,
+    gallery: [],
+    rating: SKIN_RATING,
+    jobsLabel: SKIN_JOBS_LABEL,
+    role: face.roleSolo,
+    isDefault: true,
+  };
+}
+
+/** Back-compat: the handyman brand default. Prefer `defaultSkin(vertical)`. */
+export const DEFAULT_QUOTE_SKIN: QuoteSkin = defaultSkin('handyman');
+
+export function resolveQuoteSkin(
+  skin: ServerQuoteSkin | null | undefined,
+  vertical?: string | null,
+): QuoteSkin {
+  const cfg = verticalConfig(vertical);
+  if (!skin) return defaultSkin(vertical);
   const isTeam = skin.kind === 'team';
   return {
     kind: skin.kind,
     name: skin.name,
     // "Craig's" reads naturally; "Craig's Team's" doesn't — teams get "the team's".
     possessive: isTeam ? "the team's" : `${skin.name}'s`,
-    avatarUrl: skin.avatarUrl || DEFAULT_QUOTE_SKIN.avatarUrl,
+    avatarUrl: skin.avatarUrl || cfg.defaultFace.avatarUrl,
     bannerUrl: skin.bannerUrl,
     bio: skin.bio,
     gallery: skin.gallery ?? [],
-    rating: DEFAULT_QUOTE_SKIN.rating,
-    jobsLabel: DEFAULT_QUOTE_SKIN.jobsLabel,
-    role: isTeam
-      ? `Your ${skin.teamSize ?? 2}-person Nottingham team`
-      : 'Your Nottingham handyman',
+    rating: SKIN_RATING,
+    jobsLabel: SKIN_JOBS_LABEL,
+    role: isTeam ? cfg.roleTeam(skin.teamSize ?? 2) : cfg.defaultFace.roleSolo,
     teamSize: skin.teamSize,
     members: skin.members,
     isDefault: false,
@@ -83,12 +100,16 @@ export function resolveQuoteSkin(skin: ServerQuoteSkin | null | undefined): Quot
 
 /**
  * Skins that ship a COMPLETE job-scene image set under
- * /assets/quote-images/<key>-<job>.webp (gutter/fence/tv-mount/tiling/
- * flatpack/light/bathroom/painting + banner + guarantee), mirroring the Craig
- * brand set. getHeroImage/ValueGuarantee/ContractorProfile resolve into the
- * skin's own set when its key is here, else fall back to the Craig set.
+ * /assets/quote-images/<key>-<job>.webp (+ banner + guarantee). A skin's key
+ * uniquely identifies its set regardless of vertical, so this is the union of
+ * every vertical's sets (see SKINNED_HERO_SETS_BY_VERTICAL). getHeroImage/
+ * ValueGuarantee/ContractorProfile resolve into the skin's own set when its key
+ * is here, else fall back to the vertical's default face set.
  */
-export const SKINNED_HERO_SETS = new Set(['craig', 'bezent', 'emile', 'courtnee', 'neil']);
+export const SKINNED_HERO_SETS = new Set<string>([
+  ...SKINNED_HERO_SETS_BY_VERTICAL.handyman,
+  ...SKINNED_HERO_SETS_BY_VERTICAL.cleaning,
+]);
 
 /** Asset-set key for a skin, or null when it has no dedicated job-scene set. */
 export function skinAssetKey(skin: QuoteSkin): string | null {

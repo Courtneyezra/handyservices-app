@@ -1110,6 +1110,11 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     skinContractorId: varchar("skin_contractor_id"), // handyman_profiles.id fronting the quote
     skinTeamId: varchar("skin_team_id"),             // contractor_teams.id when crewType='team'
 
+    // Which brand vertical fronts this quote — decides the theatre, avatars,
+    // hero imagery and all trade copy (see shared/verticals.ts). Set at
+    // generation; default keeps every legacy quote on the handyman brand.
+    vertical: varchar("vertical", { length: 20 }).default('handyman'), // 'handyman' | 'cleaning'
+
     // Customer type promoted to a first-class column (also kept inside
     // contextSignals for legacy readers). Queryable for analytics/segmenting.
     customerType: varchar("customer_type", { length: 30 }), // homeowner | oap_homeowner | landlord | property_manager | tenant | business | letting_agent

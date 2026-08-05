@@ -4,6 +4,7 @@ import {
   Banknote, Check, CalendarDays, CalendarPlus, MessageCircle, Phone, Receipt, Star, Sparkles,
 } from 'lucide-react';
 import { format, isValid } from 'date-fns';
+import { verticalConfig } from '@shared/verticals';
 
 /**
  * PaidBookingHero — the confirmed-state hero for a quote link reopened AFTER
@@ -43,6 +44,7 @@ export interface PaidBookingHeroProps {
    * no separate summary card. `avoided` = crossed-off days (YYYY-MM-DD).
    */
   flexDays?: { avoided: string[]; onChangeDays?: () => void; justUpdated?: boolean; onUpdatedDismiss?: () => void };
+  vertical?: string;
 }
 
 /** £12.50 for odd pence, £125 for whole pounds — matches quote-page price idiom. */
@@ -72,7 +74,9 @@ export function PaidBookingHero({
   jobCompleted = false,
   reviewUrl,
   flexDays,
+  vertical,
 }: PaidBookingHeroProps) {
+  const cfg = verticalConfig(vertical);
   const firstName = customerName?.split(' ')[0] || 'there';
   const jobDate = parseDate(selectedDate);
   const dateLabel = jobDate ? format(jobDate, 'EEEE d MMMM') : null;
@@ -116,7 +120,7 @@ DTSTAMP:${format(new Date(), "yyyyMMdd'T'HHmmss'Z'")}
 DTSTART:${startDate}
 DTEND:${endDate}
 SUMMARY:Handy Services - ${jobDescription.substring(0, 50)}
-DESCRIPTION:Your handyman booking.${invoiceNumber ? ` Reference: ${invoiceNumber}` : ''}
+DESCRIPTION:${cfg.copy.bookingLabel}.${invoiceNumber ? ` Reference: ${invoiceNumber}` : ''}
 STATUS:CONFIRMED
 END:VEVENT
 END:VCALENDAR`;
