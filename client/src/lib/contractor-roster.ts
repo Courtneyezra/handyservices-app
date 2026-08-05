@@ -41,6 +41,10 @@ export const CLEANING_ROSTER: RosterContractor[] = [
   { key: 'sofia', name: 'Sofia', role: 'Lead cleaner', avatarUrl: '/assets/avatars/sofia-avatar-1.webp', portraitUrl: '/assets/quote-images/sofia-banner.webp', meta: '4.9 · 214 cleans completed' },
   { key: 'maria', name: 'Maria', role: 'Deep-clean specialist', avatarUrl: '/assets/avatars/maria-avatar-1.webp', portraitUrl: '/assets/quote-images/maria-banner.webp', meta: 'DBS-checked · £2M insured' },
   { key: 'lena', name: 'Lena', role: 'End-of-tenancy specialist', avatarUrl: '/assets/avatars/lena-avatar-1.webp', portraitUrl: '/assets/quote-images/lena-banner.webp', meta: 'Vetted · 100% deposit-back' },
+  // Orbit-only cleaners (loading-theatre pool). Avatars only — not selectable
+  // skins yet, so no job-scene sets and not in SKINNED_HERO_SETS/STATIC_SKINS.
+  { key: 'nadia', name: 'Nadia', role: 'Cleaner', avatarUrl: '/assets/avatars/nadia-avatar-1.webp', portraitUrl: '/assets/avatars/nadia-avatar-1.webp', meta: 'DBS-checked · vetted' },
+  { key: 'tom', name: 'Tom', role: 'Cleaner', avatarUrl: '/assets/avatars/tom-avatar-1.webp', portraitUrl: '/assets/avatars/tom-avatar-1.webp', meta: 'DBS-checked · vetted' },
 ];
 
 /** Roster by brand vertical — the theatre orbit reads the matching pool. */
