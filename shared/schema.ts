@@ -568,6 +568,10 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     // Canonical delivery-lane classification — supersedes the short-lived
     // contractor_type column from the skin work (merged 23 Jul).
     deliveryTier: varchar("delivery_tier", { length: 20 }).notNull().default('adhoc'), // 'partner' | 'core' | 'adhoc'
+    // Which brand vertical this contractor delivers — a cleaning quote only ever
+    // matches 'cleaning' contractors, a handyman quote only 'handyman' (see
+    // shared/verticals.ts + findBestContractors). Existing pool defaults to handyman.
+    vertical: varchar("vertical", { length: 20 }).notNull().default('handyman'), // 'handyman' | 'cleaning'
     deliveryPriority: integer("delivery_priority"), // routing order within a tier — lower = picked first (Craig = 1); null = unranked
     // Contractor app entry — unguessable per-contractor link token (no login).
     // /my-week/:token → availability harvesting. Issued lazily from the Hub.
@@ -648,6 +652,10 @@ export const contractorTeams = pgTable("contractor_teams", {
     profileImageUrl: text("profile_image_url"),                 // team avatar for quote skins
     heroImageUrl: text("hero_image_url"),                       // team banner for quote skins
     bio: text("bio"),
+    // Crew size = how many pairs of hands. Drives capacity: a team of N books
+    // ~N× the daily labour and completes a job in ~1/Nth the wall-clock (with an
+    // efficiency floor — see the scheduler, Phase 2). 1 behaves exactly like a solo.
+    crewSize: integer("crew_size").notNull().default(1),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow(),
 });

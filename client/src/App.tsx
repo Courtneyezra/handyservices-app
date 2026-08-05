@@ -85,6 +85,7 @@ const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const V2BookingsPage = lazy(() => import("@/pages/admin/V2BookingsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
+const ContractorTeams = lazy(() => import("@/pages/admin/ContractorTeams"));
 const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPage"));
 const OperatingSystem = lazy(() => import("@/pages/admin/OperatingSystem"));
 const ClientsPage = lazy(() => import("@/pages/admin/ClientsPage"));
@@ -824,6 +825,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <ContractorsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/contractor-teams">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ContractorTeams />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

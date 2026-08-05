@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "./db";
 import { notifyQuoteViewed } from "./pushover";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users, contractorTeams, contractorTeamMembers } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users, contractorTeams, contractorTeamMembers, contractorAvailabilityDates } from "@shared/schema";
 import { eq, desc, inArray, or } from "drizzle-orm";
 import crypto from 'crypto';
 import { z } from "zod";
@@ -409,7 +409,7 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
         let matchingContractors: any[] = [];
         let availableDates: string[] = [];
         if (coordinates) {
-            matchingContractors = await findBestContractors(coordinates);
+            matchingContractors = await findBestContractors(coordinates, (input as any).vertical);
             console.log(`[Matching] Found ${matchingContractors.length} contractors in range.`);
 
             // Check availability for next 14 days
@@ -1117,7 +1117,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
         const coordinates = quote.coordinates as { lat: number, lng: number } | null;
 
         if (coordinates) {
-            matchingContractors = await findBestContractors(coordinates);
+            matchingContractors = await findBestContractors(coordinates, (quote as any).vertical);
 
             // Check availability for next 14 days
             const next14Days = Array.from({ length: 14 }, (_, i) => {
@@ -1127,7 +1127,27 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             });
 
             if (matchingContractors.length > 0) {
-                availableDates = next14Days.map(d => d.toISOString().split('T')[0]);
+                // Prefer the matched contractors' REAL hand-entered availability
+                // (contractor_availability_dates). Only fall back to the blanket
+                // 14-day window when NONE has entered dates — so legacy handyman
+                // quotes keep working while cleaning quotes honour real calendars.
+                const windowSet = new Set(next14Days.map(d => d.toISOString().split('T')[0]));
+                const contractorIds = matchingContractors.map((c: any) => c.profile.id);
+                const realRows = await db.select({ date: contractorAvailabilityDates.date })
+                    .from(contractorAvailabilityDates)
+                    .where(and(
+                        inArray(contractorAvailabilityDates.contractorId, contractorIds),
+                        eq(contractorAvailabilityDates.isAvailable, true),
+                        gte(contractorAvailabilityDates.date, next14Days[0]),
+                    ));
+                const realDates = Array.from(new Set(
+                    realRows
+                        .map(r => r.date.toISOString().split('T')[0])
+                        .filter(ds => windowSet.has(ds)),
+                )).sort();
+                availableDates = realDates.length > 0
+                    ? realDates
+                    : next14Days.map(d => d.toISOString().split('T')[0]);
             }
         }
 
@@ -1813,8 +1833,9 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
             return res.status(404).json({ error: "Quote not found" });
         }
 
-        // Single price model — use basePrice
-        const selectedTierPricePence = quote.basePrice || quote.essentialPrice || 0;
+        // Single price model — prefer the customer's accepted price (selectedTierPricePence),
+        // which is what their deposit was calculated against; fall back to base/essential.
+        const selectedTierPricePence = quote.selectedTierPricePence || quote.basePrice || quote.essentialPrice || 0;
         const effectivePackage = selectedPackage || quote.selectedPackage || 'standard';
 
         // Calculate deposit if not provided

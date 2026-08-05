@@ -60,6 +60,8 @@ export interface QuoteFitInput {
   categorySlugs: string[];
   customerLat?: number;
   customerLng?: number;
+  /** Brand vertical — the pool is scoped to matching contractors only. */
+  vertical?: string;
   /**
    * Ben's manual lead override from the quote builder. The forced contractor is
    * steered into the lead role (see quote-team.ts) and anchors the customer
@@ -112,6 +114,7 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
     categorySlugs: input.categorySlugs,
     customerLat: input.customerLat,
     customerLng: input.customerLng,
+    vertical: input.vertical,
   });
 
   const full = match.candidates.filter((c) => c.coveragePercent === 100);
@@ -235,7 +238,7 @@ export async function computeQuoteCandidatePoolForQuote(quote: QuoteRow): Promis
   const forcedLeadId =
     (quote as any).leadContractorSource === 'manual' ? ((quote as any).leadContractorId as string | null) : null;
 
-  return resolveQuoteCandidatePool({ categorySlugs, customerLat, customerLng, forcedLeadId });
+  return resolveQuoteCandidatePool({ categorySlugs, customerLat, customerLng, forcedLeadId, vertical: (quote as any).vertical });
 }
 
 // ---------------------------------------------------------------------------

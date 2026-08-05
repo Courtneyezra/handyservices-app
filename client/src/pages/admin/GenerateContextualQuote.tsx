@@ -2060,6 +2060,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     name: string;
     displayName: string;
     profileImageUrl: string | null;
+    crewSize?: number;
     members: { contractorId: string; name: string; role: string | null }[];
   }[]>({
     queryKey: ['pricing-contractor-teams'],
@@ -4389,7 +4390,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                           <SelectItem value="none">No team selected</SelectItem>
                           {contractorTeamsList!.map((t) => (
                             <SelectItem key={t.id} value={t.id}>
-                              {t.displayName} ({t.members.length} member{t.members.length === 1 ? '' : 's'})
+                              {t.displayName} · crew {t.crewSize ?? t.members.length} ({t.members.length} member{t.members.length === 1 ? '' : 's'})
                             </SelectItem>
                           ))}
                         </SelectContent>
