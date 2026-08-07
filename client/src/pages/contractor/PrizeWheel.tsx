@@ -23,7 +23,7 @@ function wedgePath(a0: number, a1: number) {
   return `M ${CX} ${CY} L ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} Z`;
 }
 
-export default function PrizeWheel({ slices, onResult }: { slices: PrizeSlice[]; onResult: (s: PrizeSlice) => void }) {
+export default function PrizeWheel({ slices, onResult, nudge = false }: { slices: PrizeSlice[]; onResult: (s: PrizeSlice) => void; nudge?: boolean }) {
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const n = slices.length;
@@ -91,13 +91,19 @@ export default function PrizeWheel({ slices, onResult }: { slices: PrizeSlice[];
         </motion.svg>
       </div>
 
-      <button
+      <motion.button
         onClick={spin}
         disabled={spinning}
-        className="mt-6 px-10 py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-extrabold text-lg tracking-wide active:scale-[0.98] transition-transform disabled:opacity-60"
+        whileTap={{ scale: 0.97 }}
+        // Idle "tap me" nudge — a subtle periodic shake that draws the eye to the
+        // CTA so more people actually spin. Only when opted-in (customer surfaces)
+        // and paused while spinning. `x: 0` keeps it settled otherwise.
+        animate={nudge && !spinning ? { x: [0, -4, 4, -4, 4, 0] } : { x: 0 }}
+        transition={nudge && !spinning ? { duration: 0.55, repeat: Infinity, repeatDelay: 2.6, ease: 'easeInOut' } : { duration: 0.2 }}
+        className="mt-6 px-10 py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-extrabold text-lg tracking-wide shadow-lg shadow-emerald-500/40 disabled:opacity-60"
       >
         {spinning ? 'Spinning…' : 'SPIN'}
-      </button>
+      </motion.button>
     </div>
   );
 }
