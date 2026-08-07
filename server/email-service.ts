@@ -127,7 +127,7 @@ export async function sendBookingConfirmationEmail(data: BookingConfirmationData
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <bookings@handyservices.co.uk>',
+            from: 'Handy Services <bookings@handyservices.app>',
             to: [data.customerEmail],
             subject: `Booking Confirmed - ${data.jobId}`,
             html: emailHtml,
@@ -188,7 +188,7 @@ export async function sendVisitRescheduledEmail(data: VisitRescheduledData): Pro
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <bookings@handyservices.co.uk>',
+            from: 'Handy Services <bookings@handyservices.app>',
             to: [data.customerEmail],
             subject: `Your visit has moved to ${data.newDateLabel}`,
             html: emailHtml,
@@ -254,7 +254,7 @@ export async function sendPrizeEmail(data: PrizeEmailData): Promise<{ success: b
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <bookings@handyservices.co.uk>',
+            from: 'Handy Services <bookings@handyservices.app>',
             to: [data.customerEmail],
             subject: `🎁 Your Handy reward: ${data.prizeTitle}`,
             html: emailHtml,
@@ -394,7 +394,7 @@ export async function sendJobAssignmentEmail(data: JobAssignmentEmailData): Prom
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <dispatch@handyservices.co.uk>',
+            from: 'Handy Services <dispatch@handyservices.app>',
             to: [data.contractorEmail],
             subject: `New Job Assigned - ${formatDate(data.scheduledDate)}`,
             html: emailHtml,
@@ -427,7 +427,7 @@ export async function sendInternalBookingNotification(data: BookingConfirmationD
 
     try {
         await resend.emails.send({
-            from: 'Handy Services System <system@handyservices.co.uk>',
+            from: 'Handy Services System <system@handyservices.app>',
             to: [opsEmail],
             subject: `[DEPOSIT RECEIVED] ${data.customerName} - ${formatCurrency(data.depositPaid)} — Ready for dispatch`,
             html: `
@@ -579,7 +579,7 @@ export async function sendInvoiceEmail(data: InvoiceEmailData): Promise<{ succes
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <invoices@handyservices.co.uk>',
+            from: 'Handy Services <invoices@handyservices.app>',
             to: [data.customerEmail],
             subject: `Invoice ${data.invoiceNumber} — ${formatCurrency(data.balanceDue)} due`,
             html: emailHtml,
@@ -717,7 +717,7 @@ export async function sendInvoiceReminderEmail(
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <invoices@handyservices.co.uk>',
+            from: 'Handy Services <invoices@handyservices.app>',
             to: [data.customerEmail],
             subject: config.subject,
             html: emailHtml,

@@ -160,7 +160,7 @@ export async function sendDayBeforeConfirmations(): Promise<{
                     : 'Full Day';
 
                 const { error } = await resend.emails.send({
-                    from: 'Handy Services <dispatch@handyservices.co.uk>',
+                    from: 'Handy Services <dispatch@handyservices.app>',
                     to: [contractorEmail],
                     subject: `Action Required: Confirm tomorrow's job - ${formatDate(start)}`,
                     html: buildConfirmationEmail({
@@ -277,7 +277,7 @@ export async function checkUnconfirmedJobs(): Promise<{
 
         if (resend) {
             await resend.emails.send({
-                from: 'Handy Services System <system@handyservices.co.uk>',
+                from: 'Handy Services System <system@handyservices.app>',
                 to: [opsEmail],
                 subject: `[ALERT] ${result.flagged} contractor(s) have NOT confirmed tomorrow's jobs`,
                 html: `
