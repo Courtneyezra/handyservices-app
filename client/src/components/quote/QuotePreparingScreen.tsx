@@ -55,14 +55,19 @@ const ORBIT_MS = 3600;   // Ben consulting the pool (the only "working" beat)
 const RESOLVE_MS = 1500;
 const STEP_MS = 900;     // custom-steps (visit flow) checklist dwell fallback
 
-// The orbiting pool: real contractor avatars plus honest initials from the
-// actual roster (Joe, Alex, Kane — real handyman_profiles rows). The chosen
-// skin's avatar is injected as a satellite so the resolve picks it "out of"
-// the orbit rather than conjuring a stranger.
 // The orbiting pool = the vertical's roster (one source of truth for every
 // surface: orbit, landing team grids, landing hero cluster). Resolved per
-// render inside OrbitLoader from the `vertical` prop.
-const POOL_INITIALS = ['J', 'A', 'K'];
+// render inside OrbitLoader from the `vertical` prop. The chosen skin's avatar
+// is injected as a satellite so the resolve picks it "out of" the orbit rather
+// than conjuring a stranger.
+//
+// The orbit is a FIXED ring of this many slots (stable per-index keys). Slots
+// never mount/unmount as the pool content changes — see the satellite build in
+// OrbitLoader for why that stability is what keeps the faces upright.
+const ORBIT_SLOTS = 5;
+// Brand-neutral placeholders shown in each slot while the quote (hence the
+// vertical/roster) is still loading — generic initials, no real identity.
+const POOL_INITIALS = ['J', 'A', 'K', 'M', 'S'];
 
 interface QuotePreparingScreenProps {
   /** Underlying quote data + above-the-fold assets are ready. Gates completion. */
@@ -157,6 +162,20 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
     return () => clearTimeout(t);
   }, [resolved, instant, holdBeat, brandPending]);
 
+  // Late skip: `instant` is seeded into resolved/resolveDone at mount, but the
+  // signals that flip it on (server viewCount>1, paid/booked) arrive WITH the
+  // quote — after mount. When it flips late it FAST-FORWARDS to the end; without
+  // this the resolve effect above is guarded off by `instant` while `resolved`
+  // is still its initial false, so the orbit spins forever and never completes
+  // (the failsafe below is also skipped under `instant`). Reopens of a viewed or
+  // paid quote on a device with no local seen-flag hit exactly this path.
+  useEffect(() => {
+    if (instant && !(resolved && resolveDone)) {
+      setResolved(true);
+      setResolveDone(true);
+    }
+  }, [instant, resolved, resolveDone]);
+
   // With an in-stage offer: after the centred hold, slide the header up and
   // reveal the offer HERE. No onComplete — accept/decline advance the flow.
   useEffect(() => {
@@ -226,17 +245,22 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
   const jobs = pricingSettings?.jobsCompleted ?? '500+';
 
   // Satellites: the chosen skin + the rest of the pool (no duplicate of the
-  // chosen face), padded with roster initials to 5 orbiters. While the brand is
-  // pending, show NO faces (initials only) — the chosen face is a handyman
-  // fallback until the real vertical loads.
+  // chosen face). While the brand is pending, show NO faces (initials only) —
+  // the chosen face is a handyman fallback until the real vertical loads.
   const satelliteAvatars = brandPending ? [] : [
     chosen.avatarUrl,
     ...POOL_AVATARS.filter((a) => a !== chosen.avatarUrl),
   ];
-  const satellites: { key: string; avatarUrl?: string; initial?: string }[] = [
-    ...satelliteAvatars.map((a, i) => ({ key: `av-${i}`, avatarUrl: a })),
-    ...POOL_INITIALS.slice(0, Math.max(0, 5 - satelliteAvatars.length)).map((c) => ({ key: `in-${c}`, initial: c })),
-  ].slice(0, 5);
+  // A FIXED ring of ORBIT_SLOTS slots, keyed by index so the slots (and their
+  // hs-orbit-unspin counter-spin animations) NEVER remount as the content
+  // changes. Content swaps in place: a brand-pending initial becomes its avatar
+  // the instant the quote loads. Keying by content/length (the old `av-*`/`in-*`
+  // scheme) remounted the faces mid-spin, restarting each counter-spin out of
+  // phase with the ring's spin and tilting every face for the rest of the show.
+  const satellites = Array.from({ length: ORBIT_SLOTS }, (_, i) => {
+    const avatarUrl = satelliteAvatars[i];
+    return { key: `orbit-${i}`, avatarUrl, initial: avatarUrl ? undefined : POOL_INITIALS[i] };
+  });
 
   const RADIUS = 104;
 
