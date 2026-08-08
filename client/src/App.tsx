@@ -169,6 +169,7 @@ const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 const ContractorJobSheet = lazy(() => import("@/pages/contractor/ContractorJobSheet"));
 const DispatchLinkPage = lazy(() => import("@/pages/contractor/DispatchLinkPage"));
 const MyWeekPage = lazy(() => import("@/pages/contractor/MyWeekPage")); // availability app (tokenised)
+const ContractorMaterialsRunPage = lazy(() => import("@/pages/contractor/ContractorMaterialsRunPage")); // materials run-list / basket (tokenised)
 const WeekPlannerPreview = lazy(() => import("@/pages/contractor/WeekPlannerPreview")); // design mock, frontend-only
 const ScorecardPreview = lazy(() => import("@/pages/contractor/ScorecardPreview")); // design mock, frontend-only
 const DispatchPreviewPage = lazy(() => import("@/pages/contractor/DispatchPreviewPage"));
@@ -406,6 +407,11 @@ function Router() {
                   * See docs/contractor-platform/04-contractor-app.md. */}
                 <Route path="/my-week/:token">
                     <MyWeekPage />
+                </Route>
+                {/* Materials run-list ("basket") — consolidated shopping list across
+                  * the contractor's booked jobs. Tokenised like the availability app. */}
+                <Route path="/my-week/:token/materials">
+                    <ContractorMaterialsRunPage />
                 </Route>
                 {/* Week Planner design mock — frontend-only, nothing books.
                   * Spec: docs/contractor-platform/05-week-planner-ui.md. */}

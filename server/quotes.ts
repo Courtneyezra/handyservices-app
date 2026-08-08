@@ -1007,7 +1007,7 @@ async function resolveQuoteSkin(quote: {
     return null;
 }
 
-quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
+quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res) => {
     try {
         const { slug } = req.params;
         let result = await db.select().from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
@@ -1342,8 +1342,27 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             }
         }
 
+        // Customer-safe materials: the customer sees image + name ONLY. Strip the
+        // trade/inc-VAT prices, supplier SKU and buy-link so our materials margin
+        // never leaves the server for a customer — even in the raw network payload.
+        // Authenticated admin/VA viewers (e.g. the quote editor) keep the full data.
+        const viewer = (req as any).user;
+        const isAdminViewer = !!viewer && (viewer.role === 'admin' || viewer.role === 'va');
+        const publicPricingLineItems = (!isAdminViewer && Array.isArray(quote.pricingLineItems))
+            ? (quote.pricingLineItems as any[]).map((li) => {
+                if (!li || !Array.isArray(li.materials) || li.materials.length === 0) return li;
+                return {
+                    ...li,
+                    materials: li.materials
+                        .filter((m: any) => m && m.name)
+                        .map((m: any) => ({ name: m.name, imageUrl: m.imageUrl || undefined })),
+                };
+            })
+            : quote.pricingLineItems;
+
         res.json({
             ...quote,
+            pricingLineItems: publicPricingLineItems, // override raw ...quote materials for non-admins
             leadContractor,
             expiresAt: effectiveExpiresAt,
             segment: quoteSegment, // Use the direct field from database (B3.4)

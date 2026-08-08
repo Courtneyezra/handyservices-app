@@ -1431,8 +1431,35 @@ const contextualQuoteInputSchema = z.object({
          * Named materials for this line (what to actually buy, not just the
          * cost). Merged onto the stored line item so dispatch can allocate a
          * real material budget. MUST be in the schema or zod strips it.
+         *
+         * LEGACY flat form — plain string names. Superseded by the structured
+         * `materials` array below, which the engine derives this list from.
          */
         materialsList: z.array(z.string().max(200)).max(30).optional(),
+        /**
+         * Structured "shopping list" for this line — the named items the
+         * contractor must buy, picked from `materials_catalog` (Screwfix/
+         * suppliers) or added manually. The engine treats this as the source of
+         * truth: it DERIVES `materialsCostPence` (ex-VAT) and the flat
+         * `materialsList` from it, so a stale client-sent cost can't win. MUST
+         * be in the schema or zod strips it and the structured list is lost.
+         */
+        materials: z
+          .array(
+            z.object({
+              catalogId: z.string().optional(),
+              name: z.string().min(1).max(200),
+              qty: z.number().int().positive(),
+              unitPricePence: z.number().int().min(0),
+              unitPriceIncVatPence: z.number().int().min(0).optional(),
+              imageUrl: z.string().optional(),
+              supplier: z.enum(['screwfix', 'toolstation', 'manual']).optional(),
+              supplierItemNumber: z.string().optional(),
+              supplierUrl: z.string().optional(),
+            }),
+          )
+          .max(50)
+          .optional(),
       }),
     )
     .min(1, 'At least one line item is required'),
@@ -1638,6 +1665,10 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         category: l.category as JobCategory,
         timeEstimateMinutes: l.estimatedMinutes,
         materialsCostPence: l.materialsCostPence || 0,
+        // Forward the structured materials so the engine derives materialsCostPence
+        // + materialsList from it (source of truth) and carries it onto the stored
+        // line. Without this the structured list never reaches the engine.
+        materials: l.materials,
         fixedTier: l.fixedTier ?? null,
         // Phase 27 fix — forward the SKU fields so the engine's catalog
         // short-circuit fires. Without these, every line (even picked SKUs)
@@ -2131,6 +2162,13 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // lines are merged onto the engine's result lines (matched by lineId) so
       // the stored line items carry WHAT to buy, not just the cost figure.
       pricingLineItems: result.lineItems.map((li) => {
+        // Structured materials path — the engine already carried `materials`
+        // through and DERIVED `materialsList` from it (the source of truth).
+        // Keep the engine's fields; don't let a legacy flat list clobber them.
+        if (Array.isArray((li as any).materials) && (li as any).materials.length > 0) {
+          return li;
+        }
+        // Legacy flat path — merge the input's plain string names onto the line.
         const inputLine = input.lines.find((l) => l.id === li.lineId);
         return inputLine?.materialsList && inputLine.materialsList.length > 0
           ? { ...li, materialsList: inputLine.materialsList }

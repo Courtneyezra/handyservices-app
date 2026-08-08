@@ -49,9 +49,25 @@ import { storageService } from './storage';
 const lineGrossPence = (l: any): number =>
   (l?.guardedPricePence || 0) + (l?.materialsWithMarginPence || 0) + (l?.structuralSharePence || 0);
 
+// Flatten a job's active lines to their structured materials. The contractor
+// sees the FULL material (image + name + qty + buy link) — the customer-facing
+// price stripping only applies on the customer quote endpoint.
+const lineMaterials = (lines: any[]): any[] =>
+  (lines || []).flatMap((l) => (Array.isArray(l?.materials) ? l.materials : []));
+
 const BOOKED_STATUSES = new Set(['accepted', 'completed']);
 const BOOKED_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
 const WEEKS_SERVED = 4; // grid horizon — keep ≥ the planner's window
+
+// Order a day's jobs by SLOT (am · full_day · pm), not by the stored timestamp's
+// time-of-day — so a morning job always lists above an afternoon one. (A pm job
+// stored at 00:00 would otherwise sort above an am job stored at 09:00.)
+const slotOrder = (s: any): number => (s === 'am' ? 0 : s === 'pm' ? 2 : 1);
+const byDayThenSlot = (a: any, b: any): number => {
+  const da = expandSpanDates(a.scheduledDate, a.durationDays ?? 1, a.scheduledDates)[0];
+  const db = expandSpanDates(b.scheduledDate, b.durationDays ?? 1, b.scheduledDates)[0];
+  return da === db ? slotOrder(a.slot) - slotOrder(b.slot) : (da < db ? -1 : 1);
+};
 
 const router = Router();
 
@@ -360,7 +376,7 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
       const span = expandSpanDates(b.scheduledDate as any, b.durationDays ?? 1, b.scheduledDates);
       return span[span.length - 1] >= ukToday();
     })
-    .sort((a, b) => new Date(a.scheduledDate as any).getTime() - new Date(b.scheduledDate as any).getTime())
+    .sort(byDayThenSlot)
     .map((b) => {
       const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
       // Kept scope only — everything the contractor sees (value, materials,
@@ -373,6 +389,8 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
       const description = (hasDeferred && lineItemsToDescription(active)) || q?.jobDescription || null;
       return {
         id: b.id,
+        quoteId: b.quoteId ?? null,
+        materials: lineMaterials(active),
         date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'),
         slot: (b.slot ?? 'full_day') as SlotType,
         durationDays: b.durationDays ?? 1,
@@ -454,7 +472,7 @@ async function loadPastWeek(profileId: string, deliveryTier: string | null | und
   const payoutByBooking = new Map(payoutRows.map((p: any) => [p.bookingId, p.payoutPence]));
 
   const jobs = booked
-    .sort((a, b) => new Date(a.scheduledDate as any).getTime() - new Date(b.scheduledDate as any).getTime())
+    .sort(byDayThenSlot)
     .map((b) => {
       const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
       const deferred = (q as any)?.deferredLineItems;
@@ -511,6 +529,105 @@ router.get('/:token/past-jobs', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('[ContractorApp] past-jobs failed:', e?.message);
     res.status(500).json({ error: 'Could not load earlier jobs' });
+  }
+});
+
+// GET /:token/materials-run → consolidated "shopping list / basket" across the
+// contractor's booked jobs. Dedupes by supplier SKU (else name), sums quantities,
+// keeps the buy link + image, totals the inc-VAT card spend. A true one-click
+// Screwfix basket isn't possible (their cart is a session BFF with no shareable
+// URL — verified), so this is the reliable "buy once for the run" list, with each
+// item deep-linking to its product page. ?date=YYYY-MM-DD narrows to one day;
+// otherwise it returns everything from today forward.
+router.get('/:token/materials-run', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const dateFilter = typeof req.query.date === 'string' && isIsoDate(req.query.date) ? req.query.date : null;
+    const today = ukToday();
+
+    // Booked jobs for this contractor (initial or reassigned) that link to a quote.
+    const rows = await db.select({
+      quoteId: contractorBookingRequests.quoteId,
+      scheduledDate: contractorBookingRequests.scheduledDate,
+      scheduledDates: contractorBookingRequests.scheduledDates,
+      durationDays: contractorBookingRequests.durationDays,
+      status: contractorBookingRequests.status,
+      assignmentStatus: contractorBookingRequests.assignmentStatus,
+      postcode: personalizedQuotes.postcode,
+      pricingLineItems: personalizedQuotes.pricingLineItems,
+      deferredLineItems: personalizedQuotes.deferredLineItems,
+      jobDescription: personalizedQuotes.jobDescription,
+    }).from(contractorBookingRequests)
+      .innerJoin(personalizedQuotes, eq(contractorBookingRequests.quoteId, personalizedQuotes.id))
+      .where(and(
+        or(eq(contractorBookingRequests.contractorId, profile.id), eq(contractorBookingRequests.assignedContractorId, profile.id)),
+        isNotNull(contractorBookingRequests.quoteId),
+      ));
+
+    // Keep active/booked jobs, expand span dates, filter to the day (or upcoming).
+    type RunJob = { quoteId: string; dates: string[]; area: string | null; desc: string | null; materials: any[] };
+    const jobs: RunJob[] = [];
+    for (const r of rows) {
+      const active = (r.status && BOOKED_STATUSES.has(r.status)) || (r.assignmentStatus && BOOKED_ASSIGNMENT.has(r.assignmentStatus));
+      if (!active) continue;
+      const dates = expandSpanDates(r.scheduledDate as any, r.durationDays ?? 1, r.scheduledDates);
+      const relevantDates = dates.filter((d) => (dateFilter ? d === dateFilter : d >= today));
+      if (relevantDates.length === 0) continue;
+      // Kept scope only — deferred lines aren't this booking's work, so their
+      // materials shouldn't land on the run-list.
+      const lines = activeLineItems(r.pricingLineItems, r.deferredLineItems);
+      const materials = (lines as any[]).flatMap((l) => Array.isArray(l?.materials) ? l.materials : []);
+      if (materials.length === 0) continue;
+      jobs.push({ quoteId: r.quoteId as string, dates: relevantDates, area: outwardPostcode(r.postcode), desc: trimDescription(r.jobDescription), materials });
+    }
+
+    // Aggregate: dedupe by supplier SKU (else name), sum qty, sum inc-VAT spend
+    // (inc-VAT = what the contractor actually pays on the Handy card).
+    const byKey = new Map<string, {
+      name: string; imageUrl?: string; supplierUrl?: string; supplier?: string; supplierItemNumber?: string;
+      unitPriceIncVatPence?: number; unitPricePence?: number; qty: number; jobCount: number;
+    }>();
+    for (const j of jobs) {
+      const seenThisJob = new Set<string>();
+      for (const m of j.materials) {
+        if (!m?.name) continue;
+        const key = m.supplierItemNumber
+          ? `sku:${m.supplier || 'screwfix'}:${m.supplierItemNumber}`
+          : `name:${String(m.name).toLowerCase().trim()}`;
+        const qty = Math.max(1, Math.floor(m.qty ?? 1));
+        const cur = byKey.get(key);
+        if (cur) {
+          cur.qty += qty;
+          if (!seenThisJob.has(key)) cur.jobCount += 1;
+        } else {
+          byKey.set(key, {
+            name: m.name, imageUrl: m.imageUrl, supplierUrl: m.supplierUrl, supplier: m.supplier,
+            supplierItemNumber: m.supplierItemNumber, unitPriceIncVatPence: m.unitPriceIncVatPence,
+            unitPricePence: m.unitPricePence, qty, jobCount: 1,
+          });
+        }
+        seenThisJob.add(key);
+      }
+    }
+
+    const items = Array.from(byKey.values())
+      .map((it) => ({ ...it, lineCostPence: (it.unitPriceIncVatPence ?? it.unitPricePence ?? 0) * it.qty }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const totalIncVatPence = items.reduce((s, it) => s + it.lineCostPence, 0);
+
+    return res.json({
+      date: dateFilter,
+      window: dateFilter ? 'day' : 'upcoming',
+      jobCount: jobs.length,
+      itemCount: items.length,
+      totalIncVatPence,
+      items,
+    });
+  } catch (err) {
+    console.error('[ContractorApp] materials-run failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to build materials run-list' });
   }
 });
 
@@ -603,6 +720,7 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
 
       return {
         quoteId: f.id,
+        materials: lineMaterials(lines),
         postcodeArea: area,
         jobDescription: trimDescription(description),
         fullDescription: description,

@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import type { QuoteMaterial } from "@shared/materials";
+import { ExternalLink } from "lucide-react";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -43,6 +45,8 @@ interface Task {
     description: string;
     warning?: string;
     materials: string[];
+    /** Real structured shopping list from the quote — thumbnails + buy links. */
+    materialsDetailed?: QuoteMaterial[];
     mediaUrls?: string[];
 }
 
@@ -755,11 +759,44 @@ export default function ContractorJobSheet() {
                                                         <p className="text-[11px] uppercase tracking-[0.08em] text-[#8B92A0] font-semibold mb-1.5">
                                                             Materials supplied{(t.materialsBudgetPence || 0) > 0 ? ` · ${fmt(t.materialsBudgetPence!)} budget on our card` : ''}
                                                         </p>
-                                                        <div className="flex flex-wrap gap-1.5">
-                                                            {t.materials.map((m, i) => (
-                                                                <span key={i} className="text-[12px] bg-[#F1F3F6] text-[#5C6470] px-2 py-1 rounded-md">{m}</span>
-                                                            ))}
-                                                        </div>
+                                                        {t.materialsDetailed && t.materialsDetailed.length > 0 ? (
+                                                            <div className="flex flex-col gap-1.5">
+                                                                {t.materialsDetailed.map((m, i) => (
+                                                                    <div key={i} className="flex items-center gap-2.5 bg-[#F1F3F6] rounded-lg px-2.5 py-2">
+                                                                        {m.imageUrl && (
+                                                                            <img
+                                                                                src={m.imageUrl}
+                                                                                alt=""
+                                                                                loading="lazy"
+                                                                                className="h-9 w-9 rounded-md object-cover bg-white flex-shrink-0"
+                                                                            />
+                                                                        )}
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-[13px] text-[#0E1116] leading-snug truncate">{m.name}</p>
+                                                                            {m.qty > 1 && (
+                                                                                <p className="text-[11px] text-[#8B92A0]">×{m.qty}</p>
+                                                                            )}
+                                                                        </div>
+                                                                        {m.supplierUrl && (
+                                                                            <a
+                                                                                href={m.supplierUrl}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                className="flex items-center gap-1 text-[12px] font-semibold text-[#3B7A3F] hover:underline flex-shrink-0"
+                                                                            >
+                                                                                Buy <ExternalLink className="h-3 w-3" />
+                                                                            </a>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {t.materials.map((m, i) => (
+                                                                    <span key={i} className="text-[12px] bg-[#F1F3F6] text-[#5C6470] px-2 py-1 rounded-md">{m}</span>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
 
                                                     {t.mediaUrls && t.mediaUrls.length > 0 && (

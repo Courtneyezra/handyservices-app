@@ -13,7 +13,8 @@ import { useRoute, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut, Share2, Check } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut, Share2, Check, ShoppingBasket, ExternalLink } from 'lucide-react';
+import type { QuoteMaterial } from '@shared/materials';
 import { sharePartnerBragCard } from '@/lib/partner-brag-card';
 import CompletionSheet from './CompletionSheet';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
@@ -66,6 +67,8 @@ interface PayLine {
 
 interface BookedJob {
   id: string;
+  quoteId?: string | null;
+  materials?: QuoteMaterial[];
   date: string;
   slot: 'am' | 'pm' | 'full_day';
   durationDays?: number;
@@ -83,6 +86,7 @@ interface BookedJob {
 
 interface FlexJob {
   quoteId: string;
+  materials?: QuoteMaterial[];
   postcodeArea: string | null;
   jobDescription: string | null;
   fullDescription: string | null;
@@ -169,6 +173,7 @@ const WEEK_TITLES = ['This week', 'Next week'];
 // Normalised shape the job-detail modal renders (booked or flex).
 interface JobDetail {
   id: string;
+  materials?: QuoteMaterial[];
   title: string;
   area: string | null;
   whenLabel: string | null;
@@ -246,6 +251,7 @@ const pastToDetail = (j: PastJob): JobDetail => ({
 });
 const bookedToDetail = (b: BookedJob): JobDetail => ({
   id: b.id,
+  materials: b.materials,
   title: b.customerName.trim(),
   area: b.postcodeArea,
   whenLabel: `${format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')}${(b.durationDays ?? 1) > 1 ? ` · ${b.durationDays} days` : b.slot === 'am' ? ' · 9am–1pm' : b.slot === 'pm' ? ' · 2pm–6pm' : ' · 9am–6pm'}`,
@@ -259,6 +265,7 @@ const bookedToDetail = (b: BookedJob): JobDetail => ({
 });
 const flexToDetail = (f: FlexJob): JobDetail => ({
   id: '',
+  materials: f.materials,
   title: f.jobDescription?.split(/[—,.]/)[0]?.trim() || 'Job',
   area: f.postcodeArea,
   whenLabel: f.deadline ? `needs a day by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : null,
@@ -368,6 +375,18 @@ export default function MyWeekPage() {
     queryKey: ['contractor-app-jobs', token],
     queryFn: async () => {
       const res = await fetch(`/api/contractor-app/${token}/jobs`);
+      if (!res.ok) throw new Error('load failed');
+      return res.json();
+    },
+    enabled: !!token,
+  });
+
+  // Materials run summary — powers the home-screen "to buy" reminder and links
+  // through to the full run-list (/my-week/:token/materials).
+  const { data: materialsRun } = useQuery<{ jobCount: number; itemCount: number; totalIncVatPence: number }>({
+    queryKey: ['contractor-app-materials-run', token],
+    queryFn: async () => {
+      const res = await fetch(`/api/contractor-app/${token}/materials-run`);
       if (!res.ok) throw new Error('load failed');
       return res.json();
     },
@@ -850,6 +869,26 @@ export default function MyWeekPage() {
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                   <span className="flex-1 text-xs font-semibold text-emerald-300">{pipeline!.liveCount} live quote{pipeline!.liveCount === 1 ? '' : 's'} showing your days to customers</span>
                   <ChevronRight size={16} className="text-emerald-400/60" />
+                </button>
+              )}
+
+              {/* Materials reminder — consolidated "to buy" across booked jobs,
+                * taps through to the full run-list. */}
+              {materialsRun && materialsRun.itemCount > 0 && (
+                <button
+                  onClick={() => setLocation(`/my-week/${token}/materials`)}
+                  className="w-full p-4 rounded-2xl bg-slate-900/60 border border-sky-500/25 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-sky-500/15 flex items-center justify-center shrink-0">
+                    <ShoppingBasket size={18} className="text-sky-300" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-sky-200">Materials to buy · {materialsRun.itemCount} item{materialsRun.itemCount === 1 ? '' : 's'}</div>
+                    <div className="text-[11px] text-slate-400">
+                      £{Math.round(materialsRun.totalIncVatPence / 100)} across {materialsRun.jobCount} job{materialsRun.jobCount === 1 ? '' : 's'} · buy on the Handy card
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-sky-400/60 shrink-0" />
                 </button>
               )}
             </div>
@@ -1630,13 +1669,30 @@ export default function MyWeekPage() {
                     <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-400/80">You earn</div>
                     <div className="text-lg font-black text-emerald-300 leading-none mt-0.5">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</div>
                   </div>
-                  {/* "Your card" is a forward-looking spend budget — irrelevant for finished history jobs. */}
-                  {jobDetail.materialsAllowancePence != null && (
-                    <div className="flex-1 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700">
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Materials · your card</div>
-                      <div className="text-lg font-black text-slate-200 leading-none mt-0.5">£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</div>
-                    </div>
-                  )}
+                  {/* "Your card" = the total of the materials list (what he'll spend
+                    * at the till, inc VAT). Falls back to the pay-model allowance only
+                    * when no itemised list exists. Hidden for finished history jobs. */}
+                  {(() => {
+                    const listTotalPence = (jobDetail.materials ?? []).reduce(
+                      (s, m) => s + (m.unitPriceIncVatPence ?? m.unitPricePence ?? 0) * (m.qty || 0),
+                      0,
+                    );
+                    // +10% headroom, rounded up to the nearest £, so a till price
+                    // bump / VAT rounding / one extra doesn't decline the card.
+                    const cardPence = listTotalPence > 0
+                      ? Math.ceil((listTotalPence * 1.1) / 100) * 100
+                      : jobDetail.materialsAllowancePence;
+                    if (cardPence == null) return null;
+                    return (
+                      <div className="flex-1 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700">
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Materials · your card</div>
+                        <div className="text-lg font-black text-slate-200 leading-none mt-0.5">£{Math.round(cardPence / 100)}</div>
+                        {listTotalPence > 0 && (
+                          <div className="text-[9px] text-slate-500 leading-none mt-1">list £{(listTotalPence / 100).toFixed(2)} + headroom</div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1702,6 +1758,43 @@ export default function MyWeekPage() {
                             <img src={url} alt="" loading="lazy" className="w-24 h-24 rounded-xl object-cover border border-slate-700" />
                           )}
                         </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* MATERIALS for THIS job — what to buy on the Handy card, each
+                  * deep-linking to the exact product. */}
+                {jobDetail.materials && jobDetail.materials.length > 0 && (
+                  <div className="mb-4">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <ShoppingBasket size={13} className="text-emerald-400" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Materials · {jobDetail.materials.length}</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {jobDetail.materials.map((m, i) => (
+                        <div key={`${m.supplierItemNumber ?? m.name}-${i}`} className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-800/50 border border-slate-700">
+                          {m.imageUrl ? (
+                            <img src={m.imageUrl} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-contain bg-white shrink-0" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-slate-800 shrink-0 flex items-center justify-center text-base">🧱</div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-slate-200 leading-snug line-clamp-2">{m.name}</div>
+                            {(m.unitPriceIncVatPence ?? m.unitPricePence) != null && (
+                              <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">
+                                £{(((m.unitPriceIncVatPence ?? m.unitPricePence) ?? 0) / 100).toFixed(2)} each
+                                {m.qty > 1 ? ` · £${(((m.unitPriceIncVatPence ?? m.unitPricePence) ?? 0) * m.qty / 100).toFixed(2)}` : ''}
+                              </div>
+                            )}
+                          </div>
+                          <span className="shrink-0 inline-flex items-center justify-center min-w-[1.75rem] h-6 px-1.5 rounded-md bg-emerald-500/15 text-emerald-300 text-xs font-bold tabular-nums">×{m.qty}</span>
+                          {m.supplierUrl && (
+                            <a href={m.supplierUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 inline-flex items-center gap-0.5 text-[11px] font-semibold text-sky-400" aria-label="Buy on Screwfix">
+                              Buy <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>

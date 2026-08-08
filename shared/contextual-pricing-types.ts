@@ -15,6 +15,7 @@
  */
 
 import type { ServiceCatalogRow } from './schema';
+import type { QuoteMaterial } from './materials';
 
 // ---------------------------------------------------------------------------
 // Job Categories
@@ -300,6 +301,13 @@ export interface JobLine {
   timeEstimateMinutes: number;
   /** Optional material cost for this line in pence (trade/cost price, before margin) */
   materialsCostPence?: number;
+  /**
+   * Structured "shopping list" for this line — named items the contractor must
+   * buy, picked from `materials_catalog` (Screwfix/suppliers via Apify) or added
+   * manually. The sum of ex-VAT unit prices drives `materialsCostPence` above, so
+   * these stay consistent. Optional; free-text/legacy lines omit it.
+   */
+  materials?: QuoteMaterial[];
   /** Phase 4d — tier id when category is a fixed-fee tiered model (e.g. waste_removal: 'small' | 'medium' | 'full'). When set, the LLM uses the tier's fixed price directly instead of time × rate. */
   fixedTier?: string | null;
   /**
@@ -423,8 +431,17 @@ export interface LineItemV2 {
    * Named materials for this line (e.g. ["18mm plywood 8x4", "40mm screws"]).
    * Feeds the contractor's material budget allocation on dispatch — the cost
    * figure alone can't tell them what to buy. Optional; legacy rows omit it.
+   *
+   * DERIVED from `materials` (via materialNames()) for legacy string[] readers;
+   * `materials` below is the structured source of truth when present.
    */
   materialsList?: string[];
+  /**
+   * Structured materials picked at quote time — the source of truth the
+   * contractor job sheet renders (name · qty · image · buy link). `materialsList`
+   * above is the flattened-name view of this. Optional; legacy rows omit it.
+   */
+  materials?: QuoteMaterial[];
 }
 
 // ---------------------------------------------------------------------------

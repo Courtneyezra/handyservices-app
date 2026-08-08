@@ -1467,6 +1467,54 @@ export const insertJobMaterialExpenseSchema = createInsertSchema(jobMaterialExpe
 export type JobMaterialExpense = typeof jobMaterialExpenses.$inferSelect;
 export type InsertJobMaterialExpense = z.infer<typeof insertJobMaterialExpenseSchema>;
 
+// ---------------------------------------------------------------------------
+// Materials Catalog — self-building product cache for the quote materials picker
+// ---------------------------------------------------------------------------
+//
+// When Ben types a material at quote time we search this table FIRST (fast,
+// free), then fall back to a live Screwfix/supplier scrape via Apify. Every
+// product picked into a quote is upserted here, so over time this becomes our
+// own curated catalog of the few hundred items the business actually uses —
+// no need to mirror a supplier's whole 25k-SKU range.
+//
+// Prices are stored in PENCE. `pricePenceExVat` is the trade cost basis used
+// for quoting; `pricePenceIncVat` is what the contractor pays on the card.
+export const materialsCatalog = pgTable("materials_catalog", {
+    id: varchar("id").primaryKey().notNull(),
+    // 'screwfix' | 'toolstation' | 'manual'. Manual rows are hand-entered items
+    // with no supplier SKU (supplierItemNumber null).
+    supplier: varchar("supplier", { length: 20 }).notNull().default('manual'),
+    // Supplier SKU / item number, e.g. Screwfix "469JE". The re-sync key.
+    supplierItemNumber: varchar("supplier_item_number", { length: 64 }),
+    name: varchar("name", { length: 300 }).notNull(),
+    brand: varchar("brand", { length: 160 }),
+    description: text("description"),
+    category: varchar("category", { length: 160 }),
+    imageUrl: text("image_url"),
+    supplierUrl: text("supplier_url"),
+    // Trade (ex-VAT) and consumer (inc-VAT) unit prices in pence.
+    pricePenceExVat: integer("price_pence_ex_vat"),
+    pricePenceIncVat: integer("price_pence_inc_vat"),
+    currency: varchar("currency", { length: 8 }).default('GBP'),
+    // How many times picked into a quote — powers "most used" ordering in the picker.
+    usageCount: integer("usage_count").notNull().default(0),
+    // When the price was last confirmed against the supplier (drives staleness re-sync).
+    lastPriceSyncAt: timestamp("last_price_sync_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_materials_catalog_name").on(table.name),
+    index("idx_materials_catalog_usage").on(table.usageCount),
+    index("idx_materials_catalog_supplier").on(table.supplier),
+    // NULLs are distinct in Postgres, so many manual rows (null SKU) coexist;
+    // this only blocks caching the same supplier product twice.
+    uniqueIndex("uq_materials_catalog_supplier_item").on(table.supplier, table.supplierItemNumber),
+]);
+
+export const insertMaterialsCatalogSchema = createInsertSchema(materialsCatalog);
+export type MaterialsCatalogRow = typeof materialsCatalog.$inferSelect;
+export type InsertMaterialsCatalog = typeof materialsCatalog.$inferInsert;
+
 // ==========================================
 // WHATSAPP CRM SCHEMA
 // ==========================================

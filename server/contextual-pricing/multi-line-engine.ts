@@ -37,6 +37,8 @@ import type { PricingSettings } from '../../shared/pricing-settings';
 import { getPricingConfig } from '@shared/pricing-models';
 import { resolveLineItemFromSku, type ResolvedSkuLine } from './sku-resolver';
 import { computeStructuralBuckets, evaluateBracketCeiling, allocateBucketsToLines } from './cost-buckets';
+import { materialsCostPence as sumMaterialsPence, materialNames } from '@shared/materials';
+import type { QuoteMaterial } from '@shared/materials';
 
 // ---------------------------------------------------------------------------
 // Constants (fallback defaults — overridden by DB-backed pricing settings)
@@ -148,6 +150,42 @@ async function polishAllDescriptions(
  */
 function roundToWholePounds(priceInPence: number): number {
   return Math.round(priceInPence / 100) * 100;
+}
+
+/**
+ * Resolve the materials cost + derived fields for a single job line.
+ *
+ * When the line carries a structured `materials` list, that list is the SOURCE
+ * OF TRUTH: we DERIVE and OVERRIDE `materialsCostPence` from it (guarding against
+ * a stale/mismatched client-sent cost) and also emit `materials` (structured) +
+ * `materialsList` (flattened names) so both new and legacy readers work. The
+ * overridden cost is returned so the caller runs the materials-margin math on it.
+ *
+ * When no structured materials are present we fall back to the line's own
+ * `materialsCostPence` (legacy behaviour, unchanged) and emit no materials fields.
+ */
+function resolveLineMaterials(line: {
+  materials?: QuoteMaterial[];
+  materialsCostPence?: number;
+}): {
+  materialsCostPence: number;
+  materialsExtra: { materials?: QuoteMaterial[]; materialsList?: string[] };
+} {
+  if (Array.isArray(line.materials) && line.materials.length > 0) {
+    return {
+      // Structured list wins — recompute the cost from it so pricing, markup
+      // and deposit maths stay consistent with the itemised materials.
+      materialsCostPence: sumMaterialsPence(line.materials),
+      materialsExtra: {
+        materials: line.materials,
+        materialsList: materialNames(line.materials),
+      },
+    };
+  }
+  return {
+    materialsCostPence: line.materialsCostPence || 0,
+    materialsExtra: {},
+  };
 }
 
 /**
@@ -340,7 +378,7 @@ export async function generateMultiLinePrice(
     // math entirely and emit a deterministic LineItemResult.
     const resolved = skuResolutions.get(line.id);
     if (resolved) {
-      const materialsCostPence = line.materialsCostPence || 0;
+      const { materialsCostPence, materialsExtra } = resolveLineMaterials(line);
       const materialsWithMarginPence = materialsCostPence > 0
         ? roundToWholePounds(materialsCostPence * (1 + materialsMargin))
         : 0;
@@ -387,6 +425,9 @@ export async function generateMultiLinePrice(
           scheduleMinutes: resolved.scheduleMinutes,
           flexEligible: resolved.skuRow.flexEligible,
           offPeakWeekendPremiumPence: resolved.skuRow.offPeakWeekendPremiumPence,
+          // Carry structured materials (+ derived name list) through to the
+          // stored line so the contractor job sheet knows WHAT to buy.
+          ...materialsExtra,
         } as any),
       };
     }
@@ -395,7 +436,7 @@ export async function generateMultiLinePrice(
     if (cfg.model === 'fixed' && cfg.fixedTiers && lineTierId) {
       const tier = cfg.fixedTiers.find((t) => t.id === lineTierId);
       if (tier) {
-        const materialsCostPence = line.materialsCostPence || 0;
+        const { materialsCostPence, materialsExtra } = resolveLineMaterials(line);
         const materialsWithMarginPence = materialsCostPence > 0
           ? roundToWholePounds(materialsCostPence * (1 + materialsMargin))
           : 0;
@@ -418,6 +459,8 @@ export async function generateMultiLinePrice(
           ...({
             source: 'custom' as const,
             scheduleMinutes: tier.scheduleMinutes,
+            // Carry structured materials (+ derived name list) through.
+            ...materialsExtra,
           } as any),
         };
       }
@@ -449,8 +492,10 @@ export async function generateMultiLinePrice(
       if (adj.startsWith('Margin')) allMarginsPassed = false;
     }
 
-    // Materials: apply margin to cost price, rounded to whole pounds
-    const materialsCostPence = line.materialsCostPence || 0;
+    // Materials: apply margin to cost price, rounded to whole pounds. When the
+    // line carries a structured materials list, materialsCostPence is DERIVED
+    // from it (overriding any stale client-sent cost) before the margin runs.
+    const { materialsCostPence, materialsExtra } = resolveLineMaterials(line);
     const materialsWithMarginPence = materialsCostPence > 0
       ? roundToWholePounds(materialsCostPence * (1 + materialsMargin))
       : 0;
@@ -472,6 +517,8 @@ export async function generateMultiLinePrice(
       ...({
         source: 'custom' as const,
         scheduleMinutes: line.timeEstimateMinutes,
+        // Carry structured materials (+ derived name list) through.
+        ...materialsExtra,
       } as any),
     };
   });
