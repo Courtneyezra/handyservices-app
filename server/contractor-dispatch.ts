@@ -32,6 +32,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, ObjectCannedACL } from '@
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { calculateMultiLineRevenueShare, calculateLeadUplift, LEAD_UPLIFT_PERCENT, calculateOnboardingBoostPence } from './revenue-share-tiers';
 import type { JobCategory } from '../shared/contextual-pricing-types';
+import { materialNames, type QuoteMaterial } from '../shared/materials';
 
 // ─── Stripe lazy init ───────────────────────────────────────────────────────
 // In dev, prefer the test secret so it matches the test publishable key the
@@ -1626,6 +1627,8 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
       materialsWithMarginPence?: number;
       materialsCostPence?: number;
       timeEstimateMinutes?: number;
+      // Real structured shopping list the quote builder attached to this line.
+      materials?: QuoteMaterial[];
     }>) || [];
 
     // Don't silently drop lines that lack category or time — admins add manual
@@ -1705,7 +1708,24 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
       const original = validLines[i];
       const cat = line.categorySlug as JobCategory;
       const titleRaw = (original.description || cat).slice(0, 140).trim();
-      return {
+      // Prefer the REAL items the quote builder attached to this line; the
+      // hardcoded per-category generics remain only as a fallback for older /
+      // empty lines that carry no structured materials.
+      const quoted = materialNames(original.materials);
+      const task: {
+        num: number;
+        title: string;
+        description: string;
+        category: JobCategory;
+        tier: string;
+        hours: number;
+        payPence: number;
+        payMethod: string;
+        materialsBudgetPence: number;
+        warning?: string;
+        materials: string[];
+        materialsDetailed?: QuoteMaterial[];
+      } = {
         num: i + 1,
         title: titleRaw,
         description: original.description || `${cat} work as scoped`,
@@ -1718,8 +1738,11 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
         // contractor can actually spend on our card for this line.
         materialsBudgetPence: original.materialsCostPence || 0,
         ...(WARNINGS_BY_CATEGORY[cat] ? { warning: WARNINGS_BY_CATEGORY[cat] as string } : {}),
-        materials: MATERIALS_BY_CATEGORY[cat] || ['Standard kit', 'Specifics confirmed on arrival'],
+        materials: quoted.length ? quoted : (MATERIALS_BY_CATEGORY[cat] || ['Standard kit', 'Specifics confirmed on arrival']),
+        // Structured items → job sheet renders thumbnails + buy links.
+        materialsDetailed: original.materials || [],
       };
+      return task;
     });
     const materialsBudgetPence = validLines.reduce((s, l) => s + (l.materialsCostPence || 0), 0);
 

@@ -84,6 +84,7 @@ import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
 import contractorHubRouter from './contractor-hub-routes';
 import contractorAppRouter from './contractor-app-routes';
+import materialsRouter from './materials-routes';
 import osRouter from './os-routes';
 import adminDashboardRouter from './admin-dashboard-routes';
 import { vaStatsRouter } from './va-stats';
@@ -514,6 +515,7 @@ app.use('/api/admin/dispatch-map', requireAdmin, dispatchMapRouter); // Dispatch
 app.use(wtbpRateCardRouter); // WTBP Rate Card (contractor pay rates)
 app.use(payoutRouter); // Contractor payout & earnings routes
 app.use(disputeRouter); // Dispute resolution routes
+app.use('/api/materials', requireAdmin, materialsRouter); // Quote materials picker (catalog + Screwfix search) — admin/VA
 
 // Serve static assets (for hold music)
 app.use('/assets', express.static(path.join(__dirname, '../public/assets')));

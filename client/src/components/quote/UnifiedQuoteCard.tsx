@@ -88,6 +88,12 @@ export interface PricingLineItem {
   skuIcon?: string | null;
   /** Catalog code, e.g. TAP-KIT-01. */
   skuCode?: string;
+  /**
+   * Customer-safe materials for this line — image + name ONLY. The server strips
+   * trade/inc-VAT price, supplier SKU and buy-link before sending to a customer,
+   * so the materials margin is never exposed. Powers the "materials included" strip.
+   */
+  materials?: { name: string; imageUrl?: string }[];
 }
 
 /** Multi-job batch discount details */
@@ -95,6 +101,27 @@ export interface QuoteBatchDiscount {
   applied: boolean;
   discountPercent: number;
   savingsPence: number;
+}
+
+/** Material thumbnail with a graceful 🧱 fallback when the image is missing or 404s. */
+function MaterialThumb({ url, isDark }: { url?: string; isDark: boolean }) {
+  const [errored, setErrored] = useState(false);
+  if (!url || errored) {
+    return (
+      <div className={`h-10 w-10 rounded shrink-0 flex items-center justify-center text-sm ${isDark ? 'bg-white/10' : 'bg-white/60'}`}>
+        🧱
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      onError={() => setErrored(true)}
+      className="h-10 w-10 rounded object-contain bg-white shrink-0"
+    />
+  );
 }
 
 /**
@@ -457,26 +484,23 @@ interface DifferentiatorChip {
  */
 const DIFFERENTIATOR_CHIPS: Record<CustomerType, DifferentiatorChip[]> = {
   homeowner: [
-    // Reframed from table-stakes ("On time", "Spotless") to benefits a homeowner
-    // weighs when letting a stranger into their home. Every claim is one we already
-    // make elsewhere on the page (insured / DBS / fix-it-free / tidy-up) — nothing
-    // invented. No guarantee duration asserted; "we come back free" is the promise.
-    // Lead chip = the DELIVERER: a rated, vetted person does your job — the "who
-    // comes to my house?" reassurance folded in at the decision moment (the full
-    // "Meet your handyman" banner sits one scroll below). Generic while the
-    // assigned contractor is hardcoded — no individual named; 4.9★ is the real
-    // Google rating. DBS is rolled into the subline so the strip stays 3 chips
-    // (a 4th forces a mobile wrap).
-    { icon: <Star className="w-4 h-4" />, label: 'Vetted, rated pro', short: '4.9★ pro', sub: 'DBS-checked — a safe pro in your home' },
-    { icon: <Shield className="w-4 h-4" />, label: '£2M insured', short: '£2M insured', sub: "covered if anything's damaged" },
-    { icon: <BadgeCheck className="w-4 h-4" />, label: 'Guaranteed', short: 'Guaranteed', sub: 'not right? we come back free' },
+    // The three things that make a CHEAPER quote not a like-for-like comparison —
+    // reframing the decision off price and onto value (Ramanujam). Each is
+    // genuinely included free: the fixed price never grows, we return free if it's
+    // not right, and the booked date is guaranteed. Insurance + the underwriter
+    // now live in the AXA pill directly above the price; the 4.9★ rating shows in
+    // the intro and header — so this row is pure "can't compare us on price"
+    // differentiation. Kept to 3 (a 4th forces a mobile wrap).
+    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price', short: 'Fixed price', sub: 'quoted is final — no surprise extras' },
+    { icon: <RotateCcw className="w-4 h-4" />, label: 'Fix-it-free', short: 'Fix-it-free', sub: 'not right? we come back and fix it free' },
+    { icon: <CalendarCheck className="w-4 h-4" />, label: 'On schedule', short: 'On schedule', sub: 'booked date — we turn up, guaranteed' },
   ],
-  // OAP homeowner: a faithful duplicate of homeowner (same reassurance set). It
+  // OAP homeowner: a faithful duplicate of homeowner (same differentiator set). It
   // differs only in payment options (cash on the day), handled in the toggle below.
   oap_homeowner: [
-    { icon: <Star className="w-4 h-4" />, label: 'Vetted, rated pro', short: '4.9★ pro', sub: 'DBS-checked — a safe pro in your home' },
-    { icon: <Shield className="w-4 h-4" />, label: '£2M insured', short: '£2M insured', sub: "covered if anything's damaged" },
-    { icon: <BadgeCheck className="w-4 h-4" />, label: 'Guaranteed', short: 'Guaranteed', sub: 'not right? we come back free' },
+    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price', short: 'Fixed price', sub: 'quoted is final — no surprise extras' },
+    { icon: <RotateCcw className="w-4 h-4" />, label: 'Fix-it-free', short: 'Fix-it-free', sub: 'not right? we come back and fix it free' },
+    { icon: <CalendarCheck className="w-4 h-4" />, label: 'On schedule', short: 'On schedule', sub: 'booked date — we turn up, guaranteed' },
   ],
   landlord: [
     // Tenant liaison is a paid +£25 add-on → NOT claimed here as standard.
@@ -1323,6 +1347,23 @@ export function UnifiedQuoteCard({
     return lines.map((item) => ({ item, displayPence: raw(item) }));
   }, [pricingLineItems]);
 
+  // Consolidated, price-free "materials included" strip for the customer. Server
+  // sends image + name only (no price/SKU/buy-link), so nothing here can leak the
+  // materials margin. Dedupe by name across lines; keep only items worth showing.
+  const includedMaterials = useMemo(() => {
+    const all = (pricingLineItems || []).flatMap(
+      (li) => li.materials || [],
+    ) as { name: string; imageUrl?: string }[];
+    const seen = new Set<string>();
+    return all.filter((m) => {
+      if (!m || !m.name) return false;
+      const key = m.name.toLowerCase().trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [pricingLineItems]);
+
   // ── Line-item split (?v=split preview) ──────────────────────────────────
   // Cross a line off → it moves to "save for another visit" and the DISPLAY
   // re-prices. Client-side only: payment is gated while anything is deferred
@@ -1972,6 +2013,14 @@ export function UnifiedQuoteCard({
             </AnimatePresence>
           </div>
 
+          {/* Underwriter reassurance — directly under the price, where the number
+              lands and insurance anxiety peaks. Names the insurer behind our £2M
+              cover. Renders in every booking mode (this price column is always
+              shown), so flex-lane quotes get it too. */}
+          <div className="mt-2 flex justify-center">
+            <AxaInsuredBadge tone={isDarkTheme ? 'dark' : 'light'} />
+          </div>
+
           {/* Trust strip — a thin one-line band of the included-as-standard benefits
               directly under the price, so value lands at the same moment as the
               number without pushing the price down. Homeowner set only (the one
@@ -2094,6 +2143,29 @@ export function UnifiedQuoteCard({
                   />
                 ))}
               </div>
+
+              {/* Quality materials included — price-free trust strip (image + name
+                  only; the server never sends the customer a price/SKU/buy-link). */}
+              {includedMaterials.length > 0 && (
+                <div className={`mt-3 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+                  <p className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Quality materials included
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {includedMaterials.map((m, i) => (
+                      <div
+                        key={`${m.name}-${i}`}
+                        className={`flex items-center gap-2 rounded-lg p-2 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}
+                      >
+                        <MaterialThumb url={m.imageUrl} isDark={isDarkTheme} />
+                        <span className={`text-[12px] leading-snug line-clamp-2 ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>
+                          {m.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Decomposed structural costs (call-out × visits / travel /
                   collection) are FOLDED into each line's displayed price via the
@@ -3031,12 +3103,6 @@ export function UnifiedQuoteCard({
             ))}
           </div>
         )}
-
-        {/* Underwriter reassurance — placed right above the commit CTA where
-            insurance anxiety peaks. Factual "underwritten by AXA" wording. */}
-        <div className="flex justify-center mt-2">
-          <AxaInsuredBadge tone={isDarkTheme ? 'dark' : 'light'} />
-        </div>
 
         {/* Payment/Book Section */}
         {/* scroll-mt clears the sticky top header (~57px) so when the sticky

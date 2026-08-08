@@ -17,6 +17,7 @@ import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
 import { planToAssignments } from './lib/quote-team';
 import { computeContractorPay } from './lib/contractor-pay';
 import { activeLineItems } from '../shared/split-scope';
+import { materialNames, type QuoteMaterial } from '../shared/materials';
 import { v4 as uuidv4 } from 'uuid';
 import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as CanonicalSlotType } from '../shared/slot-times';
 import { findBestContractorForJob } from './auto-assignment-engine';
@@ -103,7 +104,8 @@ interface JobSheetLineItem {
     estimatedMinutes: number | null;
     pricePence: number;
     contractorRatePence: number;
-    materialsRequired: any[];
+    materialsRequired: string[];
+    materials: QuoteMaterial[];
     status: 'pending';
 }
 
@@ -144,7 +146,13 @@ export async function buildJobSheetLineItems(tx: any, pricingLineItems: any[]): 
             estimatedMinutes,
             pricePence: item.pricePence || item.customerPricePence || 0,
             contractorRatePence,
-            materialsRequired: item.materialsRequired || [],
+            // Derive the display list from the quote line's REAL structured
+            // materials (LineItemV2.materials) — the old `item.materialsRequired`
+            // field never existed on the line, so this was always empty.
+            materialsRequired: materialNames(item.materials),
+            // Attach the structured items too (job_sheets.lineItems is freeform
+            // jsonb) so downstream can render thumbnails + buy links.
+            materials: item.materials || [],
             status: 'pending' as const,
         };
     });

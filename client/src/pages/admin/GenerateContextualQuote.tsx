@@ -73,6 +73,8 @@ import type {
 import { getCategoryLabel } from '@shared/categories';
 import { getPricingConfig } from '@shared/pricing-models';
 import { verticalConfig } from '@shared/verticals';
+import { type QuoteMaterial, materialsCostPence } from '@shared/materials';
+import { MaterialsPicker } from '@/components/quote/MaterialsPicker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -117,6 +119,14 @@ interface LineItem {
   category: JobCategory;
   estimatedMinutes: number;
   materialsCostPounds: number; // in pounds for easier input, converted to pence on submit
+  /**
+   * Structured "shopping list" for this line — named catalog/Screwfix/manual
+   * items the contractor must buy. When present, this DRIVES the materials cost:
+   * `materialsCostPounds` is kept in sync at `materialsCostPence(materials)/100`
+   * so pricing/markup/deposit maths stay consistent with the itemised list. It
+   * rides the quote → booking → job-sheet → dispatch rails to the contractor app.
+   */
+  materials?: QuoteMaterial[];
   details?: string;
   /** Customer-page checklist per line — each string follows "Head — detail" (em dash). Takes precedence over `details` on the customer page. */
   scopeSteps?: string[];
@@ -513,55 +523,6 @@ function TimeInput({
 // Bold + high-contrast by design — the owner wants the two rails legible per
 // line, not hidden behind subtle tints.
 // ---------------------------------------------------------------------------
-
-// Materials £ input holding the raw typed string locally. Round-tripping every
-// keystroke through parseFloat snaps the field back mid-edit (clearing it, or
-// typing "12." on a phone, re-renders as 0/"") — the draft only syncs back to
-// the committed number when the field isn't focused.
-function MaterialsCostInput({
-  value,
-  onCommit,
-  onFocus,
-  autoFocus,
-}: {
-  value: number;
-  onCommit: (pounds: number) => void;
-  onFocus?: () => void;
-  autoFocus?: boolean;
-}) {
-  const [draft, setDraft] = useState<string>(value > 0 ? String(value) : '');
-  const focusedRef = useRef(false);
-
-  // Sync external changes (draft restore, SKU pick, toggle-off) while idle.
-  useEffect(() => {
-    if (!focusedRef.current) setDraft(value > 0 ? String(value) : '');
-  }, [value]);
-
-  return (
-    <Input
-      type="text"
-      inputMode="decimal"
-      placeholder="0"
-      autoFocus={autoFocus}
-      value={draft}
-      onFocus={() => {
-        focusedRef.current = true;
-        onFocus?.();
-      }}
-      onBlur={() => {
-        focusedRef.current = false;
-        setDraft(value > 0 ? String(value) : '');
-      }}
-      onChange={(e) => {
-        const raw = e.target.value.replace(/[^0-9.]/g, '');
-        setDraft(raw);
-        const parsed = parseFloat(raw);
-        onCommit(Number.isFinite(parsed) && parsed >= 0 ? parsed : 0);
-      }}
-      className="w-24 sm:w-20 h-10 sm:h-8 text-center text-base sm:text-sm bg-transparent border-handy-grid"
-    />
-  );
-}
 
 function TwoRailEditor({
   /** £ shown in the price field. For "auto" (custom, unset) pass null. */
@@ -1695,6 +1656,10 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             category: li.category,
             timeEstimateMinutes: li.estimatedMinutes,
             materialsCostPence: Math.round((li.materialsCostPounds || 0) * 100),
+            // Structured materials shopping list — server derives the cost from
+            // this (overriding materialsCostPence above) and persists it so it
+            // reaches the contractor job sheet.
+            ...(li.materials?.length ? { materials: li.materials } : {}),
             // Phase 25c — pass SKU fields through so the server engine
             // short-circuits the LLM for catalog-picked lines.
             source: li.source,
@@ -1967,6 +1932,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               category: pli.category,
               estimatedMinutes: pli.timeEstimateMinutes ?? pli.scheduleMinutes ?? 30,
               materialsCostPounds: (pli.materialsCostPence ?? 0) / 100,
+              // Hydrate the materials picker when editing an existing quote.
+              ...(Array.isArray(pli.materials) ? { materials: pli.materials } : {}),
               source: (isSku ? 'sku' : 'custom') as 'sku' | 'custom',
               ...(isSku ? { skuCode } : {}),
               ...(pli.unitCount !== undefined ? { unitCount: pli.unitCount } : {}),
@@ -2206,6 +2173,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             category: li.category,
             estimatedMinutes: li.estimatedMinutes,
             materialsCostPence: Math.round(li.materialsCostPounds * 100) || 0,
+            ...(li.materials?.length ? { materials: li.materials } : {}),
             details: li.details ?? null,
             scopeSteps: (li.scopeSteps && li.scopeSteps.filter(s => s.trim()).length > 0) ? li.scopeSteps.filter(s => s.trim()) : null,
             fixedTier: li.fixedTier ?? null,
@@ -2419,6 +2387,25 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         }
         return updated;
       }),
+    );
+  };
+
+  // Materials are the structured shopping list. Whenever they change we write
+  // the line's materials cost back from the itemised list (single source of
+  // truth: materialsCostPence = Σ unitPricePence × qty), keeping the legacy
+  // materialsCostPounds field — which pricing/markup/deposit maths still read —
+  // consistent with the picker.
+  const handleUpdateLineMaterials = (id: string, materials: QuoteMaterial[]) => {
+    setLineItems((prev) =>
+      prev.map((li) =>
+        li.id === id
+          ? {
+              ...li,
+              materials,
+              materialsCostPounds: materialsCostPence(materials) / 100,
+            }
+          : li,
+      ),
     );
   };
 
@@ -3498,7 +3485,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                     {lineItems.map((item, index) => {
                       const icon = CATEGORY_ICONS[item.category] || '🔨';
                       const categoryLabel = CATEGORY_LABELS[item.category] || 'General';
-                      const materialsOpen = materialsOpenIds.has(item.id) || item.materialsCostPounds > 0;
+                      const hasMaterialsList = (item.materials?.length ?? 0) > 0;
+                      const materialsOpen = materialsOpenIds.has(item.id) || item.materialsCostPounds > 0 || hasMaterialsList;
                       const isPolishing = polishingIds.has(item.id);
                       // Phase 25d — a line is a SKU line iff it was picked from
                       // the inline autocomplete (source==='sku' && skuCode).
@@ -3801,6 +3789,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                                     return next;
                                   });
                                   handleUpdateLineItem(item.id, 'materialsCostPounds', 0);
+                                  handleUpdateLineMaterials(item.id, []);
                                 } else {
                                   setMaterialsOpenIds((prev) => new Set(prev).add(item.id));
                                 }
@@ -3813,15 +3802,13 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                             >
                               {materialsOpen ? '🧱 Materials' : '+ Materials'}
                             </button>
-                            {materialsOpen && (
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span className="text-sm sm:text-xs text-muted-foreground">£</span>
-                                <MaterialsCostInput
-                                  value={item.materialsCostPounds || 0}
-                                  autoFocus={item.materialsCostPounds === 0}
-                                  onFocus={() => setMaterialsOpenIds((prev) => (prev.has(item.id) ? prev : new Set(prev).add(item.id)))}
-                                  onCommit={(pounds) => handleUpdateLineItem(item.id, 'materialsCostPounds', pounds)}
-                                />
+                            {/* Materials are entered per individual item in the picker
+                                below — no lump-sum box. This is just a read-only roll-up
+                                of the itemised list (Σ ex-VAT), shown once items exist. */}
+                            {materialsOpen && hasMaterialsList && (
+                              <div className="flex items-center gap-1 shrink-0 text-sm sm:text-xs">
+                                <span className="font-semibold text-handy-navy tabular-nums">£{(item.materialsCostPounds || 0).toFixed(2)}</span>
+                                <span className="text-muted-foreground/60">ex-VAT</span>
                               </div>
                             )}
                             {/* Phase 11 — collection toggle (schedule-only, no customer-facing charge) */}
@@ -3837,6 +3824,17 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                             >
                               {item.requiresMaterialCollection ? '🚐 Collection' : '+ Collection'}
                             </button>
+                            {/* Full-width materials picker — search catalog + Screwfix, pick
+                                items, tune qty. Drives materialsCostPounds via
+                                handleUpdateLineMaterials so cost stays = Σ ex-VAT × qty. */}
+                            {materialsOpen && (
+                              <div className="w-full mt-1">
+                                <MaterialsPicker
+                                  materials={item.materials ?? []}
+                                  onChange={(m) => handleUpdateLineMaterials(item.id, m)}
+                                />
+                              </div>
+                            )}
                           </div>
                           )}
                         </div>
