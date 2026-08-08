@@ -23,6 +23,22 @@ const router = Router();
 // Known SEO city slugs — the guard set for every dynamic route.
 const SEO_CITY_SLUGS = new Set(SEO_CITIES.map((c) => c.slug));
 
+/**
+ * Edge cache policy for SSR pages (Cloudflare honours s-maxage; browsers use
+ * max-age). Indexable pages are stable → cache long at the edge for SSG-like
+ * TTFB. Unpublished/noindex (and 404) pages get a short TTL so flipping a
+ * city/trade live in /admin/seo propagates in ~a minute — no stale go-live.
+ * NB: Cloudflare only caches HTML when a Cache Rule tells it to respect origin
+ * Cache-Control for these paths (see note to the user).
+ */
+function setSeoCache(res: import("express").Response, result: { status: number; noindexed?: boolean }): void {
+    if (result.status === 200 && !result.noindexed) {
+        res.setHeader("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+    } else {
+        res.setHeader("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
+    }
+}
+
 // ── /sitemap.xml ──────────────────────────────────────────────────────────
 // Lists T1 hubs + published T2 pages only. Suburb (T3) pages are excluded
 // while they ship noindex (ROLLOUT.T3_INDEXABLE) — a noindex URL must not
@@ -30,6 +46,8 @@ const SEO_CITY_SLUGS = new Set(SEO_CITIES.map((c) => c.slug));
 router.get("/sitemap.xml", async (_req, res) => {
     const publishedByCity = await getPublishedTradesByCity();
     res.setHeader("Content-Type", "application/xml");
+    // Moderate TTL so publish changes surface in the sitemap within ~10 min.
+    res.setHeader("Cache-Control", "public, max-age=600, s-maxage=600, stale-while-revalidate=3600");
     res.send(
         renderSitemapXml(publishedByCity, { includeSuburbs: ROLLOUT.T3_INDEXABLE }),
     );
@@ -38,6 +56,7 @@ router.get("/sitemap.xml", async (_req, res) => {
 // ── /robots.txt ───────────────────────────────────────────────────────────
 router.get("/robots.txt", (_req, res) => {
     res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
     res.send(
         [
             "User-agent: *",
@@ -59,6 +78,7 @@ router.get("/:city/:service/:suburb", (req, res, next) => {
         indexable: ROLLOUT.T3_INDEXABLE,
     });
     res.status(result.status).setHeader("Content-Type", "text/html");
+    setSeoCache(res, result);
     res.send(result.html);
 });
 
@@ -71,6 +91,7 @@ router.get("/:city/:service", async (req, res, next) => {
         indexable,
     });
     res.status(result.status).setHeader("Content-Type", "text/html");
+    setSeoCache(res, result);
     res.send(result.html);
 });
 
@@ -89,6 +110,7 @@ router.get("/:city", async (req, res, next) => {
     const indexable = await isCityLaunched(req.params.city);
     const result = renderCityHub(req.params.city, { indexable });
     res.status(result.status).setHeader("Content-Type", "text/html");
+    setSeoCache(res, result);
     res.send(result.html);
 });
 
