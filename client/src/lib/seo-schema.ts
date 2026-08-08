@@ -37,10 +37,18 @@ export const BRAND = {
     'https://www.facebook.com/handyservicesapp',
     'https://www.instagram.com/handyservicesapp',
   ],
-  /** Cities served, with approximate geo centroids for LocalBusiness. */
+  /** Cities served, with approximate geo centroids for LocalBusiness + the key
+   *  neighbourhoods we cover — fed into areaServed so we read as genuinely LOCAL
+   *  for proximity/"near me" searches, not just the city name. */
   cities: {
-    Nottingham: { region: 'Nottinghamshire', latitude: 52.9548, longitude: -1.1581 },
-    Derby: { region: 'Derbyshire', latitude: 52.9225, longitude: -1.4746 },
+    Nottingham: {
+      region: 'Nottinghamshire', latitude: 52.9548, longitude: -1.1581,
+      neighbourhoods: ['Beeston', 'West Bridgford', 'Arnold', 'Carlton', 'Bulwell', 'Hucknall', 'Mapperley', 'Wollaton', 'Clifton', 'Gedling'],
+    },
+    Derby: {
+      region: 'Derbyshire', latitude: 52.9225, longitude: -1.4746,
+      neighbourhoods: ['Allestree', 'Mickleover', 'Chaddesden', 'Littleover', 'Spondon', 'Alvaston', 'Oakwood', 'Sinfin'],
+    },
   },
 } as const;
 
@@ -145,10 +153,10 @@ export function localBusinessSchema(options: LocalBusinessOptions): JsonLdObject
       latitude: geo.latitude,
       longitude: geo.longitude,
     },
-    areaServed: {
-      '@type': 'City',
-      name: city,
-    },
+    areaServed: [
+      { '@type': 'City', name: city },
+      ...geo.neighbourhoods.map((n) => ({ '@type': 'Place', name: `${n}, ${city}` })),
+    ],
     aggregateRating: {
       '@type': 'AggregateRating',
       ratingValue: BRAND.aggregateRating.ratingValue,
@@ -194,14 +202,14 @@ export function serviceSchema(options: ServiceOptions): JsonLdObject {
         reviewCount: BRAND.aggregateRating.reviewCount,
       },
     },
-    areaServed: {
-      '@type': 'City',
-      name: city,
-      containedInPlace: {
-        '@type': 'AdministrativeArea',
-        name: geo.region,
+    areaServed: [
+      {
+        '@type': 'City',
+        name: city,
+        containedInPlace: { '@type': 'AdministrativeArea', name: geo.region },
       },
-    },
+      ...geo.neighbourhoods.map((n) => ({ '@type': 'Place', name: `${n}, ${city}` })),
+    ],
   };
 }
 

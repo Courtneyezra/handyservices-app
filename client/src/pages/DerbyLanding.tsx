@@ -645,8 +645,8 @@ export default function DerbyLanding({
     const contentRef = useRef<HTMLDivElement>(null);
 
     usePageSeo({
-        title: "Handyman in Derby | Handy Services",
-        description: "Trusted handyman, painting, gutter cleaning and home improvements across Derby, Derbyshire. £2M insured, 4.9★ rated. Get a free fixed quote.",
+        title: "Local Handyman in Derby Near You | Handy Services",
+        description: "Looking for a local handyman near you in Derby? Trusted, vetted handymen for repairs, painting, gutters & home improvements across Allestree, Mickleover, Chaddesden & all of Derby, Derbyshire. £2M insured, 4.9★. Free fixed quote.",
         canonical: "https://www.handyservices.app/derby",
     });
 
@@ -694,8 +694,8 @@ export default function DerbyLanding({
     }, []);
 
     // Static hero content (A/B variant system removed — a new test will be built).
-    const finalHeadline = headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
-    const finalSubhead = subhead || "Call or WhatsApp for an instant fixed-price quote";
+    const finalHeadline = headline || "{{location}}||Local Handyman||Trusted local pros • Next-day slots";
+    const finalSubhead = subhead || "Your local Derby handyman — call or WhatsApp for an instant fixed-price quote";
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">

@@ -729,8 +729,8 @@ export default function HandymanLanding({
     const contentRef = useRef<HTMLDivElement>(null);
 
     usePageSeo({
-        title: "Handyman in Nottingham | Handy Services",
-        description: "Trusted handyman, painting, gutter cleaning and home improvements across Nottingham. £2M insured, 4.9★ rated. Get a free fixed quote.",
+        title: "Local Handyman in Nottingham Near You | Handy Services",
+        description: "Looking for a local handyman near you in Nottingham? Trusted, vetted handymen for repairs, painting, gutters & home improvements across Beeston, West Bridgford, Arnold & all of Nottingham. £2M insured, 4.9★. Free fixed quote.",
         canonical: "https://www.handyservices.app/nottingham",
     });
 
@@ -781,8 +781,10 @@ export default function HandymanLanding({
     }, []);
 
     // Static hero content (A/B variant system removed — a new test will be built).
-    const finalHeadline = headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
-    const finalSubhead = subhead || "Call or WhatsApp for an instant fixed-price quote";
+    // "Local Handyman" tier targets the "local handyman / handyman near me" intent
+    // (the highest-impression Nottingham queries in GSC).
+    const finalHeadline = headline || "{{location}}||Local Handyman||Trusted local pros • Next-day slots";
+    const finalSubhead = subhead || "Your local Nottingham handyman — call or WhatsApp for an instant fixed-price quote";
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
