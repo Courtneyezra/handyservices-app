@@ -16,9 +16,11 @@
  */
 import { trackRankings } from './seo-rank-tracker';
 import { pullGmbMetrics } from './seo-gmb-connector';
+import { pullGscRankings, gscConfigured } from './seo-gsc-connector';
 
 export const RANK_SCHEDULE = { cron: '0 4 * * 1', label: 'Weekly · Mondays 04:00' };
 export const GMB_SCHEDULE = { cron: '0 5 * * *', label: 'Daily · 05:00' };
+export const GSC_SCHEDULE = { cron: '0 6 * * *', label: 'Daily · 06:00' };
 
 export function rankEnabled(): boolean {
     return !!(process.env.APIFY_TOKEN || process.env.APIFY_API_TOKEN);
@@ -30,8 +32,11 @@ export function gmbEnabled(): boolean {
         process.env.GOOGLE_GBP_REFRESH_TOKEN
     );
 }
+export function gscEnabled(): boolean {
+    return gscConfigured();
+}
 
-type JobKey = 'rank' | 'gmb';
+type JobKey = 'rank' | 'gmb' | 'gsc';
 interface JobState {
     running: boolean;
     lastRunAt: string | null;      // ISO — last time THIS process ran the job
@@ -42,6 +47,7 @@ interface JobState {
 const state: Record<JobKey, JobState> = {
     rank: { running: false, lastRunAt: null, lastTrigger: null, lastResult: null, lastError: null },
     gmb: { running: false, lastRunAt: null, lastTrigger: null, lastResult: null, lastError: null },
+    gsc: { running: false, lastRunAt: null, lastTrigger: null, lastResult: null, lastError: null },
 };
 
 /** Run the rank tracker. No-ops (logs) when disabled or already running. */
@@ -98,10 +104,38 @@ export async function runGmbPull(trigger: 'cron' | 'manual'): Promise<void> {
     }
 }
 
-/** Snapshot of both jobs for the admin dashboard. */
+/** Run the GSC pull. No-ops (logs) when disabled or already running. */
+export async function runGscPull(trigger: 'cron' | 'manual'): Promise<void> {
+    if (!gscEnabled()) {
+        console.log('[seo-automation] GSC pull skipped — GSC_GOOGLE_* not set');
+        return;
+    }
+    if (state.gsc.running) {
+        console.log('[seo-automation] GSC pull already running — skipping this trigger');
+        return;
+    }
+    state.gsc.running = true;
+    state.gsc.lastTrigger = trigger;
+    try {
+        console.log(`[seo-automation] GSC pull start (${trigger})`);
+        const s = await pullGscRankings();
+        state.gsc.lastResult = `${s.matched} matched · ${s.discovered} discovered · ${s.snapshotsWritten} snapshots`;
+        state.gsc.lastError = null;
+        console.log(`[seo-automation] GSC pull done: ${state.gsc.lastResult}`);
+    } catch (e) {
+        state.gsc.lastError = e instanceof Error ? e.message : String(e);
+        console.error('[seo-automation] GSC pull failed:', e);
+    } finally {
+        state.gsc.running = false;
+        state.gsc.lastRunAt = new Date().toISOString();
+    }
+}
+
+/** Snapshot of all jobs for the admin dashboard. */
 export function getAutomationStatus() {
     return {
         rank: { key: 'rank', enabled: rankEnabled(), schedule: RANK_SCHEDULE.label, ...state.rank },
         gmb: { key: 'gmb', enabled: gmbEnabled(), schedule: GMB_SCHEDULE.label, ...state.gmb },
+        gsc: { key: 'gsc', enabled: gscEnabled(), schedule: GSC_SCHEDULE.label, ...state.gsc },
     };
 }

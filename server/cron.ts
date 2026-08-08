@@ -5,7 +5,8 @@ import { personalizedQuotes, contractorBookingRequests, handymanProfiles, users 
 import { lt, and, eq, isNull, gte, lte, inArray, not, sql } from "drizzle-orm";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
 import {
-    runRankTracking, runGmbPull, rankEnabled, gmbEnabled, RANK_SCHEDULE, GMB_SCHEDULE,
+    runRankTracking, runGmbPull, runGscPull, rankEnabled, gmbEnabled, gscEnabled,
+    RANK_SCHEDULE, GMB_SCHEDULE, GSC_SCHEDULE,
 } from "./seo-automation";
 
 // Initialize Cron Jobs
@@ -65,6 +66,13 @@ export function setupCronJobs() {
         console.log(`[Cron] SEO GMB metrics pull scheduled (${GMB_SCHEDULE.label}).`);
     } else {
         console.log("[Cron] SEO GMB metrics pull NOT scheduled — GOOGLE_GBP_* not set.");
+    }
+
+    if (gscEnabled()) {
+        cron.schedule(GSC_SCHEDULE.cron, () => runGscPull("cron"));
+        console.log(`[Cron] SEO GSC pull scheduled (${GSC_SCHEDULE.label}).`);
+    } else {
+        console.log("[Cron] SEO GSC pull NOT scheduled — GSC_GOOGLE_* not set.");
     }
 
     console.log("[Cron] Scheduler running.");

@@ -5,7 +5,7 @@ import { keywordTargets, rankSnapshots, gmbMetrics } from "@shared/schema";
 import { desc, eq, sql } from "drizzle-orm";
 import { requireAdmin } from "./auth";
 import {
-    getAutomationStatus, runRankTracking, runGmbPull,
+    getAutomationStatus, runRankTracking, runGmbPull, runGscPull,
 } from "./seo-automation";
 
 const router = Router();
@@ -95,13 +95,15 @@ router.get("/api/admin/seo/keywords", requireAdmin, async (_req, res) => {
         position: rankSnapshots.position,
         url: rankSnapshots.url,
         cited: rankSnapshots.cited,
+        rawMeta: rankSnapshots.rawMeta,
         capturedAt: rankSnapshots.capturedAt,
       })
       .from(rankSnapshots)
       .orderBy(desc(rankSnapshots.capturedAt));
 
-    // latest[keywordTargetId][engine] = snapshot (first = newest due to ordering)
-    const latest: Record<number, Record<string, { position: number | null; url: string | null; cited: boolean; capturedAt: Date }>> = {};
+    // latest[keywordTargetId][engine] = snapshot (first = newest due to ordering).
+    // rawMeta carries engine-specific extras (GSC: clicks/impressions/ctr).
+    const latest: Record<number, Record<string, { position: number | null; url: string | null; cited: boolean; rawMeta: unknown; capturedAt: Date }>> = {};
     for (const s of snapshots) {
       const kid = s.keywordTargetId;
       if (!latest[kid]) latest[kid] = {};
@@ -110,6 +112,7 @@ router.get("/api/admin/seo/keywords", requireAdmin, async (_req, res) => {
           position: s.position ?? null,
           url: s.url ?? null,
           cited: !!s.cited,
+          rawMeta: s.rawMeta ?? null,
           capturedAt: s.capturedAt as Date,
         };
       }
@@ -200,9 +203,15 @@ router.get("/api/admin/seo/automation", requireAdmin, async (_req, res) => {
       .select({ at: sql<Date | null>`max(${gmbMetrics.capturedAt})` })
       .from(gmbMetrics);
 
+    const [gscLatest] = await db
+      .select({ at: sql<Date | null>`max(${rankSnapshots.capturedAt})` })
+      .from(rankSnapshots)
+      .where(eq(rankSnapshots.engine, "google_search_console"));
+
     res.json({
       rank: { ...status.rank, lastDataAt: rankLatest?.at ?? null },
       gmb: { ...status.gmb, lastDataAt: gmbLatest?.at ?? null },
+      gsc: { ...status.gsc, lastDataAt: gscLatest?.at ?? null },
     });
   } catch (error) {
     console.error("[SEO] Error fetching automation status:", error);
@@ -236,6 +245,19 @@ router.post("/api/admin/seo/gmb/run", requireAdmin, (_req, res) => {
     return res.status(409).json({ error: "A GMB pull is already in progress." });
   }
   void runGmbPull("manual");
+  res.status(202).json({ started: true });
+});
+
+// ── POST /api/admin/seo/gsc/run ───────────────────────────────────────────────
+router.post("/api/admin/seo/gsc/run", requireAdmin, (_req, res) => {
+  const { gsc } = getAutomationStatus();
+  if (!gsc.enabled) {
+    return res.status(409).json({ error: "GSC pull is disabled — GSC_GOOGLE_* not set." });
+  }
+  if (gsc.running) {
+    return res.status(409).json({ error: "A GSC pull is already in progress." });
+  }
+  void runGscPull("manual");
   res.status(202).json({ started: true });
 });
 

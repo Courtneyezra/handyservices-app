@@ -3488,12 +3488,13 @@ export type InsertBookingAssignment = typeof bookingAssignments.$inferInsert;
 
 // Where a keyword can rank / be cited
 export const seoEngineEnum = pgEnum('seo_engine', [
-    'google_organic',   // classic 10-blue-links
-    'google_pack',      // local map pack (different ranking system)
-    'ai_overview',      // Google AI Overviews
-    'chatgpt',          // cited in ChatGPT answer
-    'perplexity',       // cited in Perplexity answer
-    'gemini',           // cited in Gemini answer
+    'google_organic',        // classic 10-blue-links (Apify SERP scrape, point-in-time)
+    'google_pack',           // local map pack (different ranking system)
+    'google_search_console', // GSC-reported 28-day avg position + real clicks/impressions
+    'ai_overview',           // Google AI Overviews
+    'chatgpt',               // cited in ChatGPT answer
+    'perplexity',            // cited in Perplexity answer
+    'gemini',                // cited in Gemini answer
 ]);
 
 // Search intent — drives page type and whether we target at all

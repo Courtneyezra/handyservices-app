@@ -42,6 +42,7 @@ interface RankInfo {
   position: number | null;
   url: string | null;
   cited: boolean;
+  rawMeta?: { source?: string; clicks?: number; impressions?: number; ctr?: number; positionExact?: number } | null;
   capturedAt: string;
 }
 
@@ -78,7 +79,7 @@ interface GmbRow {
 }
 
 interface JobStatus {
-  key: "rank" | "gmb";
+  key: "rank" | "gmb" | "gsc";
   enabled: boolean;
   schedule: string;
   running: boolean;
@@ -91,6 +92,7 @@ interface JobStatus {
 interface AutomationStatus {
   rank: JobStatus;
   gmb: JobStatus;
+  gsc: JobStatus;
 }
 
 interface TrendKeyword {
@@ -181,6 +183,27 @@ function PositionCell({ rank }: { rank?: RankInfo }) {
     return <span className={color}>#{rank.position}</span>;
   }
   return <span className="text-slate-300">—</span>;
+}
+
+// GSC = Google's own truth: 28-day avg position + real clicks/impressions.
+function GscCell({ rank }: { rank?: RankInfo }) {
+  if (!rank || rank.position == null) return <span className="text-slate-300">—</span>;
+  const pos = rank.rawMeta?.positionExact ?? rank.position;
+  const good = pos <= 3;
+  const ok = pos <= 10;
+  const color = good ? "text-emerald-600 font-semibold" : ok ? "text-slate-700" : "text-amber-600";
+  const clicks = rank.rawMeta?.clicks;
+  const impr = rank.rawMeta?.impressions;
+  return (
+    <div className="leading-tight">
+      <div className={color}>#{pos.toFixed(1)}</div>
+      {impr != null && (
+        <div className="text-[10px] text-slate-400 tabular-nums">
+          {clicks ?? 0}c · {impr}i
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CitedCell({ rank }: { rank?: RankInfo }) {
@@ -298,7 +321,7 @@ export default function SeoDashboard() {
   });
 
   const runJob = useMutation({
-    mutationFn: async (job: "track" | "gmb") => {
+    mutationFn: async (job: "track" | "gmb" | "gsc") => {
       const res = await fetch(`/api/admin/seo/${job}/run`, { method: "POST", headers: authHeaders() });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -473,6 +496,14 @@ export default function SeoDashboard() {
                 disabledHint="Set APIFY_TOKEN to enable"
               />
               <JobRow
+                title="Search Console"
+                subtitle="Real clicks, impressions & 28-day avg position from Google"
+                job={automation.gsc}
+                busy={runJob.isPending}
+                onRun={() => runJob.mutate("gsc")}
+                disabledHint="Set GSC_GOOGLE_* creds to enable"
+              />
+              <JobRow
                 title="Google Business Profile"
                 subtitle="Views, calls, directions & reviews"
                 job={automation.gmb}
@@ -507,6 +538,7 @@ export default function SeoDashboard() {
                     <SortHeader label="Deliverability" keyName="deliverability" />
                     <SortHeader label="Vol /mo" keyName="avgMonthlySearches" className="text-right" />
                     <SortHeader label="Priority" keyName="priorityScore" className="text-right" />
+                    <th className="px-3 py-2 text-center font-semibold text-slate-600">GSC <span className="font-normal text-slate-400">(live)</span></th>
                     <th className="px-3 py-2 text-center font-semibold text-slate-600">Organic</th>
                     <th className="px-3 py-2 text-center font-semibold text-slate-600">Local pack</th>
                     <th className="px-3 py-2 text-center font-semibold text-slate-600">AI cited</th>
@@ -527,6 +559,7 @@ export default function SeoDashboard() {
                       <td className="px-3 py-2"><DeliverabilityBadge value={k.deliverability} /></td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmtNum(k.avgMonthlySearches)}</td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{k.priorityScore ?? "—"}</td>
+                      <td className="px-3 py-2 text-center"><GscCell rank={k.rankings["google_search_console"]} /></td>
                       <td className="px-3 py-2 text-center"><PositionCell rank={k.rankings["google_organic"]} /></td>
                       <td className="px-3 py-2 text-center"><PositionCell rank={k.rankings["google_pack"]} /></td>
                       <td className="px-3 py-2 text-center"><CitedCell rank={k.rankings["ai_overview"] || k.rankings["chatgpt"] || k.rankings["perplexity"]} /></td>
@@ -560,7 +593,7 @@ export default function SeoDashboard() {
                   ))}
                   {sortedKeywords.length === 0 && (
                     <tr>
-                      <td colSpan={12} className="px-3 py-8 text-center text-slate-400">No keyword targets yet.</td>
+                      <td colSpan={13} className="px-3 py-8 text-center text-slate-400">No keyword targets yet.</td>
                     </tr>
                   )}
                 </tbody>
