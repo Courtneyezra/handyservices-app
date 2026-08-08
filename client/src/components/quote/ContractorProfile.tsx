@@ -1,4 +1,6 @@
 import { Star, ShieldCheck, BadgeCheck } from 'lucide-react';
+import { AxaLogo } from '@/components/AxaInsuredBadge';
+import { verticalConfig } from '@shared/verticals';
 
 /**
  * ContractorProfile — the "meet your handyman" trust section on the contextual
@@ -30,11 +32,13 @@ export interface ContractorProfileProps {
   compact?: boolean;
   /** Dark theme — for a navy feature section or the dark confirmation hub. */
   onDark?: boolean;
+  /** Brand vertical — drives the "meet your …" eyebrow, alt text and default brand. */
+  vertical?: string;
 }
 
 export function ContractorProfile({
   name,
-  brandSuffix = 'HandyServices',
+  brandSuffix,
   headshotUrl,
   bannerUrl,
   rating,
@@ -45,7 +49,10 @@ export function ContractorProfile({
   review,
   compact = false,
   onDark = false,
+  vertical,
 }: ContractorProfileProps) {
+  const cfg = verticalConfig(vertical);
+  const brand = brandSuffix ?? cfg.brandSuffix;
   const useBanner = !!bannerUrl && !compact;
   const c = onDark
     ? {
@@ -68,12 +75,23 @@ export function ContractorProfile({
       };
 
   const badgeRow = badges.length > 0 && (
-    <div className="flex flex-wrap gap-2 mt-4">
-      {badges.map((b) => (
-        <span key={b} className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5 ${c.badge}`}>
-          <BadgeCheck className="w-3.5 h-3.5 text-[#7DB00E]" /> {b}
-        </span>
-      ))}
+    <div className="flex flex-wrap items-center gap-2 mt-4">
+      {badges.map((b) => {
+        // The insurance badge is upgraded to the AXA pill — bigger, logo-led — so
+        // the underwriter reads as the headline trust signal on the profile.
+        if (/insured|£2m/i.test(b)) {
+          return (
+            <span key={b} className={`inline-flex items-center gap-2 text-sm font-semibold rounded-full px-4 py-2 ${c.badge}`}>
+              <AxaLogo className="w-5 h-5 rounded-[3px]" title="Underwritten by AXA" /> {b}
+            </span>
+          );
+        }
+        return (
+          <span key={b} className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5 ${c.badge}`}>
+            <BadgeCheck className="w-3.5 h-3.5 text-[#7DB00E]" /> {b}
+          </span>
+        );
+      })}
     </div>
   );
 
@@ -84,15 +102,15 @@ export function ContractorProfile({
            with the name/rating overlaid; bio + badges sit below. ── */
         <>
           <div className={`text-center text-xs md:text-sm font-bold uppercase tracking-[0.12em] mb-3 ${c.eyebrow}`}>
-            Meet your handyman
+            {cfg.copy.meetEyebrow}
           </div>
           <div className="relative rounded-2xl overflow-hidden ring-1 ring-white/10 shadow-2xl aspect-[16/10] sm:aspect-[16/8]">
-            <img src={bannerUrl} alt={`${name}, your handyman`} className="w-full h-full object-cover object-top" />
+            <img src={bannerUrl} alt={`${name}, your ${cfg.tradeNoun}`} className="w-full h-full object-cover object-top" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
             <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6 text-left">
               <div className="flex items-baseline gap-2 flex-wrap">
                 <span className="text-3xl sm:text-4xl font-extrabold text-white drop-shadow">{name}</span>
-                <span className="font-semibold text-[#a3d65f]">from {brandSuffix}</span>
+                <span className="font-semibold text-[#a3d65f]">from {brand}</span>
               </div>
               <div className="flex items-center gap-2 mt-1 text-sm text-white/90">
                 <span className="flex items-center gap-1">
@@ -114,7 +132,7 @@ export function ContractorProfile({
           {!compact && (
             <div className="text-center mb-8">
               <div className={`text-xs md:text-sm font-bold uppercase tracking-[0.12em] mb-2 ${c.eyebrow}`}>
-                Meet your handyman
+                {cfg.copy.meetEyebrow}
               </div>
               <h3 className={`text-3xl md:text-4xl lg:text-5xl font-extrabold leading-[1.1] tracking-tight ${c.heading}`}>
                 {name} <span className={c.accent}>does your job.</span>
@@ -126,13 +144,13 @@ export function ContractorProfile({
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 text-left">
             <div className="shrink-0">
               <div className="w-32 h-32 md:w-40 md:h-40 rounded-2xl overflow-hidden ring-4 ring-[#7DB00E] shadow-xl">
-                <img src={headshotUrl} alt={`${name}, your handyman`} className="w-full h-full object-cover" />
+                <img src={headshotUrl} alt={`${name}, your ${cfg.tradeNoun}`} className="w-full h-full object-cover" />
               </div>
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2 flex-wrap">
                 <span className={`text-2xl font-extrabold ${c.name}`}>{name}</span>
-                <span className={`font-semibold ${c.brand}`}>from {brandSuffix}</span>
+                <span className={`font-semibold ${c.brand}`}>from {brand}</span>
               </div>
               <div className="flex items-center gap-2 mt-1.5 text-sm">
                 <span className="flex items-center gap-1">

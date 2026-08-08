@@ -18,6 +18,7 @@ import { startOfWeek, startOfMonth } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import { geocodeAddress } from './lib/geocoding';
+import { availabilityDayUTC } from './lib/availability-date';
 
 // Multer config for admin contractor profile image uploads
 const profileImageStorage = multer.diskStorage({
@@ -542,7 +543,7 @@ router.put('/:id/availability', async (req: Request, res: Response) => {
         for (const entry of dates) {
             const { date, slot, isAvailable, notes } = entry;
             const times = slotTimeMap[slot] || slotTimeMap.full_day;
-            const dateObj = new Date(date);
+            const dateObj = availabilityDayUTC(date); // UTC midnight — one instant per calendar day
 
             // Delete any existing entry for this contractor on this calendar DAY
             // (match the whole day, not an exact timestamp, so re-saves REPLACE the

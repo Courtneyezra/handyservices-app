@@ -2,9 +2,9 @@ import { Router } from 'express';
 import Stripe from 'stripe';
 import { db } from './db';
 import { notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
-import { invoices, contractorBookingRequests, personalizedQuotes, leads } from '../shared/schema';
+import { invoices, contractorBookingRequests, personalizedQuotes, leads, customerRewards } from '../shared/schema';
 import type { Invoice, InsertInvoice } from '../shared/schema';
-import { eq, sql, inArray } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendInvoiceEmail } from './email-service';
 import { getInvoiceUpsells, getWhatsAppNumber, type InvoiceUpsell } from './invoice-upsells';
@@ -654,6 +654,7 @@ invoiceRouter.get('/api/invoices/public/:invoiceId', async (req, res) => {
             segment: string | null;
             pricingLineItems: any;
         } | null = null;
+        let customerType: string | null = null;
 
         if (invoice.quoteId) {
             const quoteResults = await db.select()
@@ -663,6 +664,7 @@ invoiceRouter.get('/api/invoices/public/:invoiceId', async (req, res) => {
 
             if (quoteResults.length > 0) {
                 const quote = quoteResults[0];
+                customerType = quote.customerType ?? null;
                 quoteContext = {
                     jobDescription: quote.jobDescription || '',
                     address: quote.address || '',
@@ -672,6 +674,21 @@ invoiceRouter.get('/api/invoices/public/:invoiceId', async (req, res) => {
                 };
             }
         }
+
+        // Post-payment reward wheel: on by default for homeowner-family customer
+        // types (off for landlord / property_manager / letting_agent / business),
+        // overridable per-invoice via a [wheel:on] / [wheel:off] marker in notes.
+        const notesText = invoice.notes || '';
+        const NON_WHEEL = ['landlord', 'property_manager', 'letting_agent', 'business'];
+        let showRewardWheel = !NON_WHEEL.includes((customerType || '').toLowerCase());
+        if (/\[wheel:off\]/i.test(notesText)) showRewardWheel = false;
+        if (/\[wheel:on\]/i.test(notesText)) showRewardWheel = true;
+        const placeId = process.env.GOOGLE_PLACE_ID || '';
+        const reviewUrl = placeId ? `https://search.google.com/local/writereview?placeid=${placeId}` : null;
+        // Already claimed on a prior visit? (reward lives in customer_rewards now.)
+        const [existingReward] = await db.select({ id: customerRewards.id }).from(customerRewards)
+            .where(and(eq(customerRewards.sourceType, 'invoice'), eq(customerRewards.sourceId, invoice.id))).limit(1);
+        const prizeAlreadyRecorded = !!existingReward;
 
         // Fetch job evidence photos if available
         let jobEvidence: { evidenceUrls: string[]; completedAt: string | null; completionNotes: string | null } | null = null;
@@ -723,11 +740,36 @@ invoiceRouter.get('/api/invoices/public/:invoiceId', async (req, res) => {
             jobEvidence,
             upsells,
             whatsappNumber,
+            customerType,
+            showRewardWheel,
+            reviewUrl,
+            prizeAlreadyRecorded,
         });
 
     } catch (error: any) {
         console.error('[Invoices] Error fetching public invoice:', error);
         res.status(500).json({ error: 'Failed to fetch invoice' });
+    }
+});
+
+// Record the reward-wheel prize a customer won on the paid invoice screen, so
+// ops can honour it. Best-effort, idempotent; stored on the invoice notes (no
+// redemption engine yet — a manual note until the quote engine reads credits).
+invoiceRouter.post('/api/invoices/:id/prize', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const prize = typeof req.body?.prize === 'string' ? req.body.prize.slice(0, 120).trim() : '';
+        if (!prize) return res.status(400).json({ error: 'No prize' });
+        const [inv] = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+        if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+        const notes = inv.notes || '';
+        if (/🎁 Prize won:/.test(notes)) return res.json({ success: true, already: true }); // one spin per invoice
+        const line = `🎁 Prize won: ${prize}`;
+        await db.update(invoices).set({ notes: notes ? `${notes}\n${line}` : line }).where(eq(invoices.id, id));
+        res.json({ success: true });
+    } catch (error: any) {
+        console.error('[Invoices] Error recording prize:', error);
+        res.status(500).json({ error: 'Failed to record prize' });
     }
 });
 

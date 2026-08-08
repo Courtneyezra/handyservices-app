@@ -163,6 +163,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Kanban, label: "Lead Kanban", href: "/admin/funnel" },
                                 { icon: ClipboardCheck, label: "Segment Review", href: "/admin/leads/review", badge: reviewCount > 0 ? String(reviewCount) : null },
                                 { icon: Users, label: "Contractors", href: "/admin/contractors" },
+                                { icon: Users, label: "Contractor Teams", href: "/admin/contractor-teams", badge: "NEW" },
                                 { icon: Calendar, label: "Availability Board", href: "/admin/contractor-availability" },
                                 { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
                                 { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },

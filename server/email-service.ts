@@ -10,6 +10,85 @@ const getResend = () => {
     return new Resend(apiKey);
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// BRANDED EMAIL SHELL — the official Handy Services brand (navy #1B2A4A /
+// yellow #F5A623 / Poppins), translated to email-safe HTML: table layout +
+// inline styles only, Poppins with a sans-serif fallback (most clients ignore
+// web fonts), hosted logo. Every customer-facing email wraps its content in
+// `brandedEmail()` so they all share one nav bar / yellow strip / footer.
+// ─────────────────────────────────────────────────────────────────────────
+export const BRAND = {
+    navy: '#1B2A4A',
+    yellow: '#F5A623',
+    light: '#F7F8FC',
+    dark: '#111827',
+    muted: '#6B7280',
+    border: '#D0D5E3',
+    softYellow: '#FFF8EC',
+    logo: 'https://www.handyservices.app/logo.png',
+    phone: '07449 501 762',
+    site: 'handyservices.app',
+};
+const FONT_STACK = `'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
+
+/** Wrap body HTML in the branded nav-bar + yellow-strip + footer shell. */
+export function brandedEmail(opts: { stripTitle: string; body: string; preheader?: string }): string {
+    const { stripTitle, body, preheader = '' } = opts;
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Handy Services</title></head>
+<body style="margin:0; padding:0; background:${BRAND.light}; font-family:${FONT_STACK}; color:${BRAND.dark};">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">${preheader}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.light}; padding:24px 12px;"><tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background:#ffffff; border-radius:14px; overflow:hidden; box-shadow:0 8px 30px rgba(17,24,39,0.08);">
+      <tr><td style="background:${BRAND.navy}; padding:15px 24px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td valign="middle" style="white-space:nowrap;">
+            <img src="${BRAND.logo}" width="30" height="30" alt="" style="vertical-align:middle; border:0;">
+            <span style="color:#ffffff; font-size:16px; font-weight:700; vertical-align:middle; padding-left:8px;">Handy Services</span>
+          </td>
+          <td valign="middle" align="right" style="white-space:nowrap;">
+            <span style="color:${BRAND.yellow}; font-size:12px;">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+            <span style="color:#cbd5e1; font-size:12px;">&nbsp;4.9 &middot; 300+ reviews</span>
+          </td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="background:${BRAND.yellow}; padding:9px 24px; text-align:center;">
+        <span style="color:${BRAND.navy}; font-size:12px; font-weight:700; letter-spacing:0.6px; text-transform:uppercase;">${stripTitle}</span>
+      </td></tr>
+      <tr><td style="padding:30px 26px; background:#ffffff;">${body}</td></tr>
+      <tr><td style="background:${BRAND.navy}; padding:22px 24px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td valign="middle">
+            <span style="color:#ffffff; font-size:14px; font-weight:700;">Handy Services</span>
+            <div style="color:${BRAND.yellow}; font-size:11px; padding-top:5px;">Next-day slots &middot; Fast &amp; reliable &middot; Fully insured</div>
+          </td>
+          <td valign="middle" align="right" style="white-space:nowrap;">
+            <div style="color:#ffffff; font-size:13px; font-weight:700;">${BRAND.phone}</div>
+            <div style="color:#94a3b8; font-size:11px; padding-top:3px;">${BRAND.site}</div>
+          </td>
+        </tr></table>
+      </td></tr>
+    </table>
+    <div style="color:${BRAND.muted}; font-size:11px; padding-top:14px;">&copy; Handy Services &middot; Nottingham</div>
+  </td></tr></table>
+</body></html>`;
+}
+
+/** Yellow CTA button (navy text), centred. */
+export function emailButton(label: string, url: string): string {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:24px auto 8px;"><tr>
+      <td style="background:${BRAND.yellow}; border-radius:12px;">
+        <a href="${url}" style="display:inline-block; padding:14px 36px; color:${BRAND.navy}; font-weight:700; font-size:16px; text-decoration:none;">${label}</a>
+      </td></tr></table>`;
+}
+
+/** Soft-yellow highlight box with a thick yellow left border (brand "recommended" block). */
+export function emailHighlightBox(innerHtml: string): string {
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0;"><tr>
+      <td style="background:${BRAND.softYellow}; border:1px solid ${BRAND.yellow}; border-left:4px solid ${BRAND.yellow}; border-radius:10px; padding:16px 18px;">${innerHtml}</td>
+    </tr></table>`;
+}
+
 // Email templates
 interface BookingConfirmationData {
     customerName: string;
@@ -127,7 +206,7 @@ export async function sendBookingConfirmationEmail(data: BookingConfirmationData
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <bookings@handyservices.co.uk>',
+            from: 'Handy Services <bookings@handyservices.app>',
             to: [data.customerEmail],
             subject: `Booking Confirmed - ${data.jobId}`,
             html: emailHtml,
@@ -142,6 +221,126 @@ export async function sendBookingConfirmationEmail(data: BookingConfirmationData
         return { success: true };
     } catch (err: any) {
         console.error('[Email] Error sending email:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+// Visit moved — sent when the contractor reschedules a booked visit to a new day.
+interface VisitRescheduledData {
+    customerName: string;
+    customerEmail: string;
+    jobDescription: string;
+    newDateLabel: string; // e.g. "Thursday 7 August, 9am–6pm"
+    contractorName?: string;
+}
+
+export async function sendVisitRescheduledEmail(data: VisitRescheduledData): Promise<{ success: boolean; error?: string }> {
+    const resend = getResend();
+    if (!resend) {
+        console.log('[Email] Resend not configured - would notify', data.customerEmail, 'of new date', data.newDateLabel);
+        return { success: false, error: 'Email service not configured' };
+    }
+    if (!data.customerEmail) return { success: false, error: 'No email address provided' };
+
+    const firstName = (data.customerName || '').trim().split(/\s+/)[0] || 'there';
+    const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Your visit has moved</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="color: #e8b323; margin: 0; font-size: 26px;">Your visit has been rescheduled</h1>
+    </div>
+    <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+        <p>Hi ${firstName},</p>
+        <p>Just to let you know${data.contractorName ? ` — ${data.contractorName}` : ' — your handyman'} has moved your visit to a new day:</p>
+        <div style="background: #e8f5e9; border: 1px solid #43a047; border-radius: 8px; padding: 18px; margin: 20px 0; text-align: center;">
+            <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #2e7d32; font-weight: bold;">New date</div>
+            <div style="font-size: 20px; font-weight: bold; color: #1b5e20; margin-top: 4px;">${data.newDateLabel}</div>
+        </div>
+        <p style="color:#555;"><strong>What we're doing:</strong> ${data.jobDescription}</p>
+        <p>Nothing else changes — same price, same job. If the new day doesn't suit you, just reply to this email and we'll sort it.</p>
+    </div>
+    <div style="text-align: center; padding: 16px;"><p style="color: #999; margin: 0; font-size: 12px;">Handy Services · <a href="https://handyservices.co.uk" style="color: #b8860b;">handyservices.co.uk</a></p></div>
+</body>
+</html>`;
+
+    try {
+        const { data: result, error } = await resend.emails.send({
+            from: 'Handy Services <bookings@handyservices.app>',
+            to: [data.customerEmail],
+            subject: `Your visit has moved to ${data.newDateLabel}`,
+            html: emailHtml,
+        });
+        if (error) { console.error('[Email] Failed to send reschedule notice:', error); return { success: false, error: error.message }; }
+        console.log(`[Email] Reschedule notice sent to ${data.customerEmail} (ID: ${result?.id})`);
+        return { success: true };
+    } catch (err: any) {
+        console.error('[Email] Error sending reschedule notice:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+// Prize-wheel reward — sent when a customer claims their post-payment prize.
+interface PrizeEmailData {
+    customerName: string;
+    customerEmail: string;
+    prizeTitle: string;
+    prizeMessage: string;
+    prizeTerms?: string;
+    code: string;
+    expiresAt: Date;
+    bookUrl: string;
+}
+
+export async function sendPrizeEmail(data: PrizeEmailData): Promise<{ success: boolean; error?: string }> {
+    const resend = getResend();
+    if (!resend) {
+        console.log('[Email] Resend not configured - skipping prize email to', data.customerEmail);
+        return { success: false, error: 'Email service not configured' };
+    }
+    if (!data.customerEmail) return { success: false, error: 'No email address provided' };
+
+    const expires = data.expiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const body = `
+      <div style="text-align:center;">
+        <div style="font-size:44px; line-height:1;">🎁</div>
+        <h1 style="color:${BRAND.navy}; margin:12px 0 4px; font-size:24px; font-weight:800;">You won a little something${data.customerName ? `, ${data.customerName}` : ''}</h1>
+        <p style="color:${BRAND.muted}; font-size:14px; margin:0 0 6px;">A little thank-you for choosing Handy Services.</p>
+      </div>
+      ${emailHighlightBox(`
+        <div style="text-align:center;">
+          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#b45309; font-weight:700;">Your prize</div>
+          <div style="font-size:22px; font-weight:800; color:${BRAND.navy}; margin:6px 0;">${data.prizeTitle}</div>
+          ${data.prizeMessage ? `<div style="font-size:14px; color:${BRAND.muted};">${data.prizeMessage}</div>` : ''}
+        </div>
+      `)}
+      <div style="text-align:center; margin:24px 0 4px;">
+        <div style="font-size:12px; color:${BRAND.muted}; margin-bottom:8px;">Quote this code when you book</div>
+        <div style="display:inline-block; font-family:'Courier New',monospace; font-size:22px; font-weight:800; letter-spacing:3px; color:${BRAND.navy}; background:${BRAND.light}; border:2px dashed ${BRAND.border}; border-radius:10px; padding:12px 22px;">${data.code}</div>
+        <div style="font-size:13px; color:${BRAND.muted}; margin-top:10px;">Valid until <strong style="color:${BRAND.dark};">${expires}</strong></div>
+      </div>
+      ${emailButton('Book it now →', data.bookUrl)}
+      ${data.prizeTerms ? `<p style="text-align:center; font-size:11px; color:${BRAND.muted}; margin-top:18px; line-height:1.5;">${data.prizeTerms}<br><a href="${process.env.BASE_URL || 'https://www.handyservices.app'}/rewards-terms" style="color:${BRAND.muted};">Terms &amp; conditions apply</a></p>` : ''}
+    `;
+    const emailHtml = brandedEmail({
+        stripTitle: 'A little thank-you',
+        preheader: `Your reward: ${data.prizeTitle} — code ${data.code}`,
+        body,
+    });
+
+    try {
+        const { data: result, error } = await resend.emails.send({
+            from: 'Handy Services <bookings@handyservices.app>',
+            to: [data.customerEmail],
+            subject: `🎁 Your Handy reward: ${data.prizeTitle}`,
+            html: emailHtml,
+        });
+        if (error) { console.error('[Email] Failed to send prize email:', error); return { success: false, error: error.message }; }
+        console.log(`[Email] Prize email sent to ${data.customerEmail} (ID: ${result?.id})`);
+        return { success: true };
+    } catch (err: any) {
+        console.error('[Email] Error sending prize email:', err);
         return { success: false, error: err.message };
     }
 }
@@ -272,7 +471,7 @@ export async function sendJobAssignmentEmail(data: JobAssignmentEmailData): Prom
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <dispatch@handyservices.co.uk>',
+            from: 'Handy Services <dispatch@handyservices.app>',
             to: [data.contractorEmail],
             subject: `New Job Assigned - ${formatDate(data.scheduledDate)}`,
             html: emailHtml,
@@ -305,7 +504,7 @@ export async function sendInternalBookingNotification(data: BookingConfirmationD
 
     try {
         await resend.emails.send({
-            from: 'Handy Services System <system@handyservices.co.uk>',
+            from: 'Handy Services System <system@handyservices.app>',
             to: [opsEmail],
             subject: `[DEPOSIT RECEIVED] ${data.customerName} - ${formatCurrency(data.depositPaid)} — Ready for dispatch`,
             html: `
@@ -373,91 +572,30 @@ export async function sendInvoiceEmail(data: InvoiceEmailData): Promise<{ succes
         return new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     };
 
-    const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice ${data.invoiceNumber}</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-
-    <!-- Header -->
-    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-        <h1 style="color: #e8b323; margin: 0; font-size: 28px;">Invoice ${data.invoiceNumber}</h1>
-        <p style="color: #ffffff; margin: 10px 0 0 0; font-size: 16px;">Payment requested</p>
-    </div>
-
-    <!-- Main Content -->
-    <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none;">
-
-        <p style="font-size: 18px; margin-bottom: 20px;">Hi ${data.customerName || 'there'},</p>
-
-        <p>Please find your invoice details below.</p>
-
-        <!-- Payment Summary -->
-        <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 25px 0; border-left: 4px solid #e8b323;">
-            <h3 style="margin: 0 0 15px 0; color: #1a1a2e;">Payment Summary</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                    <td style="padding: 8px 0; color: #666;">Total Amount:</td>
-                    <td style="padding: 8px 0; text-align: right; font-weight: bold;">${formatCurrency(data.totalAmount)}</td>
-                </tr>
-                ${data.depositPaid > 0 ? `
-                <tr>
-                    <td style="padding: 8px 0; color: #666;">Deposit Paid:</td>
-                    <td style="padding: 8px 0; text-align: right; color: #2e7d32; font-weight: bold;">-${formatCurrency(data.depositPaid)}</td>
-                </tr>
-                ` : ''}
-                <tr style="border-top: 2px solid #e0e0e0;">
-                    <td style="padding: 12px 0; font-weight: bold; font-size: 18px;">Balance Due:</td>
-                    <td style="padding: 12px 0; text-align: right; font-weight: bold; font-size: 18px;">${formatCurrency(data.balanceDue)}</td>
-                </tr>
-            </table>
-            <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">Due by: ${formatDate(data.dueDate)}</p>
-        </div>
-
-        <!-- Pay Button -->
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="${data.paymentLink}" style="display: inline-block; background: #e8b323; color: #1a1a2e; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">View Invoice & Pay Online</a>
-        </div>
-
-        <!-- Bank Transfer -->
-        <div style="background: #f0f9ff; border-radius: 8px; padding: 20px; margin: 25px 0;">
-            <h4 style="margin: 0 0 10px 0; color: #1976d2;">Prefer bank transfer?</h4>
-            <p style="margin: 0; color: #475569; font-size: 14px;">
-                Sort Code: XX-XX-XX | Account: XXXXXXXX<br>
-                Reference: ${data.invoiceNumber}
-            </p>
-        </div>
-
-        <!-- Contact Info -->
-        <div style="background: #fff3cd; border-radius: 8px; padding: 20px; margin: 25px 0;">
-            <h4 style="margin: 0 0 10px 0; color: #856404;">Questions about this invoice?</h4>
-            <p style="margin: 0; color: #856404;">
-                Call us: <a href="tel:08001234567" style="color: #0d6efd;">0800 XXX XXXX</a><br>
-                Email: <a href="mailto:hello@handyservices.co.uk" style="color: #0d6efd;">hello@handyservices.co.uk</a>
-            </p>
-        </div>
-
-    </div>
-
-    <!-- Footer -->
-    <div style="background: #1a1a2e; padding: 20px; text-align: center; border-radius: 0 0 10px 10px;">
-        <p style="color: #999; margin: 0; font-size: 12px;">
-            Handy Services | Property Maintenance Made Easy<br>
-            <a href="https://handyservices.co.uk" style="color: #e8b323;">handyservices.co.uk</a>
-        </p>
-    </div>
-
-</body>
-</html>
+    const body = `
+      <h1 style="color:${BRAND.navy}; margin:0 0 4px; font-size:24px; font-weight:800;">Invoice ${data.invoiceNumber}</h1>
+      <p style="color:${BRAND.muted}; font-size:14px; margin:0 0 18px;">Hi ${data.customerName || 'there'}, here's your invoice — thanks for choosing Handy Services.</p>
+      ${emailHighlightBox(`
+        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#b45309; font-weight:700; margin-bottom:8px;">Payment summary</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
+          <tr><td style="padding:5px 0; color:${BRAND.muted};">Total amount</td><td style="padding:5px 0; text-align:right; color:${BRAND.dark}; font-weight:700;">${formatCurrency(data.totalAmount)}</td></tr>
+          ${data.depositPaid > 0 ? `<tr><td style="padding:5px 0; color:${BRAND.muted};">Deposit paid</td><td style="padding:5px 0; text-align:right; color:#2e7d32; font-weight:700;">-${formatCurrency(data.depositPaid)}</td></tr>` : ''}
+          <tr><td style="padding:12px 0 2px; border-top:1px solid ${BRAND.border}; font-weight:800; font-size:17px; color:${BRAND.navy};">Balance due</td><td style="padding:12px 0 2px; border-top:1px solid ${BRAND.border}; text-align:right; font-weight:800; font-size:17px; color:${BRAND.navy};">${formatCurrency(data.balanceDue)}</td></tr>
+        </table>
+        <div style="color:${BRAND.muted}; font-size:13px; margin-top:8px;">Due by ${formatDate(data.dueDate)}</div>
+      `)}
+      ${emailButton('View invoice & pay online →', data.paymentLink)}
+      <p style="text-align:center; color:${BRAND.muted}; font-size:13px; margin-top:14px;">Questions about this invoice? Call us on <a href="tel:+447449501762" style="color:${BRAND.navy}; font-weight:700; text-decoration:none;">${BRAND.phone}</a></p>
     `;
+    const emailHtml = brandedEmail({
+        stripTitle: `Invoice ${data.invoiceNumber}`,
+        preheader: `Invoice ${data.invoiceNumber} — balance ${formatCurrency(data.balanceDue)} due ${formatDate(data.dueDate)}`,
+        body,
+    });
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <invoices@handyservices.co.uk>',
+            from: 'Handy Services <invoices@handyservices.app>',
             to: [data.customerEmail],
             subject: `Invoice ${data.invoiceNumber} — ${formatCurrency(data.balanceDue)} due`,
             html: emailHtml,
@@ -595,7 +733,7 @@ export async function sendInvoiceReminderEmail(
 
     try {
         const { data: result, error } = await resend.emails.send({
-            from: 'Handy Services <invoices@handyservices.co.uk>',
+            from: 'Handy Services <invoices@handyservices.app>',
             to: [data.customerEmail],
             subject: config.subject,
             html: emailHtml,

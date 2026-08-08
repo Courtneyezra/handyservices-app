@@ -6,18 +6,22 @@ import {
   ExternalLink, Shield, Star, Phone, MapPin, Clock, FileText,
   Check, Lock, Wrench, ChevronRight, Zap, Camera, Building,
   ShieldCheck, ArrowRight, Paintbrush, Plug, Hammer, Droplets,
-  Download,
+  Download, X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { motion, AnimatePresence } from "framer-motion";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { Card, CardContent } from "@/components/ui/card";
 import { NeonBadge } from "@/components/ui/neon-badge";
 import { SectionWrapper } from "@/components/SectionWrapper";
 import { HassleComparisonCard } from "@/components/quote/HassleComparisonCard";
 import { SiVisa, SiMastercard, SiAmericanexpress, SiApplepay } from "react-icons/si";
-import handyServicesLogo from "../../assets/handy-logo.webp";
+import handyServicesLogo from "../../assets/handy-logo-transparent.png";
+import PrizeWheel from "@/pages/contractor/PrizeWheel";
+import { groupForCustomerType, type PrizeSlice } from "@/pages/contractor/prize-wheel-config";
+import { useWheelSlices } from "@/pages/contractor/useWheelSlices";
+import { Gift } from "lucide-react";
 import { generateBrandedInvoicePDF, generateSingleInvoicePDF, type BrandedInvoiceData } from "@/lib/invoice-pdf-branded";
 
 // ==========================================
@@ -86,6 +90,10 @@ interface PublicInvoiceResponse {
   jobEvidence: JobEvidence | null;
   upsells: InvoiceUpsell[];
   whatsappNumber: string;
+  customerType?: string | null;
+  showRewardWheel?: boolean;
+  reviewUrl?: string | null;
+  prizeAlreadyRecorded?: boolean;
 }
 
 // ==========================================
@@ -139,7 +147,7 @@ const staggerItem = {
 };
 
 // ==========================================
-// Invoice Payment Form (Stripe CardElement)
+// Invoice Payment Form (Stripe PaymentElement — card + Apple/Google Pay + Link)
 // ==========================================
 
 function InvoicePaymentForm({
@@ -155,85 +163,33 @@ function InvoicePaymentForm({
   customerEmail: string | null;
   onSuccess: () => void;
 }) {
-  const stripe = useStripe();
-  const elements = useElements();
-
   const [email, setEmail] = useState(customerEmail || "");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [isLoadingIntent, setIsLoadingIntent] = useState(false);
-
+  const [error, setError] = useState<string | null>(null);
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+  // Create the PaymentIntent once the email is valid; Elements is built FROM its
+  // client secret so the PaymentElement shows the account's configured methods
+  // (card + Apple Pay + Google Pay + Link).
   useEffect(() => {
-    if (!isEmailValid) return;
-
+    if (!isEmailValid) { setClientSecret(null); return; }
     let cancelled = false;
     setIsLoadingIntent(true);
     setError(null);
-
     fetch(`/api/invoices/${invoiceId}/pay`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ payerEmail: email }),
     })
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed to initialize payment");
-        return r.json();
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setClientSecret(data.clientSecret);
-          setIsLoadingIntent(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err.message);
-          setIsLoadingIntent(false);
-        }
-      });
-
+      .then((r) => { if (!r.ok) throw new Error("Couldn't start the payment. Please try again."); return r.json(); })
+      .then((data) => { if (!cancelled) { setClientSecret(data.clientSecret); setIsLoadingIntent(false); } })
+      .catch((err) => { if (!cancelled) { setError(err.message); setIsLoadingIntent(false); } });
     return () => { cancelled = true; };
   }, [invoiceId, email, isEmailValid]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements || !clientSecret) return;
-
-    setIsProcessing(true);
-    setError(null);
-
-    try {
-      const cardElement = elements.getElement(CardElement);
-      if (!cardElement) throw new Error("Card element not found");
-
-      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(
-        clientSecret,
-        {
-          payment_method: {
-            card: cardElement,
-            billing_details: { email },
-          },
-        }
-      );
-
-      if (stripeError) throw new Error(stripeError.message);
-      if (paymentIntent?.status === "succeeded") {
-        onSuccess();
-      } else {
-        throw new Error("Payment was not successful");
-      }
-    } catch (err: any) {
-      setError(err.message || "Payment failed. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <div className="space-y-5">
       {/* Email */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-white flex items-center gap-2">
@@ -249,46 +205,20 @@ function InvoicePaymentForm({
         />
       </div>
 
-      {/* Card Element */}
-      {isEmailValid && (
-        <>
-          {isLoadingIntent ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-[#7DB00E]" />
-              <span className="ml-3 text-sm text-gray-400">Preparing secure payment...</span>
-            </div>
-          ) : clientSecret ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-[#e8b323]" />
-                Card Details
-              </label>
-              <div className="border border-gray-600 rounded-xl p-4 bg-gray-800/80 backdrop-blur-sm transition-all focus-within:border-[#7DB00E] focus-within:ring-1 focus-within:ring-[#7DB00E] focus-within:shadow-[0_0_15px_rgba(125,176,14,0.15)]">
-                <CardElement
-                  options={{
-                    hidePostalCode: false,
-                    style: {
-                      base: {
-                        fontSize: "16px",
-                        fontFamily: "system-ui, -apple-system, sans-serif",
-                        color: "#ffffff",
-                        backgroundColor: "transparent",
-                        iconColor: "#7DB00E",
-                        "::placeholder": { color: "#6b7280" },
-                      },
-                      invalid: { color: "#f87171", iconColor: "#f87171" },
-                      complete: { color: "#4ade80", iconColor: "#4ade80" },
-                    },
-                  }}
-                />
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <Lock className="h-3 w-3" />
-                <span>256-bit encrypted. Secured by Stripe.</span>
-              </div>
-            </div>
-          ) : null}
-        </>
+      {isEmailValid && isLoadingIntent && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-[#7DB00E]" />
+          <span className="ml-3 text-sm text-gray-400">Preparing secure payment…</span>
+        </div>
+      )}
+
+      {isEmailValid && clientSecret && (
+        <Elements
+          stripe={getStripe()}
+          options={{ clientSecret, appearance: { theme: "night", variables: { colorPrimary: "#7DB00E", colorBackground: "#1f2937" } } }}
+        >
+          <InvoicePayInner balanceDue={balanceDue} onSuccess={onSuccess} onError={setError} />
+        </Elements>
       )}
 
       {error && (
@@ -298,27 +228,8 @@ function InvoicePaymentForm({
         </div>
       )}
 
-      {/* Pay Button */}
-      <button
-        type="submit"
-        disabled={!stripe || isProcessing || isLoadingIntent || !clientSecret || !isEmailValid || !isStripeConfigured}
-        className="w-full h-14 bg-[#7DB00E] hover:bg-[#6da000] disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold text-lg rounded-xl shadow-lg shadow-[#7DB00E]/20 hover:shadow-[#7DB00E]/30 active:scale-[0.98] transition-all"
-      >
-        {isProcessing ? (
-          <span className="flex items-center justify-center gap-2">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Processing Payment...
-          </span>
-        ) : (
-          <span className="flex items-center justify-center gap-2">
-            <Lock className="h-4 w-4" />
-            Pay {formatPence(balanceDue)} Securely
-          </span>
-        )}
-      </button>
-
-      {/* Payment Methods Strip — real icons from quote page */}
-      <div className="flex flex-col items-center gap-2 pt-3">
+      {/* Payment Methods Strip */}
+      <div className="flex flex-col items-center gap-2 pt-1">
         <div className="flex items-center gap-3 opacity-60">
           <SiVisa className="w-7 h-7 text-[#1434CB]" />
           <SiMastercard className="w-7 h-7 text-[#EB001B]" />
@@ -327,10 +238,62 @@ function InvoicePaymentForm({
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
           <Lock className="w-3 h-3" />
-          Secure payments via Stripe {"\u00B7"} 256-bit SSL
+          Secure payments via Stripe · 256-bit SSL
         </div>
       </div>
-    </form>
+    </div>
+  );
+}
+
+// PaymentElement + confirm, inside an Elements provider that already holds the
+// client secret — renders card + Apple Pay + Google Pay + Link and confirms it.
+function InvoicePayInner({ balanceDue, onSuccess, onError }: {
+  balanceDue: number;
+  onSuccess: () => void;
+  onError: (msg: string | null) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handlePay = async () => {
+    if (!stripe || !elements) return;
+    setIsProcessing(true);
+    onError(null);
+    try {
+      const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: "if_required",
+      });
+      if (confirmError) throw new Error(confirmError.message || "Payment failed. Please try again.");
+      if (paymentIntent?.status === "succeeded") onSuccess();
+      else throw new Error("Payment wasn't completed. Please try again.");
+    } catch (err: any) {
+      onError(err.message || "Payment failed. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl p-4 bg-gray-800/80 border border-gray-600">
+        <PaymentElement options={{ layout: "tabs" }} />
+      </div>
+      <button
+        type="button"
+        onClick={handlePay}
+        disabled={!stripe || isProcessing || !isStripeConfigured}
+        className="w-full h-14 bg-[#7DB00E] hover:bg-[#6da000] disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold text-lg rounded-xl shadow-lg shadow-[#7DB00E]/20 hover:shadow-[#7DB00E]/30 active:scale-[0.98] transition-all"
+      >
+        {isProcessing ? (
+          <span className="flex items-center justify-center gap-2"><Loader2 className="h-5 w-5 animate-spin" />Processing…</span>
+        ) : (
+          <span className="flex items-center justify-center gap-2"><Lock className="h-4 w-4" />Pay {formatPence(balanceDue)} securely</span>
+        )}
+      </button>
+    </div>
   );
 }
 
@@ -650,6 +613,378 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ==========================================
+// Post-payment reward wheel + review ask
+// ==========================================
+
+function ReviewAsk({ reviewUrl }: { reviewUrl: string | null }) {
+  if (!reviewUrl) return null;
+  return (
+    <a
+      href={reviewUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-5 inline-flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl bg-white text-slate-900 font-bold active:scale-[0.99] transition-transform"
+    >
+      <Star className="h-5 w-5 fill-amber-400 text-amber-400" /> Loved it? Leave us a review
+    </a>
+  );
+}
+
+function RewardWheelSection({ invoiceId, customerName, customerEmail, customerType, reviewUrl, alreadyRecorded }: {
+  invoiceId: string;
+  customerName: string;
+  customerEmail: string | null;
+  customerType: string | null;
+  reviewUrl: string | null;
+  alreadyRecorded: boolean;
+}) {
+  const [prize, setPrize] = useState<PrizeSlice | null>(null);
+  const [email, setEmail] = useState(customerEmail || "");
+  const [claiming, setClaiming] = useState(false);
+  const [claim, setClaim] = useState<{ code: string; expiresAt: string; bookUrl: string } | null>(null);
+  const [error, setError] = useState("");
+  const slices = useWheelSlices(groupForCustomerType(customerType));
+
+  const claimReward = async () => {
+    if (!prize) return;
+    setClaiming(true); setError("");
+    try {
+      const res = await fetch("/api/rewards/claim", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prizeId: prize.id, prizeTitle: prize.reveal.title, prizeMessage: prize.reveal.message,
+          prizeTerms: prize.terms ?? "", customerName, email, sourceType: "invoice", sourceId: invoiceId,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Something went wrong");
+      setClaim({ code: d.code, expiresAt: d.expiresAt, bookUrl: d.bookUrl });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  // Revisiting an already-spun paid invoice → skip the wheel, keep the review ask.
+  if (alreadyRecorded) {
+    return (
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <Card className="bg-gradient-to-b from-[#27384b] to-[#1a2735] border border-[#e8b323]/25 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.7)]">
+          <CardContent className="p-6 text-center">
+            <ReviewAsk reviewUrl={reviewUrl} />
+          </CardContent>
+        </Card>
+      </motion.div>
+    );
+  }
+
+  const expiryStr = claim ? new Date(claim.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : "";
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+      <Card className="bg-gradient-to-b from-[#27384b] to-[#1a2735] border border-[#e8b323]/25 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.7)] overflow-hidden">
+        <CardContent className="p-6 text-center">
+          {!prize ? (
+            <>
+              <div className="text-[10px] text-[#e8b323] uppercase tracking-widest font-bold mb-1">A little thank-you</div>
+              <h3 className="text-2xl font-bold text-white mb-5">Give it a spin, {customerName} 🎉</h3>
+              <PrizeWheel slices={slices} onResult={setPrize} nudge />
+            </>
+          ) : !claim ? (
+            /* Reveal + email capture (the action) */
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", damping: 18, stiffness: 220 }}>
+              {/* Prize icon — solid gold with a soft glow, so it reads as a win, not a form field. */}
+              <div className="relative mx-auto w-16 h-16 mb-4">
+                <div className="absolute inset-0 rounded-full bg-amber-400/25 blur-xl" />
+                <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/40">
+                  <Gift className="h-8 w-8 text-[#1a2735]" strokeWidth={2.5} />
+                </div>
+              </div>
+              <div className="text-xs font-extrabold uppercase tracking-[0.22em] text-amber-400 mb-2">🎉 You won</div>
+              <h3 className="text-[26px] font-extrabold text-white leading-[1.12] px-2">{prize.reveal.title}</h3>
+              <p className="text-[15px] text-slate-300 mt-2.5 mb-3 px-2 leading-relaxed">{prize.reveal.message}</p>
+              {prize.terms && (
+                <p className="text-[11px] text-slate-500 mb-5 px-4 leading-snug">
+                  {prize.terms}{" "}
+                  <a href="/rewards-terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-300">Terms apply</a>
+                </p>
+              )}
+              {/* Claim — email over a bold, full-width gold CTA (bigger tap target, clearer action). */}
+              <div className="text-left max-w-sm mx-auto">
+                <label className="text-xs text-slate-400 font-medium">Where should we send it? Yours for 60 days.</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com"
+                  className="mt-2 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400/40 transition" />
+                <button onClick={claimReward} disabled={claiming || !email}
+                  className="mt-2.5 w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-300 to-amber-500 text-[#1a2735] font-extrabold text-base shadow-lg shadow-amber-500/25 active:scale-[0.99] transition-transform disabled:opacity-50 disabled:shadow-none">
+                  {claiming ? "Sending…" : "Send my prize →"}
+                </button>
+                {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
+              </div>
+            </motion.div>
+          ) : (
+            /* Claimed → code + expiry + book-now CTA + review ask */
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", damping: 18, stiffness: 220 }}>
+              <div className="mx-auto w-14 h-14 rounded-full bg-green-500 flex items-center justify-center mb-3">
+                <Check className="h-7 w-7 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-white">On its way to your inbox 📩</h3>
+              <p className="text-sm text-gray-400 mt-1 mb-4">{prize.reveal.title}</p>
+              <div className="inline-block font-mono text-lg font-extrabold tracking-[0.2em] text-white bg-white/5 border-2 border-dashed border-white/20 rounded-xl px-5 py-3">{claim.code}</div>
+              <p className="text-xs text-gray-500 mt-2 mb-5">
+                Quote this when you book · valid until {expiryStr} ·{" "}
+                <a href="/rewards-terms" target="_blank" rel="noopener noreferrer" className="underline">terms</a>
+              </p>
+              <a href={claim.bookUrl} target="_blank" rel="noopener noreferrer"
+                className="block w-full py-3.5 rounded-2xl bg-[#e8b323] text-[#1a1a2e] font-extrabold text-lg active:scale-[0.99] transition-transform">
+                Book it now →
+              </a>
+              <ReviewAsk reviewUrl={reviewUrl} />
+            </motion.div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+// ==========================================
+// FULL-VIEWPORT PAYMENT THEATRE (?v=theatre)
+// One 100dvh, no-scroll screen per state — the whole job is a single decision.
+// The (unavoidably tall) Stripe card form and the line-item breakdown live in a
+// bottom sheet, so the theatre screen itself never scrolls. Reuses the existing
+// InvoicePaymentForm and RewardWheelSection untouched.
+// ==========================================
+
+// Bottom sheet — dims the theatre and slides content up; scrolls INTERNALLY so
+// the screen behind it stays fixed.
+function TheatreSheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <motion.div className="fixed inset-0 z-[60] flex flex-col justify-end" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <motion.div
+        initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 32, stiffness: 320 }}
+        className="relative bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] max-h-[92dvh] overflow-y-auto"
+      >
+        <div className="mx-auto w-10 h-1.5 rounded-full bg-white/20 mb-4" />
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-white">{title}</h3>
+          <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-95 transition-transform">
+            <X className="w-4 h-4 text-white" />
+          </button>
+        </div>
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function InvoicePayTheatre({ invoice, customerType, isLandlordType, onSuccess }: {
+  invoice: Invoice;
+  customerType: string | null;
+  isLandlordType: boolean;
+  onSuccess: () => void;
+}) {
+  const [sheet, setSheet] = useState<null | "pay" | "breakdown">(null);
+  const firstName = invoice.customerName.trim().split(/\s+/)[0];
+  const warm = !isLandlordType && (customerType || "").toLowerCase() !== "business";
+  const items = (invoice.lineItems || []).filter((li: any) => !li.isPropertyHeader && (li.total ?? 0) > 0);
+
+  return (
+    <div className="h-[100dvh] overflow-hidden bg-[#1D2D3D] text-white flex flex-col font-sans relative">
+      {/* Decorative grid — same texture as the paid page */}
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[linear-gradient(rgba(125,176,14,0.3)_1px,transparent_1px),linear-gradient(90deg,rgba(125,176,14,0.3)_1px,transparent_1px)] bg-[size:40px_40px]" />
+
+      {/* Brand */}
+      <div className="flex items-center justify-center gap-2 pt-7 shrink-0 relative z-10">
+        <img src={handyServicesLogo} alt="" className="w-7 h-7 object-contain" />
+        <span className="text-base font-extrabold tracking-tight">Handy<span className="text-[#7DB00E]">Services</span></span>
+      </div>
+
+      {/* Hero — greeting + the ONE number that matters */}
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 min-h-0 relative z-10">
+        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }} className="w-full max-w-md">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#a3d65f]">
+            {warm ? "Your job's done" : `Invoice ${invoice.invoiceNumber}`}
+          </p>
+          <h1 className="mt-2 text-2xl sm:text-3xl font-extrabold tracking-tight">
+            {warm ? `Hi ${firstName} \u{1F44B}` : invoice.customerName}
+          </h1>
+          <p className="mt-8 text-[12px] uppercase tracking-[0.2em] text-slate-400 font-semibold">Balance due</p>
+          <div className="mt-1 text-[64px] sm:text-7xl font-extrabold text-[#e8b323] leading-none tabular-nums">{formatPence(invoice.balanceDue)}</div>
+          <div className="mt-5 inline-flex items-center gap-1.5 text-[12px] text-slate-300">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#7DB00E]" /> 90-day guarantee · fixed price
+          </div>
+          {items.length > 0 && (
+            <div>
+              <button onClick={() => setSheet("breakdown")} className="mt-5 text-sm text-slate-300 underline underline-offset-4 decoration-slate-500 active:text-white">
+                View breakdown ({items.length} item{items.length > 1 ? "s" : ""})
+              </button>
+            </div>
+          )}
+        </motion.div>
+      </div>
+
+      {/* Action dock — the single CTA lives here, always in view */}
+      <div className="shrink-0 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 relative z-10 w-full max-w-md mx-auto">
+        <motion.button
+          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.12 }}
+          onClick={() => setSheet("pay")}
+          className="w-full h-16 rounded-2xl bg-[#7DB00E] hover:bg-[#6da000] text-white font-extrabold text-lg shadow-xl shadow-[#7DB00E]/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+        >
+          <Lock className="h-5 w-5" /> Pay {formatPence(invoice.balanceDue)}
+        </motion.button>
+        <div className="mt-3.5 flex flex-col items-center gap-2">
+          <div className="flex items-center gap-3 opacity-70">
+            <SiApplepay className="w-9 h-9 text-white" />
+            <SiVisa className="w-8 h-8 text-[#1434CB]" />
+            <SiMastercard className="w-7 h-7 text-[#EB001B]" />
+            <SiAmericanexpress className="w-7 h-7 text-[#2E77BC]" />
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <Lock className="w-3 h-3" /> £2M insured · Secure payment via Stripe
+          </div>
+        </div>
+      </div>
+
+      {/* Sheets */}
+      <AnimatePresence>
+        {sheet === "pay" && (
+          <TheatreSheet title={`Pay ${formatPence(invoice.balanceDue)}`} onClose={() => setSheet(null)}>
+            <InvoicePaymentForm
+              invoiceId={invoice.id}
+              balanceDue={invoice.balanceDue}
+              invoiceNumber={invoice.invoiceNumber}
+              customerEmail={invoice.customerEmail}
+              onSuccess={onSuccess}
+            />
+          </TheatreSheet>
+        )}
+        {sheet === "breakdown" && (
+          <TheatreSheet title="Your invoice" onClose={() => setSheet(null)}>
+            <div className="space-y-0">
+              {items.map((it: any, i: number) => (
+                <div key={i} className="flex justify-between gap-3 text-sm py-3 border-b border-white/10">
+                  <span className="text-slate-200">{it.description}</span>
+                  <span className="text-white font-semibold shrink-0 tabular-nums">{formatPence(it.total)}</span>
+                </div>
+              ))}
+              {invoice.depositPaid > 0 && (
+                <div className="flex justify-between gap-3 text-sm py-3 border-b border-white/10">
+                  <span className="text-green-400 flex items-center gap-1.5"><Check className="h-3.5 w-3.5" /> Deposit paid</span>
+                  <span className="text-green-400 font-semibold shrink-0 tabular-nums">-{formatPence(invoice.depositPaid)}</span>
+                </div>
+              )}
+              <div className="flex justify-between pt-4 text-base font-bold">
+                <span>Balance due</span><span className="text-[#e8b323] tabular-nums">{formatPence(invoice.balanceDue)}</span>
+              </div>
+              <button onClick={() => setSheet("pay")} className="mt-5 w-full h-14 rounded-2xl bg-[#7DB00E] text-white font-extrabold text-lg active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
+                <Lock className="h-5 w-5" /> Pay {formatPence(invoice.balanceDue)}
+              </button>
+            </div>
+          </TheatreSheet>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function InvoicePostPayTheatre({ invoice, customerType, reviewUrl, showRewardWheel, prizeAlreadyRecorded }: {
+  invoice: Invoice;
+  customerType: string | null;
+  reviewUrl: string | null;
+  showRewardWheel: boolean;
+  prizeAlreadyRecorded: boolean;
+}) {
+  const firstName = invoice.customerName.trim().split(/\s+/)[0];
+  return (
+    <div className="h-[100dvh] overflow-hidden bg-[#1D2D3D] text-white flex flex-col font-sans relative">
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[linear-gradient(rgba(125,176,14,0.3)_1px,transparent_1px),linear-gradient(90deg,rgba(125,176,14,0.3)_1px,transparent_1px)] bg-[size:40px_40px]" />
+
+      {/* Brand */}
+      <div className="flex items-center justify-center gap-2 pt-7 shrink-0 relative z-10">
+        <img src={handyServicesLogo} alt="" className="w-7 h-7 object-contain" />
+        <span className="text-base font-extrabold tracking-tight">Handy<span className="text-[#7DB00E]">Services</span></span>
+      </div>
+
+      {/* Paid confirmation pill */}
+      <div className="shrink-0 flex justify-center pt-4 relative z-10">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }}
+          className="inline-flex items-center gap-2 bg-green-500/15 border border-green-500/30 rounded-full pl-1.5 pr-4 py-1.5">
+          <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center"><Check className="w-3.5 h-3.5 text-white" strokeWidth={3} /></div>
+          <span className="text-sm font-bold text-green-400">Paid</span>
+          <span className="text-sm text-slate-300 tabular-nums">{formatPence(invoice.totalAmount)}</span>
+        </motion.div>
+      </div>
+
+      {/* Centre — the reward wheel IS the post-pay action */}
+      <div className="flex-1 flex flex-col items-center justify-center px-5 min-h-0 overflow-y-auto relative z-10">
+        {showRewardWheel ? (
+          <div className="w-full max-w-sm py-4">
+            <RewardWheelSection
+              invoiceId={invoice.id}
+              customerName={firstName}
+              customerEmail={invoice.customerEmail}
+              customerType={customerType}
+              reviewUrl={reviewUrl}
+              alreadyRecorded={prizeAlreadyRecorded}
+            />
+          </div>
+        ) : (
+          <div className="text-center max-w-sm">
+            <h1 className="text-3xl font-extrabold">Thank you, {firstName} 🎉</h1>
+            <p className="mt-2 text-slate-300 text-sm">Payment received — your receipt is on its way. We appreciate your business.</p>
+            <ReviewAsk reviewUrl={reviewUrl} />
+          </div>
+        )}
+      </div>
+
+      {/* Footer — receipt reassurance */}
+      <div className="shrink-0 text-center pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 text-[11px] text-slate-500 relative z-10">
+        Receipt sent to {invoice.customerEmail || "your email"}
+      </div>
+    </div>
+  );
+}
+
+// Branded loading screen — mirrors the theatre shell (brand top · centred
+// loader · trust bottom) so the fetch window and the pay/post-pay theatre read
+// as one continuous navy experience, with no bare-spinner flash between them.
+function InvoiceLoadingScreen() {
+  return (
+    <div className="h-[100dvh] overflow-hidden bg-[#1D2D3D] text-white flex flex-col font-sans relative">
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[linear-gradient(rgba(125,176,14,0.3)_1px,transparent_1px),linear-gradient(90deg,rgba(125,176,14,0.3)_1px,transparent_1px)] bg-[size:40px_40px]" />
+
+      {/* Brand */}
+      <div className="flex items-center justify-center gap-2 pt-7 shrink-0 relative z-10">
+        <img src={handyServicesLogo} alt="" className="w-7 h-7 object-contain" />
+        <span className="text-base font-extrabold tracking-tight">Handy<span className="text-[#7DB00E]">Services</span></span>
+      </div>
+
+      {/* Centre — logo inside a spinning brand ring */}
+      <div className="flex-1 flex flex-col items-center justify-center relative z-10">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }} className="relative w-20 h-20">
+          <div className="absolute inset-0 rounded-full border-2 border-[#7DB00E]/20" />
+          <div className="absolute inset-0 rounded-full border-2 border-[#7DB00E] border-t-transparent animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <img src={handyServicesLogo} alt="" className="w-9 h-9 object-contain" />
+          </div>
+        </motion.div>
+        <p className="mt-6 text-sm text-slate-300 font-medium">Loading your invoice…</p>
+      </div>
+
+      {/* Trust */}
+      <div className="shrink-0 pb-[max(2rem,env(safe-area-inset-bottom))] text-center relative z-10">
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+          <Lock className="w-3 h-3" /> Secure payment · £2M insured
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
 // Main Invoice Page
 // ==========================================
 
@@ -660,11 +995,11 @@ function InvoicePageContent() {
   // Try public endpoint first (direct invoice ID), fall back to token endpoint
   const publicQuery = useQuery<PublicInvoiceResponse>({
     queryKey: ["invoice-public", token],
-    queryFn: () =>
-      fetch(`/api/invoices/public/${token}`).then((r) => {
-        if (!r.ok) throw new Error("not found");
-        return r.json();
-      }),
+    queryFn: async () => {
+      const r = await fetch(`/api/invoices/public/${token}`);
+      if (!r.ok) throw new Error("not found");
+      return r.json();
+    },
     enabled: !!token,
     retry: false,
   });
@@ -688,18 +1023,15 @@ function InvoicePageContent() {
   const jobEvidence = publicQuery.data?.jobEvidence || null;
   const upsells = publicQuery.data?.upsells || [];
   const whatsappNumber = publicQuery.data?.whatsappNumber || "447123456789";
+  const showRewardWheel = publicQuery.data?.showRewardWheel ?? false;
+  const reviewUrl = publicQuery.data?.reviewUrl ?? null;
+  const customerType = publicQuery.data?.customerType ?? null;
+  const isLandlordType = ["landlord", "property_manager", "letting_agent"].includes((customerType || "").toLowerCase());
+  const prizeAlreadyRecorded = publicQuery.data?.prizeAlreadyRecorded ?? false;
 
   // Loading
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-4">
-        <div className="relative">
-          <div className="w-16 h-16 border-2 border-[#7DB00E]/20 rounded-full" />
-          <div className="absolute inset-0 w-16 h-16 border-2 border-[#7DB00E] border-t-transparent rounded-full animate-spin" />
-        </div>
-        <p className="text-gray-400 text-sm">Loading your invoice...</p>
-      </div>
-    );
+    return <InvoiceLoadingScreen />;
   }
 
   // Error
@@ -723,6 +1055,39 @@ function InvoicePageContent() {
 
   const isPaid = paymentSuccess || invoice.status === "paid";
   const hasBalance = invoice.balanceDue > 0;
+
+  // Full-viewport payment theatre — a single 100dvh, no-scroll screen per state,
+  // built to maximise the pay/action rate. This is now the DEFAULT experience;
+  // `?v=classic` is an escape hatch back to the rich scrolling page (kept as a
+  // safe fallback for support/debugging on this live payment surface).
+  const forceClassic = (() => {
+    try { return new URLSearchParams(window.location.search).get("v") === "classic"; }
+    catch { return false; }
+  })();
+  if (!forceClassic) {
+    if (isPaid) {
+      return (
+        <InvoicePostPayTheatre
+          invoice={invoice}
+          customerType={customerType}
+          reviewUrl={reviewUrl}
+          showRewardWheel={showRewardWheel}
+          prizeAlreadyRecorded={prizeAlreadyRecorded}
+        />
+      );
+    }
+    if (hasBalance) {
+      return (
+        <InvoicePayTheatre
+          invoice={invoice}
+          customerType={customerType}
+          isLandlordType={isLandlordType}
+          onSuccess={() => setPaymentSuccess(true)}
+        />
+      );
+    }
+    // Paid-nothing-owed edge case → fall through to the standard page.
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 font-sans selection:bg-[#7DB00E] selection:text-white relative">
@@ -749,6 +1114,23 @@ function InvoicePageContent() {
       </motion.header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5 relative z-10">
+
+        {/* ============================================ */}
+        {/* CUSTOMER-TYPE SKIN — warm for homeowners, professional for B2B */}
+        {/* ============================================ */}
+        {(() => {
+          const warm = !isLandlordType && (customerType || "").toLowerCase() !== "business";
+          return (
+            <div className="text-center pt-1 pb-1">
+              <h1 className="text-2xl font-extrabold text-white leading-tight text-balance">
+                {warm ? `Hi ${invoice.customerName} 👋` : `Invoice for ${invoice.customerName}`}
+              </h1>
+              <p className="text-sm text-gray-400 mt-1.5">
+                {warm ? "Thanks for choosing Handy — here's your invoice." : "Thank you for your business."}
+              </p>
+            </div>
+          );
+        })()}
 
         {/* ============================================ */}
         {/* PAID CONFIRMATION STATE */}
@@ -780,6 +1162,20 @@ function InvoicePageContent() {
               </CardContent>
             </Card>
           </motion.div>
+        )}
+
+        {/* ============================================ */}
+        {/* POST-PAYMENT REWARD WHEEL + REVIEW ASK        */}
+        {/* ============================================ */}
+        {isPaid && showRewardWheel && (
+          <RewardWheelSection
+            invoiceId={invoice.id}
+            customerName={invoice.customerName}
+            customerEmail={invoice.customerEmail}
+            customerType={customerType}
+            reviewUrl={reviewUrl}
+            alreadyRecorded={prizeAlreadyRecorded}
+          />
         )}
 
         {/* Job Summary removed — the line items table below already shows the same info. */}
@@ -923,7 +1319,7 @@ function InvoicePageContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.6 }}
           >
-            <div className="rounded-2xl p-6 sm:p-8 border border-gray-700/50 bg-gradient-to-br from-gray-800/70 to-gray-900/70 backdrop-blur-sm shadow-xl">
+            <div id="pay-now" className="scroll-mt-4 rounded-2xl p-6 sm:p-8 border border-gray-700/50 bg-gradient-to-br from-gray-800/70 to-gray-900/70 backdrop-blur-sm shadow-xl">
               {/* Amount display */}
               <div className="text-center mb-6">
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold mb-1">Amount Due</p>
@@ -1119,8 +1515,9 @@ function InvoicePageContent() {
         </SectionWrapper>
 
         {/* ============================================ */}
-        {/* LANDLORD PLATFORM PROMO */}
+        {/* LANDLORD PLATFORM PROMO — landlord / property-manager customers only */}
         {/* ============================================ */}
+        {isLandlordType && (
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -1174,6 +1571,7 @@ function InvoicePageContent() {
             </div>
           </div>
         </motion.section>
+        )}
 
         {/* ============================================ */}
         {/* CONTEXTUAL TRUST STRIP — exact quote page ContextualTrustStrip */}
@@ -1207,7 +1605,31 @@ function InvoicePageContent() {
             Handy Services {"\u00A9"} {new Date().getFullYear()}
           </p>
         </motion.div>
+
+        {/* spacer so the sticky bar doesn't hide the footer */}
+        {!isPaid && hasBalance && <div className="h-20" aria-hidden />}
       </div>
+
+      {/* Sticky pay bar — follows the scroll, like the quote page */}
+      {!isPaid && hasBalance && (
+        <div className="fixed bottom-0 inset-x-0 z-50 bg-gray-900/95 backdrop-blur border-t border-gray-700/60 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
+            <div className="leading-tight">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Balance due</p>
+              <p className="text-xl font-extrabold text-[#e8b323]">{formatPence(invoice.balanceDue)}</p>
+            </div>
+            <button
+              onClick={() => {
+                document.getElementById("pay-now")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                setTimeout(() => document.querySelector<HTMLInputElement>('#pay-now input[type="email"]')?.focus(), 400);
+              }}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#7DB00E] hover:bg-[#6da000] text-white font-bold active:scale-95 transition-all shadow-lg shadow-[#7DB00E]/25"
+            >
+              <Lock className="h-4 w-4" /> Pay now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

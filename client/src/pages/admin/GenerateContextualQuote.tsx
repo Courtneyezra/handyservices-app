@@ -72,6 +72,7 @@ import type {
 } from '@shared/contextual-pricing-types';
 import { getCategoryLabel } from '@shared/categories';
 import { getPricingConfig } from '@shared/pricing-models';
+import { verticalConfig } from '@shared/verticals';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -100,10 +101,14 @@ interface ContractorOption {
 // Built-in static skins — generated contractor asset sets that front a quote
 // without a DB contractor row (server resolves skinContractorId "static:<key>"
 // in resolveQuoteSkin; <key> matches SKINNED_HERO_SETS for the job-scene set).
-const STATIC_SKINS: { value: string; name: string; avatar: string }[] = [
-  { value: 'static:emile', name: 'Emile', avatar: '/assets/avatars/emile-avatar-1.webp' },
-  { value: 'static:courtnee', name: 'Courtnee', avatar: '/assets/avatars/courtnee-avatar-1.webp' },
-  { value: 'static:neil', name: 'Neil', avatar: '/assets/avatars/neil-avatar-1.webp' },
+const STATIC_SKINS: { value: string; name: string; avatar: string; vertical: 'handyman' | 'cleaning' }[] = [
+  { value: 'static:emile', name: 'Emile', avatar: '/assets/avatars/emile-avatar-1.webp', vertical: 'handyman' },
+  { value: 'static:courtnee', name: 'Courtnee', avatar: '/assets/avatars/courtnee-avatar-1.webp', vertical: 'handyman' },
+  { value: 'static:neil', name: 'Neil', avatar: '/assets/avatars/neil-avatar-1.webp', vertical: 'handyman' },
+  // Handy Cleaning personas (placeholder AI faces — see shared/verticals.ts).
+  { value: 'static:sofia', name: 'Sofia', avatar: '/assets/avatars/sofia-avatar-1.webp', vertical: 'cleaning' },
+  { value: 'static:maria', name: 'Maria', avatar: '/assets/avatars/maria-avatar-1.webp', vertical: 'cleaning' },
+  { value: 'static:lena', name: 'Lena', avatar: '/assets/avatars/lena-avatar-1.webp', vertical: 'cleaning' },
 ];
 
 interface LineItem {
@@ -1563,6 +1568,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   const [crewType, setCrewType] = useState<'solo' | 'team'>('solo');
   const [skinContractorId, setSkinContractorId] = useState<string | null>(null);
   const [skinTeamId, setSkinTeamId] = useState<string | null>(null);
+  // Brand vertical — decides the theatre/avatars/copy the customer sees.
+  const [vertical, setVertical] = useState<'handyman' | 'cleaning'>('handyman');
 
   // ── Materials & equipment logistics (Jul 2026) ──
   // Longest supplier lead time (days) gates the earliest bookable date.
@@ -1915,6 +1922,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         if (Array.isArray(quote.customerPhotoUrls)) setCustomerPhotos(quote.customerPhotoUrls);
 
         // Crew & skin + logistics carry through on edit.
+        if (quote.vertical === 'cleaning' || quote.vertical === 'handyman') setVertical(quote.vertical);
         if (quote.crewType === 'team') setCrewType('team');
         if (quote.skinContractorId) setSkinContractorId(quote.skinContractorId);
         if (quote.skinTeamId) setSkinTeamId(quote.skinTeamId);
@@ -2052,6 +2060,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     name: string;
     displayName: string;
     profileImageUrl: string | null;
+    crewSize?: number;
     members: { contractorId: string; name: string; role: string | null }[];
   }[]>({
     queryKey: ['pricing-contractor-teams'],
@@ -2239,6 +2248,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             ? { sourceChannel: 'whatsapp' as const }
             : {}),
           contractorId: selectedContractorId || undefined,
+          // Which brand vertical fronts the quote (theatre/avatars/copy).
+          vertical,
           // Crew & skin — solo/team pool + whose face fronts the quote page
           crewType,
           skinContractorId: skinContractorId || undefined,
@@ -4324,6 +4335,28 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Brand vertical — handyman vs cleaning. Switching resets the
+                    skin selection since personas differ per vertical. */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Brand vertical</Label>
+                  <div className="flex gap-2">
+                    {(['handyman', 'cleaning'] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => { setVertical(v); setSkinContractorId(null); }}
+                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                          vertical === v
+                            ? 'border-handy-navy bg-handy-navy text-white'
+                            : 'border-handy-grid bg-white text-handy-navy/70 hover:border-handy-navy/40'
+                        }`}
+                      >
+                        {v === 'handyman' ? 'Handyman' : 'Cleaning'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Solo / Team toggle */}
                 <div className="flex gap-2">
                   {(['solo', 'team'] as const).map((mode) => (
@@ -4357,7 +4390,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                           <SelectItem value="none">No team selected</SelectItem>
                           {contractorTeamsList!.map((t) => (
                             <SelectItem key={t.id} value={t.id}>
-                              {t.displayName} ({t.members.length} member{t.members.length === 1 ? '' : 's'})
+                              {t.displayName} · crew {t.crewSize ?? t.members.length} ({t.members.length} member{t.members.length === 1 ? '' : 's'})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -4377,16 +4410,16 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                       onValueChange={(v) => setSkinContractorId(v === 'default' ? null : v)}
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Default (Craig)" />
+                        <SelectValue placeholder={`Default (${verticalConfig(vertical).defaultFace.name})`} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="default">
                           <span className="flex items-center gap-2">
-                            <img src="/assets/avatars/craig-avatar-1.webp" alt="" className="w-5 h-5 rounded-full object-cover" />
-                            Default (Craig)
+                            <img src={verticalConfig(vertical).defaultFace.avatarUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
+                            Default ({verticalConfig(vertical).defaultFace.name})
                           </span>
                         </SelectItem>
-                        {STATIC_SKINS.map((s) => (
+                        {STATIC_SKINS.filter((s) => s.vertical === vertical).map((s) => (
                           <SelectItem key={s.value} value={s.value}>
                             <span className="flex items-center gap-2">
                               <img src={s.avatar} alt="" className="w-5 h-5 rounded-full object-cover" />

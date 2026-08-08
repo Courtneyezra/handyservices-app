@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Check, Loader2, Star } from 'lucide-react';
 import { addDays, format, startOfDay } from 'date-fns';
 import { formatDateStr } from '@/hooks/useAvailability';
+import { verticalConfig } from '@shared/verticals';
 
 /**
  * PostPayDayPicker — Model A's second half, exclusion-framed.
@@ -33,6 +34,7 @@ export interface PostPayDayPickerProps {
   skinAvatarUrl?: string;
   /** Possessive for copy ("Craig's" / "the team's"). */
   skinPossessive?: string;
+  vertical?: string;
 }
 
 const MIN_ALLOWED = 3;
@@ -69,7 +71,9 @@ export function PostPayDayPicker({
   skinName = 'Craig',
   skinAvatarUrl = '/assets/avatars/craig-avatar-1.webp',
   skinPossessive = "Craig's",
+  vertical,
 }: PostPayDayPickerProps) {
+  const cfg = verticalConfig(vertical);
   // startInEdit (hub "Change days" flow): open straight into the grid with
   // the previously-avoided days pre-crossed instead of the summary state.
   const [excluded, setExcluded] = useState<Set<string>>(() => {
@@ -197,12 +201,12 @@ export function PostPayDayPicker({
         {/* Skin letterhead — the person the days are being matched against */}
         <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shrink-0">
-            <img src={skinAvatarUrl} alt={`${skinName}, your assigned handyman`} className="w-full h-full object-cover" />
+            <img src={skinAvatarUrl} alt={`${skinName}, your assigned ${cfg.tradeNoun}`} className="w-full h-full object-cover" />
           </div>
           <div className="min-w-0 text-left">
-            <div className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">Your assigned handyman</div>
+            <div className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">{cfg.copy.assignedLabel}</div>
             <div className="text-white font-bold leading-tight">
-              {skinName} <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
+              {skinName} <span className="text-[#7DB00E] text-sm font-normal">from {cfg.brandSuffix}</span>
             </div>
             <p className="flex items-center gap-1 text-[11px] text-slate-300 mt-0.5">
               <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />

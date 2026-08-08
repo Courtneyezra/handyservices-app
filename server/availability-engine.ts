@@ -60,12 +60,19 @@ function toRad(degrees: number): number {
  * Filters by radius and ranks by proximity.
  */
 export async function findBestContractors(
-    jobLocation: Coordinates
+    jobLocation: Coordinates,
+    // Brand vertical to match within — a cleaning quote must only ever surface
+    // cleaning contractors, never the handyman pool (and vice-versa). Omit to
+    // match every vertical (legacy callers).
+    vertical?: string,
 ): Promise<RankedContractor[]> {
     // 1. Fetch all active contractors (verified or public)
     // For V1 Beta, we assume all contractors in DB are candidates if they have location set
     const allContractors = await db.query.handymanProfiles.findMany({
-        where: eq(handymanProfiles.publicProfileEnabled, true),
+        where: and(
+            eq(handymanProfiles.publicProfileEnabled, true),
+            vertical ? eq(handymanProfiles.vertical, vertical) : undefined,
+        ),
         // We could also check verificationStatus here
     });
 

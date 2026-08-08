@@ -30,6 +30,7 @@ import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText, getLineItems, getScopeOfWorks } from "@/lib/quote-helpers";
 import { resolveQuoteSkin, skinToMatchedHandymen, skinAssetKey, type ServerQuoteSkin, type QuoteSkin } from "@/lib/quote-skin";
+import { verticalConfig } from "@shared/verticals";
 import { buildOfferPriceContext, renderOfferCopy } from "@/lib/quote-offers";
 import { AtHomeOfferBody } from "@/components/quote/offer-templates/AtHomeOffer";
 import { generateQuotePDF, loadQuotePhotos, validityHoursFromQuote } from "@/lib/quote-pdf-generator";
@@ -43,6 +44,7 @@ import { SectionWrapper } from '@/components/SectionWrapper';
 import { StickyCTA } from '@/components/StickyCTA';
 import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
 import { HassleComparisonCard } from '@/components/quote/HassleComparisonCard';
+import { WhyNotCheaperSection } from '@/components/quote/WhyNotCheaperSection';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { QuotePreparingScreen } from '@/components/quote/QuotePreparingScreen';
@@ -1195,7 +1197,15 @@ const AnimatedStat = ({ value, delay }: { value: string, delay: number }) => {
 };
 
 // Extracted Google Reviews Carousel Component (fixes React hooks-in-IIFE violation)
-const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string | null; variant?: 'light' | 'dark' }) => {
+const GoogleReviewCard = ({ postcode, variant = 'light', vertical }: { postcode?: string | null; variant?: 'light' | 'dark'; vertical?: string }) => {
+  // Cleaning has no live Google-reviews feed yet, and the /api/google-reviews
+  // mock is handyman-flavored — so front cleaning quotes with the vertical's own
+  // (placeholder) reviews instead of fetching the handyman set.
+  const cleaningReviews = verticalConfig(vertical).key === 'cleaning'
+    ? verticalConfig(vertical).reviews.map((r) => ({
+        authorName: r.author, text: r.text, rating: r.rating, relativeTime: r.relativeTime,
+      }))
+    : null;
   const { data: reviewsData, isLoading } = useQuery({
     queryKey: ['google-reviews', variant, postcode],
     queryFn: async () => {
@@ -1205,6 +1215,7 @@ const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string |
       return res.json();
     },
     staleTime: 1000 * 60 * 60,
+    enabled: !cleaningReviews,
   });
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -1217,7 +1228,7 @@ const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string |
     return () => clearInterval(interval);
   }, [reviewsData, variant]);
 
-  const reviews = reviewsData?.reviews || [];
+  const reviews = cleaningReviews || reviewsData?.reviews || [];
   const currentReview = reviews[activeIndex];
 
   if (isLoading || !currentReview) {
@@ -1431,7 +1442,7 @@ const ValueSocialProof = ({ quote, pricingSettings, hideReviewEyebrow }: { quote
 
             {/* Single Testimonial with Image Placeholder */}
             <div className="max-w-lg mx-auto md:mx-0">
-              <GoogleReviewCard postcode={quote.postcode} variant="light" />
+              <GoogleReviewCard postcode={quote.postcode} variant="light" vertical={(quote as any)?.vertical} />
             </div>
           </div>
         </div>
@@ -1448,45 +1459,31 @@ function getHeroImage(quote: PersonalizedQuote): string {
   const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
   const jobDesc = (quote.jobDescription || '').toLowerCase();
   const firstCategory = quote.pricingLineItems?.[0]?.category || '';
+  const cfg = verticalConfig((quote as any).vertical);
 
   // Archetype detection
   const isLandlord = /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx);
   const isElderly = /elderly|older|pensioner|senior/.test(vaCtx);
 
-  // Job type detection
-  const isPlumbing = /plumb|tap|leak|pipe|drain|toilet|boiler/.test(jobDesc) ||
-    firstCategory === 'plumbing_minor';
-  const isPainting = /paint|decor|colour|color/.test(jobDesc) ||
-    firstCategory === 'painting';
-  const isElectrical = /electric|socket|light fitting|light fixture|pendant|downlight|spotlight|consumer unit|fuse|wiring|isolator|switch/.test(jobDesc) ||
-    firstCategory === 'electrical_minor';
-  const isFlatpack = /flat.?pack|assemble|assembly|wardrobe|furniture|ikea|cabinet|chest of drawers|bookshelf|shelf unit/.test(jobDesc);
-  const isTvMount = /tv mount|tv bracket|mount.{0,6}tv|television|wall.?mount/.test(jobDesc);
-  const isTiling = /tile|tiling|grout|splashback|backsplash/.test(jobDesc);
-  const isBathroomSeal = /silicone|re.?seal|sealant|caulk|re.?grout|shower/.test(jobDesc);
-  const isFencing = /fence|fencing|fence panel|decking|gate|garden/.test(jobDesc);
-  const isGuttering = /gutter|downpipe|fascia|soffit/.test(jobDesc);
+  // Person-led brand: the hero shows the quote's SKIN (the assigned tradesperson)
+  // doing the job, not a generic stock image — one consistent face from
+  // loading → offer → quote. Job-type → image mapping lives in the vertical
+  // config (shared/verticals.ts); skin-keyed scenes resolve to the assigned
+  // face's own set, anything else falls back to the default face's set.
+  if (isElderly || isLandlord) return `/assets/quote-images/${cfg.archetypeDoorImage}.webp`;
 
-  // Person-led brand: the hero shows the quote's SKIN (the assigned handyman)
-  // doing the job, not a generic stock tradesman — one consistent face from
-  // loading → offer → quote. Skins with a complete job-scene set (see
-  // SKINNED_HERO_SETS) resolve to their own imagery; anything else falls back
-  // to the Craig brand set.
-  if (isElderly || isLandlord) return '/assets/quote-images/older-person-door.webp';
+  const skinKey = skinAssetKey(resolveQuoteSkin(quote.skin, (quote as any).vertical)) ?? cfg.defaultFace.key;
 
-  const skinKey = skinAssetKey(resolveQuoteSkin(quote.skin)) ?? 'craig';
-
-  // Job-type imagery — order most-specific first.
-  if (isGuttering) return `/assets/quote-images/${skinKey}-gutter.webp`;
-  if (isFencing) return `/assets/quote-images/${skinKey}-fence.webp`;
-  if (isTvMount) return `/assets/quote-images/${skinKey}-tv-mount.webp`;
-  if (isTiling) return `/assets/quote-images/${skinKey}-tiling.webp`;
-  if (isFlatpack) return `/assets/quote-images/${skinKey}-flatpack.webp`;
-  if (isElectrical) return `/assets/quote-images/${skinKey}-light.webp`;
-  if (isPlumbing) return '/assets/quote-images/plumber-smile.webp';
-  if (isBathroomSeal) return `/assets/quote-images/${skinKey}-bathroom.webp`;
-  if (isPainting) return `/assets/quote-images/${skinKey}-painting.webp`;
-  return '/assets/quote-images/door-greeting.webp';
+  for (const rule of cfg.heroRules) {
+    if (rule.test(jobDesc, firstCategory)) {
+      return rule.skinKeyed
+        ? `/assets/quote-images/${skinKey}-${rule.imageKey}.webp`
+        : `/assets/quote-images/${rule.imageKey}.webp`;
+    }
+  }
+  return cfg.heroFallbackSkinKeyed
+    ? `/assets/quote-images/${skinKey}-${cfg.heroFallbackKey}.webp`
+    : `/assets/quote-images/${cfg.heroFallbackKey}.webp`;
 }
 
 /** Base filenames (no extension) that ship a 16:9 `-wide` twin for landscape
@@ -1589,6 +1586,7 @@ const CustomerJobPhotos = ({ photos }: { photos?: string[] | null }) => {
 };
 
 const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
+  const vcfg = verticalConfig((quote as any)?.vertical);
   // Get segment content
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'DEFAULT';
   const content = { ...SEGMENT_CONTENT_MAP[segmentKey].hero };
@@ -1637,7 +1635,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
       });
 
       if (items.length === 0) {
-        return quote?.jobDescription || 'Your handyman job';
+        return quote?.jobDescription || vcfg.copy.jobTitleFallback;
       } else if (items.length === 1) {
         return items[0];
       } else if (items.length === 2) {
@@ -1649,7 +1647,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
         return `${otherItems.join(', ')}, plus ${lastItem}`;
       }
     }
-    return quote?.jobDescription || 'Your handyman job';
+    return quote?.jobDescription || vcfg.copy.jobTitleFallback;
   };
 
   return (
@@ -1714,7 +1712,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           </div>
           <div className="text-left">
             <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>
-            <div className="text-white font-bold text-lg leading-none">Ben <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span></div>
+            <div className="text-white font-bold text-lg leading-none">Ben <span className="text-[#7DB00E] text-sm font-normal">from {vcfg.brandSuffix}</span></div>
           </div>
         </div>
 
@@ -1733,6 +1731,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
 
 
 const ValueProof = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
+  const vcfg = verticalConfig((quote as any)?.vertical);
   // Get segment content
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'DEFAULT';
   const content = SEGMENT_CONTENT_MAP[segmentKey].proof;
@@ -1789,7 +1788,7 @@ const ValueProof = ({ quote, config }: { quote: PersonalizedQuote, config: any }
                 <div className="text-[#7DB00E] drop-shadow-xl filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
                   <Truck className="w-6 h-6 fill-current" />
                 </div>
-                <div className="mt-1 bg-[#7DB00E] text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-md whitespace-nowrap">HandyServices</div>
+                <div className="mt-1 bg-[#7DB00E] text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-md whitespace-nowrap">{vcfg.brandSuffix}</div>
               </div>
             </div>
 
@@ -1814,7 +1813,7 @@ const ValueProof = ({ quote, config }: { quote: PersonalizedQuote, config: any }
 
             <div className="space-y-4">
               {/* Dynamic Google Reviews Carousel */}
-              <GoogleReviewCard postcode={quote.postcode} variant="dark" />
+              <GoogleReviewCard postcode={quote.postcode} variant="dark" vertical={(quote as any)?.vertical} />
             </div>
           </div>
         </div>
@@ -1837,7 +1836,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
     // quote's skin — the same face shown throughout. Skins with a full asset
     // set use their own guarantee shot; other skinned quotes fall back to
     // their banner; the default brand skin keeps Craig.
-    const guaranteeSkin = resolveQuoteSkin(quote.skin);
+    const guaranteeSkin = resolveQuoteSkin(quote.skin, (quote as any).vertical);
     const guaranteeKey = skinAssetKey(guaranteeSkin);
     content.image = guaranteeKey
       ? `/assets/quote-images/${guaranteeKey}-guarantee.webp`
@@ -1917,7 +1916,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                 <div className="absolute inset-0 bg-gradient-to-t from-[#1D2D3D] via-transparent to-transparent opacity-60 z-10" />
                 <img
                   src={getHeroAsset(quote, 'wide').src}
-                  alt="Professional handyman at work"
+                  alt={vcfg.copy.heroAlt}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                   style={{ objectPosition: getHeroAsset(quote, 'wide').objectPosition }}
                   loading="lazy"
@@ -2621,10 +2620,14 @@ function ContextualQuoteLayout({
     return 'Get This Sorted';
   })();
 
-  // Testimonials — content library if available, fall back to hardcoded
-  const testimonialsToShow: ReviewForCard[] = quote.selectedContent?.testimonials?.length
-    ? quote.selectedContent.testimonials.map(t => ({ text: t.text, author: t.author, location: t.location }))
-    : GOOGLE_REVIEWS;
+  // Testimonials — content library if available, fall back to hardcoded. Cleaning
+  // uses the vertical's own reviews (the DB content library is handyman-seeded, so
+  // its testimonials would read as handyman jobs on a cleaning quote).
+  const testimonialsToShow: ReviewForCard[] = (quote as any).vertical === 'cleaning'
+    ? verticalConfig((quote as any).vertical).reviews
+    : quote.selectedContent?.testimonials?.length
+      ? quote.selectedContent.testimonials.map(t => ({ text: t.text, author: t.author, location: t.location }))
+      : GOOGLE_REVIEWS;
 
   // Guarantee copy — content library if available, fall back to hardcoded
   const guaranteeCopy = quote.selectedContent?.guarantee?.copy || 'Not right? We return and fix it free. No questions.';
@@ -2633,7 +2636,7 @@ function ContextualQuoteLayout({
   // Shared brand hero block
   const brandHero = (
     <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-center">
-      <img src={handyServicesLogo} alt="HandyServices" className="h-8 mx-auto mb-4 opacity-90" />
+      <img src={handyServicesLogo} alt={verticalConfig((quote as any)?.vertical).brandSuffix} className="h-8 mx-auto mb-4 opacity-90" />
       <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
         {quote.contextualHeadline || 'Your Quote'}
       </h1>
@@ -3422,7 +3425,9 @@ export default function PersonalizedQuotePage() {
   // Quote skin — the contractor/team identity fronting every stage of this
   // page (loading reveal, guarantee, profile, day-picker copy). Defaults to
   // the Craig brand skin when nothing was selected at generation.
-  const quoteSkin: QuoteSkin = useMemo(() => resolveQuoteSkin(quote?.skin), [quote?.skin]);
+  const quoteSkin: QuoteSkin = useMemo(() => resolveQuoteSkin(quote?.skin, (quote as any)?.vertical), [quote?.skin, (quote as any)?.vertical]);
+  // Trade/brand copy for this quote's vertical (handyman | cleaning).
+  const vcfg = verticalConfig((quote as any)?.vertical);
 
   const skeletonStartRef = useRef<number>(Date.now());
   useEffect(() => {
@@ -4153,6 +4158,8 @@ export default function PersonalizedQuotePage() {
         // (selected at generation; team quotes reveal the members). Falls
         // back to the Craig default inside the helper.
         matchedHandymen={quote ? skinToMatchedHandymen(quoteSkin) : undefined}
+        vertical={(quote as any)?.vertical}
+        brandPending={!quote}
         holdBeat={theatreMode === 'checklist' || theatreMode === 'reveal' ? theatreMode : undefined}
         // ONE-PAGE offer: for at_home offers the orbit's resolved header slides
         // up and this body rises in beneath it on the SAME screen — no separate
@@ -4896,7 +4903,7 @@ export default function PersonalizedQuotePage() {
               {/* Award/rating line — mirrors the PDF's "Best Insurer" badge above payment */}
               <div className="flex items-center justify-center gap-2 text-sm font-semibold text-[#0b2a52]">
                 <Award className="w-4 h-4 text-[#7DB00E]" strokeWidth={2.5} />
-                Rated {pricingSettings?.googleRating ?? '4.9'}/5 &middot; Nottingham&rsquo;s best-reviewed handyman
+                Rated {pricingSettings?.googleRating ?? '4.9'}/5 &middot; Nottingham&rsquo;s best-reviewed {vcfg.tradeNoun}
               </div>
               {bookingBlockNode}
             </div>
@@ -4906,7 +4913,7 @@ export default function PersonalizedQuotePage() {
           <ValueGuarantee quote={quote} config={config} />
 
           {/* 5 ─ vs. a normal handyman */}
-          <AdmiralSection eyebrow="The difference" title="vs. a normal handyman">
+          <AdmiralSection eyebrow="The difference" title={vcfg.copy.vsNormal}>
             <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle maxItems={6} />
             <p className="text-center text-slate-600 mt-6 max-w-lg mx-auto font-medium">
               That&rsquo;s what your price pays for &mdash; and <span className="text-slate-900 font-bold">if it&rsquo;s not right, we come back and fix it free.</span>
@@ -4917,7 +4924,7 @@ export default function PersonalizedQuotePage() {
           <AdmiralSection bare>
             <div className="rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
               <div className="rounded-xl overflow-hidden mb-6 ring-1 ring-white/10 h-44">
-                <img src={payIn3PromoImage} alt="HandyServices at your door" className="w-full h-full object-cover object-[15%_30%] scale-[1.75]" loading="lazy" />
+                <img src={payIn3PromoImage} alt={`${vcfg.brandSuffix} at your door`} className="w-full h-full object-cover object-[15%_30%] scale-[1.75]" loading="lazy" />
               </div>
               <h3 className="text-2xl font-bold text-center text-white mb-1">What to expect</h3>
               <p className="text-slate-400 text-sm text-center mb-8">From quote to done &mdash; three simple steps</p>
@@ -4948,7 +4955,7 @@ export default function PersonalizedQuotePage() {
           <div className="bg-slate-50 py-5 px-6 border-t border-slate-200 relative">
             <div className="max-w-lg mx-auto flex flex-col items-center gap-3">
               <p className="text-[10px] text-slate-400">
-                &copy; {new Date().getFullYear()} HandyServices. All rights reserved.
+                &copy; {new Date().getFullYear()} {vcfg.brandSuffix}. All rights reserved.
               </p>
             </div>
           </div>
@@ -5124,6 +5131,7 @@ export default function PersonalizedQuotePage() {
                   skinName={quoteSkin.name}
                   skinAvatarUrl={quoteSkin.avatarUrl}
                   skinPossessive={quoteSkin.possessive}
+                  vertical={(quote as any)?.vertical}
                   onSaved={(dates) => {
                     const wasEditing = editingDays;
                     setPostPayDates(dates);
@@ -5180,6 +5188,7 @@ export default function PersonalizedQuotePage() {
                   initialSaved={postPayAddress ?? undefined}
                   skinName={quoteSkin.name}
                   skinAvatarUrl={quoteSkin.avatarUrl}
+                  vertical={(quote as any)?.vertical}
                   onSaved={(addr) => {
                     setPostPayAddress(addr);
                     setTimeout(completeAddressStep, 1200);
@@ -5216,6 +5225,7 @@ export default function PersonalizedQuotePage() {
                 invoiceNumber={confirmationData?.invoice?.invoiceNumber ?? invoiceData?.invoiceNumber}
                 portalToken={confirmationData?.portalToken ?? undefined}
                 jobCompleted={paidJobCompleted}
+                vertical={(quote as any)?.vertical}
                 flexDays={!quote.selectedDate && !paidJobCompleted
                   ? { avoided: avoidedDays, justUpdated: datesJustUpdated, onUpdatedDismiss: clearDatesUpdated, onChangeDays: () => { clearDatesUpdated(); setEditingDays(true); window.scrollTo({ top: 0 }); } }
                   : undefined}
@@ -5231,13 +5241,14 @@ export default function PersonalizedQuotePage() {
                   <ContractorProfile
                     onDark
                     compact
-                    name={!quoteSkin.isDefault ? quoteSkin.name : ((quote as any).leadContractor?.name || 'Craig')}
-                    headshotUrl={!quoteSkin.isDefault ? quoteSkin.avatarUrl : ((quote as any).leadContractor?.imageUrl || '/assets/avatars/craig-avatar-1.webp')}
+                    vertical={(quote as any)?.vertical}
+                    name={!quoteSkin.isDefault ? quoteSkin.name : ((quote as any).leadContractor?.name || quoteSkin.name)}
+                    headshotUrl={!quoteSkin.isDefault ? quoteSkin.avatarUrl : ((quote as any).leadContractor?.imageUrl || quoteSkin.avatarUrl)}
                     rating={(quote as any).leadContractor?.rating ?? 4.9}
                     jobsCount={(quote as any).leadContractor?.jobsCount ?? 214}
                     bio={!quoteSkin.isDefault
                       ? (quoteSkin.bio || `${quoteSkin.possessive} got your job — tidy, on time, and back to sort it if anything's not perfect.`)
-                      : ((quote as any).leadContractor?.bio || "Craig's got your job. Over a decade putting things right in people's homes — tidy, on time, and back to sort it if anything's not perfect.")}
+                      : ((quote as any).leadContractor?.bio || `${quoteSkin.possessive} got your job. Years putting things right in people's homes — tidy, on time, and back to sort it if anything's not perfect.`)}
                     badges={(quote as any).leadContractor?.badges?.length ? (quote as any).leadContractor.badges : ['DBS-checked', '£2M insured', '12-month guarantee']}
                   />
                 </div>
@@ -5268,6 +5279,17 @@ export default function PersonalizedQuotePage() {
           </div>
         )}
 
+        {/* Why the cheapest quote isn't the cheapest — price-objection killer right
+            after the number lands (price is our biggest objection on bigger jobs).
+            Dismantles the "but I got a cheaper quote" comparison. Contextual only. */}
+        {isContextualQuote && quotePrice > 0 && (
+          <SectionWrapper className="bg-white">
+            <div className="max-w-2xl md:max-w-3xl mx-auto w-full py-8 md:py-14">
+              <WhyNotCheaperSection vertical={(quote as any)?.vertical} />
+            </div>
+          </SectionWrapper>
+        )}
+
         {/* Customer's own job photos — anchors the price to THEIR exact job,
             straight after the price card and before any generic messaging. */}
         <CustomerJobPhotos photos={quote.customerPhotoUrls} />
@@ -5287,11 +5309,10 @@ export default function PersonalizedQuotePage() {
           <SectionWrapper className="bg-[#1D2D3D] py-16 lg:py-24">
             <ContractorProfile
               onDark
+              vertical={(quote as any)?.vertical}
               name={quoteSkin.name}
               headshotUrl={quoteSkin.avatarUrl}
-              bannerUrl={quoteSkin.isDefault
-                ? '/assets/quote-images/craig-banner.webp'
-                : (quoteSkin.bannerUrl ?? undefined)}
+              bannerUrl={quoteSkin.bannerUrl ?? undefined}
               rating={4.9}
               jobsCount={214}
               bio={quoteSkin.isDefault
@@ -5299,19 +5320,15 @@ export default function PersonalizedQuotePage() {
                 : (quoteSkin.bio || 'Putting homes right — tidy, on time, and back to sort it if anything\'s not perfect.')}
               badges={['DBS-checked', '£2M insured', '12-month guarantee']}
               work={(() => {
-                // Skins with a full job-scene set get the standard 6-shot
+                // Skins with a full job-scene set get the vertical's standard
                 // gallery in their own imagery; others fall back to their
                 // profile media gallery (or no gallery at all).
                 const workKey = skinAssetKey(quoteSkin);
                 if (workKey) {
-                  return [
-                    { url: `/assets/quote-images/${workKey}-bathroom.webp`, label: 'Bathroom reseal' },
-                    { url: `/assets/quote-images/${workKey}-tiling.webp`, label: 'Tiling' },
-                    { url: `/assets/quote-images/${workKey}-fence.webp`, label: 'Fence repair' },
-                    { url: `/assets/quote-images/${workKey}-light.webp`, label: 'Light fitting' },
-                    { url: `/assets/quote-images/${workKey}-flatpack.webp`, label: 'Flat-pack build' },
-                    { url: `/assets/quote-images/${workKey}-gutter.webp`, label: 'Gutter clear' },
-                  ];
+                  return vcfg.gallery.map((g) => ({
+                    url: `/assets/quote-images/${workKey}-${g.imageKey}.webp`,
+                    label: g.label,
+                  }));
                 }
                 return quoteSkin.gallery.length > 0
                   ? quoteSkin.gallery.slice(0, 6).map((url) => ({ url, label: '' }))
@@ -5319,7 +5336,7 @@ export default function PersonalizedQuotePage() {
               })()}
               review={quoteSkin.isDefault
                 ? {
-                    text: "Craig was brilliant — turned up when he said, got through everything on my list, and left the place spotless.",
+                    text: `${quoteSkin.name} was brilliant — turned up right on time, got through everything on my list, and left the place spotless.`,
                     author: 'Mark D.',
                     location: 'West Bridgford',
                   }
@@ -5337,7 +5354,7 @@ export default function PersonalizedQuotePage() {
                 Buy cheap, buy twice.
               </h2>
               <p className="text-slate-500 mt-5 text-base md:text-lg max-w-xl mx-auto leading-relaxed">
-                The wrong handyman turns a small job into a big bill. We do it once &mdash; <span className="text-slate-900 font-semibold">properly.</span>
+                {vcfg.copy.wrongTurns}. We do it once &mdash; <span className="text-slate-900 font-semibold">properly.</span>
               </p>
 
               {/* Proof for the claim above: a customer who paid cheap, then paid
@@ -5376,7 +5393,7 @@ export default function PersonalizedQuotePage() {
         <SectionWrapper className="bg-white">
           <div className="max-w-2xl md:max-w-3xl mx-auto w-full">
             <div className="text-center mb-8">
-              <h3 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">Everything a handyman <span className="text-[#5a8209]">should be</span> — and usually isn’t.</h3>
+              <h3 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">Everything a {vcfg.tradeNoun} <span className="text-[#5a8209]">should be</span> — and usually isn’t.</h3>
             </div>
             <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle maxItems={6} />
             <p className="text-center text-slate-600 mt-6 max-w-lg mx-auto font-medium">That’s what your price pays for — and <span className="text-slate-900 font-bold">if it’s not right, we come back and fix it free.</span></p>
@@ -5508,7 +5525,7 @@ export default function PersonalizedQuotePage() {
         <div className="bg-slate-50 py-5 px-6 border-t border-slate-200 relative">
           <div className="max-w-lg mx-auto flex flex-col items-center gap-3">
             <p className="text-[10px] text-slate-400">
-              &copy; {new Date().getFullYear()} HandyServices. All rights reserved.
+              &copy; {new Date().getFullYear()} {vcfg.brandSuffix}. All rights reserved.
             </p>
           </div>
         </div>
@@ -5578,7 +5595,7 @@ export default function PersonalizedQuotePage() {
                   <Shield className="w-6 h-6 text-blue-600" />
                 </div>
                 <div className="text-left">
-                  <p className="font-semibold text-gray-900">Fully Insured Handymen</p>
+                  <p className="font-semibold text-gray-900">{vcfg.copy.insuredLabel}</p>
                   <p className="text-xs text-gray-600">£10M public liability coverage</p>
                 </div>
               </div>
@@ -5780,7 +5797,7 @@ export default function PersonalizedQuotePage() {
                 All packages protect your home
               </h3>
               <p className="text-gray-300 text-sm sm:text-base max-w-2xl mx-auto mb-6">
-                Choose your service level and enjoy professional handyman work with secure payment. All work comes with our turn-up-on-time guarantee.
+                Choose your service level and enjoy professional {vcfg.tradeNoun} work with secure payment. All work comes with our turn-up-on-time guarantee.
               </p>
 
               {/* Payment Badges */}
@@ -5808,7 +5825,7 @@ export default function PersonalizedQuotePage() {
                 <div className="space-y-3">
                   {[
                     'Turn up on time guarantee',
-                    'Fully insured handymen',
+                    `Fully insured ${vcfg.tradeNounPlural}`,
                     'Professional workmanship',
                     'Clear pricing with no hidden fees',
                     'Pay in full or spread over 3 payments',

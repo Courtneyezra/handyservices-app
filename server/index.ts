@@ -66,6 +66,8 @@ import quotePlatformRouter, { autoSeedIfEmpty as autoSeedQuotePlatform } from '.
 import { setupCronJobs } from './cron';
 import uploadRouter from "./upload";
 import invoiceRouter from './invoices'; // B2: Invoice management
+import prizeWheelRouter from './prize-wheel-routes'; // prize-wheel odds config
+import rewardsRouter from './rewards-routes'; // prize-wheel reward claim + email
 import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
 import jobLifecycleRouter from './job-lifecycle'; // Day-of job lifecycle (en-route, timer, completion)
 import clientAggregationRouter from './client-aggregation'; // Read-only Jobber-style client engagement view
@@ -377,6 +379,8 @@ app.use(v2BookingsRouter);
 app.use(contextualPricingRouter);
 app.use(quoteExtrasCatalogRouter);
 app.use(skuCatalogRouter); // Phase 25: GET/POST /api/admin/sku-catalog/*
+app.use(prizeWheelRouter); // prize-wheel odds config (admin-editable)
+app.use(rewardsRouter); // prize-wheel reward claim + email
 app.use(quoteAnalyticsRouter);
 app.use(contentLibraryRouter);
 app.use('/api/quote-platform', quotePlatformRouter);

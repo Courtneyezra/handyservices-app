@@ -65,6 +65,7 @@ const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
 const ContentLibrary = lazy(() => import("@/pages/admin/ContentLibrary"));
 const QuotePlatformPage = lazy(() => import("@/pages/admin/QuotePlatformPage"));
 const PricingSettingsPage = lazy(() => import("@/pages/admin/PricingSettingsPage"));
+const PrizeWheelPage = lazy(() => import("@/pages/admin/PrizeWheelPage"));
 const NotificationsPage = lazy(() => import("@/pages/admin/NotificationsPage"));
 const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
@@ -84,6 +85,7 @@ const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const V2BookingsPage = lazy(() => import("@/pages/admin/V2BookingsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
+const ContractorTeams = lazy(() => import("@/pages/admin/ContractorTeams"));
 const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPage"));
 const OperatingSystem = lazy(() => import("@/pages/admin/OperatingSystem"));
 const ClientsPage = lazy(() => import("@/pages/admin/ClientsPage"));
@@ -157,6 +159,7 @@ const CancellationPolicy = lazy(() => import("@/pages/CancellationPolicy"));
 
 // Client Portal Pages (public, token-based access)
 const InvoiceView = lazy(() => import("@/pages/client/InvoiceView"));
+const RewardsTermsPage = lazy(() => import("@/pages/RewardsTermsPage"));
 const LeaveReview = lazy(() => import("@/pages/client/LeaveReview"));
 const PaymentPage = lazy(() => import("@/pages/client/PaymentPage"));
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
@@ -384,6 +387,9 @@ function Router() {
                 </Route>
                 <Route path="/invoice/:token">
                     <InvoiceView />
+                </Route>
+                <Route path="/rewards-terms">
+                    <RewardsTermsPage />
                 </Route>
                 {/* Customer flexible-booking slot picker (public, token-based, no login) */}
                 <Route path="/confirm-slot/:token">
@@ -822,6 +828,13 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/contractor-teams">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ContractorTeams />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/os">
                     <ProtectedRoute role="admin">
                         <OperatingSystem />
@@ -956,6 +969,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <SettingsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/prize-wheel">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PrizeWheelPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

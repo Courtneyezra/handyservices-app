@@ -314,7 +314,7 @@ router.post('/bookings/:id/respond', requireContractorAuth, async (req: Request,
                     const reasonLabel = reasonMap[declineReason || 'other'] || 'Other';
 
                     await resend.emails.send({
-                        from: 'Handy Services System <system@handyservices.co.uk>',
+                        from: 'Handy Services System <system@handyservices.app>',
                         to: [opsEmail],
                         subject: `[DECLINED] Booking ${id.substring(0, 8)} needs reassignment`,
                         html: `

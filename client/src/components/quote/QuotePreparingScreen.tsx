@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Check, Loader2, ShieldCheck, Star, Wrench } from 'lucide-react';
 import handyLogo from '@/assets/handy-logo-transparent.png';
 import { AxaLogo } from '@/components/AxaInsuredBadge';
-import { ROSTER_ORBIT_AVATARS } from '@/lib/contractor-roster';
+import { orbitAvatarsForVertical } from '@/lib/contractor-roster';
+import { verticalConfig } from '@shared/verticals';
 
 /**
  * "Preparing your quote" waiting screen — stage 1 of the TWO-stage journey
@@ -30,9 +31,17 @@ export interface MatchedHandyman {
   rating?: string;
   jobsLabel?: string;
 }
-const DEFAULT_MATCH: MatchedHandyman[] = [
-  { name: 'Craig', avatarUrl: '/assets/avatars/craig-avatar-1.webp', role: 'Your Nottingham handyman', rating: '4.9', jobsLabel: '214 jobs' },
-];
+/** Default cast (per vertical) when no matched skin is passed. */
+function defaultMatchForVertical(vertical?: string): MatchedHandyman[] {
+  const face = verticalConfig(vertical).defaultFace;
+  return [{ name: face.name, avatarUrl: face.avatarUrl, role: face.roleSolo, rating: '4.9', jobsLabel: '214 jobs' }];
+}
+
+/** Brand wordmark parts: "Handy" + coloured "Services"/"Cleaning". */
+function brandWordmark(vertical?: string): [string, string] {
+  const parts = verticalConfig(vertical).brandName.split(/\s+/);
+  return [parts[0] ?? 'Handy', parts.slice(1).join(' ') || 'Services'];
+}
 
 // ── Pacing ────────────────────────────────────────────────────────────────
 // Two beats only. Cadence learning from the checklist era: felt speed is the
@@ -46,14 +55,19 @@ const ORBIT_MS = 3600;   // Ben consulting the pool (the only "working" beat)
 const RESOLVE_MS = 1500;
 const STEP_MS = 900;     // custom-steps (visit flow) checklist dwell fallback
 
-// The orbiting pool: real contractor avatars plus honest initials from the
-// actual roster (Joe, Alex, Kane — real handyman_profiles rows). The chosen
-// skin's avatar is injected as a satellite so the resolve picks it "out of"
-// the orbit rather than conjuring a stranger.
-// The orbiting pool = the shared contractor roster (one source of truth for
-// every surface: orbit, landing team grids, landing hero cluster).
-const POOL_AVATARS = ROSTER_ORBIT_AVATARS;
-const POOL_INITIALS = ['J', 'A', 'K'];
+// The orbiting pool = the vertical's roster (one source of truth for every
+// surface: orbit, landing team grids, landing hero cluster). Resolved per
+// render inside OrbitLoader from the `vertical` prop. The chosen skin's avatar
+// is injected as a satellite so the resolve picks it "out of" the orbit rather
+// than conjuring a stranger.
+//
+// The orbit is a FIXED ring of this many slots (stable per-index keys). Slots
+// never mount/unmount as the pool content changes — see the satellite build in
+// OrbitLoader for why that stability is what keeps the faces upright.
+const ORBIT_SLOTS = 5;
+// Brand-neutral placeholders shown in each slot while the quote (hence the
+// vertical/roster) is still loading — generic initials, no real identity.
+const POOL_INITIALS = ['J', 'A', 'K', 'M', 'S'];
 
 interface QuotePreparingScreenProps {
   /** Underlying quote data + above-the-fold assets are ready. Gates completion. */
@@ -89,6 +103,12 @@ interface QuotePreparingScreenProps {
   offerNode?: ReactNode;
   /** Fired once when the in-stage offer becomes visible (impression tracking). */
   onOfferShown?: () => void;
+  /** Brand vertical — decides the orbit pool, wordmark and trade copy. */
+  vertical?: string;
+  /** The quote (hence its vertical) hasn't loaded yet — hold ALL brand-specific
+   *  visuals (roster faces, wordmark suffix) and the resolve, so a cleaning quote
+   *  never flashes the handyman theatre during the cold-load fetch window. */
+  brandPending?: boolean;
 }
 
 export function QuotePreparingScreen(props: QuotePreparingScreenProps) {
@@ -101,9 +121,15 @@ export function QuotePreparingScreen(props: QuotePreparingScreenProps) {
 // Orbit loader — the default quote flow
 // ═══════════════════════════════════════════════════════════════════════════
 
-function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy, matchedHandymen, postcode, instant = false, holdBeat, offerNode, onOfferShown }: QuotePreparingScreenProps) {
+function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy, matchedHandymen, postcode, instant = false, holdBeat, offerNode, onOfferShown, vertical, brandPending = false }: QuotePreparingScreenProps) {
+  const cfg = verticalConfig(vertical);
+  const [brandA, rawBrandB] = brandWordmark(vertical);
+  // Until the quote's vertical is known, stay brand-neutral: "Handy" with no
+  // coloured suffix, and an EMPTY orbit pool (Ben + generic initials only).
+  const brandB = brandPending ? '' : rawBrandB;
+  const POOL_AVATARS = brandPending ? [] : orbitAvatarsForVertical(vertical);
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
-  const matched = (matchedHandymen && matchedHandymen.length > 0) ? matchedHandymen : DEFAULT_MATCH;
+  const matched = (matchedHandymen && matchedHandymen.length > 0) ? matchedHandymen : defaultMatchForVertical(vertical);
   const chosen = matched[0];
   const skinFirstName = chosen.name.split(/\s+/)[0];
   const outwardPostcode = postcode?.trim().split(/\s+/)[0]?.toUpperCase();
@@ -128,11 +154,27 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
   const flipFromRef = useRef<DOMRect | null>(null);
 
   // Orbit → resolve after ORBIT_MS ('checklist' hold freezes the orbit).
+  // While the brand is pending (quote still loading), hold the orbit — never
+  // resolve onto a fallback face before the real skin/vertical is known.
   useEffect(() => {
-    if (resolved || instant || holdBeat === 'checklist') return;
+    if (resolved || instant || holdBeat === 'checklist' || brandPending) return;
     const t = setTimeout(() => setResolved(true), ORBIT_MS);
     return () => clearTimeout(t);
-  }, [resolved, instant, holdBeat]);
+  }, [resolved, instant, holdBeat, brandPending]);
+
+  // Late skip: `instant` is seeded into resolved/resolveDone at mount, but the
+  // signals that flip it on (server viewCount>1, paid/booked) arrive WITH the
+  // quote — after mount. When it flips late it FAST-FORWARDS to the end; without
+  // this the resolve effect above is guarded off by `instant` while `resolved`
+  // is still its initial false, so the orbit spins forever and never completes
+  // (the failsafe below is also skipped under `instant`). Reopens of a viewed or
+  // paid quote on a device with no local seen-flag hit exactly this path.
+  useEffect(() => {
+    if (instant && !(resolved && resolveDone)) {
+      setResolved(true);
+      setResolveDone(true);
+    }
+  }, [instant, resolved, resolveDone]);
 
   // With an in-stage offer: after the centred hold, slide the header up and
   // reveal the offer HERE. No onComplete — accept/decline advance the flow.
@@ -203,15 +245,22 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
   const jobs = pricingSettings?.jobsCompleted ?? '500+';
 
   // Satellites: the chosen skin + the rest of the pool (no duplicate of the
-  // chosen face), padded with roster initials to 5 orbiters.
-  const satelliteAvatars = [
+  // chosen face). While the brand is pending, show NO faces (initials only) —
+  // the chosen face is a handyman fallback until the real vertical loads.
+  const satelliteAvatars = brandPending ? [] : [
     chosen.avatarUrl,
     ...POOL_AVATARS.filter((a) => a !== chosen.avatarUrl),
   ];
-  const satellites: { key: string; avatarUrl?: string; initial?: string }[] = [
-    ...satelliteAvatars.map((a, i) => ({ key: `av-${i}`, avatarUrl: a })),
-    ...POOL_INITIALS.slice(0, Math.max(0, 5 - satelliteAvatars.length)).map((c) => ({ key: `in-${c}`, initial: c })),
-  ].slice(0, 5);
+  // A FIXED ring of ORBIT_SLOTS slots, keyed by index so the slots (and their
+  // hs-orbit-unspin counter-spin animations) NEVER remount as the content
+  // changes. Content swaps in place: a brand-pending initial becomes its avatar
+  // the instant the quote loads. Keying by content/length (the old `av-*`/`in-*`
+  // scheme) remounted the faces mid-spin, restarting each counter-spin out of
+  // phase with the ring's spin and tilting every face for the rest of the show.
+  const satellites = Array.from({ length: ORBIT_SLOTS }, (_, i) => {
+    const avatarUrl = satelliteAvatars[i];
+    return { key: `orbit-${i}`, avatarUrl, initial: avatarUrl ? undefined : POOL_INITIALS[i] };
+  });
 
   const RADIUS = 104;
 
@@ -233,7 +282,7 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
       <div className="flex items-center justify-center gap-2 pt-7 hs-prep-rise">
         <img src={handyLogo} alt="" className="w-7 h-7 object-contain" />
         <span className="text-base font-extrabold tracking-tight">
-          Handy<span className="text-[#7DB00E]">Services</span>
+          {brandA}<span className="text-[#7DB00E]">{brandB}</span>
         </span>
       </div>
 
@@ -326,7 +375,7 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
           {resolved ? (
             <div style={{ animation: 'hs-prep-rise .5s cubic-bezier(.23,1,.32,1) both' }}>
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#a3d65f]">
-                {matched.length > 1 ? 'Your team' : 'Your handyman'}
+                {matched.length > 1 ? 'Your team' : `Your ${cfg.tradeNoun}`}
               </p>
               <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">
                 {matched.length > 1
@@ -450,7 +499,8 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
 // Checklist loader — custom-steps callers only (the diagnostic-visit flow)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, subcopy, steps, instant = false }: QuotePreparingScreenProps) {
+function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, subcopy, steps, instant = false, vertical }: QuotePreparingScreenProps) {
+  const [brandA, brandB] = brandWordmark(vertical);
   const STEPS_TO_USE = steps ?? [];
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
   const [activeStep, setActiveStep] = useState(instant ? STEPS_TO_USE.length : 0);
@@ -504,7 +554,7 @@ function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, sub
           <div className="flex items-center gap-2 mb-7 hs-prep-rise">
             <img src={handyLogo} alt="" className="w-7 h-7 object-contain" />
             <span className="text-base font-extrabold tracking-tight text-white">
-              Handy<span className="text-[#7DB00E]">Services</span>
+              {brandA}<span className="text-[#7DB00E]">{brandB}</span>
             </span>
           </div>
           <div className="relative hs-prep-rise hs-prep-d1">

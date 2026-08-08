@@ -32,13 +32,22 @@ import {
 } from '../shared/schema';
 import { timeRangeCoversSlot, SLOT_CAPACITY_MIN, type SlotType } from '../shared/slot-times';
 import { totalScheduleMinutes, computeBookingDurationDays, expandSpanDates } from '../shared/schedule-composition';
+import { ukToday, ukWeekStartDay, ukDayStartUTC } from '../shared/uk-time';
 import { computeContractorPay } from './lib/contractor-pay';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
-import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, type DayMode, type DayLoadBooking } from './lib/contractor-app';
+import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, activeLineItems, lineItemsToDescription, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
-import { reserveSlot, confirmBooking } from './booking-engine';
+import { reserveSlot, confirmBooking, isContractorAvailableForSlot } from './booking-engine';
+import { sendVisitRescheduledEmail } from './email-service';
+import { availabilityDayUTC } from './lib/availability-date';
 import { generateBalanceInvoice } from './invoice-generator';
 import { storageService } from './storage';
+
+// Customer-facing gross of one priced line (guarded labour + materials +
+// structural share) — matches computeSplitScope's `rawPence`. Used to show a
+// split booking's KEPT-scope value when the full basePrice no longer applies.
+const lineGrossPence = (l: any): number =>
+  (l?.guardedPricePence || 0) + (l?.materialsWithMarginPence || 0) + (l?.structuralSharePence || 0);
 
 const BOOKED_STATUSES = new Set(['accepted', 'completed']);
 const BOOKED_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
@@ -69,7 +78,7 @@ router.get('/:token', async (req: Request, res: Response) => {
     const profile = await findByAppToken(req.params.token);
     if (!profile) return res.status(404).json({ error: 'Link not recognised' });
 
-    const monday = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const monday = ukDayStartUTC(ukWeekStartDay()); // UK business week
     const end = addDays(monday, WEEKS_SERVED * 7);
     const weekDates = Array.from({ length: WEEKS_SERVED * 7 }, (_, i) => {
       const d = addDays(monday, i);
@@ -124,7 +133,7 @@ router.get('/:token', async (req: Request, res: Response) => {
         imageUrl: profile.profileImageUrl ?? profile.heroImageUrl ?? null,
         lastAvailabilityRefresh: profile.lastAvailabilityRefresh,
       },
-      today: format(new Date(), 'yyyy-MM-dd'),
+      today: ukToday(),
       weekStart: format(monday, 'yyyy-MM-dd'),
       days: resolveWeek({ weekDates, weeklyPatterns, overrides, bookings }),
       bookedCountByDate,
@@ -263,8 +272,7 @@ function scheduleContext(q: any) {
  *  When `deliveryTier` is passed, booked jobs are enriched with the pay
  *  breakdown (labour + materials allowance + per-line) for the modal. */
 async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const todayStart = ukDayStartUTC(ukToday()); // UK 'today' — the business day boundary
   const end = addDays(todayStart, JOBS_HORIZON_DAYS);
 
   const bookedRows = await db
@@ -294,7 +302,7 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
   const bookingIds = booked.map((b) => b.id);
   const [quoteRows, payoutRows] = await Promise.all([
     quoteIds.length
-      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems })
+      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems, deferredLineItems: personalizedQuotes.deferredLineItems })
           .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
       : Promise.resolve([]),
     bookingIds.length
@@ -312,7 +320,8 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
   const spanEntries = booked.flatMap((b) => {
     const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
     const dur = b.durationDays ?? 1;
-    const totalMinutes = totalScheduleMinutes(((q?.pricingLineItems as any[]) || []), {});
+    // Kept scope only — deferred ("do later") lines are not this visit's work.
+    const totalMinutes = totalScheduleMinutes(activeLineItems(q?.pricingLineItems, (q as any)?.deferredLineItems), {});
     return expandSpanDates(b.scheduledDate as any, dur, b.scheduledDates).map((date) => ({
       date,
       slot: (dur > 1 ? 'full_day' : (b.slot ?? 'full_day')) as SlotType,
@@ -349,11 +358,19 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
     // Keep a job listed until its LAST actual span day has passed.
     .filter((b) => {
       const span = expandSpanDates(b.scheduledDate as any, b.durationDays ?? 1, b.scheduledDates);
-      return span[span.length - 1] >= format(todayStart, 'yyyy-MM-dd');
+      return span[span.length - 1] >= ukToday();
     })
     .sort((a, b) => new Date(a.scheduledDate as any).getTime() - new Date(b.scheduledDate as any).getTime())
     .map((b) => {
       const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
+      // Kept scope only — everything the contractor sees (value, materials,
+      // per-line pay, work-minutes) must exclude lines the customer deferred.
+      const deferred = (q as any)?.deferredLineItems;
+      const active = activeLineItems(q?.pricingLineItems, deferred);
+      const hasDeferred = Array.isArray(deferred) && deferred.length > 0;
+      const pay = deliveryTier ? computeContractorPay(active, deliveryTier) : null;
+      // Split bookings: describe the kept scope, not the full quote prose.
+      const description = (hasDeferred && lineItemsToDescription(active)) || q?.jobDescription || null;
       return {
         id: b.id,
         date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'),
@@ -361,24 +378,141 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
         durationDays: b.durationDays ?? 1,
         customerName: q?.customerName ?? 'Customer',
         postcodeArea: outwardPostcode(q?.postcode),
-        jobDescription: trimDescription(q?.jobDescription),
-        fullDescription: q?.jobDescription ?? null,
+        jobDescription: trimDescription(description),
+        fullDescription: description,
         // Post-deposit: full address + photos available for the job sheet.
         mapQuery: (q?.address || q?.postcode) ?? null,
         photoUrls: (q?.photoUrls as string[] | null) ?? null,
-        valuePence: q?.basePrice ?? null,
+        // Split bookings: value is the kept scope, not the full quote base.
+        valuePence: hasDeferred ? active.reduce((s, l) => s + lineGrossPence(l), 0) : (q?.basePrice ?? null),
         // His snapshotted pay for this booking (Model C + tier uplift).
         payoutPence: payoutByBooking.get(b.id) ?? null,
         // Materials allowance (cost) + per-line breakdown for the modal.
-        materialsAllowancePence: deliveryTier ? computeContractorPay((q?.pricingLineItems as any[]) || [], deliveryTier).totalMaterialsPence : null,
-        payLines: deliveryTier ? computeContractorPay((q?.pricingLineItems as any[]) || [], deliveryTier).lines : null,
+        materialsAllowancePence: pay ? pay.totalMaterialsPence : null,
+        payLines: pay ? pay.lines : null,
         // Composed work minutes — drives the packing ceilings (canCoexist).
-        minutes: totalScheduleMinutes(((q?.pricingLineItems as any[]) || []), {}),
+        minutes: totalScheduleMinutes(active, {}),
       };
     });
 
   return { bookedOut, days, spanByDate };
 }
+
+// One earlier week of history (read-only). weeksBack=1 → the week ending last
+// Sunday, weeksBack=2 → the week before that, etc. Craig walks back through the
+// timeline one tap at a time; each tap loads exactly one week.
+async function loadPastWeek(profileId: string, deliveryTier: string | null | undefined, weeksBack: number) {
+  const thisMonday = ukDayStartUTC(ukWeekStartDay()); // UK business week
+  const todayStart = ukDayStartUTC(ukToday());
+  // weeksBack=1 = THIS week's already-elapsed days [Monday, today) — so a job
+  // done (or missed) earlier this week doesn't fall between the forward-looking
+  // "This week" grid and last week's history. weeksBack>=2 = full prior weeks.
+  const isThisWeek = weeksBack === 1;
+  const weekStart = isThisWeek ? thisMonday : addDays(thisMonday, -7 * (weeksBack - 1));
+  const weekEnd = isThisWeek ? todayStart : addDays(weekStart, 7); // exclusive
+  const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+  const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
+
+  const rows = await db
+    .select({
+      id: contractorBookingRequests.id,
+      quoteId: contractorBookingRequests.quoteId,
+      scheduledDate: contractorBookingRequests.scheduledDate,
+      slot: contractorBookingRequests.scheduledSlot,
+      durationDays: contractorBookingRequests.durationDays,
+      scheduledDates: contractorBookingRequests.scheduledDates,
+      status: contractorBookingRequests.status,
+      assignmentStatus: contractorBookingRequests.assignmentStatus,
+      contractorId: contractorBookingRequests.contractorId,
+      assignedContractorId: contractorBookingRequests.assignedContractorId,
+      completedAt: contractorBookingRequests.completedAt,
+      evidenceUrls: contractorBookingRequests.evidenceUrls,
+      signatureDataUrl: contractorBookingRequests.signatureDataUrl,
+      completionNotes: contractorBookingRequests.completionNotes,
+    })
+    .from(contractorBookingRequests)
+    .where(and(gte(contractorBookingRequests.scheduledDate, weekStart), lt(contractorBookingRequests.scheduledDate, weekEnd),
+      or(eq(contractorBookingRequests.contractorId, profileId), eq(contractorBookingRequests.assignedContractorId, profileId))));
+
+  const booked = rows.filter((b) =>
+    ((b.status && BOOKED_STATUSES.has(b.status)) || (b.assignmentStatus && BOOKED_ASSIGNMENT.has(b.assignmentStatus))) &&
+    b.scheduledDate && (b.assignedContractorId ?? b.contractorId) === profileId);
+
+  const quoteIds = [...new Set(booked.map((b) => b.quoteId).filter(Boolean))] as string[];
+  const bookingIds = booked.map((b) => b.id);
+  const [quoteRows, payoutRows] = await Promise.all([
+    quoteIds.length
+      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems, deferredLineItems: personalizedQuotes.deferredLineItems })
+          .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
+      : Promise.resolve([]),
+    bookingIds.length
+      ? db.select({ bookingId: bookingAssignments.bookingId, payoutPence: bookingAssignments.payoutPence })
+          .from(bookingAssignments).where(and(inArray(bookingAssignments.bookingId, bookingIds), eq(bookingAssignments.contractorId, profileId)))
+      : Promise.resolve([]),
+  ]);
+  const quoteById = new Map(quoteRows.map((q) => [q.id, q]));
+  const payoutByBooking = new Map(payoutRows.map((p: any) => [p.bookingId, p.payoutPence]));
+
+  const jobs = booked
+    .sort((a, b) => new Date(a.scheduledDate as any).getTime() - new Date(b.scheduledDate as any).getTime())
+    .map((b) => {
+      const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
+      const deferred = (q as any)?.deferredLineItems;
+      const active = activeLineItems(q?.pricingLineItems, deferred);
+      const hasDeferred = Array.isArray(deferred) && deferred.length > 0;
+      const description = (hasDeferred && lineItemsToDescription(active)) || q?.jobDescription || null;
+      // Same pay model as upcoming jobs (Model C + tier uplift) so history shows
+      // real per-task pay + the materials that went on his card.
+      const pay = deliveryTier ? computeContractorPay(active, deliveryTier) : null;
+      const evidence = (b.evidenceUrls as string[] | null) ?? null;
+      return {
+        id: b.id,
+        date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'),
+        durationDays: b.durationDays ?? 1,
+        customerName: q?.customerName ?? 'Customer',
+        postcodeArea: outwardPostcode(q?.postcode),
+        jobDescription: trimDescription(description),
+        fullDescription: description,
+        mapQuery: (q?.address || q?.postcode) ?? null,
+        photoUrls: (q?.photoUrls as string[] | null) ?? null,
+        valuePence: hasDeferred ? active.reduce((s, l) => s + lineGrossPence(l), 0) : (q?.basePrice ?? null),
+        payoutPence: payoutByBooking.get(b.id) ?? null,
+        materialsAllowancePence: pay ? pay.totalMaterialsPence : null,
+        payLines: pay ? pay.lines : null,
+        // History-only completion proof.
+        completed: b.status === 'completed' || b.assignmentStatus === 'completed',
+        completedAt: b.completedAt ? format(new Date(b.completedAt as any), 'yyyy-MM-dd') : null,
+        evidenceUrls: evidence && evidence.length ? evidence : null,
+        signatureDataUrl: (b.signatureDataUrl as string | null) ?? null,
+        completionNotes: (b.completionNotes as string | null) ?? null,
+      };
+    });
+
+  const earnedPence = jobs.reduce((s, j) => s + (j.payoutPence ?? 0), 0);
+  return {
+    weeksBack,
+    weekStart: weekStartStr,
+    weekEnd: format(addDays(weekEnd, -1), 'yyyy-MM-dd'),
+    label: isThisWeek ? 'Earlier this week' : `Week of ${format(weekStart, 'd MMM')}`,
+    earnedPence,
+    jobs,
+    hasMore: true, // client stops when a fetched week returns empty AND older weeks empty; keep simple
+  };
+}
+
+// GET /:token/past-jobs?weeksBack=N → one earlier week of completed/past work.
+router.get('/:token/past-jobs', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+    const weeksBack = Math.max(1, Math.min(52, parseInt(String(req.query.weeksBack ?? '1'), 10) || 1));
+    const week = await loadPastWeek(profile.id, profile.deliveryTier, weeksBack);
+    res.json(week);
+  } catch (e: any) {
+    console.error('[ContractorApp] past-jobs failed:', e?.message);
+    res.status(500).json({ error: 'Could not load earlier jobs' });
+  }
+});
 
 // GET /:token/jobs → upcoming booked work + flex queue with ranked suggestions.
 router.get('/:token/jobs', async (req: Request, res: Response) => {
@@ -398,6 +532,7 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
         depositPaidAt: personalizedQuotes.depositPaidAt,
         withinDays: personalizedQuotes.flexBookingWithinDays,
         pricingLineItems: personalizedQuotes.pricingLineItems,
+        deferredLineItems: personalizedQuotes.deferredLineItems,
         floorNumber: (personalizedQuotes as any).floorNumber,
         hasLift: (personalizedQuotes as any).hasLift,
         parkingDistanceCategory: (personalizedQuotes as any).parkingDistanceCategory,
@@ -407,12 +542,15 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
         .orderBy(desc(personalizedQuotes.depositPaidAt)).limit(20),
     ]);
 
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = ukToday();
     // Span-expanded day loads (multi-day bookings occupy every day they span).
     const bookedByDate = spanByDate;
 
     const flex = flexRows.map((f) => {
-      const lines = (f.pricingLineItems as any[]) || [];
+      // Kept scope only — the customer may have deferred lines via the
+      // "choose what to do now" split; those aren't this booking's work.
+      const hasDeferred = Array.isArray(f.deferredLineItems) && (f.deferredLineItems as any[]).length > 0;
+      const lines = activeLineItems(f.pricingLineItems, f.deferredLineItems);
       const minutes = totalScheduleMinutes(lines, scheduleContext(f));
       const requiredDays = computeBookingDurationDays(lines, scheduleContext(f));
       const multiDay = requiredDays > 1;
@@ -457,16 +595,21 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
 
       // His estimated pay for this job (Model C + his tier) — the same engine
       // the booking will snapshot, so the estimate matches the eventual payout.
-      const pay = computeContractorPay((f.pricingLineItems as any[]) || [], profile.deliveryTier);
+      // Computed on the kept scope so deferred lines don't inflate his pay.
+      const pay = computeContractorPay(lines, profile.deliveryTier);
+
+      // Split bookings: describe the kept scope, not the full quote prose.
+      const description = (hasDeferred && lineItemsToDescription(lines)) || f.jobDescription || null;
 
       return {
         quoteId: f.id,
         postcodeArea: area,
-        jobDescription: trimDescription(f.jobDescription),
-        fullDescription: f.jobDescription ?? null,
+        jobDescription: trimDescription(description),
+        fullDescription: description,
         mapQuery: (f.address || f.postcode) ?? null,
         photoUrls: (f.photoUrls as string[] | null) ?? null,
-        valuePence: f.basePrice ?? null,
+        // Split bookings: value is the kept scope, not the full quote base.
+        valuePence: hasDeferred ? lines.reduce((s, l) => s + lineGrossPence(l), 0) : (f.basePrice ?? null),
         payoutPence: pay.totalPayPence,
         materialsAllowancePence: pay.totalMaterialsPence,
         payLines: pay.lines,
@@ -501,7 +644,7 @@ async function placeFlexJob(
   if (!isIsoDate(date) || !['am', 'pm', 'full_day'].includes(slot)) {
     return { ok: false, status: 400, error: 'date (YYYY-MM-DD) and slot (am|pm|full_day) required' };
   }
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = ukToday();
   if (date < today) return { ok: false, status: 400, error: 'That day is in the past' };
 
   const quoteRows = await db.select({
@@ -511,6 +654,7 @@ async function placeFlexJob(
     withinDays: personalizedQuotes.flexBookingWithinDays,
     bookedAt: personalizedQuotes.bookedAt,
     pricingLineItems: personalizedQuotes.pricingLineItems,
+    deferredLineItems: personalizedQuotes.deferredLineItems,
     postcode: personalizedQuotes.postcode,
   }).from(personalizedQuotes).where(eq(personalizedQuotes.id, quoteId)).limit(1);
   const quote = quoteRows[0];
@@ -521,7 +665,9 @@ async function placeFlexJob(
   const deadline = format(addDays(new Date(quote.depositPaidAt as any), quote.withinDays), 'yyyy-MM-dd');
   if (date > deadline) return { ok: false, status: 400, error: `Must be on or before ${deadline}` };
 
-  const requiredDays = computeBookingDurationDays(((quote.pricingLineItems as any[]) || []), {});
+  // Kept scope only — a split leaves deferred lines on the quote.
+  const activeLines = activeLineItems(quote.pricingLineItems, quote.deferredLineItems);
+  const requiredDays = computeBookingDurationDays(activeLines, {});
   if (requiredDays > 1) return { ok: false, status: 400, error: 'Multi-day job — Handy will schedule this with you' };
 
   // Packing check: if the target slot already carries work, this placement
@@ -532,7 +678,7 @@ async function placeFlexJob(
   const dayBookings = (spanByDate.get(date) ?? []) as DayLoadBooking[];
   let sharing = false;
   if (dayBookings.length > 0) {
-    const jobMinutes = totalScheduleMinutes(((quote.pricingLineItems as any[]) || []), {});
+    const jobMinutes = totalScheduleMinutes(activeLines, {});
     const verdict = canCoexist({ minutes: jobMinutes, postcodeArea: outwardPostcode(quote.postcode) }, slot as SlotType, dayBookings, { requireSameArea: !opts.fromPack });
     if (!verdict.ok) return { ok: false, status: 409, error: `Can't add to that day — ${verdict.reason}` };
     sharing = true;
@@ -574,7 +720,7 @@ router.post('/:token/flex/:quoteId/place-block', async (req: Request, res: Respo
 
     const { startDate } = req.body || {};
     if (!isIsoDate(startDate)) return res.status(400).json({ error: 'startDate (YYYY-MM-DD) required' });
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = ukToday();
     if (startDate < today) return res.status(400).json({ error: 'That day is in the past' });
 
     const quoteRows = await db.select({
@@ -584,6 +730,7 @@ router.post('/:token/flex/:quoteId/place-block', async (req: Request, res: Respo
       withinDays: personalizedQuotes.flexBookingWithinDays,
       bookedAt: personalizedQuotes.bookedAt,
       pricingLineItems: personalizedQuotes.pricingLineItems,
+      deferredLineItems: personalizedQuotes.deferredLineItems,
     }).from(personalizedQuotes).where(eq(personalizedQuotes.id, req.params.quoteId)).limit(1);
     const quote = quoteRows[0];
     if (!quote || quote.leadContractorId !== profile.id) return res.status(404).json({ error: 'Job not found' });
@@ -593,7 +740,8 @@ router.post('/:token/flex/:quoteId/place-block', async (req: Request, res: Respo
     const deadline = format(addDays(new Date(quote.depositPaidAt as any), quote.withinDays), 'yyyy-MM-dd');
     if (startDate > deadline) return res.status(400).json({ error: `Must start on or before ${deadline}` });
 
-    const requiredDays = computeBookingDurationDays(((quote.pricingLineItems as any[]) || []), {});
+    // Kept scope only — a split leaves deferred lines on the quote.
+    const requiredDays = computeBookingDurationDays(activeLineItems(quote.pricingLineItems, quote.deferredLineItems), {});
     if (requiredDays <= 1) return res.status(400).json({ error: 'Single-day job — use the day suggestions instead' });
 
     const { days } = await loadJobsAndGrid(profile.id);
@@ -611,6 +759,171 @@ router.post('/:token/flex/:quoteId/place-block', async (req: Request, res: Respo
   } catch (err: any) {
     console.error('[ContractorApp] place-block failed:', err?.message);
     res.status(500).json({ error: 'Failed to book the block' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Move a booked visit to another day (Craig-initiated reschedule). Single-day
+// jobs only in Phase 1; multi-day spans are handed back to Handy. Every target
+// day is validated with the SAME engine guardrails as a fresh booking
+// (availability + capacity), and the customer is notified inside the window.
+// ---------------------------------------------------------------------------
+
+function slotWindowLabel(slot: SlotType): string {
+  return slot === 'am' ? '9am–1pm' : slot === 'pm' ? '2pm–6pm' : '9am–6pm';
+}
+
+// Shared context: the booking, its quote, the required duration, its slot, the
+// customer's promised deadline, and the composed work-minutes for fit checks.
+async function loadMoveContext(profileId: string, bookingId: string) {
+  const [booking] = await db.select({
+    id: contractorBookingRequests.id,
+    quoteId: contractorBookingRequests.quoteId,
+    scheduledDate: contractorBookingRequests.scheduledDate,
+    scheduledSlot: contractorBookingRequests.scheduledSlot,
+    durationDays: contractorBookingRequests.durationDays,
+    status: contractorBookingRequests.status,
+    assignmentStatus: contractorBookingRequests.assignmentStatus,
+    contractorId: contractorBookingRequests.contractorId,
+    assignedContractorId: contractorBookingRequests.assignedContractorId,
+    customerName: contractorBookingRequests.customerName,
+    customerEmail: contractorBookingRequests.customerEmail,
+  }).from(contractorBookingRequests).where(eq(contractorBookingRequests.id, bookingId)).limit(1);
+
+  if (!booking) return { error: { status: 404, msg: 'Job not found' } as const };
+  if ((booking.assignedContractorId ?? booking.contractorId) !== profileId) return { error: { status: 403, msg: 'Not your job' } as const };
+  if (booking.status === 'completed' || booking.assignmentStatus === 'completed') return { error: { status: 409, msg: "That job's done — it can't be moved" } as const };
+
+  const [quote] = booking.quoteId
+    ? await db.select({
+        id: personalizedQuotes.id,
+        depositPaidAt: personalizedQuotes.depositPaidAt,
+        withinDays: personalizedQuotes.flexBookingWithinDays,
+        pricingLineItems: personalizedQuotes.pricingLineItems,
+        deferredLineItems: personalizedQuotes.deferredLineItems,
+        postcode: personalizedQuotes.postcode,
+        jobDescription: personalizedQuotes.jobDescription,
+      }).from(personalizedQuotes).where(eq(personalizedQuotes.id, booking.quoteId)).limit(1)
+    : [undefined];
+
+  const active = activeLineItems(quote?.pricingLineItems, (quote as any)?.deferredLineItems);
+  const requiredDays = computeBookingDurationDays(active, {});
+  const slot = (booking.scheduledSlot ?? 'full_day') as SlotType;
+  // Only enforce a deadline when the job actually carries a flex promise.
+  const deadline = quote?.depositPaidAt && quote?.withinDays
+    ? format(addDays(new Date(quote.depositPaidAt as any), quote.withinDays), 'yyyy-MM-dd')
+    : null;
+
+  return {
+    booking, quote, active, requiredDays, slot, deadline,
+    jobMinutes: totalScheduleMinutes(active, {}),
+    postcodeArea: outwardPostcode(quote?.postcode),
+    currentDate: booking.scheduledDate ? format(new Date(booking.scheduledDate as any), 'yyyy-MM-dd') : null,
+  };
+}
+
+// Is `date` a valid day to move this job onto? Availability is the authoritative
+// engine gate; on days that already carry work we also run the capacity coexist
+// check (packing), exactly like a fresh flex placement.
+async function moveDayVerdict(
+  ctx: { slot: SlotType; jobMinutes: number; postcodeArea: string | null; deadline: string | null; currentDate: string | null; booking: { assignedContractorId: string | null; contractorId: string | null } },
+  date: string,
+  today: string,
+  spanByDate: Map<string, Array<{ slot: SlotType; minutes: number; postcodeArea: string | null }>>,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (date < today) return { ok: false, reason: 'past' };
+  if (date === ctx.currentDate) return { ok: false, reason: 'current day' };
+  if (ctx.deadline && date > ctx.deadline) return { ok: false, reason: `after ${format(new Date(ctx.deadline + 'T00:00:00'), 'd MMM')} deadline` };
+
+  const contractorIdStr = (ctx.booking.assignedContractorId ?? ctx.booking.contractorId) as string;
+  const available = await isContractorAvailableForSlot(db, contractorIdStr, new Date(`${date}T09:00:00.000Z`), ctx.slot);
+  if (!available) return { ok: false, reason: 'not available' };
+
+  const dayBookings = (spanByDate.get(date) ?? []) as DayLoadBooking[];
+  if (dayBookings.length > 0) {
+    const verdict = canCoexist({ minutes: ctx.jobMinutes, postcodeArea: ctx.postcodeArea }, ctx.slot, dayBookings, { requireSameArea: false });
+    if (!verdict.ok) return { ok: false, reason: verdict.reason };
+  }
+  return { ok: true };
+}
+
+// GET /:token/jobs/:bookingId/move-options → the days Craig can move this job to.
+router.get('/:token/jobs/:bookingId/move-options', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const ctx = await loadMoveContext(profile.id, req.params.bookingId);
+    if ('error' in ctx) return res.status(ctx.error.status).json({ error: ctx.error.msg });
+    if (ctx.requiredDays > 1) {
+      return res.json({ multiDay: true, currentDate: ctx.currentDate, slot: ctx.slot, days: [] });
+    }
+
+    const today = ukToday();
+    const { spanByDate } = await loadJobsAndGrid(profile.id);
+    const horizon = ctx.deadline ? new Date(ctx.deadline + 'T00:00:00') : addDays(new Date(today + 'T00:00:00'), JOBS_HORIZON_DAYS);
+
+    const days: Array<{ date: string; ok: boolean; reason?: string }> = [];
+    for (let d = new Date(today + 'T00:00:00'); d <= horizon; d = addDays(d, 1)) {
+      const date = format(d, 'yyyy-MM-dd');
+      if (date === ctx.currentDate) continue; // don't offer the day it's already on
+      const v = await moveDayVerdict(ctx, date, today, spanByDate);
+      days.push(v.ok ? { date, ok: true } : { date, ok: false, reason: v.reason });
+    }
+    res.json({ multiDay: false, currentDate: ctx.currentDate, slot: ctx.slot, slotLabel: slotWindowLabel(ctx.slot), deadline: ctx.deadline, days });
+  } catch (err: any) {
+    console.error('[ContractorApp] move-options failed:', err?.message);
+    res.status(500).json({ error: 'Could not load move options' });
+  }
+});
+
+// POST /:token/jobs/:bookingId/move { date } → move the booked visit to `date`,
+// keeping its slot + pay snapshot. Re-validates, then notifies the customer.
+router.post('/:token/jobs/:bookingId/move', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const { date } = req.body || {};
+    if (!isIsoDate(date)) return res.status(400).json({ error: 'date (YYYY-MM-DD) required' });
+
+    const ctx = await loadMoveContext(profile.id, req.params.bookingId);
+    if ('error' in ctx) return res.status(ctx.error.status).json({ error: ctx.error.msg });
+    if (ctx.requiredDays > 1) return res.status(400).json({ error: 'Multi-day job — Handy will reschedule this with you' });
+
+    const today = ukToday();
+    const { spanByDate } = await loadJobsAndGrid(profile.id);
+    const verdict = await moveDayVerdict(ctx, date, today, spanByDate);
+    if (!verdict.ok) return res.status(409).json({ error: `Can't move to that day — ${verdict.reason}` });
+
+    // Move it: the booking row IS the occupancy (post-confirm holds no lock), so
+    // a targeted update reschedules the visit and frees the old day. Pay snapshot
+    // and assignment are untouched — same job, new date.
+    await db.update(contractorBookingRequests).set({
+      scheduledDate: new Date(`${date}T09:00:00`),
+      scheduledSlot: ctx.slot,
+      scheduledDates: [date],
+      requestedDate: new Date(`${date}T09:00:00`),
+      requestedSlot: ctx.slot,
+      updatedAt: new Date(),
+    }).where(eq(contractorBookingRequests.id, ctx.booking.id));
+
+    // Notify the customer of the new day (best-effort — never block the move).
+    const newDateLabel = `${format(new Date(date + 'T00:00:00'), 'EEEE d MMMM')}, ${slotWindowLabel(ctx.slot)}`;
+    if (ctx.booking.customerEmail) {
+      sendVisitRescheduledEmail({
+        customerName: ctx.booking.customerName || 'there',
+        customerEmail: ctx.booking.customerEmail,
+        jobDescription: (ctx.quote?.jobDescription || 'your booked work').toString(),
+        newDateLabel,
+      }).catch((e) => console.error('[ContractorApp] reschedule email failed:', e?.message));
+    }
+
+    console.log(`[ContractorApp] Moved booking ${ctx.booking.id} → ${date} (${ctx.slot}) by ${profile.id}`);
+    res.json({ success: true, date, slot: ctx.slot, newDateLabel, customerNotified: !!ctx.booking.customerEmail });
+  } catch (err: any) {
+    console.error('[ContractorApp] move failed:', err?.message);
+    res.status(500).json({ error: 'Failed to move the job' });
   }
 });
 
@@ -641,16 +954,19 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
     // His placeable flex pool (paid, windowed, unbooked, his lead).
     // Multi-day jobs are excluded — Ben schedules those (same policy as
     // self-place; a pack containing one would fail at lock anyway).
-    const flexRows = await db.select({ id: personalizedQuotes.id, pricingLineItems: personalizedQuotes.pricingLineItems })
+    const flexRows = await db.select({ id: personalizedQuotes.id, pricingLineItems: personalizedQuotes.pricingLineItems, deferredLineItems: personalizedQuotes.deferredLineItems })
       .from(personalizedQuotes)
       .where(and(eq(personalizedQuotes.leadContractorId, profile.id), isNotNull(personalizedQuotes.depositPaidAt), isNotNull(personalizedQuotes.flexBookingWithinDays), isNull(personalizedQuotes.bookedAt)))
       .limit(50);
-    const singleDayRows = flexRows.filter((r) => computeBookingDurationDays(((r.pricingLineItems as any[]) || []), {}) <= 1);
+    // Kept scope only — a split leaves deferred lines on the quote; duration,
+    // full-day sizing and pay must all read the reduced scope.
+    const activeById = new Map(flexRows.map((r) => [r.id, activeLineItems(r.pricingLineItems, r.deferredLineItems)]));
+    const singleDayRows = flexRows.filter((r) => computeBookingDurationDays(activeById.get(r.id) || [], {}) <= 1);
     const poolIds = singleDayRows.map((r) => r.id);
     // Jobs whose work + travel overflow a half slot must lock as full_day —
     // the optimiser labels placements am/pm only, and an am lock would 409.
     const needsFullDayById = new Set(singleDayRows
-      .filter((r) => totalScheduleMinutes(((r.pricingLineItems as any[]) || []), {}) + TRAVEL_ALLOWANCE_MIN > SLOT_CAPACITY_MIN.am)
+      .filter((r) => totalScheduleMinutes(activeById.get(r.id) || [], {}) + TRAVEL_ALLOWANCE_MIN > SLOT_CAPACITY_MIN.am)
       .map((r) => r.id));
     if (poolIds.length === 0) return res.json({ goal: goalKey, plans: [], unassignable: [] });
 
@@ -686,7 +1002,7 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
     };
 
     // His pay per pool job (Model C + tier), so the pack shows HIS money.
-    const payoutByQuote = new Map(singleDayRows.map((r) => [r.id, computeContractorPay((r.pricingLineItems as any[]) || [], profile.deliveryTier).totalPayPence]));
+    const payoutByQuote = new Map(singleDayRows.map((r) => [r.id, computeContractorPay(activeById.get(r.id) || [], profile.deliveryTier).totalPayPence]));
 
     const plans = result.groups
       .filter((g) => g.contractorId === profile.id)
@@ -772,10 +1088,11 @@ router.post('/:token/day', async (req: Request, res: Response) => {
 
     const { date, mode } = req.body || {};
     if (!isIsoDate(date) || !isDayMode(mode)) return res.status(400).json({ error: 'date (YYYY-MM-DD) and mode (am|pm|full|off) required' });
-    if (!isEditableDate(date, format(new Date(), 'yyyy-MM-dd'))) return res.status(400).json({ error: 'That day is in the past' });
+    if (!isEditableDate(date, ukToday())) return res.status(400).json({ error: 'That day is in the past' });
 
     const window = modeToWindow(mode as DayMode);
-    const dayStart = new Date(`${date}T00:00:00`);
+    // UTC midnight — a pure calendar-day override, read the same everywhere.
+    const dayStart = availabilityDayUTC(date);
     const dayEnd = new Date(dayStart.getTime() + 86400000);
 
     await db.transaction(async (tx) => {

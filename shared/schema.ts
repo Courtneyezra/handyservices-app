@@ -118,6 +118,32 @@ export const appSettings = pgTable("app_settings", {
 
 export type AppSetting = typeof appSettings.$inferSelect;
 
+// Prize-wheel rewards a customer won post-payment/completion. The code + email
+// make it claimable + redeemable; ops/quote-builder surfaces unredeemed ones.
+export const customerRewards = pgTable("customer_rewards", {
+    id: varchar("id").primaryKey().notNull(),
+    code: varchar("code", { length: 16 }).unique().notNull(),      // e.g. HANDY-7F3K
+    prizeId: varchar("prize_id", { length: 40 }),                  // slice id (e.g. 'bundle')
+    prizeTitle: varchar("prize_title", { length: 160 }).notNull(),
+    customerName: varchar("customer_name"),
+    customerEmail: varchar("customer_email"),
+    customerPhone: varchar("customer_phone"),
+    sourceType: varchar("source_type", { length: 20 }),            // 'invoice' | 'completion'
+    sourceId: varchar("source_id"),                                // invoiceId or bookingId
+    status: varchar("status", { length: 20 }).notNull().default('unredeemed'), // unredeemed | redeemed | expired
+    wonAt: timestamp("won_at").defaultNow(),
+    expiresAt: timestamp("expires_at"),
+    emailedAt: timestamp("emailed_at"),
+    redeemedAt: timestamp("redeemed_at"),
+    redeemedQuoteId: varchar("redeemed_quote_id"),
+}, (table) => [
+    index("idx_customer_rewards_email").on(table.customerEmail),
+    index("idx_customer_rewards_code").on(table.code),
+    index("idx_customer_rewards_status").on(table.status),
+]);
+
+export type CustomerReward = typeof customerRewards.$inferSelect;
+
 // Users table (Admin/VA/Contractor access)
 export const users = pgTable("users", {
     id: varchar("id").primaryKey().notNull(),
@@ -542,6 +568,10 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     // Canonical delivery-lane classification — supersedes the short-lived
     // contractor_type column from the skin work (merged 23 Jul).
     deliveryTier: varchar("delivery_tier", { length: 20 }).notNull().default('adhoc'), // 'partner' | 'core' | 'adhoc'
+    // Which brand vertical this contractor delivers — a cleaning quote only ever
+    // matches 'cleaning' contractors, a handyman quote only 'handyman' (see
+    // shared/verticals.ts + findBestContractors). Existing pool defaults to handyman.
+    vertical: varchar("vertical", { length: 20 }).notNull().default('handyman'), // 'handyman' | 'cleaning'
     deliveryPriority: integer("delivery_priority"), // routing order within a tier — lower = picked first (Craig = 1); null = unranked
     // Contractor app entry — unguessable per-contractor link token (no login).
     // /my-week/:token → availability harvesting. Issued lazily from the Hub.
@@ -622,6 +652,10 @@ export const contractorTeams = pgTable("contractor_teams", {
     profileImageUrl: text("profile_image_url"),                 // team avatar for quote skins
     heroImageUrl: text("hero_image_url"),                       // team banner for quote skins
     bio: text("bio"),
+    // Crew size = how many pairs of hands. Drives capacity: a team of N books
+    // ~N× the daily labour and completes a job in ~1/Nth the wall-clock (with an
+    // efficiency floor — see the scheduler, Phase 2). 1 behaves exactly like a solo.
+    crewSize: integer("crew_size").notNull().default(1),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow(),
 });
@@ -1083,6 +1117,11 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     crewType: varchar("crew_type", { length: 10 }).default('solo'), // 'solo' | 'team'
     skinContractorId: varchar("skin_contractor_id"), // handyman_profiles.id fronting the quote
     skinTeamId: varchar("skin_team_id"),             // contractor_teams.id when crewType='team'
+
+    // Which brand vertical fronts this quote — decides the theatre, avatars,
+    // hero imagery and all trade copy (see shared/verticals.ts). Set at
+    // generation; default keeps every legacy quote on the handyman brand.
+    vertical: varchar("vertical", { length: 20 }).default('handyman'), // 'handyman' | 'cleaning'
 
     // Customer type promoted to a first-class column (also kept inside
     // contextSignals for legacy readers). Queryable for analytics/segmenting.

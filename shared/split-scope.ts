@@ -52,6 +52,35 @@ const rawPence = (l: SplitLineItem): number =>
   (l.guardedPricePence || 0) + (l.materialsWithMarginPence || 0) + (l.structuralSharePence || 0);
 
 /**
+ * The line items still in scope after the customer's "choose what to do now"
+ * split — `pricingLineItems` MINUS anything snapshotted into `deferredLineItems`.
+ *
+ * The split is stored non-destructively (pricingLineItems keeps the full
+ * original scope; deferred lineIds live separately in deferredLineItems), so
+ * EVERY downstream scope figure — contractor pay, materials, work-minutes,
+ * span days, job value, the job sheet — must be derived from this kept scope,
+ * not the raw line items, or the job over-scopes and over-pays.
+ *
+ * Mirrors computeSplitScope's guard: deferring is a no-op if it would empty the
+ * scope (you cannot defer the last line) or if no deferred id matches — callers
+ * get the full list back unchanged.
+ */
+export function activeLineItems<T = any>(
+  pricingLineItems: unknown,
+  deferredLineItems: unknown,
+): T[] {
+  const items = (Array.isArray(pricingLineItems) ? pricingLineItems : []) as T[];
+  const deferredIds = new Set(
+    (Array.isArray(deferredLineItems) ? deferredLineItems : [])
+      .map((d: any) => String(d?.lineId))
+      .filter((id) => id && id !== 'undefined'),
+  );
+  if (deferredIds.size === 0) return items;
+  const active = items.filter((l: any) => !deferredIds.has(String(l?.lineId)));
+  return active.length > 0 ? active : items;
+}
+
+/**
  * Re-price a multi-item quote for a partial ("split") booking.
  *
  * @param lineItems       every priced line on the quote

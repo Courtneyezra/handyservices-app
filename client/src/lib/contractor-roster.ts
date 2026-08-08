@@ -32,5 +32,31 @@ export const CONTRACTOR_ROSTER: RosterContractor[] = [
   { key: 'bezent', name: 'Bezent', role: 'General handyman', avatarUrl: '/assets/avatars/bezent-avatar-1.webp', portraitUrl: '/assets/quote-images/bezent-banner.webp', meta: 'DBS-checked · fully vetted' },
 ];
 
+/**
+ * Cleaning roster (Handy Cleaning) — placeholder AI cleaner personas. Keys match
+ * SKINNED_HERO_SETS_BY_VERTICAL.cleaning + the asset filenames Phase F fills.
+ * Rename here + in shared/verticals.ts to swap identities in one place.
+ */
+export const CLEANING_ROSTER: RosterContractor[] = [
+  { key: 'sofia', name: 'Sofia', role: 'Lead cleaner', avatarUrl: '/assets/avatars/sofia-avatar-1.webp', portraitUrl: '/assets/quote-images/sofia-banner.webp', meta: '4.9 · 214 cleans completed' },
+  { key: 'maria', name: 'Maria', role: 'Deep-clean specialist', avatarUrl: '/assets/avatars/maria-avatar-1.webp', portraitUrl: '/assets/quote-images/maria-banner.webp', meta: 'DBS-checked · £2M insured' },
+  { key: 'lena', name: 'Lena', role: 'End-of-tenancy specialist', avatarUrl: '/assets/avatars/lena-avatar-1.webp', portraitUrl: '/assets/quote-images/lena-banner.webp', meta: 'Vetted · 100% deposit-back' },
+  // Orbit-only cleaners (loading-theatre pool). Avatars only — not selectable
+  // skins yet, so no job-scene sets and not in SKINNED_HERO_SETS/STATIC_SKINS.
+  { key: 'nadia', name: 'Nadia', role: 'Cleaner', avatarUrl: '/assets/avatars/nadia-avatar-1.webp', portraitUrl: '/assets/avatars/nadia-avatar-1.webp', meta: 'DBS-checked · vetted' },
+  { key: 'tom', name: 'Tom', role: 'Cleaner', avatarUrl: '/assets/avatars/tom-avatar-1.webp', portraitUrl: '/assets/avatars/tom-avatar-1.webp', meta: 'DBS-checked · vetted' },
+];
+
+/** Roster by brand vertical — the theatre orbit reads the matching pool. */
+export const ROSTER_BY_VERTICAL: Record<string, RosterContractor[]> = {
+  handyman: CONTRACTOR_ROSTER,
+  cleaning: CLEANING_ROSTER,
+};
+
 /** Round avatar URLs in roster order — feeds the loading-theatre orbit pool. */
 export const ROSTER_ORBIT_AVATARS = CONTRACTOR_ROSTER.map((c) => c.avatarUrl);
+
+/** Orbit avatar pool for a given vertical (falls back to handyman). */
+export function orbitAvatarsForVertical(vertical?: string | null): string[] {
+  return (ROSTER_BY_VERTICAL[vertical || 'handyman'] ?? CONTRACTOR_ROSTER).map((c) => c.avatarUrl);
+}

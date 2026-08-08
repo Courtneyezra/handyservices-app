@@ -23,7 +23,7 @@ function wedgePath(a0: number, a1: number) {
   return `M ${CX} ${CY} L ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} Z`;
 }
 
-export default function PrizeWheel({ slices, onResult }: { slices: PrizeSlice[]; onResult: (s: PrizeSlice) => void }) {
+export default function PrizeWheel({ slices, onResult, nudge = false }: { slices: PrizeSlice[]; onResult: (s: PrizeSlice) => void; nudge?: boolean }) {
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const n = slices.length;
@@ -61,17 +61,23 @@ export default function PrizeWheel({ slices, onResult }: { slices: PrizeSlice[];
           {slices.map((s, i) => {
             const a0 = i * span, a1 = (i + 1) * span, mid = a0 + span / 2;
             const lp = rim(mid);
-            // label placed ~62% out along the mid-line, rotated to read radially
-            const lx = CX + (lp.x - CX) * 0.6, ly = CY + (lp.y - CY) * 0.6;
+            // Label sits ~70% out (where the wedge is wide) and reads tangentially.
+            const lr = 0.7;
+            const lx = CX + (lp.x - CX) * lr, ly = CY + (lp.y - CY) * lr;
+            // Flip labels on the lower half so they stay upright (not mirrored).
+            const flip = mid > 90 && mid < 270;
+            const rot = mid + (flip ? 180 : 0);
             const lines = s.label.split('\n');
+            const fs = s.golden ? 9 : 8.3;      // smaller → fits within the wedge
+            const lh = fs + 1.5;
             return (
               <g key={s.id}>
                 <path d={wedgePath(a0, a1)} fill={s.color} stroke="#0f172a" strokeWidth={1.5} />
-                <g transform={`translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${mid})`}>
+                <g transform={`translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${rot.toFixed(1)})`}>
                   {lines.map((ln, j) => (
-                    <text key={j} x={0} y={(j - (lines.length - 1) / 2) * 10 + 3}
-                      textAnchor="middle" fontSize={s.golden ? 11 : 9.5} fontWeight={800}
-                      fill={s.golden ? '#0f172a' : '#ffffff'} style={{ letterSpacing: 0.2 }}>
+                    <text key={j} x={0} y={(j - (lines.length - 1) / 2) * lh + fs * 0.34}
+                      textAnchor="middle" fontSize={fs} fontWeight={800}
+                      fill={s.golden ? '#0f172a' : '#ffffff'} style={{ letterSpacing: 0.1 }}>
                       {ln}
                     </text>
                   ))}
@@ -85,13 +91,19 @@ export default function PrizeWheel({ slices, onResult }: { slices: PrizeSlice[];
         </motion.svg>
       </div>
 
-      <button
+      <motion.button
         onClick={spin}
         disabled={spinning}
-        className="mt-6 px-10 py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-extrabold text-lg tracking-wide active:scale-[0.98] transition-transform disabled:opacity-60"
+        whileTap={{ scale: 0.97 }}
+        // Idle "tap me" nudge — a subtle periodic shake that draws the eye to the
+        // CTA so more people actually spin. Only when opted-in (customer surfaces)
+        // and paused while spinning. `x: 0` keeps it settled otherwise.
+        animate={nudge && !spinning ? { x: [0, -4, 4, -4, 4, 0] } : { x: 0 }}
+        transition={nudge && !spinning ? { duration: 0.55, repeat: Infinity, repeatDelay: 2.6, ease: 'easeInOut' } : { duration: 0.2 }}
+        className="mt-6 px-10 py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-extrabold text-lg tracking-wide shadow-lg shadow-emerald-500/40 disabled:opacity-60"
       >
         {spinning ? 'Spinning…' : 'SPIN'}
-      </button>
+      </motion.button>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { eq, gte, and, sql, desc, inArray } from 'drizzle-orm';
 import { getAnthropic } from '../anthropic';
+import { requireAdmin } from '../auth';
 import { generateContextualPrice } from './engine';
 import { generateMultiLinePrice } from './multi-line-engine';
 import { generateEVEPricingQuote, EVE_SEGMENT_RATES } from '../eve-pricing-engine';
@@ -1244,7 +1245,12 @@ router.get('/api/pricing/contractor-teams', async (_req, res) => {
       id: t.id,
       name: t.name,
       displayName: t.displayName || t.name,
+      leadContractorId: t.leadContractorId,
       profileImageUrl: t.profileImageUrl,
+      heroImageUrl: t.heroImageUrl,
+      bio: t.bio,
+      crewSize: t.crewSize ?? 1,
+      isActive: t.isActive,
       members: members
         .filter((m) => m.teamId === t.id)
         .map((m) => ({
@@ -1260,37 +1266,47 @@ router.get('/api/pricing/contractor-teams', async (_req, res) => {
   }
 });
 
-const createTeamSchema = z.object({
+const teamPayloadSchema = z.object({
   name: z.string().min(1).max(100),
   displayName: z.string().max(100).optional(),
   leadContractorId: z.string().optional(),
   memberContractorIds: z.array(z.string()).min(1).max(10),
+  // Crew size — pairs of hands (drives capacity in Phase 2). Defaults to the
+  // member count when omitted so a 3-person team reads as crewSize 3 out of the box.
+  crewSize: z.number().int().min(1).max(20).optional(),
   bio: z.string().max(1000).optional(),
   profileImageUrl: z.string().optional(),
   heroImageUrl: z.string().optional(),
 });
 
-router.post('/api/pricing/contractor-teams', async (req, res) => {
+// Rewrites a team's member rows to exactly `memberContractorIds` (lead flagged).
+async function replaceTeamMembers(teamId: string, memberContractorIds: string[], leadContractorId?: string) {
+  await db.delete(contractorTeamMembers).where(eq(contractorTeamMembers.teamId, teamId));
+  await db.insert(contractorTeamMembers).values(
+    memberContractorIds.map((contractorId) => ({
+      id: crypto.randomUUID(),
+      teamId,
+      contractorId,
+      role: contractorId === leadContractorId ? 'lead' : 'member',
+    })),
+  );
+}
+
+router.post('/api/pricing/contractor-teams', requireAdmin, async (req, res) => {
   try {
-    const input = createTeamSchema.parse(req.body);
+    const input = teamPayloadSchema.parse(req.body);
     const teamId = crypto.randomUUID();
     await db.insert(contractorTeams).values({
       id: teamId,
       name: input.name,
       displayName: input.displayName || null,
       leadContractorId: input.leadContractorId || null,
+      crewSize: input.crewSize ?? input.memberContractorIds.length,
       bio: input.bio || null,
       profileImageUrl: input.profileImageUrl || null,
       heroImageUrl: input.heroImageUrl || null,
     });
-    await db.insert(contractorTeamMembers).values(
-      input.memberContractorIds.map((contractorId) => ({
-        id: crypto.randomUUID(),
-        teamId,
-        contractorId,
-        role: contractorId === input.leadContractorId ? 'lead' : 'member',
-      })),
-    );
+    await replaceTeamMembers(teamId, input.memberContractorIds, input.leadContractorId);
     return res.json({ id: teamId });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -1298,6 +1314,44 @@ router.post('/api/pricing/contractor-teams', async (req, res) => {
     }
     console.error('[pricing/contractor-teams] Create error:', err);
     return res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+// Update a team in place — fields + full member replace.
+router.patch('/api/pricing/contractor-teams/:id', requireAdmin, async (req, res) => {
+  try {
+    const input = teamPayloadSchema.parse(req.body);
+    const { id } = req.params;
+    const [existing] = await db.select().from(contractorTeams).where(eq(contractorTeams.id, id)).limit(1);
+    if (!existing) return res.status(404).json({ error: 'Team not found' });
+    await db.update(contractorTeams).set({
+      name: input.name,
+      displayName: input.displayName || null,
+      leadContractorId: input.leadContractorId || null,
+      crewSize: input.crewSize ?? input.memberContractorIds.length,
+      bio: input.bio || null,
+      profileImageUrl: input.profileImageUrl || null,
+      heroImageUrl: input.heroImageUrl || null,
+    }).where(eq(contractorTeams.id, id));
+    await replaceTeamMembers(id, input.memberContractorIds, input.leadContractorId);
+    return res.json({ id });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid team payload', details: err.errors });
+    }
+    console.error('[pricing/contractor-teams] Update error:', err);
+    return res.status(500).json({ error: 'Failed to update team' });
+  }
+});
+
+// Soft-delete: deactivate (hide from picker) without dropping history.
+router.delete('/api/pricing/contractor-teams/:id', requireAdmin, async (req, res) => {
+  try {
+    await db.update(contractorTeams).set({ isActive: false }).where(eq(contractorTeams.id, req.params.id));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[pricing/contractor-teams] Deactivate error:', err);
+    return res.status(500).json({ error: 'Failed to deactivate team' });
   }
 });
 
@@ -1457,6 +1511,8 @@ const contextualQuoteInputSchema = z.object({
   crewType: z.enum(['solo', 'team']).optional(),
   skinContractorId: z.string().optional(),
   skinTeamId: z.string().optional(),
+  // Brand vertical fronting the quote (theatre/avatars/copy). Default handyman.
+  vertical: z.enum(['handyman', 'cleaning']).optional(),
 
   // ── Materials & equipment logistics (Jul 2026) ────────────────────────
   // Longest supplier lead time (days) across the job's materials — gates the
@@ -2036,6 +2092,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Contractor assignment — shows their profile on the customer quote page
       contractorId: input.contractorId || null,
 
+      // Brand vertical fronting the quote (theatre/avatars/copy).
+      vertical: input.vertical || 'handyman',
       // Crew & skin selection — solo/team pool + whose face fronts the quote.
       // Falls back to the contractorId pick so an operator choosing a
       // contractor profile gets that skin without a second selection.

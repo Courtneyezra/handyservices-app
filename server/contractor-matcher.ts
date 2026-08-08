@@ -11,7 +11,7 @@
 
 import { db } from './db';
 import { handymanSkills, handymanProfiles, users } from '../shared/schema';
-import { inArray } from 'drizzle-orm';
+import { inArray, and, eq } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +74,9 @@ export async function findCandidateContractors(params: {
   customerPostcode?: string;
   customerLat?: number;
   customerLng?: number;
+  // Brand vertical to match within — a cleaning quote must only ever match
+  // cleaning contractors, never the handyman pool. Omit to match every vertical.
+  vertical?: string;
 }): Promise<ContractorMatchResult> {
   const { customerLat, customerLng } = params;
   // Coverage measures DISTINCT required categories. The live quote builder passes
@@ -142,7 +145,10 @@ export async function findCandidateContractors(params: {
       publicProfileEnabled: handymanProfiles.publicProfileEnabled,
     })
     .from(handymanProfiles)
-    .where(inArray(handymanProfiles.id, contractorIds));
+    .where(and(
+      inArray(handymanProfiles.id, contractorIds),
+      params.vertical ? eq(handymanProfiles.vertical, params.vertical) : undefined,
+    ));
 
   // Filter to verified or active contractors (verified status, or public profile enabled as fallback)
   const activeProfiles = profiles.filter(

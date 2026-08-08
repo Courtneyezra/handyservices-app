@@ -1030,12 +1030,18 @@ router.post('/reassign-booking', async (req: Request, res: Response) => {
     }
 
     const now = new Date();
+    // Reschedule must move scheduled_dates TOO — readers trust that jsonb array
+    // (it's timezone-immune) over the fragile timestamp. Updating the timestamp
+    // alone strands the array on the old day and the booking vanishes from every
+    // grid/list that reads it. Derive the span from the clean date string.
+    const { expandSpanDates } = await import('../shared/schedule-composition');
+    const newDateStr = date ? (typeof date === 'string' ? date : new Date(date).toISOString()).slice(0, 10) : null;
     await db.transaction(async (tx) => {
       await tx.update(contractorBookingRequests)
         .set({
           contractorId,
           assignedContractorId: contractorId,
-          ...(date ? { scheduledDate: targetDate as Date, requestedDate: targetDate as Date } : {}),
+          ...(date ? { scheduledDate: targetDate as Date, requestedDate: targetDate as Date, scheduledDates: expandSpanDates(newDateStr!, booking.durationDays, null) } : {}),
           ...(slot ? { scheduledSlot: slot as any, requestedSlot: slot } : {}),
           updatedAt: now,
         })

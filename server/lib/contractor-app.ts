@@ -81,6 +81,7 @@ export function outwardPostcode(postcode: string | null | undefined): string | n
 export const MAX_STOPS_PER_DAY = 3;
 /** Suggestions stop filling at 85% of the 8h day cap — deliberate slack. */
 export const DAY_PACK_CEILING_MIN = Math.round(480 * 0.85); // 408
+export const FULL_DAY_CAP_MIN = 480; // true 8h cap — used for zero-travel same-street top-ups
 /** Rough inter-job hop budget — packing requires same outward code, so short. */
 export const INTER_JOB_TRAVEL_MIN = 20;
 /** Half-slot (AM/PM) capacity in minutes. */
@@ -121,9 +122,19 @@ export function canCoexist(
     return { ok: false, reason: 'packing requires a job in the same postcode area that day' };
   }
 
-  // A full_day booking owns the whole day.
+  // A full_day booking normally owns the whole day — its all-day arrival
+  // promise covers it. EXCEPTION: a SAME-POSTCODE filler can still slot in when
+  // the booking's ACTUAL work leaves real headroom. Craig is already on that
+  // street, so a quick nearby job adds no inter-site travel and doesn't break
+  // the all-day promise. Cross-area top-ups of a full day stay blocked.
   if (dayBookings.some((b) => b.slot === 'full_day' || b.slot === null)) {
-    return { ok: false, reason: 'a full-day job already owns that day' };
+    const allSameArea = !!job.postcodeArea && dayBookings.every((b) => b.postcodeArea === job.postcodeArea);
+    if (!allSameArea) return { ok: false, reason: 'a full-day job already owns that day' };
+    // Same street → no travel buffer needed; measure against the true full-day
+    // cap (not the 85% pack ceiling, which exists to absorb inter-site hops).
+    const usedSame = dayBookings.reduce((s, b) => s + b.minutes, 0);
+    if (usedSame + job.minutes > FULL_DAY_CAP_MIN) return { ok: false, reason: 'not enough room left in that day' };
+    return { ok: true };
   }
 
   // Day ceiling — 85% of the 8h cap including inter-job hops.
@@ -237,4 +248,28 @@ export function trimDescription(desc: string | null | undefined, max = 90): stri
   if (clean.length <= max) return clean;
   const cut = clean.slice(0, max);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 20))}…`;
+}
+
+// The kept-scope filter lives with the rest of the split logic in
+// shared/split-scope.ts (so the booking engine shares one implementation);
+// re-exported here for the contractor-app call sites that already import it.
+export { activeLineItems } from '../../shared/split-scope';
+
+/** A human label for one priced line (falls back through the naming fields). */
+export function lineItemLabel(l: any): string {
+  return (
+    l?.skuName || l?.skuCustomerDescription || l?.customerDescription ||
+    l?.description || l?.label || 'Task'
+  );
+}
+
+/**
+ * A task list rebuilt from line items — used to describe the KEPT scope of a
+ * split booking, so the contractor never reads deferred ("do later") tasks in
+ * the job description. Returns null for an empty list (caller keeps the
+ * original quote prose).
+ */
+export function lineItemsToDescription(lines: any[]): string | null {
+  const labels = (Array.isArray(lines) ? lines : []).map(lineItemLabel).filter(Boolean);
+  return labels.length ? labels.join(', ') : null;
 }

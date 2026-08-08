@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
 import { contractorAvailabilityDates, handymanAvailability, handymanProfiles, masterAvailability, masterBlockedDates, contractorBookingRequests, personalizedQuotes } from '../shared/schema';
-import { eq, and, gte, lte, sql, inArray, or } from 'drizzle-orm';
+import { eq, and, gte, lte, lt, sql, inArray, or } from 'drizzle-orm';
 import { getTradeForCategory } from '../shared/categories';
 import { findCandidateContractors } from './contractor-matcher';
 import { v4 as uuidv4 } from 'uuid';
 import { requireContractorAuth } from './contractor-auth';
+import { availabilityDayUTC } from './lib/availability-date';
 
 
 
@@ -188,32 +189,21 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
             }
         }
 
-        const targetDate = new Date(date);
-        targetDate.setHours(0, 0, 0, 0); // Normalize
+        const targetDate = availabilityDayUTC(date); // UTC midnight — one instant per calendar day
+        const dayEnd = new Date(targetDate.getTime() + 86400000);
 
-        // Upsert Logic: Check if override exists
-        const existing = await db.select()
-            .from(contractorAvailabilityDates)
-            .where(and(
+        // Replace the whole calendar DAY (delete any row for the day, whatever its
+        // stored time-of-day, then insert one clean row). Same self-healing pattern
+        // as the contractor app + admin editor — clears legacy tz-shifted rows so a
+        // re-save never leaves a duplicate. One override row per day, always.
+        console.log(`[CONTRACTOR_WRITE_DBG] REPLACE cid=${contractorId} date=${targetDate.toISOString()} mode=${mode} isAvail=${finalIsAvailable} ${startTime ?? '—'}-${endTime ?? '—'}`);
+        await db.transaction(async (tx) => {
+            await tx.delete(contractorAvailabilityDates).where(and(
                 eq(contractorAvailabilityDates.contractorId, contractorId),
-                eq(contractorAvailabilityDates.date, targetDate)
-            ))
-            .limit(1);
-
-        if (existing.length > 0) {
-            // Update
-            console.log(`[CONTRACTOR_WRITE_DBG] UPDATE cid=${contractorId} date=${targetDate.toISOString()} mode=${mode} isAvail=${finalIsAvailable} ${startTime ?? '—'}-${endTime ?? '—'} rowId=${existing[0].id}`);
-            await db.update(contractorAvailabilityDates)
-                .set({
-                    isAvailable: finalIsAvailable,
-                    startTime,
-                    endTime
-                })
-                .where(eq(contractorAvailabilityDates.id, existing[0].id));
-        } else {
-            // Insert
-            console.log(`[CONTRACTOR_WRITE_DBG] INSERT cid=${contractorId} date=${targetDate.toISOString()} mode=${mode} isAvail=${finalIsAvailable} ${startTime ?? '—'}-${endTime ?? '—'}`);
-            await db.insert(contractorAvailabilityDates).values({
+                gte(contractorAvailabilityDates.date, targetDate),
+                lt(contractorAvailabilityDates.date, dayEnd),
+            ));
+            await tx.insert(contractorAvailabilityDates).values({
                 id: uuidv4(),
                 contractorId,
                 date: targetDate,
@@ -221,7 +211,7 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
                 startTime,
                 endTime
             });
-        }
+        });
 
         // Update availability freshness timestamp
         try {
@@ -310,31 +300,24 @@ router.post('/dates', requireContractorAuth, async (req: Request, res: Response)
 
         await db.transaction(async (tx) => {
             for (const dateStr of dates) {
-                const date = new Date(dateStr);
+                const date = availabilityDayUTC(dateStr);
+                const dayEnd = new Date(date.getTime() + 86400000);
 
-                // Check existing
-                const existing = await tx.select()
-                    .from(contractorAvailabilityDates)
-                    .where(and(
-                        eq(contractorAvailabilityDates.contractorId, contractorId),
-                        eq(contractorAvailabilityDates.date, date)
-                    ))
-                    .limit(1);
-
-                if (existing.length > 0) {
-                    await tx.update(contractorAvailabilityDates)
-                        .set({ isAvailable, startTime, endTime })
-                        .where(eq(contractorAvailabilityDates.id, existing[0].id));
-                } else {
-                    await tx.insert(contractorAvailabilityDates).values({
-                        id: uuidv4(),
-                        contractorId,
-                        date,
-                        isAvailable,
-                        startTime,
-                        endTime
-                    });
-                }
+                // Replace the whole calendar day (self-healing — clears any legacy
+                // tz-shifted row so a re-save never leaves a duplicate).
+                await tx.delete(contractorAvailabilityDates).where(and(
+                    eq(contractorAvailabilityDates.contractorId, contractorId),
+                    gte(contractorAvailabilityDates.date, date),
+                    lt(contractorAvailabilityDates.date, dayEnd),
+                ));
+                await tx.insert(contractorAvailabilityDates).values({
+                    id: uuidv4(),
+                    contractorId,
+                    date,
+                    isAvailable,
+                    startTime,
+                    endTime
+                });
             }
         });
 
