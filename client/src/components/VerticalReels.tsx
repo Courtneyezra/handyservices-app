@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Play, Volume2, VolumeX } from "lucide-react";
+import { Play, Volume2 } from "lucide-react";
 
 /**
  * Instagram/Reels-style vertical video row — self-hosted, no third-party player.
@@ -54,6 +54,7 @@ function ReelCard({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [nearViewport, setNearViewport] = useState(false);
   const [onScreen, setOnScreen] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const reduce = prefersReducedMotion();
   const soundOn = activeSoundIndex === index;
 
@@ -76,7 +77,7 @@ function ReelCard({
     );
     const vis = new IntersectionObserver(
       (entries) => setOnScreen(entries[0]?.isIntersecting ?? false),
-      { threshold: 0.6 },
+      { threshold: 0.25 },
     );
     near.observe(el);
     vis.observe(el);
@@ -106,17 +107,15 @@ function ReelCard({
     if (v) v.muted = !soundOn;
   }, [soundOn]);
 
-  const toggleSound = () => {
+  // Tap the play button: engage this clip with sound. A user gesture is a valid
+  // reason to both unmute and (re)start playback, so this also recovers a clip
+  // whose muted autoplay was blocked.
+  const playWithSound = () => {
+    onSound(index);
     const v = videoRef.current;
-    if (soundOn) {
-      onSound(null);
-    } else {
-      onSound(index);
-      // A user tap is a valid gesture to start audio playback.
-      if (v) {
-        v.muted = false;
-        v.play().catch(() => {});
-      }
+    if (v) {
+      v.muted = false;
+      v.play().catch(() => {});
     }
   };
 
@@ -132,21 +131,33 @@ function ReelCard({
         muted
         loop
         playsInline
+        autoPlay={!reduce}
         preload={nearViewport ? "auto" : "none"}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
         aria-label={reel.caption ?? "Handy Services video"}
         className="absolute inset-0 h-full w-full object-cover"
       />
 
-      {/* Reduced-motion / not-yet-loaded play affordance. */}
-      {reduce && (
+      {/* Prominent play button — the Wistia-style white circle + triangle. It's
+          shown whenever the clip is muted (i.e. before the visitor engages), so
+          there's always a clear "play" affordance over the moving thumbnail.
+          Tapping it plays WITH SOUND. It also doubles as the manual-start fallback
+          when a browser blocks muted autoplay (iOS Low Power Mode etc.) — in that
+          case the poster is frozen and this is the only way to start the clip. */}
+      {!soundOn && (
         <button
           type="button"
-          onClick={() => videoRef.current?.play()}
-          aria-label="Play video"
-          className="absolute inset-0 flex items-center justify-center bg-slate-900/25"
+          onClick={playWithSound}
+          aria-label="Play with sound"
+          className="group absolute inset-0 flex items-center justify-center"
         >
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/95 shadow-xl">
-            <Play className="ml-1 h-7 w-7 fill-[#1D2D3D] text-[#1D2D3D]" />
+          {/* Only dim when the video isn't moving, so a playing thumbnail stays bright. */}
+          <span
+            className={`absolute inset-0 transition-colors ${playing ? "bg-transparent" : "bg-slate-900/25"}`}
+          />
+          <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-white/95 shadow-xl ring-1 ring-black/5 transition-transform duration-200 group-hover:scale-110 md:h-[72px] md:w-[72px]">
+            <Play className="ml-1 h-7 w-7 fill-[#1D2D3D] text-[#1D2D3D] md:h-8 md:w-8" />
           </span>
         </button>
       )}
@@ -165,15 +176,18 @@ function ReelCard({
         </div>
       )}
 
-      {/* Sound toggle. */}
-      <button
-        type="button"
-        onClick={toggleSound}
-        aria-label={soundOn ? "Mute video" : "Unmute video"}
-        className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:bg-black/70"
-      >
-        {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-      </button>
+      {/* Mute control — only once sound is engaged (the play button handles
+          unmuting). While muted, the play button above is the affordance. */}
+      {soundOn && (
+        <button
+          type="button"
+          onClick={() => onSound(null)}
+          aria-label="Mute video"
+          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:bg-black/70"
+        >
+          <Volume2 className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }
