@@ -13,6 +13,7 @@ import { SegmentSwitcher } from "@/components/SegmentSwitcher";
 import { PropertyManagerView } from "@/components/PropertyManagerView";
 import { BusinessView } from "@/components/BusinessView";
 import { HassleComparisonSection } from "@/components/HassleComparisonSection";
+import { VerticalReels, type Reel } from "@/components/VerticalReels";
 
 import teamMember4 from "@assets/Untitled design (25)_1764599239599.webp";
 import teamMember5 from "@assets/Untitled design (26)_1764599239599.webp";
@@ -347,6 +348,32 @@ function RealJobsSection() {
                         </div>
                     ))}
                 </div>
+            </div>
+        </section>
+    );
+}
+
+// Instagram-style vertical clips. Drop MP4s + posters into
+// client/public/assets/reels/ and list them here. See that folder's README
+// for encoding specs. Section self-hides if the list is empty.
+const REELS: Reel[] = [
+    { src: "/assets/reels/flooring.mp4", poster: "/assets/reels/flooring.webp", caption: "Flooring fitted right, first time" },
+    { src: "/assets/reels/plastering.mp4", poster: "/assets/reels/plastering.webp", caption: "Fresh plaster, smooth finish" },
+    { src: "/assets/reels/on-site.mp4", poster: "/assets/reels/on-site.webp", caption: "On the job across Nottingham" },
+];
+
+function VideoReelsSection() {
+    if (!REELS.length) return null;
+    return (
+        <section className="bg-slate-900 px-4 lg:px-8 py-16 lg:py-24">
+            <div className="max-w-7xl mx-auto">
+                <div className="text-center mb-12 lg:mb-16">
+                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
+                        See the work in motion
+                    </h2>
+                    <p className="text-white/60 text-lg">Real Nottingham jobs, filmed on the day. Tap for sound.</p>
+                </div>
+                <VerticalReels reels={REELS} />
             </div>
         </section>
     );
@@ -836,6 +863,7 @@ export default function HandymanLanding({
                 {activeSegment === 'residential' && (
                     <>
                         <TeamSection />
+                        <VideoReelsSection />
                         <PainPointsSection />
                         <EmergencyServiceSection />
                         <ProcessSection />
