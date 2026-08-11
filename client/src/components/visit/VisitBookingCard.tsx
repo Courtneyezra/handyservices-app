@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Elements } from "@stripe/react-stripe-js";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { PaymentForm } from "@/components/PaymentForm";
+import { ExpressWalletPay } from "@/components/ExpressWalletPay";
 import { VisitDatePicker, type VisitBookingSelection } from "@/components/VisitDatePicker";
 import { reserveSlot, formatDateStr } from "@/hooks/useAvailability";
 import { VISIT_SET_DATE_PREMIUM_PENCE, VISIT_FLEX_WINDOW_DAYS as FLEX_WINDOW_DAYS } from "@/lib/visit-pricing";
@@ -16,6 +17,16 @@ interface VisitBookingCardProps {
     quote: any;
     /** Which lane to open on first render (seeded by the offer interstitial). */
     initialLane?: Lane;
+    /**
+     * Override the base fee (pence) shown + charged. Used by the survey-gated
+     * contextual flow, where the fee is the dedicated survey fee — NOT the
+     * quote's basePrice (which there is the job estimate). The SERVER re-derives
+     * authoritatively from quote.surveyFeePence; this only keeps the display in
+     * step. Omit for the diagnostic-visit page, which fees off basePrice.
+     */
+    feePenceOverride?: number;
+    /** Copy for the credited-fee value pair (defaults to the diagnostic-visit wording). */
+    creditNote?: string;
     onPaymentSuccess: (paymentIntentId: string, lane: Lane, sel?: VisitBookingSelection) => void;
 }
 
@@ -29,8 +40,8 @@ interface VisitBookingCardProps {
  *  • Exact     → base fee + a small set-date premium for a locked morning/
  *                afternoon. Soft-holds the slot, then the webhook promotes it.
  */
-export function VisitBookingCard({ quote, initialLane = "flex", onPaymentSuccess }: VisitBookingCardProps) {
-    const baseFeePence = quote?.basePrice || 0;
+export function VisitBookingCard({ quote, initialLane = "flex", feePenceOverride, creditNote, onPaymentSuccess }: VisitBookingCardProps) {
+    const baseFeePence = feePenceOverride ?? (quote?.basePrice || 0);
     const baseFee = Math.round(baseFeePence / 100);
     const datePremium = Math.round(VISIT_SET_DATE_PREMIUM_PENCE / 100);
 
@@ -42,6 +53,28 @@ export function VisitBookingCard({ quote, initialLane = "flex", onPaymentSuccess
     const [lockId, setLockId] = useState<number | undefined>();
     const [isReserving, setIsReserving] = useState(false);
     const [reserveError, setReserveError] = useState<string | null>(null);
+    // Wallet (Apple/Google Pay) — availability drives the "Or pay by card" divider.
+    const [walletAvailable, setWalletAvailable] = useState(false);
+    const [payError, setPayError] = useState<string | null>(null);
+
+    // Create the visit PaymentIntent server-side (server re-derives the real
+    // charge). Shared by both wallet lanes; the server enables Apple/Google Pay
+    // via automatic_payment_methods.
+    const createVisitIntent = async (body: Record<string, unknown>): Promise<{ clientSecret: string; paymentIntentId?: string }> => {
+        const res = await fetch('/api/create-visit-payment-intent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({}));
+            throw new Error(e.message || 'Could not start payment');
+        }
+        const data = await res.json();
+        return { clientSecret: data.clientSecret, paymentIntentId: data.paymentIntentId };
+    };
+
+    const walletReturnUrl = typeof window !== 'undefined' ? `${window.location.origin}/booking-confirmed/${quote?.id}` : '';
 
     const switchLane = (next: Lane) => {
         setLane(next);
@@ -88,7 +121,7 @@ export function VisitBookingCard({ quote, initialLane = "flex", onPaymentSuccess
                         <Check className="w-3.5 h-3.5" strokeWidth={3} /> 100% credited
                     </div>
                     <div className="text-slate-300 text-sm leading-snug max-w-[10rem]">
-                        Comes straight off your final job
+                        {creditNote ?? "Comes straight off your final job"}
                     </div>
                 </div>
             </div>
@@ -151,20 +184,49 @@ export function VisitBookingCard({ quote, initialLane = "flex", onPaymentSuccess
                         className="space-y-4"
                     >
                         {stripeReady ? (
-                            <Elements stripe={getStripe()}>
-                                <PaymentForm
-                                    amount={baseFeePence}
-                                    customerName={quote.customerName}
+                            <>
+                                <ExpressWalletPay
+                                    amountPence={baseFeePence}
                                     customerEmail={quote.email || undefined}
-                                    quoteId={quote.id}
-                                    selectedTier="standard"
-                                    selectedTierPrice={baseFeePence}
-                                    mode="visit"
-                                    pricingLane="flex"
-                                    flexBookingWithinDays={FLEX_WINDOW_DAYS}
-                                    onSuccess={(pi) => { onPaymentSuccess(pi, "flex"); return Promise.resolve(); }}
+                                    returnUrl={walletReturnUrl}
+                                    createIntent={(walletEmail) => createVisitIntent({
+                                        customerName: quote.customerName,
+                                        customerEmail: walletEmail,
+                                        quoteId: quote.id,
+                                        tierId: "standard",
+                                        pricingLane: "flex",
+                                        flexBookingWithinDays: FLEX_WINDOW_DAYS,
+                                    })}
+                                    onSuccess={(pi) => onPaymentSuccess(pi, "flex")}
+                                    onError={setPayError}
+                                    onAvailability={setWalletAvailable}
                                 />
-                            </Elements>
+                                {walletAvailable && (
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex-1 h-px bg-slate-700" />
+                                        <span className="text-xs text-slate-400">Or pay by card</span>
+                                        <div className="flex-1 h-px bg-slate-700" />
+                                    </div>
+                                )}
+                                {payError && (
+                                    <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-sm text-red-300">{payError}</div>
+                                )}
+                                <Elements stripe={getStripe()}>
+                                    <PaymentForm
+                                        amount={baseFeePence}
+                                        customerName={quote.customerName}
+                                        customerEmail={quote.email || undefined}
+                                        quoteId={quote.id}
+                                        selectedTier="standard"
+                                        selectedTierPrice={baseFeePence}
+                                        mode="visit"
+                                        pricingLane="flex"
+                                        flexBookingWithinDays={FLEX_WINDOW_DAYS}
+                                        hideExpressCheckout
+                                        onSuccess={(pi) => { onPaymentSuccess(pi, "flex"); return Promise.resolve(); }}
+                                    />
+                                </Elements>
+                            </>
                         ) : (
                             <StripeMissing />
                         )}
@@ -179,6 +241,7 @@ export function VisitBookingCard({ quote, initialLane = "flex", onPaymentSuccess
                     >
                         <VisitDatePicker
                             selected={visitSel}
+                            quoteId={quote.id}
                             postcode={quote.postcode || undefined}
                             onSelect={handleVisitSelect}
                         />
@@ -200,25 +263,55 @@ export function VisitBookingCard({ quote, initialLane = "flex", onPaymentSuccess
                                     <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                                     <p className="text-sm text-emerald-200">
                                         Holding <strong>{format(visitSel.date, "EEE, MMM d")}</strong>,{" "}
-                                        {visitSel.slot === "am" ? "Morning (8am – 12pm)" : "Afternoon (12pm – 5pm)"}
+                                        {visitSel.slot === "am" ? "Morning (8am – 1pm)" : "Afternoon (1pm – 6pm)"}
                                     </p>
                                 </div>
                                 {stripeReady ? (
-                                    <Elements stripe={getStripe()}>
-                                        <PaymentForm
-                                            amount={baseFeePence + VISIT_SET_DATE_PREMIUM_PENCE}
-                                            customerName={quote.customerName}
+                                    <>
+                                        <ExpressWalletPay
+                                            amountPence={baseFeePence + VISIT_SET_DATE_PREMIUM_PENCE}
                                             customerEmail={quote.email || undefined}
-                                            quoteId={quote.id}
-                                            selectedTier="standard"
-                                            selectedTierPrice={baseFeePence + VISIT_SET_DATE_PREMIUM_PENCE}
-                                            mode="visit"
-                                            slot={{ date: `${formatDateStr(visitSel.date)}T12:00:00.000Z`, slot: visitSel.slot }}
-                                            lockId={lockId}
-                                            pricingLane="date_time"
-                                            onSuccess={(pi) => { onPaymentSuccess(pi, "date", visitSel); return Promise.resolve(); }}
+                                            returnUrl={walletReturnUrl}
+                                            createIntent={(walletEmail) => createVisitIntent({
+                                                customerName: quote.customerName,
+                                                customerEmail: walletEmail,
+                                                quoteId: quote.id,
+                                                tierId: "standard",
+                                                slot: { date: `${formatDateStr(visitSel.date)}T12:00:00.000Z`, slot: visitSel.slot },
+                                                lockId,
+                                                pricingLane: "date_time",
+                                            })}
+                                            onSuccess={(pi) => onPaymentSuccess(pi, "date", visitSel)}
+                                            onError={setPayError}
+                                            onAvailability={setWalletAvailable}
                                         />
-                                    </Elements>
+                                        {walletAvailable && (
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex-1 h-px bg-slate-700" />
+                                                <span className="text-xs text-slate-400">Or pay by card</span>
+                                                <div className="flex-1 h-px bg-slate-700" />
+                                            </div>
+                                        )}
+                                        {payError && (
+                                            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-sm text-red-300">{payError}</div>
+                                        )}
+                                        <Elements stripe={getStripe()}>
+                                            <PaymentForm
+                                                amount={baseFeePence + VISIT_SET_DATE_PREMIUM_PENCE}
+                                                customerName={quote.customerName}
+                                                customerEmail={quote.email || undefined}
+                                                quoteId={quote.id}
+                                                selectedTier="standard"
+                                                selectedTierPrice={baseFeePence + VISIT_SET_DATE_PREMIUM_PENCE}
+                                                mode="visit"
+                                                slot={{ date: `${formatDateStr(visitSel.date)}T12:00:00.000Z`, slot: visitSel.slot }}
+                                                lockId={lockId}
+                                                pricingLane="date_time"
+                                                hideExpressCheckout
+                                                onSuccess={(pi) => { onPaymentSuccess(pi, "date", visitSel); return Promise.resolve(); }}
+                                            />
+                                        </Elements>
+                                    </>
                                 ) : (
                                     <StripeMissing />
                                 )}

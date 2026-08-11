@@ -16,6 +16,8 @@ import {
 import { eq, and, gte, lte, or, inArray } from 'drizzle-orm';
 import { toZonedTime, format as formatTz } from 'date-fns-tz';
 import { addDays, getDay, startOfDay, startOfMonth, endOfMonth, parseISO, isBefore } from 'date-fns';
+import { ukToday, addDaysStr, ukDayStartUTC } from '../shared/uk-time';
+import { expandSpanDates, computeRequiredDays, collectSpanDates } from '../shared/schedule-composition';
 import { notifyWebformLead } from './pushover';
 
 const UK_TIMEZONE = 'Europe/London';
@@ -920,7 +922,21 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
         const categoriesParam = req.query.categories as string;
         const timeEstimate = parseInt(req.query.timeEstimateMinutes as string) || 0;
         const daysAhead = Math.min(parseInt(req.query.days as string) || 14, 30);
-        const requireFullDay = timeEstimate > 240;
+
+        // Job shape — mirror reserveSlot's maths exactly, so the calendar never
+        // offers a day/slot the engine would reject at payment:
+        //   requiredDays = ceil(minutes / 480)   (multi-day when > 1)
+        //   perDayWork   = minutes spread across the span
+        //   slot fit     = perDayWork + travel ≤ slot capacity (am/pm 240, full 480)
+        // Travel is a modest flat allowance here (the engine uses real routed
+        // minutes, typically ~15–25): generous enough not to hide bookable days,
+        // honest enough not to offer a day the engine will bounce.
+        const CAL_TRAVEL_ALLOWANCE_MIN = 20;
+        const requiredDays = computeRequiredDays(timeEstimate);
+        const perDayWork = requiredDays > 0 ? Math.ceil(timeEstimate / requiredDays) : timeEstimate;
+        const fitsHalfSlot = perDayWork + CAL_TRAVEL_ALLOWANCE_MIN <= 240;
+        const fitsFullDay = perDayWork + CAL_TRAVEL_ALLOWANCE_MIN <= 480;
+        const requireFullDay = !fitsHalfSlot; // too big for a 4h arrival window
 
         if (!categoriesParam) {
             return res.status(400).json({ error: 'categories parameter required' });
@@ -957,92 +973,202 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
             .filter(([_, matchedCategories]) => matchedCategories.size === categories.length)
             .map(([id]) => id);
 
-        // Filter out stale contractors
-        const freshContractors: string[] = [];
-        for (const cId of contractorIds) {
-            const profile = await db.select({
+        // PRIORITY CONTRACTOR = MATCH-ALL. The vertical's top committed skin
+        // (Craig for handyman) is always an eligible provider — skinning with him
+        // presumes capability, so a multi-trade or miscategorised job must never
+        // produce an empty calendar just because no single skills row covers it.
+        // Mirrors the same rule in lib/quote-fit.ts (team composition).
+        try {
+            const { fetchPriorityContractor } = await import('./lib/quote-fit');
+            const priority = await fetchPriorityContractor((req.query.vertical as string) || 'handyman');
+            if (priority && !contractorIds.includes(priority.id)) contractorIds.push(priority.id);
+        } catch (e) {
+            console.warn('[PublicAPI] priority-contractor injection failed:', e instanceof Error ? e.message : e);
+        }
+
+        // Filter out stale contractors (one bulk query)
+        const profileRows = contractorIds.length
+            ? await db.select({
                 id: handymanProfiles.id,
                 lastAvailabilityRefresh: handymanProfiles.lastAvailabilityRefresh,
             })
                 .from(handymanProfiles)
-                .where(eq(handymanProfiles.id, cId))
-                .limit(1);
+                .where(inArray(handymanProfiles.id, contractorIds))
+            : [];
+        // Include if refreshed within 7 days, or never refreshed (new contractor, benefit of doubt)
+        const freshContractors = profileRows
+            .filter((p) => !p.lastAvailabilityRefresh || p.lastAvailabilityRefresh > sevenDaysAgo)
+            .map((p) => p.id);
 
-            if (profile.length > 0) {
-                const lastRefresh = profile[0].lastAvailabilityRefresh;
-                // Include if refreshed within 7 days, or if never refreshed (new contractor, give benefit of doubt)
-                if (!lastRefresh || lastRefresh > sevenDaysAgo) {
-                    freshContractors.push(cId);
-                }
+        // 2. Bulk-load the window's truth: overrides + patterns + master blocks +
+        // REAL BOOKINGS. Days are UK-anchored (the business day, not server-local),
+        // and existing bookings subtract capacity — the calendar must never offer a
+        // day/slot the booking engine would reject at payment (dead checkout).
+        const todayUk = ukToday();
+        const windowStartUTC = ukDayStartUTC(todayUk);
+        // +14 lookahead beyond the visible window: a multi-day span STARTING on
+        // the last visible day still needs open days after it to be offerable.
+        const spanLookaheadDays = requiredDays > 1 ? 14 : 0;
+        const windowEndUTC = ukDayStartUTC(addDaysStr(todayUk, daysAhead + 1 + spanLookaheadDays));
+        // Multi-day spans STARTING before the window can still occupy days inside it.
+        const bookingLookbackUTC = ukDayStartUTC(addDaysStr(todayUk, -14));
+
+        const [overrideRows, patternRows, blockedRows, bookingRows] = freshContractors.length
+            ? await Promise.all([
+                db.select({
+                    contractorId: contractorAvailabilityDates.contractorId,
+                    date: contractorAvailabilityDates.date,
+                    isAvailable: contractorAvailabilityDates.isAvailable,
+                    startTime: contractorAvailabilityDates.startTime,
+                    endTime: contractorAvailabilityDates.endTime,
+                })
+                    .from(contractorAvailabilityDates)
+                    .where(and(
+                        inArray(contractorAvailabilityDates.contractorId, freshContractors),
+                        gte(contractorAvailabilityDates.date, windowStartUTC),
+                        lte(contractorAvailabilityDates.date, windowEndUTC),
+                    )),
+                db.select({
+                    handymanId: handymanAvailability.handymanId,
+                    dayOfWeek: handymanAvailability.dayOfWeek,
+                    startTime: handymanAvailability.startTime,
+                    endTime: handymanAvailability.endTime,
+                })
+                    .from(handymanAvailability)
+                    .where(and(
+                        inArray(handymanAvailability.handymanId, freshContractors),
+                        eq(handymanAvailability.isActive, true),
+                    )),
+                db.select({ date: masterBlockedDates.date }).from(masterBlockedDates),
+                db.select({
+                    contractorId: contractorBookingRequests.contractorId,
+                    assignedContractorId: contractorBookingRequests.assignedContractorId,
+                    scheduledDate: contractorBookingRequests.scheduledDate,
+                    scheduledSlot: contractorBookingRequests.scheduledSlot,
+                    durationDays: contractorBookingRequests.durationDays,
+                    scheduledDates: contractorBookingRequests.scheduledDates,
+                })
+                    .from(contractorBookingRequests)
+                    .where(and(
+                        or(
+                            inArray(contractorBookingRequests.contractorId, freshContractors),
+                            inArray(contractorBookingRequests.assignedContractorId, freshContractors),
+                        ),
+                        gte(contractorBookingRequests.scheduledDate, bookingLookbackUTC),
+                        lte(contractorBookingRequests.scheduledDate, windowEndUTC),
+                        eq(contractorBookingRequests.status, 'accepted'),
+                    )),
+            ])
+            : [[], [], [], []];
+
+        // Index by UK-day string. Overrides are stored at UTC midnight (pure days).
+        const overrideByKey = new Map<string, { isAvailable: boolean; startTime: string | null; endTime: string | null }>();
+        for (const o of overrideRows) {
+            const day = new Date(o.date as any).toISOString().slice(0, 10);
+            overrideByKey.set(`${o.contractorId}|${day}`, { isAvailable: !!o.isAvailable, startTime: o.startTime, endTime: o.endTime });
+        }
+        const patternByKey = new Map<string, { startTime: string | null; endTime: string | null }>();
+        for (const p of patternRows) {
+            patternByKey.set(`${p.handymanId}|${p.dayOfWeek}`, { startTime: p.startTime, endTime: p.endTime });
+        }
+        const blockedDays = new Set(blockedRows.map((b) => String(b.date).slice(0, 10)));
+
+        // Booked occupancy per contractor per day (span-expanded — day 2 of a
+        // multi-day booking blocks that day too). Same conflict semantics as
+        // reserveSlot: full_day owns the day; am/pm own their slot.
+        const occupancy = new Map<string, { am: boolean; pm: boolean; full: boolean }>();
+        const freshSet = new Set(freshContractors);
+        for (const b of bookingRows) {
+            const who = b.assignedContractorId ?? b.contractorId;
+            if (!who || !freshSet.has(who) || !b.scheduledDate) continue;
+            const dur = b.durationDays ?? 1;
+            const slot = dur > 1 ? 'full_day' : (b.scheduledSlot ?? 'full_day');
+            for (const day of expandSpanDates(b.scheduledDate as any, dur, b.scheduledDates)) {
+                const key = `${who}|${day}`;
+                const occ = occupancy.get(key) ?? { am: false, pm: false, full: false };
+                if (slot === 'full_day') occ.full = true;
+                else if (slot === 'am') occ.am = true;
+                else if (slot === 'pm') occ.pm = true;
+                occupancy.set(key, occ);
             }
         }
 
-        // 2. Check availability for each date in the window
-        const results: FilteredDateAvailability[] = [];
-        const today = startOfDay(new Date());
+        // 3a. Precompute each contractor's free halves per day over the EXTENDED
+        // window: (override || pattern) MINUS booked occupancy. Multi-day spans
+        // walk this map beyond the visible window.
+        const openHalves = new Map<string, { am: boolean; pm: boolean }>(); // `${cid}|${day}`
+        for (let i = 1; i <= daysAhead + spanLookaheadDays; i++) {
+            const dateStr = addDaysStr(todayUk, i);
+            if (blockedDays.has(dateStr)) continue; // master-blocked → nobody works
+            const dayOfWeek = new Date(`${dateStr}T12:00:00.000Z`).getUTCDay();
+            for (const contractorId of freshContractors) {
+                const base = overrideByKey.get(`${contractorId}|${dateStr}`)
+                    ?? (patternByKey.has(`${contractorId}|${dayOfWeek}`)
+                        ? { isAvailable: true, ...patternByKey.get(`${contractorId}|${dayOfWeek}`)! }
+                        : null);
+                if (!base || !base.isAvailable) continue;
 
+                let am = _coversSlot(base.startTime ?? null, base.endTime ?? null, 'am');
+                let pm = _coversSlot(base.startTime ?? null, base.endTime ?? null, 'pm');
+
+                // Subtract real bookings — never offer what reserveSlot would reject.
+                const occ = occupancy.get(`${contractorId}|${dateStr}`);
+                if (occ?.full) continue; // a full-day booking owns this contractor's day
+                if (occ?.am) am = false;
+                if (occ?.pm) pm = false;
+
+                if (am || pm) openHalves.set(`${contractorId}|${dateStr}`, { am, pm });
+            }
+        }
+        const fullyOpen = (cid: string, day: string) => {
+            const h = openHalves.get(`${cid}|${day}`);
+            return !!h && h.am && h.pm;
+        };
+
+        // 3b. Resolve each visible day — capacity-aware, not just slot-aware:
+        // a slot is offered only when THIS job's per-day minutes (+travel) fit it,
+        // and a multi-day job is offered only on days that START a viable span of
+        // fully-open days (same collectSpanDates rule reserveSlot locks with).
+        const results: FilteredDateAvailability[] = [];
         for (let i = 1; i <= daysAhead; i++) {
-            const checkDate = addDays(today, i);
-            const dateStr = checkDate.toISOString().split('T')[0];
-            const dayOfWeek = getDay(checkDate);
+            const dateStr = addDaysStr(todayUk, i);
+            if (blockedDays.has(dateStr)) continue;
+            const dayOfWeek = new Date(`${dateStr}T12:00:00.000Z`).getUTCDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-            const slotsAvailable = new Set<'am' | 'pm'>();
+            const slots: ('am' | 'pm' | 'full')[] = [];
             let availableContractorCount = 0;
 
-            for (let ci = 0; ci < freshContractors.length; ci++) {
-            const contractorId = freshContractors[ci];
-                // Check date-specific override first
-                const override = await db.select()
-                    .from(contractorAvailabilityDates)
-                    .where(and(
-                        eq(contractorAvailabilityDates.contractorId, contractorId),
-                        eq(contractorAvailabilityDates.date, checkDate)
-                    ))
-                    .limit(1);
-
-                if (override.length > 0) {
-                    const o = override[0];
-                    if (o.isAvailable) {
+            if (requiredDays > 1) {
+                // Multi-day: the customer picks a START day; the engine then spans
+                // the next N open days. Offer only starts whose span completes.
+                for (const contractorId of freshContractors) {
+                    if (collectSpanDates(dateStr, requiredDays, (ds) => fullyOpen(contractorId, ds))) {
                         availableContractorCount++;
-                        if (_coversSlot(o.startTime, o.endTime, 'am')) slotsAvailable.add('am');
-                        if (_coversSlot(o.startTime, o.endTime, 'pm')) slotsAvailable.add('pm');
                     }
-                    continue; // Override takes precedence
                 }
-
-                // Fall back to weekly pattern
-                const pattern = await db.select()
-                    .from(handymanAvailability)
-                    .where(and(
-                        eq(handymanAvailability.handymanId, contractorId),
-                        eq(handymanAvailability.dayOfWeek, dayOfWeek),
-                        eq(handymanAvailability.isActive, true)
-                    ))
-                    .limit(1);
-
-                if (pattern.length > 0) {
+                if (availableContractorCount > 0) slots.push('full');
+            } else {
+                let hasAm = false;
+                let hasPm = false;
+                let hasFull = false; // ONE contractor with both halves free (a true full day)
+                for (const contractorId of freshContractors) {
+                    const h = openHalves.get(`${contractorId}|${dateStr}`);
+                    if (!h) continue;
                     availableContractorCount++;
-                    if (_coversSlot(pattern[0].startTime, pattern[0].endTime, 'am')) slotsAvailable.add('am');
-                    if (_coversSlot(pattern[0].startTime, pattern[0].endTime, 'pm')) slotsAvailable.add('pm');
+                    if (h.am) hasAm = true;
+                    if (h.pm) hasPm = true;
+                    if (h.am && h.pm) hasFull = true;
+                }
+                // Gate each slot by whether the JOB fits it (work + travel ≤ cap).
+                if (hasFull && fitsFullDay) {
+                    slots.push('full');
+                    if (fitsHalfSlot) slots.push('am', 'pm');
+                } else if (!requireFullDay && fitsHalfSlot) {
+                    if (hasAm) slots.push('am');
+                    if (hasPm) slots.push('pm');
                 }
             }
-
-            // Build slots array
-            const slots: ('am' | 'pm' | 'full')[] = [];
-            const hasAm = slotsAvailable.has('am');
-            const hasPm = slotsAvailable.has('pm');
-
-            if (hasAm && hasPm) {
-                slots.push('full');
-                if (!requireFullDay) {
-                    slots.push('am', 'pm');
-                }
-            } else if (!requireFullDay) {
-                if (hasAm) slots.push('am');
-                if (hasPm) slots.push('pm');
-            }
-            // If requireFullDay and no 'full', skip this date
 
             if (slots.length > 0) {
                 results.push({

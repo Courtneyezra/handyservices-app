@@ -18,7 +18,7 @@
  * If you change this function, customer-facing dates and admin fit
  * panel both move together. That's the point.
  */
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and } from 'drizzle-orm';
 import { findCandidateContractors } from '../contractor-matcher';
 import { db } from '../db';
 import { handymanProfiles, handymanSkills } from '../../shared/schema';
@@ -54,6 +54,30 @@ async function fetchContractorTiers(
     map.set(r.id, { tier: (r.tier as DeliveryTier) ?? 'adhoc', priority: r.priority ?? null });
   }
   return map;
+}
+
+/**
+ * The PRIORITY contractor for a vertical — the top-ranked committed skin
+ * (Craig-first for handyman, Sofia-first for cleaning). This contractor is
+ * "match-all": skinning with them presumes capability, so they cover EVERY
+ * required category regardless of the skills table. Skills only surface/rank the
+ * OTHER skins. Returns null if the vertical has no committed contractor.
+ */
+export async function fetchPriorityContractor(
+  vertical: string | undefined,
+): Promise<{ id: string; tier: DeliveryTier; priority: number | null } | null> {
+  const rows = await db
+    .select({ id: handymanProfiles.id, tier: handymanProfiles.deliveryTier, priority: handymanProfiles.deliveryPriority })
+    .from(handymanProfiles)
+    .where(and(
+      eq(handymanProfiles.vertical, vertical ?? 'handyman'),
+      inArray(handymanProfiles.deliveryTier, ['partner', 'core']),
+      eq(handymanProfiles.verificationStatus, 'verified'),
+    ))
+    .orderBy(handymanProfiles.deliveryPriority)
+    .limit(1);
+  const r = rows[0];
+  return r ? { id: r.id, tier: (r.tier as DeliveryTier) ?? 'core', priority: r.priority ?? null } : null;
 }
 
 export interface QuoteFitInput {
@@ -163,6 +187,27 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
     } catch (e) {
       console.warn('[QuoteFit] forced-lead injection failed:', e instanceof Error ? e.message : e);
     }
+  }
+
+  // PRIORITY CONTRACTOR = MATCH-ALL. The vertical's top committed skin (Craig for
+  // handyman) covers EVERY required category regardless of the skills table —
+  // skinning with them presumes capability; skills only rank the OTHER skins.
+  // This makes the auto lead default to the priority contractor and stops
+  // multi-trade / miscategorised jobs going unassigned (no_supply) or to a
+  // skill-mismatched or wrong-vertical contractor. A forced lead (Ben's manual
+  // pick) still wins over this inside resolveQuoteTeam.
+  try {
+    const priority = await fetchPriorityContractor(input.vertical);
+    if (priority) {
+      const idx = teamCandidates.findIndex((c) => c.contractorId === priority.id);
+      if (idx >= 0) {
+        teamCandidates[idx] = { ...teamCandidates[idx], coveredCategories: [...input.categorySlugs] };
+      } else {
+        teamCandidates.push({ contractorId: priority.id, tier: priority.tier, priority: priority.priority, coveredCategories: [...input.categorySlugs] });
+      }
+    }
+  } catch (e) {
+    console.warn('[QuoteFit] priority-contractor injection failed:', e instanceof Error ? e.message : e);
   }
 
   const fit = deriveTeamFit(input.categorySlugs, teamCandidates, { forcedLeadId });

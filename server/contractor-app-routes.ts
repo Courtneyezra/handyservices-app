@@ -371,6 +371,9 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
   });
 
   const bookedOut = booked
+    // Completed work belongs in history ("See earlier jobs"), never in the
+    // upcoming/next-job list — even if its date is still today or future.
+    .filter((b) => b.status !== 'completed' && b.assignmentStatus !== 'completed')
     // Keep a job listed until its LAST actual span day has passed.
     .filter((b) => {
       const span = expandSpanDates(b.scheduledDate as any, b.durationDays ?? 1, b.scheduledDates);

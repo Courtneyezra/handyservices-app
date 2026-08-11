@@ -37,7 +37,7 @@ import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../m
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
-import { uploadQuotePhotoToS3, isS3Configured } from '../s3-media';
+import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, isS3Configured } from '../s3-media';
 import { geocodePostcode } from '../lib/geocode';
 import type {
   PricingContext,
@@ -125,6 +125,65 @@ router.post('/api/pricing/quote-photos', quotePhotoUpload.array('files', 10), as
   } catch (error) {
     console.error('[QuotePhotos] Upload failed:', error);
     res.status(500).json({ error: 'Photo upload failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/quote-videos
+// Customer-supplied job videos (WhatsApp/SMS clips), uploaded by the admin/VA
+// while building a contextual quote. Same S3-or-local store as quote-photos,
+// but no image compression and a video-sized limit. Shown on the quote page.
+// ---------------------------------------------------------------------------
+
+const quoteVideoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024, files: 5 }, // 200MB per video, max 5
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) cb(null, true);
+    else cb(new Error('Only video files are allowed'));
+  },
+});
+
+router.post('/api/pricing/quote-videos', quoteVideoUpload.array('files', 5), async (req, res) => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    // Local-disk store (dev fallback) — served via the /uploads static mount
+    const saveLocal = async (buffer: Buffer, ext: string): Promise<string> => {
+      const uploadDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const filename = `quote-video-${nanoid()}${ext}`;
+      await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
+      return `/uploads/${filename}`;
+    };
+
+    const urls: string[] = [];
+    for (const file of files) {
+      // Videos are stored as-is (no transcode) — the quote page plays them in a
+      // native <video> element.
+      const ext = path.extname(file.originalname) || '.mp4';
+      if (isS3Configured()) {
+        try {
+          urls.push(await uploadQuoteVideoToS3(file.buffer, file.mimetype));
+        } catch (s3Error) {
+          // Stale/invalid AWS creds shouldn't block quote building — keep the
+          // video locally and carry on (fine in dev; prod creds are valid).
+          console.warn('[QuoteVideos] S3 upload failed, falling back to local disk:', s3Error instanceof Error ? s3Error.message : s3Error);
+          urls.push(await saveLocal(file.buffer, ext));
+        }
+      } else {
+        urls.push(await saveLocal(file.buffer, ext));
+      }
+    }
+
+    console.log(`[QuoteVideos] Uploaded ${urls.length} video(s)`);
+    res.json({ success: true, urls });
+  } catch (error) {
+    console.error('[QuoteVideos] Upload failed:', error);
+    res.status(500).json({ error: 'Video upload failed' });
   }
 });
 
@@ -605,6 +664,101 @@ Return ONLY a JSON array of strings. No quotes around the array, no labels, no p
     console.error('[pricing/draft-line-detail] Error:', error?.message || error);
     // Non-blocking — frontend leaves the field empty
     return res.json({ detail: '', steps: [] });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/draft-line-assumptions
+// Draft customer-facing ASSUMPTIONS for a single quote line — the caveats the
+// fixed price is based on (e.g. "existing pipework is sound"). Same lightweight
+// LLM + parse pipeline as draft-line-detail, different prompt. Non-blocking.
+// ---------------------------------------------------------------------------
+
+router.post('/api/pricing/draft-line-assumptions', async (req, res) => {
+  try {
+    const { lineDescription, originalDescription, category, vaContext } = req.body as {
+      lineDescription?: string;
+      originalDescription?: string;
+      category?: string;
+      vaContext?: string;
+    };
+
+    if (!lineDescription || typeof lineDescription !== 'string' || !lineDescription.trim()) {
+      return res.status(400).json({ error: 'lineDescription is required' });
+    }
+    const trimmed = lineDescription.trim();
+
+    const claude = getAnthropic();
+    const userPayloadParts: string[] = [`Line title: ${trimmed}`];
+    if (originalDescription && typeof originalDescription === 'string' && originalDescription.trim() && originalDescription.trim() !== trimmed) {
+      userPayloadParts.push(`Admin's raw input (scope source of truth): ${originalDescription.trim().slice(0, 400)}`);
+    }
+    if (category && typeof category === 'string' && category.trim()) {
+      userPayloadParts.push(`Category: ${category.trim()}`);
+    }
+    if (vaContext && typeof vaContext === 'string' && vaContext.trim()) {
+      userPayloadParts.push(`Context: ${vaContext.trim().slice(0, 600)}`);
+    }
+
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 260,
+      temperature: 0.2,
+      system: `You draft customer-facing ASSUMPTIONS for a single line on a UK handyman quote.
+
+An assumption is a caveat the FIXED PRICE depends on — the condition we're expecting to find on the day. Its job is to protect the trader: if reality differs (hidden damage, no access, unsound substrate), there's a documented basis to re-price. Write 2-4 assumptions specific to THIS line's trade/scope.
+
+Think: "what would make this job cost more than quoted, that we can't see from photos/description?" Common shapes:
+- Existing installations are sound / serviceable (pipework, wiring, fixings, frames).
+- The hidden substrate is in good condition (wall behind tiles, subfloor, timber).
+- No hidden hazards or damage (damp, rot, asbestos, corrosion).
+- Access / conditions we need are in place.
+
+Rules:
+- 2-4 items. Each a single plain-English sentence, ~6-16 words.
+- Frame as a stated expectation, e.g. "Existing pipework is accessible and in serviceable condition."
+- Matter-of-fact, not alarming. No hype, no emoji, no exclamation marks.
+- UK English spelling.
+- Generic to the category — no customer names, brands, rooms, or colours.
+- Do NOT restate the line title. Do NOT describe the work (that's scope steps, not assumptions).
+
+Examples:
+Line title: "Re-plaster hallway wall"
+["Existing plaster and substrate are sound and suitable to skim over.", "No hidden damp or structural movement behind the wall.", "Finished to a smooth base ready for your own decoration."]
+
+Line title: "Replace mixer tap"
+["Existing pipework and isolation valves are accessible and serviceable.", "No hidden leaks or corrosion behind the existing fittings."]
+
+Return ONLY a JSON array of strings. No labels, no preamble, no code fences.`,
+      messages: [{ role: 'user', content: userPayloadParts.join('\n') }],
+    });
+
+    const textBlock = message.content.find((b: any) => b.type === 'text');
+    const raw = textBlock?.text || '';
+    const unfenced = raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(unfenced);
+    } catch {
+      const match = unfenced.match(/\[[\s\S]*\]/);
+      parsed = match ? (() => { try { return JSON.parse(match[0]); } catch { return null; } })() : null;
+    }
+
+    if (!Array.isArray(parsed)) {
+      return res.json({ assumptions: [] });
+    }
+
+    const assumptions = parsed
+      .filter((s): s is string => typeof s === 'string')
+      .map((s) => s.trim().replace(/!+/g, '.').replace(/\s+\./g, '.').slice(0, 200).trim())
+      .filter((s) => s.length > 0)
+      .slice(0, 4);
+
+    return res.json({ assumptions });
+  } catch (error: any) {
+    console.error('[pricing/draft-line-assumptions] Error:', error?.message || error);
+    return res.json({ assumptions: [] });
   }
 });
 
@@ -1404,6 +1558,8 @@ const contextualQuoteInputSchema = z.object({
         details: z.string().optional().nullable(),
         /** Admin-provided "Head — detail" scope steps rendered under the line on the customer page. */
         scopeSteps: z.array(z.string().max(160)).max(6).optional().nullable(),
+        /** Admin-provided per-line assumptions (caveats the line price is based on), shown under the line. */
+        assumptions: z.array(z.string().max(200)).max(6).optional().nullable(),
         /** Phase 4d — tier id for fixed-fee tiered categories (e.g. waste_removal 'small' | 'medium' | 'full'). */
         fixedTier: z.string().optional().nullable(),
         /** Phase 11 — line needs a materials collection trip (job-level deduped to +30min once). */
@@ -1578,7 +1734,22 @@ const contextualQuoteInputSchema = z.object({
 
   // Customer-supplied job photos (already uploaded via /api/pricing/quote-photos)
   customerPhotoUrls: z.array(z.string()).max(10).optional(),
-});
+
+  // Quote-level "standard assumptions" — caveats the fixed price is based on,
+  // shown prominently on the quote page (access, parking, existing installs
+  // sound…). Per-line assumptions ride along on each `lines[].assumptions`.
+  quoteAssumptions: z.array(z.string().max(200)).max(20).optional(),
+
+  // Survey gate — when true the customer can't book the job (no flex, no
+  // date-pick); they must book & pay a site survey first. surveyFeePence is
+  // the survey fee in pence (credited to the job). Fee is required whenever the
+  // gate is on, so the customer page always has a real amount to charge.
+  surveyRequired: z.boolean().optional(),
+  surveyFeePence: z.number().int().nonnegative().optional(),
+}).refine(
+  (v) => !v.surveyRequired || (typeof v.surveyFeePence === 'number' && v.surveyFeePence > 0),
+  { message: 'surveyFeePence must be a positive amount when surveyRequired is true', path: ['surveyFeePence'] },
+);
 
 /**
  * Format a phone number for use in a wa.me link.
@@ -1825,6 +1996,30 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
           const steps = scopeStepsByLineId.get(lineItem.lineId);
           if (steps) {
             lineItem.scopeSteps = steps;
+          }
+        }
+      }
+
+      // 4a-iii. Same pattern for admin-provided per-line `assumptions` — the
+      // caveats the line price is based on, rendered under the line so there's a
+      // documented basis to re-price if reality differs on the day.
+      const assumptionsByLineId = new Map<string, string[]>();
+      for (const l of input.lines) {
+        if (Array.isArray(l.assumptions)) {
+          const items = l.assumptions
+            .filter((s): s is string => typeof s === 'string')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+          if (items.length > 0) {
+            assumptionsByLineId.set(l.id, items);
+          }
+        }
+      }
+      if (assumptionsByLineId.size > 0) {
+        for (const lineItem of result.lineItems) {
+          const items = assumptionsByLineId.get(lineItem.lineId);
+          if (items) {
+            lineItem.assumptions = items;
           }
         }
       }
@@ -2157,6 +2352,17 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       bookingModes: result.messaging.bookingModes,
       requiresHumanReview: result.messaging.requiresHumanReview,
       reviewReason: result.messaging.reviewReason || null,
+
+      // Survey gate — admin-set. When on, the customer page swaps the job
+      // booking card for a paid-survey card and the job money paths are
+      // refused server-side. Round-trips on edit (not a messaging field, so
+      // it's not reset by the copy-preservation branch below).
+      surveyRequired: input.surveyRequired ?? false,
+      surveyFeePence: input.surveyRequired ? (input.surveyFeePence ?? null) : null,
+
+      // Quote-level standard assumptions (per-line ones ride on pricingLineItems).
+      quoteAssumptions:
+        input.quoteAssumptions && input.quoteAssumptions.length > 0 ? input.quoteAssumptions : null,
 
       // Full pricing data for admin/debugging. Named materials from the input
       // lines are merged onto the engine's result lines (matched by lineId) so
@@ -2613,6 +2819,9 @@ router.patch('/api/pricing/quotes/:id', async (req, res) => {
       pricingLineItems,    // LineItemResult[]
       batchDiscountPercent,
       availableDates,      // string[] | null — VA-specified booking dates
+      surveyRequired,      // boolean — gate the job behind a paid site survey
+      surveyFeePence,      // number — survey fee in pence (required when gated)
+      quoteAssumptions,    // string[] | null — quote-level standard assumptions
     } = req.body;
 
     // Fetch existing quote first so we can patch JSONB fields in JS
@@ -2633,6 +2842,25 @@ router.patch('/api/pricing/quotes/:id', async (req, res) => {
     if (pricingLineItems !== undefined) updates.pricingLineItems = pricingLineItems;
     if (batchDiscountPercent !== undefined) updates.batchDiscountPercent = Number(batchDiscountPercent);
     if (availableDates !== undefined) updates.availableDates = availableDates; // null clears it
+    if (quoteAssumptions !== undefined) {
+      updates.quoteAssumptions = Array.isArray(quoteAssumptions) && quoteAssumptions.length > 0
+        ? quoteAssumptions.filter((s: unknown) => typeof s === 'string' && (s as string).trim()).map((s: string) => s.trim())
+        : null;
+    }
+    // Survey gate — keep the flag and its fee consistent: turning it off clears
+    // the fee; turning it on requires a positive fee.
+    if (surveyRequired !== undefined) {
+      const on = !!surveyRequired;
+      const feePence = surveyFeePence !== undefined ? Number(surveyFeePence) : Number(existing.surveyFeePence) || 0;
+      if (on && !(feePence > 0)) {
+        return res.status(400).json({ error: 'A positive survey fee is required when survey is enabled.' });
+      }
+      updates.surveyRequired = on;
+      updates.surveyFeePence = on ? feePence : null;
+    } else if (surveyFeePence !== undefined) {
+      // Fee edited without touching the flag (only meaningful when already gated).
+      updates.surveyFeePence = Number(surveyFeePence) || null;
+    }
 
     // When line items change, recalculate finalPricePence and materials so
     // the customer-facing page (which reads finalPricePence first) shows

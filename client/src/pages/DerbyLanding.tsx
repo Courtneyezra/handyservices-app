@@ -14,6 +14,7 @@ import { SegmentSwitcher } from "@/components/SegmentSwitcher";
 import { PropertyManagerView } from "@/components/PropertyManagerView";
 import { BusinessView } from "@/components/BusinessView";
 import { HassleComparisonSection } from "@/components/HassleComparisonSection";
+import { VerticalReels, type Reel } from "@/components/VerticalReels";
 import { LandingHeader } from "@/components/LandingHeader";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { localBusinessSchema, serviceSchema } from "@/lib/seo-schema";
@@ -326,6 +327,32 @@ function RealJobsSection() {
                         </div>
                     ))}
                 </div>
+            </div>
+        </section>
+    );
+}
+
+// Instagram-style vertical clips (same real team/jobs as the Nottingham page).
+// Captions kept city-neutral since the footage wasn't filmed in Derby.
+// Drop MP4s + posters into client/public/assets/reels/ — see that folder's README.
+const REELS: Reel[] = [
+    { src: "/assets/reels/flooring.mp4", poster: "/assets/reels/flooring.webp", caption: "Flooring fitted right, first time" },
+    { src: "/assets/reels/plastering.mp4", poster: "/assets/reels/plastering.webp", caption: "Fresh plaster, smooth finish" },
+    { src: "/assets/reels/on-site.mp4", poster: "/assets/reels/on-site.webp", caption: "On the job, every day" },
+];
+
+function VideoReelsSection() {
+    if (!REELS.length) return null;
+    return (
+        <section className="bg-slate-900 px-4 lg:px-8 py-16 lg:py-24">
+            <div className="max-w-7xl mx-auto">
+                <div className="text-center mb-12 lg:mb-16">
+                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
+                        See the work in motion
+                    </h2>
+                    <p className="text-white/60 text-lg">Real jobs, filmed on the day. Tap for sound.</p>
+                </div>
+                <VerticalReels reels={REELS} />
             </div>
         </section>
     );
@@ -741,6 +768,7 @@ export default function DerbyLanding({
                 {activeSegment === 'residential' && (
                     <>
                         <TeamSection />
+                        <VideoReelsSection />
                         <PainPointsSection />
                         <EmergencyServiceSection />
                         <ProcessSection />

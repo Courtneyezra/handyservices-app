@@ -37,6 +37,7 @@ import { generateQuotePDF, loadQuotePhotos, validityHoursFromQuote } from "@/lib
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { UpsellBottomSheet } from '@/components/UpsellBottomSheet';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
+import { SurveyRequiredQuote } from '@/components/quote/SurveyRequiredQuote';
 import { DatePricingCalendar, SchedulingTier } from '@/components/DatePricingCalendar';
 import { TimeSlotSelector, TimeSlotType } from '@/components/TimeSlotSelector';
 
@@ -599,6 +600,7 @@ export interface PersonalizedQuote {
   deadZoneFraming?: string;
   /** Customer-supplied job photos (uploaded during quote generation) */
   customerPhotoUrls?: string[];
+  customerVideoUrls?: string[];
 
   // Context signals (Phase 5b)
   contextSignals?: {
@@ -1580,6 +1582,39 @@ const CustomerJobPhotos = ({ photos }: { photos?: string[] | null }) => {
             </div>
           );
         })()}
+      </div>
+    </SectionWrapper>
+  );
+};
+
+/** Customer-supplied job videos — short clips they sent (WhatsApp/SMS), shown
+    alongside the photos. Native <video controls>, one per row on mobile, two-up
+    on larger screens. Renders nothing when there are no videos. */
+const CustomerJobVideos = ({ videos }: { videos?: string[] | null }) => {
+  if (!videos || videos.length === 0) return null;
+  return (
+    <SectionWrapper className="bg-white">
+      <div className="max-w-2xl md:max-w-3xl mx-auto w-full pb-8 md:pb-12">
+        <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
+          Seen it in <span className="text-[#5a8209]">full motion.</span>
+        </h2>
+        <p className="text-slate-500 mt-3 text-base max-w-xl mx-auto leading-relaxed">
+          The clips you sent — so the price covers <span className="text-slate-900 font-semibold">exactly what you showed us.</span>
+        </p>
+        <div className={`mt-6 grid gap-3 ${videos.length === 1 ? 'grid-cols-1 max-w-xl mx-auto' : 'grid-cols-1 sm:grid-cols-2'}`}>
+          {videos.map((url, i) => (
+            <div key={url} className="rounded-xl overflow-hidden ring-1 ring-slate-200 shadow-sm bg-black aspect-video">
+              <video
+                src={url}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full h-full object-contain"
+                aria-label={`Your job video ${i + 1}`}
+              />
+            </div>
+          ))}
+        </div>
       </div>
     </SectionWrapper>
   );
@@ -4285,6 +4320,15 @@ export default function PersonalizedQuotePage() {
   // Quote expiration removed - quotes no longer expire
   // const isActuallyExpired = false;
 
+  // Survey gate — when the admin flags a contextual quote as survey-required,
+  // the customer can't book the job (no flex, no date-pick). They book & pay a
+  // site survey first; the job is quoted properly on the day. Short-circuits
+  // before the offer interstitial and the whole job booking flow below. The job
+  // money paths are also refused server-side, so this is the only route through.
+  if (isContextualQuote && (quote as any).surveyRequired) {
+    return <SurveyRequiredQuote quote={quote} />;
+  }
+
   // EVE single price — used directly by UnifiedQuoteCard
   // For contextual quotes, prefer finalPricePence from the contextual pricing engine
   const quotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
@@ -4496,8 +4540,7 @@ export default function PersonalizedQuotePage() {
                       customerEmail={quote.email || undefined}
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
-                      pricingLineItems={taggedPricingLineItems || undefined}
-                      enableLineItemSplit={!splitOptOut && (taggedPricingLineItems?.length ?? 0) >= 2}
+                      pricingLineItems={taggedPricingLineItems || undefined}                      enableLineItemSplit={!splitOptOut && (taggedPricingLineItems?.length ?? 0) >= 2}
                       priceBuckets={isContextualQuote ? (quote as any).pricingLayerBreakdown?.priceBuckets : undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}
@@ -4891,6 +4934,7 @@ export default function PersonalizedQuotePage() {
           {/* 1b ─ Customer's own job photos — right after the price hero so the
                  price is anchored to THEIR exact job. */}
           <CustomerJobPhotos photos={quote.customerPhotoUrls} />
+          <CustomerJobVideos videos={quote.customerVideoUrls} />
 
           {/* 2 ─ Social proof — reviews/testimonials, shown before the booking card.
                  Eyebrow rating hidden here — the hero already shows 4.9 · 127 reviews. */}
@@ -5293,6 +5337,7 @@ export default function PersonalizedQuotePage() {
         {/* Customer's own job photos — anchors the price to THEIR exact job,
             straight after the price card and before any generic messaging. */}
         <CustomerJobPhotos photos={quote.customerPhotoUrls} />
+        <CustomerJobVideos videos={quote.customerVideoUrls} />
 
         {/* Meet your handyman — person-led brand. Placed HERE (right after the
             customer's own job photos) so the journey reads "your price → your
@@ -5478,8 +5523,7 @@ export default function PersonalizedQuotePage() {
                       currentTotalPence={currentTotal}
                       depositPaidPence={deposit}
                       balanceDuePence={balance}
-                      pricingLineItems={taggedPricingLineItems as any}
-                      priceBuckets={(quote as any).pricingLayerBreakdown?.priceBuckets}
+                      pricingLineItems={taggedPricingLineItems as any}                      priceBuckets={(quote as any).pricingLayerBreakdown?.priceBuckets}
                       explanation={
                         // Per-quote rescope reason written by the admin flow; the
                         // generic fallback keeps legacy rescopes honest (this used

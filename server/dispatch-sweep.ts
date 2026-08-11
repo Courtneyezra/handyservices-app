@@ -23,6 +23,7 @@ import { db } from './db';
 import { sql, type SQL } from 'drizzle-orm';
 import { timeRangeCoversSlot, type SlotType } from '../shared/slot-times';
 import { SLA_DEFAULT_WINDOW_DAYS, slaStateScheduled, type SlaState } from '../shared/dispatch-sla';
+import { activeLineItems } from '../shared/split-scope';
 import { TEST_QUOTE_LIKE } from './dispatch-test-mode';
 
 /**
@@ -175,14 +176,19 @@ export function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
  * line-item price-ish field (guarded/price pence) if the column is null; 0 if neither.
  */
 export function jobValuePence(job: any): number {
-  if (job.base_price != null) {
+  const deferred = job.deferred_line_items ?? job.deferredLineItems;
+  const hasDeferred = Array.isArray(deferred) && deferred.length > 0;
+  // No split → the stored base_price is the whole job's value.
+  if (!hasDeferred && job.base_price != null) {
     const n = Number(job.base_price);
     if (Number.isFinite(n)) return n;
   }
-  const lineItems = Array.isArray(job.pricing_line_items) ? job.pricing_line_items : [];
+  // Split (or no base_price): value the KEPT scope only — base_price still
+  // carries the full original amount, so summing the active lines is correct.
+  const active = activeLineItems(job.pricing_line_items, deferred);
   let sum = 0;
-  for (const li of lineItems) {
-    sum += Number(li?.guardedPricePence ?? li?.guarded_price_pence ?? li?.pricePence ?? li?.price_pence ?? 0) || 0;
+  for (const li of active) {
+    sum += Number((li as any)?.guardedPricePence ?? (li as any)?.guarded_price_pence ?? (li as any)?.pricePence ?? (li as any)?.price_pence ?? 0) || 0;
   }
   return sum;
 }
@@ -391,7 +397,7 @@ export const DEFAULT_JOB_MINUTES = 120;
  */
 export async function loadDispatchPool(today: Date, limit = 50, testOnly = false): Promise<PoolJobCtx[]> {
   const poolR = await db.execute(sql`
-    SELECT pq.id, pq.customer_name, pq.pricing_line_items, pq.coordinates,
+    SELECT pq.id, pq.customer_name, pq.pricing_line_items, pq.deferred_line_items, pq.coordinates,
            pq.flex_booking_within_days, pq.base_price, pq.deposit_paid_at,
            pq.postcode, pq.address, pq.job_description
     FROM personalized_quotes pq
@@ -401,7 +407,9 @@ export async function loadDispatchPool(today: Date, limit = 50, testOnly = false
     ORDER BY pq.deposit_paid_at DESC LIMIT ${limit};`);
 
   return rows(poolR).map((job: any): PoolJobCtx => {
-    const lineItems = (job.pricing_line_items || []) as Array<{ category?: string; scheduleMinutes?: number; timeEstimateMinutes?: number }>;
+    // Kept scope only — a "choose what to do now" split leaves deferred lines on
+    // the quote; they must not inflate categories, work-minutes or value.
+    const lineItems = activeLineItems(job.pricing_line_items, job.deferred_line_items) as Array<{ category?: string; scheduleMinutes?: number; timeEstimateMinutes?: number }>;
     const categories = [...new Set(lineItems.map((li) => li.category).filter(Boolean))] as string[];
     const { flexDeadline, slackDays } = computeSlack(job, today);
     const coords = (job.coordinates || null) as { lat?: number; lng?: number } | null;
@@ -439,7 +447,7 @@ export async function runDispatchSweep(opts: { dryRun?: boolean; limit?: number;
   // default (falsy) excludes seeded dummies; true includes ONLY dummies.
   const [poolR, ctx] = await Promise.all([
     db.execute(sql`
-      SELECT pq.id, pq.customer_name, pq.pricing_line_items, pq.coordinates,
+      SELECT pq.id, pq.customer_name, pq.pricing_line_items, pq.deferred_line_items, pq.coordinates,
              pq.flex_booking_within_days, pq.base_price, pq.deposit_paid_at
       FROM personalized_quotes pq
       LEFT JOIN contractor_booking_requests cbr ON cbr.quote_id = pq.id
@@ -464,7 +472,8 @@ export async function runDispatchSweep(opts: { dryRun?: boolean; limit?: number;
   const unassignable: SweepUnassignable[] = [];
 
   for (const job of pool) {
-    const lineItems = (job.pricing_line_items || []) as Array<{ category?: string }>;
+    // Kept scope only — deferred ("do later") lines don't belong to this visit.
+    const lineItems = activeLineItems(job.pricing_line_items, job.deferred_line_items) as Array<{ category?: string }>;
     const categories = [...new Set(lineItems.map((li) => li.category).filter(Boolean))] as string[];
     const { flexDeadline, slackDays } = computeSlack(job, today);
     const valuePence = jobValuePence(job);

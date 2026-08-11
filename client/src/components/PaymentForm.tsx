@@ -21,6 +21,9 @@ interface PaymentFormProps {
   lockId?: number; // Soft-hold reservation id — promoted to a booking by the webhook
   pricingLane?: 'flex' | 'date_time'; // visit mode: exact slot adds a premium server-side
   flexBookingWithinDays?: number; // visit flex lane: window we commit to
+  /** Suppress the built-in express-checkout block when the parent renders its own
+   *  wallet buttons (e.g. ExpressWalletPay) in a separate deferred-mode provider. */
+  hideExpressCheckout?: boolean;
   onSuccess: (paymentIntentId: string) => Promise<void>;
   onError?: (error: string) => void;
 }
@@ -39,6 +42,7 @@ export function PaymentForm({
   lockId,
   pricingLane,
   flexBookingWithinDays,
+  hideExpressCheckout = false,
   onSuccess,
   onError
 }: PaymentFormProps) {
@@ -266,7 +270,7 @@ export function PaymentForm({
     }
   };
 
-  const showExpressCheckout = !isLoadingIntent && paymentType !== 'installments' && isStripeConfigured;
+  const showExpressCheckout = !hideExpressCheckout && !isLoadingIntent && paymentType !== 'installments' && isStripeConfigured;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

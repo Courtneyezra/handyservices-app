@@ -193,9 +193,15 @@ invoiceRouter.post('/api/invoices/generate', async (req, res) => {
             contractorId = quote.contractorId || '';
         }
 
-        // Calculate total amount from quote
+        // Calculate total amount from quote.
+        // selectedTierPricePence is the price the customer actually accepted in the
+        // contextual flow — and the figure their deposit was calculated against — so it
+        // is the source of truth. Falling back to basePrice/tier prices here under-bills
+        // any quote whose selected price differs from base (see INV-2026-0233).
         if (quote) {
-            if (quote.quoteMode === 'simple') {
+            if (quote.selectedTierPricePence && quote.selectedTierPricePence > 0) {
+                totalAmount = quote.selectedTierPricePence;
+            } else if (quote.quoteMode === 'simple') {
                 totalAmount = quote.basePrice || 0;
             } else if (quote.selectedPackage) {
                 // HHH mode - use selected tier
