@@ -618,7 +618,23 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
         // the multi-trade zero-pool fix — a quote that no single contractor could
         // fully cover is now bookable off the lead's calendar. Empty only on a
         // TRUE supply gap. Falls back to `candidates` if the field is absent.
-        const availabilityIds = fit.availabilityContractorIds ?? fit.candidates.map((c) => c.contractorId);
+        let availabilityIds = fit.availabilityContractorIds ?? fit.candidates.map((c) => c.contractorId);
+
+        // Stored-pool fallback — a line-item-less quote (e.g. a standalone visit
+        // link) has no categories, so the fresh matcher returns an empty pool.
+        // Fall back to the contractors stored on the row (lead first) so the
+        // visit calendar still shows the assigned contractor's real availability.
+        if (availabilityIds.length === 0) {
+            const stored = Array.isArray((quote as any).candidateContractorIds)
+                ? ((quote as any).candidateContractorIds as string[])
+                : [];
+            const leadStored = (quote as any).leadContractorId as string | null;
+            const fallbackIds = stored.length > 0 ? stored : (leadStored ? [leadStored] : []);
+            if (fallbackIds.length > 0) {
+                console.log(`[PublicAPI] quote ${quote.id}: empty fresh pool — using stored contractors [${fallbackIds.join(',')}]`);
+                availabilityIds = fallbackIds;
+            }
+        }
 
         if (availabilityIds.length === 0) {
             console.log(`[PublicAPI] quote ${quote.id}: no availability drivers (plan=${fit.teamPlan?.kind}, uncovered=[${fit.uncoveredCategories.join(',')}], partialDropped=${fit.partialCoverageDropped})`);
@@ -916,12 +932,14 @@ interface FilteredDateAvailability {
  *   - postcode: customer postcode (optional, for radius filtering)
  *   - timeEstimateMinutes: if >240, only full-day slots returned
  *   - days: number of days to look ahead (default 14)
+ *   - vertical: brand vertical scoping the pool (default 'handyman')
  */
 router.get('/availability/filtered', async (req: Request, res: Response) => {
     try {
         const categoriesParam = req.query.categories as string;
         const timeEstimate = parseInt(req.query.timeEstimateMinutes as string) || 0;
         const daysAhead = Math.min(parseInt(req.query.days as string) || 14, 30);
+        const vertical = (req.query.vertical as string)?.trim() || 'handyman';
 
         // Job shape — mirror reserveSlot's maths exactly, so the calendar never
         // offers a day/slot the engine would reject at payment:
@@ -980,23 +998,29 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
         // Mirrors the same rule in lib/quote-fit.ts (team composition).
         try {
             const { fetchPriorityContractor } = await import('./lib/quote-fit');
-            const priority = await fetchPriorityContractor((req.query.vertical as string) || 'handyman');
+            const priority = await fetchPriorityContractor(vertical);
             if (priority && !contractorIds.includes(priority.id)) contractorIds.push(priority.id);
         } catch (e) {
             console.warn('[PublicAPI] priority-contractor injection failed:', e instanceof Error ? e.message : e);
         }
 
-        // Filter out stale contractors (one bulk query)
+        // Filter out stale + wrong-vertical contractors (one bulk query).
+        // VERTICAL SCOPING: skill intersection alone is vertical-blind (a cleaning
+        // contractor with skill 'other' would lend her free days to a handyman
+        // calendar, but reserveSlot's vertical-scoped pool would then refuse the
+        // shown day at payment — dead checkout). Mirror resolveQuoteCandidatePool.
         const profileRows = contractorIds.length
             ? await db.select({
                 id: handymanProfiles.id,
                 lastAvailabilityRefresh: handymanProfiles.lastAvailabilityRefresh,
+                vertical: handymanProfiles.vertical,
             })
                 .from(handymanProfiles)
                 .where(inArray(handymanProfiles.id, contractorIds))
             : [];
         // Include if refreshed within 7 days, or never refreshed (new contractor, benefit of doubt)
         const freshContractors = profileRows
+            .filter((p) => p.vertical === vertical)
             .filter((p) => !p.lastAvailabilityRefresh || p.lastAvailabilityRefresh > sevenDaysAgo)
             .map((p) => p.id);
 

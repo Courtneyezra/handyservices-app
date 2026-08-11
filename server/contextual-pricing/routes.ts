@@ -1783,6 +1783,123 @@ async function generateUniqueSlug(): Promise<string> {
   return nanoid(8);
 }
 
+// ---------------------------------------------------------------------------
+// POST /api/pricing/create-visit-link
+// Standalone "send a visit link" — NO line items. For jobs we can't quote
+// remotely (media sent but unquotable, or nothing sent) where the customer just
+// needs to book & pay a survey visit. Creates a minimal personalized_quotes row
+// (survey fee, resolved lead contractor so the calendar has real availability,
+// optional media + "why a visit" reason) and returns the /visit/:slug link.
+//
+// The lead is the priority/match-all contractor (Craig for handyman) — resolved
+// directly, because with no categories the normal candidate-pool matcher returns
+// an empty pool. The stored candidateContractorIds/leadContractorId then drive
+// the visit calendar via the availability route's stored-pool fallback.
+// ---------------------------------------------------------------------------
+const createVisitLinkSchema = z.object({
+  customerName: z.string().min(1),
+  phone: z.string().min(1),
+  email: z.string().email().optional().or(z.literal('')),
+  address: z.string().optional(),
+  postcode: z.string().optional(),
+  coordinates: z.object({ lat: z.number(), lng: z.number() }).optional(),
+  surveyFeePence: z.number().int().positive(),
+  reason: z.string().max(400).optional(), // "why a visit" → assessmentReason → hero
+  vertical: z.enum(['handyman', 'cleaning']).optional(),
+  contractorId: z.string().optional(),
+  skinContractorId: z.string().optional(),
+  customerPhotoUrls: z.array(z.string()).max(10).optional(),
+  customerVideoUrls: z.array(z.string()).max(5).optional(),
+  createdBy: z.string().optional(),
+  createdByName: z.string().optional(),
+  sourceCallId: z.string().optional(),
+});
+
+router.post('/api/pricing/create-visit-link', async (req, res) => {
+  try {
+    const input = createVisitLinkSchema.parse(req.body);
+    const vertical = input.vertical || 'handyman';
+    const fee = input.surveyFeePence;
+
+    // Coordinates: client value first, else best-effort geocode (never blocks).
+    let coordinates: { lat: number; lng: number } | null = input.coordinates ?? null;
+    if (!coordinates && input.postcode) {
+      try { const geo = await geocodePostcode(input.postcode); if (geo) coordinates = geo; }
+      catch (e) { console.warn('[VisitLink] geocode failed (non-blocking):', e instanceof Error ? e.message : e); }
+    }
+
+    // Lead contractor: an explicit skin pick, else the vertical's priority
+    // (match-all) contractor — Craig for handyman. This drives the visit calendar.
+    let leadId: string | null = input.contractorId ?? null;
+    try {
+      if (!leadId) {
+        const { fetchPriorityContractor } = await import('../lib/quote-fit');
+        const priority = await fetchPriorityContractor(vertical);
+        if (priority) leadId = priority.id;
+      }
+    } catch (e) {
+      console.warn('[VisitLink] priority contractor resolve failed:', e instanceof Error ? e.message : e);
+    }
+    const candidateIds = leadId ? [leadId] : null;
+
+    const shortSlug = await generateUniqueSlug();
+    const id = `quote_${nanoid()}`;
+
+    await db.insert(personalizedQuotes).values({
+      id,
+      shortSlug,
+      customerName: input.customerName,
+      phone: input.phone,
+      email: input.email || null,
+      address: input.address || null,
+      postcode: input.postcode || null,
+      coordinates,
+      segment: 'CONTEXTUAL',
+      quotability: 'VISIT',
+      quoteMode: 'simple',
+      jobDescription: input.reason || 'Site visit required',
+      // The visit fee. /visit reads basePrice; the /q fallback (SurveyRequiredQuote)
+      // reads surveyFeePence — set both to the same figure so either route is safe.
+      basePrice: fee,
+      surveyRequired: true,
+      surveyFeePence: fee,
+      assessmentReason: input.reason || null,
+      candidateContractorIds: candidateIds,
+      leadContractorId: leadId,
+      leadContractorSource: leadId ? 'manual' : 'auto',
+      vertical,
+      contractorId: input.contractorId || null,
+      skinContractorId: input.skinContractorId || input.contractorId || leadId || null,
+      customerPhotoUrls: input.customerPhotoUrls && input.customerPhotoUrls.length > 0 ? input.customerPhotoUrls : null,
+      customerVideoUrls: input.customerVideoUrls && input.customerVideoUrls.length > 0 ? input.customerVideoUrls : null,
+      createdBy: input.createdBy || null,
+      createdByName: input.createdByName || null,
+      sourceCallId: input.sourceCallId || null,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+    });
+
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const visitUrl = `${baseUrl}/visit/${shortSlug}`;
+    const firstName = input.customerName.split(' ')[0];
+    const feePounds = Math.round(fee / 100);
+    const whatsappMessage = input.reason
+      ? `Hi ${firstName}, thanks for the details. ${input.reason.trim()} We'll need to see it in person to price it properly — you can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`
+      : `Hi ${firstName}, thanks for the details. This is one we need to see in person to price it properly. You can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`;
+    const waPhone = formatPhoneForWhatsApp(input.phone);
+    const whatsappSendUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+
+    console.log(`[VisitLink] Created visit link ${shortSlug} (${id}), fee £${feePounds}, lead=${leadId ?? '—'}`);
+    res.json({ id, shortSlug, visitUrl, whatsappMessage, whatsappSendUrl });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('[VisitLink] Failed to create visit link:', error);
+    res.status(500).json({ error: 'Failed to create visit link' });
+  }
+});
+
 router.post('/api/pricing/create-contextual-quote', async (req, res) => {
   try {
     // 1. Validate input

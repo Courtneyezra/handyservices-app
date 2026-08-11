@@ -1506,6 +1506,17 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   const [surveyRequired, setSurveyRequired] = useState<boolean>(false);
   const [surveyFeePounds, setSurveyFeePounds] = useState<string>('');
 
+  // ── Visit-link-only mode ──
+  // When on, the builder collapses to just what a visit link needs — customer
+  // details + survey fee + "why a visit" note + media — and generates a
+  // /visit/:slug link (no line items, no quote). For jobs we can't price
+  // remotely and just need the customer to book a survey visit.
+  const [visitLinkOnly, setVisitLinkOnly] = useState<boolean>(false);
+  const [visitReason, setVisitReason] = useState<string>('');
+  const [visitResult, setVisitResult] = useState<{ visitUrl: string; whatsappSendUrl: string; shortSlug: string } | null>(null);
+  const [visitLinkPending, setVisitLinkPending] = useState(false);
+  const [copiedVisitLink, setCopiedVisitLink] = useState(false);
+
   // ── Customer-supplied job photos (shown on the customer quote page) ──
   const [customerPhotos, setCustomerPhotos] = useState<string[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
@@ -1836,6 +1847,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     const qpPhone = params.get('phone');
     const qpName = params.get('name');
     const qpJob = params.get('job');
+    // Deep-link into visit-link-only mode (Ben's "Visit Link" button).
+    if (params.get('visit') === '1') setVisitLinkOnly(true);
     if (qpName) setCustomerName(qpName);
     if (qpPhone) setPhone(normalizePhoneInput(qpPhone));
     if (qpJob) {
@@ -3044,7 +3057,51 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     }
   }, [lineItems, buildStructuredVaContext]);
 
+  // Visit-link-only generate — no line items, no preflight. Creates a minimal
+  // visit quote server-side and returns the /visit/:slug link.
+  const generateVisitLink = async () => {
+    if (!customerName.trim()) { toast({ title: 'Missing name', description: 'Customer name is required.', variant: 'destructive' }); return; }
+    if (!phone.trim()) { toast({ title: 'Missing phone', description: 'Phone number is required.', variant: 'destructive' }); return; }
+    const feePence = Math.round(Number(surveyFeePounds) * 100);
+    if (!(feePence > 0)) { toast({ title: 'Missing survey fee', description: 'Enter a visit fee (more than £0).', variant: 'destructive' }); return; }
+    setVisitLinkPending(true);
+    try {
+      const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+      const res = await fetch('/api/pricing/create-visit-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          customerName,
+          phone: normalizePhoneInput(phone),
+          email: email || undefined,
+          address: address || undefined,
+          postcode: postcode || undefined,
+          coordinates: coordinates || undefined,
+          surveyFeePence: feePence,
+          reason: visitReason.trim() || undefined,
+          vertical,
+          contractorId: selectedContractorId || undefined,
+          skinContractorId: skinContractorId || undefined,
+          customerPhotoUrls: customerPhotos.length > 0 ? customerPhotos : undefined,
+          customerVideoUrls: customerVideos.length > 0 ? customerVideos : undefined,
+          createdBy: adminUser?.id || undefined,
+          createdByName: adminUser?.name || adminUser?.email || undefined,
+          sourceCallId: linkedCall?.id || selectedCallerId || undefined,
+        }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Failed to create visit link'); }
+      const data = await res.json();
+      setVisitResult({ visitUrl: data.visitUrl, whatsappSendUrl: data.whatsappSendUrl, shortSlug: data.shortSlug });
+      toast({ title: 'Visit link ready!', description: 'Send it to the customer via WhatsApp.' });
+    } catch (e) {
+      toast({ title: 'Could not create visit link', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' });
+    } finally {
+      setVisitLinkPending(false);
+    }
+  };
+
   const handleGenerate = async () => {
+    if (visitLinkOnly) { void generateVisitLink(); return; }
     if (!customerName.trim()) {
       toast({ title: 'Missing name', description: 'Customer name is required.', variant: 'destructive' });
       return;
@@ -3170,6 +3227,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     setCustomerType('');
     setCustomerVideos([]);
     setSurveyRequired(false);
+    setVisitResult(null);
+    setVisitReason('');
     setSurveyFeePounds('');
     setAvailableDates([]);
     setDatePickerMonth(new Date());
@@ -3421,14 +3480,15 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
 
   // Validate form completeness for button state. SKU lines without a skuCode
   // also count as incomplete even if estimatedMinutes is non-zero.
-  const canGenerate =
-    customerName.trim() &&
-    phone.trim() &&
-    lineItems.length > 0 &&
-    lineItems.every((li) => {
-      if (li.source === 'sku') return !!li.skuCode && li.description.trim();
-      return li.description.trim();
-    });
+  const canGenerate = visitLinkOnly
+    ? !!(customerName.trim() && phone.trim() && Number(surveyFeePounds) > 0)
+    : customerName.trim() &&
+      phone.trim() &&
+      lineItems.length > 0 &&
+      lineItems.every((li) => {
+        if (li.source === 'sku') return !!li.skuCode && li.description.trim();
+        return li.description.trim();
+      });
 
   // The "Detail" toggle only matters for custom lines (SKU lines carry their own
   // customer description), so it's only surfaced once a line is in custom state.
@@ -3466,8 +3526,27 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     >
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Only show form when no result yet */}
-        {!quoteResult && (
+        {!quoteResult && !visitResult && (
           <>
+
+            {/* ─── Visit-link-only mode toggle ─── */}
+            <div className={cn(
+              "rounded-lg border-2 px-4 py-3 shadow-sm transition-colors",
+              visitLinkOnly ? "border-[#7DB00E] bg-[#7DB00E]/5" : "border-handy-grid bg-white",
+            )}>
+              <Label htmlFor="visit-link-only" className="flex items-start gap-3 cursor-pointer select-none">
+                <Ruler className={cn("w-5 h-5 shrink-0 mt-0.5", visitLinkOnly ? "text-[#7DB00E]" : "text-handy-navy/50")} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-bold text-handy-navy text-sm">Visit link only — no quote</span>
+                    <Switch id="visit-link-only" checked={visitLinkOnly} onCheckedChange={setVisitLinkOnly} />
+                  </div>
+                  <div className="text-xs text-handy-navy/70 mt-0.5">
+                    For jobs we can&rsquo;t price remotely. Skips line items — just needs the customer, a visit fee and (optionally) why, then sends a <span className="font-semibold">/visit</span> booking link.
+                  </div>
+                </div>
+              </Label>
+            </div>
 
             {/* Edit-mode banner — makes clear this reuses the generator to edit an
                 existing quote and that saving re-prices + keeps the same link. */}
@@ -3643,6 +3722,60 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               </div>
             )}
 
+            {/* ─── Visit details (visit-link-only mode) ─── */}
+            {visitLinkOnly && (
+              <Card className="overflow-hidden border-handy-grid shadow-sm">
+                <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                  <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                    <Ruler className="w-4 h-4 text-handy-yellow" />
+                    Visit details
+                  </CardTitle>
+                  <p className="text-xs text-white/70 mt-1">
+                    The customer books &amp; pays this fee to have an expert visit and write a fixed quote.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Label htmlFor="visit-fee" className="text-sm font-semibold text-handy-navy whitespace-nowrap">
+                      Visit fee (£) *
+                    </Label>
+                    <div className="relative w-32">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-handy-navy/60 text-sm">£</span>
+                      <Input
+                        id="visit-fee"
+                        type="number"
+                        min={0}
+                        step={5}
+                        inputMode="numeric"
+                        value={surveyFeePounds}
+                        onChange={(e) => setSurveyFeePounds(e.target.value)}
+                        placeholder="49"
+                        className="pl-6 h-9"
+                      />
+                    </div>
+                    <span className="text-[11px] text-handy-navy/60 leading-tight">Credited to the job.</span>
+                  </div>
+                  <div>
+                    <Label htmlFor="visit-reason" className="text-sm font-semibold text-handy-navy">
+                      Why a visit? <span className="font-normal text-handy-navy/50">(optional — shown on the link)</span>
+                    </Label>
+                    <Textarea
+                      id="visit-reason"
+                      value={visitReason}
+                      onChange={(e) => setVisitReason(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. We need to lift a board to check the joists before we can price it."
+                      className="mt-1 text-sm border-handy-grid focus:border-handy-yellow resize-none"
+                    />
+                  </div>
+                  <p className="text-[11px] text-handy-navy/60">
+                    Add the customer&rsquo;s photos/videos below if they sent any — they&rsquo;ll show on the visit link.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {!visitLinkOnly && (<>
             {/* ─── Section 3: Jobs (structured line-item slabs) ─── */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">
               <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
@@ -4560,6 +4693,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 parking/presence state remains and still round-trips on edit;
                 the fields default to unknown. */}
 
+            </>)}
+
             {/* ─── Section 4d: Customer Photos (shown on the quote page under the price card) ─── */}
             <Card id="cq-photos-section" className="overflow-hidden border-handy-grid shadow-sm">
               <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
@@ -4676,6 +4811,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 the quote-fit engine still resolves the candidate pool +
                 lead contractor server-side at create time. */}
 
+            {!visitLinkOnly && (<>
             {/* ─── Section 5b: Crew & quote skin ─── */}
             <Card>
               <CardHeader className="pb-3">
@@ -4871,40 +5007,108 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               </label>
             )}
 
+            </>)}
+
             {/* ─── Section 6: Preview + Generate (brand CTAs — preview outline-navy, generate navy-primary) ─── */}
             {/* Stack full-width on mobile (the two labels can't fit one row < 380px); side-by-side on sm+. */}
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full sm:flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
-                onClick={() => setDraftPreviewOpen(true)}
-                disabled={!canGenerate || !livePreview}
-                title={!livePreview ? 'Wait for live pricing to compute' : 'Preview without saving'}
-              >
-                <Eye className="w-5 h-5 mr-2" />
-                Preview
-              </Button>
+              {!visitLinkOnly && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full sm:flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
+                  onClick={() => setDraftPreviewOpen(true)}
+                  disabled={!canGenerate || !livePreview}
+                  title={!livePreview ? 'Wait for live pricing to compute' : 'Preview without saving'}
+                >
+                  <Eye className="w-5 h-5 mr-2" />
+                  Preview
+                </Button>
+              )}
               <Button
                 size="lg"
                 className="w-full sm:flex-1 h-12 text-base font-semibold bg-handy-navy hover:bg-handy-navy/90 text-white shadow-sm hover:shadow disabled:bg-handy-navy/40"
                 onClick={handleGenerate}
-                disabled={!canGenerate || createQuoteMutation.isPending || preflightChecking}
+                disabled={!canGenerate || createQuoteMutation.isPending || preflightChecking || visitLinkPending}
               >
-                {createQuoteMutation.isPending || preflightChecking ? (
+                {createQuoteMutation.isPending || preflightChecking || visitLinkPending ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    {preflightChecking ? 'Checking quote…' : editQuoteId ? 'Saving changes...' : 'Generating Quote...'}
+                    {visitLinkPending ? 'Creating visit link…' : preflightChecking ? 'Checking quote…' : editQuoteId ? 'Saving changes...' : 'Generating Quote...'}
                   </>
                 ) : (
                   <>
-                    {editQuoteId ? 'Save changes' : 'Generate Quote'}
+                    {visitLinkOnly ? 'Generate visit link' : editQuoteId ? 'Save changes' : 'Generate Quote'}
                     <span className="ml-2 inline-block h-2 w-2 rounded-full bg-handy-yellow" aria-hidden />
                   </>
                 )}
               </Button>
             </div>
           </>
+        )}
+
+        {/* ─── Visit link result ─── */}
+        {visitResult && (
+          <div className="space-y-4">
+            <Card className="overflow-hidden border-2 border-[#7DB00E] shadow-sm">
+              <CardHeader className="bg-[#7DB00E] text-white px-4 sm:px-6 py-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                  <Check className="w-5 h-5" /> Visit link ready
+                </CardTitle>
+                <p className="text-xs text-white/80 mt-1">Send it to the customer to book &amp; pay their survey visit.</p>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={visitResult.visitUrl}
+                    readOnly
+                    className="flex-1 h-10 px-3 rounded-lg border border-handy-grid bg-handy-cream/40 text-sm text-handy-navy font-mono"
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 border-handy-navy/30"
+                    onClick={() => {
+                      navigator.clipboard.writeText(visitResult.visitUrl);
+                      setCopiedVisitLink(true);
+                      setTimeout(() => setCopiedVisitLink(false), 1500);
+                    }}
+                    title="Copy link"
+                  >
+                    {copiedVisitLink ? <Check className="w-4 h-4 text-[#7DB00E]" /> : <Copy className="w-4 h-4" />}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 border-handy-navy/30"
+                    onClick={() => window.open(visitResult.visitUrl, '_blank')}
+                    title="Open link"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </Button>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Button
+                    size="lg"
+                    className="w-full sm:flex-1 h-12 text-base font-semibold bg-[#25D366] hover:bg-[#20bd5a] text-white"
+                    onClick={() => window.open(visitResult.whatsappSendUrl, '_blank')}
+                  >
+                    Send via WhatsApp
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="w-full sm:flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
+                    onClick={handleReset}
+                  >
+                    New visit link
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* ─── Section 7: Results ─── */}
