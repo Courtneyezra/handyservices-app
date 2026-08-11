@@ -142,6 +142,12 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
   // "that's included" hit. Paragraph remains the fallback for older quotes.
   const scopeSteps: string[] | null =
     Array.isArray(anyItem.scopeSteps) && anyItem.scopeSteps.length > 0 ? anyItem.scopeSteps : null;
+  // Per-line assumptions — caveats this line's price is based on. Shown as a
+  // muted "Assumes:" note under the scope, so the price is clearly conditional.
+  const assumptions: string[] | null =
+    Array.isArray(anyItem.assumptions) && anyItem.assumptions.length > 0
+      ? anyItem.assumptions.filter((a: unknown) => typeof a === 'string' && (a as string).trim())
+      : null;
   const [expanded, setExpanded] = useState(false);
   // Crossed-off ("saved for later") rows collapse their steps and dim in place.
   const open = crossed ? false : (collapsible ? expanded : true);
@@ -180,7 +186,7 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
   // Static rows with nothing beyond the badge to show (no description, no
   // materials split) skip the content block entirely — a lone badge under a
   // bare title is chrome, not information.
-  const hasContent = Boolean(customerDesc) || Boolean(scopeSteps) || (hasMaterials && labourDisplayPence > 0);
+  const hasContent = Boolean(customerDesc) || Boolean(scopeSteps) || Boolean(assumptions) || (hasMaterials && labourDisplayPence > 0);
   // A cross-off (onCross) puts a real <button> in the header, so the header
   // itself can't be a <button> (no nested buttons) — use a div with role/keys
   // when it also needs to toggle expand.
@@ -301,6 +307,21 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
                 {customerDesc}
               </p>
             ) : null}
+            {assumptions && (
+              <div className={`mt-1 rounded-md px-2 py-1.5 border ${isDarkTheme ? 'bg-white/[0.03] border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                <p className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Priced assuming
+                </p>
+                <ul className="flex flex-col gap-0.5">
+                  {assumptions.map((a, i) => (
+                    <li key={i} className={`text-[11.5px] leading-snug flex items-start gap-1.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <span className="shrink-0 mt-[3px] w-1 h-1 rounded-full bg-current opacity-60" />
+                      <span>{a}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1270,8 +1291,9 @@ export function UnifiedQuoteCard({
     }
 
     // Date fees (next-day and/or weekend).
-    // Flex bookings have no fixed date yet, so date-driven fees DON'T apply.
-    const dateInfo = !useFlexBooking
+    // Always-a-date: the flex lane picks a real day too, so date-driven fees
+    // apply on it as well. Only landlord liaise (no date yet) skips them.
+    const dateInfo = !(isLandlord && useFlexBooking)
       ? availableDates.find(d =>
           selectedDate && d.date.toDateString() === selectedDate.toDateString()
         )
@@ -1473,7 +1495,7 @@ export function UnifiedQuoteCard({
   useEffect(() => {
     const singleDateReserved =
       !!reservation && !!selectedDate && !!selectedTimeSlot &&
-      !useDownsell && !useFlexBooking && confirmedDates.length === 0;
+      !useDownsell && confirmedDates.length === 0;
     if (!singleDateReserved) return;
     const t = setTimeout(() => {
       bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1483,7 +1505,7 @@ export function UnifiedQuoteCard({
 
   // Determine if we should show inline payment
   // Show inline Stripe card entry when: downsell, flex booking, single-date with reservation, or all 3 buffer dates picked
-  const showInlinePayment = useDownsell || useFlexBooking || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
+  const showInlinePayment = useDownsell || (isLandlord && useFlexBooking) || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
 
   // Reveal-on-commit: if the customer clears their slot (the section collapses),
   // drop the commit so re-picking shows the "Book my slot" gate again rather than
@@ -1643,10 +1665,10 @@ export function UnifiedQuoteCard({
 
         // First call onBook to set booking details in parent state
         onBook({
-          selectedDate: useFlexBooking || useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
-          selectedDates: useFlexBooking ? [] : confirmedDates.map(cd => cd.date),
-          dateTimePreferences: !useFlexBooking && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
-          timeSlot: useFlexBooking || useDownsell ? null : backcompatSlot,
+          selectedDate: (isLandlord && useFlexBooking) || useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
+          selectedDates: (isLandlord && useFlexBooking) ? [] : confirmedDates.map(cd => cd.date),
+          dateTimePreferences: !(isLandlord && useFlexBooking) && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
+          timeSlot: (isLandlord && useFlexBooking) || useDownsell ? null : backcompatSlot,
           addOns: selectedAddOns,
           totalPrice: effectiveTotalPence,
           chargeNowPence: chargeNow,
@@ -1715,7 +1737,7 @@ export function UnifiedQuoteCard({
       const walletEmail = (event as any)?.billingDetails?.email || effectiveEmail;
       // Exact-date path: a slot must already be reserved (the wallet button only
       // renders once it is); flex is the default lane otherwise.
-      const isExactDate = !useFlexBooking && !!selectedDate && !!reservation;
+      const isExactDate = !!selectedDate && !!reservation;
       const res = await fetch('/api/create-payment-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1851,7 +1873,7 @@ export function UnifiedQuoteCard({
   // Skip for buffer mode — all 3 dates required, contractor assigned later via dispatch
   // Skip for flex booking — there is no specific date to reserve
   useEffect(() => {
-    if (selectedDate && selectedTimeSlot && quoteId && !reservation && !isReserving && !useDownsell && !useFlexBooking && confirmedDates.length === 0) {
+    if (selectedDate && selectedTimeSlot && quoteId && !reservation && !isReserving && !useDownsell && confirmedDates.length === 0) {
       // Only auto-reserve for non-buffer single-date flow (no confirmed buffer dates)
       handleReserveSlot();
     }
@@ -2655,7 +2677,9 @@ export function UnifiedQuoteCard({
               liaise mode (no fixed date yet), back when liaise is off. Everyone
               else: hidden under "I'm flexible", drops down on "I want a date & time". */}
           <AnimatePresence initial={false}>
-          {!useFlexBooking && (
+          {/* Always-a-date: flex keeps its base price but still picks a real day.
+            * Only landlord liaise (concierge — we arrange with the tenant) skips the calendar. */}
+          {!(isLandlord && useFlexBooking) && (
           <motion.div
             key="date-grid-drop"
             initial={{ height: 0, opacity: 0 }}

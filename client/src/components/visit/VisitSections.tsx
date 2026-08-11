@@ -30,53 +30,18 @@ function locationFrom(quote: any): string {
 // HERO
 // ─────────────────────────────────────────────────────────────────────────────
 export function VisitHero({ quote }: { quote: any }) {
-    const firstName = (quote?.customerName || "there").split(" ")[0];
-    const headline = quote?.contextualHeadline || "A proper look before a proper price.";
-    const note = quote?.assessmentReason || quote?.contextualMessage;
-
+    const firstName = (quote?.customerName || "").split(" ")[0];
+    // Compact, functional header. The WhatsApp message Ben sends already explains
+    // that the job can't be quoted remotely, so the page doesn't re-pitch it — it
+    // just orients the customer and gets straight to booking the visit.
     return (
-        <section className="relative overflow-hidden bg-slate-900 min-h-[60vh] flex items-center justify-center px-4 py-16">
-            <div className="absolute inset-0 z-0 select-none">
-                <img
-                    src="/assets/quote-images/door-greeting.webp"
-                    alt=""
-                    className="w-full h-full object-cover opacity-50 contrast-110"
-                    style={{ objectPosition: "center 30%" }}
-                />
-                <div className="absolute inset-0 bg-slate-900/65" />
-                <div className="absolute inset-0 bg-gradient-to-b from-slate-900/70 via-transparent to-slate-900" />
-            </div>
-
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
-                className="max-w-2xl z-10 relative text-center"
-            >
-                <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-4 text-white leading-tight">
-                    Hi {firstName},
-                </h1>
-                <p className="text-2xl md:text-3xl font-bold text-white/90 italic mb-4 drop-shadow-sm">
-                    "{headline}"
-                </p>
-                {note && (
-                    <p className="text-slate-300 text-sm md:text-base max-w-lg mx-auto mb-8 leading-relaxed">
-                        {note}
-                    </p>
-                )}
-
-                <div className="flex items-center justify-center gap-3">
-                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-xl">
-                        <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
-                    </div>
-                    <div className="text-left">
-                        <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>
-                        <div className="text-white font-bold text-lg leading-none">
-                            Ben <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
-                        </div>
-                    </div>
-                </div>
-            </motion.div>
+        <section className="bg-slate-900 px-4 pt-9 pb-4 text-center">
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">
+                Book your visit{firstName ? `, ${firstName}` : ""}
+            </h1>
+            <p className="text-slate-400 mt-2 text-sm max-w-md mx-auto leading-relaxed">
+                An expert comes out and writes you a fixed quote — your fee comes straight off the job.
+            </p>
         </section>
     );
 }

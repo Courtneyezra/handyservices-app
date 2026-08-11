@@ -580,6 +580,12 @@ export interface LineItemResult {
    * remains the fallback for lines (and older quotes) without steps.
    */
   scopeSteps?: string[] | null;
+  /**
+   * Optional per-line assumptions — caveats this line's price is based on (e.g.
+   * "existing pipework is sound"). Displayed under the line on the quote page so
+   * that if reality differs on the day there's a documented basis to re-price.
+   */
+  assumptions?: string[] | null;
   /** Phase 4d — chosen tier id for fixed-fee tiered categories (e.g. waste_removal 'small' | 'medium' | 'full'). */
   fixedTier?: string | null;
   /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines (+30min once per quote). Schedule-only — not customer-facing. */

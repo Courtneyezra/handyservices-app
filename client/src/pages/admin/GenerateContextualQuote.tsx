@@ -19,6 +19,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
+import { assessScopeRisk } from '@/lib/scope-risk';
+import { getSuggestedAssumptions } from '@shared/assumptions-library';
 import {
   Phone,
   Clock,
@@ -40,6 +43,8 @@ import {
   RefreshCw,
   Camera,
   X,
+  Ruler,
+  Video,
 } from 'lucide-react';
 import { format as formatDate, getDaysInMonth, getDay, startOfMonth } from 'date-fns';
 import { useRoute, useLocation } from 'wouter';
@@ -130,6 +135,8 @@ interface LineItem {
   details?: string;
   /** Customer-page checklist per line — each string follows "Head — detail" (em dash). Takes precedence over `details` on the customer page. */
   scopeSteps?: string[];
+  /** Per-line assumptions (caveats the line price is based on), shown under the line on the customer page. */
+  assumptions?: string[];
   /** Phase 4d — for fixed-fee categories with tiers (e.g. waste_removal: small/medium/full van load) */
   fixedTier?: string | null;
   /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines; +30min ONCE per quote when any line is flagged. */
@@ -1493,9 +1500,17 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   const [parkingDistance, setParkingDistance] = useState<'on_drive' | 'street_outside' | 'street_within_50m' | '50m_plus' | null>(null);
   const [customerPresent, setCustomerPresent] = useState<boolean | null>(null);
 
+  // Survey gate — when on, the customer can't book the job (no flex, no
+  // date-pick); they book & pay a site survey first. Fee is entered in £ and
+  // sent as pence. Prevents mis-scoped jobs being committed sight-unseen.
+  const [surveyRequired, setSurveyRequired] = useState<boolean>(false);
+  const [surveyFeePounds, setSurveyFeePounds] = useState<string>('');
+
   // ── Customer-supplied job photos (shown on the customer quote page) ──
   const [customerPhotos, setCustomerPhotos] = useState<string[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [customerVideos, setCustomerVideos] = useState<string[]>([]);
+  const [uploadingVideos, setUploadingVideos] = useState(false);
 
   // ── Manual available dates (admin-picked whitelist for customer date picker) ──
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -1885,6 +1900,15 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         // Available dates + customer photos carry through unchanged.
         if (Array.isArray(quote.availableDates)) setAvailableDates(quote.availableDates);
         if (Array.isArray(quote.customerPhotoUrls)) setCustomerPhotos(quote.customerPhotoUrls);
+        if (Array.isArray(quote.customerVideoUrls)) setCustomerVideos(quote.customerVideoUrls);
+
+        // Survey gate carries through on edit so Ben sees the current state.
+        if (quote.surveyRequired) {
+          setSurveyRequired(true);
+          if (typeof quote.surveyFeePence === 'number' && quote.surveyFeePence > 0) {
+            setSurveyFeePounds(String(Math.round(quote.surveyFeePence / 100)));
+          }
+        }
 
         // Crew & skin + logistics carry through on edit.
         if (quote.vertical === 'cleaning' || quote.vertical === 'handyman') setVertical(quote.vertical);
@@ -1939,6 +1963,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               ...(pli.unitCount !== undefined ? { unitCount: pli.unitCount } : {}),
               ...(pli.selectedTier ? { selectedTier: pli.selectedTier } : {}),
               ...(Array.isArray(pli.scopeSteps) ? { scopeSteps: pli.scopeSteps } : {}),
+              ...(Array.isArray(pli.assumptions) ? { assumptions: pli.assumptions } : {}),
               ...(pli.fixedTier ? { fixedTier: pli.fixedTier } : {}),
               ...(typeof frozenLabourPence === 'number' ? { priceOverridePence: frozenLabourPence } : {}),
               ...(pli.timeOverrideMinutes !== undefined ? { timeOverrideMinutes: pli.timeOverrideMinutes } : {}),
@@ -2176,6 +2201,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             ...(li.materials?.length ? { materials: li.materials } : {}),
             details: li.details ?? null,
             scopeSteps: (li.scopeSteps && li.scopeSteps.filter(s => s.trim()).length > 0) ? li.scopeSteps.filter(s => s.trim()) : null,
+            assumptions: (li.assumptions && li.assumptions.filter(s => s.trim()).length > 0) ? li.assumptions.filter(s => s.trim()) : null,
             fixedTier: li.fixedTier ?? null,
             requiresMaterialCollection: !!li.requiresMaterialCollection,
             // Phase 25c — SKU fields persist through to the server's
@@ -2202,6 +2228,13 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
           hasLift: hasLift ?? undefined,
           parkingDistanceCategory: parkingDistance ?? undefined,
           customerPresent: customerPresent ?? undefined,
+          // Survey gate — job is booked only after a paid site survey. Fee sent
+          // as pence. The server refuses (and validates) surveyRequired without
+          // a positive fee, so guard the same way here.
+          surveyRequired: surveyRequired || undefined,
+          ...(surveyRequired && Number(surveyFeePounds) > 0
+            ? { surveyFeePence: Math.round(Number(surveyFeePounds) * 100) }
+            : {}),
           vaContext: enrichedVaContext,
           // Phase 21 — structured customer type drives downstream conditional
           // UI (landlord banner, tenant consent disclaimer, trade-quote variant)
@@ -2240,6 +2273,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
           createdByName: adminUser?.name || adminUser?.email || undefined,
           availableDates,
           customerPhotoUrls: customerPhotos.length > 0 ? customerPhotos : undefined,
+          customerVideoUrls: customerVideos.length > 0 ? customerVideos : undefined,
           // Decomposed-pricing preview (admin eval) — only when toggled on.
           ...(previewDecomposed
             ? {
@@ -2316,6 +2350,36 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       toast({ title: 'Photo upload failed', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' });
     } finally {
       setUploadingPhotos(false);
+    }
+  };
+
+  const handleVideoUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const remaining = 5 - customerVideos.length;
+    if (remaining <= 0) {
+      toast({ title: 'Video limit reached', description: 'Max 5 videos per quote.', variant: 'destructive' });
+      return;
+    }
+    const selected = Array.from(files).slice(0, remaining);
+    setUploadingVideos(true);
+    try {
+      const formData = new FormData();
+      selected.forEach((f) => formData.append('files', f));
+      const res = await fetch('/api/pricing/quote-videos', {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error || 'Upload failed');
+      }
+      const data = await res.json();
+      setCustomerVideos((prev) => [...prev, ...data.urls]);
+    } catch (e) {
+      toast({ title: 'Video upload failed', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' });
+    } finally {
+      setUploadingVideos(false);
     }
   };
 
@@ -2414,6 +2478,56 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   const handleUpdateLineScopeSteps = (id: string, steps: string[]) => {
     setLineItems((prev) => prev.map((li) => (li.id === id ? { ...li, scopeSteps: steps } : li)));
   };
+
+  // Per-line assumptions (string[]) — same shape as scope steps, dedicated setter.
+  const handleUpdateLineAssumptions = (id: string, assumptions: string[]) => {
+    setLineItems((prev) => prev.map((li) => (li.id === id ? { ...li, assumptions } : li)));
+  };
+  // Add a single assumption to a line if not already present (used by suggestion chips).
+  const addLineAssumption = (id: string, text: string) => {
+    setLineItems((prev) => prev.map((li) => {
+      if (li.id !== id) return li;
+      const current = li.assumptions ?? [];
+      if (current.some((a) => a.trim().toLowerCase() === text.trim().toLowerCase())) return li;
+      return { ...li, assumptions: [...current, text] };
+    }));
+  };
+  const [draftingAssumptionIds, setDraftingAssumptionIds] = useState<Set<string>>(new Set());
+  // AI-draft assumptions for a line from its title + category. Merges onto any
+  // existing assumptions (dedup), so it augments rather than overwrites.
+  const draftLineAssumptions = useCallback(async (id: string, title: string, category: JobCategory, currentVaContext?: string) => {
+    setDraftingAssumptionIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch('/api/pricing/draft-line-assumptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          lineDescription: title,
+          originalDescription: originalDescriptions.current.get(id) || undefined,
+          category,
+          vaContext: currentVaContext || undefined,
+        }),
+      });
+      const { assumptions } = await res.json();
+      if (Array.isArray(assumptions) && assumptions.length > 0) {
+        setLineItems((prev) => prev.map((li) => {
+          if (li.id !== id) return li;
+          const current = li.assumptions ?? [];
+          const seen = new Set(current.map((a) => a.trim().toLowerCase()));
+          const merged = [...current];
+          for (const a of assumptions as string[]) {
+            const key = a.trim().toLowerCase();
+            if (a.trim() && !seen.has(key)) { merged.push(a.trim()); seen.add(key); }
+          }
+          return { ...li, assumptions: merged };
+        }));
+      }
+    } catch {
+      // Non-blocking — the operator can still add assumptions manually.
+    } finally {
+      setDraftingAssumptionIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  }, []);
 
   // Track which items are being polished + their original text (before polish)
   const [polishingIds, setPolishingIds] = useState<Set<string>>(new Set());
@@ -2672,6 +2786,83 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             </button>
           )}
         </div>
+        {/* Per-line assumptions — the caveats THIS line's price is based on.
+            One-tap suggestion chips come from the category; ✨ drafts job-specific
+            ones; shown under the line on the customer page (cover-your-back). */}
+        {(() => {
+          const assumptions = item.assumptions ?? [];
+          const suggestions = getSuggestedAssumptions(item.category).filter(
+            (s) => !assumptions.some((a) => a.trim().toLowerCase() === s.trim().toLowerCase()),
+          );
+          const drafting = draftingAssumptionIds.has(item.id);
+          return (
+            <div className="space-y-1 mt-2 pt-2 border-t border-dashed border-handy-grid">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] text-amber-600/90">
+                  Assumptions <span className="text-muted-foreground/50 font-normal">— protects your price</span>
+                </Label>
+                <button
+                  type="button"
+                  title="Draft assumptions from the line"
+                  aria-label="Draft assumptions"
+                  disabled={drafting || !item.description?.trim()}
+                  onClick={() => draftLineAssumptions(item.id, item.description, item.category, buildStructuredVaContext())}
+                  className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground/60 hover:text-amber-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Wand2 className={`w-3 h-3 ${drafting ? 'animate-pulse' : ''}`} />
+                  {drafting ? 'drafting…' : 'Draft'}
+                </button>
+              </div>
+              {assumptions.map((a, idx) => (
+                <div key={idx} className="flex items-center gap-1">
+                  <Input
+                    value={a}
+                    placeholder="e.g. existing pipework is accessible and sound"
+                    onChange={(e) => {
+                      const next = [...assumptions];
+                      next[idx] = e.target.value;
+                      handleUpdateLineAssumptions(item.id, next);
+                    }}
+                    className="h-7 text-xs bg-transparent border-handy-grid focus:border-amber-400 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove assumption"
+                    onClick={() => handleUpdateLineAssumptions(item.id, assumptions.filter((_, i) => i !== idx))}
+                    className="shrink-0 text-muted-foreground/50 hover:text-red-500 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              {suggestions.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      title={s}
+                      onClick={() => addLineAssumption(item.id, s)}
+                      className="text-[10px] px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors"
+                    >
+                      + {s.length > 44 ? s.slice(0, 42) + '…' : s}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {assumptions.length < 6 && (
+                <button
+                  type="button"
+                  onClick={() => handleUpdateLineAssumptions(item.id, [...assumptions, ''])}
+                  className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-handy-navy transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add assumption
+                </button>
+              )}
+            </div>
+          );
+        })()}
         {!hasSteps && item.details?.trim() ? (
           <Textarea
             id={`line-detail-${item.id}`}
@@ -2793,6 +2984,27 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
 
     return issues;
   }, [lineItems, livePreview, customerPhotos.length, phone]);
+
+  // Scope-risk read — suggests the survey gate when the entered work is likely
+  // to change on-site (auto-suggest, Ben confirms; never forced). Same cadence
+  // as the live preview so it updates as lines are added/edited.
+  const scopeRisk = useMemo(() => {
+    const totalPence = livePreview
+      ? (livePreview.subtotalPence || 0)
+        + (livePreview.totalMaterialsWithMarginPence || 0)
+        + (livePreview.priceBuckets?.totalBucketsPence || 0)
+      : 0;
+    return assessScopeRisk(
+      lineItems.map((li) => ({
+        description: li.description,
+        category: li.category,
+        source: li.source,
+        estimatedMinutes: li.estimatedMinutes,
+        materialsCostPounds: li.materialsCostPounds,
+      })),
+      totalPence,
+    );
+  }, [lineItems, livePreview]);
 
   // Draft customer-facing scope steps for the flagged lines, in parallel. Drafts
   // land in the modal's step inputs for Ben to edit/approve — never straight onto
@@ -2956,6 +3168,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     setMaterialLeadTimeDays('');
     setHireEquipmentText('');
     setCustomerType('');
+    setCustomerVideos([]);
+    setSurveyRequired(false);
+    setSurveyFeePounds('');
     setAvailableDates([]);
     setDatePickerMonth(new Date());
     setOptionalExtras([]);
@@ -3994,6 +4209,91 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 )}
               </CardContent>
             </Card>
+            {/* ─── Survey gate — book a paid site survey before the job ─── */}
+            {/* Sits below the Jobs section: the scope-risk suggestion is derived
+                from the entered line items, so it reads after them. */}
+            <div className={cn(
+              "rounded-lg border-2 px-4 py-3 shadow-sm transition-colors",
+              surveyRequired ? "border-[#7DB00E] bg-[#7DB00E]/5" : "border-handy-grid bg-white",
+            )}>
+              {/* Auto-suggest — fires when the entered work looks like scope could
+                  change on-site. Ben confirms with one click (prefills the fee);
+                  it never flips the gate on by itself. */}
+              {!surveyRequired && scopeRisk.level !== 'none' && (
+                <div className={cn(
+                  "mb-3 rounded-lg border-2 px-3 py-2.5",
+                  scopeRisk.level === 'likely'
+                    ? "border-amber-500 bg-amber-50"
+                    : "border-amber-300 bg-amber-50/60",
+                )}>
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-bold text-handy-navy">
+                        {scopeRisk.level === 'likely'
+                          ? 'Scope likely to change on-site'
+                          : 'Scope could change on-site'}
+                        {' — survey first?'}
+                      </div>
+                      <ul className="mt-1 space-y-0.5">
+                        {scopeRisk.reasons.map((r) => (
+                          <li key={r} className="text-xs text-handy-navy/75 flex gap-1.5">
+                            <span className="text-amber-600">•</span>{r}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSurveyRequired(true);
+                        setSurveyFeePounds(String(Math.round(scopeRisk.suggestedFeePence / 100)));
+                      }}
+                      className="shrink-0 rounded-md bg-handy-navy px-3 py-1.5 text-xs font-bold text-white hover:bg-handy-navy/90 active:scale-[0.98] transition-transform whitespace-nowrap"
+                    >
+                      Require survey (£{Math.round(scopeRisk.suggestedFeePence / 100)})
+                    </button>
+                  </div>
+                </div>
+              )}
+              <Label htmlFor="survey-required" className="flex items-start gap-3 cursor-pointer select-none">
+                <Ruler className={cn("w-5 h-5 shrink-0 mt-0.5", surveyRequired ? "text-[#7DB00E]" : "text-handy-navy/50")} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-bold text-handy-navy text-sm">Survey required before booking</span>
+                    <Switch id="survey-required" checked={surveyRequired} onCheckedChange={setSurveyRequired} />
+                  </div>
+                  <div className="text-xs text-handy-navy/70 mt-0.5">
+                    Customer can't book the job (no flexible slot, no date-pick). They book &amp; pay a site survey first — the job is quoted properly on the day. Use when the scope can't be trusted sight-unseen.
+                  </div>
+                </div>
+              </Label>
+              {surveyRequired && (
+                <div className="mt-3 pl-8 flex items-center gap-3">
+                  <Label htmlFor="survey-fee" className="text-xs font-semibold text-handy-navy whitespace-nowrap">
+                    Survey fee (£)
+                  </Label>
+                  <div className="relative w-32">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-handy-navy/60 text-sm">£</span>
+                    <Input
+                      id="survey-fee"
+                      type="number"
+                      min={0}
+                      step={5}
+                      inputMode="numeric"
+                      value={surveyFeePounds}
+                      onChange={(e) => setSurveyFeePounds(e.target.value)}
+                      placeholder="49"
+                      className="pl-6 h-9"
+                    />
+                  </div>
+                  <span className="text-[11px] text-handy-navy/60 leading-tight">
+                    Credited to the job. Required — must be more than £0.
+                  </span>
+                </div>
+              )}
+            </div>
+
             {/* ─── Section 5a: Optional Extras (AI suggestions + library + custom) ─── */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">
               <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
@@ -4309,6 +4609,62 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                     className="hidden"
                     onChange={(e) => {
                       void handlePhotoUpload(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </CardContent>
+            </Card>
+
+            {/* ─── Section 4e: Customer Videos (shown on the quote page with the photos) ─── */}
+            <Card id="cq-videos-section" className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                  <Video className="w-4 h-4 text-handy-yellow" />
+                  Customer Videos
+                </CardTitle>
+                <p className="text-xs text-white/70 mt-1">
+                  Short clips the customer sent of the job (WhatsApp/SMS). Shown on their quote page alongside the photos.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {customerVideos.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {customerVideos.map((url, i) => (
+                      <div key={url} className="relative group aspect-video rounded-lg overflow-hidden border border-border bg-black">
+                        <video src={url} controls playsInline className="w-full h-full object-contain" />
+                        <button
+                          type="button"
+                          aria-label="Remove video"
+                          onClick={() => setCustomerVideos((prev) => prev.filter((u) => u !== url))}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-600 transition-colors z-10"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-handy-navy/25 py-4 text-sm font-medium text-handy-navy/80 hover:border-handy-yellow hover:bg-handy-cream cursor-pointer transition-colors ${uploadingVideos ? 'opacity-60 pointer-events-none' : ''}`}>
+                  {uploadingVideos ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      {customerVideos.length > 0 ? 'Add more videos' : 'Add videos'}
+                      <span className="text-xs text-muted-foreground font-normal">(max 5)</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="video/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void handleVideoUpload(e.target.files);
                       e.target.value = '';
                     }}
                   />

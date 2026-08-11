@@ -143,6 +143,19 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
 
         const quote = quoteResult[0];
 
+        // Survey gate — this endpoint books & charges the JOB. A survey-required
+        // quote must go through a site survey first (paid via the visit intent),
+        // so refuse a job deposit here. Defense-in-depth: the customer page never
+        // renders the job booking card for these quotes, but a crafted or stale
+        // request must still be rejected before any money moves.
+        if (quote.surveyRequired) {
+            console.warn(`[Stripe] Blocked job deposit on survey-required quote ${quoteId}`);
+            return res.status(409).json({
+                message: 'This job needs a site survey before it can be booked. Please book your survey visit first.',
+                code: 'SURVEY_REQUIRED',
+            });
+        }
+
         // Update quote email BEFORE creating payment intent (ensures email is captured)
         if (customerEmail && customerEmail !== quote.email) {
             await db.update(personalizedQuotes)
@@ -1189,6 +1202,13 @@ stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
         // For diagnostic visits, use basePrice if set (single price model)
         if (quote.basePrice) {
             pricePence = quote.basePrice;
+        }
+
+        // Survey-gated quote — the visit fee is the dedicated survey fee, NOT
+        // the job's basePrice (which is the job estimate here). Authoritative:
+        // we charge the stored survey_fee_pence, never a client-sent amount.
+        if (quote.surveyRequired && quote.surveyFeePence) {
+            pricePence = quote.surveyFeePence;
         }
 
         // Server-authoritative lane pricing: the exact-slot lane adds the flat

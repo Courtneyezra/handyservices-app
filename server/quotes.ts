@@ -1549,6 +1549,15 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             return res.status(404).json({ error: "Quote not found" });
         }
 
+        // Survey gate — track-booking records a JOB booking. Survey-required
+        // quotes must be surveyed first, so refuse to record a job booking here
+        // (mirrors the create-payment-intent block; the visit path uses
+        // track-visit-booking instead).
+        if (quote.surveyRequired) {
+            console.warn(`[track-booking] Blocked job booking on survey-required quote ${id}`);
+            return res.status(409).json({ error: "This job needs a site survey before booking.", code: 'SURVEY_REQUIRED' });
+        }
+
         // Single price model — use basePrice (fall back to legacy tier columns),
         // re-deriving the lane-adjusted price server-side so this mirror of the price
         // matches what /create-payment-intent actually charged. No lane → flat base.

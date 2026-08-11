@@ -1038,6 +1038,17 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     bookingModes: jsonb("booking_modes").$type<string[]>(), // which booking options to show
     requiresHumanReview: boolean("requires_human_review").default(false), // flag for AI parser fallback
     reviewReason: text("review_reason"), // why human review is needed
+    // Survey gate — when true the customer CANNOT book the job (no flex, no
+    // date-pick). A physical site survey must happen first, so the quote page
+    // swaps the job booking card for a paid-survey booking card (fee below).
+    // Prevents mis-scoped jobs being committed sight-unseen (the "Alicia" case).
+    surveyRequired: boolean("survey_required").default(false),
+    surveyFeePence: integer("survey_fee_pence"), // survey/site-visit fee in pence (credited to the job)
+    // Quote-level "standard assumptions" — caveats the fixed price is based on
+    // (access, parking, existing installs sound…). Shown on the quote page so
+    // there's a documented basis to re-price if reality differs on the day.
+    // Per-line assumptions live inside pricing_line_items jsonb, not here.
+    quoteAssumptions: jsonb("quote_assumptions").$type<string[]>(),
     pricingLineItems: jsonb("pricing_line_items"), // full line item breakdown from contextual engine
     pricingLayerBreakdown: jsonb("pricing_layer_breakdown"), // L1/L3/L4 breakdown for admin reference
     batchDiscountPercent: integer("batch_discount_percent"), // batch discount applied (stored as whole number, e.g. 10 for 10%)

@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { addDays, startOfToday, format, isSameDay } from "date-fns";
 import { Calendar as CalendarIcon, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAvailability, formatDateStr } from "@/hooks/useAvailability";
+import { useQuoteAvailability, formatDateStr, type QuoteDateAvailability } from "@/hooks/useAvailability";
 
 export type VisitSlot = "am" | "pm";
 
@@ -14,6 +14,14 @@ export interface VisitBookingSelection {
 interface VisitDatePickerProps {
     onSelect: (selection: VisitBookingSelection) => void;
     selected?: VisitBookingSelection;
+    /**
+     * The quote whose LEAD/skin contractor's real availability drives the
+     * calendar — the SAME source the skinned contextual quote page uses. The
+     * server resolves the contractor (e.g. Craig) from the quote, so no
+     * contractor id is passed from the client.
+     */
+    quoteId?: string;
+    /** Retained for API compatibility; availability is now quote-scoped, not postcode-scoped. */
     postcode?: string;
     /** Earliest bookable day, counted from today (0 = today). */
     minDaysInFuture?: number;
@@ -22,64 +30,78 @@ interface VisitDatePickerProps {
     className?: string;
 }
 
+const INITIAL_VISIBLE = 8;
+
 /**
- * Dark-themed, availability-backed date picker for the diagnostic visit page.
+ * Dark-themed date picker for the diagnostic visit page — now backed by the
+ * SAME availability source and grid as the skinned contextual quote page.
  *
- * Unlike the legacy BookingCalendar (which invented 28 always-available days),
- * this reads the real master-availability engine via /api/public/availability:
- * blocked / weekend / fully-booked days are greyed out and only the am/pm
- * windows the engine actually returns are offered.
+ * It fetches the quote's lead-contractor availability via
+ * `useQuoteAvailability` (GET /api/public/quote/:id/availability), which the
+ * server scopes to the resolved lead/skin contractor (e.g. Craig). Only days
+ * that contractor is genuinely free are selectable; the am/pm windows come
+ * straight from what the engine returns for that day. Presented as the 4-column
+ * grid + "show more dates" the contextual quote uses, so the two calendars
+ * match.
  */
 export function VisitDatePicker({
     onSelect,
     selected,
-    postcode,
+    quoteId,
     minDaysInFuture = 0,
     days = 28,
     className,
 }: VisitDatePickerProps) {
     const [selectedDate, setSelectedDate] = useState<Date | undefined>(selected?.date);
     const [slot, setSlot] = useState<VisitSlot | undefined>(selected?.slot);
+    const [showAll, setShowAll] = useState(false);
 
     useEffect(() => {
         setSelectedDate(selected?.date);
         setSlot(selected?.slot);
     }, [selected]);
 
-    const { data, isLoading } = useAvailability({ postcode, days: days + 2 });
+    // Query am + pm separately so we know which windows the lead contractor has
+    // open on each day (the endpoint is slot-specific and returns only free days).
+    const amAvail = useQuoteAvailability({ quoteId, slot: "am", enabled: !!quoteId });
+    const pmAvail = useQuoteAvailability({ quoteId, slot: "pm", enabled: !!quoteId });
+    const isLoading = amAvail.isLoading || pmAvail.isLoading;
+    const hasData = amAvail.data !== undefined || pmAvail.data !== undefined;
 
-    // Map date string -> available slots for O(1) lookups.
-    const slotsByDate = useMemo(() => {
-        const map = new Map<string, ("am" | "pm" | "full")[]>();
-        for (const d of data?.dates ?? []) {
-            map.set(d.date, d.isAvailable ? d.slots : []);
-        }
-        return map;
-    }, [data]);
-
-    const dateList = useMemo(
-        () => Array.from({ length: days }, (_, i) => addDays(startOfToday(), minDaysInFuture + i)),
-        [days, minDaysInFuture]
-    );
-
-    const slotsForDate = (date: Date): { am: boolean; pm: boolean } => {
-        const raw = slotsByDate.get(formatDateStr(date));
-        // Before availability data arrives, fall back to "open weekdays" so the UI
-        // isn't empty; once data loads the real engine result takes over.
-        if (raw === undefined) {
-            const weekend = date.getDay() === 0 || date.getDay() === 6;
-            return { am: !weekend, pm: !weekend };
-        }
-        return {
-            am: raw.includes("am") || raw.includes("full"),
-            pm: raw.includes("pm") || raw.includes("full"),
+    // date string -> which windows are free for the lead contractor.
+    const availByDate = useMemo(() => {
+        const map = new Map<string, { am: boolean; pm: boolean }>();
+        const mark = (rows: QuoteDateAvailability[] | undefined, key: "am" | "pm") => {
+            for (const r of rows ?? []) {
+                const cur = map.get(r.date) ?? { am: false, pm: false };
+                cur[key] = true;
+                map.set(r.date, cur);
+            }
         };
-    };
+        mark(amAvail.data, "am");
+        mark(pmAvail.data, "pm");
+        return map;
+    }, [amAvail.data, pmAvail.data]);
+
+    // Calendar window: next `days` days, Sundays skipped (mirrors the contextual grid).
+    const dateList = useMemo(() => {
+        const out: Date[] = [];
+        let d = addDays(startOfToday(), minDaysInFuture);
+        for (let guard = 0; out.length < days && guard < days + 21; guard++) {
+            if (d.getDay() !== 0) out.push(d); // skip Sundays
+            d = addDays(d, 1);
+        }
+        return out;
+    }, [days, minDaysInFuture]);
+
+    // No entry for a date = the lead contractor isn't free that day. Before data
+    // loads nothing is selectable, so we never surface a day Craig can't do.
+    const slotsForDate = (date: Date): { am: boolean; pm: boolean } =>
+        availByDate.get(formatDateStr(date)) ?? { am: false, pm: false };
 
     const handleDate = (date: Date) => {
         setSelectedDate(date);
-        // Reset slot when the day changes so a stale am/pm can't carry over.
-        setSlot(undefined);
+        setSlot(undefined); // reset window when the day changes
     };
 
     const handleSlot = (s: VisitSlot) => {
@@ -88,87 +110,102 @@ export function VisitDatePicker({
     };
 
     const selectedSlots = selectedDate ? slotsForDate(selectedDate) : { am: false, pm: false };
+    const visible = showAll ? dateList : dateList.slice(0, INITIAL_VISIBLE);
+    const noneAvailable = hasData && !isLoading && availByDate.size === 0;
 
     return (
         <div className={cn("space-y-4", className)}>
             <div className="flex items-center gap-2">
                 <CalendarIcon className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">Select a date</h3>
+                <h3 className="text-sm font-bold text-white">Pick a date</h3>
                 {isLoading && <span className="text-[10px] text-slate-500">checking availability…</span>}
             </div>
 
-            {/* Horizontal date strip */}
-            <div className="flex overflow-x-auto py-3 gap-2 scrollbar-thin scrollbar-thumb-slate-700 -mx-1 px-1">
-                {dateList.map((date) => {
-                    const { am, pm } = slotsForDate(date);
-                    const available = am || pm;
-                    const isSelected = selectedDate && isSameDay(date, selectedDate);
-
-                    return (
-                        <button
-                            key={date.toISOString()}
-                            type="button"
-                            disabled={!available}
-                            onClick={() => available && handleDate(date)}
-                            aria-label={
-                                available
-                                    ? format(date, "EEEE, MMMM d")
-                                    : `${format(date, "EEEE, MMMM d")} — fully booked`
-                            }
-                            className={cn(
-                                "min-w-[70px] flex-shrink-0 flex flex-col items-center gap-1 py-3 rounded-xl border-2 transition-all",
-                                !available
-                                    ? "opacity-40 cursor-not-allowed bg-slate-900/40 border-slate-800 text-slate-500"
-                                    : isSelected
-                                        ? "border-amber-400 text-amber-100 bg-amber-950/60 shadow-[0_0_20px_rgba(251,191,36,0.6)] scale-105 z-10"
-                                        : "bg-slate-900/80 border-amber-500/40 text-amber-100/80 hover:border-amber-400 hover:bg-amber-950/40"
-                            )}
-                        >
-                            <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">
-                                {format(date, "EEE")}
-                            </span>
-                            <span className="text-xl font-black">{format(date, "d")}</span>
-                            <span className="text-[10px] font-medium opacity-60">{format(date, "MMM")}</span>
-                            {!available && (
-                                <span className="text-[7px] font-semibold text-red-400/80">Full</span>
-                            )}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {/* Time window — only the windows the engine offers for the chosen day */}
-            {selectedDate && (
-                <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <h4 className="text-xs font-bold text-slate-400 flex items-center gap-2 uppercase tracking-wide">
-                        <Clock className="w-3 h-3 text-emerald-400" /> Available windows
-                    </h4>
-                    <div className="grid grid-cols-2 gap-2">
-                        {([
-                            { id: "am" as const, label: "Morning", range: "8am – 12pm", open: selectedSlots.am },
-                            { id: "pm" as const, label: "Afternoon", range: "12pm – 5pm", open: selectedSlots.pm },
-                        ]).map((w) => (
-                            <button
-                                key={w.id}
-                                type="button"
-                                disabled={!w.open}
-                                onClick={() => w.open && handleSlot(w.id)}
-                                className={cn(
-                                    "py-3 rounded-lg border-2 flex flex-col items-center gap-0.5 transition-all",
-                                    !w.open
-                                        ? "opacity-40 cursor-not-allowed bg-slate-900/40 border-slate-800 text-slate-500"
-                                        : slot === w.id
-                                            ? "border-amber-400 text-amber-100 bg-amber-950/60 shadow-[0_0_18px_rgba(251,191,36,0.6)]"
-                                            : "bg-slate-900/80 border-amber-500/40 text-amber-100/80 hover:border-amber-400 hover:bg-amber-950/40"
-                                )}
-                            >
-                                <span className="font-bold text-xs">{w.label}</span>
-                                <span className="text-[9px] opacity-70">{w.range}</span>
-                                {!w.open && <span className="text-[7px] text-red-400/80">Full</span>}
-                            </button>
-                        ))}
+            {noneAvailable ? (
+                <p className="text-sm text-slate-400 bg-slate-900/50 border border-slate-700 rounded-lg p-3">
+                    No online slots right now — message Ben and we&rsquo;ll fit you in.
+                </p>
+            ) : (
+                <>
+                    {/* 4-column date grid — mirrors the contextual quote calendar */}
+                    <div className="grid grid-cols-4 gap-2">
+                        {visible.map((date) => {
+                            const { am, pm } = slotsForDate(date);
+                            const available = am || pm;
+                            const isSelected = selectedDate && isSameDay(date, selectedDate);
+                            return (
+                                <button
+                                    key={date.toISOString()}
+                                    type="button"
+                                    disabled={!available}
+                                    onClick={() => available && handleDate(date)}
+                                    aria-label={
+                                        available
+                                            ? format(date, "EEEE, MMMM d")
+                                            : `${format(date, "EEEE, MMMM d")} — fully booked`
+                                    }
+                                    className={cn(
+                                        "flex flex-col items-center gap-0.5 py-2.5 rounded-xl border-2 transition-all",
+                                        !available
+                                            ? "opacity-40 cursor-not-allowed bg-slate-900/40 border-slate-800 text-slate-500"
+                                            : isSelected
+                                                ? "border-amber-400 text-amber-100 bg-amber-950/60 shadow-[0_0_16px_rgba(251,191,36,0.5)]"
+                                                : "bg-slate-900/70 border-slate-700 text-slate-200 hover:border-amber-400/70 hover:bg-amber-950/30"
+                                    )}
+                                >
+                                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">{format(date, "EEE")}</span>
+                                    <span className="text-lg font-black leading-none">{format(date, "d")}</span>
+                                    <span className="text-[10px] font-medium opacity-60">{format(date, "MMM")}</span>
+                                    {!available && hasData && <span className="text-[7px] font-semibold text-slate-500">Full</span>}
+                                </button>
+                            );
+                        })}
                     </div>
-                </div>
+
+                    {dateList.length > INITIAL_VISIBLE && (
+                        <button
+                            type="button"
+                            onClick={() => setShowAll((v) => !v)}
+                            className="text-xs font-semibold text-amber-300/80 hover:text-amber-200 transition-colors"
+                        >
+                            {showAll ? "Show fewer dates" : "Show more dates"}
+                        </button>
+                    )}
+
+                    {/* Time window — only the windows the lead contractor has free that day */}
+                    {selectedDate && (
+                        <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <h4 className="text-xs font-bold text-slate-400 flex items-center gap-2 uppercase tracking-wide">
+                                <Clock className="w-3 h-3 text-emerald-400" /> Choose a window
+                            </h4>
+                            <div className="grid grid-cols-2 gap-2">
+                                {([
+                                    { id: "am" as const, label: "Morning", range: "8am – 1pm", open: selectedSlots.am },
+                                    { id: "pm" as const, label: "Afternoon", range: "1pm – 6pm", open: selectedSlots.pm },
+                                ]).map((w) => (
+                                    <button
+                                        key={w.id}
+                                        type="button"
+                                        disabled={!w.open}
+                                        onClick={() => w.open && handleSlot(w.id)}
+                                        className={cn(
+                                            "py-3 rounded-lg border-2 flex flex-col items-center gap-0.5 transition-all",
+                                            !w.open
+                                                ? "opacity-40 cursor-not-allowed bg-slate-900/40 border-slate-800 text-slate-500"
+                                                : slot === w.id
+                                                    ? "border-amber-400 text-amber-100 bg-amber-950/60 shadow-[0_0_16px_rgba(251,191,36,0.5)]"
+                                                    : "bg-slate-900/70 border-slate-700 text-slate-200 hover:border-amber-400/70 hover:bg-amber-950/30"
+                                        )}
+                                    >
+                                        <span className="font-bold text-xs">{w.label}</span>
+                                        <span className="text-[9px] opacity-70">{w.range}</span>
+                                        {!w.open && <span className="text-[7px] text-slate-500">Full</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
