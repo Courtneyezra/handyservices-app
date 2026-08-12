@@ -3306,6 +3306,77 @@ router.patch('/api/pricing/quotes/:id', async (req, res) => {
   }
 });
 
+// ── Decision-layer monitor ───────────────────────────────────────────────────
+// One aggregate read over the decision log for /admin/offer-decisions: play
+// mix, unmet-intent leaderboard (the build queue), rules-vs-shadow
+// disagreements, gift-pick popularity, and the recent decision stream joined
+// to quote outcomes. Offers are the first decided dimension; copy/imagery/
+// style decisions are designed to land on the same rows later, so this
+// endpoint (and the page on it) is the monitor for the whole layer.
+router.get('/api/admin/offer-decisions/summary', requireAdmin, async (req, res) => {
+  try {
+    const daysBack = Math.min(Math.max(parseInt(String(req.query.days)) || 30, 1), 180);
+    const sinceSql = `now() - interval '${daysBack} days'`;
+    // Test-data scrub (memory'd convention): 07700900xxx phones + Test names
+    const scrub = `q.phone NOT LIKE '%7700900%' AND q.customer_name NOT ILIKE 'test%'`;
+
+    const [playMix, unmetIntent, disagreements, giftPicks, recent] = await Promise.all([
+      db.execute(sql.raw(`
+        SELECT d.served_play, COUNT(*)::int AS decisions,
+               COUNT(*) FILTER (WHERE q.deposit_paid_at IS NOT NULL)::int AS paid,
+               COUNT(*) FILTER (WHERE q.viewed_at IS NOT NULL OR q.view_count > 0)::int AS viewed
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND ${scrub}
+        GROUP BY d.served_play ORDER BY decisions DESC`)),
+      db.execute(sql.raw(`
+        SELECT d.target_play, COUNT(*)::int AS wanted,
+               COALESCE(SUM((d.inputs->>'totalPence')::bigint), 0)::bigint AS total_pence
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND d.target_play <> d.served_play AND ${scrub}
+        GROUP BY d.target_play ORDER BY wanted DESC`)),
+      db.execute(sql.raw(`
+        SELECT d.slug, d.decided_at, d.rule_fired, d.target_play, d.shadow_play,
+               d.shadow_stakes, d.inputs->>'stakes' AS rules_stakes, d.shadow_rationale
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND d.shadow_play IS NOT NULL
+          AND d.shadow_play <> d.target_play AND ${scrub}
+        ORDER BY d.decided_at DESC LIMIT 50`)),
+      db.execute(sql.raw(`
+        SELECT e.gift_id, COUNT(*)::int AS accepts
+        FROM quote_offer_events e
+        JOIN personalized_quotes q ON q.id = e.quote_id
+        WHERE e.created_at >= ${sinceSql} AND e.event = 'accept'
+          AND e.gift_id IS NOT NULL AND ${scrub}
+        GROUP BY e.gift_id ORDER BY accepts DESC`)),
+      db.execute(sql.raw(`
+        SELECT d.slug, d.decided_at, d.rule_fired, d.target_play, d.served_play,
+               d.decided_by, d.shadow_play, d.rationale,
+               d.inputs->>'stakes' AS stakes, d.inputs->>'priceBand' AS price_band,
+               d.inputs->>'customerType' AS customer_type,
+               q.customer_name, q.base_price, q.deposit_paid_at IS NOT NULL AS paid
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND ${scrub}
+        ORDER BY d.decided_at DESC LIMIT 100`)),
+    ]);
+
+    return res.json({
+      days: daysBack,
+      playMix: playMix.rows,
+      unmetIntent: unmetIntent.rows,
+      disagreements: disagreements.rows,
+      giftPicks: giftPicks.rows,
+      recent: recent.rows,
+    });
+  } catch (err) {
+    console.error('[OfferMonitor] summary failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to load decision summary' });
+  }
+});
+
 // ── Offer decision log (observation mode) ────────────────────────────────────
 // Latest router decision for a quote — the builder's decision card refetches
 // through this after an override.
