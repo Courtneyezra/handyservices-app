@@ -69,6 +69,34 @@ const ORBIT_SLOTS = 5;
 // vertical/roster) is still loading — generic initials, no real identity.
 const POOL_INITIALS = ['J', 'A', 'K', 'M', 'S'];
 
+/**
+ * Avatar that shows its INITIAL until the image has actually loaded, then
+ * fades the photo in. Fixes the first-visit blank-circles beat: plain <img>
+ * tags only start downloading when the theatre mounts, so on a cold cache the
+ * orbit (and Ben) rendered as empty rings for the opening frames. The ref
+ * callback catches already-cached images whose load event fired before React
+ * attached the handler.
+ */
+function FadeInAvatar({ src, alt, fallback }: { src: string; alt: string; fallback?: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div className="relative w-full h-full">
+      {!loaded && fallback && (
+        <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white/80" aria-hidden="true">
+          {fallback}
+        </span>
+      )}
+      <img
+        src={src}
+        alt={alt}
+        ref={(el) => { if (el?.complete && el.naturalWidth > 0) setLoaded(true); }}
+        onLoad={() => setLoaded(true)}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      />
+    </div>
+  );
+}
+
 interface QuotePreparingScreenProps {
   /** Underlying quote data + above-the-fold assets are ready. Gates completion. */
   ready: boolean;
@@ -132,6 +160,22 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
   const matched = (matchedHandymen && matchedHandymen.length > 0) ? matchedHandymen : defaultMatchForVertical(vertical);
   const chosen = matched[0];
   const skinFirstName = chosen.name.split(/\s+/)[0];
+
+  // Warm the avatar cache the moment the theatre mounts (and again if the
+  // vertical resolves late) so the orbit fills with faces within the first
+  // beat instead of after each network round-trip. FadeInAvatar covers the
+  // frames before each image lands with the slot's initial.
+  useEffect(() => {
+    const urls = [
+      '/assets/quote-images/ben-estimator.webp',
+      chosen?.avatarUrl,
+      ...orbitAvatarsForVertical(vertical),
+    ].filter(Boolean) as string[];
+    for (const url of urls) {
+      const img = new Image();
+      img.src = url;
+    }
+  }, [vertical, chosen?.avatarUrl]);
   const outwardPostcode = postcode?.trim().split(/\s+/)[0]?.toUpperCase();
 
   const reduceMotion =
@@ -307,8 +351,8 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
           {/* Ben — centre while consulting; bows out on resolve */}
           <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 transition-all duration-500 ${resolved ? 'opacity-0 scale-75' : 'opacity-100 scale-100'}`}>
             <div className="relative">
-              <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-lg">
-                <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
+              <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-lg bg-white/10">
+                <FadeInAvatar src="/assets/quote-images/ben-estimator.webp" alt="Ben" fallback="B" />
               </div>
               <span className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-[#7DB00E] ring-2 ring-[#1D2D3D]" aria-hidden="true" />
             </div>
@@ -328,7 +372,7 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
                     <div className={`w-full h-full ${reduceMotion ? '' : 'hs-orbit-unspin'}`}>
                       {s.avatarUrl ? (
                         <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-white/70 shadow-md bg-white/10">
-                          <img src={s.avatarUrl} alt="" className="w-full h-full object-cover" />
+                          <FadeInAvatar src={s.avatarUrl} alt="" fallback={POOL_INITIALS[i]} />
                         </div>
                       ) : (
                         <div className="w-11 h-11 rounded-full border-2 border-white/40 bg-white/10 flex items-center justify-center text-sm font-bold text-white/80 shadow-md">
@@ -353,8 +397,8 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
                   from this exact rect, so a fading ghost here would double. */}
               <div style={{ opacity: offerShown ? 0 : 1 }}>
               <div className="relative" style={{ animation: 'hs-pop .5s cubic-bezier(.23,1,.32,1) both' }}>
-                <div ref={bigAvatarRef} className="w-32 h-32 rounded-full overflow-hidden border-4 border-[#7DB00E] shadow-2xl">
-                  <img src={chosen.avatarUrl} alt={chosen.name} className="w-full h-full object-cover" />
+                <div ref={bigAvatarRef} className="w-32 h-32 rounded-full overflow-hidden border-4 border-[#7DB00E] shadow-2xl bg-white/10">
+                  <FadeInAvatar src={chosen.avatarUrl} alt={chosen.name} fallback={(chosen.name || '?').charAt(0)} />
                 </div>
                 <span className="absolute top-0 right-0 w-8 h-8 rounded-full bg-[#7DB00E] flex items-center justify-center ring-4 ring-[#1D2D3D]" style={{ animation: 'hs-pop .45s ease-out .3s both' }}>
                   <Check className="w-4.5 h-4.5 text-white" strokeWidth={3.5} />
@@ -423,8 +467,8 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
                 position and must be free to travel outside this row. */}
             <div className="flex items-center gap-3 text-left pt-1.5 pb-3 border-b border-white/10 mb-1">
               <div ref={lhAvatarRef} className="relative shrink-0 z-30">
-                <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#7DB00E]">
-                  <img src={chosen.avatarUrl} alt={chosen.name} className="w-full h-full object-cover" />
+                <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#7DB00E] bg-white/10">
+                  <FadeInAvatar src={chosen.avatarUrl} alt={chosen.name} fallback={(chosen.name || '?').charAt(0)} />
                 </div>
                 <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#7DB00E] flex items-center justify-center ring-2 ring-[#1D2D3D]">
                   <Check className="w-2.5 h-2.5 text-white" strokeWidth={4} />
