@@ -240,18 +240,16 @@ router.post('/api/pricing/survey-audio', surveyAudioUpload.single('file'), async
     // Transcribe via Whisper — best-effort. Never fail the upload on a
     // transcription error; the audio is already saved.
     let transcript: string | null = null;
-    let transcriptError: string | null = null;
     try {
       // Deepgram (nova-2) — already proven in prod; reachable where OpenAI wasn't.
       const dg = await transcribeAudio(file.buffer);
       transcript = dg.text || null;
     } catch (transcribeError: any) {
-      transcriptError = `${transcribeError?.name || 'Error'}: msg=${transcribeError?.message}`;
-      console.warn('[SurveyAudio] Deepgram transcription failed (audio still saved):', transcriptError);
+      console.warn('[SurveyAudio] Deepgram transcription failed (audio still saved):', transcribeError?.message);
     }
 
     console.log(`[SurveyAudio] Uploaded voice note${transcript ? ' (transcribed)' : ' (no transcript)'}`);
-    res.json({ url, transcript, transcriptError });
+    res.json({ url, transcript });
   } catch (error) {
     console.error('[SurveyAudio] Upload failed:', error);
     res.status(500).json({ error: 'Audio upload failed' });
