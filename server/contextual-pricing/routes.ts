@@ -38,7 +38,7 @@ import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
 import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, uploadSurveyAudioToS3, isS3Configured } from '../s3-media';
-import { transcribeAudioBuffer } from '../openai';
+import { transcribeAudio } from '../deepgram';
 import { geocodePostcode } from '../lib/geocode';
 import { notifySiteSurveySubmitted } from '../pushover';
 import type {
@@ -242,11 +242,12 @@ router.post('/api/pricing/survey-audio', surveyAudioUpload.single('file'), async
     let transcript: string | null = null;
     let transcriptError: string | null = null;
     try {
-      // Whisper reads the format from the filename extension.
-      transcript = await transcribeAudioBuffer(file.buffer, `survey-note${ext}`);
+      // Deepgram (nova-2) — already proven in prod; reachable where OpenAI wasn't.
+      const dg = await transcribeAudio(file.buffer);
+      transcript = dg.text || null;
     } catch (transcribeError: any) {
-      transcriptError = `${transcribeError?.name || 'Error'}: status=${transcribeError?.status} code=${transcribeError?.code} type=${transcribeError?.type} msg=${transcribeError?.message}`;
-      console.warn('[SurveyAudio] Whisper transcription failed (audio still saved):', transcriptError);
+      transcriptError = `${transcribeError?.name || 'Error'}: msg=${transcribeError?.message}`;
+      console.warn('[SurveyAudio] Deepgram transcription failed (audio still saved):', transcriptError);
     }
 
     console.log(`[SurveyAudio] Uploaded voice note${transcript ? ' (transcribed)' : ' (no transcript)'}`);
