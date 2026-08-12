@@ -1535,6 +1535,15 @@ export function UnifiedQuoteCard({
   // un-pauses. The server enforces the same floor authoritatively.
   const giftPausedBySplit = !!giftId && hasDeferrals && splitActiveTotalPence < giftMinQuotePence;
   const payloadGiftId = giftPausedBySplit ? undefined : (giftId || undefined);
+  // Attention pulse on the flip TO paused — the cross-off happens up in the
+  // line list, so without a movement cue the gift card's colour change below
+  // is easy to miss. Re-keying the animation each flip replays it.
+  const [giftPauseFlash, setGiftPauseFlash] = useState(0);
+  const prevGiftPaused = useRef(false);
+  useEffect(() => {
+    if (giftPausedBySplit && !prevGiftPaused.current) setGiftPauseFlash((n) => n + 1);
+    prevGiftPaused.current = giftPausedBySplit;
+  }, [giftPausedBySplit]);
 
   // ── Animated hero price ────────────────────────────────────────────────
   // The price rolls up/down live on any selection change (addons, Saturday,
@@ -2289,11 +2298,19 @@ export function UnifiedQuoteCard({
                     £0 to every total and the server validates + prices the gift
                     itself at payment. */}
                 {giftItem && (
-                  <div className={`rounded-lg overflow-hidden ring-1 transition-opacity ${
+                  <div
+                    key={giftPausedBySplit ? `gift-paused-${giftPauseFlash}` : 'gift-active'}
+                    style={giftPausedBySplit ? { animation: 'hs-gift-pause-flash 0.9s ease-out' } : undefined}
+                    className={`rounded-lg overflow-hidden ring-1 transition-opacity ${
                     giftPausedBySplit
                       ? (isDarkTheme ? 'ring-amber-400/40 bg-amber-400/[0.08] opacity-80' : 'ring-amber-400/50 bg-amber-50 opacity-90')
                       : (isDarkTheme ? 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.12]' : 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.08]')
                   }`}>
+                    <style>{`@keyframes hs-gift-pause-flash {
+                      0% { box-shadow: 0 0 0 0 rgba(251,191,36,0.7); transform: scale(1); }
+                      35% { box-shadow: 0 0 0 6px rgba(251,191,36,0.25); transform: scale(1.015); }
+                      100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); transform: scale(1); }
+                    }`}</style>
                     <div className="w-full flex items-center gap-2.5 px-2.5 py-2.5 text-left">
                       <div className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
                         giftPausedBySplit ? 'bg-amber-400' : 'bg-[#7DB00E] shadow-[0_2px_8px_rgba(125,176,14,0.35)]'
