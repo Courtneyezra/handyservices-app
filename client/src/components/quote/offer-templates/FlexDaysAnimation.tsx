@@ -58,7 +58,7 @@ export function FlexDaysAnimation() {
       `}</style>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-4 sm:p-5">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400 mb-3 text-center">
-          Cross off days that don't work — we book the rest
+          Pick the day that works — same job, lower price
         </p>
         <div className="grid grid-cols-6 gap-1.5">
           {DAYS.map((day) => (

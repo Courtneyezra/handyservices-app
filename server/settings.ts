@@ -481,6 +481,10 @@ router.get('/pricing/public', async (req, res) => {
             // copy + which offer is live). Safe to expose: no pricing internals,
             // and the £ saving is re-derived client-side from the quote's base.
             quoteOffers: settings.quoteOffers,
+            // Welcome gift pool cap — the client filters the addon menu to items
+            // at/under this many minutes when rendering the gift picker. Safe to
+            // expose (a display rule); eligibility + money stay server-side.
+            welcomeGiftMaxMinutes: settings.welcomeGiftMaxMinutes,
         });
     } catch (error) {
         console.error('[Settings] Failed to fetch public pricing settings:', error);

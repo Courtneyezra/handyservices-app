@@ -37,6 +37,7 @@ const DEFAULT_OFFERS: QuoteOffersConfig = DEFAULT_PRICING_SETTINGS.quoteOffers;
 const OFFER_TYPES: { id: QuoteOfferType; label: string }[] = [
     { id: "flex_date", label: "Flexible date (skip firm-date fee)" },
     { id: "add_task", label: "Add a task" },
+    { id: "welcome_gift", label: "Welcome gift (one free small task)" },
     { id: "membership", label: "Membership" },
 ];
 
@@ -89,9 +90,9 @@ function blankOffer(): QuoteOffer {
         weight: 1,
         eyebrow: "One quick choice before your price",
         headline: "Stay flexible",
-        subhead: "We pick the best day within {days} days — same fixed price.",
+        subhead: "Pick any available day — same fixed price.",
         benefits: [
-            { icon: "calendar", text: "We find the best slot for you within {days} days" },
+            { icon: "calendar", text: "Choose any available day on the calendar" },
             { icon: "shield", text: "Same fixed price and workmanship guarantee" },
             { icon: "wallet", text: "Skip the {savings} firm date & time fee" },
         ],

@@ -97,7 +97,12 @@ export function pickQuoteOffer(
   if (!config || !config.enabled) return null;
   const group = resolveOfferGroup(config, customerType);
   if (!group || !Array.isArray(group.items)) return null;
-  const enabled = group.items.filter((o) => o && o.enabled);
+  // The FLEX lane was deleted (Aug 2026): flex_date offers are retired and must
+  // never be shown, INCLUDING old flex offers still configured in the DB copy of
+  // pricing_settings. Filtering them here (not just in code defaults) means a
+  // stale DB group degrades gracefully: another enabled offer is picked if one
+  // exists, else no offer is shown (straight to the price) — never a crash.
+  const enabled = group.items.filter((o) => o && o.enabled && o.type !== 'flex_date');
   if (enabled.length === 0) return null;
 
   if (group.selectionMode === 'weighted') {

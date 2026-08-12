@@ -214,6 +214,27 @@ router.get('/availability/config', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * GET /api/public/addon-menu
+ * The pre-priced small-job menu behind the customer quote page's 'add_task'
+ * offer ("Craig's already coming — add another job, ~25% off"). Served from
+ * server-stored pricing settings so the menu (and every price on it) has ONE
+ * source of truth: the client renders these items and sends back only ids;
+ * /api/create-payment-intent re-resolves the ids against the same settings
+ * when charging, so payment stays server-authoritative.
+ */
+router.get('/addon-menu', async (_req: Request, res: Response) => {
+    try {
+        const { getPricingSettings } = await import('./pricing-settings');
+        const settings = await getPricingSettings();
+        const menu = Array.isArray(settings.addonMenu) ? settings.addonMenu : [];
+        res.json(menu);
+    } catch (error: any) {
+        console.error('[PublicAPI] Get addon menu error:', error);
+        res.json([]); // empty menu = offer degrades to benefits-only, never breaks the page
+    }
+});
+
 // ============================================================================
 // CONTRACTOR PUBLIC PROFILE ROUTES
 // ============================================================================
@@ -645,7 +666,16 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
         // multi-day jobs only surface valid start dates. Multi-day jobs are
         // always full_day regardless of the slot query param.
         const { computeBookingDurationDays } = await import('../shared/schedule-composition');
-        const lineItems = (quote.pricingLineItems as any[]) || [];
+        let lineItems = (quote.pricingLineItems as any[]) || [];
+        // add_task offer addons — extra on-site minutes the customer is adding
+        // (client sends the selected addons' scheduleMinutes sum). Appended as a
+        // pseudo-line so slot sizing / multi-day spans reflect the REAL visit
+        // length and the calendar stays capacity-true. Clamped defensively:
+        // this is a public query param, not a money path.
+        const extraMinutes = Math.min(8 * 60, Math.max(0, parseInt(String(req.query.extraMinutes ?? ''), 10) || 0));
+        if (extraMinutes > 0) {
+            lineItems = [...lineItems, { scheduleMinutes: extraMinutes, timeEstimateMinutes: extraMinutes }];
+        }
         const requiredDays = computeBookingDurationDays(lineItems, {
             floorNumber: (quote as any).floorNumber ?? null,
             hasLift: (quote as any).hasLift ?? null,

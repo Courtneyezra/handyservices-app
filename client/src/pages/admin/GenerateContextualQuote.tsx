@@ -1513,9 +1513,13 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   // remotely and just need the customer to book a survey visit.
   const [visitLinkOnly, setVisitLinkOnly] = useState<boolean>(false);
   const [visitReason, setVisitReason] = useState<string>('');
-  const [visitResult, setVisitResult] = useState<{ visitUrl: string; whatsappSendUrl: string; shortSlug: string } | null>(null);
+  const [visitResult, setVisitResult] = useState<{ visitUrl: string; whatsappSendUrl: string; shortSlug: string; whatsappMessage?: string; waPhone?: string } | null>(null);
   const [visitLinkPending, setVisitLinkPending] = useState(false);
   const [copiedVisitLink, setCopiedVisitLink] = useState(false);
+  // Editable WhatsApp message for the visit link (AI-generated, Ben can tweak).
+  const [visitMessage, setVisitMessage] = useState('');
+  const [copiedVisitMsg, setCopiedVisitMsg] = useState(false);
+  const [regeneratingVisitMsg, setRegeneratingVisitMsg] = useState(false);
 
   // ── Customer-supplied job photos (shown on the customer quote page) ──
   const [customerPhotos, setCustomerPhotos] = useState<string[]>([]);
@@ -3091,12 +3095,38 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Failed to create visit link'); }
       const data = await res.json();
-      setVisitResult({ visitUrl: data.visitUrl, whatsappSendUrl: data.whatsappSendUrl, shortSlug: data.shortSlug });
-      toast({ title: 'Visit link ready!', description: 'Send it to the customer via WhatsApp.' });
+      setVisitResult({ visitUrl: data.visitUrl, whatsappSendUrl: data.whatsappSendUrl, shortSlug: data.shortSlug, whatsappMessage: data.whatsappMessage, waPhone: data.waPhone });
+      setVisitMessage(data.whatsappMessage || '');
+      toast({ title: 'Visit link ready!', description: 'Review the message and send via WhatsApp.' });
     } catch (e) {
       toast({ title: 'Could not create visit link', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' });
     } finally {
       setVisitLinkPending(false);
+    }
+  };
+
+  // Regenerate the visit WhatsApp message (after Ben tweaks the reason).
+  const regenerateVisitMessage = async () => {
+    if (!visitResult) return;
+    setRegeneratingVisitMsg(true);
+    try {
+      const res = await fetch('/api/pricing/draft-visit-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          customerName,
+          reason: visitReason.trim() || undefined,
+          surveyFeePence: Math.round(Number(surveyFeePounds) * 100),
+          visitUrl: visitResult.visitUrl,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      if (data.message) setVisitMessage(data.message);
+    } catch {
+      toast({ title: 'Could not regenerate', description: 'Edit the message manually or try again.', variant: 'destructive' });
+    } finally {
+      setRegeneratingVisitMsg(false);
     }
   };
 
@@ -3229,6 +3259,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     setSurveyRequired(false);
     setVisitResult(null);
     setVisitReason('');
+    setVisitMessage('');
     setSurveyFeePounds('');
     setAvailableDates([]);
     setDatePickerMonth(new Date());
@@ -5089,11 +5120,52 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                     <ExternalLink className="w-4 h-4" />
                   </Button>
                 </div>
+                {/* Editable WhatsApp message (AI-generated from the reason). */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="visit-message" className="text-sm font-semibold text-handy-navy">Message to send</Label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={regenerateVisitMessage}
+                        disabled={regeneratingVisitMsg}
+                        className="flex items-center gap-1 text-xs font-medium text-handy-navy/60 hover:text-handy-navy disabled:opacity-40 transition-colors"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${regeneratingVisitMsg ? 'animate-spin' : ''}`} />
+                        {regeneratingVisitMsg ? 'Rewriting…' : 'Regenerate'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(visitMessage);
+                          setCopiedVisitMsg(true);
+                          setTimeout(() => setCopiedVisitMsg(false), 1500);
+                        }}
+                        className="flex items-center gap-1 text-xs font-medium text-handy-navy/60 hover:text-handy-navy transition-colors"
+                      >
+                        {copiedVisitMsg ? <Check className="w-3.5 h-3.5 text-[#7DB00E]" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedVisitMsg ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                  <Textarea
+                    id="visit-message"
+                    value={visitMessage}
+                    onChange={(e) => setVisitMessage(e.target.value)}
+                    rows={5}
+                    className="text-sm border-handy-grid focus:border-handy-yellow resize-none leading-relaxed"
+                  />
+                </div>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Button
                     size="lg"
                     className="w-full sm:flex-1 h-12 text-base font-semibold bg-[#25D366] hover:bg-[#20bd5a] text-white"
-                    onClick={() => window.open(visitResult.whatsappSendUrl, '_blank')}
+                    onClick={() => {
+                      const url = visitResult.waPhone
+                        ? `https://wa.me/${visitResult.waPhone}?text=${encodeURIComponent(visitMessage)}`
+                        : visitResult.whatsappSendUrl;
+                      window.open(url, '_blank');
+                    }}
                   >
                     Send via WhatsApp
                   </Button>

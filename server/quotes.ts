@@ -19,6 +19,7 @@ import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 import { normalizeQuoteImageUrls } from "./quote-image-utils";
 import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
+import { isWelcomeGiftEligible, resolveWelcomeGift } from "./welcome-gift";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
 
@@ -1346,6 +1347,15 @@ quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res
         // trade/inc-VAT prices, supplier SKU and buy-link so our materials margin
         // never leaves the server for a customer — even in the raw network payload.
         // Authenticated admin/VA viewers (e.g. the quote editor) keep the full data.
+        // Welcome gift eligibility — first-time customer (no OTHER quote on this
+        // phone/email with a paid deposit) AND quote value over the settings
+        // floor. Computed here so the quote page can show/skip the gift
+        // interstitial without a second round-trip; the money paths re-validate
+        // server-side regardless. Fails closed (false) inside the helper.
+        const welcomeGiftEligible = !quote.depositPaidAt
+            ? await isWelcomeGiftEligible(quote as any)
+            : false;
+
         const viewer = (req as any).user;
         const isAdminViewer = !!viewer && (viewer.role === 'admin' || viewer.role === 'va');
         const publicPricingLineItems = (!isAdminViewer && Array.isArray(quote.pricingLineItems))
@@ -1392,6 +1402,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res
             },
             selectedContent,
             upsellSkus,
+            welcomeGiftEligible,
         });
 
     } catch (error) {
@@ -1527,9 +1538,19 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             // Phase 25 flex — the chosen flex window ("we pick a day within N days").
             // Belt-and-suspenders with the Stripe webhook, which is the authoritative writer.
             flexBookingWithinDays,
-            // Pricing lane ('flex' | 'date_time') — the SERVER re-derives the £ from
-            // quote.basePrice so the persisted selectedTierPricePence matches the charge.
+            // Pricing lane (landlord 'liaise' only — the FLEX lane was deleted) —
+            // the SERVER re-derives the £ from quote.basePrice so the persisted
+            // selectedTierPricePence matches the charge.
             pricingLane,
+            // add_task offer addons — ids only; prices re-resolved below from the
+            // server-stored menu (client pence are never trusted).
+            addonIds,
+            // Welcome gift — the ONE free small task a first-time customer
+            // claimed on the interstitial. Server-validated (eligibility + pool
+            // membership) and worth £0 to the customer, so it never moves the
+            // selectedTierPricePence mirror; the Stripe webhook is the writer
+            // that persists it as line items (real labour + £0 offset pair).
+            giftId,
             // Phase 30 — door address captured in the customer quote booking section
             address,
             coordinates,
@@ -1561,13 +1582,49 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
         // Single price model — use basePrice (fall back to legacy tier columns),
         // re-deriving the lane-adjusted price server-side so this mirror of the price
         // matches what /create-payment-intent actually charged. No lane → flat base.
+        //
+        // add_task addons: this PUT races the Stripe webhook, which appends the
+        // chosen addons as pricing_line_items (source 'addon_menu') AND bumps
+        // basePrice by their sum. To stay deterministic in either order, work
+        // from the base EXCLUDING any already-persisted addon lines, then add
+        // the server-resolved addon total once.
+        const rawTrackBase = quote.basePrice || quote.essentialPrice || 0;
+        const persistedAddonPence = ((quote.pricingLineItems as any[]) || [])
+            .filter((l) => l?.source === 'addon_menu')
+            .reduce((s, l) => s + (l.guardedPricePence || 0), 0);
         const trackLane = parsePricingLane(pricingLane);
         const trackLanePricing = computeLaneBasePence(
-            quote.basePrice || quote.essentialPrice || 0,
+            Math.max(0, rawTrackBase - persistedAddonPence),
             quote.contextSignals,
             trackLane,
         );
-        const selectedTierPricePence = trackLanePricing.laneBasePence;
+        let trackAddonsTotal = 0;
+        if (Array.isArray(addonIds) && addonIds.length > 0) {
+            const { getPricingSettings } = await import('./pricing-settings');
+            const settings = await getPricingSettings();
+            const menu = Array.isArray(settings.addonMenu) ? settings.addonMenu : [];
+            const wanted = new Set(addonIds.map((v: unknown) => String(v)));
+            trackAddonsTotal = menu.filter((a) => wanted.has(a.id)).reduce((s, a) => s + (a.pricePence || 0), 0);
+        } else if (persistedAddonPence > 0) {
+            // No ids on this PUT but the webhook already appended addon lines —
+            // keep them priced in rather than silently dropping paid-for work.
+            trackAddonsTotal = persistedAddonPence;
+        }
+        const selectedTierPricePence = trackLanePricing.laneBasePence + trackAddonsTotal;
+
+        // Welcome gift — validate what the client claims (first-time + min
+        // quote + pool membership) so a bogus giftId is caught and logged even
+        // on this fire-and-forget mirror. £0 to the customer either way, so
+        // nothing here changes selectedTierPricePence; the webhook persists the
+        // real-labour + offset line pair from ITS OWN validated metadata.
+        if (giftId) {
+            const gift = await resolveWelcomeGift(quote as any, giftId);
+            if (gift) {
+                console.log(`[track-booking] Quote ${id} — welcome gift claimed: ${gift.id} (${gift.label}, worth £${(gift.pricePence / 100).toFixed(2)}, customer pays £0)`);
+            } else {
+                console.warn(`[track-booking] Quote ${id} — ignored ineligible/unknown welcome gift '${String(giftId)}'`);
+            }
+        }
 
         // Calculate deposit ONLY when paymentType === 'deposit'.
         // For 'full' (and 'installments'), the Stripe webhook is the sole writer of

@@ -6,7 +6,7 @@ import {
   Check, Calendar, CalendarCheck, CalendarRange, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
-  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, X, RotateCcw
+  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, X, RotateCcw, Gift
 } from 'lucide-react';
 import { CardBrandStrip } from './CardBrandLogos';
 import { AxaInsuredBadge } from '@/components/AxaInsuredBadge';
@@ -40,6 +40,8 @@ import {
   releaseSlotLock,
   type SlotReservation,
 } from '@/hooks/useAvailability';
+import { useAddonMenu } from '@/hooks/useAddonMenu';
+import { addonIconFor } from './offer-templates/DarkHeroOffer';
 import { StickyTimerProgress } from './QuoteTimerContext';
 
 /** Which booking options to show on the card */
@@ -426,6 +428,8 @@ interface UnifiedQuoteCardProps {
   shortSlug?: string;
   /** VA-specified available dates (YYYY-MM-DD strings). When set, only these dates are shown in the calendar. */
   allowedDates?: string[] | null;
+  /** Brand vertical scoping the availability contractor pool ('handyman' | 'cleaning'). Server defaults to 'handyman'. */
+  vertical?: string;
   /** Assigned contractor info for trust strip inside price card */
   contractor?: {
     name: string;
@@ -457,12 +461,48 @@ interface UnifiedQuoteCardProps {
    */
   customerType?: CustomerType;
   /**
-   * Explicit initial flex-booking state from the ?v=offer interstitial. When set,
-   * it seeds `useFlexBooking` AND suppresses the per-type auto-default so the
-   * customer's offer choice wins: true (accepted) = flexible lane / base price,
-   * false (declined) = firm date & time. Undefined = legacy behaviour (auto-default).
+   * Pre-priced addon tasks the customer has selected — historically tapped on
+   * the add_task offer interstitial, now (welcome-gift redesign, Aug 2026)
+   * picked in this card's own "add a small job" section. Resolved against the
+   * server-stored addon menu (GET /api/public/addon-menu) for display +
+   * availability minutes; the ids are forwarded to create-payment-intent where
+   * the SERVER re-resolves every price (the client never sends addon pence).
    */
-  initialUseFlexBooking?: boolean;
+  selectedAddonIds?: string[];
+  /**
+   * Change handler for `selectedAddonIds` — the card's "add a small job"
+   * section toggles items through this (the parent owns the state so
+   * /track-booking can mirror it). The section only renders when provided.
+   */
+  onSelectedAddonIdsChange?: (ids: string[]) => void;
+  /**
+   * Welcome gift: the ONE free small task a first-time customer claimed on the
+   * welcome_gift interstitial. Rendered as a £0 line row (real price struck
+   * through), its scheduleMinutes count toward availability, and the id is
+   * forwarded to create-payment-intent + /track-booking where the SERVER
+   * validates eligibility itself and charges £0 for it.
+   */
+  giftId?: string | null;
+  /**
+   * True while the server-granted welcome gift is still UNCLAIMED (page passes
+   * `welcomeGiftEligible && !claimedGiftId`). Makes the "add a small job" slot
+   * resurface the gift: a distinct FREE band above the paid tiles. Flips false
+   * the moment a gift is claimed (theatre or here), collapsing the band.
+   */
+  giftEligible?: boolean;
+  /**
+   * Eligible gift-pool ids, computed by the PAGE (items at/under
+   * welcomeGiftMaxMinutes, categories already quoted excluded) so the pool
+   * filter has a single owner. Resolved against this card's own menu fetch
+   * for display; the server independently re-validates any claimed id.
+   */
+  giftPoolIds?: string[];
+  /**
+   * Claim handler for the resurfaced gift band — sets the page's
+   * `claimedGiftId` (same state the theatre accept writes), which flows back
+   * in as `giftId` and renders the FREE line-item card. `null` = unclaim.
+   */
+  onClaimGift?: (giftId: string | null) => void;
 }
 
 /**
@@ -652,11 +692,17 @@ export function UnifiedQuoteCard({
   flexibleDiscountPercent: flexibleDiscountPercentProp,
   shortSlug,
   allowedDates,
+  vertical,
   contractor,
   isLandlord = false,
   highlightLiaiseSignal = 0,
   customerType = 'homeowner',
-  initialUseFlexBooking,
+  selectedAddonIds = [],
+  onSelectedAddonIdsChange,
+  giftId = null,
+  giftEligible = false,
+  giftPoolIds,
+  onClaimGift,
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -670,12 +716,8 @@ export function UnifiedQuoteCard({
   // Voice/copy only — pricing model is unchanged.
   const isContextual = segment === 'CONTEXTUAL' || !!contextualBullets;
 
-  // Business quotes reuse the homeowner two-lane flow (flexible default ON → hands
-  // dispatch the movable window), but the flexible lane is dressed as a deadline
-  // guarantee, NOT a price discount: a business values a kept date over a few %
-  // off, and discount-framing on a commercial job invites procurement scrutiny.
-  // So `isBusiness` keeps the same `useFlexBooking` plumbing but suppresses the
-  // flex discount and swaps the badge/copy (see the discount memo + flex card).
+  // Business quotes book like homeowners now (the two-lane flex flow was
+  // deleted): one price, pick any feasible day off the grid.
   const isBusiness = customerType === 'business';
 
   // Which differentiator-chip set to show. Prefer the canonical customerType; fall
@@ -746,30 +788,21 @@ export function UnifiedQuoteCard({
   const DEPOSIT_PERCENT = (depositPercentProp ?? 30) / 100;
   const PAY_FULL_DISCOUNT = (payInFullDiscountPercentProp ?? 3) / 100;
 
-  // ── Phase 25 flex booking ──────────────────────────────────────────────
-  // Customer-facing knob: "I'm flexible" (the DEFAULT lane). When on, the date
-  // picker collapses and `flexBookingWithinDays` is sent through onBook so the
-  // server can route this booking to a thin day within the window. The flexible
-  // lane is priced at the FULL base price — there is no rebate. The only price
-  // lever is the set-date premium below (a firm date & slot costs extra).
-  const FLEX_WINDOW_DAYS = 7;
-  // Homeowner flex is the days-to-avoid model: booked within 2 weeks, customer
-  // picks days to avoid post-payment. Business flex keeps the tighter 7-day
-  // deadline guarantee (backup engineer), so the window is type-specific.
+  // ── Flex booking — LANDLORD LIAISE ONLY (the homeowner FLEX lane was
+  // deleted, Aug 2026) ─────────────────────────────────────────────────────
+  // `useFlexBooking` survives purely as the landlord "liaise with my tenant"
+  // concierge state (isLandlord + useFlexBooking): no fixed date, +£25, tenant
+  // contact captured, ops arranges access. Non-landlord customers can NEVER
+  // enter this state — they see one price and pick any feasible day on the
+  // calendar (no set-date premium, no lead-day gating, no flex toggle).
   const HOMEOWNER_FLEX_DAYS = 14;
-  const bookingFlexDays = isBusiness ? FLEX_WINDOW_DAYS : HOMEOWNER_FLEX_DAYS;
-  // ── "I want a date & time" premium — the ONLY price lever ───────────────
-  // Flexible is the base price; committing a specific date AND arrival slot is a
-  // real surcharge, anchored to the cost of taking time off work to wait in (a
-  // half-day off ≈ £65). The flat WTP sits just under that so it's an obvious
-  // trade; the % keeps it scaling with bigger jobs while reading as a small slice.
-  const SET_DATE_WTP_PENCE = 3000;   // £30 flat WTP anchor (≈ just under a half-day off work)
-  const SET_DATE_PCT = 0.06;         // + 6% of the quote price
-  // Flat premium for the landlord tenant-liaison concierge (pence). The flexible
-  // lane saves us effort (thin-day routing) at no extra charge; liaise COSTS us
-  // effort (chasing the tenant, arranging access), so it carries a charge.
+  // Window sent with a liaise booking (`flexBookingWithinDays`) so dispatch
+  // knows the arrange-with-tenant deadline.
+  const bookingFlexDays = HOMEOWNER_FLEX_DAYS;
+  // Flat premium for the landlord tenant-liaison concierge (pence). Liaise
+  // COSTS us effort (chasing the tenant, arranging access), so it's a charge.
   const LIAISE_PREMIUM_PENCE = 2500;
-  const [useFlexBooking, setUseFlexBooking] = useState(initialUseFlexBooking ?? false);
+  const [useFlexBooking, setUseFlexBooking] = useState(false);
   // Landlord promo nudge: the page's "Add tenant liaison" CTA bumps
   // highlightLiaiseSignal; we scroll the toggle into view and pulse a ring once.
   const liaiseToggleRef = useRef<HTMLButtonElement>(null);
@@ -829,32 +862,9 @@ export function UnifiedQuoteCard({
     return skuLines.some(li => (li as any).flexEligible === true);
   }, [pricingLineItems]);
 
-  // Phase 29 — flexible booking is the DEFAULT (it lets us route to thin days).
-  // Tick it once on load; the ref guard means a customer who unticks it (or picks
-  // a specific date) is never silently re-defaulted.
-  // NB: the flex toggle is now OFFERED to every non-landlord quote (see the
-  // render gate below). This effect only controls whether it auto-defaults ON:
-  //   - Homeowners ALWAYS default ON — the flexible lane is just the base price,
-  //     so it's safe to apply to any homeowner quote, including custom/free-text.
-  //   - Businesses ALWAYS default ON too: the flexible lane is framed as a
-  //     deadline guarantee, so it's safe to default on for any business quote.
-  //   - Other non-landlord types default ON only when the quote is flex-eligible
-  //     (has a flex_eligible SKU line); otherwise they open on a firm date but
-  //     can still opt in.
-  // Landlords do NOT auto-default into liaise: it's now a paid premium (+£25), so
-  // it must be an explicit opt-in (no surprise fee). They open on the firm-date
-  // grid with the liaison toggle offered above it.
-  // When the ?v=offer interstitial passed an explicit choice, treat the default
-  // as already applied so this effect never overrides it — critical for DECLINE
-  // (false), where the per-type auto-default would otherwise flip a homeowner
-  // back to flex and silently undo the customer's "I need a specific day".
-  const flexDefaultedRef = useRef(initialUseFlexBooking !== undefined);
-  useEffect(() => {
-    if (!isLandlord && (customerType === 'homeowner' || customerType === 'oap_homeowner' || customerType === 'business' || isQuoteFlexEligible) && !flexDefaultedRef.current) {
-      flexDefaultedRef.current = true;
-      setUseFlexBooking(true);
-    }
-  }, [isQuoteFlexEligible, isLandlord, customerType]);
+  // FLEX lane deleted (Aug 2026): non-landlords can never enter useFlexBooking,
+  // so there is no per-type flex auto-default any more. Landlords still opt in
+  // to liaise explicitly (it's a paid +£25 premium — no surprise fee).
 
   // Payment state (for inline payment when using downsell)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -953,11 +963,79 @@ export function UnifiedQuoteCard({
     return cats.length > 0 ? cats : undefined;
   }, [pricingLineItems]);
 
-  // Estimate total time for full-day detection (>240min = require full day slot)
+  // ── Pre-priced addon tasks + welcome gift ────────────────────────────────
+  // Addons are picked in this card's "add a small job" section (and, legacy,
+  // on the retired add_task interstitial); the welcome gift is claimed on the
+  // welcome_gift interstitial. Resolve all ids against the SERVER-stored menu:
+  // display rows + minutes come from here, but money stays server-authoritative
+  // — create-payment-intent gets only ids and re-resolves every price from
+  // pricing settings (the gift is validated + charged at £0 server-side).
+  // The menu is fetched whenever the paid-addons section can render (the
+  // section needs the tiles), or when anything is already selected.
+  const { data: addonMenu } = useAddonMenu(
+    !!onSelectedAddonIdsChange || selectedAddonIds.length > 0 || !!giftId || (giftEligible && !!onClaimGift),
+  );
+  const selectedAddonItems = useMemo(() => {
+    if (selectedAddonIds.length === 0 || !addonMenu) return [];
+    const wanted = new Set(selectedAddonIds);
+    // The chosen gift can never double as a paid addon.
+    return addonMenu.filter((a) => wanted.has(a.id) && a.id !== giftId);
+  }, [selectedAddonIds, addonMenu, giftId]);
+  // The claimed welcome gift (free — £0 in every total; real minutes).
+  const giftItem = useMemo(
+    () => (giftId && addonMenu ? addonMenu.find((a) => a.id === giftId) ?? null : null),
+    [giftId, addonMenu],
+  );
+  // Gift minutes count toward availability exactly like paid addons — the
+  // contractor really does the work, so the calendar must stay capacity-true.
+  const addonMinutes = selectedAddonItems.reduce((s, a) => s + (a.scheduleMinutes || 0), 0)
+    + (giftItem?.scheduleMinutes || 0);
+  const toggleMenuAddon = (id: string) => {
+    if (!onSelectedAddonIdsChange) return;
+    onSelectedAddonIdsChange(
+      selectedAddonIds.includes(id)
+        ? selectedAddonIds.filter((x) => x !== id)
+        : [...selectedAddonIds, id],
+    );
+  };
+  // The "add a small job" ghost slot (foot of the line-item list) is collapsed
+  // by default — an offer the customer can open, never a wall between them and
+  // the calendar. Opening expands the menu tiles in place.
+  const [addonSectionOpen, setAddonSectionOpen] = useState(false);
+  // Menu tiles shown in that slot: everything except the claimed gift (already
+  // free — it can't be re-added as a paid task). Category overlap with the
+  // quote's own lines is deliberately NOT excluded here (unlike the gift pool):
+  // a customer may genuinely want more of a category they're already buying.
+  const addonSectionItems = useMemo(
+    () => (addonMenu ?? []).filter((a) => a.id !== giftId),
+    [addonMenu, giftId],
+  );
+  // Collapsed-slot preview: what's still ADDABLE (menu minus the claimed gift
+  // minus anything already selected) — feeds the tiny icon strip + "from £N".
+  const addonPreviewItems = useMemo(
+    () => addonSectionItems.filter((a) => !selectedAddonIds.includes(a.id)),
+    [addonSectionItems, selectedAddonIds],
+  );
+  // Unclaimed-gift resurface: the FREE band shown ABOVE the paid tiles when the
+  // slot expands. Pool ids come from the page (single owner of the eligibility
+  // filter), resolved against the same shared-cache menu. Anything the customer
+  // already picked as a PAID addon is hidden from the band — they can still
+  // gift a DIFFERENT task, but we never show (or auto-convert) a paid pick as
+  // the gift. Server independently re-validates whatever id is claimed.
+  const giftBandItems = useMemo(() => {
+    if (!giftEligible || !onClaimGift || !addonMenu || !giftPoolIds?.length) return [];
+    const pool = new Set(giftPoolIds);
+    const paid = new Set(selectedAddonIds);
+    return addonMenu.filter((a) => pool.has(a.id) && !paid.has(a.id));
+  }, [giftEligible, onClaimGift, addonMenu, giftPoolIds, selectedAddonIds]);
+
+  // Estimate total time for full-day detection (>240min = require full day slot).
+  // Selected addon minutes are INCLUDED so slot sizing + the availability fetch
+  // below stay capacity-true when the customer adds extra jobs.
   const totalEstimatedMinutes = useMemo(() => {
-    if (!pricingLineItems) return undefined;
-    return pricingLineItems.reduce((sum, li) => sum + (li.timeEstimateMinutes || 0), 0);
-  }, [pricingLineItems]);
+    if (!pricingLineItems) return addonMinutes > 0 ? addonMinutes : undefined;
+    return pricingLineItems.reduce((sum, li) => sum + (li.timeEstimateMinutes || 0), 0) + addonMinutes;
+  }, [pricingLineItems, addonMinutes]);
 
   // A "large job" skips AM/PM selection — strictly based on estimated hours (≥4hrs)
   const isLargeJob = totalEstimatedMinutes != null && totalEstimatedMinutes >= 240;
@@ -970,10 +1048,13 @@ export function UnifiedQuoteCard({
   }, [isLargeJob]);
 
   // Quote-specific availability: uses candidate contractor pool from quote
-  // Falls back to generic availability if quoteId is not provided
+  // Falls back to generic availability if quoteId is not provided.
+  // extraMinutes carries the selected addons' schedule minutes so the server
+  // sizes slots/spans for the REAL on-site time (capacity-true calendar).
   const { data: quoteAvailabilityData, isLoading: isLoadingQuoteAvailability, dataUpdatedAt: quoteAvailabilityUpdatedAt } = useQuoteAvailability({
     quoteId,
     slot: selectedSlotChoice,
+    extraMinutes: addonMinutes > 0 ? addonMinutes : undefined,
     enabled: !!quoteId,
   });
 
@@ -1014,6 +1095,7 @@ export function UnifiedQuoteCard({
   const { data: fallbackAvailabilityData } = useAvailability({
     categories: jobCategories,
     timeEstimateMinutes: totalEstimatedMinutes,
+    vertical,
     days: config.maxDaysOut + 1,
     enabled: !quoteId,
   });
@@ -1232,27 +1314,16 @@ export function UnifiedQuoteCard({
     return [...configAddOns, ...quoteExtras];
   }, [config.addOns, optionalExtras]);
 
-  // ── "Date & time" premium (the single price lever) ─────────────────────
-  // The flexible lane is just basePrice — no rebate. The ONLY adjustment is the
-  // surcharge for the FIRM "date & time" lane: a flat WTP anchor + % of the quote
-  // (see constants above). Businesses (deadline-guarantee framing) and landlords
-  // (liaise flow) carry no premium — it resolves to 0.
-  const setDatePremium = (!isLandlord && !isBusiness)
-    ? Math.round((SET_DATE_WTP_PENCE + Math.round(basePrice * SET_DATE_PCT)) / 100) * 100
-    : 0;
-
   // The pricing lane we report to the SERVER so it can re-derive the charged price
   // from quote.basePrice (server-authoritative; the client never sends the amount).
-  // Mirrors the breakdown memo's price levers exactly:
-  //   • homeowner/eligible: 'flex' (rebate) when flexible, else 'date_time' (premium)
-  //   • landlord + flexible booking: 'liaise' (the +£25 tenant-liaison concierge)
-  //   • landlord on a firm date, and businesses: no lever → undefined (flat base)
+  // FLEX lane deleted: homeowners have ONE price with no set-date premium, so
+  // they send NO lane — computeLaneBasePence returns quote.basePrice unchanged
+  // when the lane is absent. The only surviving lane is the landlord liaise
+  // concierge (+£25):
+  //   • landlord + liaise booking: 'liaise'
+  //   • everyone else: undefined (flat base — server charges quote.basePrice)
   const pricingLane: 'flex' | 'date_time' | 'liaise' | undefined =
-    isLandlord
-      ? (useFlexBooking ? 'liaise' : undefined)
-      : isBusiness
-        ? undefined
-        : (useFlexBooking ? 'flex' : 'date_time');
+    isLandlord && useFlexBooking ? 'liaise' : undefined;
 
   // Calculate total price
   const { total, breakdown, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied, totalMaterialsPence } = useMemo(() => {
@@ -1268,14 +1339,15 @@ export function UnifiedQuoteCard({
       items.push({ label: config.downsell.label, amount: -discount });
     }
 
-    // ── Date & time premium (the only flex/firm price lever) ────────────
-    // Flexible is just basePrice. Committing a specific date & arrival slot is a
-    // real surcharge added on top — see the WTP-anchored constants above.
-    // Landlords (liaise flow) and businesses (deadline-guarantee framing) carry
-    // no premium, so setDatePremium is already 0 for them.
-    if (!useFlexBooking && setDatePremium > 0) {
-      amount += setDatePremium;
-      items.push({ label: 'Date & time', amount: setDatePremium });
+    // (The set-date premium is gone with the FLEX lane: one price, any day.)
+
+    // ── add_task offer addons ────────────────────────────────────────────
+    // Pre-priced small extra jobs the customer tapped on the offer screen.
+    // Display prices come from the server-stored menu; at payment the server
+    // re-resolves the same ids itself, so these rows always match the charge.
+    for (const addon of selectedAddonItems) {
+      amount += addon.pricePence;
+      items.push({ label: addon.label, amount: addon.pricePence });
     }
 
     // ── Landlord tenant-liaison premium ─────────────────────────────────
@@ -1354,7 +1426,7 @@ export function UnifiedQuoteCard({
     const payFullSaving = adjustedAmount - payFullTotal;
 
     return { total: adjustedAmount, breakdown: items, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied, totalMaterialsPence };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, setDatePremium]);
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, selectedAddonItems]);
 
   // Customer-facing line items show their true totals: pure labour + materials +
   // this line's allocated share of the job-whole structural buckets (call-out ×
@@ -1428,13 +1500,11 @@ export function UnifiedQuoteCard({
   const effectiveTotalPence = hasDeferrals ? splitActiveTotalPence : total;
 
   // ── Animated hero price ────────────────────────────────────────────────
-  // The price MOVES instead of explaining itself: on first load with flex
-  // selected it counts DOWN from the exact-day counterfactual (total +
-  // setDatePremium) to the flex price — the £36 saving shown, not told. Any
-  // later selection change (flex ↔ exact day) rolls the number up/down live.
+  // The price rolls up/down live on any selection change (addons, Saturday,
+  // pay-in-full, line-item split). The old flex-vs-firm countdown intro went
+  // with the FLEX lane — one price now, so the start value is just the total.
   // Ease-out so the movement reads instantly; skipped under reduced motion.
-  const heroPriceStartPence =
-    useFlexBooking && setDatePremium > 0 ? effectiveTotalPence + setDatePremium : effectiveTotalPence;
+  const heroPriceStartPence = effectiveTotalPence;
   const [animatedTotalPence, setAnimatedTotalPence] = useState(heroPriceStartPence);
   const heroPriceRef = useRef({ shown: heroPriceStartPence, mounted: false });
   useEffect(() => {
@@ -1561,6 +1631,13 @@ export function UnifiedQuoteCard({
               : (payFull ? payFullTotal : depositAmount),
             // Line-item split: name the deferred lines; the server re-derives the £.
             deferredLineIds: activeDeferredLineIds.length > 0 ? activeDeferredLineIds : undefined,
+            // add_task offer addons: ids only — the server re-resolves every
+            // price from its stored menu (client pence are never trusted).
+            addonIds: selectedAddonIds.length > 0 ? selectedAddonIds : undefined,
+            // Welcome gift: id only — the server validates eligibility itself
+            // and the gift adds £0 to the charge (contractor still gets paid
+            // via the webhook's real-labour + offset line pair).
+            giftId: giftId || undefined,
             flexibleTiming: useDownsell,
             flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
             // Phase 25 flex (DISTINCT from the downsell above): carry the chosen flex
@@ -1620,7 +1697,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, cardOpen, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation, hasDeferrals, deferredKey, splitDepositPence, splitPayFullPence]);
+  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, cardOpen, total, selectedAddOns, selectedAddonIds, giftId, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation, hasDeferrals, deferredKey, splitDepositPence, splitPayFullPence]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -1751,6 +1828,10 @@ export function UnifiedQuoteCard({
           chargeAmountPence: effectiveChargeNowPence,
           // Line-item split: name the deferred lines; the server re-derives the £.
           deferredLineIds: activeDeferredLineIds.length > 0 ? activeDeferredLineIds : undefined,
+          // add_task offer addons: ids only — server re-resolves the prices.
+          addonIds: selectedAddonIds.length > 0 ? selectedAddonIds : undefined,
+          // Welcome gift: id only — server-validated, £0 to the customer.
+          giftId: giftId || undefined,
           pricingLane,
           ...(isExactDate
             ? { schedulingTier: 'standard', lockId: reservation?.lockId, contractorId: reservation?.contractorId }
@@ -2164,6 +2245,81 @@ export function UnifiedQuoteCard({
                     crossed={enableLineItemSplit && deferredLines.has(item.lineId)}
                   />
                 ))}
+                {/* Welcome gift — the free task the customer picked on the
+                    interstitial, rendered as a REAL line-item card (same chrome
+                    as the work above) so the gift reads as work being done, not
+                    a footnote. Real menu price struck through + FREE; it adds
+                    £0 to every total and the server validates + prices the gift
+                    itself at payment. */}
+                {giftItem && (
+                  <div className={`rounded-lg overflow-hidden ring-1 ${isDarkTheme ? 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.12]' : 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.08]'}`}>
+                    <div className="w-full flex items-center gap-2.5 px-2.5 py-2.5 text-left">
+                      <div className="shrink-0 w-9 h-9 rounded-lg bg-[#7DB00E] flex items-center justify-center shadow-[0_2px_8px_rgba(125,176,14,0.35)]">
+                        <Gift className="w-[18px] h-[18px] text-white" strokeWidth={2.25} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>
+                          Your welcome gift
+                        </span>
+                        <span className={`block text-[14px] font-bold leading-snug break-words ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                          {giftItem.label}
+                        </span>
+                        <p className={`text-[11px] leading-snug mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Done on the same visit — on us.
+                        </p>
+                      </div>
+                      <span className="shrink-0 flex items-center gap-1.5">
+                        <span className={`text-[13px] tabular-nums line-through ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                          £{Math.round(giftItem.pricePence / 100)}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-[#7DB00E] px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-white">
+                          FREE
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {/* Selected paid add-ons — REAL line-item cards (same chrome as
+                    the work above): task icon in a green tile, label, bold green
+                    +£N, one-tap X remove. These sit between the work/gift cards
+                    and the ghost "add a small job" slot so an added job reads as
+                    part of the visit, not a footnote. Server re-resolves every
+                    price at payment (ids only leave the client). */}
+                {selectedAddonItems.map((addon) => {
+                  const AddonIcon = addonIconFor(addon.id, addon.category);
+                  return (
+                    <div key={addon.id} className={`rounded-lg overflow-hidden ${isDarkTheme ? 'bg-[#FACC15]/[0.16]' : 'bg-[#FACC15]/[0.14]'}`}>
+                      <div className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left">
+                        <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/20 ring-1 ring-[#7DB00E]/25' : 'bg-[#7DB00E]/15 ring-1 ring-[#7DB00E]/25'}`}>
+                          <AddonIcon className={`w-4 h-4 ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className={`block text-[13px] font-semibold break-words ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>
+                            {addon.label}
+                          </span>
+                          <p className={`text-[11px] leading-snug mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                            Added to this visit — ~25% off.
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[14px] font-bold tabular-nums text-[#7DB00E]">
+                          +£{Math.round(addon.pricePence / 100)}
+                        </span>
+                        {onSelectedAddonIdsChange && (
+                          <button
+                            type="button"
+                            onClick={() => toggleMenuAddon(addon.id)}
+                            aria-label={`Remove ${addon.label}`}
+                            className={`shrink-0 self-start -mt-0.5 -mr-1 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                              isDarkTheme ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
+                            <X className="w-3.5 h-3.5" strokeWidth={2.5} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Quality materials included — price-free trust strip (image + name
@@ -2186,6 +2342,194 @@ export function UnifiedQuoteCard({
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Ghost slot — the "add a small job" upsell sits BELOW the
+                  materials strip, above the savings/total rows (was a detached
+                  accordion in the booking column; when no materials render it
+                  sits directly under the line-item cards).
+                  Same geometry as the cards above but dashed + faint,
+                  so it reads as an empty slot on the job sheet. Tapping expands
+                  IN PLACE to the same server-menu tiles as the theatre offer
+                  (multi-select; gift item excluded); selections feed the exact
+                  selectedAddonIds plumbing (cards above, minutes into
+                  availability, ids into create-payment-intent). Stays visible
+                  after additions; renders nothing when the menu is empty. */}
+              {onSelectedAddonIdsChange && addonSectionItems.length > 0 && (
+                <div className={`mt-3 rounded-lg border-2 border-dashed overflow-hidden ${
+                  addonSectionOpen
+                    ? (isDarkTheme ? 'border-[#7DB00E]/30 bg-[#7DB00E]/[0.04]' : 'border-[#7DB00E]/35 bg-[#7DB00E]/[0.04]')
+                    /* Collapsed = BOLD: navy stage block behind white type +
+                       solid green pill — reads as an offer, not a footnote.
+                       Same navy in both themes; dashed green edge keeps the
+                       "empty slot on the job sheet" geometry. */
+                    : 'border-[#7DB00E]/60 bg-[#0f172a]'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setAddonSectionOpen((o) => !o)}
+                    aria-expanded={addonSectionOpen}
+                    aria-label={`Add ${giftId ? 'another' : 'a'} small job — 25% off while ${skinPossessive} there`}
+                    className="w-full min-h-[48px] px-3 py-2.5 text-left active:scale-[0.99] transition-transform"
+                  >
+                    <span className="flex items-center gap-3">
+                      {/* Solid green plus tile — it's the action, not a tint. */}
+                      <span className="shrink-0 w-9 h-9 rounded-lg bg-[#7DB00E] flex items-center justify-center shadow-[0_2px_8px_rgba(125,176,14,0.35)]">
+                        <Plus className="w-5 h-5 text-white" strokeWidth={2.75} />
+                      </span>
+                      <span className={`min-w-0 flex-1 text-[15px] font-bold leading-snug ${
+                        addonSectionOpen ? (isDarkTheme ? 'text-slate-100' : 'text-slate-900') : 'text-white'
+                      }`}>
+                        {/* "another" once the free gift task is on the sheet —
+                            the FREE card above already told the first story.
+                            The discount lives in the pill, not the sentence. */}
+                        Add {giftId ? 'another' : 'a'} small job
+                      </span>
+                      {/* The discount IS the eye-catcher: solid green pill on
+                          the right, small chevron beneath for affordance. */}
+                      <span className="shrink-0 flex flex-col items-center gap-1">
+                        <span className="inline-flex items-center whitespace-nowrap rounded-full bg-[#7DB00E] px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-white">
+                          25% OFF
+                        </span>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 transition-transform ${addonSectionOpen ? 'rotate-180' : ''} ${addonSectionOpen && !isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}
+                        />
+                      </span>
+                    </span>
+                    {/* Collapsed-only mini preview of the paid menu (first 4
+                        addable task icons + "+N more · from £X") — full-width
+                        line so nothing truncates at 375px. Hidden once open;
+                        the full grid is right below. */}
+                    {!addonSectionOpen && addonPreviewItems.length > 0 && (
+                      <span className="mt-2 flex items-center gap-1.5">
+                        <span className="flex shrink-0 items-center gap-1">
+                          {addonPreviewItems.slice(0, 4).map((item) => {
+                            const PreviewIcon = addonIconFor(item.id, item.category);
+                            return (
+                              <span key={item.id} className="flex h-5 w-5 items-center justify-center rounded-[5px] bg-[#7DB00E]/20 ring-1 ring-[#7DB00E]/30">
+                                <PreviewIcon className="h-3 w-3 text-[#a3d65f]" strokeWidth={2.25} />
+                              </span>
+                            );
+                          })}
+                        </span>
+                        <span className="min-w-0 truncate text-[11px] leading-none text-slate-300">
+                          {addonPreviewItems.length > 4 ? `+${addonPreviewItems.length - 4} more · ` : ''}
+                          from £{Math.round(Math.min(...addonPreviewItems.map((i) => i.pricePence)) / 100)}
+                        </span>
+                      </span>
+                    )}
+                    <span className={`block text-[11px] leading-snug mt-1 ${
+                      addonSectionOpen ? (isDarkTheme ? 'text-slate-400' : 'text-slate-500') : 'text-slate-300'
+                    }`}>
+                      {/* Terse on purpose: must hold ONE line at 375px — the
+                          "while Craig's there" personalisation moved to the
+                          aria-label; here brevity wins. */}
+                      Same visit, no extra call-out.
+                    </span>
+                  </button>
+                  {addonSectionOpen && (
+                    <div className="px-2.5 pb-2.5">
+                      {/* Unclaimed welcome gift, resurfaced — a visually
+                          DISTINCT band ABOVE the paid tiles. Single-select:
+                          one tap claims (onClaimGift → page state → giftId
+                          prop → the FREE line-item card above) and, with
+                          giftEligible now false, the band vanishes. Tiles
+                          mirror the theatre's gift mode: struck price +
+                          solid green FREE pill. */}
+                      {giftBandItems.length > 0 && (
+                        <div className={`mb-3 rounded-lg p-2 ${isDarkTheme ? 'bg-[#7DB00E]/[0.08] ring-1 ring-[#7DB00E]/25' : 'bg-[#f4fae8] ring-1 ring-[#7DB00E]/30'}`}>
+                          <div className="flex items-center gap-1.5 px-0.5 pb-2">
+                            <Gift className={`w-3.5 h-3.5 shrink-0 ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`} strokeWidth={2.5} />
+                            <span className={`text-[10.5px] font-extrabold uppercase tracking-wide ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>
+                              Your welcome gift — still yours
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {giftBandItems.map((item) => {
+                              const TileIcon = addonIconFor(item.id, item.category);
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => onClaimGift?.(item.id)}
+                                  className={`relative flex flex-col rounded-xl border-2 px-2.5 pt-2.5 pb-2 text-left transition-all active:scale-[0.97] ${
+                                    isDarkTheme
+                                      ? 'border-[#7DB00E]/40 bg-white/[0.04] hover:border-[#7DB00E]'
+                                      : 'border-[#7DB00E]/40 bg-white hover:border-[#7DB00E]'
+                                  }`}
+                                >
+                                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] ${
+                                    isDarkTheme ? 'bg-[#7DB00E]/20 text-[#a3d65f]' : 'bg-[#7DB00E]/[0.14] text-[#5a8209]'
+                                  }`}>
+                                    <TileIcon className="h-4 w-4" strokeWidth={2.25} />
+                                  </span>
+                                  <span className={`mt-1.5 block text-[12.5px] font-semibold leading-snug ${isDarkTheme ? 'text-slate-200' : 'text-slate-800'}`}>
+                                    {item.label}
+                                  </span>
+                                  <span className="mt-0.5 flex items-center gap-1.5">
+                                    <span className={`text-[13px] font-semibold tabular-nums line-through ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                                      £{Math.round(item.pricePence / 100)}
+                                    </span>
+                                    <span className="inline-flex items-center rounded-full bg-[#7DB00E] px-2 py-[1px] text-[10.5px] font-extrabold tracking-wide text-white">
+                                      FREE
+                                    </span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {addonSectionItems.map((item) => {
+                          const on = selectedAddonIds.includes(item.id);
+                          const TileIcon = addonIconFor(item.id, item.category);
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => toggleMenuAddon(item.id)}
+                              aria-pressed={on}
+                              className={`relative flex flex-col rounded-xl border-2 px-2.5 pt-2.5 pb-2 text-left transition-all active:scale-[0.97] ${
+                                on
+                                  ? 'border-[#7DB00E] ' + (isDarkTheme ? 'bg-[#7DB00E]/10' : 'bg-[#f6fbec] shadow-sm')
+                                  : isDarkTheme ? 'border-white/10 bg-white/[0.04] hover:border-white/20' : 'border-slate-200 bg-white hover:border-slate-300'
+                              }`}
+                            >
+                              <span className="flex items-start justify-between gap-2">
+                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] transition-colors ${
+                                  on ? 'bg-[#7DB00E] text-white' : isDarkTheme ? 'bg-[#7DB00E]/20 text-[#a3d65f]' : 'bg-[#7DB00E]/[0.14] text-[#5a8209]'
+                                }`}>
+                                  <TileIcon className="h-4 w-4" strokeWidth={2.25} />
+                                </span>
+                                <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 ${
+                                  on ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/25' : 'border-slate-300'
+                                }`}>
+                                  {on && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                                </span>
+                              </span>
+                              <span className={`mt-1.5 block text-[12.5px] font-semibold leading-snug ${isDarkTheme ? 'text-slate-200' : 'text-slate-800'}`}>
+                                {item.label}
+                              </span>
+                              <span className="mt-0.5 block text-[14px] font-extrabold tabular-nums text-[#7DB00E]">
+                                +£{Math.round(item.pricePence / 100)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAddonSectionOpen(false)}
+                        className={`mt-2 w-full text-center text-[11.5px] font-semibold py-1 rounded-md transition-colors ${
+                          isDarkTheme ? 'text-slate-400 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                        }`}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2251,7 +2595,7 @@ export function UnifiedQuoteCard({
                 </div>
               )}
               {/* Discounts & surcharges (honest, line-by-line) */}
-              {(batchDiscount?.applied || (payFull && payFullSaving > 0) || saturdayPremiumApplied > 0 || (!useFlexBooking && setDatePremium > 0) || liaisePremiumApplied > 0) && (
+              {(batchDiscount?.applied || (payFull && payFullSaving > 0) || saturdayPremiumApplied > 0 || selectedAddonItems.length > 0 || !!giftItem || liaisePremiumApplied > 0) && (
                 <div className={`mt-2 pt-2 border-t space-y-1.5 ${isDarkTheme ? 'border-white/5' : 'border-slate-100'}`}>
                   {/* Savings zone — grouped + highlighted so they read as offers, not ledger lines */}
                   {(batchDiscount?.applied || (payFull && payFullSaving > 0)) && (
@@ -2280,18 +2624,34 @@ export function UnifiedQuoteCard({
                       )}
                     </div>
                   )}
-                  {/* Date & time premium — neutral addition (premium frame), not an offer */}
-                  {!useFlexBooking && setDatePremium > 0 && (
+                  {/* Welcome gift — slim totals-side reminder only (the full
+                      card with label + struck price lives among the line items
+                      above). £0 charged; the server validates the gift itself. */}
+                  {giftItem && (
                     <div className="flex justify-between items-center text-[13px]">
-                      <span className={`flex items-center gap-1.5 font-medium ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
-                        <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
-                        Date &amp; time
+                      <span className="flex items-center gap-1.5 font-medium text-[#7DB00E]">
+                        <Gift className="w-3.5 h-3.5 shrink-0" />
+                        Welcome gift
                       </span>
-                      <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
-                        +£{Math.round(setDatePremium / 100)}
-                      </span>
+                      <span className="font-bold text-[#7DB00E]">FREE</span>
                     </div>
                   )}
+                  {/* Paid small-job add-ons — slim totals-side summary rows only
+                      (the full cards with icon tile + one-tap X remove live among
+                      the line items above, mirroring the welcome gift's pattern).
+                      Server re-resolves these prices at payment, so the rows
+                      always match the charge. */}
+                  {selectedAddonItems.map((addon) => (
+                    <div key={addon.id} className="flex justify-between items-center text-[13px]">
+                      <span className={`flex items-center gap-1.5 font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                        <Plus className="w-3.5 h-3.5 shrink-0 text-[#7DB00E]" />
+                        {addon.label}
+                      </span>
+                      <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>
+                        +£{Math.round(addon.pricePence / 100)}
+                      </span>
+                    </div>
+                  ))}
                   {/* Surcharge stays neutral and outside the savings zone — it isn't an offer */}
                   {saturdayPremiumApplied > 0 && (
                     <div className="flex justify-between text-[13px]">
@@ -2376,14 +2736,20 @@ export function UnifiedQuoteCard({
         {/* Right column on desktop: booking flow (scheduling, add-ons, trust, payment) */}
         <div className="space-y-6 md:col-span-3">
 
+        {/* Paid small-job add-ons (Aug 2026): the upsell now lives INSIDE the
+            line-item list as a dashed "ghost slot" card at its foot (left
+            column, after the work + gift cards) — no detached accordion here. */}
+
         {/* Downsell Option (if available and flexible_discount mode enabled).
             Phase 26 / Anomaly #3 — when ANY SKU line on the quote is
             flex_eligible, the newer Phase 25 "Flexible booking" checkbox
             renders instead, so we hide this legacy downsell to avoid
             showing two visually-different flex options for the same
-            concept. Legacy quotes without SKU lines (showFlexBookingCheckbox
-            === false) still see this downsell exactly as before. */}
-        {config.downsell && showFlexibleDiscount && !showFlexBookingCheckbox && (
+            concept. Legacy quotes without flex-eligible SKU lines still see
+            this downsell exactly as before. (Was a dangling reference to a
+            removed `showFlexBookingCheckbox` — a latent ReferenceError; the
+            original semantic was `isQuoteFlexEligible`.) */}
+        {config.downsell && showFlexibleDiscount && !isQuoteFlexEligible && (
           <div className={`rounded-xl p-4 ${useDownsell
             ? 'bg-[#7DB00E]/20 border-2 border-[#7DB00E]'
             : isDarkTheme ? 'bg-white/10 border-2 border-white/10' : 'bg-slate-100 border-2 border-transparent'
@@ -2572,110 +2938,13 @@ export function UnifiedQuoteCard({
             </div>
           )}
 
-          {/* Phase 29 — Flexible vs Pick-exact-date (two equal boxes). Flexible
-              is the default and is priced at the base price; choosing "Pick exact
-              date" drops the date grid below and adds the set-date premium.
-              Non-flex-eligible quotes skip this and just show the grid. Hidden for
-              landlords (they get the liaise toggle above). */}
-          {/* "I'm flexible" / "I want a date & time" toggle — offered to EVERY
-              non-landlord quote (it's the homeowner counterpart to the landlord
-              liaise toggle), no longer gated on per-line SKU flex-eligibility.
-              The flexible lane is just the base price, so it's valid on any quote.
-              `isQuoteFlexEligible` now only decides whether flex auto-defaults ON
-              (see effect above); the option itself is always shown. Landlords get
-              the liaise toggle instead. */}
-          {!isLandlord && (
-            <div className="mb-4">
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (useFlexBooking) return;
-                    setUseFlexBooking(true);
-                    trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'flex', action: 'selected', totalPricePence: total, segment });
-                    setSelectedDate(null);
-                    setSelectedTimeSlot(null);
-                    setPendingDate(null);
-                    setConfirmedDates([]);
-                    if (reservation) {
-                      releaseSlotLock(reservation.lockId).catch(() => {});
-                      setReservation(null);
-                    }
-                    if (useDownsell) setUseDownsell(false);
-                  }}
-                  className={`w-full rounded-xl p-3 text-left transition-colors active:scale-[0.99] ${
-                    useFlexBooking
-                      ? 'bg-handy-yellow/15 border-2 border-handy-yellow'
-                      : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${useFlexBooking ? 'bg-handy-yellow border-handy-yellow' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
-                      {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
-                    </span>
-                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'm flexible</span>
-                    {isBusiness ? (
-                      <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">Guaranteed</span>
-                    ) : (
-                      <span className="ml-auto text-[10px] bg-[#7DB00E] text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">Most popular</span>
-                    )}
-                  </div>
-                  <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {isBusiness
-                      ? `Done within ${FLEX_WINDOW_DAYS} days — backup engineer booked, so your date never slips`
-                      : `We fit you into ${skinPossessive} diary — you pick any days to avoid after booking`}
-                  </p>
-                  {/* Model A expectation guard: nobody pays blind. Flex is a
-                      DEADLINE promise (we choose the day within the window), so
-                      state it as a relative completion GUARANTEE from booking —
-                      not a specific date. Independent of the availability feed,
-                      but still gated on a non-empty pool (never guarantee a
-                      job we can't staff — the multi-trade zero-pool case). */}
-                  {!isBusiness && filteredDates.some(d => !d.isBlocked) && (
-                    <p className={`text-[10.5px] leading-snug mt-1 font-semibold ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5a8209]'}`}>
-                      Guaranteed complete within {Math.round(HOMEOWNER_FLEX_DAYS / 7)} weeks
-                    </p>
-                  )}
-                </button>
+          {/* The "I'm flexible" / "I want a date & time" toggle is GONE with the
+              FLEX lane (Aug 2026): non-landlords get one price and pick any
+              feasible day straight off the grid below. Landlords keep the liaise
+              toggle above. */}
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!useFlexBooking) return;
-                    setUseFlexBooking(false);
-                    trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'set_date', action: 'selected', totalPricePence: total, segment });
-                    setTimeout(() => {
-                      dateSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 120);
-                  }}
-                  className={`w-full rounded-xl p-3 text-left transition-colors active:scale-[0.99] ${
-                    !useFlexBooking
-                      ? 'bg-[#7DB00E]/10 border-2 border-[#7DB00E]'
-                      : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${!useFlexBooking ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
-                      {!useFlexBooking && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-                    </span>
-                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I want a date &amp; time</span>
-                    {!isBusiness && setDatePremium > 0 ? (
-                      <span className="ml-auto text-[10px] bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded-full font-bold">+£{Math.round(setDatePremium / 100)}</span>
-                    ) : (
-                      <CalendarCheck className="ml-auto w-4 h-4 text-slate-400" />
-                    )}
-                  </div>
-                  <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {isBusiness ? 'Choose a specific day yourself' : 'Your exact day & time slot — no day off to wait in'}
-                  </p>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Date grid — shown whenever flex/liaise is OFF. Landlords: hidden in
-              liaise mode (no fixed date yet), back when liaise is off. Everyone
-              else: hidden under "I'm flexible", drops down on "I want a date & time". */}
+          {/* Date grid — always shown except in landlord liaise mode (no fixed
+              date yet — we arrange access with the tenant). */}
           <AnimatePresence initial={false}>
           {/* Always-a-date: flex keeps its base price but still picks a real day.
             * Only landlord liaise (concierge — we arrange with the tenant) skips the calendar. */}
@@ -2758,6 +3027,8 @@ export function UnifiedQuoteCard({
             {visibleDates.map((d) => {
               const isSelected = !!selectedDate && selectedDate.toDateString() === d.date.toDateString();
               const isPending = pendingDate?.toDateString() === d.date.toDateString();
+              // FLEX lane deleted: no more lead-day greying. Any feasible
+              // (non-blocked) day is tappable at the one fixed price.
 
               // Single-date commit: set the chosen date + slot (confirmedDates stays empty),
               // which activates the reserve → countdown → pay path below.
@@ -2822,13 +3093,6 @@ export function UnifiedQuoteCard({
                     setSelectedTimeSlot(null);
                     setPendingDate(null);
                     return;
-                  }
-
-                  // Phase 29 — picking a specific date opts out of the default
-                  // flexible discount (you pay the standard, non-discounted rate).
-                  if (useFlexBooking) {
-                    setUseFlexBooking(false);
-                    trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'set_date', action: 'selected', totalPricePence: total, segment });
                   }
 
                   if (isLargeJob) {
@@ -3571,8 +3835,11 @@ export function UnifiedQuoteCard({
                     >
                       <Calendar className="w-3.5 h-3.5 text-[#5a8209] shrink-0" />
                       <span className="truncate">
-                        {useFlexBooking
-                          ? `Flexible — done within ${isBusiness ? `${FLEX_WINDOW_DAYS} days` : `${Math.round(HOMEOWNER_FLEX_DAYS / 7)} weeks`}`
+                        {/* FLEX lane gone: the only no-date state left is landlord
+                            liaise (we arrange with the tenant). Everyone else
+                            echoes their picked day, or a pick-a-day nudge. */}
+                        {isLandlord && useFlexBooking
+                          ? `We'll arrange with your tenant — done within ${Math.round(HOMEOWNER_FLEX_DAYS / 7)} weeks`
                           : selectedDate
                             ? `Your day: ${format(selectedDate, 'EEE d MMM')}`
                             : 'No day picked yet'}

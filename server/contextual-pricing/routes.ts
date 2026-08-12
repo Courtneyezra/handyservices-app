@@ -1853,6 +1853,79 @@ async function generateUniqueSlug(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Visit-link WhatsApp message generator — turns Ben's raw "why a visit" note
+// into a warm, natural message that ties the reason into the ask. Haiku with a
+// deterministic template fallback so link creation never blocks on the LLM.
+// ---------------------------------------------------------------------------
+async function generateVisitMessage(opts: {
+  firstName: string;
+  reason?: string | null;
+  feePounds: number;
+  visitUrl: string;
+}): Promise<string> {
+  const { firstName, reason, feePounds, visitUrl } = opts;
+  const fallback = reason && reason.trim()
+    ? `Hi ${firstName}, thanks for the details. ${reason.trim()} We'll need to see it in person to price it properly — you can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`
+    : `Hi ${firstName}, thanks for the details. This is one we need to see in person to price it properly. You can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`;
+
+  try {
+    const claude = getAnthropic();
+    const parts = [
+      `Customer first name: ${firstName}`,
+      `Visit fee: £${feePounds} (fully credited to the job)`,
+      `Booking link: ${visitUrl}`,
+    ];
+    if (reason && reason.trim()) parts.push(`Why a visit is needed (polish this into the message, don't quote it verbatim): ${reason.trim().slice(0, 300)}`);
+
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 220,
+      temperature: 0.5,
+      system: `You write ONE short WhatsApp message from Ben at a UK handyman firm (HandyServices) to a customer.
+
+Purpose: their job can't be priced accurately over text/phone, so an expert needs to visit and write a fixed quote. Invite them to book the paid visit (the fee is fully credited to the job, so it's risk-free).
+
+Rules:
+- Warm, human, concise — 2-3 short sentences. Like a real person texting, not marketing.
+- If a reason is provided, weave it in naturally and politely (e.g. "so we can check the pipework properly") — do NOT paste it verbatim or use jargon/shorthand; smooth it into plain English.
+- Mention the fee once as "£${feePounds}, credited to the job" (or similar) and end with the booking link on its own.
+- Start with "Hi ${firstName},".
+- UK English. No emoji. No exclamation marks. No hype words ("amazing", "fantastic").
+- Return ONLY the message text — no preamble, no quotes.
+
+The booking link MUST appear exactly once, unchanged: ${visitUrl}`,
+      messages: [{ role: 'user', content: parts.join('\n') }],
+    });
+    const block = message.content.find((b: any) => b.type === 'text');
+    let text = (block?.text || '').trim().replace(/^["']|["']$/g, '').trim();
+    // Guardrail: the model must include the real link; if it dropped/altered it, fall back.
+    if (!text || !text.includes(visitUrl)) return fallback;
+    return text;
+  } catch (e) {
+    console.warn('[VisitLink] message generation failed, using template:', e instanceof Error ? e.message : e);
+    return fallback;
+  }
+}
+
+// POST /api/pricing/draft-visit-message — regenerate the visit message (used by
+// the builder's "regenerate" control after editing the reason). Non-blocking.
+router.post('/api/pricing/draft-visit-message', async (req, res) => {
+  try {
+    const { customerName, reason, surveyFeePence, visitUrl } = req.body as {
+      customerName?: string; reason?: string; surveyFeePence?: number; visitUrl?: string;
+    };
+    if (!customerName || !visitUrl) return res.status(400).json({ error: 'customerName and visitUrl are required' });
+    const firstName = String(customerName).split(' ')[0];
+    const feePounds = Math.round((Number(surveyFeePence) || 0) / 100);
+    const message = await generateVisitMessage({ firstName, reason, feePounds, visitUrl });
+    res.json({ message });
+  } catch (error) {
+    console.error('[VisitLink] draft-visit-message failed:', error);
+    res.status(500).json({ error: 'Failed to draft message' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/pricing/create-visit-link
 // Standalone "send a visit link" — NO line items. For jobs we can't quote
 // remotely (media sent but unquotable, or nothing sent) where the customer just
@@ -1958,14 +2031,12 @@ router.post('/api/pricing/create-visit-link', async (req, res) => {
       : `${baseUrl}/visit/${shortSlug}`;
     const firstName = input.customerName.split(' ')[0];
     const feePounds = Math.round(fee / 100);
-    const whatsappMessage = input.reason
-      ? `Hi ${firstName}, thanks for the details. ${input.reason.trim()} We'll need to see it in person to price it properly — you can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`
-      : `Hi ${firstName}, thanks for the details. This is one we need to see in person to price it properly. You can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`;
+    const whatsappMessage = await generateVisitMessage({ firstName, reason: input.reason, feePounds, visitUrl });
     const waPhone = formatPhoneForWhatsApp(input.phone);
     const whatsappSendUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(whatsappMessage)}`;
 
     console.log(`[VisitLink] Created visit link ${shortSlug} (${id}), fee £${feePounds}, lead=${leadId ?? '—'}`);
-    res.json({ id, shortSlug, visitUrl, whatsappMessage, whatsappSendUrl });
+    res.json({ id, shortSlug, visitUrl, whatsappMessage, whatsappSendUrl, waPhone });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid input', details: error.errors });

@@ -100,7 +100,7 @@ export function SplitOffer({ offer, ctx, render, customerName, onAccept, onDecli
 
           <div className="mt-7 space-y-3">
             <button
-              onClick={onAccept}
+              onClick={() => onAccept()}
               className="w-full inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-4 text-base font-extrabold text-white shadow-lg transition-transform active:scale-[0.98]"
               style={{ backgroundColor: HS_GREEN, boxShadow: '0 10px 25px -5px rgba(125,176,14,0.3)' }}
             >
