@@ -240,15 +240,17 @@ router.post('/api/pricing/survey-audio', surveyAudioUpload.single('file'), async
     // Transcribe via Whisper — best-effort. Never fail the upload on a
     // transcription error; the audio is already saved.
     let transcript: string | null = null;
+    let transcriptError: string | null = null;
     try {
       // Whisper reads the format from the filename extension.
       transcript = await transcribeAudioBuffer(file.buffer, `survey-note${ext}`);
-    } catch (transcribeError) {
-      console.warn('[SurveyAudio] Whisper transcription failed (audio still saved):', transcribeError instanceof Error ? transcribeError.message : transcribeError);
+    } catch (transcribeError: any) {
+      transcriptError = `${transcribeError?.name || 'Error'}: status=${transcribeError?.status} code=${transcribeError?.code} type=${transcribeError?.type} msg=${transcribeError?.message}`;
+      console.warn('[SurveyAudio] Whisper transcription failed (audio still saved):', transcriptError);
     }
 
     console.log(`[SurveyAudio] Uploaded voice note${transcript ? ' (transcribed)' : ' (no transcript)'}`);
-    res.json({ url, transcript });
+    res.json({ url, transcript, transcriptError });
   } catch (error) {
     console.error('[SurveyAudio] Upload failed:', error);
     res.status(500).json({ error: 'Audio upload failed' });
