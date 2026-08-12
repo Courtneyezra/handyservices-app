@@ -1932,8 +1932,9 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
             return res.status(404).json({ error: "Quote not found" });
         }
 
-        // Single price model — prefer the customer's accepted price (selectedTierPricePence),
-        // which is what their deposit was calculated against; fall back to base/essential.
+        // Single price model — prefer the customer's true agreed total (selectedTierPricePence:
+        // basePrice + chosen set-date/add-on premiums, the figure the deposit was taken against);
+        // fall back to base/essential only when it is not set.
         const selectedTierPricePence = quote.selectedTierPricePence || quote.basePrice || quote.essentialPrice || 0;
         const effectivePackage = selectedPackage || quote.selectedPackage || 'standard';
 
