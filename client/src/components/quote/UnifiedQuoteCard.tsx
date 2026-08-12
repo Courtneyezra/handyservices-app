@@ -421,6 +421,12 @@ interface UnifiedQuoteCardProps {
    * cert) need SKU-relationship data.
    */
   enableLineItemSplit?: boolean;
+  /**
+   * bundle_up-served quotes (repeats + sub-£200 jobs, offer router decision
+   * 12 Aug 2026) get no gift interstitial, so the card itself carries the
+   * play: lead with the add-a-job slot already open + bundle-framed copy.
+   */
+  leadWithAddons?: boolean;
   /** Override the default segment-driven feature bullets with contextual value bullets. */
   contextualBullets?: string[];
   /** Deposit percentage (0-100). Default 30. */
@@ -691,6 +697,7 @@ export function UnifiedQuoteCard({
   pricingLineItems,
   batchDiscount,
   enableLineItemSplit = false,
+  leadWithAddons = false,
   contextualBullets,
   depositPercent: depositPercentProp,
   payInFullDiscountPercent: payInFullDiscountPercentProp,
@@ -1005,8 +1012,16 @@ export function UnifiedQuoteCard({
   };
   // The "add a small job" ghost slot (foot of the line-item list) is collapsed
   // by default — an offer the customer can open, never a wall between them and
-  // the calendar. Opening expands the menu tiles in place.
-  const [addonSectionOpen, setAddonSectionOpen] = useState(false);
+  // the calendar. Opening expands the menu tiles in place. bundle_up-served
+  // quotes lead with it open (lazy init — the prop is stable at mount). The
+  // effect covers the one late-arrival case (localStorage-cached payload from
+  // before the router served offerServedPlay, reconciled by the background
+  // refetch): it only ever OPENS, and never fights a manual close.
+  const [addonSectionOpen, setAddonSectionOpen] = useState(() => leadWithAddons);
+  const addonSectionTouched = useRef(false);
+  useEffect(() => {
+    if (leadWithAddons && !addonSectionTouched.current) setAddonSectionOpen(true);
+  }, [leadWithAddons]);
   // Menu tiles shown in that slot: everything except the claimed gift (already
   // free — it can't be re-added as a paid task). Category overlap with the
   // quote's own lines is deliberately NOT excluded here (unlike the gift pool):
@@ -2373,9 +2388,11 @@ export function UnifiedQuoteCard({
                 }`}>
                   <button
                     type="button"
-                    onClick={() => setAddonSectionOpen((o) => !o)}
+                    onClick={() => { addonSectionTouched.current = true; setAddonSectionOpen((o) => !o); }}
                     aria-expanded={addonSectionOpen}
-                    aria-label={`Add ${giftId ? 'another' : 'a'} small job — 25% off while ${skinPossessive} there`}
+                    aria-label={leadWithAddons
+                      ? `Make the visit worth it — add another small job, 25% off while ${skinPossessive} there`
+                      : `Add ${giftId ? 'another' : 'a'} small job — 25% off while ${skinPossessive} there`}
                     className="w-full min-h-[48px] px-3 py-2.5 text-left active:scale-[0.99] transition-transform"
                   >
                     <span className="flex items-center gap-3">
@@ -2388,8 +2405,9 @@ export function UnifiedQuoteCard({
                       }`}>
                         {/* "another" once the free gift task is on the sheet —
                             the FREE card above already told the first story.
-                            The discount lives in the pill, not the sentence. */}
-                        Add {giftId ? 'another' : 'a'} small job
+                            The discount lives in the pill, not the sentence.
+                            bundle_up lead: value framing over verb framing. */}
+                        {leadWithAddons ? 'Make the visit worth it' : <>Add {giftId ? 'another' : 'a'} small job</>}
                       </span>
                       {/* The discount IS the eye-catcher: solid green pill on
                           the right, small chevron beneath for affordance. */}
@@ -2429,7 +2447,9 @@ export function UnifiedQuoteCard({
                     }`}>
                       {/* Terse on purpose: must hold ONE line at 375px — the
                           "while Craig's there" personalisation moved to the
-                          aria-label; here brevity wins. */}
+                          aria-label; here brevity wins — must hold ONE line at
+                          375px, and the 25% OFF pill already sells the discount,
+                          so the bundle_up lead keeps the same subtitle. */}
                       Same visit, no extra call-out.
                     </span>
                   </button>

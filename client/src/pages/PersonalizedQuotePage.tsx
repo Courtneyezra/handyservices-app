@@ -4665,6 +4665,7 @@ export default function PersonalizedQuotePage() {
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
                       pricingLineItems={taggedPricingLineItems || undefined}                      enableLineItemSplit={!splitOptOut && (taggedPricingLineItems?.length ?? 0) >= 2}
+                      leadWithAddons={(quote as any)?.offerServedPlay === 'bundle_up'}
                       priceBuckets={isContextualQuote ? (quote as any).pricingLayerBreakdown?.priceBuckets : undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}
