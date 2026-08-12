@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { openai, polishAssessmentReason, generatePersonalizedNote, determineQuoteStrategy, classifyLead, determineOptimalRoute } from "./openai";
+import { latestOfferDecision } from "./offer-router";
 import { generateEVEPricingQuote, generateTierDeliverables, getSegmentTierConfig, type EVEPricingResult } from "./eve-pricing-engine";
 import { geocodeAddress } from "./lib/geocoding";
 import { findBestContractors, checkNetworkAvailability } from "./availability-engine";
@@ -1356,6 +1357,18 @@ quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res
             ? await isWelcomeGiftEligible(quote as any)
             : false;
 
+        // Offer router pick — the page reads the LATEST decision row (rules or
+        // Ben's override; append-only so overrides win) and serves that play:
+        // welcome_gift → gift interstitial; anything else → straight to price.
+        // Null (pre-router quote or lookup failure) falls back to the legacy
+        // config-driven pick client-side. Fail-open — never blocks the page.
+        // Flipped live 12 Aug 2026 (owner call: serve now, observe after).
+        let offerServedPlay: string | null = null;
+        try {
+            const decision = await latestOfferDecision(quote.id);
+            offerServedPlay = decision?.servedPlay ?? null;
+        } catch { /* legacy behaviour */ }
+
         const viewer = (req as any).user;
         const isAdminViewer = !!viewer && (viewer.role === 'admin' || viewer.role === 'va');
         const publicPricingLineItems = (!isAdminViewer && Array.isArray(quote.pricingLineItems))
@@ -1403,6 +1416,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res
             selectedContent,
             upsellSkus,
             welcomeGiftEligible,
+            offerServedPlay,
         });
 
     } catch (error) {

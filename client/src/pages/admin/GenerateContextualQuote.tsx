@@ -1064,7 +1064,7 @@ function OfferDecisionCard({ quoteId, initial }: { quoteId: string; initial: Off
         unmetIntent: data.decision.targetPlay !== data.decision.servedPlay,
       });
       setOverridePlay('');
-      toast({ title: 'Override logged', description: 'Recorded in the decision log for the review loop.' });
+      toast({ title: 'Override applied', description: 'The customer page now serves this play (and it\'s recorded for the review loop).' });
     } catch {
       toast({ title: 'Override failed', description: 'Could not record the override.', variant: 'destructive' });
     } finally {
@@ -1087,7 +1087,7 @@ function OfferDecisionCard({ quoteId, initial }: { quoteId: string; initial: Off
           <Badge variant="outline" className="text-[10px]">
             {decision.firstTime ? 'first-time' : 'repeat'}
           </Badge>
-          <span className="ml-auto text-[10px] font-normal text-muted-foreground">observation mode</span>
+          <span className="ml-auto text-[10px] font-normal text-muted-foreground">steers the quote page</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 pt-3">

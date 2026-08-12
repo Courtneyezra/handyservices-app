@@ -50,7 +50,7 @@ import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { QuotePreparingScreen } from '@/components/quote/QuotePreparingScreen';
 import { IrresistibleOfferScreen } from '@/components/quote/IrresistibleOfferScreen';
-import { pickQuoteOffer, deriveOfferCustomerType } from '@/lib/quote-offers';
+import { pickQuoteOffer, pickOfferOfType, deriveOfferCustomerType } from '@/lib/quote-offers';
 import { useAddonMenu } from '@/hooks/useAddonMenu';
 import { AdmiralPriceHero, AdmiralSection } from '@/components/quote/AdmiralQuoteChrome';
 import type { QuoteOffersConfig } from '@shared/pricing-settings';
@@ -3589,6 +3589,25 @@ export default function PersonalizedQuotePage() {
     const seed = (quote as any).shortSlug || params?.slug || quote.id || 'quote';
     // Offers are configured per customer type — pick from this quote's group.
     const offerCustomerType = deriveOfferCustomerType((quote as any).contextSignals);
+    // ROUTER FLIP (12 Aug 2026, owner call: serve now, observe after). Quotes
+    // generated since the spine carry `offerServedPlay` — the offer router's
+    // persisted pick (latest decision row, so Ben's builder override wins).
+    // When present it is AUTHORITATIVE over the global config pick:
+    //   'welcome_gift'          → show the gift interstitial (config supplies
+    //                             the copy/benefits/template for the play)
+    //   'bundle_up'/'none'/etc. → no interstitial, straight to price — the
+    //                             add-a-small-job slot on the quote card is
+    //                             always there and IS the bundle-up play.
+    // Absent/null (pre-router quotes) → legacy config-driven pick below.
+    const servedPlay = (quote as any).offerServedPlay as string | null | undefined;
+    if (servedPlay) {
+      if (servedPlay !== 'welcome_gift') return null;
+      const gift = pickOfferOfType(pricingSettings?.quoteOffers, seed, offerCustomerType, 'welcome_gift');
+      if (!gift) return null;
+      // Server-computed eligibility still gates the give (fails closed).
+      if (!(quote as any).welcomeGiftEligible) return null;
+      return gift;
+    }
     // flex_date offers are retired (the FLEX lane was deleted) — pickQuoteOffer
     // filters them out, including stale DB-configured ones, so nothing here can
     // resolve to a flex offer.
@@ -3605,7 +3624,12 @@ export default function PersonalizedQuotePage() {
   // Gift still on the table? Server-computed eligibility minus a claim made in
   // this session (theatre accept OR the quote card's resurfaced gift band).
   // Drives the card's "your welcome gift — still yours" band via props below.
-  const giftStillClaimable = !!(quote as any)?.welcomeGiftEligible && !claimedGiftId;
+  // Router flip: when the persisted decision withholds the gift (served play
+  // is anything other than welcome_gift), the resurfaced band is withheld too —
+  // otherwise the add-a-job accordion would leak the give the router declined.
+  const routerAllowsGift = !(quote as any)?.offerServedPlay
+    || (quote as any).offerServedPlay === 'welcome_gift';
+  const giftStillClaimable = routerAllowsGift && !!(quote as any)?.welcomeGiftEligible && !claimedGiftId;
 
   // Server-stored addon menu for the interstitial (fetched only when a
   // menu-bearing offer will actually show, or the unclaimed gift needs to

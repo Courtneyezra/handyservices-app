@@ -125,6 +125,30 @@ export function pickQuoteOffer(
   return enabled[0];
 }
 
+/**
+ * Resolve the first enabled offer of a specific TYPE for a customer type —
+ * used by the router page-flip: when the persisted decision names a play
+ * (e.g. welcome_gift), the page needs that offer's copy/benefits/template
+ * even if the config's active pick is currently something else.
+ */
+export function pickOfferOfType(
+  config: QuoteOffersConfig | undefined | null,
+  seed: string,
+  customerType: QuoteOfferCustomerType | undefined,
+  type: QuoteOffer['type'],
+): QuoteOffer | null {
+  const picked = pickQuoteOffer(config, seed, customerType);
+  if (picked?.type === type) return picked;
+  if (!config || !config.enabled) return null;
+  const groups = [config.perCustomerType?.[customerType || 'homeowner'], config];
+  for (const group of groups) {
+    if (!group || group.enabled === false || !Array.isArray(group.items)) continue;
+    const match = group.items.find((o) => o && o.enabled && o.type === type);
+    if (match) return match;
+  }
+  return null;
+}
+
 export interface OfferPriceContext {
   /** The quote's base (flexible-lane) price in pence. */
   basePence: number;
