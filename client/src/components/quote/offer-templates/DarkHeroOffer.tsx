@@ -95,6 +95,13 @@ export function DarkHeroOffer({ offer, render, customerName, skin, addonMenu, on
       setSelectedGift(addonMenu![0].id);
     }
   }, [giftMode, hasMenu, addonMenu, selectedGift]);
+  // Tile cap (owner call 12 Aug 2026): show at most 4 tiles — a fifth dangles
+  // in the 2-col grid and pushes the CTA below the fold — with a "See more"
+  // text row expanding the rest. One-way: no collapse control needed.
+  const TILE_CAP = 4;
+  const [showAllTiles, setShowAllTiles] = useState(false);
+  const visibleMenu = hasMenu && !showAllTiles ? addonMenu!.slice(0, TILE_CAP) : addonMenu;
+  const hiddenTileCount = hasMenu ? addonMenu!.length - TILE_CAP : 0;
   const toggleAddon = (id: string) => {
     if (giftMode) {
       // Single-select: tapping the chosen tile clears it; tapping another moves the pick.
@@ -265,7 +272,7 @@ export function DarkHeroOffer({ offer, render, customerName, skin, addonMenu, on
           {hasMenu ? (
             <div className="mt-3 bg-white rounded-2xl border border-slate-200 shadow-lg p-2 hs-ah-rise hs-ah-d3">
               <div className="grid grid-cols-2 gap-2" role={giftMode ? 'radiogroup' : undefined}>
-                {addonMenu!.map((item) => {
+                {visibleMenu!.map((item) => {
                   const on = isSelected(item.id);
                   const Icon = addonIconFor(item.id, item.category);
                   return (
@@ -333,6 +340,15 @@ export function DarkHeroOffer({ offer, render, customerName, skin, addonMenu, on
                   );
                 })}
               </div>
+              {!showAllTiles && hiddenTileCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTiles(true)}
+                  className="mt-2 w-full text-center text-[13px] font-bold text-[#5a8209] hover:text-[#4a6e07] underline underline-offset-4 decoration-[#7DB00E]/40 transition-colors"
+                >
+                  See {hiddenTileCount} more option{hiddenTileCount === 1 ? '' : 's'}
+                </button>
+              )}
               {/* add_task keeps its running total; the gift pick needs no
                   confirm line — the solid-green tile + CTA say it, and the
                   extra row would push the CTA below the 375×812 fold. */}
