@@ -70,39 +70,47 @@ interface BuildQuoteMessageCtx {
 
 /** Assemble the final WhatsApp message string for the chosen style. */
 export function buildQuoteMessage(ctx: BuildQuoteMessageCtx): string {
-  const { firstName, contextualMessage, whatsappClosing, quoteUrl, finalPricePence, batchNudge = '', delayReason } = ctx;
+  const { firstName, contextualMessage, quoteUrl, finalPricePence, batchNudge = '', delayReason } = ctx;
   const range = priceRangeText(finalPricePence);
   const reason = (delayReason || '').trim();
 
   // Each style → { greeting, linkIntro (carries the price range + the link cue), closing }.
+  //
+  // CLOSINGS ARE DETERMINISTIC AND BOOKING-FORWARD (12 Aug 2026). The LLM
+  // closing used to end the message ("Happy to get that sorted. Just let me
+  // know when suits.") — which reads as "reply to arrange", so customers
+  // bounced into a WhatsApp back-and-forth instead of tapping the link where
+  // date-picking, extras and payment are all self-serve. Every closing now
+  // points INTO the link as the way to book; "reply here" is only offered for
+  // questions. `whatsappClosing` still exists on the quote for on-page use.
   const styles: Record<MessageStyleId, { greeting: string; linkIntro: string; closing: string }> = {
     friendly: {
       greeting: `Hey ${firstName},`,
       linkIntro: range
         ? `Likely around ${range} all-in — here's the full breakdown so you can see exactly what's included, and pick a slot:`
         : `Here's the full breakdown so you can see what's included, and pick a slot:`,
-      closing: whatsappClosing,
+      closing: `Pick whichever day suits you in the link — takes about a minute and you're booked in. Any questions, just message me here.`,
     },
     professional: {
       greeting: `Hi ${firstName},`,
       linkIntro: range
         ? `Estimated ${range} for the work. Full itemised quote and booking here:`
         : `Your itemised quote and booking are here:`,
-      closing: whatsappClosing || 'Any questions, just reply here. Thanks.',
+      closing: `Booking is self-serve in the link — choose a date and it's confirmed straight away. Any questions, reply here.`,
     },
     efficient: {
       greeting: `Hi ${firstName},`,
       linkIntro: range
         ? `Around ${range} — and we handle it end to end (access, photos, invoice), so it's hands-off for you. Quote + booking:`
         : `We handle it end to end (access, photos, invoice) — quote + booking here:`,
-      closing: whatsappClosing,
+      closing: `Pick a date in the link and it's locked in — we take it from there. Any questions, just reply.`,
     },
     reassuring: {
       greeting: `Hi ${firstName},`,
       linkIntro: range
         ? `It'll be in the region of ${range}. Everything's laid out here with no surprises — have a look and choose a time that suits:`
         : `Everything's laid out here with no surprises — have a look and choose a time that suits:`,
-      closing: whatsappClosing,
+      closing: `When you're ready, choose a day in the link and you're booked — nothing else to do. I'm here if anything's unclear.`,
     },
     delay: {
       greeting: reason
@@ -111,7 +119,7 @@ export function buildQuoteMessage(ctx: BuildQuoteMessageCtx): string {
       linkIntro: range
         ? `Here's your quote — around ${range} all-in. Full breakdown + book here:`
         : `Here's your quote — full breakdown + book here:`,
-      closing: whatsappClosing || 'Thanks for your patience — any questions, just shout.',
+      closing: `Thanks for your patience — pick a day in the link when you're ready and you're booked in.`,
     },
   };
 

@@ -2928,9 +2928,11 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         ? `\u00A3${totalPounds.toFixed(0)}`
         : `\u00A3${totalPounds.toFixed(2)}`;
 
-    // Add batch nudge for single-job quotes — surfaces the "while we're there" opportunity
+    // Add batch nudge for single-job quotes — surfaces the "while we're there"
+    // opportunity, pointed INTO the link (the add-a-small-job menu lives on the
+    // quote card) rather than inviting a reply.
     const batchNudge = input.lines.length === 1
-      ? '\n\nAnything else to sort while we\'re there? Happy to add it to the same visit.'
+      ? '\n\nAnything else needs doing while we\'re there? You can add extra small jobs right inside the link too.'
       : '';
 
     // Build the WhatsApp message: pre-anchors a PRICE RANGE before the link (so the on-page
