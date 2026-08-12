@@ -236,6 +236,24 @@ export async function notifyWebformLead(alert: WebformLeadAlert): Promise<void> 
     });
 }
 
+interface SiteSurveyAlert {
+    slug: string;
+    customerName?: string | null;
+    itemCount: number;
+}
+
+/** Fire a "site survey submitted" push alert — a contractor filled the on-site survey. */
+export async function notifySiteSurveySubmitted(alert: SiteSurveyAlert): Promise<void> {
+    const who = alert.customerName?.trim() || 'a job';
+    const items = alert.itemCount === 1 ? '1 item' : `${alert.itemCount} items`;
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    await dispatch({
+        event: 'site_survey',
+        title: '📋 Site survey submitted',
+        message: `${who} — ${items} surveyed on site.\n${baseUrl}/survey/${alert.slug}`,
+    });
+}
+
 interface InboundMessageAlert {
     senderName?: string | null;
     phoneNumber?: string | null;

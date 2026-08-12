@@ -1044,6 +1044,16 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Prevents mis-scoped jobs being committed sight-unseen (the "Alicia" case).
     surveyRequired: boolean("survey_required").default(false),
     surveyFeePence: integer("survey_fee_pence"), // survey/site-visit fee in pence (credited to the job)
+    // Site-survey response — a contractor (e.g. Joe) opens a tokenised /survey/:slug
+    // link on their phone and fills a per-item survey (scope, time estimate,
+    // materials, notes, photos) for additional works found on site. Record/display
+    // only (no acceptance gate); the office is pinged via Pushover on submit.
+    surveyResponse: jsonb("survey_response").$type<{
+      items: Array<{ key: string; scope: string; timeEstimate: string; materials: 'us' | 'her' | ''; notes: string; photoUrls: string[] }>;
+      anythingElse: string;
+      surveyorName: string;
+    }>(),
+    surveySubmittedAt: timestamp("survey_submitted_at"), // when the contractor submitted the site survey
     // Quote-level "standard assumptions" — caveats the fixed price is based on
     // (access, parking, existing installs sound…). Shown on the quote page so
     // there's a documented basis to re-price if reality differs on the day.

@@ -149,6 +149,7 @@ function QuoteRouteFallback() {
 const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
 const ConfirmSlotPage = lazy(() => import("@/pages/ConfirmSlotPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
+const SiteSurveyPage = lazy(() => import("@/pages/SiteSurveyPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
@@ -377,6 +378,11 @@ function Router() {
                 </Route>
                 <Route path="/visit-link/:slug">
                     <DiagnosticVisitPage />
+                </Route>
+
+                {/* Contractor site-survey form (tokenised link) */}
+                <Route path="/survey/:slug">
+                    <SiteSurveyPage />
                 </Route>
 
                 {/* Client Portal - Token-based access */}

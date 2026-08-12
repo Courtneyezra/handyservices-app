@@ -39,6 +39,7 @@ import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
 import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, isS3Configured } from '../s3-media';
 import { geocodePostcode } from '../lib/geocode';
+import { notifySiteSurveySubmitted } from '../pushover';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -1813,6 +1814,10 @@ const createVisitLinkSchema = z.object({
   createdBy: z.string().optional(),
   createdByName: z.string().optional(),
   sourceCallId: z.string().optional(),
+  // When 'survey', the returned link points at the contractor site-survey form
+  // (/survey/:slug) instead of the customer visit-booking page (/visit/:slug).
+  // Reuses all the same slug/row machinery — only the returned URL path changes.
+  mode: z.enum(['visit', 'survey']).optional(),
 });
 
 router.post('/api/pricing/create-visit-link', async (req, res) => {
@@ -1880,7 +1885,9 @@ router.post('/api/pricing/create-visit-link', async (req, res) => {
     });
 
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-    const visitUrl = `${baseUrl}/visit/${shortSlug}`;
+    const visitUrl = input.mode === 'survey'
+      ? `${baseUrl}/survey/${shortSlug}`
+      : `${baseUrl}/visit/${shortSlug}`;
     const firstName = input.customerName.split(' ')[0];
     const feePounds = Math.round(fee / 100);
     const whatsappMessage = input.reason
@@ -1897,6 +1904,74 @@ router.post('/api/pricing/create-visit-link', async (req, res) => {
     }
     console.error('[VisitLink] Failed to create visit link:', error);
     res.status(500).json({ error: 'Failed to create visit link' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/visit/:slug/survey  (public — no auth)
+// A contractor (e.g. Joe) opens the tokenised /survey/:slug link on their phone
+// and submits a per-item site survey (scope, time estimate, materials, notes,
+// photos) for additional works found on site. Stored as jsonb on the quote row;
+// the office is pinged via Pushover on submit.
+// ---------------------------------------------------------------------------
+const siteSurveyBodySchema = z.object({
+  items: z.array(z.object({
+    key: z.string().min(1),
+    scope: z.string().default(''),
+    timeEstimate: z.string().default(''),
+    materials: z.enum(['us', 'her', '']).default(''),
+    notes: z.string().default(''),
+    photoUrls: z.array(z.string()).max(20).default([]),
+  })).default([]),
+  anythingElse: z.string().default(''),
+  surveyorName: z.string().default(''),
+});
+
+router.post('/api/visit/:slug/survey', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const body = siteSurveyBodySchema.parse(req.body);
+
+    const [quote] = await db
+      .select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName })
+      .from(personalizedQuotes)
+      .where(eq(personalizedQuotes.shortSlug, slug))
+      .limit(1);
+
+    if (!quote) {
+      return res.status(404).json({ error: 'Survey link not found' });
+    }
+
+    await db.update(personalizedQuotes)
+      .set({
+        surveyResponse: {
+          items: body.items,
+          anythingElse: body.anythingElse,
+          surveyorName: body.surveyorName,
+        },
+        surveySubmittedAt: new Date(),
+      })
+      .where(eq(personalizedQuotes.id, quote.id));
+
+    // Count items with any real content entered (scope/notes/photos) for the alert.
+    const filledCount = body.items.filter(
+      (it) => it.scope.trim() || it.notes.trim() || it.photoUrls.length > 0,
+    ).length;
+
+    notifySiteSurveySubmitted({
+      slug,
+      customerName: quote.customerName,
+      itemCount: filledCount,
+    }).catch((e) => console.warn('[SiteSurvey] Pushover notify failed:', e));
+
+    console.log(`[SiteSurvey] Survey submitted for ${slug} (${quote.id}), ${filledCount} item(s)`);
+    res.json({ ok: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('[SiteSurvey] Failed to save survey:', error);
+    res.status(500).json({ error: 'Failed to save survey' });
   }
 });
 
