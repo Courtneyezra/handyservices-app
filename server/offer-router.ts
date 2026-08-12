@@ -76,7 +76,10 @@ export function toPriceBand(totalPence: number): PriceBand {
  * description. Deliberately excludes plumbing_minor (a dripping tap is not an
  * anxiety job). MED when the job is ≥£500, else LOW.
  */
-const HIGH_STAKES_PATTERN = /rewir|consumer unit|fuse ?(box|board)|\brcd\b|roof|structur|load.?bear|joist|leak|burst|flood|damp/i;
+// `leak` carries a negative lookahead so tap leaks ("fix a leaking or dripping
+// tap") stay low-stakes while real water ingress ("leak from bathroom above")
+// reads high.
+const HIGH_STAKES_PATTERN = /rewir|consumer unit|fuse ?(box|board)|\brcd\b|roof|structur|load.?bear|joist|burst|flood|damp|ceiling|water (damage|stain|coming|ingress)|leak(?![^]{0,24}tap)/i;
 const MINOR_PATTERN = /minor/i;
 
 export function deriveStakes(
@@ -86,9 +89,13 @@ export function deriveStakes(
     for (const line of lines) {
         const cat = String(line.category || '');
         const desc = String(line.description || '');
+        // The description is checked for EVERY line — a minor category must not
+        // hide an anxious job described on it. (Found live 12 Aug: plumbing_minor
+        // + "leak from bathroom above" classified low; the Claude shadow flagged
+        // it high on the router's first real disagreement.)
+        if (HIGH_STAKES_PATTERN.test(desc)) return 'high';
         if (MINOR_PATTERN.test(cat)) continue;
-        if (HIGH_STAKES_PATTERN.test(cat) || HIGH_STAKES_PATTERN.test(desc)) return 'high';
-        if (/plumbing|electric/i.test(cat) && !MINOR_PATTERN.test(cat)) return 'high';
+        if (HIGH_STAKES_PATTERN.test(cat) || /plumbing|electric/i.test(cat)) return 'high';
     }
     return totalPence >= 50000 ? 'med' : 'low';
 }

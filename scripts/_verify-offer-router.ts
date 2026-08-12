@@ -52,12 +52,13 @@ for (const [pence, want] of bandChecks) {
 }
 const s1 = deriveStakes([{ category: 'electrical_minor', description: 'replace socket' }], 30000);
 const s2 = deriveStakes([{ category: 'painting', description: 'repaint hallway' }], 30000);
-const s3 = deriveStakes([{ category: 'plumbing_minor', description: 'fix dripping tap' }], 30000);
+const s3 = deriveStakes([{ category: 'plumbing_minor', description: 'fix a leaking or dripping tap' }], 30000);
 const s4 = deriveStakes([{ category: 'general_fixing', description: 'roof tile slipped, leak into bedroom' }], 30000);
-if (s1 !== 'low' && s1 !== 'high') { /* electrical_minor: MINOR pattern skips category — desc has no signal → low */ }
-console.log(`stakes: electrical_minor=${s1} painting=${s2} plumbing_minor=${s3} roof-leak-desc=${s4}`);
+const s5 = deriveStakes([{ category: 'plumbing_minor', description: 'investigate and repair leak from bathroom above, make good ceiling below' }], 30000);
+console.log(`stakes: electrical_minor=${s1} painting=${s2} tap-leak=${s3} roof-leak-desc=${s4} minor-cat-real-leak=${s5}`);
 if (s4 !== 'high') { failed++; console.error('FAIL: roof/leak description should be high stakes'); }
-if (s3 === 'high') { failed++; console.error('FAIL: minor plumbing must not be high stakes'); }
+if (s3 === 'high') { failed++; console.error('FAIL: tap leak must not be high stakes'); }
+if (s5 !== 'high') { failed++; console.error('FAIL: minor category must not hide a real leak in the description'); }
 
 // Live round-trip on the decision log (cleaned up after)
 async function liveRoundTrip() {

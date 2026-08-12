@@ -5,13 +5,15 @@
  * Promotion path: monthly disagreement review (Ben flags, owner approves) —
  * council decision 12 Aug 2026.
  *
- * gpt-4o-mini on purpose: 3-bucket stakes + whitelist play selection with hard
- * guardrails downstream doesn't reward a bigger model at this volume.
+ * Runs on Claude (claude-opus-5) — switched from gpt-4o-mini 12 Aug 2026 when
+ * the OpenAI account ran out of credits. Cost is negligible at quote volume
+ * (~£0.01/quote) and the classification quality question resolves in Claude's
+ * favour anyway.
  */
 import { db } from './db';
 import { quoteOfferDecisions } from '../shared/schema';
 import { eq } from 'drizzle-orm';
-import { getOpenAI } from './openai';
+import { getAnthropic } from './anthropic';
 import { OFFER_PLAYS, type OfferDecisionInputs, type OfferPlay } from './offer-router';
 
 export interface ShadowContext {
@@ -39,7 +41,7 @@ Plays (choose exactly one):
 
 Stakes: how bad it FEELS for the customer if this job goes wrong. high = water/electrics/structure/roof or visible anxiety. low = cosmetic, trivial. med = between.
 
-Reply as JSON: {"stakes":"low|med|high","play":"<one id>","rationale":"<one sentence, plain words>"}`;
+Reply with ONLY a JSON object, no other text: {"stakes":"low|med|high","play":"<one id>","rationale":"<one sentence, plain words>"}`;
 
 /**
  * Fire-and-forget: classify and backfill the decision row. Swallows every
@@ -48,7 +50,7 @@ Reply as JSON: {"stakes":"low|med|high","play":"<one id>","rationale":"<one sent
 export function runShadowClassifier(ctx: ShadowContext): void {
     void (async () => {
         try {
-            const model = 'gpt-4o-mini';
+            const model = 'claude-opus-5';
             const lineSummary = ctx.lines
                 .map((l) => `- ${l.category || 'general'}: ${String(l.description || '').slice(0, 140)}`)
                 .join('\n');
@@ -62,17 +64,17 @@ export function runShadowClassifier(ctx: ShadowContext): void {
                 ctx.vaContext ? `Operator notes (verbatim): ${String(ctx.vaContext).slice(0, 600)}` : '',
             ].filter(Boolean).join('\n');
 
-            const response = await getOpenAI().chat.completions.create({
+            const response = await getAnthropic().messages.create({
                 model,
-                messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
-                    { role: 'user', content: user },
-                ],
-                response_format: { type: 'json_object' },
-                temperature: 0,
-                max_tokens: 200,
+                max_tokens: 2048,
+                system: SYSTEM_PROMPT,
+                messages: [{ role: 'user', content: user }],
             });
-            const raw = response.choices[0]?.message?.content || '{}';
+            if (response.stop_reason === 'refusal') return;
+            const textBlock = response.content.find((b) => b.type === 'text');
+            if (!textBlock || textBlock.type !== 'text') return;
+            // The model replies with bare JSON; tolerate accidental fencing.
+            const raw = textBlock.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
             const parsed = JSON.parse(raw);
             const play: string = String(parsed.play || '');
             const stakes: string = String(parsed.stakes || '');

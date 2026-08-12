@@ -4,7 +4,8 @@
 in OBSERVATION MODE.** `server/offer-router.ts` implements §3–§4;
 `quote_offer_decisions` migration applied to the live DB; decisions log on
 every generation/edit; Ben's builder shows the pick with override; the shadow
-classifier (`server/offer-shadow-agent.ts`, gpt-4o-mini) backfills its opinion
+classifier (`server/offer-shadow-agent.ts`, Claude `claude-opus-5` — switched
+from gpt-4o-mini 12 Aug when OpenAI credits ran out) backfills its opinion
 async. The customer page still renders via the client's `pickQuoteOffer` —
 flip only after the shadow week. Verify: `npx tsx scripts/_verify-offer-router.ts`. This document is the
 canonical spec the offer router builds against. The decision tree is never

@@ -229,30 +229,35 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-[13px] font-semibold ${open ? 'break-words' : 'line-clamp-2'} ${crossed ? 'line-through opacity-50 blur-[0.7px]' : ''} ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</span>
+            <span className={`text-[13px] font-semibold text-pretty ${open ? 'break-words' : 'line-clamp-2'} ${crossed ? 'line-through opacity-50 blur-[0.7px]' : ''} ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</span>
             {qualifier && (
               <span className={`shrink-0 text-[10.5px] font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{qualifier}</span>
             )}
           </div>
         </div>
 
-        <span className={`shrink-0 text-[14px] font-bold tabular-nums ${crossed ? 'line-through opacity-50 blur-[0.7px]' : ''} ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
-        {crossed && (
-          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saved</span>
-        )}
-        {collapsible && !crossed && (
-          <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
-        )}
-        {onCross && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onCross(); }}
-            aria-label={crossed ? 'Add this back to today\'s visit' : 'Cross off — save for another visit'}
-            className={`shrink-0 w-6 h-6 -mr-0.5 rounded-full flex items-center justify-center border transition-colors ${crossed ? 'border-[#7DB00E]/60 text-[#a3d65f] hover:bg-[#7DB00E]/15' : (isDarkTheme ? 'border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300' : 'border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500')}`}
-          >
-            {crossed ? <RotateCcw className="w-3 h-3" strokeWidth={2.5} /> : <X className="w-3 h-3" strokeWidth={2.5} />}
-          </button>
-        )}
+        {/* Price + row controls: stacked vertically on phones so long titles keep
+            ~45px more width (3 wrapped lines instead of 4 at 375px); side-by-side
+            from sm: up where the row has room. */}
+        <span className="shrink-0 flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-2">
+          <span className={`text-[14px] font-bold tabular-nums ${crossed ? 'line-through opacity-50 blur-[0.7px]' : ''} ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
+          {crossed && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saved</span>
+          )}
+          {collapsible && !crossed && (
+            <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
+          )}
+          {onCross && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onCross(); }}
+              aria-label={crossed ? 'Add this back to today\'s visit' : 'Cross off — save for another visit'}
+              className={`w-6 h-6 -mr-0.5 rounded-full flex items-center justify-center border transition-colors ${crossed ? 'border-[#7DB00E]/60 text-[#a3d65f] hover:bg-[#7DB00E]/15' : (isDarkTheme ? 'border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300' : 'border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500')}`}
+            >
+              {crossed ? <RotateCcw className="w-3 h-3" strokeWidth={2.5} /> : <X className="w-3 h-3" strokeWidth={2.5} />}
+            </button>
+          )}
+        </span>
       </HeaderTag>
 
       {(collapsible || hasContent) && (
@@ -2261,7 +2266,7 @@ export function UnifiedQuoteCard({
                         <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>
                           Your welcome gift
                         </span>
-                        <span className={`block text-[14px] font-bold leading-snug break-words ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                        <span className={`block text-[14px] font-bold leading-snug break-words text-balance ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
                           {giftItem.label}
                         </span>
                         <p className={`text-[11px] leading-snug mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -2378,7 +2383,7 @@ export function UnifiedQuoteCard({
                       <span className="shrink-0 w-9 h-9 rounded-lg bg-[#7DB00E] flex items-center justify-center shadow-[0_2px_8px_rgba(125,176,14,0.35)]">
                         <Plus className="w-5 h-5 text-white" strokeWidth={2.75} />
                       </span>
-                      <span className={`min-w-0 flex-1 text-[15px] font-bold leading-snug ${
+                      <span className={`min-w-0 flex-1 text-[15px] font-bold leading-snug text-pretty ${
                         addonSectionOpen ? (isDarkTheme ? 'text-slate-100' : 'text-slate-900') : 'text-white'
                       }`}>
                         {/* "another" once the free gift task is on the sheet —
