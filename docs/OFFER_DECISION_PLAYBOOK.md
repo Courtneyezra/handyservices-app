@@ -6,8 +6,12 @@ in OBSERVATION MODE.** `server/offer-router.ts` implements §3–§4;
 every generation/edit; Ben's builder shows the pick with override; the shadow
 classifier (`server/offer-shadow-agent.ts`, Claude `claude-opus-5` — switched
 from gpt-4o-mini 12 Aug when OpenAI credits ran out) backfills its opinion
-async. The customer page still renders via the client's `pickQuoteOffer` —
-flip only after the shadow week. Verify: `npx tsx scripts/_verify-offer-router.ts`. This document is the
+async. **PAGE FLIPPED same day** (owner call: serve now, observe after — the
+shadow-week wait was skipped since the router can only serve already-built
+surfaces): the quote page reads `offerServedPlay` from the latest decision
+row, so the router — and Ben's override — genuinely steer what customers see.
+Pre-router quotes keep the legacy config pick. The disagreement review still
+runs on the accumulated log. Verify: `npx tsx scripts/_verify-offer-router.ts`. This document is the
 canonical spec the offer router builds against. The decision tree is never
 drawn or enumerated: it is *generated* from the three sections below —
 variables × rules (with precedence) × guardrails. Change the behaviour of the
