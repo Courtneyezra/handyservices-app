@@ -1,5 +1,5 @@
 
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -14,6 +14,24 @@ export function getOpenAI(): OpenAI {
         _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     }
     return _openai;
+}
+
+/**
+ * Transcribe an in-memory audio buffer via OpenAI Whisper (whisper-1).
+ * Used by the contractor site-survey voice notes: the tradesman records a
+ * voice note per item, we upload it and run it through Whisper to get a
+ * text transcript. Takes a Buffer + filename (the filename's extension tells
+ * OpenAI the audio format, e.g. "note.webm"). Returns the transcript string.
+ * Throws on failure — callers should try/catch and degrade gracefully.
+ */
+export async function transcribeAudioBuffer(buffer: Buffer, filename: string): Promise<string> {
+    const client = getOpenAI();
+    const file = await toFile(buffer, filename);
+    const transcription = await client.audio.transcriptions.create({
+        file,
+        model: "whisper-1",
+    });
+    return transcription.text;
 }
 
 // Legacy export for backward compatibility

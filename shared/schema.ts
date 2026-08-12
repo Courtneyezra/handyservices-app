@@ -1048,8 +1048,22 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // link on their phone and fills a per-item survey (scope, time estimate,
     // materials, notes, photos) for additional works found on site. Record/display
     // only (no acceptance gate); the office is pinged via Pushover on submit.
+    // Primary capture per item is now a voice note (auto-transcribed via
+    // Whisper) + video; scope/notes text is optional/secondary. New fields are
+    // optional so older/partial submissions still fit the shape (jsonb — no
+    // migration needed).
     surveyResponse: jsonb("survey_response").$type<{
-      items: Array<{ key: string; scope: string; timeEstimate: string; materials: 'us' | 'her' | ''; notes: string; photoUrls: string[] }>;
+      items: Array<{
+        key: string;
+        scope: string;
+        timeEstimate: string;
+        materials: 'us' | 'her' | '';
+        notes: string;
+        photoUrls: string[];
+        voiceNoteUrl?: string;
+        transcript?: string;
+        videoUrls?: string[];
+      }>;
       anythingElse: string;
       surveyorName: string;
     }>(),

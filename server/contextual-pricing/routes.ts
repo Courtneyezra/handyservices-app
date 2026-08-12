@@ -37,7 +37,8 @@ import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../m
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
-import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, isS3Configured } from '../s3-media';
+import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, uploadSurveyAudioToS3, isS3Configured } from '../s3-media';
+import { transcribeAudioBuffer } from '../openai';
 import { geocodePostcode } from '../lib/geocode';
 import { notifySiteSurveySubmitted } from '../pushover';
 import type {
@@ -185,6 +186,72 @@ router.post('/api/pricing/quote-videos', quoteVideoUpload.array('files', 5), asy
   } catch (error) {
     console.error('[QuoteVideos] Upload failed:', error);
     res.status(500).json({ error: 'Video upload failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/survey-audio
+// Contractor site-survey voice notes. The tradesman records a per-item voice
+// note on their phone (MediaRecorder → webm/mp4 blob); we store it on S3 (or
+// local disk in dev) AND run it through Whisper to get a text transcript.
+// Returns { url, transcript }. Transcription is best-effort — a Whisper
+// failure NEVER fails the upload; we still return the audio url with
+// transcript: null so the note is preserved.
+// ---------------------------------------------------------------------------
+
+const surveyAudioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 }, // 25MB (Whisper's file cap)
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('audio/')) cb(null, true);
+    else cb(new Error('Only audio files are allowed'));
+  },
+});
+
+router.post('/api/pricing/survey-audio', surveyAudioUpload.single('file'), async (req, res) => {
+  try {
+    const file = req.file as Express.Multer.File | undefined;
+    if (!file) {
+      return res.status(400).json({ error: 'No audio file uploaded' });
+    }
+
+    // Local-disk store (dev fallback) — served via the /uploads static mount
+    const saveLocal = async (buffer: Buffer, ext: string): Promise<string> => {
+      const uploadDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const filename = `survey-audio-${nanoid()}${ext}`;
+      await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
+      return `/uploads/${filename}`;
+    };
+
+    const ext = path.extname(file.originalname) || '.webm';
+    let url: string;
+    if (isS3Configured()) {
+      try {
+        url = await uploadSurveyAudioToS3(file.buffer, file.mimetype);
+      } catch (s3Error) {
+        console.warn('[SurveyAudio] S3 upload failed, falling back to local disk:', s3Error instanceof Error ? s3Error.message : s3Error);
+        url = await saveLocal(file.buffer, ext);
+      }
+    } else {
+      url = await saveLocal(file.buffer, ext);
+    }
+
+    // Transcribe via Whisper — best-effort. Never fail the upload on a
+    // transcription error; the audio is already saved.
+    let transcript: string | null = null;
+    try {
+      // Whisper reads the format from the filename extension.
+      transcript = await transcribeAudioBuffer(file.buffer, `survey-note${ext}`);
+    } catch (transcribeError) {
+      console.warn('[SurveyAudio] Whisper transcription failed (audio still saved):', transcribeError instanceof Error ? transcribeError.message : transcribeError);
+    }
+
+    console.log(`[SurveyAudio] Uploaded voice note${transcript ? ' (transcribed)' : ' (no transcript)'}`);
+    res.json({ url, transcript });
+  } catch (error) {
+    console.error('[SurveyAudio] Upload failed:', error);
+    res.status(500).json({ error: 'Audio upload failed' });
   }
 });
 
@@ -1922,6 +1989,11 @@ const siteSurveyBodySchema = z.object({
     materials: z.enum(['us', 'her', '']).default(''),
     notes: z.string().default(''),
     photoUrls: z.array(z.string()).max(20).default([]),
+    // Primary capture: a voice note (auto-transcribed) + video per item.
+    // Optional so partial submissions still validate.
+    voiceNoteUrl: z.string().optional(),
+    transcript: z.string().optional(),
+    videoUrls: z.array(z.string()).max(10).default([]),
   })).default([]),
   anythingElse: z.string().default(''),
   surveyorName: z.string().default(''),

@@ -261,6 +261,39 @@ export async function uploadQuoteVideoToS3(
 }
 
 /**
+ * Upload a contractor site-survey voice note (raw buffer from a MediaRecorder
+ * upload) to S3 under survey-audio/. Returns the public S3 URL.
+ */
+export async function uploadSurveyAudioToS3(
+    buffer: Buffer,
+    mimeType: string
+): Promise<string> {
+    const client = getS3Client();
+
+    // Audio mime types (audio/webm, audio/mp4, audio/mpeg…) — reuse the generic
+    // extension resolver; default to webm which is what MediaRecorder emits.
+    const parts = mimeType.split('/');
+    let extension = parts.length === 2 ? parts[1].split(';')[0] : 'webm';
+    if (extension === 'mpeg') extension = 'mp3';
+    if (extension === 'x-m4a') extension = 'm4a';
+    const key = `survey-audio/${nanoid()}.${extension}`;
+
+    const command = new PutObjectCommand({
+        Bucket: AWS_S3_BUCKET,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+        ACL: ObjectCannedACL.public_read,
+    });
+
+    await client.send(command);
+
+    const s3Url = `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+    console.log(`[S3Media] Survey audio uploaded: ${s3Url}`);
+    return s3Url;
+}
+
+/**
  * Check if S3 is properly configured
  */
 export function isS3Configured(): boolean {
