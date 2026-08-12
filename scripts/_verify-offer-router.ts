@@ -59,6 +59,8 @@ console.log(`stakes: electrical_minor=${s1} painting=${s2} tap-leak=${s3} roof-l
 if (s4 !== 'high') { failed++; console.error('FAIL: roof/leak description should be high stakes'); }
 if (s3 === 'high') { failed++; console.error('FAIL: tap leak must not be high stakes'); }
 if (s5 !== 'high') { failed++; console.error('FAIL: minor category must not hide a real leak in the description'); }
+const s6 = deriveStakes([{ category: 'painting', description: 'Paint the hallway, stairs and landing - walls, ceilings and woodwork' }], 33000);
+if (s6 === 'high') { failed++; console.error('FAIL: painting ceilings is cosmetic, not high stakes'); }
 
 // Live round-trip on the decision log (cleaned up after)
 async function liveRoundTrip() {

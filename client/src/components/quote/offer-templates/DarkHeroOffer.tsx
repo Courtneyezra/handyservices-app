@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   Blinds,
@@ -81,6 +81,20 @@ export function DarkHeroOffer({ offer, render, customerName, skin, addonMenu, on
   const [selectedAddons, setSelectedAddons] = useState<Set<string>>(new Set());
   const [selectedGift, setSelectedGift] = useState<string | null>(null);
   const hasMenu = !!addonMenu && addonMenu.length > 0;
+  // Gift mode pre-selects the first tile ONCE the (async-fetched) pool lands.
+  // Found live 12 Aug: a customer tapped through with nothing registered as
+  // selected and the accept silently claimed no gift — they had to re-claim it
+  // from the quote card's add-a-job band. With a default pick, every accept
+  // path carries a gift; deselecting (tap the chosen tile) or the decline link
+  // remain the explicit no-gift paths, so the guard ref keeps a deliberate
+  // deselect from being re-selected.
+  const giftAutoPicked = useRef(false);
+  useEffect(() => {
+    if (giftMode && hasMenu && !giftAutoPicked.current && !selectedGift) {
+      giftAutoPicked.current = true;
+      setSelectedGift(addonMenu![0].id);
+    }
+  }, [giftMode, hasMenu, addonMenu, selectedGift]);
   const toggleAddon = (id: string) => {
     if (giftMode) {
       // Single-select: tapping the chosen tile clears it; tapping another moves the pick.

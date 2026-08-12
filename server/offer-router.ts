@@ -79,7 +79,10 @@ export function toPriceBand(totalPence: number): PriceBand {
 // `leak` carries a negative lookahead so tap leaks ("fix a leaking or dripping
 // tap") stay low-stakes while real water ingress ("leak from bathroom above")
 // reads high.
-const HIGH_STAKES_PATTERN = /rewir|consumer unit|fuse ?(box|board)|\brcd\b|roof|structur|load.?bear|joist|burst|flood|damp|ceiling|water (damage|stain|coming|ingress)|leak(?![^]{0,24}tap)/i;
+// NOTE: no bare "ceiling" — "paint walls and ceilings" is cosmetic (found live
+// 12 Aug, false-positived a decorating quote to high stakes). Real ceiling
+// trouble is caught by its cause words: leak/damp/water damage/stain.
+const HIGH_STAKES_PATTERN = /rewir|consumer unit|fuse ?(box|board)|\brcd\b|roof|structur|load.?bear|joist|burst|flood|damp|water (damage|stain|coming|ingress)|leak(?![^]{0,24}tap)/i;
 const MINOR_PATTERN = /minor/i;
 
 export function deriveStakes(
