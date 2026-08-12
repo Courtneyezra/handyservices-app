@@ -59,7 +59,6 @@ import Autocomplete from 'react-google-autocomplete';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   SkuSlabSummary,
-  InlineSkuAutocomplete,
   getEffectiveSkuPriceAndMinutes,
   type CatalogSku,
   type SkuPickResult,
@@ -2692,7 +2691,10 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   // Global toggle: when on, every line shows a detail textarea that auto-drafts
   // a customer-facing description after the title polishes. Off by default so
   // simple quotes stay tidy; admin opts in for high-ticket / multi-line jobs.
-  const [showLineDetails, setShowLineDetails] = useState(false);
+  // Scope steps are ALWAYS on (owner call 12 Aug 2026) — the old header toggle
+  // is gone. Steps auto-draft per line as titles settle and are removable per
+  // line via the Clear button in the editor.
+  const showLineDetails = true;
   const originalDescriptions = useRef<Map<string, string>>(new Map());
   const originalDetails = useRef<Map<string, string>>(new Map());
   // Track which line ids have already had a detail draft attempted, so we don't
@@ -2817,7 +2819,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       }
     }
 
-    // Follow-up: auto-draft the "details" field if empty AND the global toggle is on.
+    // Follow-up: auto-draft the scope steps if empty (steps are always on now).
     // Look up the most recent line state so we don't draft over user-typed details.
     // We clear the once-per-line guard before calling so a title edit re-drafts.
     if (polishedFinal && showLineDetails) {
@@ -2830,8 +2832,15 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         draftedDetailIds.current.delete(id);
         autoDraftLineDetail(id, polishedFinal, currentCategory, buildStructuredVaContext());
       }
+      // Assumptions default ON per line (owner call 12 Aug 2026): draft the
+      // price-protecting caveats for any line that has none once its title
+      // settles. draftLineAssumptions merge-dedups, so manual entries survive.
+      if (!line?.assumptions?.some((a) => a.trim())) {
+        const currentCategory = (line?.category ?? 'general_fixing') as JobCategory;
+        draftLineAssumptions(id, polishedFinal, currentCategory, buildStructuredVaContext());
+      }
     }
-  }, [handleUpdateLineItem, autoDraftLineDetail, lineItems, buildStructuredVaContext, showLineDetails]);
+  }, [handleUpdateLineItem, autoDraftLineDetail, draftLineAssumptions, lineItems, buildStructuredVaContext, showLineDetails]);
 
   // Polish a manually-edited detail textarea on blur (mirrors title polish behaviour).
   const handlePolishDetail = useCallback(async (id: string, detail: string) => {
@@ -2887,6 +2896,18 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 <Wand2 className="w-2.5 h-2.5" />
                 {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
               </span>
+            )}
+            {hasSteps && !isBusy && (
+              <button
+                type="button"
+                title="Remove all scope steps from this line"
+                aria-label="Remove scope steps from this line"
+                onClick={() => handleUpdateLineScopeSteps(item.id, [])}
+                className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground/60 hover:text-red-500 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                Clear
+              </button>
             )}
             <button
               type="button"
@@ -3656,12 +3677,6 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         return li.description.trim();
       });
 
-  // The "Detail" toggle only matters for custom lines (SKU lines carry their own
-  // customer description), so it's only surfaced once a line is in custom state.
-  const hasCustomLine = lineItems.some(
-    (li) => li.source !== 'sku' && customLineIds.has(li.id),
-  );
-
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3948,33 +3963,6 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 <CardTitle className="text-base font-bold text-white tracking-tight flex items-center justify-between gap-3">
                   <span>Jobs</span>
                   <div className="flex items-center gap-3">
-                    {/* Detail toggle — only for custom lines (SKU lines carry their own description) */}
-                    {hasCustomLine && (
-                    <Label
-                      htmlFor="show-line-details"
-                      className="flex items-center gap-2 text-[11px] font-normal text-white/70 cursor-pointer select-none"
-                    >
-                      <Wand2 className="w-3 h-3 text-handy-yellow" />
-                      Line scope steps
-                      <Switch
-                        id="show-line-details"
-                        checked={showLineDetails}
-                        onCheckedChange={(checked) => {
-                          setShowLineDetails(checked);
-                          if (checked) {
-                            // Auto-draft scope steps for every existing line that doesn't have any yet.
-                            // Clear the once-per-line guard so re-toggling triggers fresh drafts.
-                            for (const li of lineItems) {
-                              if (!li.details && !li.scopeSteps?.some((s) => s.trim()) && li.description.trim().length >= 5) {
-                                draftedDetailIds.current.delete(li.id);
-                                autoDraftLineDetail(li.id, li.description, li.category, buildStructuredVaContext());
-                              }
-                            }
-                          }
-                        }}
-                      />
-                    </Label>
-                    )}
                     {lineItems.length > 0 && (
                       <Badge variant="outline" className="text-xs bg-handy-yellow/15 text-handy-yellow border-handy-yellow/60">
                         {lineItems.length} job{lineItems.length !== 1 ? 's' : ''}
@@ -4091,21 +4079,28 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                               {showLineDetails && item.skuCode && renderScopeStepsEditor(item)}
                             </>
                           ) : (
-                            // ─── Inline autocomplete (custom / not-yet-picked) ───
-                            // The description field searches the catalog as you
-                            // type. Pick a suggestion → the line flips to a SKU
-                            // line. Type and don't pick → it stays custom and is
-                            // priced via the LLM/reference path on generate.
+                            // ─── Plain description input (custom lines only) ───
+                            // The SKU autocomplete dropdown was removed 12 Aug
+                            // 2026 (owner call): lines are only ever entered as
+                            // custom, so every line is custom the moment it has
+                            // real text and prices via the LLM/reference path.
+                            // Legacy SKU lines on edited quotes still render the
+                            // SKU slab branch above; the Track B advisory chip
+                            // below remains the one opt-in SKU path.
                             <>
-                              <InlineSkuAutocomplete
+                              <Input
                                 value={item.description}
                                 autoFocus={item.id === newLineId}
-                                dimmed={isPolishing}
-                                onChangeText={(next) => handleUpdateLineItem(item.id, 'description', next)}
-                                onPickSku={(result) => handlePickSkuForLine(item.id, result)}
+                                placeholder="e.g. Fix leaking tap, Mount TV…"
+                                autoComplete="off"
+                                onChange={(e) => {
+                                  handleUpdateLineItem(item.id, 'description', e.target.value);
+                                  handleLineCustomChange(item.id, e.target.value.trim().length >= 3);
+                                }}
                                 onBlur={() => handlePolishDescription(item.id, item.description)}
-                                onCustomChange={(c) => handleLineCustomChange(item.id, c)}
-                                onCreateCustom={() => handleLineCustomChange(item.id, true)}
+                                className={`text-base sm:text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
+                                  isPolishing ? 'opacity-60' : ''
+                                }`}
                               />
 
                               {/* Polish override — the AI tidy can strip scope detail the
