@@ -1,8 +1,12 @@
 # Offer Decision Playbook — v1 (LOCKED 12 Aug 2026)
 
-**Status: policy locked with owner, 12 Aug 2026 — not yet wired into code.**
-Build order locked: spine first (router + decision log + Ben's builder view);
-missing plays log as unmet intent, build queue then comes from the log. This document is the
+**Status: policy locked with owner 12 Aug 2026 — SPINE BUILT same day, running
+in OBSERVATION MODE.** `server/offer-router.ts` implements §3–§4;
+`quote_offer_decisions` migration applied to the live DB; decisions log on
+every generation/edit; Ben's builder shows the pick with override; the shadow
+classifier (`server/offer-shadow-agent.ts`, gpt-4o-mini) backfills its opinion
+async. The customer page still renders via the client's `pickQuoteOffer` —
+flip only after the shadow week. Verify: `npx tsx scripts/_verify-offer-router.ts`. This document is the
 canonical spec the offer router builds against. The decision tree is never
 drawn or enumerated: it is *generated* from the three sections below —
 variables × rules (with precedence) × guardrails. Change the behaviour of the
@@ -67,6 +71,10 @@ they're built* — the build queue comes from logged unmet intents, not opinion.
 ## 4. Rules — first match wins within a tier; lower tier only if no match
 
 ### Tier 1 — context overrides (specific)
+
+**Evaluation order within tier 1** (matters when several match): job-shape
+overrides first (R3, R4, R5), then identity (R6, R7, R8), then status (R1,
+R2). A £3k repeat customer needs the phone-first route, not a bundle menu.
 
 | # | When | Goal | Play | Until play is built |
 |---|---|---|---|---|

@@ -3710,3 +3710,34 @@ export type InsertGmbMetric = typeof gmbMetrics.$inferInsert;
 export const insertSeoLeadAttributionSchema = createInsertSchema(seoLeadAttributions);
 export type SeoLeadAttribution = typeof seoLeadAttributions.$inferSelect;
 export type InsertSeoLeadAttribution = typeof seoLeadAttributions.$inferInsert;
+
+// ── Offer decision log (docs/OFFER_DECISION_PLAYBOOK.md §6) ──────────────────
+// Append-only: one row per router run (generation, edit re-decision, Ben
+// override). Never updated in place except the shadow-agent columns, which the
+// async classifier backfills onto its own row.
+export const quoteOfferDecisions = pgTable("quote_offer_decisions", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    quoteId: varchar("quote_id").notNull(),
+    slug: varchar("slug"),
+    decidedAt: timestamp("decided_at").defaultNow().notNull(),
+    moment: varchar("moment").default("first_view").notNull(),
+    inputs: jsonb("inputs"),                    // OfferDecisionInputs snapshot
+    ruleFired: varchar("rule_fired").notNull(), // "R9" | "G1" | "R11" | "ben_override"
+    goal: varchar("goal"),
+    targetPlay: varchar("target_play").notNull(),
+    servedPlay: varchar("served_play").notNull(),
+    rationale: text("rationale"),
+    decidedBy: varchar("decided_by").default("rules").notNull(), // rules | ben_override
+    // Shadow LLM (logged, never served) — backfilled async on the same row
+    shadowPlay: varchar("shadow_play"),
+    shadowStakes: varchar("shadow_stakes"),
+    shadowRationale: text("shadow_rationale"),
+    shadowModel: varchar("shadow_model"),
+}, (table) => [
+    index("idx_offer_decisions_quote").on(table.quoteId),
+    index("idx_offer_decisions_decided_at").on(table.decidedAt),
+]);
+
+export const insertQuoteOfferDecisionSchema = createInsertSchema(quoteOfferDecisions);
+export type QuoteOfferDecision = typeof quoteOfferDecisions.$inferSelect;
+export type InsertQuoteOfferDecision = typeof quoteOfferDecisions.$inferInsert;

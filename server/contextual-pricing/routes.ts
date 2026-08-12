@@ -38,6 +38,8 @@ import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
 import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, uploadSurveyAudioToS3, isS3Configured } from '../s3-media';
+import { recordOfferDecision, latestOfferDecision, recordBenOverride, OFFER_PLAYS, type OfferPlay } from '../offer-router';
+import { runShadowClassifier } from '../offer-shadow-agent';
 import { transcribeAudio } from '../deepgram';
 import { geocodePostcode } from '../lib/geocode';
 import { notifySiteSurveySubmitted } from '../pushover';
@@ -2839,6 +2841,28 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       console.log(`[ContextualQuote] Created quote ${shortSlug} (${id}), price: ${result.finalPricePence}p`);
     }
 
+    // 7a-0. Offer router (OBSERVATION MODE — docs/OFFER_DECISION_PLAYBOOK.md).
+    // Decides + logs which offer play this quote SHOULD get. Does NOT change
+    // what the customer sees: the client's pickQuoteOffer stays authoritative
+    // until the page flip after the shadow week. Never throws; ~1 indexed
+    // lookup of latency. Runs on create AND edit (re-decision trigger: an edit
+    // or +5% reissue can cross a price band and invalidate the earlier pick).
+    const decisionLines = result.lineItems.map((li: any) => ({
+      category: li.category, description: li.description,
+    }));
+    const offerDecision = await recordOfferDecision(
+      quoteInsertData, result.finalPricePence, decisionLines,
+    );
+    if (offerDecision) {
+      runShadowClassifier({
+        decisionId: offerDecision.decisionId,
+        inputs: offerDecision.inputs,
+        vaContext: input.vaContext,
+        jobDescription: quoteInsertData.jobDescription,
+        lines: decisionLines,
+      });
+    }
+
     // 7a. Bump the catalog pick-count for any extras that were chosen — fire-and-forget.
     // Don't block the response if telemetry fails.
     if (input.optionalExtras && input.optionalExtras.length > 0) {
@@ -2950,6 +2974,22 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       success: true,
       quoteId: id,
       shortSlug,
+      // Offer router's pick (observation mode) — builder decision card. Null
+      // when logging failed; the quote itself is unaffected either way.
+      offerDecision: offerDecision
+        ? {
+            decisionId: offerDecision.decisionId,
+            ruleFired: offerDecision.ruleFired,
+            goal: offerDecision.goal,
+            targetPlay: offerDecision.targetPlay,
+            servedPlay: offerDecision.servedPlay,
+            rationale: offerDecision.rationale,
+            unmetIntent: offerDecision.unmetIntent,
+            stakes: offerDecision.inputs.stakes,
+            priceBand: offerDecision.inputs.priceBand,
+            firstTime: offerDecision.inputs.firstTime,
+          }
+        : null,
       quoteUrl,
       whatsappMessage,
       whatsappSendUrl,
@@ -3263,6 +3303,37 @@ router.patch('/api/pricing/quotes/:id', async (req, res) => {
   } catch (error) {
     console.error('[quote-patch] Error:', error);
     return res.status(500).json({ error: 'Failed to update quote' });
+  }
+});
+
+// ── Offer decision log (observation mode) ────────────────────────────────────
+// Latest router decision for a quote — the builder's decision card refetches
+// through this after an override.
+router.get('/api/admin/quotes/:quoteId/offer-decision', requireAdmin, async (req, res) => {
+  try {
+    const row = await latestOfferDecision(req.params.quoteId);
+    return res.json({ decision: row });
+  } catch (err) {
+    console.error('[OfferRouter] fetch decision failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to fetch offer decision' });
+  }
+});
+
+// Operator override — appends a new decision row (append-only; the rules row
+// stays on record for the disagreement review). Body: { play, byName? }.
+router.post('/api/admin/quotes/:quoteId/offer-decision/override', requireAdmin, async (req, res) => {
+  try {
+    const play = String(req.body?.play || '');
+    if (!(OFFER_PLAYS as readonly string[]).includes(play)) {
+      return res.status(400).json({ error: `play must be one of: ${OFFER_PLAYS.join(', ')}` });
+    }
+    const row = await recordBenOverride(
+      req.params.quoteId, play as OfferPlay, req.body?.byName || null,
+    );
+    return res.json({ decision: row });
+  } catch (err) {
+    console.error('[OfferRouter] override failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to record override' });
   }
 });
 

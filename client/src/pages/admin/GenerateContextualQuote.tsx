@@ -233,10 +233,25 @@ interface ContextSignals {
   previousAvgPricePence: number;
 }
 
+/** Offer router decision (observation mode) echoed by the generate endpoint. */
+interface OfferDecisionSummary {
+  decisionId: string;
+  ruleFired: string;
+  goal: string | null;
+  targetPlay: string;
+  servedPlay: string;
+  rationale: string | null;
+  unmetIntent: boolean;
+  stakes: string;
+  priceBand: string;
+  firstTime: boolean;
+}
+
 interface QuoteResult {
   success: boolean;
   quoteId: string;
   shortSlug: string;
+  offerDecision?: OfferDecisionSummary | null;
   quoteUrl: string;
   whatsappMessage: string;
   whatsappSendUrl: string;
@@ -996,6 +1011,126 @@ function formatPhoneForWhatsApp(phone: string): string {
     cleaned = '44' + cleaned.substring(1);
   }
   return cleaned;
+}
+
+// ── Offer router decision card (observation mode) ────────────────────────────
+// Shows what the rules spine picked for this quote and lets the operator
+// override it. Overrides append to the decision log — they don't change what
+// the customer sees yet (client pickQuoteOffer stays authoritative until the
+// page flip). docs/OFFER_DECISION_PLAYBOOK.md
+
+const OFFER_PLAY_LABELS: Record<string, { label: string; built: boolean }> = {
+  welcome_gift: { label: 'Welcome gift', built: true },
+  bundle_up: { label: 'Bundle-up menu', built: true },
+  none: { label: 'No offer — straight to price', built: true },
+  risk_removal: { label: 'Risk-removal pack', built: false },
+  visit_first: { label: 'Visit / phone first', built: false },
+  quote_split: { label: 'Quote split', built: false },
+  partner: { label: 'Partner offer', built: false },
+  forward_pack: { label: 'Landlord forward pack', built: false },
+  loyalty: { label: 'Loyalty play', built: false },
+  terms_compliance: { label: 'Terms + compliance', built: false },
+  nudge: { label: 'Stalled nudge', built: false },
+  post_job_upsell: { label: 'Post-job upsell', built: false },
+};
+
+function OfferDecisionCard({ quoteId, initial }: { quoteId: string; initial: OfferDecisionSummary }) {
+  const { toast } = useToast();
+  const [decision, setDecision] = useState(initial);
+  const [overridePlay, setOverridePlay] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
+  const target = OFFER_PLAY_LABELS[decision.targetPlay] ?? { label: decision.targetPlay, built: false };
+  const served = OFFER_PLAY_LABELS[decision.servedPlay] ?? { label: decision.servedPlay, built: true };
+  const isOverride = decision.ruleFired === 'ben_override';
+
+  const applyOverride = async () => {
+    if (!overridePlay || overridePlay === decision.targetPlay) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${quoteId}/offer-decision/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ play: overridePlay, byName: 'builder' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setDecision({
+        ...decision,
+        decisionId: data.decision.id,
+        ruleFired: 'ben_override',
+        targetPlay: data.decision.targetPlay,
+        servedPlay: data.decision.servedPlay,
+        rationale: data.decision.rationale,
+        unmetIntent: data.decision.targetPlay !== data.decision.servedPlay,
+      });
+      setOverridePlay('');
+      toast({ title: 'Override logged', description: 'Recorded in the decision log for the review loop.' });
+    } catch {
+      toast({ title: 'Override failed', description: 'Could not record the override.', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden border-handy-grid shadow-sm">
+      <CardHeader className="px-4 sm:px-6 py-3 border-b border-border">
+        <CardTitle className="text-sm font-bold text-handy-navy tracking-tight flex items-center gap-2 flex-wrap">
+          Offer router pick
+          <Badge variant="outline" className="text-[10px] font-mono">{decision.ruleFired}</Badge>
+          <Badge variant="outline" className={cn('text-[10px]',
+            decision.stakes === 'high' ? 'bg-red-100 text-red-800 border-red-300'
+              : decision.stakes === 'med' ? 'bg-amber-100 text-amber-800 border-amber-300'
+                : 'bg-emerald-100 text-emerald-800 border-emerald-300')}>
+            {decision.stakes} stakes
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {decision.firstTime ? 'first-time' : 'repeat'}
+          </Badge>
+          <span className="ml-auto text-[10px] font-normal text-muted-foreground">observation mode</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 pt-3">
+        <div className="text-sm text-foreground">
+          {decision.unmetIntent ? (
+            <>
+              Wants <span className="font-semibold">{target.label}</span>
+              {!target.built && <span className="text-muted-foreground"> (not built yet)</span>}
+              {' — '}serving <span className="font-semibold">{served.label}</span> meanwhile.
+            </>
+          ) : (
+            <>Pick: <span className="font-semibold">{served.label}</span></>
+          )}
+          {isOverride && <Badge className="ml-2 bg-handy-navy text-white text-[10px]">operator override</Badge>}
+        </div>
+        {decision.rationale && (
+          <p className="text-xs text-muted-foreground leading-relaxed">{decision.rationale}</p>
+        )}
+        <div className="flex items-center gap-2 pt-1">
+          <Select value={overridePlay} onValueChange={setOverridePlay}>
+            <SelectTrigger className="h-8 text-xs flex-1">
+              <SelectValue placeholder="Override play…" />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(OFFER_PLAY_LABELS).map(([id, p]) => (
+                <SelectItem key={id} value={id} className="text-xs">
+                  {p.label}{p.built ? '' : ' (not built — logs intent)'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs"
+            disabled={!overridePlay || saving}
+            onClick={applyOverride}
+          >
+            {saving ? 'Saving…' : 'Log override'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 // Normalize a phone number for storage. Numbers copy-pasted from iOS arrive
@@ -5332,6 +5467,11 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 <ExternalLink className="w-4 h-4" />
               </Button>
             </div>
+
+            {/* Offer router decision (observation mode) */}
+            {quoteResult.offerDecision && (
+              <OfferDecisionCard quoteId={quoteResult.quoteId} initial={quoteResult.offerDecision} />
+            )}
 
             {/* Preview + Reset buttons */}
             <div className="flex gap-2 mt-1">
