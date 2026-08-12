@@ -2301,9 +2301,9 @@ export function UnifiedQuoteCard({
                   <div
                     key={giftPausedBySplit ? `gift-paused-${giftPauseFlash}` : 'gift-active'}
                     style={giftPausedBySplit ? { animation: 'hs-gift-pause-flash 0.9s ease-out' } : undefined}
-                    className={`rounded-lg overflow-hidden ring-1 transition-opacity ${
+                    className={`relative rounded-lg overflow-hidden ring-1 ${
                     giftPausedBySplit
-                      ? (isDarkTheme ? 'ring-amber-400/40 bg-amber-400/[0.08] opacity-80' : 'ring-amber-400/50 bg-amber-50 opacity-90')
+                      ? 'ring-amber-400/50'
                       : (isDarkTheme ? 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.12]' : 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.08]')
                   }`}>
                     <style>{`@keyframes hs-gift-pause-flash {
@@ -2311,44 +2311,45 @@ export function UnifiedQuoteCard({
                       35% { box-shadow: 0 0 0 6px rgba(251,191,36,0.25); transform: scale(1.015); }
                       100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); transform: scale(1); }
                     }`}</style>
-                    <div className="w-full flex items-center gap-2.5 px-2.5 py-2.5 text-left">
-                      <div className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
-                        giftPausedBySplit ? 'bg-amber-400' : 'bg-[#7DB00E] shadow-[0_2px_8px_rgba(125,176,14,0.35)]'
-                      }`}>
+                    {/* Gift content — stays its normal green self, but when the
+                        split pauses it the whole row BLURS (same language as
+                        crossed-off lines) under the message overlay below. */}
+                    <div className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 text-left transition-[filter,opacity] duration-300 ${
+                      giftPausedBySplit ? 'blur-[2px] opacity-40 pointer-events-none select-none' : ''
+                    }`}>
+                      <div className="shrink-0 w-9 h-9 rounded-lg bg-[#7DB00E] flex items-center justify-center shadow-[0_2px_8px_rgba(125,176,14,0.35)]">
                         <Gift className="w-[18px] h-[18px] text-white" strokeWidth={2.25} />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${
-                          giftPausedBySplit
-                            ? (isDarkTheme ? 'text-amber-300' : 'text-amber-700')
-                            : (isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]')
-                        }`}>
-                          {giftPausedBySplit ? 'Gift paused' : 'Your welcome gift'}
+                        <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>
+                          Your welcome gift
                         </span>
                         <span className={`block text-[14px] font-bold leading-snug break-words text-balance ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
                           {giftItem.label}
                         </span>
-                        <p className={`text-[11px] leading-snug mt-0.5 ${
-                          giftPausedBySplit
-                            ? (isDarkTheme ? 'text-amber-200/90' : 'text-amber-800')
-                            : (isDarkTheme ? 'text-slate-400' : 'text-slate-500')
-                        }`}>
-                          {giftPausedBySplit
-                            ? `Free gifts ride on visits over £${Math.round(giftMinQuotePence / 100)} — add a job back to keep it.`
-                            : 'Done on the same visit — on us.'}
+                        <p className={`text-[11px] leading-snug mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Done on the same visit — on us.
                         </p>
                       </div>
                       <span className="shrink-0 flex items-center gap-1.5">
                         <span className={`text-[13px] tabular-nums line-through ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
                           £{Math.round(giftItem.pricePence / 100)}
                         </span>
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-white ${
-                          giftPausedBySplit ? 'bg-amber-400' : 'bg-[#7DB00E]'
-                        }`}>
-                          {giftPausedBySplit ? 'PAUSED' : 'FREE'}
+                        <span className="inline-flex items-center rounded-full bg-[#7DB00E] px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-white">
+                          FREE
                         </span>
                       </span>
                     </div>
+                    {/* Paused overlay — crisp message over the blurred gift. */}
+                    {giftPausedBySplit && (
+                      <div className="absolute inset-0 flex items-center justify-center px-3">
+                        <div className="rounded-full bg-amber-400 px-3.5 py-1.5 text-center shadow-lg">
+                          <p className="text-[12px] font-extrabold leading-snug text-slate-900">
+                            Gift paused — add a job back to keep it (visits £{Math.round(giftMinQuotePence / 100)}+)
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {/* Selected paid add-ons — REAL line-item cards (same chrome as
@@ -2703,8 +2704,10 @@ export function UnifiedQuoteCard({
                   )}
                   {/* Welcome gift — slim totals-side reminder only (the full
                       card with label + struck price lives among the line items
-                      above). £0 charged; the server validates the gift itself. */}
-                  {giftItem && (
+                      above). £0 charged; the server validates the gift itself.
+                      Hidden while the split PAUSES the gift — a FREE row in the
+                      totals would contradict the paused card above. */}
+                  {giftItem && !giftPausedBySplit && (
                     <div className="flex justify-between items-center text-[13px]">
                       <span className="flex items-center gap-1.5 font-medium text-[#7DB00E]">
                         <Gift className="w-3.5 h-3.5 shrink-0" />
