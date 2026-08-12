@@ -514,6 +514,13 @@ interface UnifiedQuoteCardProps {
    * in as `giftId` and renders the FREE line-item card. `null` = unclaim.
    */
   onClaimGift?: (giftId: string | null) => void;
+  /**
+   * Gift £ floor (welcomeGiftMinQuotePence from public settings). When the
+   * line-item split drops the KEPT scope below this, the claimed gift PAUSES:
+   * shown as needing a bigger visit, excluded from payment payloads. The
+   * server re-checks the same floor authoritatively at payment time.
+   */
+  giftMinQuotePence?: number;
 }
 
 /**
@@ -715,6 +722,7 @@ export function UnifiedQuoteCard({
   giftEligible = false,
   giftPoolIds,
   onClaimGift,
+  giftMinQuotePence = 20000,
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -1519,6 +1527,15 @@ export function UnifiedQuoteCard({
   // Customer-facing total of what's actually being booked this visit.
   const effectiveTotalPence = hasDeferrals ? splitActiveTotalPence : total;
 
+  // ── Gift floor vs the split ──────────────────────────────────────────────
+  // The gift was granted against the FULL quote price; crossing lines off can
+  // drop the KEPT scope below the £ floor. In that state the claimed gift
+  // PAUSES: its line shows why (instead of silently vanishing at the webhook),
+  // and it's excluded from every payment payload. Add a line back and it
+  // un-pauses. The server enforces the same floor authoritatively.
+  const giftPausedBySplit = !!giftId && hasDeferrals && splitActiveTotalPence < giftMinQuotePence;
+  const payloadGiftId = giftPausedBySplit ? undefined : (giftId || undefined);
+
   // ── Animated hero price ────────────────────────────────────────────────
   // The price rolls up/down live on any selection change (addons, Saturday,
   // pay-in-full, line-item split). The old flex-vs-firm countdown intro went
@@ -1657,7 +1674,7 @@ export function UnifiedQuoteCard({
             // Welcome gift: id only — the server validates eligibility itself
             // and the gift adds £0 to the charge (contractor still gets paid
             // via the webhook's real-labour + offset line pair).
-            giftId: giftId || undefined,
+            giftId: payloadGiftId,
             flexibleTiming: useDownsell,
             flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
             // Phase 25 flex (DISTINCT from the downsell above): carry the chosen flex
@@ -1717,7 +1734,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, cardOpen, total, selectedAddOns, selectedAddonIds, giftId, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation, hasDeferrals, deferredKey, splitDepositPence, splitPayFullPence]);
+  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, cardOpen, total, selectedAddOns, selectedAddonIds, giftId, payloadGiftId, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation, hasDeferrals, deferredKey, splitDepositPence, splitPayFullPence]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -1851,7 +1868,7 @@ export function UnifiedQuoteCard({
           // add_task offer addons: ids only — server re-resolves the prices.
           addonIds: selectedAddonIds.length > 0 ? selectedAddonIds : undefined,
           // Welcome gift: id only — server-validated, £0 to the customer.
-          giftId: giftId || undefined,
+          giftId: payloadGiftId,
           pricingLane,
           ...(isExactDate
             ? { schedulingTier: 'standard', lockId: reservation?.lockId, contractorId: reservation?.contractorId }
@@ -2272,28 +2289,46 @@ export function UnifiedQuoteCard({
                     £0 to every total and the server validates + prices the gift
                     itself at payment. */}
                 {giftItem && (
-                  <div className={`rounded-lg overflow-hidden ring-1 ${isDarkTheme ? 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.12]' : 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.08]'}`}>
+                  <div className={`rounded-lg overflow-hidden ring-1 transition-opacity ${
+                    giftPausedBySplit
+                      ? (isDarkTheme ? 'ring-amber-400/40 bg-amber-400/[0.08] opacity-80' : 'ring-amber-400/50 bg-amber-50 opacity-90')
+                      : (isDarkTheme ? 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.12]' : 'ring-[#7DB00E]/40 bg-[#7DB00E]/[0.08]')
+                  }`}>
                     <div className="w-full flex items-center gap-2.5 px-2.5 py-2.5 text-left">
-                      <div className="shrink-0 w-9 h-9 rounded-lg bg-[#7DB00E] flex items-center justify-center shadow-[0_2px_8px_rgba(125,176,14,0.35)]">
+                      <div className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
+                        giftPausedBySplit ? 'bg-amber-400' : 'bg-[#7DB00E] shadow-[0_2px_8px_rgba(125,176,14,0.35)]'
+                      }`}>
                         <Gift className="w-[18px] h-[18px] text-white" strokeWidth={2.25} />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>
-                          Your welcome gift
+                        <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${
+                          giftPausedBySplit
+                            ? (isDarkTheme ? 'text-amber-300' : 'text-amber-700')
+                            : (isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]')
+                        }`}>
+                          {giftPausedBySplit ? 'Gift paused' : 'Your welcome gift'}
                         </span>
                         <span className={`block text-[14px] font-bold leading-snug break-words text-balance ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
                           {giftItem.label}
                         </span>
-                        <p className={`text-[11px] leading-snug mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                          Done on the same visit — on us.
+                        <p className={`text-[11px] leading-snug mt-0.5 ${
+                          giftPausedBySplit
+                            ? (isDarkTheme ? 'text-amber-200/90' : 'text-amber-800')
+                            : (isDarkTheme ? 'text-slate-400' : 'text-slate-500')
+                        }`}>
+                          {giftPausedBySplit
+                            ? `Free gifts ride on visits over £${Math.round(giftMinQuotePence / 100)} — add a job back to keep it.`
+                            : 'Done on the same visit — on us.'}
                         </p>
                       </div>
                       <span className="shrink-0 flex items-center gap-1.5">
                         <span className={`text-[13px] tabular-nums line-through ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
                           £{Math.round(giftItem.pricePence / 100)}
                         </span>
-                        <span className="inline-flex items-center rounded-full bg-[#7DB00E] px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-white">
-                          FREE
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-white ${
+                          giftPausedBySplit ? 'bg-amber-400' : 'bg-[#7DB00E]'
+                        }`}>
+                          {giftPausedBySplit ? 'PAUSED' : 'FREE'}
                         </span>
                       </span>
                     </div>

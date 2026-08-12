@@ -330,6 +330,18 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             // scope still has value). Defer-all / unknown ids no-op to full scope.
             if (split.deferredCount > 0 && split.activeJobPricePence > 0) {
                 appliedDeferredLineIds = split.deferredLineIds;
+                // Gift floor re-check against the KEPT scope: eligibility was
+                // validated on the FULL quote price, but crossing lines off can
+                // drop what's actually being booked below the £ floor — and the
+                // gift is a thank-you on a real job, not a freebie on a
+                // stripped-down visit. Server-authoritative: the client also
+                // pauses the gift in this state, but a crafted request can't
+                // keep it either.
+                const giftFloorPence = settings.welcomeGiftMinQuotePence ?? 20000;
+                if (resolvedGift && split.activeJobPricePence < giftFloorPence) {
+                    console.warn(`[Stripe] Welcome gift dropped on quote ${quoteId} — kept scope ${split.activeJobPricePence}p is below the ${giftFloorPence}p gift floor`);
+                    resolvedGift = null;
+                }
                 // Addons ride on the kept scope like extras — they're new work
                 // being ADDED to this visit, never deferrable line items.
                 const activeTotalJobPrice = split.activeJobPricePence + extrasTotal + addonsTotal;

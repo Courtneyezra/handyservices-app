@@ -485,6 +485,7 @@ router.get('/pricing/public', async (req, res) => {
             // at/under this many minutes when rendering the gift picker. Safe to
             // expose (a display rule); eligibility + money stay server-side.
             welcomeGiftMaxMinutes: settings.welcomeGiftMaxMinutes,
+            welcomeGiftMinQuotePence: settings.welcomeGiftMinQuotePence,
         });
     } catch (error) {
         console.error('[Settings] Failed to fetch public pricing settings:', error);

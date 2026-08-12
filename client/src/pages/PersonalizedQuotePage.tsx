@@ -3578,6 +3578,7 @@ export default function PersonalizedQuotePage() {
     flexibleDiscountPercent?: number;
     quoteOffers?: QuoteOffersConfig;
     welcomeGiftMaxMinutes?: number;
+    welcomeGiftMinQuotePence?: number;
   }>({
     queryKey: ['pricing-settings-public'],
     queryFn: async () => {
@@ -4703,6 +4704,7 @@ export default function PersonalizedQuotePage() {
                       giftEligible={giftStillClaimable}
                       giftPoolIds={giftPoolIds}
                       onClaimGift={(id) => { setClaimedGiftId(id); trackOfferEvent('accept', id); }}
+                      giftMinQuotePence={pricingSettings?.welcomeGiftMinQuotePence ?? 20000}
                       contractor={null}
                       isLandlord={isLandlordQuote}
                       customerType={customerType}
