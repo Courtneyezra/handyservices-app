@@ -1044,6 +1044,11 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Prevents mis-scoped jobs being committed sight-unseen (the "Alicia" case).
     surveyRequired: boolean("survey_required").default(false),
     surveyFeePence: integer("survey_fee_pence"), // survey/site-visit fee in pence (credited to the job)
+    // Provisional welcome-gift claim (pre-payment). Set server-side when the
+    // customer accepts a validated gift on the interstitial / gift band, so a
+    // returning visitor keeps their pick. AUTHORITY UNCHANGED: money paths
+    // still re-validate the client-sent giftId at payment time.
+    claimedGiftId: varchar("claimed_gift_id", { length: 100 }),
     // Site-survey response — a contractor (e.g. Joe) opens a tokenised /survey/:slug
     // link on their phone and fills a per-item survey (scope, time estimate,
     // materials, notes, photos) for additional works found on site. Record/display
@@ -2871,6 +2876,10 @@ export const quoteOfferEvents = pgTable("quote_offer_events", {
   customerType: varchar("customer_type", { length: 30 }), // homeowner | landlord | property_manager | tenant | business | letting_agent
   event: varchar("event", { length: 20 }).notNull(), // impression | accept | decline
   deviceType: varchar("device_type", { length: 20 }),
+  // welcome_gift accepts: WHICH gift the customer picked (addonMenu id). Also
+  // set by the quote card's resurfaced gift band. Analytics: gift popularity
+  // among non-payers (paid picks live on pricing_line_items).
+  giftId: varchar("gift_id", { length: 100 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_offer_events_quote").on(table.quoteId),

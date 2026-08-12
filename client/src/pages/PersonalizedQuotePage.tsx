@@ -3433,6 +3433,22 @@ export default function PersonalizedQuotePage() {
   // create-payment-intent bodies + /track-booking — the server re-validates
   // eligibility itself and charges £0 for it either way.
   const [claimedGiftId, setClaimedGiftId] = useState<string | null>(null);
+  // Hydrate a provisional claim persisted on the quote (server pins it when
+  // the accept event validates) — a returning visitor keeps their gift pick.
+  // Keyed on the payload FIELD, not first quote object: the page mounts from a
+  // localStorage-cached payload that predates the claim, and the fresh fetch
+  // reconciles in place without a remount. A decline this session latches the
+  // ref so hydration never resurrects a pick the customer just turned down.
+  const giftDeclinedThisSession = useRef(false);
+  useEffect(() => {
+    const persisted = (quote as any)?.claimedGiftId;
+    if (
+      typeof persisted === 'string' && persisted &&
+      claimedGiftId === null && !giftDeclinedThisSession.current
+    ) {
+      setClaimedGiftId(persisted);
+    }
+  }, [quote, claimedGiftId]);
 
   // ── Admiral-style quote-page variant (?v=admiral) ──────────────────────────
   // Standalone test layout that reuses the contextual pieces but leads with the
@@ -3690,7 +3706,7 @@ export default function PersonalizedQuotePage() {
   // ── Offer analytics (fire-and-forget beacon) ───────────────────────────────
   // impression when the interstitial is shown, accept/decline on the choice.
   // Joined server-side to bookings/revenue per offer + template.
-  const trackOfferEvent = useCallback((event: 'impression' | 'accept' | 'decline') => {
+  const trackOfferEvent = useCallback((event: 'impression' | 'accept' | 'decline', giftId?: string | null) => {
     if (!quote || !selectedOffer) return;
     fetch('/api/analytics/quotes/offer-event', {
       method: 'POST',
@@ -3704,6 +3720,9 @@ export default function PersonalizedQuotePage() {
         customerType: deriveOfferCustomerType((quote as any).contextSignals),
         event,
         deviceType: window.innerWidth < 768 ? 'mobile' : window.innerWidth < 1024 ? 'tablet' : 'desktop',
+        // welcome_gift accepts carry WHICH gift — the server validates and pins
+        // it to the quote so the pick survives a reload (declines clear it).
+        ...(giftId ? { giftId } : {}),
       }),
     }).catch(() => {});
   }, [quote, selectedOffer]);
@@ -4464,12 +4483,12 @@ export default function PersonalizedQuotePage() {
         skin={{ name: quoteSkin.name, avatarUrl: quoteSkin.avatarUrl, rating: quoteSkin.rating, jobsLabel: quoteSkin.jobsLabel }}
         addonMenu={offerAddonMenu}
         onAccept={(payload) => {
-          trackOfferEvent('accept');
+          trackOfferEvent('accept', payload?.giftId ?? null);
           setOfferAddonIds(payload?.addonIds ?? []);
           setClaimedGiftId(payload?.giftId ?? null);
           setFlowPhase('quote');
         }}
-        onDecline={() => { trackOfferEvent('decline'); setOfferAddonIds([]); setClaimedGiftId(null); setFlowPhase('quote'); }}
+        onDecline={() => { giftDeclinedThisSession.current = true; trackOfferEvent('decline'); setOfferAddonIds([]); setClaimedGiftId(null); setFlowPhase('quote'); }}
       />
     );
   }
@@ -4683,7 +4702,7 @@ export default function PersonalizedQuotePage() {
                       giftId={claimedGiftId}
                       giftEligible={giftStillClaimable}
                       giftPoolIds={giftPoolIds}
-                      onClaimGift={setClaimedGiftId}
+                      onClaimGift={(id) => { setClaimedGiftId(id); trackOfferEvent('accept', id); }}
                       contractor={null}
                       isLandlord={isLandlordQuote}
                       customerType={customerType}

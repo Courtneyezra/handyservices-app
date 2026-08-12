@@ -8,7 +8,8 @@
 import { Router } from 'express';
 import { db } from './db';
 import { personalizedQuotes, quoteSectionEvents, quoteOfferEvents } from '@shared/schema';
-import { sql, and, gte, lte, isNotNull, count, avg, sum, desc } from 'drizzle-orm';
+import { sql, and, gte, lte, isNotNull, count, avg, sum, desc, eq } from 'drizzle-orm';
+import { resolveWelcomeGift } from './welcome-gift';
 
 const router = Router();
 
@@ -447,13 +448,31 @@ router.get('/api/analytics/quotes/section-conversion', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/api/analytics/quotes/offer-event', async (req, res) => {
   try {
-    const { quoteId, shortSlug, offerId, offerType, template, customerType, event, deviceType } = req.body;
+    const { quoteId, shortSlug, offerId, offerType, template, customerType, event, deviceType, giftId } = req.body;
     if (!quoteId || !offerId || !event) {
       return res.status(400).json({ error: 'quoteId, offerId and event required' });
     }
     if (!['impression', 'accept', 'decline'].includes(event)) {
       return res.status(400).json({ error: "event must be impression | accept | decline" });
     }
+
+    // Gift-claim persistence (12 Aug 2026): an accept naming a giftId records
+    // WHICH gift was picked, and — after server-side validation — pins it to
+    // the quote so a returning visitor keeps their pick. A decline clears any
+    // provisional claim. Validation fails closed: a bogus giftId is logged on
+    // the event row but never pinned. Money paths re-validate regardless.
+    let validatedGiftId: string | null = null;
+    if (event === 'accept' && typeof giftId === 'string' && giftId) {
+      try {
+        const [quote] = await db.select().from(personalizedQuotes)
+          .where(eq(personalizedQuotes.id, quoteId)).limit(1);
+        if (quote) {
+          const gift = await resolveWelcomeGift(quote as any, giftId);
+          if (gift) validatedGiftId = gift.id;
+        }
+      } catch { /* fail closed — event still records the raw pick below */ }
+    }
+
     await db.insert(quoteOfferEvents).values({
       quoteId,
       shortSlug: shortSlug || null,
@@ -463,7 +482,19 @@ router.post('/api/analytics/quotes/offer-event', async (req, res) => {
       customerType: customerType || null,
       event,
       deviceType: deviceType || null,
+      giftId: typeof giftId === 'string' && giftId ? giftId.slice(0, 100) : null,
     });
+
+    if (validatedGiftId) {
+      await db.update(personalizedQuotes)
+        .set({ claimedGiftId: validatedGiftId })
+        .where(eq(personalizedQuotes.id, quoteId));
+    } else if (event === 'decline') {
+      await db.update(personalizedQuotes)
+        .set({ claimedGiftId: null })
+        .where(eq(personalizedQuotes.id, quoteId));
+    }
+
     return res.json({ ok: true });
   } catch (error) {
     console.error('[Analytics] Offer event error:', error);
