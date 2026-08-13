@@ -194,10 +194,10 @@ invoiceRouter.post('/api/invoices/generate', async (req, res) => {
         }
 
         // Calculate total amount from quote.
-        // selectedTierPricePence is the price the customer actually accepted in the
-        // contextual flow — and the figure their deposit was calculated against — so it
-        // is the source of truth. Falling back to basePrice/tier prices here under-bills
-        // any quote whose selected price differs from base (see INV-2026-0233).
+        // selectedTierPricePence is the customer's true agreed total — basePrice PLUS the
+        // premiums they chose (set-date/"select a day", add-ons) or minus a flex rebate.
+        // basePrice is only the itemised work before those adjustments, so invoicing from
+        // it drops the premium and under-bills (e.g. Neel: base £86 + £35 set-date = £121).
         if (quote) {
             if (quote.selectedTierPricePence && quote.selectedTierPricePence > 0) {
                 totalAmount = quote.selectedTierPricePence;

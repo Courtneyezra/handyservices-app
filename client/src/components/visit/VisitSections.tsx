@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Check, ShieldCheck, Camera, FileCheck, Star, Clock, Award, Quote } from "lucide-react";
 import { WistiaFacade } from "@/components/quote/WistiaFacade";
+import { resolveQuoteSkin } from "@/lib/quote-skin";
 
 /**
  * Visit-tailored copies of the contextual quote page's Value sections.
@@ -30,17 +31,44 @@ function locationFrom(quote: any): string {
 // HERO
 // ─────────────────────────────────────────────────────────────────────────────
 export function VisitHero({ quote }: { quote: any }) {
-    const firstName = (quote?.customerName || "").split(" ")[0];
-    // Compact, functional header. The WhatsApp message Ben sends already explains
-    // that the job can't be quoted remotely, so the page doesn't re-pitch it — it
-    // just orients the customer and gets straight to booking the visit.
+    const customerFirst = (quote?.customerName || "").split(" ")[0];
+    // Skin the visit page with the assigned contractor (Craig-first fallback) —
+    // a real face + name + rating makes it feel handled by a person, not a form.
+    // Reuses the same resolver as the contextual quote page; `quote.skin` is
+    // already enriched by the shared GET endpoint. Kept compact (no full-screen
+    // theatre) — the WhatsApp message already carried the "why a visit".
+    const skin = resolveQuoteSkin(quote?.skin, quote?.vertical);
+    const skinFirst = (skin.name || "").split(/\s+/)[0];
     return (
-        <section className="bg-slate-900 px-4 pt-9 pb-4 text-center">
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">
-                Book your visit{firstName ? `, ${firstName}` : ""}
+        <section className="bg-slate-900 px-4 pt-8 pb-4 text-center">
+            {/* Contractor face */}
+            <div className="relative inline-block mb-4">
+                <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#7DB00E] shadow-xl">
+                    <img src={skin.avatarUrl} alt={skin.name} className="w-full h-full object-cover" />
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center ring-4 ring-slate-900">
+                    <Check className="w-3.5 h-3.5 text-white" strokeWidth={3.5} />
+                </span>
+            </div>
+
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#a3d65f]">
+                {skin.role || "Your handyman"}
+            </div>
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white mt-1">
+                {skinFirst ? `${skinFirst}'s ready to take a look` : "Book your visit"}
+                {customerFirst ? `, ${customerFirst}` : ""}
             </h1>
-            <p className="text-slate-400 mt-2 text-sm max-w-md mx-auto leading-relaxed">
-                An expert comes out and writes you a fixed quote — your fee comes straight off the job.
+            <div className="mt-1.5 text-sm text-slate-300 inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1">
+                    <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                    <b className="text-white">{skin.rating}</b>
+                </span>
+                <span className="text-slate-500">·</span>
+                <span>{skin.jobsLabel} completed</span>
+            </div>
+
+            <p className="text-slate-400 mt-3 text-sm max-w-md mx-auto leading-relaxed">
+                An expert visit, then a fixed quote in writing — your fee comes straight off the job.
             </p>
         </section>
     );

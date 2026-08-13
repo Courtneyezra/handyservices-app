@@ -13,6 +13,7 @@ import { extendLock, confirmBooking, autoAssignPaidJob } from './booking-engine'
 import { computeLaneBasePence, parsePricingLane } from './lane-pricing';
 import { confirmPaidPick } from './slot-offers';
 import { computeSplitScope } from '../shared/split-scope';
+import { resolveWelcomeGift } from './welcome-gift';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -114,6 +115,18 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             // crossed off. The client only names lines — the server re-derives the
             // reduced £ from the trusted quote row via computeSplitScope.
             deferredLineIds,
+            // add_task offer addons: ids of pre-priced small extra jobs the
+            // customer tapped on the offer interstitial. IDS ONLY — every price
+            // is re-resolved below from the server-stored addon menu (pricing
+            // settings), never from client pence.
+            addonIds,
+            // Welcome gift: the ONE free small task a first-time customer
+            // claimed on the interstitial. ID ONLY — the server validates
+            // eligibility (first-time + min quote + pool membership) itself and
+            // the gift adds £0 to the customer's charge. It rides in PI
+            // metadata so the webhook persists it as line items (real labour
+            // for contractor pay + a £0-netting offset).
+            giftId,
         } = req.body;
 
         if (!quoteId) {
@@ -164,8 +177,15 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             console.log(`[Stripe] Updated quote ${quoteId} email to: ${customerEmail}`);
         }
 
-        // Single price model — use basePrice (fall back to legacy tier columns)
-        const storedBasePrice = quote.basePrice || quote.essentialPrice || 0;
+        // Single price model — use basePrice (fall back to legacy tier columns).
+        // Subtract any add_task addon £ a previous payment's webhook already
+        // folded into basePrice (source 'addon_menu' lines): addon money is
+        // always re-added from the ids on THIS request, so it must never ride
+        // in twice. 0 on normal first-payment quotes (no addon lines yet).
+        const storedAddonPence = ((quote.pricingLineItems as any[]) || [])
+            .filter((l) => l?.source === 'addon_menu')
+            .reduce((s, l) => s + (l.guardedPricePence || 0), 0);
+        const storedBasePrice = Math.max(0, (quote.basePrice || quote.essentialPrice || 0) - storedAddonPence);
 
         // ── Pricing lane (server-authoritative) ─────────────────────────────
         // Re-derive the lane-adjusted base from the TRUSTED stored price. The
@@ -198,9 +218,6 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             }
         }
 
-        // Total job price
-        const totalJobPrice = baseTierPrice + extrasTotal;
-
         // Calculate materials cost
         const baseMaterials = (quote.materialsCostWithMarkupPence as number) || 0;
         const totalMaterialsCost = baseMaterials + extrasMaterials;
@@ -208,6 +225,53 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // Load configurable pricing settings for deposit percentage
         const settings = await getPricingSettings();
         const depositFraction = settings.depositPercent / 100;
+
+        // ── add_task offer addons (server-authoritative) ─────────────────────
+        // Resolve the client-named addon ids against the SERVER-stored menu.
+        // Mirrors the pricing-lane pattern: the client names the thing, the £
+        // comes from trusted server state. Unknown ids are dropped; duplicates
+        // dedupe; the id list is bounded defensively.
+        const addonMenu = Array.isArray(settings.addonMenu) ? settings.addonMenu : [];
+        const requestedAddonIds: string[] = Array.isArray(addonIds)
+            ? Array.from(new Set(addonIds.map((v: unknown) => String(v)))).slice(0, 24)
+            : [];
+        const resolvedAddons = addonMenu.filter((a) => requestedAddonIds.includes(a.id));
+        const addonsTotal = resolvedAddons.reduce((s, a) => s + (a.pricePence || 0), 0);
+        if (resolvedAddons.length > 0) {
+            console.log('[Stripe] add_task addons applied:', {
+                addonIds: resolvedAddons.map((a) => a.id),
+                addonsTotal,
+                droppedUnknown: requestedAddonIds.filter((id) => !resolvedAddons.some((a) => a.id === id)),
+            });
+        }
+
+        // ── Welcome gift (server-authoritative, £0 to the customer) ──────────
+        // Validate the client-named giftId end-to-end: real menu item within the
+        // gift-minutes cap AND this customer is genuinely eligible (first-time,
+        // quote over the floor). An invalid/ineligible claim is silently dropped
+        // — the charge is identical either way because the gift adds NOTHING to
+        // the customer total. The resolved id is stamped into PI metadata below
+        // so the webhook persists the gift as line items: the REAL labour price
+        // (so computeContractorPay pays the contractor for the work) plus a
+        // matching negative offset (so the customer-facing total stays put).
+        let resolvedGift: (typeof addonMenu)[number] | null = null;
+        if (giftId) {
+            resolvedGift = await resolveWelcomeGift(quote as any, giftId, settings);
+            if (resolvedGift) {
+                console.log('[Stripe] welcome gift applied:', {
+                    giftId: resolvedGift.id,
+                    label: resolvedGift.label,
+                    worthPence: resolvedGift.pricePence,
+                    customerPaysPence: 0,
+                });
+            } else {
+                console.warn(`[Stripe] Ignored ineligible/unknown welcome gift '${String(giftId)}' on quote ${quoteId}`);
+            }
+        }
+
+        // Total job price (addons ride on top like extras — labour-only, no
+        // materials). The welcome gift deliberately contributes £0 here.
+        const totalJobPrice = baseTierPrice + extrasTotal + addonsTotal;
 
         // Calculate deposit breakdown (always computed for display purposes)
         const depositBreakdown = calculateDeposit(totalJobPrice, totalMaterialsCost, depositFraction);
@@ -246,7 +310,13 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // unaffected by which line items are deferred).
         let appliedDeferredLineIds: string[] = [];
         if (Array.isArray(deferredLineIds) && deferredLineIds.length > 0) {
-            const quoteLineItems = (quote.pricingLineItems as any[]) || [];
+            // Exclude any previously-appended add_task addon lines (paid re-visits):
+            // addon £ rides on top via addonsTotal, never as deferrable scope.
+            // Welcome-gift lines (real-labour + offset pair, netting £0) are
+            // excluded too — a free gift is never deferrable scope and the
+            // negative offset must not skew the batch-saving proration.
+            const quoteLineItems = ((quote.pricingLineItems as any[]) || [])
+                .filter((l) => l?.source !== 'addon_menu' && l?.source !== 'welcome_gift' && l?.source !== 'welcome_gift_offset');
             const split = computeSplitScope({
                 lineItems: quoteLineItems,
                 // Batch rate reconciles against the UN-LANED base; the lane
@@ -260,7 +330,21 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             // scope still has value). Defer-all / unknown ids no-op to full scope.
             if (split.deferredCount > 0 && split.activeJobPricePence > 0) {
                 appliedDeferredLineIds = split.deferredLineIds;
-                const activeTotalJobPrice = split.activeJobPricePence + extrasTotal;
+                // Gift floor re-check against the KEPT scope: eligibility was
+                // validated on the FULL quote price, but crossing lines off can
+                // drop what's actually being booked below the £ floor — and the
+                // gift is a thank-you on a real job, not a freebie on a
+                // stripped-down visit. Server-authoritative: the client also
+                // pauses the gift in this state, but a crafted request can't
+                // keep it either.
+                const giftFloorPence = settings.welcomeGiftMinQuotePence ?? 20000;
+                if (resolvedGift && split.activeJobPricePence < giftFloorPence) {
+                    console.warn(`[Stripe] Welcome gift dropped on quote ${quoteId} — kept scope ${split.activeJobPricePence}p is below the ${giftFloorPence}p gift floor`);
+                    resolvedGift = null;
+                }
+                // Addons ride on the kept scope like extras — they're new work
+                // being ADDED to this visit, never deferrable line items.
+                const activeTotalJobPrice = split.activeJobPricePence + extrasTotal + addonsTotal;
                 const activeMaterials = split.activeMaterialsPence + extrasMaterials;
                 if (paymentType === 'full') {
                     const payInFullDiscount = (settings.payInFullDiscountPercent || 3) / 100;
@@ -326,6 +410,17 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // which items were saved for another visit (comma-separated, string metadata).
         if (appliedDeferredLineIds.length > 0) {
             bookingMetadata.deferredLineIds = appliedDeferredLineIds.join(',').slice(0, 480);
+        }
+        // add_task addons — carry the RESOLVED ids so the webhook re-derives the
+        // same addon total and appends the addon line items onto the quote
+        // (race-free: reads this PI's own metadata, prices from settings).
+        if (resolvedAddons.length > 0) {
+            bookingMetadata.addonIds = resolvedAddons.map((a) => a.id).join(',').slice(0, 480);
+        }
+        // Welcome gift — carry the VALIDATED id so the webhook persists the gift
+        // line pair (real labour + £0 offset) race-free from this PI's metadata.
+        if (resolvedGift) {
+            bookingMetadata.giftId = resolvedGift.id.slice(0, 480);
         }
 
         // Generate the idempotency key AFTER bookingMetadata is assembled, derived
@@ -569,6 +664,128 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             }
                         }
 
+                        // ── add_task addons — persist as REAL line items ─────────
+                        // Resolve the ids from this PI's own metadata against the
+                        // server-stored menu (same source the charge used) and
+                        // append them to pricing_line_items so every downstream
+                        // reader — contractor pay, job sheet, calendar composition,
+                        // customer line breakdown — sees the added work. basePrice
+                        // is bumped by the same sum in the SAME guard so the quote's
+                        // headline price keeps reconciling with its line items (and
+                        // downstream balance invoicing includes the paid-for addons).
+                        // Idempotent on webhook retries: an addon lineId already on
+                        // the quote is never appended (or re-added to the price)
+                        // twice, and the money recompute below always subtracts the
+                        // persisted addon sum before re-adding the metadata-derived
+                        // total — deterministic whichever delivery this is.
+                        const metadataAddonIds = (paymentIntent.metadata?.addonIds || '')
+                            .split(',').map((s) => s.trim()).filter(Boolean);
+                        let webhookAddonsTotal = 0;
+                        // Addon £ already folded into this quote row's basePrice by a
+                        // previous delivery of this webhook (0 on the first delivery).
+                        const persistedAddonPence = ((quote.pricingLineItems as any[]) || [])
+                            .filter((l) => l?.source === 'addon_menu')
+                            .reduce((s, l) => s + (l.guardedPricePence || 0), 0);
+                        if (metadataAddonIds.length > 0) {
+                            const settings = await getPricingSettings();
+                            const menu = Array.isArray(settings.addonMenu) ? settings.addonMenu : [];
+                            const addonItems = menu.filter((a) => metadataAddonIds.includes(a.id));
+                            webhookAddonsTotal = addonItems.reduce((s, a) => s + (a.pricePence || 0), 0);
+
+                            const existingLines = (quote.pricingLineItems as any[]) || [];
+                            const existingIds = new Set(existingLines.map((l) => String(l.lineId)));
+                            const newAddonLines = addonItems
+                                .filter((a) => !existingIds.has(`addon_${a.id}`))
+                                .map((a) => ({
+                                    lineId: `addon_${a.id}`,
+                                    source: 'addon_menu',
+                                    description: a.label,
+                                    category: a.category,
+                                    timeEstimateMinutes: a.scheduleMinutes,
+                                    scheduleMinutes: a.scheduleMinutes,
+                                    referencePricePence: a.pricePence,
+                                    llmSuggestedPricePence: a.pricePence,
+                                    guardedPricePence: a.pricePence,
+                                    adjustmentFactors: [],
+                                    materialsCostPence: 0,
+                                    materialsWithMarginPence: 0,
+                                }));
+                            if (newAddonLines.length > 0) {
+                                updateFields.pricingLineItems = [...existingLines, ...newAddonLines];
+                                const appendedPence = newAddonLines.reduce((s, l) => s + l.guardedPricePence, 0);
+                                if (typeof quote.basePrice === 'number' && quote.basePrice > 0) {
+                                    updateFields.basePrice = quote.basePrice + appendedPence;
+                                }
+                                console.log(`[Stripe Webhook] Appended ${newAddonLines.length} add_task addon line(s) to quote ${quoteId}: ${newAddonLines.map((l) => l.description).join(', ')} (+£${(appendedPence / 100).toFixed(2)})`);
+                            }
+                        }
+
+                        // ── Welcome gift — persist as a REAL-labour line + £0 offset ──
+                        // The gift must live in pricing_line_items so every downstream
+                        // reader (contractor pay, job sheet, calendar minutes) sees the
+                        // real work — computeContractorPay pays a % of guardedPricePence,
+                        // so a £0 gift line would stiff the contractor for genuine work.
+                        // Representation: TWO lines that net to £0 for the customer —
+                        //   1. the gift task at its REAL menu price + REAL minutes
+                        //      (source 'welcome_gift') → contractor is paid, calendar
+                        //      stays capacity-true;
+                        //   2. a companion negative adjustment ('Welcome gift — on us',
+                        //      source 'welcome_gift_offset', 0 minutes) → every reader
+                        //      that SUMS lines (customer breakdown, invoice, split
+                        //      scope) still reconciles to the unchanged basePrice.
+                        // computeContractorPay clamps each line's labour at ≥0 and its
+                        // floor scales off minutes (0 here), so the offset line pays £0
+                        // and docks nothing. basePrice is deliberately NOT bumped (the
+                        // pair nets to zero). Idempotent on webhook retries via the
+                        // lineId existence check, same as the addon block above.
+                        const metadataGiftId = (paymentIntent.metadata?.giftId || '').trim();
+                        if (metadataGiftId) {
+                            // Re-validate against current settings + eligibility (the id
+                            // was server-stamped, but fail closed if anything moved).
+                            const gift = await resolveWelcomeGift(quote as any, metadataGiftId);
+                            if (gift) {
+                                const linesSoFar = (updateFields.pricingLineItems as any[])
+                                    ?? ((quote.pricingLineItems as any[]) || []);
+                                const lineIdsSoFar = new Set(linesSoFar.map((l) => String(l.lineId)));
+                                if (!lineIdsSoFar.has(`gift_${gift.id}`)) {
+                                    updateFields.pricingLineItems = [
+                                        ...linesSoFar,
+                                        {
+                                            lineId: `gift_${gift.id}`,
+                                            source: 'welcome_gift',
+                                            description: `Welcome gift — ${gift.label}`,
+                                            category: gift.category,
+                                            timeEstimateMinutes: gift.scheduleMinutes,
+                                            scheduleMinutes: gift.scheduleMinutes,
+                                            referencePricePence: gift.pricePence,
+                                            llmSuggestedPricePence: gift.pricePence,
+                                            guardedPricePence: gift.pricePence, // REAL — pays the contractor
+                                            adjustmentFactors: [],
+                                            materialsCostPence: 0,
+                                            materialsWithMarginPence: 0,
+                                        },
+                                        {
+                                            lineId: `gift_offset_${gift.id}`,
+                                            source: 'welcome_gift_offset',
+                                            description: 'Welcome gift — on us',
+                                            category: gift.category,
+                                            timeEstimateMinutes: 0,
+                                            scheduleMinutes: 0,
+                                            referencePricePence: -gift.pricePence,
+                                            llmSuggestedPricePence: -gift.pricePence,
+                                            guardedPricePence: -gift.pricePence, // nets the pair to £0
+                                            adjustmentFactors: [],
+                                            materialsCostPence: 0,
+                                            materialsWithMarginPence: 0,
+                                        },
+                                    ];
+                                    console.log(`[Stripe Webhook] Persisted welcome gift '${gift.label}' on quote ${quoteId} (contractor labour £${(gift.pricePence / 100).toFixed(2)}, customer £0)`);
+                                }
+                            } else {
+                                console.warn(`[Stripe Webhook] Welcome gift '${metadataGiftId}' on quote ${quoteId} failed re-validation — not persisted`);
+                            }
+                        }
+
                         await db.update(personalizedQuotes)
                             .set(updateFields)
                             .where(eq(personalizedQuotes.id, quoteId));
@@ -596,8 +813,12 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         // stamped by /create-payment-intent only for eligible lane bookings;
                         // its absence (legacy/diagnostic) leaves the base flat, as before.
                         const webhookLane = parsePricingLane(paymentIntent.metadata?.pricingLane);
+                        // Base EXCLUDING any addon £ a previous delivery already folded
+                        // into basePrice — webhookAddonsTotal (from this PI's metadata)
+                        // is re-added below, so the total is delivery-order-invariant.
+                        const webhookBaseExAddons = Math.max(0, (quote.basePrice || quote.essentialPrice || 0) - persistedAddonPence);
                         const webhookLanePricing = computeLaneBasePence(
-                            quote.basePrice || quote.essentialPrice || 0,
+                            webhookBaseExAddons,
                             quote.contextSignals,
                             webhookLane,
                         );
@@ -613,14 +834,26 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             if (extra) totalJobPrice += extra.priceInPence || 0;
                         }
 
+                        // add_task addons — same server-resolved total the charge used
+                        // (derived from this PI's metadata above, NOT from the mutated
+                        // quote row, so webhook retries stay deterministic).
+                        totalJobPrice += webhookAddonsTotal;
+
                         // Line-item split — the booked job value is the KEPT scope only.
                         // Re-derive the active base (same computeSplitScope as the charge)
                         // and swap it in, keeping extras, so the invoice + balance reflect
                         // what was booked, not the deferred-for-later items.
                         if (metadataDeferred.length > 0) {
-                            const webhookStoredBase = quote.basePrice || quote.essentialPrice || 0;
+                            const webhookStoredBase = webhookBaseExAddons;
                             const split = computeSplitScope({
-                                lineItems: (quote.pricingLineItems as any[]) || [],
+                                // Exclude appended add_task addon lines: on a webhook RETRY the
+                                // re-fetched quote already carries them, and their £ is added via
+                                // webhookAddonsTotal (extrasPence) — counting them as kept lines
+                                // too would double them. Original quotes have no such lines (no-op).
+                                // Welcome-gift lines (£0-netting pair) are excluded for the same
+                                // retry reason — and a gift is never deferrable scope.
+                                lineItems: ((quote.pricingLineItems as any[]) || [])
+                                    .filter((l) => l?.source !== 'addon_menu' && l?.source !== 'welcome_gift' && l?.source !== 'welcome_gift_offset'),
                                 // Same basis as the charge: un-laned base + lane delta as a lever.
                                 fullNetPence: webhookStoredBase,
                                 leverDeltaPence: webhookLanePricing.laneBasePence - webhookStoredBase,

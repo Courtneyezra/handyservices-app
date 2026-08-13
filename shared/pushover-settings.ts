@@ -19,6 +19,7 @@ export type PushoverEventKey =
     | 'quote_followup'
     | 'quote_accepted'
     | 'payment'
+    | 'site_survey'
     | 'no_contractor';
 
 export interface PushoverEventDef {
@@ -42,6 +43,7 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     { key: 'quote_followup', label: 'Quote not accepted — follow up', short: 'Chase', group: 'Money', defaultPriority: 1, defaultSound: 'intermission' },
     { key: 'quote_accepted', label: 'Quote accepted / deposit paid', short: 'Accepted', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },
     { key: 'payment', label: 'Final payment / invoice paid', short: 'Paid', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },
+    { key: 'site_survey', label: 'Site survey submitted by contractor', short: 'Survey', group: 'Dispatch', defaultPriority: 1, defaultSound: 'intermission' },
     { key: 'no_contractor', label: 'No contractor available', short: 'Dispatch', group: 'Dispatch', defaultPriority: 2, defaultSound: 'siren' },
 ];
 

@@ -59,7 +59,6 @@ import Autocomplete from 'react-google-autocomplete';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   SkuSlabSummary,
-  InlineSkuAutocomplete,
   getEffectiveSkuPriceAndMinutes,
   type CatalogSku,
   type SkuPickResult,
@@ -233,10 +232,25 @@ interface ContextSignals {
   previousAvgPricePence: number;
 }
 
+/** Offer router decision (observation mode) echoed by the generate endpoint. */
+interface OfferDecisionSummary {
+  decisionId: string;
+  ruleFired: string;
+  goal: string | null;
+  targetPlay: string;
+  servedPlay: string;
+  rationale: string | null;
+  unmetIntent: boolean;
+  stakes: string;
+  priceBand: string;
+  firstTime: boolean;
+}
+
 interface QuoteResult {
   success: boolean;
   quoteId: string;
   shortSlug: string;
+  offerDecision?: OfferDecisionSummary | null;
   quoteUrl: string;
   whatsappMessage: string;
   whatsappSendUrl: string;
@@ -998,6 +1012,126 @@ function formatPhoneForWhatsApp(phone: string): string {
   return cleaned;
 }
 
+// ── Offer router decision card (observation mode) ────────────────────────────
+// Shows what the rules spine picked for this quote and lets the operator
+// override it. Overrides append to the decision log — they don't change what
+// the customer sees yet (client pickQuoteOffer stays authoritative until the
+// page flip). docs/OFFER_DECISION_PLAYBOOK.md
+
+const OFFER_PLAY_LABELS: Record<string, { label: string; built: boolean }> = {
+  welcome_gift: { label: 'Welcome gift', built: true },
+  bundle_up: { label: 'Bundle-up menu', built: true },
+  none: { label: 'No offer — straight to price', built: true },
+  risk_removal: { label: 'Risk-removal pack', built: false },
+  visit_first: { label: 'Visit / phone first', built: false },
+  quote_split: { label: 'Quote split', built: false },
+  partner: { label: 'Partner offer', built: false },
+  forward_pack: { label: 'Landlord forward pack', built: false },
+  loyalty: { label: 'Loyalty play', built: false },
+  terms_compliance: { label: 'Terms + compliance', built: false },
+  nudge: { label: 'Stalled nudge', built: false },
+  post_job_upsell: { label: 'Post-job upsell', built: false },
+};
+
+function OfferDecisionCard({ quoteId, initial }: { quoteId: string; initial: OfferDecisionSummary }) {
+  const { toast } = useToast();
+  const [decision, setDecision] = useState(initial);
+  const [overridePlay, setOverridePlay] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
+  const target = OFFER_PLAY_LABELS[decision.targetPlay] ?? { label: decision.targetPlay, built: false };
+  const served = OFFER_PLAY_LABELS[decision.servedPlay] ?? { label: decision.servedPlay, built: true };
+  const isOverride = decision.ruleFired === 'ben_override';
+
+  const applyOverride = async () => {
+    if (!overridePlay || overridePlay === decision.targetPlay) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${quoteId}/offer-decision/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ play: overridePlay, byName: 'builder' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setDecision({
+        ...decision,
+        decisionId: data.decision.id,
+        ruleFired: 'ben_override',
+        targetPlay: data.decision.targetPlay,
+        servedPlay: data.decision.servedPlay,
+        rationale: data.decision.rationale,
+        unmetIntent: data.decision.targetPlay !== data.decision.servedPlay,
+      });
+      setOverridePlay('');
+      toast({ title: 'Override applied', description: 'The customer page now serves this play (and it\'s recorded for the review loop).' });
+    } catch {
+      toast({ title: 'Override failed', description: 'Could not record the override.', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden border-handy-grid shadow-sm">
+      <CardHeader className="px-4 sm:px-6 py-3 border-b border-border">
+        <CardTitle className="text-sm font-bold text-handy-navy tracking-tight flex items-center gap-2 flex-wrap">
+          Offer router pick
+          <Badge variant="outline" className="text-[10px] font-mono">{decision.ruleFired}</Badge>
+          <Badge variant="outline" className={cn('text-[10px]',
+            decision.stakes === 'high' ? 'bg-red-100 text-red-800 border-red-300'
+              : decision.stakes === 'med' ? 'bg-amber-100 text-amber-800 border-amber-300'
+                : 'bg-emerald-100 text-emerald-800 border-emerald-300')}>
+            {decision.stakes} stakes
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {decision.firstTime ? 'first-time' : 'repeat'}
+          </Badge>
+          <span className="ml-auto text-[10px] font-normal text-muted-foreground">steers the quote page</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 pt-3">
+        <div className="text-sm text-foreground">
+          {decision.unmetIntent ? (
+            <>
+              Wants <span className="font-semibold">{target.label}</span>
+              {!target.built && <span className="text-muted-foreground"> (not built yet)</span>}
+              {' — '}serving <span className="font-semibold">{served.label}</span> meanwhile.
+            </>
+          ) : (
+            <>Pick: <span className="font-semibold">{served.label}</span></>
+          )}
+          {isOverride && <Badge className="ml-2 bg-handy-navy text-white text-[10px]">operator override</Badge>}
+        </div>
+        {decision.rationale && (
+          <p className="text-xs text-muted-foreground leading-relaxed">{decision.rationale}</p>
+        )}
+        <div className="flex items-center gap-2 pt-1">
+          <Select value={overridePlay} onValueChange={setOverridePlay}>
+            <SelectTrigger className="h-8 text-xs flex-1">
+              <SelectValue placeholder="Override play…" />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(OFFER_PLAY_LABELS).map(([id, p]) => (
+                <SelectItem key={id} value={id} className="text-xs">
+                  {p.label}{p.built ? '' : ' (not built — logs intent)'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs"
+            disabled={!overridePlay || saving}
+            onClick={applyOverride}
+          >
+            {saving ? 'Saving…' : 'Log override'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Normalize a phone number for storage. Numbers copy-pasted from iOS arrive
 // wrapped in invisible Unicode direction marks (U+202A…U+202C) with non-breaking
 // spaces — they look fine on screen but break SMS/WhatsApp matching downstream.
@@ -1506,6 +1640,21 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   const [surveyRequired, setSurveyRequired] = useState<boolean>(false);
   const [surveyFeePounds, setSurveyFeePounds] = useState<string>('');
 
+  // ── Visit-link-only mode ──
+  // When on, the builder collapses to just what a visit link needs — customer
+  // details + survey fee + "why a visit" note + media — and generates a
+  // /visit/:slug link (no line items, no quote). For jobs we can't price
+  // remotely and just need the customer to book a survey visit.
+  const [visitLinkOnly, setVisitLinkOnly] = useState<boolean>(false);
+  const [visitReason, setVisitReason] = useState<string>('');
+  const [visitResult, setVisitResult] = useState<{ visitUrl: string; whatsappSendUrl: string; shortSlug: string; whatsappMessage?: string; waPhone?: string } | null>(null);
+  const [visitLinkPending, setVisitLinkPending] = useState(false);
+  const [copiedVisitLink, setCopiedVisitLink] = useState(false);
+  // Editable WhatsApp message for the visit link (AI-generated, Ben can tweak).
+  const [visitMessage, setVisitMessage] = useState('');
+  const [copiedVisitMsg, setCopiedVisitMsg] = useState(false);
+  const [regeneratingVisitMsg, setRegeneratingVisitMsg] = useState(false);
+
   // ── Customer-supplied job photos (shown on the customer quote page) ──
   const [customerPhotos, setCustomerPhotos] = useState<string[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
@@ -1836,6 +1985,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     const qpPhone = params.get('phone');
     const qpName = params.get('name');
     const qpJob = params.get('job');
+    // Deep-link into visit-link-only mode (Ben's "Visit Link" button).
+    if (params.get('visit') === '1') setVisitLinkOnly(true);
     if (qpName) setCustomerName(qpName);
     if (qpPhone) setPhone(normalizePhoneInput(qpPhone));
     if (qpJob) {
@@ -2540,7 +2691,10 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   // Global toggle: when on, every line shows a detail textarea that auto-drafts
   // a customer-facing description after the title polishes. Off by default so
   // simple quotes stay tidy; admin opts in for high-ticket / multi-line jobs.
-  const [showLineDetails, setShowLineDetails] = useState(false);
+  // Scope steps are ALWAYS on (owner call 12 Aug 2026) — the old header toggle
+  // is gone. Steps auto-draft per line as titles settle and are removable per
+  // line via the Clear button in the editor.
+  const showLineDetails = true;
   const originalDescriptions = useRef<Map<string, string>>(new Map());
   const originalDetails = useRef<Map<string, string>>(new Map());
   // Track which line ids have already had a detail draft attempted, so we don't
@@ -2665,7 +2819,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       }
     }
 
-    // Follow-up: auto-draft the "details" field if empty AND the global toggle is on.
+    // Follow-up: auto-draft the scope steps if empty (steps are always on now).
     // Look up the most recent line state so we don't draft over user-typed details.
     // We clear the once-per-line guard before calling so a title edit re-drafts.
     if (polishedFinal && showLineDetails) {
@@ -2678,8 +2832,15 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         draftedDetailIds.current.delete(id);
         autoDraftLineDetail(id, polishedFinal, currentCategory, buildStructuredVaContext());
       }
+      // Assumptions default ON per line (owner call 12 Aug 2026): draft the
+      // price-protecting caveats for any line that has none once its title
+      // settles. draftLineAssumptions merge-dedups, so manual entries survive.
+      if (!line?.assumptions?.some((a) => a.trim())) {
+        const currentCategory = (line?.category ?? 'general_fixing') as JobCategory;
+        draftLineAssumptions(id, polishedFinal, currentCategory, buildStructuredVaContext());
+      }
     }
-  }, [handleUpdateLineItem, autoDraftLineDetail, lineItems, buildStructuredVaContext, showLineDetails]);
+  }, [handleUpdateLineItem, autoDraftLineDetail, draftLineAssumptions, lineItems, buildStructuredVaContext, showLineDetails]);
 
   // Polish a manually-edited detail textarea on blur (mirrors title polish behaviour).
   const handlePolishDetail = useCallback(async (id: string, detail: string) => {
@@ -2735,6 +2896,18 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 <Wand2 className="w-2.5 h-2.5" />
                 {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
               </span>
+            )}
+            {hasSteps && !isBusy && (
+              <button
+                type="button"
+                title="Remove all scope steps from this line"
+                aria-label="Remove scope steps from this line"
+                onClick={() => handleUpdateLineScopeSteps(item.id, [])}
+                className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground/60 hover:text-red-500 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                Clear
+              </button>
             )}
             <button
               type="button"
@@ -3044,7 +3217,77 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     }
   }, [lineItems, buildStructuredVaContext]);
 
+  // Visit-link-only generate — no line items, no preflight. Creates a minimal
+  // visit quote server-side and returns the /visit/:slug link.
+  const generateVisitLink = async () => {
+    if (!customerName.trim()) { toast({ title: 'Missing name', description: 'Customer name is required.', variant: 'destructive' }); return; }
+    if (!phone.trim()) { toast({ title: 'Missing phone', description: 'Phone number is required.', variant: 'destructive' }); return; }
+    const feePence = Math.round(Number(surveyFeePounds) * 100);
+    if (!(feePence > 0)) { toast({ title: 'Missing survey fee', description: 'Enter a visit fee (more than £0).', variant: 'destructive' }); return; }
+    setVisitLinkPending(true);
+    try {
+      const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+      const res = await fetch('/api/pricing/create-visit-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          customerName,
+          phone: normalizePhoneInput(phone),
+          email: email || undefined,
+          address: address || undefined,
+          postcode: postcode || undefined,
+          coordinates: coordinates || undefined,
+          surveyFeePence: feePence,
+          reason: visitReason.trim() || undefined,
+          vertical,
+          contractorId: selectedContractorId || undefined,
+          skinContractorId: skinContractorId || undefined,
+          customerPhotoUrls: customerPhotos.length > 0 ? customerPhotos : undefined,
+          customerVideoUrls: customerVideos.length > 0 ? customerVideos : undefined,
+          createdBy: adminUser?.id || undefined,
+          createdByName: adminUser?.name || adminUser?.email || undefined,
+          sourceCallId: linkedCall?.id || selectedCallerId || undefined,
+        }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Failed to create visit link'); }
+      const data = await res.json();
+      setVisitResult({ visitUrl: data.visitUrl, whatsappSendUrl: data.whatsappSendUrl, shortSlug: data.shortSlug, whatsappMessage: data.whatsappMessage, waPhone: data.waPhone });
+      setVisitMessage(data.whatsappMessage || '');
+      toast({ title: 'Visit link ready!', description: 'Review the message and send via WhatsApp.' });
+    } catch (e) {
+      toast({ title: 'Could not create visit link', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' });
+    } finally {
+      setVisitLinkPending(false);
+    }
+  };
+
+  // Regenerate the visit WhatsApp message (after Ben tweaks the reason).
+  const regenerateVisitMessage = async () => {
+    if (!visitResult) return;
+    setRegeneratingVisitMsg(true);
+    try {
+      const res = await fetch('/api/pricing/draft-visit-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          customerName,
+          reason: visitReason.trim() || undefined,
+          surveyFeePence: Math.round(Number(surveyFeePounds) * 100),
+          visitUrl: visitResult.visitUrl,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      if (data.message) setVisitMessage(data.message);
+    } catch {
+      toast({ title: 'Could not regenerate', description: 'Edit the message manually or try again.', variant: 'destructive' });
+    } finally {
+      setRegeneratingVisitMsg(false);
+    }
+  };
+
   const handleGenerate = async () => {
+    if (visitLinkOnly) { void generateVisitLink(); return; }
     if (!customerName.trim()) {
       toast({ title: 'Missing name', description: 'Customer name is required.', variant: 'destructive' });
       return;
@@ -3170,6 +3413,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     setCustomerType('');
     setCustomerVideos([]);
     setSurveyRequired(false);
+    setVisitResult(null);
+    setVisitReason('');
+    setVisitMessage('');
     setSurveyFeePounds('');
     setAvailableDates([]);
     setDatePickerMonth(new Date());
@@ -3421,20 +3667,15 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
 
   // Validate form completeness for button state. SKU lines without a skuCode
   // also count as incomplete even if estimatedMinutes is non-zero.
-  const canGenerate =
-    customerName.trim() &&
-    phone.trim() &&
-    lineItems.length > 0 &&
-    lineItems.every((li) => {
-      if (li.source === 'sku') return !!li.skuCode && li.description.trim();
-      return li.description.trim();
-    });
-
-  // The "Detail" toggle only matters for custom lines (SKU lines carry their own
-  // customer description), so it's only surfaced once a line is in custom state.
-  const hasCustomLine = lineItems.some(
-    (li) => li.source !== 'sku' && customLineIds.has(li.id),
-  );
+  const canGenerate = visitLinkOnly
+    ? !!(customerName.trim() && phone.trim() && Number(surveyFeePounds) > 0)
+    : customerName.trim() &&
+      phone.trim() &&
+      lineItems.length > 0 &&
+      lineItems.every((li) => {
+        if (li.source === 'sku') return !!li.skuCode && li.description.trim();
+        return li.description.trim();
+      });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -3466,8 +3707,27 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     >
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Only show form when no result yet */}
-        {!quoteResult && (
+        {!quoteResult && !visitResult && (
           <>
+
+            {/* ─── Visit-link-only mode toggle ─── */}
+            <div className={cn(
+              "rounded-lg border-2 px-4 py-3 shadow-sm transition-colors",
+              visitLinkOnly ? "border-[#7DB00E] bg-[#7DB00E]/5" : "border-handy-grid bg-white",
+            )}>
+              <Label htmlFor="visit-link-only" className="flex items-start gap-3 cursor-pointer select-none">
+                <Ruler className={cn("w-5 h-5 shrink-0 mt-0.5", visitLinkOnly ? "text-[#7DB00E]" : "text-handy-navy/50")} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-bold text-handy-navy text-sm">Visit link only — no quote</span>
+                    <Switch id="visit-link-only" checked={visitLinkOnly} onCheckedChange={setVisitLinkOnly} />
+                  </div>
+                  <div className="text-xs text-handy-navy/70 mt-0.5">
+                    For jobs we can&rsquo;t price remotely. Skips line items — just needs the customer, a visit fee and (optionally) why, then sends a <span className="font-semibold">/visit</span> booking link.
+                  </div>
+                </div>
+              </Label>
+            </div>
 
             {/* Edit-mode banner — makes clear this reuses the generator to edit an
                 existing quote and that saving re-prices + keeps the same link. */}
@@ -3643,39 +3903,66 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               </div>
             )}
 
+            {/* ─── Visit details (visit-link-only mode) ─── */}
+            {visitLinkOnly && (
+              <Card className="overflow-hidden border-handy-grid shadow-sm">
+                <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                  <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                    <Ruler className="w-4 h-4 text-handy-yellow" />
+                    Visit details
+                  </CardTitle>
+                  <p className="text-xs text-white/70 mt-1">
+                    The customer books &amp; pays this fee to have an expert visit and write a fixed quote.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Label htmlFor="visit-fee" className="text-sm font-semibold text-handy-navy whitespace-nowrap">
+                      Visit fee (£) *
+                    </Label>
+                    <div className="relative w-32">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-handy-navy/60 text-sm">£</span>
+                      <Input
+                        id="visit-fee"
+                        type="number"
+                        min={0}
+                        step={5}
+                        inputMode="numeric"
+                        value={surveyFeePounds}
+                        onChange={(e) => setSurveyFeePounds(e.target.value)}
+                        placeholder="49"
+                        className="pl-6 h-9"
+                      />
+                    </div>
+                    <span className="text-[11px] text-handy-navy/60 leading-tight">Credited to the job.</span>
+                  </div>
+                  <div>
+                    <Label htmlFor="visit-reason" className="text-sm font-semibold text-handy-navy">
+                      Why a visit? <span className="font-normal text-handy-navy/50">(optional — shown on the link)</span>
+                    </Label>
+                    <Textarea
+                      id="visit-reason"
+                      value={visitReason}
+                      onChange={(e) => setVisitReason(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. We need to lift a board to check the joists before we can price it."
+                      className="mt-1 text-sm border-handy-grid focus:border-handy-yellow resize-none"
+                    />
+                  </div>
+                  <p className="text-[11px] text-handy-navy/60">
+                    Add the customer&rsquo;s photos/videos below if they sent any — they&rsquo;ll show on the visit link.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {!visitLinkOnly && (<>
             {/* ─── Section 3: Jobs (structured line-item slabs) ─── */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">
               <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
                 <CardTitle className="text-base font-bold text-white tracking-tight flex items-center justify-between gap-3">
                   <span>Jobs</span>
                   <div className="flex items-center gap-3">
-                    {/* Detail toggle — only for custom lines (SKU lines carry their own description) */}
-                    {hasCustomLine && (
-                    <Label
-                      htmlFor="show-line-details"
-                      className="flex items-center gap-2 text-[11px] font-normal text-white/70 cursor-pointer select-none"
-                    >
-                      <Wand2 className="w-3 h-3 text-handy-yellow" />
-                      Line scope steps
-                      <Switch
-                        id="show-line-details"
-                        checked={showLineDetails}
-                        onCheckedChange={(checked) => {
-                          setShowLineDetails(checked);
-                          if (checked) {
-                            // Auto-draft scope steps for every existing line that doesn't have any yet.
-                            // Clear the once-per-line guard so re-toggling triggers fresh drafts.
-                            for (const li of lineItems) {
-                              if (!li.details && !li.scopeSteps?.some((s) => s.trim()) && li.description.trim().length >= 5) {
-                                draftedDetailIds.current.delete(li.id);
-                                autoDraftLineDetail(li.id, li.description, li.category, buildStructuredVaContext());
-                              }
-                            }
-                          }
-                        }}
-                      />
-                    </Label>
-                    )}
                     {lineItems.length > 0 && (
                       <Badge variant="outline" className="text-xs bg-handy-yellow/15 text-handy-yellow border-handy-yellow/60">
                         {lineItems.length} job{lineItems.length !== 1 ? 's' : ''}
@@ -3792,21 +4079,28 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                               {showLineDetails && item.skuCode && renderScopeStepsEditor(item)}
                             </>
                           ) : (
-                            // ─── Inline autocomplete (custom / not-yet-picked) ───
-                            // The description field searches the catalog as you
-                            // type. Pick a suggestion → the line flips to a SKU
-                            // line. Type and don't pick → it stays custom and is
-                            // priced via the LLM/reference path on generate.
+                            // ─── Plain description input (custom lines only) ───
+                            // The SKU autocomplete dropdown was removed 12 Aug
+                            // 2026 (owner call): lines are only ever entered as
+                            // custom, so every line is custom the moment it has
+                            // real text and prices via the LLM/reference path.
+                            // Legacy SKU lines on edited quotes still render the
+                            // SKU slab branch above; the Track B advisory chip
+                            // below remains the one opt-in SKU path.
                             <>
-                              <InlineSkuAutocomplete
+                              <Input
                                 value={item.description}
                                 autoFocus={item.id === newLineId}
-                                dimmed={isPolishing}
-                                onChangeText={(next) => handleUpdateLineItem(item.id, 'description', next)}
-                                onPickSku={(result) => handlePickSkuForLine(item.id, result)}
+                                placeholder="e.g. Fix leaking tap, Mount TV…"
+                                autoComplete="off"
+                                onChange={(e) => {
+                                  handleUpdateLineItem(item.id, 'description', e.target.value);
+                                  handleLineCustomChange(item.id, e.target.value.trim().length >= 3);
+                                }}
                                 onBlur={() => handlePolishDescription(item.id, item.description)}
-                                onCustomChange={(c) => handleLineCustomChange(item.id, c)}
-                                onCreateCustom={() => handleLineCustomChange(item.id, true)}
+                                className={`text-base sm:text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
+                                  isPolishing ? 'opacity-60' : ''
+                                }`}
                               />
 
                               {/* Polish override — the AI tidy can strip scope detail the
@@ -4560,6 +4854,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 parking/presence state remains and still round-trips on edit;
                 the fields default to unknown. */}
 
+            </>)}
+
             {/* ─── Section 4d: Customer Photos (shown on the quote page under the price card) ─── */}
             <Card id="cq-photos-section" className="overflow-hidden border-handy-grid shadow-sm">
               <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
@@ -4676,6 +4972,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 the quote-fit engine still resolves the candidate pool +
                 lead contractor server-side at create time. */}
 
+            {!visitLinkOnly && (<>
             {/* ─── Section 5b: Crew & quote skin ─── */}
             <Card>
               <CardHeader className="pb-3">
@@ -4871,40 +5168,149 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               </label>
             )}
 
+            </>)}
+
             {/* ─── Section 6: Preview + Generate (brand CTAs — preview outline-navy, generate navy-primary) ─── */}
             {/* Stack full-width on mobile (the two labels can't fit one row < 380px); side-by-side on sm+. */}
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full sm:flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
-                onClick={() => setDraftPreviewOpen(true)}
-                disabled={!canGenerate || !livePreview}
-                title={!livePreview ? 'Wait for live pricing to compute' : 'Preview without saving'}
-              >
-                <Eye className="w-5 h-5 mr-2" />
-                Preview
-              </Button>
+              {!visitLinkOnly && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full sm:flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
+                  onClick={() => setDraftPreviewOpen(true)}
+                  disabled={!canGenerate || !livePreview}
+                  title={!livePreview ? 'Wait for live pricing to compute' : 'Preview without saving'}
+                >
+                  <Eye className="w-5 h-5 mr-2" />
+                  Preview
+                </Button>
+              )}
               <Button
                 size="lg"
                 className="w-full sm:flex-1 h-12 text-base font-semibold bg-handy-navy hover:bg-handy-navy/90 text-white shadow-sm hover:shadow disabled:bg-handy-navy/40"
                 onClick={handleGenerate}
-                disabled={!canGenerate || createQuoteMutation.isPending || preflightChecking}
+                disabled={!canGenerate || createQuoteMutation.isPending || preflightChecking || visitLinkPending}
               >
-                {createQuoteMutation.isPending || preflightChecking ? (
+                {createQuoteMutation.isPending || preflightChecking || visitLinkPending ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    {preflightChecking ? 'Checking quote…' : editQuoteId ? 'Saving changes...' : 'Generating Quote...'}
+                    {visitLinkPending ? 'Creating visit link…' : preflightChecking ? 'Checking quote…' : editQuoteId ? 'Saving changes...' : 'Generating Quote...'}
                   </>
                 ) : (
                   <>
-                    {editQuoteId ? 'Save changes' : 'Generate Quote'}
+                    {visitLinkOnly ? 'Generate visit link' : editQuoteId ? 'Save changes' : 'Generate Quote'}
                     <span className="ml-2 inline-block h-2 w-2 rounded-full bg-handy-yellow" aria-hidden />
                   </>
                 )}
               </Button>
             </div>
           </>
+        )}
+
+        {/* ─── Visit link result ─── */}
+        {visitResult && (
+          <div className="space-y-4">
+            <Card className="overflow-hidden border-2 border-[#7DB00E] shadow-sm">
+              <CardHeader className="bg-[#7DB00E] text-white px-4 sm:px-6 py-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                  <Check className="w-5 h-5" /> Visit link ready
+                </CardTitle>
+                <p className="text-xs text-white/80 mt-1">Send it to the customer to book &amp; pay their survey visit.</p>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={visitResult.visitUrl}
+                    readOnly
+                    className="flex-1 h-10 px-3 rounded-lg border border-handy-grid bg-handy-cream/40 text-sm text-handy-navy font-mono"
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 border-handy-navy/30"
+                    onClick={() => {
+                      navigator.clipboard.writeText(visitResult.visitUrl);
+                      setCopiedVisitLink(true);
+                      setTimeout(() => setCopiedVisitLink(false), 1500);
+                    }}
+                    title="Copy link"
+                  >
+                    {copiedVisitLink ? <Check className="w-4 h-4 text-[#7DB00E]" /> : <Copy className="w-4 h-4" />}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 border-handy-navy/30"
+                    onClick={() => window.open(visitResult.visitUrl, '_blank')}
+                    title="Open link"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </Button>
+                </div>
+                {/* Editable WhatsApp message (AI-generated from the reason). */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="visit-message" className="text-sm font-semibold text-handy-navy">Message to send</Label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={regenerateVisitMessage}
+                        disabled={regeneratingVisitMsg}
+                        className="flex items-center gap-1 text-xs font-medium text-handy-navy/60 hover:text-handy-navy disabled:opacity-40 transition-colors"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${regeneratingVisitMsg ? 'animate-spin' : ''}`} />
+                        {regeneratingVisitMsg ? 'Rewriting…' : 'Regenerate'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(visitMessage);
+                          setCopiedVisitMsg(true);
+                          setTimeout(() => setCopiedVisitMsg(false), 1500);
+                        }}
+                        className="flex items-center gap-1 text-xs font-medium text-handy-navy/60 hover:text-handy-navy transition-colors"
+                      >
+                        {copiedVisitMsg ? <Check className="w-3.5 h-3.5 text-[#7DB00E]" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedVisitMsg ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                  <Textarea
+                    id="visit-message"
+                    value={visitMessage}
+                    onChange={(e) => setVisitMessage(e.target.value)}
+                    rows={5}
+                    className="text-sm border-handy-grid focus:border-handy-yellow resize-none leading-relaxed"
+                  />
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Button
+                    size="lg"
+                    className="w-full sm:flex-1 h-12 text-base font-semibold bg-[#25D366] hover:bg-[#20bd5a] text-white"
+                    onClick={() => {
+                      const url = visitResult.waPhone
+                        ? `https://wa.me/${visitResult.waPhone}?text=${encodeURIComponent(visitMessage)}`
+                        : visitResult.whatsappSendUrl;
+                      window.open(url, '_blank');
+                    }}
+                  >
+                    Send via WhatsApp
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="w-full sm:flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
+                    onClick={handleReset}
+                  >
+                    New visit link
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* ─── Section 7: Results ─── */}
@@ -5056,6 +5462,11 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 <ExternalLink className="w-4 h-4" />
               </Button>
             </div>
+
+            {/* Offer router decision (observation mode) */}
+            {quoteResult.offerDecision && (
+              <OfferDecisionCard quoteId={quoteResult.quoteId} initial={quoteResult.offerDecision} />
+            )}
 
             {/* Preview + Reset buttons */}
             <div className="flex gap-2 mt-1">

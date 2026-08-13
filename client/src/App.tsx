@@ -68,6 +68,7 @@ const PricingSettingsPage = lazy(() => import("@/pages/admin/PricingSettingsPage
 const PrizeWheelPage = lazy(() => import("@/pages/admin/PrizeWheelPage"));
 const NotificationsPage = lazy(() => import("@/pages/admin/NotificationsPage"));
 const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
+const OfferDecisionsPage = lazy(() => import("@/pages/admin/OfferDecisionsPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
@@ -149,6 +150,7 @@ function QuoteRouteFallback() {
 const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
 const ConfirmSlotPage = lazy(() => import("@/pages/ConfirmSlotPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
+const SiteSurveyPage = lazy(() => import("@/pages/SiteSurveyPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
@@ -377,6 +379,11 @@ function Router() {
                 </Route>
                 <Route path="/visit-link/:slug">
                     <DiagnosticVisitPage />
+                </Route>
+
+                {/* Contractor site-survey form (tokenised link) */}
+                <Route path="/survey/:slug">
+                    <SiteSurveyPage />
                 </Route>
 
                 {/* Client Portal - Token-based access */}
@@ -671,6 +678,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <QuoteOffersPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/offer-decisions">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <OfferDecisionsPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

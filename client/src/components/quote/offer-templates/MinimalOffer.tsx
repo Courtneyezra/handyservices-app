@@ -65,7 +65,7 @@ export function MinimalOffer({ offer, ctx, render, customerName, onAccept, onDec
 
         <div className="mt-10 flex flex-col items-center gap-4">
           <button
-            onClick={onAccept}
+            onClick={() => onAccept()}
             className="w-full max-w-sm rounded-full px-6 py-4 text-base font-extrabold text-white shadow-sm transition-transform active:scale-[0.98]"
             style={{ backgroundColor: HS_GREEN }}
           >

@@ -19,7 +19,10 @@ export interface TravelBand {
 // price the customer sees always matches what the server charges. The screen is
 // only shown for offers that have a real lever for the quote (flex_date requires
 // a lane-eligible quote: a non-landlord, non-business customer).
-export type QuoteOfferType = 'flex_date' | 'add_task' | 'membership';
+// welcome_gift (Aug 2026): the theatre became a WELCOME GIFT — a first-time
+// customer with a big-enough quote picks ONE small job from the addon menu
+// free ("give, not upsell"). Paid add-ons moved onto the quote card itself.
+export type QuoteOfferType = 'flex_date' | 'add_task' | 'membership' | 'welcome_gift';
 
 // The visual layout an offer renders with. Each is a distinct, full-screen
 // design in client/src/components/quote/offer-templates/. Copy is shared across
@@ -130,6 +133,25 @@ export interface QuoteOffersConfig extends QuoteOfferGroup {
   perCustomerType?: Partial<Record<QuoteOfferCustomerType, QuoteOfferGroup>>;
 }
 
+// ── Add-on task menu (the 'add_task' offer) ─────────────────────────────────
+// A pre-priced menu of small extra jobs shown on the offer interstitial:
+// "Craig's already coming — add another job, ~25% off". Prices/minutes are
+// server-stored so payment stays server-authoritative (the client never sends
+// pence), and `scheduleMinutes` is added to the availability fetch's
+// timeEstimateMinutes so the calendar stays capacity-true.
+export interface AddonMenuItem {
+  /** Stable id the client sends back when the customer taps an item. */
+  id: string;
+  /** Customer-facing label ("Re-seal your bath or shower"). */
+  label: string;
+  /** The add-on price in pence — already ~25% below the observed median. */
+  pricePence: number;
+  /** Realistic on-site minutes; feeds timeEstimateMinutes for availability. */
+  scheduleMinutes: number;
+  /** Category slug matching pricing_line_items.category (e.g. plumbing_minor). */
+  category: string;
+}
+
 export interface PricingSettings {
   // Margins & Deposits
   materialsMarginPercent: number;      // default 27
@@ -183,6 +205,18 @@ export interface PricingSettings {
 
   // Irresistible-offer interstitial (?v=offer test flow). See QuoteOffersConfig.
   quoteOffers: QuoteOffersConfig;
+
+  // Pre-priced small-job menu for the 'add_task' offer. See AddonMenuItem.
+  addonMenu: AddonMenuItem[];
+
+  // ── Welcome gift (the 'welcome_gift' offer) ────────────────────────────────
+  // Eligibility floor: the quote's basePrice must be at least this for the
+  // free-task gift to show (the gift is a thank-you on a real job, not a way
+  // to get a £39 task done free on a £60 quote).
+  welcomeGiftMinQuotePence: number;    // default 20000 (£200)
+  // Gift pool cap: only addonMenu items at or under this many on-site minutes
+  // qualify as a pickable gift ("one SMALL job, on us").
+  welcomeGiftMaxMinutes: number;       // default 45
 }
 
 export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
@@ -218,20 +252,69 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
   quoteOffers: {
     enabled: true,
     selectionMode: "manual",
-    activeOfferId: "flex_date_v1",
+    activeOfferId: "welcome_gift_v1",
     items: [
+      // ── ACTIVE: the welcome-gift theatre offer ─────────────────────────
+      // Owner decision (Aug 2026): the theatre GIVES instead of upselling. A
+      // first-time customer whose quote clears welcomeGiftMinQuotePence picks
+      // ONE small job (addonMenu items ≤ welcomeGiftMaxMinutes) done free on
+      // the same visit. Eligibility is server-computed (welcomeGiftEligible on
+      // the quote payload) and re-validated server-side at payment. Paid
+      // add-ons now live on the quote card itself, after the price.
+      {
+        id: "welcome_gift_v1",
+        type: "welcome_gift",
+        enabled: true,
+        template: "dark_hero",
+        name: "Welcome gift — free small task",
+        weight: 1,
+        eyebrow: "A little welcome from us",
+        headline: "While he's there, pick one small job — *on us*",
+        subhead: "Your welcome gift, done on the same visit. Choose one:",
+        benefits: [
+          { icon: "star", text: "Completely free — our welcome to you" },
+          { icon: "clock", text: "Done on the same visit as your quoted job" },
+          { icon: "shield", text: "Same workmanship guarantee as the paid work" },
+        ],
+        acceptLabel: "Claim my free task",
+        declineLabel: "No thanks, just my quote",
+        finePrint: "One free task per new customer, done alongside your booked job. You'll see it on your quote as a £0 line.",
+      },
+      // ── RETIRED: the add-task theatre offer (kept for reference/rollback).
+      // Paid add-ons moved onto the quote card ("Craig's already coming — add
+      // a small job, ~25% off" section under the price), so the interstitial
+      // no longer pitches them.
+      {
+        id: "add_task_v1",
+        type: "add_task",
+        enabled: false,
+        template: "dark_hero",
+        name: "Add a small job — dark hero",
+        weight: 1,
+        eyebrow: "One quick thing before your price",
+        headline: "Craig's already coming — add a small job, save ~25%",
+        subhead: "He's on site anyway, so these extras are cheaper than booking them alone. Tap any that need doing.",
+        benefits: [
+          { icon: "wallet", text: "Around 25% less than booking it separately" },
+          { icon: "clock", text: "Done on the same visit — no second call-out" },
+          { icon: "shield", text: "Same fixed price and workmanship guarantee" },
+        ],
+        acceptLabel: "Add these to my visit",
+        declineLabel: "No thanks, just the quoted job",
+        finePrint: "Anything you add appears as its own line on your quote — you'll see the full fixed price next.",
+      },
       {
         id: "flex_date_v1",
         type: "flex_date",
-        enabled: true,
+        enabled: false,
         template: "dark_hero",
         name: "Stay flexible — dark hero",
         weight: 1,
         eyebrow: "One quick choice before your price",
         headline: "Stay flexible",
-        subhead: "We pick the best day within {days} days — same fixed price.",
+        subhead: "Pick any available day — same fixed price.",
         benefits: [
-          { icon: "calendar", text: "We find the best slot for you within {days} days" },
+          { icon: "calendar", text: "Choose any available day on the calendar" },
           { icon: "shield", text: "Same fixed price and workmanship guarantee" },
           { icon: "wallet", text: "Skip the {savings} firm date & time fee" },
         ],
@@ -244,16 +327,16 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
       {
         id: "flex_date_minimal",
         type: "flex_date",
-        enabled: true,
+        enabled: false,
         template: "minimal",
         name: "Stay flexible — minimal",
         weight: 1,
         eyebrow: "One quick choice",
         headline: "Save {savings} — stay flexible",
         subhead:
-          "We pick the best weekday within {days} days. Same fixed price, same guarantee.",
+          "Pick any available day. Same fixed price, same guarantee.",
         benefits: [
-          { icon: "calendar", text: "Best available slot within {days} days" },
+          { icon: "calendar", text: "You choose the day from live availability" },
           { icon: "wallet", text: "Skip the {savings} firm date & time fee" },
           { icon: "shield", text: "Same fixed price + 12-month workmanship guarantee" },
         ],
@@ -263,20 +346,57 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
         flexWithinDays: 7,
       },
     ],
-    // Per-customer-type overrides. Homeowner runs the warm 'at_home' flex-save
-    // design. It quantifies the {savings} (the cash you keep by staying flexible)
-    // but never shows the base/firm TOTALS — so it sharpens the offer without
-    // anchoring the actual quote price. The full fixed price still lands on the
-    // quote page. Other types inherit the default group above until they get one.
+    // Per-customer-type overrides. The homeowner group now runs the
+    // welcome_gift offer (add_task moved onto the quote card; the retired
+    // flex_save_homeowner item below is kept disabled for reference/rollback).
+    // Other types inherit the default group above until they get one.
     perCustomerType: {
       homeowner: {
         selectionMode: "manual",
-        activeOfferId: "flex_save_homeowner",
+        activeOfferId: "welcome_gift_v1",
         items: [
+          {
+            id: "welcome_gift_v1",
+            type: "welcome_gift",
+            enabled: true,
+            template: "dark_hero",
+            name: "Welcome gift — homeowner",
+            weight: 1,
+            eyebrow: "A little welcome from us",
+            headline: "While he's there, pick one small job — *on us*",
+            subhead: "Your welcome gift, done on the same visit. Choose one:",
+            benefits: [
+              { icon: "star", text: "Completely free — our welcome to you" },
+              { icon: "clock", text: "Done on the same visit as your quoted job" },
+              { icon: "shield", text: "Same workmanship guarantee as the paid work" },
+            ],
+            acceptLabel: "Claim my free task",
+            declineLabel: "No thanks, just my quote",
+            finePrint: "One free task per new customer, done alongside your booked job. You'll see it on your quote as a £0 line.",
+          },
+          {
+            id: "add_task_v1",
+            type: "add_task",
+            enabled: false,
+            template: "dark_hero",
+            name: "Add a small job — homeowner (retired — add-ons live on the quote card now)",
+            weight: 1,
+            eyebrow: "One quick thing before your price",
+            headline: "Craig's already coming — add a small job, save ~25%",
+            subhead: "He's on site anyway, so these extras are cheaper than booking them alone. Tap any that need doing.",
+            benefits: [
+              { icon: "wallet", text: "Around 25% less than booking it separately" },
+              { icon: "clock", text: "Done on the same visit — no second call-out" },
+              { icon: "shield", text: "Same fixed price and workmanship guarantee" },
+            ],
+            acceptLabel: "Add these to my visit",
+            declineLabel: "No thanks, just the quoted job",
+            finePrint: "Anything you add appears as its own line on your quote — you'll see the full fixed price next.",
+          },
           {
             id: "flex_save_homeowner",
             type: "flex_date",
-            enabled: true,
+            enabled: false,
             template: "at_home",
             name: "Flex-save — at home (homeowner)",
             weight: 1,
@@ -297,9 +417,9 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
             // out, so the bullets can just be the no-brainer. Long clauses
             // (2-days-ahead text promise) surface later in the day picker.
             benefits: [
-              { icon: "calendar", text: "Done within 2 weeks — guaranteed" },
-              { icon: "check", text: "Cross off any days that don't work" },
-              { icon: "wallet", text: "{savings} off — same job, same guarantee" },
+              { icon: "calendar", text: "Pick any available day — you choose" },
+              { icon: "check", text: "Same job, same guarantee" },
+              { icon: "wallet", text: "{savings} off the firm date & time price" },
             ],
             acceptLabel: "Slot me in — save {savings}",
             declineLabel: "I need a specific day",
@@ -313,4 +433,24 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
       },
     },
   },
+
+  // Add-on task menu — derived from quote history (Aug 2026): the 8 most
+  // frequent small line items (≤90 min, ≤£90) across the last 12 months of
+  // real personalized_quotes.pricing_line_items (test quotes scrubbed), each
+  // priced ~25% below its observed median and rounded to a friendly ending.
+  // Median £ / minutes noted per item for future re-calibration.
+  addonMenu: [
+    { id: "addon_reseal_silicone", label: "Re-seal bath or shower silicone", pricePence: 3900, scheduleMinutes: 45, category: "silicone_sealant" },     // n=31, med £55 / 45min
+    { id: "addon_patch_paint", label: "Patch & repaint a wall spot", pricePence: 4900, scheduleMinutes: 45, category: "painting" },                     // n=35, med £65 / 45min
+    { id: "addon_blind_curtain", label: "Hang a blind or curtain pole", pricePence: 3900, scheduleMinutes: 45, category: "curtain_blinds" },            // n=23, med £55 / 45min
+    { id: "addon_door_adjust", label: "Fix a sticking door or hinge", pricePence: 4900, scheduleMinutes: 45, category: "door_fitting" },                // n=19, med £65 / 45min
+    { id: "addon_door_handle", label: "Replace a door handle or latch", pricePence: 5500, scheduleMinutes: 45, category: "door_fitting" },              // n=16, med £71.50 / 45min
+    { id: "addon_tv_mount", label: "Mount a TV on the wall", pricePence: 5500, scheduleMinutes: 75, category: "tv_mounting" },                          // n=12, med £73 / 75min
+    { id: "addon_leaking_tap", label: "Fix a leaking or dripping tap", pricePence: 5900, scheduleMinutes: 45, category: "plumbing_minor" },             // n=11, med £84 / 45min
+    { id: "addon_hang_mirror", label: "Hang a mirror or pictures", pricePence: 3900, scheduleMinutes: 60, category: "general_fixing" },                 // n=11, med £55 / 60min
+  ],
+
+  // Welcome gift — see the welcome_gift offer above. Server-enforced.
+  welcomeGiftMinQuotePence: 20000,     // gift only on quotes ≥ £200
+  welcomeGiftMaxMinutes: 45,           // gift pool = addonMenu items ≤ 45 min
 };

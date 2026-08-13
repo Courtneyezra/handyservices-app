@@ -16,6 +16,8 @@ interface DateSelectorProps {
     categories?: string[];
     /** Estimated total job time in minutes */
     timeEstimateMinutes?: number;
+    /** Brand vertical scoping the contractor pool (server defaults to 'handyman') */
+    vertical?: string;
 }
 
 /**
@@ -34,6 +36,7 @@ export function DateSelector({
     serviceIds,
     categories,
     timeEstimateMinutes,
+    vertical,
 }: DateSelectorProps) {
     const [scrollIndex, setScrollIndex] = useState(0);
     const datesPerView = 4;
@@ -44,6 +47,7 @@ export function DateSelector({
         serviceIds,
         categories,
         timeEstimateMinutes,
+        vertical,
         days: 29, // 4 weeks ahead + buffer
     });
 

@@ -59,6 +59,10 @@ export const BANNED_PHRASES = [
   'award-winning', 'award winning', '#1', 'number one', 'number 1',
   '24/7', '24 hour', 'round the clock',
   'guaranteed same day', 'always available',
+  // Reply-to-schedule closers — booking is self-serve in the link; these
+  // invite a WhatsApp back-and-forth instead (customers bounced pre-click).
+  'let me know when suits', 'let me know what works', 'let me know when works',
+  'let me know a time', 'shout to book',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -246,7 +250,7 @@ RULES:
 - contextualMessage: 1-2 sentences. Plain English, no marketing speak. Sounds like a friendly Nottingham tradesperson texting a customer. Naturally weave in the single most relevant value point for their situation (e.g. "no need to be there" for landlords, "fixed price so no surprises" for price-conscious customers, "can get it sorted this week" for urgent jobs, "good to hear from you again" for returning customers). Never list features. Never sound like a brochure.
 - valueBullets: Exactly 3-5 items. MUST be from APPROVED_CLAIMS list only.
 - whatsappValueLines: Exactly 2 items. MUST be from APPROVED_CLAIMS list. Pick the 2 most compelling for this customer.
-- whatsappClosing: 1 sentence. Sounds like a real person texting, not a company. Short, warm, direct. Reference their specific situation if relevant (e.g. "Happy to sort it around your tenant" for landlords, "Let me know if this week works" for standard jobs, "Can get someone there today if that helps" for emergencies). Never start with "We". Never sound like a notification.
+- whatsappClosing: 1 sentence. Sounds like a real person texting, not a company. Short, warm, direct. The ONLY call to action allowed is tapping the link — booking, date-picking and extras are all self-serve in there (e.g. "Just tap the link when you're ready and pick your day", "Happy to sort it around your tenant — it's all bookable in the link"). NEVER invite the customer to arrange scheduling by replying: no "let me know when suits", "let me know what works", "give me a shout to book". Never start with "We". Never sound like a notification.
 - jobTopLine: For 1-2 jobs: 3-7 words. For 3+ jobs: up to 12 words. A polished, natural-language summary of what's being done — covering ALL job lines. Reads like a friendly confirmation, not a task list. No technical jargon. For multi-job quotes, group related tasks (e.g. "Kitchen floor, bathroom regrouted, blinds hung" not "Floor, grout, blinds, panel, seal, paint, and more"). NEVER use "and more" or "etc" — always enumerate what's actually being done. Never start with "We". Never use "Job" or "Task". Examples: "Leaky tap fixed for good", "Fence fixed and gate painted", "Kitchen floor, grout, bath seal, and blinds all done".
 - proposalSummary: A professional scope-of-work summary in plain English.
   RULES:

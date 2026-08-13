@@ -37,8 +37,12 @@ import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../m
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
-import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, isS3Configured } from '../s3-media';
+import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, uploadSurveyAudioToS3, isS3Configured } from '../s3-media';
+import { recordOfferDecision, latestOfferDecision, recordBenOverride, OFFER_PLAYS, type OfferPlay } from '../offer-router';
+import { runShadowClassifier } from '../offer-shadow-agent';
+import { transcribeAudio } from '../deepgram';
 import { geocodePostcode } from '../lib/geocode';
+import { notifySiteSurveySubmitted } from '../pushover';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -184,6 +188,73 @@ router.post('/api/pricing/quote-videos', quoteVideoUpload.array('files', 5), asy
   } catch (error) {
     console.error('[QuoteVideos] Upload failed:', error);
     res.status(500).json({ error: 'Video upload failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/survey-audio
+// Contractor site-survey voice notes. The tradesman records a per-item voice
+// note on their phone (MediaRecorder → webm/mp4 blob); we store it on S3 (or
+// local disk in dev) AND run it through Whisper to get a text transcript.
+// Returns { url, transcript }. Transcription is best-effort — a Whisper
+// failure NEVER fails the upload; we still return the audio url with
+// transcript: null so the note is preserved.
+// ---------------------------------------------------------------------------
+
+const surveyAudioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 }, // 25MB (Whisper's file cap)
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('audio/')) cb(null, true);
+    else cb(new Error('Only audio files are allowed'));
+  },
+});
+
+router.post('/api/pricing/survey-audio', surveyAudioUpload.single('file'), async (req, res) => {
+  try {
+    const file = req.file as Express.Multer.File | undefined;
+    if (!file) {
+      return res.status(400).json({ error: 'No audio file uploaded' });
+    }
+
+    // Local-disk store (dev fallback) — served via the /uploads static mount
+    const saveLocal = async (buffer: Buffer, ext: string): Promise<string> => {
+      const uploadDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const filename = `survey-audio-${nanoid()}${ext}`;
+      await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
+      return `/uploads/${filename}`;
+    };
+
+    const ext = path.extname(file.originalname) || '.webm';
+    let url: string;
+    if (isS3Configured()) {
+      try {
+        url = await uploadSurveyAudioToS3(file.buffer, file.mimetype);
+      } catch (s3Error) {
+        console.warn('[SurveyAudio] S3 upload failed, falling back to local disk:', s3Error instanceof Error ? s3Error.message : s3Error);
+        url = await saveLocal(file.buffer, ext);
+      }
+    } else {
+      url = await saveLocal(file.buffer, ext);
+    }
+
+    // Transcribe via Whisper — best-effort. Never fail the upload on a
+    // transcription error; the audio is already saved.
+    let transcript: string | null = null;
+    try {
+      // Deepgram (nova-2) — already proven in prod; reachable where OpenAI wasn't.
+      const dg = await transcribeAudio(file.buffer);
+      transcript = dg.text || null;
+    } catch (transcribeError: any) {
+      console.warn('[SurveyAudio] Deepgram transcription failed (audio still saved):', transcribeError?.message);
+    }
+
+    console.log(`[SurveyAudio] Uploaded voice note${transcript ? ' (transcribed)' : ' (no transcript)'}`);
+    res.json({ url, transcript });
+  } catch (error) {
+    console.error('[SurveyAudio] Upload failed:', error);
+    res.status(500).json({ error: 'Audio upload failed' });
   }
 });
 
@@ -1783,6 +1854,273 @@ async function generateUniqueSlug(): Promise<string> {
   return nanoid(8);
 }
 
+// ---------------------------------------------------------------------------
+// Visit-link WhatsApp message generator — turns Ben's raw "why a visit" note
+// into a warm, natural message that ties the reason into the ask. Haiku with a
+// deterministic template fallback so link creation never blocks on the LLM.
+// ---------------------------------------------------------------------------
+async function generateVisitMessage(opts: {
+  firstName: string;
+  reason?: string | null;
+  feePounds: number;
+  visitUrl: string;
+}): Promise<string> {
+  const { firstName, reason, feePounds, visitUrl } = opts;
+  const fallback = reason && reason.trim()
+    ? `Hi ${firstName}, thanks for the details. ${reason.trim()} We'll need to see it in person to price it properly — you can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`
+    : `Hi ${firstName}, thanks for the details. This is one we need to see in person to price it properly. You can book your visit here (£${feePounds}, credited to the job): ${visitUrl}`;
+
+  try {
+    const claude = getAnthropic();
+    const parts = [
+      `Customer first name: ${firstName}`,
+      `Visit fee: £${feePounds} (fully credited to the job)`,
+      `Booking link: ${visitUrl}`,
+    ];
+    if (reason && reason.trim()) parts.push(`Why a visit is needed (polish this into the message, don't quote it verbatim): ${reason.trim().slice(0, 300)}`);
+
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 220,
+      temperature: 0.5,
+      system: `You write ONE short WhatsApp message from Ben at a UK handyman firm (HandyServices) to a customer.
+
+Purpose: their job can't be priced accurately over text/phone, so an expert needs to visit and write a fixed quote. Invite them to book the paid visit (the fee is fully credited to the job, so it's risk-free).
+
+Rules:
+- Warm, human, concise — 2-3 short sentences. Like a real person texting, not marketing.
+- If a reason is provided, weave it in naturally and politely (e.g. "so we can check the pipework properly") — do NOT paste it verbatim or use jargon/shorthand; smooth it into plain English.
+- Mention the fee once as "£${feePounds}, credited to the job" (or similar) and end with the booking link on its own.
+- Start with "Hi ${firstName},".
+- UK English. No emoji. No exclamation marks. No hype words ("amazing", "fantastic").
+- Return ONLY the message text — no preamble, no quotes.
+
+The booking link MUST appear exactly once, unchanged: ${visitUrl}`,
+      messages: [{ role: 'user', content: parts.join('\n') }],
+    });
+    const block = message.content.find((b: any) => b.type === 'text');
+    let text = (block?.text || '').trim().replace(/^["']|["']$/g, '').trim();
+    // Guardrail: the model must include the real link; if it dropped/altered it, fall back.
+    if (!text || !text.includes(visitUrl)) return fallback;
+    return text;
+  } catch (e) {
+    console.warn('[VisitLink] message generation failed, using template:', e instanceof Error ? e.message : e);
+    return fallback;
+  }
+}
+
+// POST /api/pricing/draft-visit-message — regenerate the visit message (used by
+// the builder's "regenerate" control after editing the reason). Non-blocking.
+router.post('/api/pricing/draft-visit-message', async (req, res) => {
+  try {
+    const { customerName, reason, surveyFeePence, visitUrl } = req.body as {
+      customerName?: string; reason?: string; surveyFeePence?: number; visitUrl?: string;
+    };
+    if (!customerName || !visitUrl) return res.status(400).json({ error: 'customerName and visitUrl are required' });
+    const firstName = String(customerName).split(' ')[0];
+    const feePounds = Math.round((Number(surveyFeePence) || 0) / 100);
+    const message = await generateVisitMessage({ firstName, reason, feePounds, visitUrl });
+    res.json({ message });
+  } catch (error) {
+    console.error('[VisitLink] draft-visit-message failed:', error);
+    res.status(500).json({ error: 'Failed to draft message' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/create-visit-link
+// Standalone "send a visit link" — NO line items. For jobs we can't quote
+// remotely (media sent but unquotable, or nothing sent) where the customer just
+// needs to book & pay a survey visit. Creates a minimal personalized_quotes row
+// (survey fee, resolved lead contractor so the calendar has real availability,
+// optional media + "why a visit" reason) and returns the /visit/:slug link.
+//
+// The lead is the priority/match-all contractor (Craig for handyman) — resolved
+// directly, because with no categories the normal candidate-pool matcher returns
+// an empty pool. The stored candidateContractorIds/leadContractorId then drive
+// the visit calendar via the availability route's stored-pool fallback.
+// ---------------------------------------------------------------------------
+const createVisitLinkSchema = z.object({
+  customerName: z.string().min(1),
+  phone: z.string().min(1),
+  email: z.string().email().optional().or(z.literal('')),
+  address: z.string().optional(),
+  postcode: z.string().optional(),
+  coordinates: z.object({ lat: z.number(), lng: z.number() }).optional(),
+  surveyFeePence: z.number().int().positive(),
+  reason: z.string().max(400).optional(), // "why a visit" → assessmentReason → hero
+  vertical: z.enum(['handyman', 'cleaning']).optional(),
+  contractorId: z.string().optional(),
+  skinContractorId: z.string().optional(),
+  customerPhotoUrls: z.array(z.string()).max(10).optional(),
+  customerVideoUrls: z.array(z.string()).max(5).optional(),
+  createdBy: z.string().optional(),
+  createdByName: z.string().optional(),
+  sourceCallId: z.string().optional(),
+  // When 'survey', the returned link points at the contractor site-survey form
+  // (/survey/:slug) instead of the customer visit-booking page (/visit/:slug).
+  // Reuses all the same slug/row machinery — only the returned URL path changes.
+  mode: z.enum(['visit', 'survey']).optional(),
+});
+
+router.post('/api/pricing/create-visit-link', async (req, res) => {
+  try {
+    const input = createVisitLinkSchema.parse(req.body);
+    const vertical = input.vertical || 'handyman';
+    const fee = input.surveyFeePence;
+
+    // Coordinates: client value first, else best-effort geocode (never blocks).
+    let coordinates: { lat: number; lng: number } | null = input.coordinates ?? null;
+    if (!coordinates && input.postcode) {
+      try { const geo = await geocodePostcode(input.postcode); if (geo) coordinates = geo; }
+      catch (e) { console.warn('[VisitLink] geocode failed (non-blocking):', e instanceof Error ? e.message : e); }
+    }
+
+    // Lead contractor: an explicit skin pick, else the vertical's priority
+    // (match-all) contractor — Craig for handyman. This drives the visit calendar.
+    let leadId: string | null = input.contractorId ?? null;
+    try {
+      if (!leadId) {
+        const { fetchPriorityContractor } = await import('../lib/quote-fit');
+        const priority = await fetchPriorityContractor(vertical);
+        if (priority) leadId = priority.id;
+      }
+    } catch (e) {
+      console.warn('[VisitLink] priority contractor resolve failed:', e instanceof Error ? e.message : e);
+    }
+    const candidateIds = leadId ? [leadId] : null;
+
+    const shortSlug = await generateUniqueSlug();
+    const id = `quote_${nanoid()}`;
+
+    await db.insert(personalizedQuotes).values({
+      id,
+      shortSlug,
+      customerName: input.customerName,
+      phone: input.phone,
+      email: input.email || null,
+      address: input.address || null,
+      postcode: input.postcode || null,
+      coordinates,
+      segment: 'CONTEXTUAL',
+      quotability: 'VISIT',
+      quoteMode: 'simple',
+      jobDescription: input.reason || 'Site visit required',
+      // The visit fee. /visit reads basePrice; the /q fallback (SurveyRequiredQuote)
+      // reads surveyFeePence — set both to the same figure so either route is safe.
+      basePrice: fee,
+      surveyRequired: true,
+      surveyFeePence: fee,
+      assessmentReason: input.reason || null,
+      candidateContractorIds: candidateIds,
+      leadContractorId: leadId,
+      leadContractorSource: leadId ? 'manual' : 'auto',
+      vertical,
+      contractorId: input.contractorId || null,
+      skinContractorId: input.skinContractorId || input.contractorId || leadId || null,
+      customerPhotoUrls: input.customerPhotoUrls && input.customerPhotoUrls.length > 0 ? input.customerPhotoUrls : null,
+      customerVideoUrls: input.customerVideoUrls && input.customerVideoUrls.length > 0 ? input.customerVideoUrls : null,
+      createdBy: input.createdBy || null,
+      createdByName: input.createdByName || null,
+      sourceCallId: input.sourceCallId || null,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+    });
+
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const visitUrl = input.mode === 'survey'
+      ? `${baseUrl}/survey/${shortSlug}`
+      : `${baseUrl}/visit/${shortSlug}`;
+    const firstName = input.customerName.split(' ')[0];
+    const feePounds = Math.round(fee / 100);
+    const whatsappMessage = await generateVisitMessage({ firstName, reason: input.reason, feePounds, visitUrl });
+    const waPhone = formatPhoneForWhatsApp(input.phone);
+    const whatsappSendUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+
+    console.log(`[VisitLink] Created visit link ${shortSlug} (${id}), fee £${feePounds}, lead=${leadId ?? '—'}`);
+    res.json({ id, shortSlug, visitUrl, whatsappMessage, whatsappSendUrl, waPhone });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('[VisitLink] Failed to create visit link:', error);
+    res.status(500).json({ error: 'Failed to create visit link' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/visit/:slug/survey  (public — no auth)
+// A contractor (e.g. Joe) opens the tokenised /survey/:slug link on their phone
+// and submits a per-item site survey (scope, time estimate, materials, notes,
+// photos) for additional works found on site. Stored as jsonb on the quote row;
+// the office is pinged via Pushover on submit.
+// ---------------------------------------------------------------------------
+const siteSurveyBodySchema = z.object({
+  items: z.array(z.object({
+    key: z.string().min(1),
+    scope: z.string().default(''),
+    timeEstimate: z.string().default(''),
+    materials: z.enum(['us', 'her', '']).default(''),
+    notes: z.string().default(''),
+    photoUrls: z.array(z.string()).max(20).default([]),
+    // Primary capture: a voice note (auto-transcribed) + video per item.
+    // Optional so partial submissions still validate.
+    voiceNoteUrl: z.string().optional(),
+    transcript: z.string().optional(),
+    videoUrls: z.array(z.string()).max(10).default([]),
+  })).default([]),
+  anythingElse: z.string().default(''),
+  surveyorName: z.string().default(''),
+});
+
+router.post('/api/visit/:slug/survey', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const body = siteSurveyBodySchema.parse(req.body);
+
+    const [quote] = await db
+      .select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName })
+      .from(personalizedQuotes)
+      .where(eq(personalizedQuotes.shortSlug, slug))
+      .limit(1);
+
+    if (!quote) {
+      return res.status(404).json({ error: 'Survey link not found' });
+    }
+
+    await db.update(personalizedQuotes)
+      .set({
+        surveyResponse: {
+          items: body.items,
+          anythingElse: body.anythingElse,
+          surveyorName: body.surveyorName,
+        },
+        surveySubmittedAt: new Date(),
+      })
+      .where(eq(personalizedQuotes.id, quote.id));
+
+    // Count items with any real content entered (scope/notes/photos) for the alert.
+    const filledCount = body.items.filter(
+      (it) => it.scope.trim() || it.notes.trim() || it.photoUrls.length > 0,
+    ).length;
+
+    notifySiteSurveySubmitted({
+      slug,
+      customerName: quote.customerName,
+      itemCount: filledCount,
+    }).catch((e) => console.warn('[SiteSurvey] Pushover notify failed:', e));
+
+    console.log(`[SiteSurvey] Survey submitted for ${slug} (${quote.id}), ${filledCount} item(s)`);
+    res.json({ ok: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('[SiteSurvey] Failed to save survey:', error);
+    res.status(500).json({ error: 'Failed to save survey' });
+  }
+});
+
 router.post('/api/pricing/create-contextual-quote', async (req, res) => {
   try {
     // 1. Validate input
@@ -2503,6 +2841,28 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       console.log(`[ContextualQuote] Created quote ${shortSlug} (${id}), price: ${result.finalPricePence}p`);
     }
 
+    // 7a-0. Offer router (OBSERVATION MODE — docs/OFFER_DECISION_PLAYBOOK.md).
+    // Decides + logs which offer play this quote SHOULD get. Does NOT change
+    // what the customer sees: the client's pickQuoteOffer stays authoritative
+    // until the page flip after the shadow week. Never throws; ~1 indexed
+    // lookup of latency. Runs on create AND edit (re-decision trigger: an edit
+    // or +5% reissue can cross a price band and invalidate the earlier pick).
+    const decisionLines = result.lineItems.map((li: any) => ({
+      category: li.category, description: li.description,
+    }));
+    const offerDecision = await recordOfferDecision(
+      quoteInsertData, result.finalPricePence, decisionLines,
+    );
+    if (offerDecision) {
+      runShadowClassifier({
+        decisionId: offerDecision.decisionId,
+        inputs: offerDecision.inputs,
+        vaContext: input.vaContext,
+        jobDescription: quoteInsertData.jobDescription,
+        lines: decisionLines,
+      });
+    }
+
     // 7a. Bump the catalog pick-count for any extras that were chosen — fire-and-forget.
     // Don't block the response if telemetry fails.
     if (input.optionalExtras && input.optionalExtras.length > 0) {
@@ -2568,9 +2928,11 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         ? `\u00A3${totalPounds.toFixed(0)}`
         : `\u00A3${totalPounds.toFixed(2)}`;
 
-    // Add batch nudge for single-job quotes — surfaces the "while we're there" opportunity
+    // Add batch nudge for single-job quotes — surfaces the "while we're there"
+    // opportunity, pointed INTO the link (the add-a-small-job menu lives on the
+    // quote card) rather than inviting a reply.
     const batchNudge = input.lines.length === 1
-      ? '\n\nAnything else to sort while we\'re there? Happy to add it to the same visit.'
+      ? '\n\nAnything else needs doing while we\'re there? You can add extra small jobs right inside the link too.'
       : '';
 
     // Build the WhatsApp message: pre-anchors a PRICE RANGE before the link (so the on-page
@@ -2614,6 +2976,22 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       success: true,
       quoteId: id,
       shortSlug,
+      // Offer router's pick (observation mode) — builder decision card. Null
+      // when logging failed; the quote itself is unaffected either way.
+      offerDecision: offerDecision
+        ? {
+            decisionId: offerDecision.decisionId,
+            ruleFired: offerDecision.ruleFired,
+            goal: offerDecision.goal,
+            targetPlay: offerDecision.targetPlay,
+            servedPlay: offerDecision.servedPlay,
+            rationale: offerDecision.rationale,
+            unmetIntent: offerDecision.unmetIntent,
+            stakes: offerDecision.inputs.stakes,
+            priceBand: offerDecision.inputs.priceBand,
+            firstTime: offerDecision.inputs.firstTime,
+          }
+        : null,
       quoteUrl,
       whatsappMessage,
       whatsappSendUrl,
@@ -2927,6 +3305,108 @@ router.patch('/api/pricing/quotes/:id', async (req, res) => {
   } catch (error) {
     console.error('[quote-patch] Error:', error);
     return res.status(500).json({ error: 'Failed to update quote' });
+  }
+});
+
+// ── Decision-layer monitor ───────────────────────────────────────────────────
+// One aggregate read over the decision log for /admin/offer-decisions: play
+// mix, unmet-intent leaderboard (the build queue), rules-vs-shadow
+// disagreements, gift-pick popularity, and the recent decision stream joined
+// to quote outcomes. Offers are the first decided dimension; copy/imagery/
+// style decisions are designed to land on the same rows later, so this
+// endpoint (and the page on it) is the monitor for the whole layer.
+router.get('/api/admin/offer-decisions/summary', requireAdmin, async (req, res) => {
+  try {
+    const daysBack = Math.min(Math.max(parseInt(String(req.query.days)) || 30, 1), 180);
+    const sinceSql = `now() - interval '${daysBack} days'`;
+    // Test-data scrub (memory'd convention): 07700900xxx phones + Test names
+    const scrub = `q.phone NOT LIKE '%7700900%' AND q.customer_name NOT ILIKE 'test%'`;
+
+    const [playMix, unmetIntent, disagreements, giftPicks, recent] = await Promise.all([
+      db.execute(sql.raw(`
+        SELECT d.served_play, COUNT(*)::int AS decisions,
+               COUNT(*) FILTER (WHERE q.deposit_paid_at IS NOT NULL)::int AS paid,
+               COUNT(*) FILTER (WHERE q.viewed_at IS NOT NULL OR q.view_count > 0)::int AS viewed
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND ${scrub}
+        GROUP BY d.served_play ORDER BY decisions DESC`)),
+      db.execute(sql.raw(`
+        SELECT d.target_play, COUNT(*)::int AS wanted,
+               COALESCE(SUM((d.inputs->>'totalPence')::bigint), 0)::bigint AS total_pence
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND d.target_play <> d.served_play AND ${scrub}
+        GROUP BY d.target_play ORDER BY wanted DESC`)),
+      db.execute(sql.raw(`
+        SELECT d.slug, d.decided_at, d.rule_fired, d.target_play, d.shadow_play,
+               d.shadow_stakes, d.inputs->>'stakes' AS rules_stakes, d.shadow_rationale
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND d.shadow_play IS NOT NULL
+          AND d.shadow_play <> d.target_play AND ${scrub}
+        ORDER BY d.decided_at DESC LIMIT 50`)),
+      db.execute(sql.raw(`
+        SELECT e.gift_id, COUNT(*)::int AS accepts
+        FROM quote_offer_events e
+        JOIN personalized_quotes q ON q.id = e.quote_id
+        WHERE e.created_at >= ${sinceSql} AND e.event = 'accept'
+          AND e.gift_id IS NOT NULL AND ${scrub}
+        GROUP BY e.gift_id ORDER BY accepts DESC`)),
+      db.execute(sql.raw(`
+        SELECT d.slug, d.decided_at, d.rule_fired, d.target_play, d.served_play,
+               d.decided_by, d.shadow_play, d.rationale,
+               d.inputs->>'stakes' AS stakes, d.inputs->>'priceBand' AS price_band,
+               d.inputs->>'customerType' AS customer_type,
+               q.customer_name, q.base_price, q.deposit_paid_at IS NOT NULL AS paid
+        FROM quote_offer_decisions d
+        JOIN personalized_quotes q ON q.id = d.quote_id
+        WHERE d.decided_at >= ${sinceSql} AND ${scrub}
+        ORDER BY d.decided_at DESC LIMIT 100`)),
+    ]);
+
+    return res.json({
+      days: daysBack,
+      playMix: playMix.rows,
+      unmetIntent: unmetIntent.rows,
+      disagreements: disagreements.rows,
+      giftPicks: giftPicks.rows,
+      recent: recent.rows,
+    });
+  } catch (err) {
+    console.error('[OfferMonitor] summary failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to load decision summary' });
+  }
+});
+
+// ── Offer decision log (observation mode) ────────────────────────────────────
+// Latest router decision for a quote — the builder's decision card refetches
+// through this after an override.
+router.get('/api/admin/quotes/:quoteId/offer-decision', requireAdmin, async (req, res) => {
+  try {
+    const row = await latestOfferDecision(req.params.quoteId);
+    return res.json({ decision: row });
+  } catch (err) {
+    console.error('[OfferRouter] fetch decision failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to fetch offer decision' });
+  }
+});
+
+// Operator override — appends a new decision row (append-only; the rules row
+// stays on record for the disagreement review). Body: { play, byName? }.
+router.post('/api/admin/quotes/:quoteId/offer-decision/override', requireAdmin, async (req, res) => {
+  try {
+    const play = String(req.body?.play || '');
+    if (!(OFFER_PLAYS as readonly string[]).includes(play)) {
+      return res.status(400).json({ error: `play must be one of: ${OFFER_PLAYS.join(', ')}` });
+    }
+    const row = await recordBenOverride(
+      req.params.quoteId, play as OfferPlay, req.body?.byName || null,
+    );
+    return res.json({ decision: row });
+  } catch (err) {
+    console.error('[OfferRouter] override failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to record override' });
   }
 });
 

@@ -1,11 +1,11 @@
 import type { ComponentType } from 'react';
-import type { QuoteOffer, QuoteOfferTemplate } from '@shared/pricing-settings';
+import type { QuoteOffer, QuoteOfferTemplate, AddonMenuItem } from '@shared/pricing-settings';
 import { buildOfferPriceContext, renderOfferCopy } from '@/lib/quote-offers';
 import { DarkHeroOffer } from './offer-templates/DarkHeroOffer';
 import { SplitOffer } from './offer-templates/SplitOffer';
 import { MinimalOffer } from './offer-templates/MinimalOffer';
 import { AtHomeOffer } from './offer-templates/AtHomeOffer';
-import type { OfferTemplateProps } from './offer-templates/types';
+import type { OfferTemplateProps, OfferAcceptPayload } from './offer-templates/types';
 
 /**
  * Irresistible-offer interstitial — step 2 of the 3-step ?v=offer flow
@@ -19,10 +19,11 @@ import type { OfferTemplateProps } from './offer-templates/types';
  * {firm}) resolve to the server-authoritative numbers, so the advertised saving
  * always matches what the server charges.
  *
- * For flex_date: accept → flexible lane (base price); decline → firm date &
- * time (base + premium). The re-price happens downstream via
- * initialUseFlexBooking on UnifiedQuoteCard — this screen only records the
- * choice (and fires analytics upstream in PersonalizedQuotePage).
+ * For add_task (the live offer — the flex lane was deleted Aug 2026): accept
+ * carries the tapped addon ids back in the payload; decline means none. The
+ * price impact happens downstream in UnifiedQuoteCard (display) and
+ * server-side at payment (money) — this screen only records the choice (and
+ * fires analytics upstream in PersonalizedQuotePage).
  */
 
 const TEMPLATES: Record<QuoteOfferTemplate, ComponentType<OfferTemplateProps>> = {
@@ -39,7 +40,12 @@ interface IrresistibleOfferScreenProps {
   customerName?: string;
   /** Quote skin — the contractor/team fronting this quote. Defaults to Craig. */
   skin?: { name: string; avatarUrl: string; rating: string; jobsLabel?: string };
-  onAccept: () => void;
+  /** add_task offers: the server-stored addon menu the template renders.
+   *  welcome_gift offers: the pre-filtered GIFT POOL (items within the
+   *  gift-minutes cap) — the caller filters; this screen just passes through. */
+  addonMenu?: AddonMenuItem[];
+  /** Accept — add_task offers carry the chosen addon ids in the payload. */
+  onAccept: (payload?: OfferAcceptPayload) => void;
   onDecline: () => void;
 }
 
@@ -48,6 +54,7 @@ export function IrresistibleOfferScreen({
   basePricePence,
   customerName,
   skin,
+  addonMenu,
   onAccept,
   onDecline,
 }: IrresistibleOfferScreenProps) {
@@ -71,6 +78,7 @@ export function IrresistibleOfferScreen({
       render={render}
       customerName={customerName}
       skin={skin}
+      addonMenu={offer.type === 'add_task' || offer.type === 'welcome_gift' ? addonMenu : undefined}
       onAccept={onAccept}
       onDecline={onDecline}
     />

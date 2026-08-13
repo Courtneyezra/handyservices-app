@@ -1044,6 +1044,35 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Prevents mis-scoped jobs being committed sight-unseen (the "Alicia" case).
     surveyRequired: boolean("survey_required").default(false),
     surveyFeePence: integer("survey_fee_pence"), // survey/site-visit fee in pence (credited to the job)
+    // Provisional welcome-gift claim (pre-payment). Set server-side when the
+    // customer accepts a validated gift on the interstitial / gift band, so a
+    // returning visitor keeps their pick. AUTHORITY UNCHANGED: money paths
+    // still re-validate the client-sent giftId at payment time.
+    claimedGiftId: varchar("claimed_gift_id", { length: 100 }),
+    // Site-survey response — a contractor (e.g. Joe) opens a tokenised /survey/:slug
+    // link on their phone and fills a per-item survey (scope, time estimate,
+    // materials, notes, photos) for additional works found on site. Record/display
+    // only (no acceptance gate); the office is pinged via Pushover on submit.
+    // Primary capture per item is now a voice note (auto-transcribed via
+    // Whisper) + video; scope/notes text is optional/secondary. New fields are
+    // optional so older/partial submissions still fit the shape (jsonb — no
+    // migration needed).
+    surveyResponse: jsonb("survey_response").$type<{
+      items: Array<{
+        key: string;
+        scope: string;
+        timeEstimate: string;
+        materials: 'us' | 'her' | '';
+        notes: string;
+        photoUrls: string[];
+        voiceNoteUrl?: string;
+        transcript?: string;
+        videoUrls?: string[];
+      }>;
+      anythingElse: string;
+      surveyorName: string;
+    }>(),
+    surveySubmittedAt: timestamp("survey_submitted_at"), // when the contractor submitted the site survey
     // Quote-level "standard assumptions" — caveats the fixed price is based on
     // (access, parking, existing installs sound…). Shown on the quote page so
     // there's a documented basis to re-price if reality differs on the day.
@@ -2847,6 +2876,10 @@ export const quoteOfferEvents = pgTable("quote_offer_events", {
   customerType: varchar("customer_type", { length: 30 }), // homeowner | landlord | property_manager | tenant | business | letting_agent
   event: varchar("event", { length: 20 }).notNull(), // impression | accept | decline
   deviceType: varchar("device_type", { length: 20 }),
+  // welcome_gift accepts: WHICH gift the customer picked (addonMenu id). Also
+  // set by the quote card's resurfaced gift band. Analytics: gift popularity
+  // among non-payers (paid picks live on pricing_line_items).
+  giftId: varchar("gift_id", { length: 100 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_offer_events_quote").on(table.quoteId),
@@ -3686,3 +3719,34 @@ export type InsertGmbMetric = typeof gmbMetrics.$inferInsert;
 export const insertSeoLeadAttributionSchema = createInsertSchema(seoLeadAttributions);
 export type SeoLeadAttribution = typeof seoLeadAttributions.$inferSelect;
 export type InsertSeoLeadAttribution = typeof seoLeadAttributions.$inferInsert;
+
+// ── Offer decision log (docs/OFFER_DECISION_PLAYBOOK.md §6) ──────────────────
+// Append-only: one row per router run (generation, edit re-decision, Ben
+// override). Never updated in place except the shadow-agent columns, which the
+// async classifier backfills onto its own row.
+export const quoteOfferDecisions = pgTable("quote_offer_decisions", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    quoteId: varchar("quote_id").notNull(),
+    slug: varchar("slug"),
+    decidedAt: timestamp("decided_at").defaultNow().notNull(),
+    moment: varchar("moment").default("first_view").notNull(),
+    inputs: jsonb("inputs"),                    // OfferDecisionInputs snapshot
+    ruleFired: varchar("rule_fired").notNull(), // "R9" | "G1" | "R11" | "ben_override"
+    goal: varchar("goal"),
+    targetPlay: varchar("target_play").notNull(),
+    servedPlay: varchar("served_play").notNull(),
+    rationale: text("rationale"),
+    decidedBy: varchar("decided_by").default("rules").notNull(), // rules | ben_override
+    // Shadow LLM (logged, never served) — backfilled async on the same row
+    shadowPlay: varchar("shadow_play"),
+    shadowStakes: varchar("shadow_stakes"),
+    shadowRationale: text("shadow_rationale"),
+    shadowModel: varchar("shadow_model"),
+}, (table) => [
+    index("idx_offer_decisions_quote").on(table.quoteId),
+    index("idx_offer_decisions_decided_at").on(table.decidedAt),
+]);
+
+export const insertQuoteOfferDecisionSchema = createInsertSchema(quoteOfferDecisions);
+export type QuoteOfferDecision = typeof quoteOfferDecisions.$inferSelect;
+export type InsertQuoteOfferDecision = typeof quoteOfferDecisions.$inferInsert;

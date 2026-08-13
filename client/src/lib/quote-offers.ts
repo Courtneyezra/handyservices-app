@@ -97,7 +97,12 @@ export function pickQuoteOffer(
   if (!config || !config.enabled) return null;
   const group = resolveOfferGroup(config, customerType);
   if (!group || !Array.isArray(group.items)) return null;
-  const enabled = group.items.filter((o) => o && o.enabled);
+  // The FLEX lane was deleted (Aug 2026): flex_date offers are retired and must
+  // never be shown, INCLUDING old flex offers still configured in the DB copy of
+  // pricing_settings. Filtering them here (not just in code defaults) means a
+  // stale DB group degrades gracefully: another enabled offer is picked if one
+  // exists, else no offer is shown (straight to the price) — never a crash.
+  const enabled = group.items.filter((o) => o && o.enabled && o.type !== 'flex_date');
   if (enabled.length === 0) return null;
 
   if (group.selectionMode === 'weighted') {
@@ -118,6 +123,30 @@ export function pickQuoteOffer(
     if (picked) return picked;
   }
   return enabled[0];
+}
+
+/**
+ * Resolve the first enabled offer of a specific TYPE for a customer type —
+ * used by the router page-flip: when the persisted decision names a play
+ * (e.g. welcome_gift), the page needs that offer's copy/benefits/template
+ * even if the config's active pick is currently something else.
+ */
+export function pickOfferOfType(
+  config: QuoteOffersConfig | undefined | null,
+  seed: string,
+  customerType: QuoteOfferCustomerType | undefined,
+  type: QuoteOffer['type'],
+): QuoteOffer | null {
+  const picked = pickQuoteOffer(config, seed, customerType);
+  if (picked?.type === type) return picked;
+  if (!config || !config.enabled) return null;
+  const groups = [config.perCustomerType?.[customerType || 'homeowner'], config];
+  for (const group of groups) {
+    if (!group || group.enabled === false || !Array.isArray(group.items)) continue;
+    const match = group.items.find((o) => o && o.enabled && o.type === type);
+    if (match) return match;
+  }
+  return null;
 }
 
 export interface OfferPriceContext {

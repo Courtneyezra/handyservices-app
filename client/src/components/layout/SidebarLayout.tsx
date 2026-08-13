@@ -119,7 +119,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
-                                { icon: Send, label: "Visit Link", href: "/admin/send", badge: "NEW" },
+                                { icon: Send, label: "Visit Link", href: "/admin/generate-contextual-quote?visit=1", badge: "NEW" },
                                 { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
                                 { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
@@ -173,7 +173,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "SALES & FINANCE",
                             items: [
-                                { icon: Send, label: "Visit Link", href: "/admin/send", badge: "NEW" },
+                                { icon: Send, label: "Visit Link", href: "/admin/generate-contextual-quote?visit=1", badge: "NEW" },
                                 { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
                                 { icon: BarChart3, label: "Quote Analytics", href: "/admin/quote-analytics" },
                                 { icon: LayoutTemplate, label: "Quote Platform", href: "/admin/quote-platform" },
@@ -453,11 +453,11 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                                     </Link>
                                                     <div className="border-t border-border" />
                                                     <Link
-                                                        href="/admin/send"
+                                                        href="/admin/generate-contextual-quote?visit=1"
                                                         onClick={() => setShowQuoteMenu(false)}
                                                         className={cn(
                                                             "flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors",
-                                                            location === "/admin/send"
+                                                            location.startsWith("/admin/generate-contextual-quote")
                                                                 ? "text-green-400 bg-green-500/10"
                                                                 : "text-foreground hover:bg-muted"
                                                         )}

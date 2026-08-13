@@ -50,8 +50,8 @@ import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { QuotePreparingScreen } from '@/components/quote/QuotePreparingScreen';
 import { IrresistibleOfferScreen } from '@/components/quote/IrresistibleOfferScreen';
-import { pickQuoteOffer, deriveOfferCustomerType } from '@/lib/quote-offers';
-import { isLaneEligible } from '@/lib/lane-pricing';
+import { pickQuoteOffer, pickOfferOfType, deriveOfferCustomerType } from '@/lib/quote-offers';
+import { useAddonMenu } from '@/hooks/useAddonMenu';
 import { AdmiralPriceHero, AdmiralSection } from '@/components/quote/AdmiralQuoteChrome';
 import type { QuoteOffersConfig } from '@shared/pricing-settings';
 import { WistiaFacade } from '@/components/quote/WistiaFacade';
@@ -3418,9 +3418,37 @@ export default function PersonalizedQuotePage() {
     if (readCachedQuote(params?.slug)) return 'quote';
     return 'preparing';
   });
-  // Records the flex-offer choice: true = accepted (flexible lane, base price);
-  // false = declined (firm date & time, base + premium); null = no offer shown.
-  const [acceptedFlexOffer, setAcceptedFlexOffer] = useState<boolean | null>(null);
+  // add_task offer choice: the ids of the pre-priced addon tasks the customer
+  // tapped on the offer interstitial (empty = declined / none / no offer shown).
+  // The FLEX lane was deleted (Aug 2026) — offers no longer seed flex booking.
+  // These ids flow into UnifiedQuoteCard (display + availability minutes) and
+  // into create-payment-intent, where the server re-resolves every price.
+  // Since the welcome-gift redesign the ids are mostly picked ON the quote
+  // card's "add a small job" section (the card calls setOfferAddonIds back);
+  // the state lives here so /track-booking can mirror the choice.
+  const [offerAddonIds, setOfferAddonIds] = useState<string[]>([]);
+  // Welcome gift: the ONE free small task a first-time customer claimed on the
+  // welcome_gift interstitial (null = declined / not eligible / none). Flows
+  // into UnifiedQuoteCard (a £0 line row + availability minutes) and into both
+  // create-payment-intent bodies + /track-booking — the server re-validates
+  // eligibility itself and charges £0 for it either way.
+  const [claimedGiftId, setClaimedGiftId] = useState<string | null>(null);
+  // Hydrate a provisional claim persisted on the quote (server pins it when
+  // the accept event validates) — a returning visitor keeps their gift pick.
+  // Keyed on the payload FIELD, not first quote object: the page mounts from a
+  // localStorage-cached payload that predates the claim, and the fresh fetch
+  // reconciles in place without a remount. A decline this session latches the
+  // ref so hydration never resurrects a pick the customer just turned down.
+  const giftDeclinedThisSession = useRef(false);
+  useEffect(() => {
+    const persisted = (quote as any)?.claimedGiftId;
+    if (
+      typeof persisted === 'string' && persisted &&
+      claimedGiftId === null && !giftDeclinedThisSession.current
+    ) {
+      setClaimedGiftId(persisted);
+    }
+  }, [quote, claimedGiftId]);
 
   // ── Admiral-style quote-page variant (?v=admiral) ──────────────────────────
   // Standalone test layout that reuses the contextual pieces but leads with the
@@ -3549,6 +3577,8 @@ export default function PersonalizedQuotePage() {
     payInFullDiscountPercent?: number;
     flexibleDiscountPercent?: number;
     quoteOffers?: QuoteOffersConfig;
+    welcomeGiftMaxMinutes?: number;
+    welcomeGiftMinQuotePence?: number;
   }>({
     queryKey: ['pricing-settings-public'],
     queryFn: async () => {
@@ -3576,16 +3606,108 @@ export default function PersonalizedQuotePage() {
     const seed = (quote as any).shortSlug || params?.slug || quote.id || 'quote';
     // Offers are configured per customer type — pick from this quote's group.
     const offerCustomerType = deriveOfferCustomerType((quote as any).contextSignals);
+    // ROUTER FLIP (12 Aug 2026, owner call: serve now, observe after). Quotes
+    // generated since the spine carry `offerServedPlay` — the offer router's
+    // persisted pick (latest decision row, so Ben's builder override wins).
+    // When present it is AUTHORITATIVE over the global config pick:
+    //   'welcome_gift'          → show the gift interstitial (config supplies
+    //                             the copy/benefits/template for the play)
+    //   'bundle_up'/'none'/etc. → no interstitial, straight to price — the
+    //                             add-a-small-job slot on the quote card is
+    //                             always there and IS the bundle-up play.
+    // Absent/null (pre-router quotes) → legacy config-driven pick below.
+    const servedPlay = (quote as any).offerServedPlay as string | null | undefined;
+    if (servedPlay) {
+      if (servedPlay !== 'welcome_gift') return null;
+      const gift = pickOfferOfType(pricingSettings?.quoteOffers, seed, offerCustomerType, 'welcome_gift');
+      if (!gift) return null;
+      // Server-computed eligibility still gates the give (fails closed).
+      if (!(quote as any).welcomeGiftEligible) return null;
+      return gift;
+    }
+    // flex_date offers are retired (the FLEX lane was deleted) — pickQuoteOffer
+    // filters them out, including stale DB-configured ones, so nothing here can
+    // resolve to a flex offer.
     const offer = pickQuoteOffer(pricingSettings?.quoteOffers, seed, offerCustomerType);
     if (!offer) return null;
-    if (offer.type === 'flex_date' && !isLaneEligible((quote as any).contextSignals)) return null;
+    // welcome_gift is gated on SERVER-computed eligibility (first-time customer
+    // + quote over the £ floor, delivered as `welcomeGiftEligible` on the quote
+    // payload). Not eligible → NO interstitial at all (straight to the price):
+    // the gift is a give, and there's no fallback pitch to show instead.
+    if (offer.type === 'welcome_gift' && !(quote as any).welcomeGiftEligible) return null;
     return offer;
   }, [quote, pricingSettings, params?.slug]);
+
+  // Gift still on the table? Server-computed eligibility minus a claim made in
+  // this session (theatre accept OR the quote card's resurfaced gift band).
+  // Drives the card's "your welcome gift — still yours" band via props below.
+  // Router flip: when the persisted decision withholds the gift (served play
+  // is anything other than welcome_gift), the resurfaced band is withheld too —
+  // otherwise the add-a-job accordion would leak the give the router declined.
+  const routerAllowsGift = !(quote as any)?.offerServedPlay
+    || (quote as any).offerServedPlay === 'welcome_gift';
+  const giftStillClaimable = routerAllowsGift && !!(quote as any)?.welcomeGiftEligible && !claimedGiftId;
+
+  // Server-stored addon menu for the interstitial (fetched only when a
+  // menu-bearing offer will actually show, or the unclaimed gift needs to
+  // resurface on the quote card). Shares its cache with UnifiedQuoteCard.
+  // For welcome_gift the menu is filtered down to the GIFT POOL: items
+  // at/under welcomeGiftMaxMinutes ("one SMALL job, on us").
+  const { data: rawOfferAddonMenu } = useAddonMenu(
+    selectedOffer?.type === 'add_task' || selectedOffer?.type === 'welcome_gift' || giftStillClaimable,
+  );
+  // GIFT POOL — computed once, shared by the theatre interstitial and the quote
+  // card's resurfaced gift band (single source of the filter logic).
+  const welcomeGiftPool = useMemo(() => {
+    if (!rawOfferAddonMenu) return rawOfferAddonMenu;
+    const maxMinutes = pricingSettings?.welcomeGiftMaxMinutes ?? 45;
+    // Categories already on this quote's line items are excluded too — the
+    // theatre must never offer, as a gift, a task the customer is already
+    // paying for. Post-payment addon/gift lines are skipped for parity with
+    // the server (server/welcome-gift.ts welcomeGiftPool — the authoritative
+    // filter; a crafted request can't claim an excluded gift either way).
+    const quotedCategories = new Set(
+      (((quote as any)?.pricingLineItems as any[]) || [])
+        .filter((li) => !['addon_menu', 'welcome_gift', 'welcome_gift_offset'].includes(String(li?.source || '')))
+        .map((li) => String(li?.categorySlug || li?.category || '').trim())
+        .filter(Boolean),
+    );
+    return rawOfferAddonMenu.filter(
+      (a) => (a.scheduleMinutes || 0) <= maxMinutes && !quotedCategories.has(a.category),
+    );
+  }, [rawOfferAddonMenu, pricingSettings?.welcomeGiftMaxMinutes, quote]);
+  const offerAddonMenu = useMemo(() => {
+    if (!rawOfferAddonMenu) return rawOfferAddonMenu;
+    if (selectedOffer?.type !== 'welcome_gift') return rawOfferAddonMenu;
+    return welcomeGiftPool;
+  }, [rawOfferAddonMenu, selectedOffer?.type, welcomeGiftPool]);
+  // Ids only — UnifiedQuoteCard resolves them against its own (shared-cache)
+  // menu fetch, so the page stays the single owner of the pool filter.
+  const giftPoolIds = useMemo(
+    () => (welcomeGiftPool ?? []).map((a) => a.id),
+    [welcomeGiftPool],
+  );
+
+  // Category exclusion can empty the gift pool entirely (every small task is
+  // already quoted work). Then there's nothing to give — the interstitial is
+  // skipped exactly like ineligibility. Only "loaded AND empty" counts:
+  // undefined means the menu is still in flight.
+  const giftPoolEmpty =
+    selectedOffer?.type === 'welcome_gift' &&
+    offerAddonMenu !== undefined &&
+    offerAddonMenu.length === 0;
+
+  // Normalise the phase if the pool empties after we already advanced to the
+  // offer (menu fetch resolving late) — the quote renders instead either way
+  // via the render guard, this just keeps flowPhase truthful.
+  useEffect(() => {
+    if (flowPhase === 'offer' && giftPoolEmpty) setFlowPhase('quote');
+  }, [flowPhase, giftPoolEmpty]);
 
   // ── Offer analytics (fire-and-forget beacon) ───────────────────────────────
   // impression when the interstitial is shown, accept/decline on the choice.
   // Joined server-side to bookings/revenue per offer + template.
-  const trackOfferEvent = useCallback((event: 'impression' | 'accept' | 'decline') => {
+  const trackOfferEvent = useCallback((event: 'impression' | 'accept' | 'decline', giftId?: string | null) => {
     if (!quote || !selectedOffer) return;
     fetch('/api/analytics/quotes/offer-event', {
       method: 'POST',
@@ -3599,6 +3721,9 @@ export default function PersonalizedQuotePage() {
         customerType: deriveOfferCustomerType((quote as any).contextSignals),
         event,
         deviceType: window.innerWidth < 768 ? 'mobile' : window.innerWidth < 1024 ? 'tablet' : 'desktop',
+        // welcome_gift accepts carry WHICH gift — the server validates and pins
+        // it to the quote so the pick survives a reload (declines clear it).
+        ...(giftId ? { giftId } : {}),
       }),
     }).catch(() => {});
   }, [quote, selectedOffer]);
@@ -3607,12 +3732,12 @@ export default function PersonalizedQuotePage() {
   // re-render or stable-identity change can't double-count).
   const offerImpressionFiredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (flowPhase === 'offer' && selectedOffer && quote
+    if (flowPhase === 'offer' && selectedOffer && quote && !giftPoolEmpty
         && offerImpressionFiredRef.current !== selectedOffer.id) {
       offerImpressionFiredRef.current = selectedOffer.id;
       trackOfferEvent('impression');
     }
-  }, [flowPhase, selectedOffer, quote, trackOfferEvent]);
+  }, [flowPhase, selectedOffer, quote, giftPoolEmpty, trackOfferEvent]);
 
   // Fetch invoice data for confirmation screen
   const { data: invoiceData } = useQuery<{ invoiceNumber: string }>({
@@ -4102,9 +4227,17 @@ export default function PersonalizedQuotePage() {
             // (Agent 25e) can route this booking to a thin day within the window.
             flexBookingWithinDays: flexBookingWithinDaysRef.current ?? flexBookingWithinDays,
             // Phase 37 — pricing lane → server re-derives the lane-adjusted price
-            // (flex rebate / set-date premium) from quote.basePrice. Ref, not state,
+            // (now landlord liaise only) from quote.basePrice. Ref, not state,
             // for the same same-tick reason as flexBookingWithinDays above.
             pricingLane: pricingLaneRef.current,
+            // add_task offer addons — ids only; track-booking re-resolves the £
+            // from the server-stored menu so selectedTierPricePence matches the
+            // charge regardless of whether the Stripe webhook has landed yet.
+            addonIds: offerAddonIds.length > 0 ? offerAddonIds : undefined,
+            // Welcome gift — id only; the server re-validates eligibility and
+            // the gift is £0 to the customer (the webhook persists the real-
+            // labour + offset line pair).
+            giftId: claimedGiftId || undefined,
             // Phase 30 — door address captured in the UnifiedQuoteCard booking section.
             // Persists to personalized_quotes.address (+ coordinates when Places-validated)
             // so dispatch routes to the real address, not just the postcode.
@@ -4225,8 +4358,10 @@ export default function PersonalizedQuotePage() {
               offer={selectedOffer}
               render={renderCopy}
               firstName={quote.customerName?.trim().split(/\s+/)[0]}
-              onAccept={() => { seal(); trackOfferEvent('accept'); setAcceptedFlexOffer(true); setFlowPhase('quote'); }}
-              onDecline={() => { seal(); trackOfferEvent('decline'); setAcceptedFlexOffer(false); setFlowPhase('quote'); }}
+              // No flex seeding — the FLEX lane is gone. The at_home body has no
+              // addon menu either, so accept/decline just advance to the quote.
+              onAccept={() => { seal(); trackOfferEvent('accept'); setFlowPhase('quote'); }}
+              onDecline={() => { seal(); trackOfferEvent('decline'); setFlowPhase('quote'); }}
             />
           );
         })()}
@@ -4245,7 +4380,9 @@ export default function PersonalizedQuotePage() {
           // justPaid covers the seconds before the Stripe webhook lands.
           const alreadyPaid = !!(quote?.depositPaidAt || quote?.bookedAt) || justPaid;
           const homeowner = deriveOfferCustomerType((quote as any)?.contextSignals) === 'homeowner';
-          setFlowPhase(!alreadyPaid && selectedOffer && (offerVariant || homeowner) ? 'offer' : 'quote');
+          // giftPoolEmpty: a welcome_gift whose pool the category exclusion
+          // emptied has nothing to offer — straight to the quote.
+          setFlowPhase(!alreadyPaid && selectedOffer && !giftPoolEmpty && (offerVariant || homeowner) ? 'offer' : 'quote');
         }}
       />
     );
@@ -4334,18 +4471,25 @@ export default function PersonalizedQuotePage() {
   const quotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
 
   // Offer flow, step 2: the irresistible offer interstitial, shown before the
-  // price. Accept → flexible lane (base price); decline → firm date & time
-  // (base + premium). The choice is threaded into UnifiedQuoteCard via
-  // initialUseFlexBooking, which performs the server-safe re-price.
-  if (flowPhase === 'offer' && selectedOffer) {
+  // price. add_task: accept carries the tapped addon ids (threaded into
+  // UnifiedQuoteCard for display/availability, and into create-payment-intent
+  // where the server re-resolves every price); decline = no addons. The FLEX
+  // lane is gone — offers never seed flex booking.
+  if (flowPhase === 'offer' && selectedOffer && !giftPoolEmpty) {
     return (
       <IrresistibleOfferScreen
         offer={selectedOffer}
         basePricePence={quotePrice}
         customerName={quote.customerName}
         skin={{ name: quoteSkin.name, avatarUrl: quoteSkin.avatarUrl, rating: quoteSkin.rating, jobsLabel: quoteSkin.jobsLabel }}
-        onAccept={() => { trackOfferEvent('accept'); setAcceptedFlexOffer(true); setFlowPhase('quote'); }}
-        onDecline={() => { trackOfferEvent('decline'); setAcceptedFlexOffer(false); setFlowPhase('quote'); }}
+        addonMenu={offerAddonMenu}
+        onAccept={(payload) => {
+          trackOfferEvent('accept', payload?.giftId ?? null);
+          setOfferAddonIds(payload?.addonIds ?? []);
+          setClaimedGiftId(payload?.giftId ?? null);
+          setFlowPhase('quote');
+        }}
+        onDecline={() => { giftDeclinedThisSession.current = true; trackOfferEvent('decline'); setOfferAddonIds([]); setClaimedGiftId(null); setFlowPhase('quote'); }}
       />
     );
   }
@@ -4541,9 +4685,11 @@ export default function PersonalizedQuotePage() {
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
                       pricingLineItems={taggedPricingLineItems || undefined}                      enableLineItemSplit={!splitOptOut && (taggedPricingLineItems?.length ?? 0) >= 2}
+                      leadWithAddons={(quote as any)?.offerServedPlay === 'bundle_up'}
                       priceBuckets={isContextualQuote ? (quote as any).pricingLayerBreakdown?.priceBuckets : undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}
+                      vertical={(quote as any).vertical || undefined}
                       quoteId={quote.id}
                       jobDescription={quote.jobDescription}
                       location={quote.postcode?.split(' ')[0]}
@@ -4552,7 +4698,13 @@ export default function PersonalizedQuotePage() {
                       depositPercent={pricingSettings?.depositPercent}
                       payInFullDiscountPercent={pricingSettings?.payInFullDiscountPercent}
                       flexibleDiscountPercent={pricingSettings?.flexibleDiscountPercent}
-                      initialUseFlexBooking={acceptedFlexOffer ?? undefined}
+                      selectedAddonIds={offerAddonIds}
+                      onSelectedAddonIdsChange={setOfferAddonIds}
+                      giftId={claimedGiftId}
+                      giftEligible={giftStillClaimable}
+                      giftPoolIds={giftPoolIds}
+                      onClaimGift={(id) => { setClaimedGiftId(id); trackOfferEvent('accept', id); }}
+                      giftMinQuotePence={pricingSettings?.welcomeGiftMinQuotePence ?? 20000}
                       contractor={null}
                       isLandlord={isLandlordQuote}
                       customerType={customerType}

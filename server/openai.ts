@@ -1,5 +1,10 @@
 
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
+// Chat/completions were migrated to Claude (server/llm.ts, claude-haiku-4-5)
+// on 12 Aug 2026 when the OpenAI account ran out of credits. The OpenAI client
+// below remains ONLY for Whisper audio transcription (transcribeAudioBuffer),
+// which still needs OpenAI credits — Claude has no transcription API.
+import { claudeText, claudeJson } from './llm';
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -14,6 +19,24 @@ export function getOpenAI(): OpenAI {
         _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     }
     return _openai;
+}
+
+/**
+ * Transcribe an in-memory audio buffer via OpenAI Whisper (whisper-1).
+ * Used by the contractor site-survey voice notes: the tradesman records a
+ * voice note per item, we upload it and run it through Whisper to get a
+ * text transcript. Takes a Buffer + filename (the filename's extension tells
+ * OpenAI the audio format, e.g. "note.webm"). Returns the transcript string.
+ * Throws on failure — callers should try/catch and degrade gracefully.
+ */
+export async function transcribeAudioBuffer(buffer: Buffer, filename: string): Promise<string> {
+    const client = getOpenAI();
+    const file = await toFile(buffer, filename);
+    const transcription = await client.audio.transcriptions.create({
+        file,
+        model: "whisper-1",
+    });
+    return transcription.text;
 }
 
 // Legacy export for backward compatibility
@@ -69,12 +92,10 @@ export async function extractCallMetadata(transcription: string, segments: Segme
             context = `RAW TRANSCRIPT:\n${transcription}`;
         }
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are an expert call analyzer. Your goal is to extract structured data about the potential CUSTOMER.
+        const parsed = await claudeJson<any>({
+            maxTokens: 1024,
+            user: context,
+            system: `You are an expert call analyzer. Your goal is to extract structured data about the potential CUSTOMER.
 
 CRITICAL: You must distinguish the "Service Provider/Agent" (answering the phone) from the "Customer" (calling for help).
 
@@ -122,17 +143,8 @@ Example Candidates:
   { "name": "Kiki", "confidence": 0.95, "reasoning": "Spelled out K-I-K-I" },
   { "name": "Craig", "confidence": 0.3, "reasoning": "Mentioned earlier, possibly husband" }
 ]
-`
-                },
-                {
-                    role: "user",
-                    content: context
-                }
-            ],
-            response_format: { type: "json_object" }
+`,
         });
-
-        const parsed = JSON.parse(response.choices[0].message.content || "{}");
 
         // Normalize postcode format (uppercase, proper spacing)
         let postcode = parsed.postcode || null;
@@ -195,24 +207,12 @@ export async function extractPostcodeOnly(transcription: string): Promise<string
             return normalizePostcode(lastMatch);
         }
 
-        // Fallback to GPT if regex fails (handles spoken formats like "S W one A one A A")
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `Extract ONLY the UK postcode from this text. Return it in standard format (e.g., "SW1A 1AA"). If no postcode is mentioned, return "null".`
-                },
-                {
-                    role: "user",
-                    content: transcription
-                }
-            ],
-            max_tokens: 10,
-            temperature: 0
-        });
-
-        const result = response.choices[0].message.content?.trim();
+        // Fallback to the LLM if regex fails (handles spoken formats like "S W one A one A A")
+        const result = (await claudeText({
+            system: `Extract ONLY the UK postcode from this text. Return it in standard format (e.g., "SW1A 1AA"). If no postcode is mentioned, return "null".`,
+            user: transcription,
+            maxTokens: 50,
+        })).trim();
         if (result && result !== "null" && result.length > 0) {
             return normalizePostcode(result);
         }
@@ -253,12 +253,10 @@ function normalizePostcode(postcode: string): string {
  */
 export async function extractJobSummary(transcription: string): Promise<string> {
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are an expert at extracting job descriptions from service call transcripts.
+        const jobSummary = (await claudeText({
+            maxTokens: 60,
+            user: `Transcript:\n${transcription}\n\nExtract the job description:`,
+            system: `You are an expert at extracting job descriptions from service call transcripts.
 
 Analyze the transcript and extract a short, generalized summary of the job.
 
@@ -268,18 +266,8 @@ Rules:
 - Be customer-friendly and generalized (tease the solution)
 - Examples: "Fixing the leak under the kitchen sink", "Replacing the broken fence panel", "Investigating the odd noise from the boiler"
 - Do NOT return technical metadata
-- Focus on the main outcome desired`
-                },
-                {
-                    role: "user",
-                    content: `Transcript:\n${transcription}\n\nExtract the job description:`
-                }
-            ],
-            temperature: 0.3,
-            max_tokens: 20
-        });
-
-        const jobSummary = response.choices[0].message.content?.trim() || "";
+- Focus on the main outcome desired`,
+        })).trim();
         console.log(`[extractJobSummary] Extracted: "${jobSummary}"`);
         return jobSummary;
     } catch (error) {
@@ -300,12 +288,10 @@ export async function extractAdaptiveJobPhrase(transcription: string, skuName?: 
             return `the ${skuName.toLowerCase()}`;
         }
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `Analyze the transcript and determine the best way to reference the job(s) in a WhatsApp message.
+        const jobPhrase = (await claudeText({
+            maxTokens: 60,
+            user: `Transcript:\n${transcription}\n\nGenerate the job phrase:`,
+            system: `Analyze the transcript and determine the best way to reference the job(s) in a WhatsApp message.
 
 Return ONE of these formats based on what you find:
 
@@ -329,18 +315,8 @@ Rules:
 - Keep it natural and conversational
 - Use "the" before the phrase
 - Maximum 10 words
-- Choose the format that best matches the transcript`
-                },
-                {
-                    role: "user",
-                    content: `Transcript:\n${transcription}\n\nGenerate the job phrase:`
-                }
-            ],
-            temperature: 0.3,
-            max_tokens: 30
-        });
-
-        const jobPhrase = response.choices[0].message.content?.trim() || "the work you need";
+- Choose the format that best matches the transcript`,
+        })).trim() || "the work you need";
         console.log(`[extractAdaptiveJobPhrase] Generated phrase: "${jobPhrase}"`);
         return jobPhrase;
     } catch (error) {
@@ -441,16 +417,10 @@ Rules:
 
             const userPrompt = `Generate the exact message format specified above. Use "${jobPhrase}" for the job.`;
 
-            const response = await openai.chat.completions.create({
-                model: "gpt-4o-mini",
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userPrompt }
-                ],
-                temperature: 0.7
-            });
-
-            const generatedMessage = response.choices[0].message.content?.trim() || "";
+            const generatedMessage = (await claudeText({
+                system: systemPrompt,
+                user: userPrompt,
+            })).trim();
             console.log(`[AI Message] Generated (WITH job context): ${generatedMessage}`);
             return generatedMessage;
         }
@@ -476,16 +446,10 @@ Rules:
 3. End with: "Send us a quick video so we can take a look and get a price back to you."
 4. Max 2 sentences, one emoji`;
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: `TRANSCRIPT:\n${transcription || "N/A"}\n\nWrite the WhatsApp message.` }
-            ],
-            temperature: 0.7
-        });
-
-        const generatedMessage = response.choices[0].message.content?.trim() || "";
+        const generatedMessage = (await claudeText({
+            system: systemPrompt,
+            user: `TRANSCRIPT:\n${transcription || "N/A"}\n\nWrite the WhatsApp message.`,
+        })).trim();
         console.log(`[AI Message] Generated (from transcript): ${generatedMessage}`);
         return generatedMessage;
     } catch (error) {
@@ -503,12 +467,10 @@ Rules:
  */
 export async function polishAssessmentReason(rawReason: string): Promise<string> {
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a helpful Handyman Coordinator explaining to a customer why a physical visit is needed.
+        const polished = (await claudeText({
+            maxTokens: 300,
+            user: rawReason,
+            system: `You are a helpful Handyman Coordinator explaining to a customer why a physical visit is needed.
 Your goal is to take the "rough notes" reason and turn it into a natural, seamless continuation of this sentence:
 "I need a Top Rated Handyman to assess the site first."
 
@@ -527,18 +489,8 @@ Example Input: "odd noise from heater maybe pump"
 Output: "This is to determine if the noise is coming from the pump itself or just trapped air, which affects the repair cost."
 
 Example Input: "Replace upvc door rubber seals and check door aligntment ... Supply and fit extractor fan ... new seal to conservatory door"
-Output: "Given that we need to assess the uPVC door alignment, measure for the new extractor fan, and inspect the conservatory seals to ensure we order the correct parts."`
-                },
-                {
-                    role: "user",
-                    content: rawReason
-                }
-            ],
-            temperature: 0.1,
-            max_tokens: 200 // Increased for list format
-        });
-
-        const polished = response.choices[0].message.content?.trim() || rawReason;
+Output: "Given that we need to assess the uPVC door alignment, measure for the new extractor fan, and inspect the conservatory seals to ensure we order the correct parts."`,
+        })).trim() || rawReason;
         // Remove trailing period if present
         return polished.replace(/\.$/, '');
 
@@ -560,12 +512,10 @@ export async function generatePersonalizedNote(rawReason: string, customerName: 
 
         const location = address || postcode;
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a Senior Handyman.
+        const parsed = await claudeJson<{ note?: string; summary?: string }>({
+            maxTokens: 400,
+            user: `Name: ${cleanName}\nLocation: ${location}\nReason: ${rawReason}`,
+            system: `You are a Senior Handyman.
 Your goal is to 1) Write a personal note to the customer and 2) Summarize the job in 3-5 words.
 
 Returns JSON format ONLY:
@@ -595,22 +545,10 @@ Example Output:
 {
   "note": "Hi Dave,\nI've reviewed the job. Given the need to check the uPVC door alignment and measure for the new seals at your property in Derby, I really need to pop round to assess it personally first.\nBest, Mike",
   "summary": "replace the door seals"
-}`
-                },
-                {
-                    role: "user",
-                    content: `Name: ${cleanName}\nLocation: ${location}\nReason: ${rawReason}`
-                }
-            ],
-            temperature: 0.7,
-            max_tokens: 200,
-            response_format: { type: "json_object" }
+}`,
         });
-
-        const content = response.choices[0].message.content;
-        if (!content) return { note: rawReason, summary: "assess the job" };
-
-        return JSON.parse(content);
+        if (!parsed?.note) return { note: rawReason, summary: parsed?.summary || "assess the job" };
+        return { note: parsed.note, summary: parsed.summary || "assess the job" };
 
     } catch (error) {
         console.error("Error generating personalized note:", error);
@@ -633,12 +571,9 @@ export async function determineQuoteStrategy(jobDescription: string): Promise<{
     reasoning: string;
 }> {
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a Senior Estimator. Analyze the job description and select the BEST quote strategy.
+        const result = await claudeJson<any>({
+            user: `Job: "${jobDescription}"`,
+            system: `You are a Senior Estimator. Analyze the job description and select the BEST quote strategy.
 
 STRATEGIES:
 1. "consultation" (Diagnostic)
@@ -665,18 +600,8 @@ OUTPUT JSON ONLY:
 {
   "strategy": "consultation" | "hhh" | "simple" | "pick_and_mix",
   "reasoning": "Short explanation (max 6 words)"
-}`
-                },
-                {
-                    role: "user",
-                    content: `Job: "${jobDescription}"`
-                }
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1 // Deterministic
+}`,
         });
-
-        const result = JSON.parse(response.choices[0].message.content || "{}");
         // Mapped diagnostic strategy to consultation correctly
         const strategy = (result.strategy === 'diagnostic') ? 'consultation' : result.strategy;
 
@@ -699,12 +624,9 @@ OUTPUT JSON ONLY:
  */
 export async function refineWhatsAppMessage(rawMessage: string): Promise<string> {
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a friendly, professional Handyman Coordinator. 
+        return (await claudeText({
+            user: rawMessage,
+            system: `You are a friendly, professional Handyman Coordinator.
 Your goal is to REWRITE the provided WhatsApp message to make it flow naturally.
 
 Rules:
@@ -715,17 +637,8 @@ Rules:
 5. Length: Keep it concise.
 
 Example Input: "Hi Dave. Sorry for delay. Fixed price. Link: ..."
-Example Output: "Hi Dave! So sorry for the slight delay getting back to you - we've been non-stop! regarding the *Fixed Price* quote we discussed..."`
-                },
-                {
-                    role: "user",
-                    content: rawMessage
-                }
-            ],
-            temperature: 0.7,
-        });
-
-        return response.choices[0].message.content?.trim() || rawMessage;
+Example Output: "Hi Dave! So sorry for the slight delay getting back to you - we've been non-stop! regarding the *Fixed Price* quote we discussed..."`,
+        })).trim() || rawMessage;
     } catch (error) {
         console.error("Error refining message:", error);
         return rawMessage;
@@ -744,12 +657,9 @@ export async function classifyLead(
     metadata?: CallMetadata
 ): Promise<LeadClassification> {
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are an expert Lead Classifier for a handyman service.
+        const result = await claudeJson<any>({
+            user: `Job Description: "${jobDescription}"${metadata?.leadType ? `\nLead Type from Call: ${metadata.leadType}` : ''}${metadata?.urgency ? `\nUrgency from Call: ${metadata.urgency}` : ''}`,
+            system: `You are an expert Lead Classifier for a handyman service.
 Your goal is to extract 5 KEY SIGNALS from the customer's input to enable intelligent quote routing.
 
 OUTPUT JSON ONLY:
@@ -809,18 +719,8 @@ Output: {"clientType": "homeowner", "jobClarity": "known", "jobType": "commodity
 
 Input: "What's the cheapest price to just change a lock? I don't need anything fancy."
 Output: {"clientType": "unknown", "jobClarity": "known", "jobType": "commodity", "urgency": "normal", "segment": "BUDGET", "reasoning": "Price-sensitive language"}
-`
-                },
-                {
-                    role: "user",
-                    content: `Job Description: "${jobDescription}"${metadata?.leadType ? `\nLead Type from Call: ${metadata.leadType}` : ''}${metadata?.urgency ? `\nUrgency from Call: ${metadata.urgency}` : ''}`
-                }
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1 // Deterministic
+`,
         });
-
-        const result = JSON.parse(response.choices[0].message.content || "{}");
 
         return {
             clientType: result.clientType || 'unknown',

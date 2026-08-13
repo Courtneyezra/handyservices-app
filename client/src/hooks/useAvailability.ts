@@ -22,6 +22,8 @@ interface UseAvailabilityOptions {
   categories?: string[];
   /** Estimated job time in minutes — if >240 only full-day slots returned */
   timeEstimateMinutes?: number;
+  /** Brand vertical scoping the contractor pool (server defaults to 'handyman') */
+  vertical?: string;
   days?: number;
   enabled?: boolean;
 }
@@ -51,13 +53,13 @@ export function useAvailabilityConfig() {
  * - If OFF: uses contractor-filtered availability when categories provided
  */
 export function useAvailability(options: UseAvailabilityOptions = {}) {
-  const { postcode, serviceIds, categories, timeEstimateMinutes, days = 28, enabled = true } = options;
+  const { postcode, serviceIds, categories, timeEstimateMinutes, vertical, days = 28, enabled = true } = options;
 
   const { data: config } = useAvailabilityConfig();
   const useMasterSwitch = config?.useMasterSwitch ?? true; // default ON
 
   return useQuery<AvailabilityResponse>({
-    queryKey: ['publicAvailability', postcode, serviceIds, categories, timeEstimateMinutes, days, useMasterSwitch],
+    queryKey: ['publicAvailability', postcode, serviceIds, categories, timeEstimateMinutes, vertical, days, useMasterSwitch],
     queryFn: async () => {
       // Use category-filtered endpoint ONLY when master switch is OFF and categories provided
       if (!useMasterSwitch && categories && categories.length > 0) {
@@ -65,6 +67,7 @@ export function useAvailability(options: UseAvailabilityOptions = {}) {
         params.set('categories', categories.join(','));
         if (postcode) params.set('postcode', postcode);
         if (timeEstimateMinutes) params.set('timeEstimateMinutes', timeEstimateMinutes.toString());
+        if (vertical) params.set('vertical', vertical);
         params.set('days', Math.min(days, 14).toString()); // 2-week window for filtered
 
         const response = await fetch(`/api/public/availability/filtered?${params.toString()}`);
@@ -193,6 +196,12 @@ interface UseQuoteAvailabilityOptions {
   quoteId?: string;
   slot: 'am' | 'pm' | 'full_day';
   month?: string; // 'YYYY-MM'
+  /**
+   * Extra on-site minutes on top of the quote's line items (e.g. add_task offer
+   * addons). The server adds these to the job's schedule minutes so slot sizing
+   * / multi-day spans stay capacity-true for the REAL visit length.
+   */
+  extraMinutes?: number;
   enabled?: boolean;
 }
 
@@ -202,16 +211,17 @@ interface UseQuoteAvailabilityOptions {
  * Re-fetches when the selected slot changes.
  */
 export function useQuoteAvailability(options: UseQuoteAvailabilityOptions) {
-  const { quoteId, slot, month, enabled = true } = options;
+  const { quoteId, slot, month, extraMinutes, enabled = true } = options;
 
   return useQuery<QuoteDateAvailability[]>({
-    queryKey: ['quoteAvailability', quoteId, slot, month],
+    queryKey: ['quoteAvailability', quoteId, slot, month, extraMinutes],
     queryFn: async () => {
       if (!quoteId) return [];
 
       const params = new URLSearchParams();
       params.set('slot', slot);
       if (month) params.set('month', month);
+      if (extraMinutes && extraMinutes > 0) params.set('extraMinutes', String(Math.round(extraMinutes)));
 
       const response = await fetch(`/api/public/quote/${quoteId}/availability?${params.toString()}`);
       if (!response.ok) throw new Error('Failed to fetch quote availability');

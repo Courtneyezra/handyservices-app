@@ -1,11 +1,10 @@
 import { Router } from "express";
-import OpenAI from "openai";
 import { db } from "./db";
 import { calls } from "../shared/schema";
 import { eq } from "drizzle-orm";
+import { claudeJson } from "./llm";
 
 const router = Router();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
  * B4: Extraction Agent API
@@ -73,23 +72,10 @@ Return ONLY a JSON object with these fields. No markdown, no explanation.
 TRANSCRIPT:
 ${transcript}`;
 
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: "You are a data extraction assistant. Return only valid JSON."
-                },
-                {
-                    role: "user",
-                    content: extractionPrompt
-                }
-            ],
-            temperature: 0.3,
-            response_format: { type: "json_object" }
+        const extractedData = await claudeJson<any>({
+            system: "You are a data extraction assistant. Return only valid JSON.",
+            user: extractionPrompt,
         });
-
-        const extractedData = JSON.parse(completion.choices[0].message.content || "{}");
 
         // Merge with call metadata if available
         const result = {
