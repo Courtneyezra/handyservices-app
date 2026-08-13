@@ -42,6 +42,7 @@ const PHONE_NUMBER = "+447449501762";
 import { LandingHeader } from "@/components/LandingHeader";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { localBusinessSchema, serviceSchema } from "@/lib/seo-schema";
+import { CityServicesLinks } from "@/components/CityServicesLinks";
 import { TeamCarousel } from "@/components/TeamCarousel";
 import { usePageSeo } from "@/hooks/usePageSeo";
 
@@ -878,6 +879,8 @@ export default function HandymanLanding({
                         <div className="bg-white">
                             <GoogleReviewsSection darkMode={false} />
                         </div>
+
+                        <CityServicesLinks city="Nottingham" />
 
                         <FooterCTA />
                     </>

@@ -18,6 +18,7 @@ import { VerticalReels, type Reel } from "@/components/VerticalReels";
 import { LandingHeader } from "@/components/LandingHeader";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { localBusinessSchema, serviceSchema } from "@/lib/seo-schema";
+import { CityServicesLinks } from "@/components/CityServicesLinks";
 
 import heroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 import realJobToilet from "@assets/c33e343a-3b9d-4d85-97cb-a0752ea3e80d_1764687156907.webp";
@@ -783,6 +784,8 @@ export default function DerbyLanding({
                         <div className="bg-white">
                             <GoogleReviewsSection location="derby" darkMode={false} />
                         </div>
+
+                        <CityServicesLinks city="Derby" />
 
                         <FooterCTA />
                     </>
