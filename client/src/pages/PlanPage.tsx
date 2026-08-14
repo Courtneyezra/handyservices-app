@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useRoute } from "wouter";
 import handyLogo from "@/assets/handy-logo-transparent.png";
+import aliciaPhoto from "@/assets/alicia.jpg";
 import { PLAN_ITEMS, computePlan, type PlanItem, type PlanOption, type Selection } from "@shared/plan-pricing";
 
 /**
@@ -137,7 +138,10 @@ export default function PlanPage() {
       <main className="max-w-2xl mx-auto px-4">
         <section className="mt-5 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-6">
           <h1 className="text-[27px] leading-tight font-bold tracking-tight text-balance">Everything so far — and your choices for what’s next.</h1>
-          <p className="text-[#5A6474] text-sm mt-2">30 Sidney Road, Beeston NG9 1AN · prepared for Alicia</p>
+          <div className="flex items-center gap-3 mt-3">
+            <img src={aliciaPhoto} alt="Alicia" className="w-12 h-12 rounded-full object-cover ring-2 ring-white shadow" />
+            <p className="text-[#5A6474] text-sm">30 Sidney Road, Beeston NG9 1AN<br />prepared for <span className="font-semibold text-[#1B2A4A]">Alicia</span></p>
+          </div>
           <p className="text-[17px] mt-4">This is the full picture: what we agreed, what’s been done, what you’ve paid, where we are now — and then the extra work the house could have, entirely your choice.</p>
           <p className="text-[#5A6474] text-[15px] mt-3">No pressure on any of it, and nothing new starts until you say so.<br /><span className="font-semibold text-[#1B2A4A]">Courtnee — Handy Services</span></p>
         </section>
