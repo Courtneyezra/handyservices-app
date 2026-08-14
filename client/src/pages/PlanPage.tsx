@@ -169,11 +169,11 @@ export default function PlanPage() {
                   background: s.state === "current" ? "#FFF8EC" : s.next ? "#FFFDF6" : "#FFFFFF",
                   border: s.next ? "1.5px dashed #E9B44C" : "1px solid " + (s.state === "current" ? "#F3D9A6" : "#E7E2D6"),
                 }}>
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-start justify-between gap-3">
                   <div className="font-bold text-[17px]">{s.title}</div>
-                  {s.pay && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style={{ background: "#EAF4EC", color: "#2F7A3D" }}>Paid</span>}
-                  {s.state === "current" && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style={{ background: "#F5A623", color: "#1B2A4A" }}>Now</span>}
-                  {s.next && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style={{ background: "#FFF1D6", color: "#B4791F", border: "1px solid #E9B44C" }}>Next ▸</span>}
+                  {s.pay && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full whitespace-nowrap shrink-0" style={{ background: "#EAF4EC", color: "#2F7A3D" }}>Paid</span>}
+                  {s.state === "current" && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full whitespace-nowrap shrink-0" style={{ background: "#F5A623", color: "#1B2A4A" }}>Now</span>}
+                  {s.next && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full whitespace-nowrap shrink-0" style={{ background: "#FFF1D6", color: "#B4791F", border: "1px solid #E9B44C" }}>Next ▸</span>}
                 </div>
                 <div className="text-[#5A6474] text-[14px] mt-0.5">{s.sub}</div>
               </div>
