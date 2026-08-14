@@ -22,21 +22,21 @@ const STAGES: { n: number; title: string; sub: string; state: StageState; pay?: 
 // Value-weighted completion of the original agreed job (lights now complete).
 const PROGRESS = 85;
 
-const DONE = [
-  "Internal wall cracks repaired",
-  "All ceiling & wall lights replaced",
-  "Two new carpets fitted",
-  "Re-plastering under the bay windows",
-  "Front fascia & masonry painted",
-  "Wall & stair repairs, splashback removed & skimmed",
-  "New wall light, two-gang switch & new pendant feed fitted",
-  "Lining paper to the last room",
+const DONE: { t: string; amt: string }[] = [
+  { t: "Internal wall cracks repaired", amt: "£179" },
+  { t: "All ceiling & wall lights replaced", amt: "£202" },
+  { t: "Two new carpets fitted", amt: "£430" },
+  { t: "Re-plastering under the bay windows", amt: "£586" },
+  { t: "Front fascia painted (+ masonry, on us)", amt: "£365" },
+  { t: "Wall & stair repairs, splashback removed & skimmed", amt: "£545" },
+  { t: "New wall light, two-gang switch & new pendant feed", amt: "£1,055" },
+  { t: "Lining paper to the last room", amt: "£160" },
 ];
 
 const TODO: { t: string; ours?: boolean }[] = [
   { t: "Final paint finishing — caulking, touch-ups and tidy" },
   { t: "Shed & fence — final coats" },
-  { t: "Front repointing — being re-quoted as larger sections for a proper colour match" },
+  { t: "Front repointing — re-quoted for the larger sections (a proper colour match), priced separately below" },
   { t: "Curtains — professionally cleaned, replaced if needed", ours: true },
   { t: "Full professional clean at the end", ours: true },
 ];
@@ -154,7 +154,13 @@ export default function PlanPage() {
         <SectionLabel muted>What’s done</SectionLabel>
         <div className="rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
           <ul className="flex flex-col gap-2.5">
-            {DONE.map((d) => (<li key={d} className="flex gap-3 items-start text-[16px]"><span className="text-[#2F7A3D] font-bold mt-[1px]">✓</span><span>{d}</span></li>))}
+            {DONE.map((d) => (
+              <li key={d.t} className="flex gap-3 items-start text-[16px]">
+                <span className="text-[#2F7A3D] font-bold mt-[1px]">✓</span>
+                <span className="flex-1">{d.t}</span>
+                <span className="font-bold tabular-nums whitespace-nowrap text-[#5A6474]">{d.amt}</span>
+              </li>
+            ))}
           </ul>
         </div>
 
@@ -194,7 +200,7 @@ export default function PlanPage() {
           <div className="font-bold text-[17px]" style={{ color: "#2F7A3D" }}>✓ Protection & full clean — included, no charge</div>
           <p className="text-[#5A6474] text-[15px] mt-1">Proper dust-sheeting, floor protection over your new carpets, rooms sealed off, a tidy-up every day, and a full clean at the end. On us.</p>
         </div>
-        <InfoCard title="Repointing — the two bays & above the front door" body="Done as full sections so the new mortar blends and there’s no patchy colour. We’ll measure and confirm the price with you first." note="Guide only: £1,800–£2,950 · not in your total yet" />
+        <InfoCard title="Repointing — the two bays & above the front door" body="Now re-quoted as full sections — larger areas so the new mortar blends and there’s no patchy colour. This replaces the smaller repointing in your original works." note="Re-quoted for the larger area · figure to confirm · not in your total yet" />
         <InfoCard title="Kitchen damp / mould treatment" body="Priced once we’ve taken the corner unit out and seen the wall — no guesswork." note="Priced after the check above · not in your total yet" />
 
         <section className="mt-6 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
