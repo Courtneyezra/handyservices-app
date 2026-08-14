@@ -20,7 +20,7 @@ const STAGES: { n: number; title: string; sub: string; state: StageState; pay?: 
 ];
 
 // Value-weighted completion of the original agreed job (painting all done bar the back room).
-const PROGRESS = 95;
+const PROGRESS = 97;
 
 // Per-line progress for every original + additional work item (from the itemised quote).
 type Work = { label: string; amt: string; pct: number };
@@ -32,8 +32,8 @@ const WORKS: { group: string; items: Work[] }[] = [
     { label: "Re-plaster below the bay windows", amt: "£586", pct: 100 },
     { label: "Prepare walls for painting", amt: "£268", pct: 100 },
     { label: "Repaint shed exterior", amt: "£174", pct: 100 },
-    { label: "Repaint 4 fence panels", amt: "£161", pct: 100 },
-    { label: "Repaint full house interior", amt: "£1,786", pct: 95 },
+    { label: "Repaint 4 fence panels", amt: "£161", pct: 90 },
+    { label: "Repaint full house interior", amt: "£1,786", pct: 98 },
     { label: "Front repointing", amt: "re-quoting", pct: 10 },
   ] },
   { group: "Additional works", items: [
