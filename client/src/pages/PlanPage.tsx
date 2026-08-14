@@ -313,6 +313,26 @@ export default function PlanPage() {
               <p className="text-[#5A6474] text-[13px] mt-1">A guide to the work involved — we’ll agree exact dates with you, never leave you guessing.</p>
             </div>
           )}
+
+          {/* The two payments, side by side */}
+          <div className="mt-3 rounded-xl overflow-hidden border" style={{ borderColor: "#E7E2D6" }}>
+            <div className="px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide text-[#5A6474]" style={{ background: "#F5F1E9" }}>Your two payments</div>
+            <div className="px-4 py-3 flex justify-between items-start gap-3 border-b border-[#E7E2D6]">
+              <div>
+                <div className="text-[15px] font-semibold">Now — books the new work</div>
+                <div className="text-[#5A6474] text-[13px] mt-0.5">Deposit for the works above{total > 0 ? "" : " (add items to book)"}</div>
+              </div>
+              <span className="text-[17px] font-bold tabular-nums whitespace-nowrap" style={{ color: "#1B2A4A" }}>{gbp(deposit)}</span>
+            </div>
+            <div className="px-4 py-3 flex justify-between items-start gap-3">
+              <div>
+                <div className="text-[15px] font-semibold">Friday — the work already done</div>
+                <div className="text-[#5A6474] text-[13px] mt-0.5">Due once we walk the finished job together and you’re happy. Completely separate from the deposit.</div>
+              </div>
+              <span className="text-[17px] font-bold tabular-nums whitespace-nowrap" style={{ color: "#B4791F" }}>£2,653</span>
+            </div>
+          </div>
+
           <div className="flex flex-col gap-2.5 mt-4">
             <button onClick={payDeposit} disabled={total === 0 || booking}
               className="h-14 rounded-2xl font-bold text-[17px] grid place-items-center disabled:opacity-50"
