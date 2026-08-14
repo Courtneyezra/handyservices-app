@@ -134,14 +134,14 @@ export default function PlanPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4">
-        <section className="mt-5 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-6">
-          <h1 className="text-[27px] leading-tight font-bold tracking-tight text-balance">Everything so far — and your choices for what’s next.</h1>
+        <section className="mt-5 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5 sm:p-6">
+          <h1 className="text-[22px] sm:text-[27px] leading-[1.15] font-bold tracking-tight text-balance">Everything so far — and your choices for what’s next.</h1>
           <div className="flex items-center gap-3 mt-3">
-            <img src={aliciaPhoto} alt="Alicia" className="w-12 h-12 rounded-full object-cover ring-2 ring-white shadow" />
+            <img src={aliciaPhoto} alt="Alicia" className="w-12 h-12 rounded-full object-cover ring-2 ring-white shadow flex-none" />
             <p className="text-[#5A6474] text-sm">30 Sidney Road, Beeston NG9 1AN<br />prepared for <span className="font-semibold text-[#1B2A4A]">Alicia</span></p>
           </div>
-          <p className="text-[17px] mt-4">This is the full picture: what we agreed, what’s been done, what you’ve paid, where we are now — and then the extra work the house could have, entirely your choice.</p>
-          <p className="text-[#5A6474] text-[15px] mt-3">No pressure on any of it, and nothing new starts until you say so.<br /><span className="font-semibold text-[#1B2A4A]">Courtnee — Handy Services</span></p>
+          <p className="text-[15.5px] sm:text-[17px] mt-4">This is the full picture: what we agreed, what’s been done, what you’ve paid, where we are now — and then the extra work the house could have, entirely your choice.</p>
+          <p className="text-[#5A6474] text-[14.5px] sm:text-[15px] mt-3">No pressure on any of it, and nothing new starts until you say so.<br /><span className="font-semibold text-[#1B2A4A]">Courtnee — Handy Services</span></p>
         </section>
 
         {/* PROGRESS BAR — original agreed job */}
@@ -361,11 +361,11 @@ function AddCard({ title, desc, price, on, onToggle, suggested }: { title: strin
   const restBg = suggested ? "#EEF3FA" : "#FFFFFF";
   const restBorder = suggested ? "#C3D0E6" : "#E7E2D6";
   return (
-    <div className="rounded-2xl border shadow-sm p-[18px] mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : restBg, borderColor: on ? "#BFE0C6" : restBorder }}>
-      <h3 className="text-[19px] font-bold leading-snug">{title}</h3>
-      <p className="text-[#5A6474] text-[15.5px] mt-1">{desc}</p>
-      <div className="flex items-center justify-between gap-3.5 mt-3.5">
-        <span className="text-[20px] font-bold tabular-nums">{gbp(price)}</span>
+    <div className="rounded-2xl border shadow-sm p-4 sm:p-[18px] mb-3 sm:mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : restBg, borderColor: on ? "#BFE0C6" : restBorder }}>
+      <h3 className="text-[17px] sm:text-[19px] font-bold leading-snug">{title}</h3>
+      <p className="text-[#5A6474] text-[14.5px] sm:text-[15.5px] mt-1">{desc}</p>
+      <div className="flex items-center justify-between gap-3 mt-3.5">
+        <span className="text-[19px] sm:text-[20px] font-bold tabular-nums">{gbp(price)}</span>
         <button onClick={onToggle} aria-pressed={on} className="min-h-12 px-5 rounded-full font-bold text-[15.5px] border-2 inline-flex items-center gap-2 transition-colors"
           style={on ? { background: "#2F7A3D", borderColor: "#2F7A3D", color: "#fff" } : { background: "transparent", borderColor: "#1B2A4A", color: "#1B2A4A" }}>
           {on ? "✓ Added" : "＋ Add"}
@@ -378,15 +378,15 @@ function AddCard({ title, desc, price, on, onToggle, suggested }: { title: strin
 function OptCard({ title, desc, options, chosen, onChoose }: { title: string; desc: string; options: PlanOption[]; chosen: number; onChoose: (i: number) => void }) {
   const on = chosen >= 0 && options[chosen] && options[chosen].price > 0;
   return (
-    <div className="rounded-2xl border shadow-sm p-[18px] mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : "#FFFFFF", borderColor: on ? "#BFE0C6" : "#E7E2D6" }}>
-      <h3 className="text-[19px] font-bold leading-snug">{title}</h3>
-      <p className="text-[#5A6474] text-[15.5px] mt-1">{desc}</p>
+    <div className="rounded-2xl border shadow-sm p-4 sm:p-[18px] mb-3 sm:mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : "#FFFFFF", borderColor: on ? "#BFE0C6" : "#E7E2D6" }}>
+      <h3 className="text-[17px] sm:text-[19px] font-bold leading-snug">{title}</h3>
+      <p className="text-[#5A6474] text-[14.5px] sm:text-[15.5px] mt-1">{desc}</p>
       <div className="flex flex-col gap-2.5 mt-3.5">
         {options.map((o, i) => {
           const active = chosen === i;
           return (
             <button key={i} onClick={() => onChoose(i)} aria-pressed={active}
-              className="min-h-[52px] px-4 rounded-xl border-2 text-left flex items-center justify-between gap-3 text-[15.5px] transition-colors"
+              className="min-h-[52px] px-4 rounded-xl border-2 text-left flex items-center justify-between gap-3 text-[15px] sm:text-[15.5px] transition-colors"
               style={active ? { background: "#EAF4EC", borderColor: "#2F7A3D" } : { background: "#F5F1E9", borderColor: "#E7E2D6" }}>
               <span className="font-medium">{active ? "✓ " : ""}{o.label}</span>
               <span className="font-bold tabular-nums">{o.price ? gbp(o.price) : "—"}</span>
