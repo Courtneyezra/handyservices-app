@@ -677,15 +677,31 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
         if (extraMinutes > 0) {
             lineItems = [...lineItems, { scheduleMinutes: extraMinutes, timeEstimateMinutes: extraMinutes }];
         }
-        const requiredDays = computeBookingDurationDays(lineItems, {
+        const quoteContext = {
             floorNumber: (quote as any).floorNumber ?? null,
             hasLift: (quote as any).hasLift ?? null,
             parkingDistanceCategory: (quote as any).parkingDistanceCategory ?? null,
             customerPresent: (quote as any).customerPresent ?? null,
-        });
-        const effectiveSlot: SlotParam = requiredDays > 1 ? 'full_day' : slot;
+        };
+        const requiredDays = computeBookingDurationDays(lineItems, quoteContext);
+        let effectiveSlot: SlotParam = requiredDays > 1 ? 'full_day' : slot;
         if (requiredDays > 1) {
             console.log(`[PublicAPI] quote ${quote.id}: multi-day job (${requiredDays} days) — forcing slot=full_day`);
+        }
+        // Half-day slot-fit guard — if the COMPOSED job (work + setup/cleanup +
+        // materials trip, the same sizing reserveSlot enforces) exceeds a 4h
+        // half-day, only offer full-day availability. Without this, a stale or
+        // raw-minutes client asks for am/pm dates, the grid shows them, and
+        // reserveSlot then refuses every pick ("no contractors") — a dead
+        // checkout loop where the chosen date keeps clearing.
+        if (effectiveSlot !== 'full_day') {
+            const { composeScheduleMinutes } = await import('../shared/schedule-composition');
+            const { SLOT_CAPACITY_MIN } = await import('../shared/slot-times');
+            const composedMinutes = composeScheduleMinutes(lineItems, quoteContext).totalMinutes;
+            if (composedMinutes > SLOT_CAPACITY_MIN[effectiveSlot]) {
+                console.log(`[PublicAPI] quote ${quote.id}: composed ${composedMinutes}min exceeds ${effectiveSlot} capacity — forcing slot=full_day`);
+                effectiveSlot = 'full_day';
+            }
         }
 
         return await buildAvailabilityResponse(res, availabilityIds, effectiveSlot, monthParam, requiredDays);
@@ -1471,10 +1487,52 @@ router.post('/booking/reserve-slot', async (req: Request, res: Response) => {
             }
         }
 
+        // Half-day slot-fit guard — mirror of the availability endpoint's force:
+        // if the COMPOSED job (work + setup/cleanup + materials trip — the same
+        // sizing reserveSlot's capacity gate enforces) can't fit a 4h half-day,
+        // upgrade the request to full_day instead of letting reserveSlot refuse
+        // every contractor. Without this, a client sizing on raw work minutes
+        // offers AM/PM for an oversized job and the customer's picked date
+        // clears in an endless "just taken" loop.
+        let effectiveReserveSlot = scheduledSlot as 'am' | 'pm' | 'full_day';
+        if (effectiveReserveSlot !== 'full_day') {
+            try {
+                const { personalizedQuotes } = await import('../shared/schema');
+                const [qRow] = await db.select({
+                    lines: personalizedQuotes.pricingLineItems,
+                    deferredLineItems: personalizedQuotes.deferredLineItems,
+                    floorNumber: personalizedQuotes.floorNumber,
+                    hasLift: personalizedQuotes.hasLift,
+                    parkingDistanceCategory: personalizedQuotes.parkingDistanceCategory,
+                    customerPresent: personalizedQuotes.customerPresent,
+                }).from(personalizedQuotes)
+                    .where(or(eq(personalizedQuotes.id, resolvedQuoteId), eq(personalizedQuotes.shortSlug, resolvedQuoteId)))
+                    .limit(1);
+                if (qRow) {
+                    const { composeScheduleMinutes } = await import('../shared/schedule-composition');
+                    const { SLOT_CAPACITY_MIN } = await import('../shared/slot-times');
+                    const { activeLineItems } = await import('../shared/split-scope');
+                    const lines = activeLineItems<any>(qRow.lines, qRow.deferredLineItems);
+                    const composedMinutes = composeScheduleMinutes(lines, {
+                        floorNumber: qRow.floorNumber ?? null,
+                        hasLift: qRow.hasLift ?? null,
+                        parkingDistanceCategory: qRow.parkingDistanceCategory ?? null,
+                        customerPresent: qRow.customerPresent ?? null,
+                    }).totalMinutes;
+                    if (composedMinutes > SLOT_CAPACITY_MIN[effectiveReserveSlot]) {
+                        console.log(`[PublicAPI] reserve-slot ${resolvedQuoteId}: composed ${composedMinutes}min exceeds ${effectiveReserveSlot} capacity — upgrading to full_day`);
+                        effectiveReserveSlot = 'full_day';
+                    }
+                }
+            } catch (fitErr) {
+                console.warn('[PublicAPI] reserve-slot slot-fit guard failed (continuing with requested slot):', fitErr);
+            }
+        }
+
         const result = await reserveSlot({
             quoteId: resolvedQuoteId,
             scheduledDate: new Date(scheduledDate),
-            scheduledSlot,
+            scheduledSlot: effectiveReserveSlot,
             candidateContractorIds: candidates,
         });
 

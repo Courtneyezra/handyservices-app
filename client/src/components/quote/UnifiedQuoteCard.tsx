@@ -21,6 +21,7 @@ import type { Stripe as StripeJs, StripeElements, StripeExpressCheckoutElementCo
 import { isStripeConfigured } from '@/lib/stripe';
 import { getHassleComparisons } from '@shared/hassle-comparisons';
 import { computeSplitScope } from '@shared/split-scope';
+import { composeScheduleMinutes } from '@shared/schedule-composition';
 import type { PriceBuckets } from '@shared/contextual-pricing-types';
 import { trackBookingModeInteraction } from '@/lib/quote-analytics';
 import {
@@ -1060,9 +1061,17 @@ export function UnifiedQuoteCard({
   // Estimate total time for full-day detection (>240min = require full day slot).
   // Selected addon minutes are INCLUDED so slot sizing + the availability fetch
   // below stay capacity-true when the customer adds extra jobs.
+  // COMPOSED minutes — the same sizing reserveSlot enforces server-side (work +
+  // setup/cleanup buffers + materials trip, shared/schedule-composition), not
+  // raw work minutes. Sizing on raw minutes let a 165-min-work job carrying 90
+  // min of buffers offer AM/PM picks that reserveSlot then refused (255 > 240
+  // slot capacity), which cleared the chosen date in an endless loop. Quote
+  // context (floor/parking/presence) isn't available to this card, so this can
+  // still under-size in rare flagged-access cases — the buffer composition
+  // alone closes the observed gap.
   const totalEstimatedMinutes = useMemo(() => {
     if (!pricingLineItems) return addonMinutes > 0 ? addonMinutes : undefined;
-    return pricingLineItems.reduce((sum, li) => sum + (li.timeEstimateMinutes || 0), 0) + addonMinutes;
+    return composeScheduleMinutes(pricingLineItems as any[], {}).totalMinutes + addonMinutes;
   }, [pricingLineItems, addonMinutes]);
 
   // A "large job" skips AM/PM selection — strictly based on estimated hours (≥4hrs)
