@@ -237,19 +237,33 @@ export default function PlanPage() {
           <span>All new wallpaper is <b>thick, textured (paintable) paper</b> — chosen to hide any imperfections in the old walls for a smooth, even finish.</span>
         </p>
 
-        {groups.map(([label, items]) => (
-          <div key={label}>
-            <div className="text-[#5A6474] text-[12.5px] font-bold tracking-[0.14em] uppercase mt-6 mb-3 px-1">{label}</div>
-            {items.map((it) => it.kind === "add"
-              ? <AddCard key={it.id} title={it.title} desc={it.desc} price={it.price} on={!!adds[it.id]} onToggle={() => setAdds((s) => ({ ...s, [it.id]: !s[it.id] }))} />
-              : <OptCard key={it.id} title={it.title} desc={it.desc} options={it.options} chosen={opts[it.id] ?? -1} onChoose={(i) => setOpts((s) => ({ ...s, [it.id]: i }))} />
-            )}
-          </div>
-        ))}
+        {groups.map(([label, items]) => {
+          const suggested = label.startsWith("Finishing");
+          return (
+            <div key={label}>
+              {suggested ? (
+                <div className="mt-8 mb-3 rounded-xl px-4 py-3" style={{ background: "#EEF3FA", border: "1px solid #C3D0E6" }}>
+                  <div className="text-[13px] font-bold tracking-[0.10em] uppercase" style={{ color: "#3B5BA5" }}>✦ Things we spotted — our suggestions</div>
+                  <p className="text-[#5A6474] text-[14px] mt-0.5">Not on your original list — bits we noticed that would tidy the house up. Entirely optional.</p>
+                </div>
+              ) : (
+                <div className="text-[#5A6474] text-[12.5px] font-bold tracking-[0.14em] uppercase mt-6 mb-3 px-1">{label}</div>
+              )}
+              {items.map((it) => it.kind === "add"
+                ? <AddCard key={it.id} title={it.title} desc={it.desc} price={it.price} suggested={suggested} on={!!adds[it.id]} onToggle={() => setAdds((s) => ({ ...s, [it.id]: !s[it.id] }))} />
+                : <OptCard key={it.id} title={it.title} desc={it.desc} options={it.options} chosen={opts[it.id] ?? -1} onChoose={(i) => setOpts((s) => ({ ...s, [it.id]: i }))} />
+              )}
+            </div>
+          );
+        })}
 
         <div className="rounded-2xl p-5 mb-3.5 border" style={{ background: "#EAF4EC", borderColor: "#BFE0C6" }}>
           <div className="font-bold text-[17px]" style={{ color: "#2F7A3D" }}>✓ Protection & full clean — included, no charge</div>
           <p className="text-[#5A6474] text-[15px] mt-1">Proper dust-sheeting, floor protection over your new carpets, rooms sealed off, a tidy-up every day, and a full clean at the end. On us.</p>
+        </div>
+        <div className="rounded-2xl p-5 mb-3.5 border" style={{ background: "#EAF4EC", borderColor: "#BFE0C6" }}>
+          <div className="font-bold text-[17px]" style={{ color: "#2F7A3D" }}>✓ Downstairs back room ceiling — repaired, no charge</div>
+          <p className="text-[#5A6474] text-[15px] mt-1">We’ll repair the back-room ceiling as part of putting things right. On us.</p>
         </div>
         <InfoCard title="Repointing — the two bays & above the front door — £2,450" body="Re-quoted as full sections — the whole of both bays plus the panel above the front door, so the new mortar blends and there’s no patchy colour. This replaces the smaller repointing in your original works. Tower access is included (no extra)." note="£2,450 · tower access included · confirmed on final measure · separate from your balance" />
         <InfoCard title="Kitchen damp / mould treatment" body="Priced once we’ve taken the corner unit out and seen the wall — no guesswork." note="Priced after the check above · not in your total yet" />
@@ -326,9 +340,11 @@ function PayRow({ label, value, paid }: { label: string; value: string; paid?: b
   );
 }
 
-function AddCard({ title, desc, price, on, onToggle }: { title: string; desc: string; price: number; on: boolean; onToggle: () => void }) {
+function AddCard({ title, desc, price, on, onToggle, suggested }: { title: string; desc: string; price: number; on: boolean; onToggle: () => void; suggested?: boolean }) {
+  const restBg = suggested ? "#EEF3FA" : "#FFFFFF";
+  const restBorder = suggested ? "#C3D0E6" : "#E7E2D6";
   return (
-    <div className="rounded-2xl border shadow-sm p-[18px] mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : "#FFFFFF", borderColor: on ? "#BFE0C6" : "#E7E2D6" }}>
+    <div className="rounded-2xl border shadow-sm p-[18px] mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : restBg, borderColor: on ? "#BFE0C6" : restBorder }}>
       <h3 className="text-[19px] font-bold leading-snug">{title}</h3>
       <p className="text-[#5A6474] text-[15.5px] mt-1">{desc}</p>
       <div className="flex items-center justify-between gap-3.5 mt-3.5">
