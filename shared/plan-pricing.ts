@@ -17,7 +17,7 @@ export const DEPOSIT_LABOUR_RATE = 0.30; // 30% of labour taken up front
 export const PLAN_ITEMS: PlanItem[] = [
   // ---- Upstairs ----
   { id: "bay-walls", kind: "opt", group: "Upstairs", title: "Front bay bedroom — walls",
-    desc: "Take down the old mirror and light, make good, and re-paper. The room’s already painted; this sorts the wallpaper. Your new carpet is fully protected throughout.",
+    desc: "Take down the old mirror and light, make good, and re-paper in thick, textured (paintable) paper that hides imperfections. The room’s already painted; this sorts the wallpaper. Your new carpet is fully protected throughout.",
     options: [
       { label: "One wall re-papered", price: 295, labour: 250, materials: 45, days: 0.5 },
       { label: "Whole room re-papered — fixes the mismatch", price: 750, labour: 610, materials: 140, days: 1.5 },
@@ -47,7 +47,7 @@ export const PLAN_ITEMS: PlanItem[] = [
   { id: "entrance-wall", kind: "add", group: "Downstairs", title: "Entrance wall — as you come in",
     desc: "Skim the wall on the right as you come through the front door, and make good.", price: 350, labour: 295, materials: 55, days: 0.5 },
   { id: "halls-stairs", kind: "add", group: "Downstairs", title: "Halls & stairs",
-    desc: "The whole downstairs hallway, the landing and the stairwell — fresh lining paper and decorated so it all ties together.", price: 1450, labour: 1230, materials: 220, days: 3 },
+    desc: "The whole downstairs hallway, the landing and the stairwell — thick, textured (paintable) paper and decorated so it all ties together and hides any wall imperfections.", price: 1450, labour: 1230, materials: 220, days: 3 },
   { id: "back-ceiling", kind: "add", group: "Downstairs", title: "Back room ceiling",
     desc: "Repair the downstairs back-room ceiling.", price: 280, labour: 235, materials: 45, days: 1 },
   { id: "kitchen-paint", kind: "add", group: "Downstairs", title: "Kitchen — cracks & repaint",
@@ -66,6 +66,20 @@ export const PLAN_ITEMS: PlanItem[] = [
     desc: "Re-form the archway above the door.", price: 220, labour: 180, materials: 40, days: 0.5 },
   { id: "waste", kind: "add", group: "Doors, banister & archway", title: "Waste removal",
     desc: "Clear away all the strip-out and plaster waste from the works above.", price: 250, labour: 0, materials: 250, days: 0 },
+
+  // ---- Finishing — throughout the house ----
+  { id: "gloss-woodwork", kind: "add", group: "Finishing — throughout the house", title: "Gloss all woodwork throughout",
+    desc: "Prep, prime and gloss every door frame, skirting board and radiator pipe across the whole house for a clean, consistent finish.", price: 780, labour: 680, materials: 100, days: 3 },
+  { id: "window-sills", kind: "add", group: "Finishing — throughout the house", title: "Window sills glossed (×8)",
+    desc: "Sand, prime and gloss all eight internal window sills.", price: 200, labour: 170, materials: 30, days: 1 },
+  { id: "attic-hatch", kind: "add", group: "Finishing — throughout the house", title: "Attic hatch glossed",
+    desc: "Prep and gloss the loft/attic hatch to match.", price: 45, labour: 38, materials: 7, days: 0.5 },
+  { id: "light-switches", kind: "add", group: "Finishing — throughout the house", title: "Light switches replaced (×9)",
+    desc: "Swap out nine tired light switches for fresh standard white switches — safely isolated, fitted and tested. Switches supplied.", price: 200, labour: 155, materials: 45, days: 0.5 },
+  { id: "door-handles", kind: "add", group: "Finishing — throughout the house", title: "Internal door handles changed (×8)",
+    desc: "Replace eight internal door handles with fresh standard chrome handles. Handles supplied.", price: 180, labour: 100, materials: 80, days: 0.5 },
+  { id: "skirting-section", kind: "add", group: "Finishing — throughout the house", title: "Skirting board — supply & fit (1.5m)",
+    desc: "Supply and fit a ~1.5m run of skirting board, filled and ready to gloss.", price: 100, labour: 75, materials: 25, days: 0.5 },
 ];
 
 export type Selection = { id: string; opt?: number };

@@ -221,6 +221,10 @@ export default function PlanPage() {
 
         <SectionLabel>Your choices — additional work</SectionLabel>
         <p className="rounded-xl bg-[#F5F1E9] text-[#5A6474] text-[15px] p-4 mb-4">These are <b>extra</b> and completely separate from everything above. Add anything you’d like, skip the rest — your total builds as you go, and nothing is booked until you confirm.</p>
+        <p className="rounded-xl text-[14px] p-3.5 mb-4 flex gap-2.5 items-start" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
+          <span aria-hidden>✓</span>
+          <span>All new wallpaper is <b>thick, textured (paintable) paper</b> — chosen to hide any imperfections in the old walls for a smooth, even finish.</span>
+        </p>
 
         {groups.map(([label, items]) => (
           <div key={label}>
