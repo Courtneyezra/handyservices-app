@@ -17,7 +17,7 @@
  * See docs/contractor-platform/04-contractor-app.md.
  */
 import { Router, Request, Response } from 'express';
-import { and, eq, gte, lt, or, isNull, isNotNull, inArray, desc } from 'drizzle-orm';
+import { and, eq, gte, lt, or, isNull, isNotNull, inArray, desc, sql } from 'drizzle-orm';
 import { startOfWeek, addDays, format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './db';
@@ -211,7 +211,10 @@ router.get('/:token/scorecard', async (req: Request, res: Response) => {
   }
 });
 
-// GET /:token/pipeline → quotes skinned to this contractor (soft lead, unpaid).
+// GET /:token/pipeline → quotes skinned to this contractor (unpaid).
+// The skin pick at generation is the explicit "whose quote is this" choice, so
+// pending keys on skinContractorId; leadContractorId is only the fallback when
+// the skin is empty or a static persona (no real contractor face).
 // Privacy-gated like dispatch links: outward postcode + trimmed description
 // only — no customer name/address/contact before a deposit is paid.
 router.get('/:token/pipeline', async (req: Request, res: Response) => {
@@ -232,7 +235,19 @@ router.get('/:token/pipeline', async (req: Request, res: Response) => {
         expiresAt: personalizedQuotes.expiresAt,
       })
       .from(personalizedQuotes)
-      .where(and(eq(personalizedQuotes.leadContractorId, profile.id), isNull(personalizedQuotes.depositPaidAt)))
+      .where(and(
+        isNull(personalizedQuotes.depositPaidAt),
+        or(
+          eq(personalizedQuotes.skinContractorId, profile.id),
+          and(
+            or(
+              isNull(personalizedQuotes.skinContractorId),
+              sql`${personalizedQuotes.skinContractorId} like 'static:%'`,
+            ),
+            eq(personalizedQuotes.leadContractorId, profile.id),
+          ),
+        ),
+      ))
       .orderBy(desc(personalizedQuotes.createdAt))
       .limit(50);
 
