@@ -55,7 +55,7 @@ export const PLAN_ITEMS: PlanItem[] = [
 
   // ---- Doors, banister & archway ----
   { id: "doors", kind: "add", group: "Doors, banister & archway", title: "5 internal doors",
-    desc: "Prep, prime and paint all five doors.", price: 360, labour: 300, materials: 60, days: 1.5 },
+    desc: "Prep, prime and paint all five doors.", price: 380, labour: 300, materials: 80, days: 1.5 },
   { id: "banister", kind: "add", group: "Doors, banister & archway", title: "Staircase banister",
     desc: "Sand, prime and gloss the banister.", price: 290, labour: 255, materials: 35, days: 1 },
   { id: "archway", kind: "add", group: "Doors, banister & archway", title: "Archway",
@@ -63,7 +63,7 @@ export const PLAN_ITEMS: PlanItem[] = [
 
   // ---- Finishing — throughout the house ----
   { id: "gloss-woodwork", kind: "add", group: "Finishing — throughout the house", title: "Gloss all woodwork throughout",
-    desc: "Prep, prime and gloss every door frame, skirting board and radiator pipe across the whole house for a clean, consistent finish.", price: 780, labour: 680, materials: 100, days: 3 },
+    desc: "Prep, prime and gloss every door frame, skirting board and radiator pipe across the whole house for a clean, consistent finish.", price: 870, labour: 680, materials: 190, days: 3 },
   { id: "window-sills", kind: "add", group: "Finishing — throughout the house", title: "Window sills glossed (×8)",
     desc: "Sand, prime and gloss all eight internal window sills.", price: 240, labour: 210, materials: 30, days: 1 },
   { id: "attic-hatch", kind: "add", group: "Finishing — throughout the house", title: "Attic hatch glossed",
