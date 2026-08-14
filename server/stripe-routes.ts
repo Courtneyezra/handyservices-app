@@ -12,6 +12,8 @@ import { getPricingSettings } from './pricing-settings';
 import { insertInvoiceWithRetry } from './invoices';
 import { extendLock, confirmBooking, autoAssignPaidJob } from './booking-engine';
 import { computeLaneBasePence, parsePricingLane } from './lane-pricing';
+import { computeDateFeesPence } from './scheduling-fees';
+import { bookingSlotLocks } from '../shared/schema';
 import { confirmPaidPick } from './slot-offers';
 import { computeSplitScope } from '../shared/split-scope';
 import { resolveWelcomeGift } from './welcome-gift';
@@ -270,9 +272,47 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             }
         }
 
-        // Total job price (addons ride on top like extras — labour-only, no
-        // materials). The welcome gift deliberately contributes £0 here.
-        const totalJobPrice = baseTierPrice + extrasTotal + addonsTotal;
+        // ── Date-driven scheduling fees (server-authoritative) ───────────────
+        // The customer card adds next-day / Saturday fees to the total it shows
+        // AND to the wallet-sheet amount (elements.update). Stripe refuses an
+        // express-checkout confirm when the sheet amount ≠ the PI amount, so the
+        // same fees must be charged here. The DATE comes from trusted state —
+        // the reserved slot lock — with the client-named scheduledDate as a
+        // fallback for lock-less flows; the £ comes from the mirrored fee rules
+        // (server/scheduling-fees.ts), never from client pence.
+        let feeDateStr: string | null = null;
+        if (lockId && typeof lockId === 'number') {
+            try {
+                const [lockRow] = await db.select()
+                    .from(bookingSlotLocks)
+                    .where(eq(bookingSlotLocks.id, lockId))
+                    .limit(1);
+                if (lockRow && lockRow.quoteId === quoteId && lockRow.scheduledDate) {
+                    feeDateStr = new Date(lockRow.scheduledDate).toISOString().slice(0, 10);
+                }
+            } catch (lockErr) {
+                console.warn('[Stripe] slot-lock lookup for date fees failed (continuing):', lockErr);
+            }
+        }
+        if (!feeDateStr && typeof scheduledDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
+            feeDateStr = scheduledDate;
+        }
+        const dateFees = computeDateFeesPence(
+            { segment: quote.segment, pricingLineItems: quote.pricingLineItems },
+            feeDateStr,
+        );
+        if (dateFees.feesPence > 0) {
+            console.log('[Stripe] Date scheduling fees applied:', {
+                date: feeDateStr,
+                isNextDay: dateFees.isNextDay,
+                isSaturday: dateFees.isSaturday,
+                feesPence: dateFees.feesPence,
+            });
+        }
+
+        // Total job price (addons + date fees ride on top like extras — labour-
+        // only, no materials). The welcome gift deliberately contributes £0 here.
+        const totalJobPrice = baseTierPrice + extrasTotal + addonsTotal + dateFees.feesPence;
 
         // Calculate deposit breakdown (always computed for display purposes)
         const depositBreakdown = calculateDeposit(totalJobPrice, totalMaterialsCost, depositFraction);
@@ -280,9 +320,12 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // Determine charge amount based on payment type
         let chargeAmount: number;
         if (paymentType === 'full') {
-            // Pay in full: apply pay-in-full discount (e.g. 3% off)
+            // Pay in full: apply pay-in-full discount (e.g. 3% off). Rounded to
+            // the nearest whole £ to match the client's payFullTotal exactly —
+            // the wallet sheet pins the client figure, and Stripe rejects a
+            // confirm when it differs from the PI amount.
             const payInFullDiscount = (settings.payInFullDiscountPercent || 3) / 100;
-            chargeAmount = Math.round(totalJobPrice * (1 - payInFullDiscount));
+            chargeAmount = Math.round(Math.round(totalJobPrice * (1 - payInFullDiscount)) / 100) * 100;
             console.log('[Stripe] Full payment with discount:', {
                 baseTierPrice,
                 extrasTotal,
@@ -343,13 +386,14 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                     console.warn(`[Stripe] Welcome gift dropped on quote ${quoteId} — kept scope ${split.activeJobPricePence}p is below the ${giftFloorPence}p gift floor`);
                     resolvedGift = null;
                 }
-                // Addons ride on the kept scope like extras — they're new work
-                // being ADDED to this visit, never deferrable line items.
-                const activeTotalJobPrice = split.activeJobPricePence + extrasTotal + addonsTotal;
+                // Addons + date fees ride on the kept scope like extras —
+                // they're costs of THIS visit, never deferrable line items.
+                const activeTotalJobPrice = split.activeJobPricePence + extrasTotal + addonsTotal + dateFees.feesPence;
                 const activeMaterials = split.activeMaterialsPence + extrasMaterials;
                 if (paymentType === 'full') {
+                    // Whole-£ rounding mirrors the client's splitPayFullPence.
                     const payInFullDiscount = (settings.payInFullDiscountPercent || 3) / 100;
-                    chargeAmount = Math.round(activeTotalJobPrice * (1 - payInFullDiscount));
+                    chargeAmount = Math.round(Math.round(activeTotalJobPrice * (1 - payInFullDiscount)) / 100) * 100;
                 } else {
                     chargeAmount = calculateDeposit(activeTotalJobPrice, activeMaterials, depositFraction).total;
                 }
@@ -406,6 +450,12 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // lane-adjusted total when it builds the invoice + dispatch record.
         if (lanePricing.laneApplied && lanePricing.lane) {
             bookingMetadata.pricingLane = lanePricing.lane;
+        }
+        // Date-driven scheduling fees (next-day / Saturday) — carry the server-
+        // derived figure so the webhook's invoice/balance total includes what
+        // was actually charged for the date.
+        if (dateFees.feesPence > 0) {
+            bookingMetadata.dateFeesPence = String(dateFees.feesPence);
         }
         // Line-item split — carry the deferred lineIds so the webhook records
         // which items were saved for another visit (comma-separated, string metadata).
@@ -839,6 +889,17 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         // (derived from this PI's metadata above, NOT from the mutated
                         // quote row, so webhook retries stay deterministic).
                         totalJobPrice += webhookAddonsTotal;
+
+                        // Date-driven scheduling fees (next-day / Saturday) — the same
+                        // server-derived figure the charge included, carried in this
+                        // PI's own metadata so the invoice + balance reflect it. Added
+                        // BEFORE the split branch below: its extrasPence difference
+                        // keeps every on-top charge riding on the kept scope.
+                        const metadataDateFees = parseInt(paymentIntent.metadata?.dateFeesPence || '0', 10);
+                        if (!isNaN(metadataDateFees) && metadataDateFees > 0) {
+                            totalJobPrice += metadataDateFees;
+                            console.log(`[Stripe Webhook] Date scheduling fees included in total for quote ${quoteId}: +£${(metadataDateFees / 100).toFixed(2)}`);
+                        }
 
                         // Line-item split — the booked job value is the KEPT scope only.
                         // Re-derive the active base (same computeSplitScope as the charge)

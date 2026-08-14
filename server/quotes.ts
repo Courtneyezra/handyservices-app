@@ -20,6 +20,7 @@ import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 import { normalizeQuoteImageUrls } from "./quote-image-utils";
 import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
+import { computeDateFeesPence } from "./scheduling-fees";
 import { isWelcomeGiftEligible, resolveWelcomeGift } from "./welcome-gift";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
@@ -1624,7 +1625,16 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             // keep them priced in rather than silently dropping paid-for work.
             trackAddonsTotal = persistedAddonPence;
         }
-        const selectedTierPricePence = trackLanePricing.laneBasePence + trackAddonsTotal;
+        // Date-driven scheduling fees (next-day / Saturday) — the same server-
+        // derived figure /create-payment-intent charged (scheduling-fees.ts), so
+        // this mirror of the agreed total — and the balance invoice built from
+        // selectedTierPricePence later — includes the date premium the customer
+        // actually paid for. selectedDate arrives as a YYYY-MM-DD string.
+        const trackDateFees = computeDateFeesPence(
+            { segment: quote.segment, pricingLineItems: quote.pricingLineItems },
+            typeof selectedDate === 'string' ? selectedDate.slice(0, 10) : null,
+        );
+        const selectedTierPricePence = trackLanePricing.laneBasePence + trackAddonsTotal + trackDateFees.feesPence;
 
         // Welcome gift — validate what the client claims (first-time + min
         // quote + pool membership) so a bogus giftId is caught and logged even

@@ -1700,6 +1700,13 @@ export function UnifiedQuoteCard({
             schedulingTier: useFlexBooking ? 'flexible' : 'standard',
             // Pricing lane → server re-derives the charged £ from quote.basePrice.
             pricingLane,
+            // The date driving any next-day/Saturday fee in the displayed total.
+            // The server re-derives the fee £ itself (scheduling-fees.ts) from
+            // the slot lock when one exists, falling back to this named date —
+            // it must ALWAYS ride along so the PI amount matches the display.
+            scheduledDate: selectedDate && !(isLandlord && useFlexBooking)
+              ? formatDateStr(selectedDate)
+              : undefined,
             lockId: reservation?.lockId || undefined,
             contractorId: reservation?.contractorId || undefined,
             // Phase 30 — door address in the PI body so the webhook can snapshot it
@@ -1879,6 +1886,13 @@ export function UnifiedQuoteCard({
           // Welcome gift: id only — server-validated, £0 to the customer.
           giftId: payloadGiftId,
           pricingLane,
+          // The date driving any next-day/Saturday fee in the wallet-sheet
+          // amount — the display keys the fee on selectedDate, so the server
+          // must see the same date (lock first, this as fallback) or the PI
+          // amount won't match the sheet and Stripe refuses the confirm.
+          scheduledDate: selectedDate && !(isLandlord && useFlexBooking)
+            ? formatDateStr(selectedDate)
+            : undefined,
           ...(isExactDate
             ? { schedulingTier: 'standard', lockId: reservation?.lockId, contractorId: reservation?.contractorId }
             : { schedulingTier: 'flexible', flexBookingWithinDays: bookingFlexDays }),
