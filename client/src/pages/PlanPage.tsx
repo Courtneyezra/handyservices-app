@@ -53,8 +53,6 @@ const WORKS: { group: string; items: Work[] }[] = [
 const TODO: { t: string; ours?: boolean }[] = [
   { t: "Downstairs back room — final paint, between Wed–Fri next week (better access while you’re out)" },
   { t: "Front repointing — re-quoted for the larger sections (a proper colour match), priced separately below" },
-  { t: "Curtains — professionally cleaned, replaced if needed", ours: true },
-  { t: "Full professional clean at the end", ours: true },
 ];
 
 // Adaptive rough-effort label: half-day → days → working weeks (5 working days/week).
@@ -237,7 +235,15 @@ export default function PlanPage() {
         <SectionLabel muted>Still to finish — included in the above</SectionLabel>
         <div className="rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
           <ul className="flex flex-col gap-2.5">
-            {TODO.map((d) => (<li key={d.t} className="flex gap-3 items-start text-[16px]"><span className="text-[#F5A623] font-bold mt-[2px] text-[10px]">●</span><span>{d.t}{d.ours && <b className="text-[#2F7A3D]"> (our cost)</b>}</span></li>))}
+            {TODO.map((d) => (<li key={d.t} className="flex gap-3 items-start text-[16px]"><span className="text-[#F5A623] font-bold mt-[2px] text-[10px]">●</span><span>{d.t}</span></li>))}
+          </ul>
+        </div>
+
+        <div className="rounded-2xl p-5 mt-3.5 border-2" style={{ background: "#EAF4EC", borderColor: "#2F7A3D" }}>
+          <div className="font-extrabold text-[20px] mb-3" style={{ color: "#2F7A3D" }}>Putting it right — on us, no charge</div>
+          <ul className="flex flex-col gap-3.5">
+            <li className="flex gap-3 items-start text-[18px] font-bold leading-snug"><span style={{ color: "#2F7A3D" }}>✓</span><span>Your <b>curtains</b> — professionally cleaned, and <b>replaced in full</b> if they don’t come back right.</span></li>
+            <li className="flex gap-3 items-start text-[18px] font-bold leading-snug"><span style={{ color: "#2F7A3D" }}>✓</span><span>A <b>full professional clean</b> of the whole house at the end.</span></li>
           </ul>
         </div>
 

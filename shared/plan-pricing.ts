@@ -45,13 +45,13 @@ export const PLAN_ITEMS: PlanItem[] = [
   { id: "entrance-wall", kind: "add", group: "Downstairs", title: "Entrance wall — as you come in",
     desc: "Skim the wall on the right as you come through the front door, and make good.", price: 350, labour: 295, materials: 55, days: 0.5 },
   { id: "halls-stairs", kind: "add", group: "Downstairs", title: "Halls & stairs",
-    desc: "The whole downstairs hallway, the landing and the stairwell — thick, textured (paintable) paper and decorated so it all ties together and hides any wall imperfections.", price: 1650, labour: 1420, materials: 230, days: 3 },
+    desc: "The whole downstairs hallway, the landing and the stairwell — thick, textured (paintable) paper that hides any imperfections. We’ll repaint it for free and refund what you paid for the paint last time — our way of putting the finish right.", price: 1789, labour: 1500, materials: 289, days: 3.5 },
   { id: "kitchen-paint", kind: "add", group: "Downstairs", title: "Kitchen — cracks & repaint",
     desc: "Fill all the cracks and repaint the kitchen ceiling and walls.", price: 460, labour: 380, materials: 80, days: 1.5 },
   { id: "kitchen-grout", kind: "add", group: "Downstairs", title: "Kitchen — re-grout tiles",
     desc: "Rake out and re-grout the kitchen tiling for a clean, fresh finish.", price: 220, labour: 170, materials: 50, days: 0.5 },
   { id: "kitchen-check", kind: "add", group: "Downstairs", title: "Kitchen — check the damp behind the corner unit",
-    desc: "We won’t guess at the mould. We’ll take out the corner unit to see the actual wall, find the real cause, then price the fix properly — so you never pay for work you don’t need.", price: 150, labour: 140, materials: 10, days: 0.5 },
+    desc: "We won’t guess at the mould. We’ll take out the corner unit to see the actual wall and find the real cause. If it needs a repair, it’s typically £300–£650 depending on what’s behind there — we’ll price it exactly once we can see it, so you never pay for work you don’t need.", price: 150, labour: 140, materials: 10, days: 0.5 },
 
   // ---- Doors, banister & archway ----
   { id: "doors", kind: "add", group: "Doors, banister & archway", title: "5 internal doors",
@@ -69,9 +69,9 @@ export const PLAN_ITEMS: PlanItem[] = [
   { id: "attic-hatch", kind: "add", group: "Finishing — throughout the house", title: "Attic hatch glossed",
     desc: "Prep and gloss the loft/attic hatch to match.", price: 45, labour: 38, materials: 7, days: 0.15 },
   { id: "light-switches", kind: "add", group: "Finishing — throughout the house", title: "Light switches replaced (×9)",
-    desc: "Swap out nine tired light switches for fresh standard white switches — safely isolated, fitted and tested. Switches supplied.", price: 200, labour: 155, materials: 45, days: 0.5 },
+    desc: "Swap out nine tired light switches for fresh standard white switches — safely isolated, fitted and tested. Switches supplied.", price: 290, labour: 220, materials: 70, days: 0.5 },
   { id: "door-handles", kind: "add", group: "Finishing — throughout the house", title: "Internal door handles changed (×8)",
-    desc: "Replace eight internal door handles with fresh standard chrome handles. Handles supplied.", price: 220, labour: 140, materials: 80, days: 0.5 },
+    desc: "Replace eight internal door handles — labour only (you supply the handles).", price: 220, labour: 220, materials: 0, days: 0.5 },
   { id: "skirting-section", kind: "add", group: "Finishing — throughout the house", title: "Skirting board — supply & fit (1.5m)",
     desc: "Supply and fit a ~1.5m run of skirting board, filled and ready to gloss.", price: 100, labour: 75, materials: 25, days: 0.25 },
 ];
