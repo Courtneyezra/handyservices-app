@@ -53,3 +53,6 @@ server/storage/media/
 
 # Ops scripts that read/push credentials (never commit)
 *-creds.sh
+brand-voice/sources/*
+!brand-voice/sources/.gitkeep
+agent-runs/
