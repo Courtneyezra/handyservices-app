@@ -316,7 +316,7 @@ export default function PlanPage() {
 
           {/* The two payments, side by side */}
           <div className="mt-3 rounded-xl overflow-hidden border" style={{ borderColor: "#E7E2D6" }}>
-            <div className="px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide text-[#5A6474]" style={{ background: "#F5F1E9" }}>Your two payments</div>
+            <div className="px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide text-[#5A6474]" style={{ background: "#F5F1E9" }}>What’s due — now vs Friday</div>
             <div className="px-4 py-3 flex justify-between items-start gap-3 border-b border-[#E7E2D6]">
               <div>
                 <div className="text-[15px] font-semibold">Now — books the new work</div>
