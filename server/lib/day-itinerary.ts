@@ -20,6 +20,7 @@ import {
     contractorBookingRequests,
     personalizedQuotes,
     handymanProfiles,
+    contractorDiaryItems,
 } from '../../shared/schema';
 import { composeScheduleMinutes, type QuoteContext, type LineItemTimeShape } from '../../shared/schedule-composition';
 import { getTravelTimeMinutes } from './travel-time';
@@ -184,6 +185,36 @@ async function loadBookings(
                 durationMinutes: breakdown.totalMinutes,
             };
         });
+
+    // Diary items (quote visits) = capacity, not bookings: they occupy real
+    // time in the day (count toward the cap) but have no booking row, payout,
+    // or coords — so their travel legs are skipped (slight undercount of the
+    // hop through the visit; acceptable for a 45min survey).
+    const diaryRows = await db
+        .select({
+            slot: contractorDiaryItems.slot,
+            minutes: contractorDiaryItems.minutes,
+            customerName: contractorDiaryItems.customerName,
+        })
+        .from(contractorDiaryItems)
+        .where(
+            and(
+                eq(contractorDiaryItems.contractorId, contractorIdStr),
+                eq(contractorDiaryItems.status, 'open'),
+                gte(contractorDiaryItems.date, dayStart),
+                lte(contractorDiaryItems.date, dayEnd),
+            ),
+        );
+    for (const d of diaryRows) {
+        existing.push({
+            bookingId: null,
+            quoteId: null,
+            customerName: `${d.customerName} (quote visit)`,
+            scheduledSlot: d.slot === 'pm' ? 'pm' : 'am',
+            customerCoords: null,
+            durationMinutes: d.minutes ?? 0,
+        });
+    }
 
     return { contractorCoords, existing };
 }

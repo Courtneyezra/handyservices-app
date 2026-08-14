@@ -12,6 +12,7 @@ import {
     wtbpRateCard,
     serviceProperties,
     bookingAssignments,
+    contractorDiaryItems,
 } from '../shared/schema';
 import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
 import { planToAssignments } from './lib/quote-team';
@@ -386,7 +387,7 @@ export async function reserveSlot(params: {
                 windowStart.setUTCDate(windowStart.getUTCDate() - 14);
                 const windowEnd = new Date(scheduledDate);
                 windowEnd.setUTCDate(windowEnd.getUTCDate() + spanWindowDays);
-                const [windowBookings, windowLocks] = await Promise.all([
+                const [windowBookings, windowLocks, windowDiary] = await Promise.all([
                     tx.select({
                         id: contractorBookingRequests.id,
                         scheduledSlot: contractorBookingRequests.scheduledSlot,
@@ -418,6 +419,22 @@ export async function reserveSlot(params: {
                             lt(bookingSlotLocks.scheduledDate, windowEnd),
                             gte(bookingSlotLocks.expiresAt, new Date()),
                         )),
+                    // Diary items (quote visits) = CAPACITY, not bookings: they
+                    // never binary-block a slot, but their minutes join the day's
+                    // load in the fit checks below so a reservation can't overfill
+                    // a day already holding a visit.
+                    tx.select({
+                        date: contractorDiaryItems.date,
+                        slot: contractorDiaryItems.slot,
+                        minutes: contractorDiaryItems.minutes,
+                    })
+                        .from(contractorDiaryItems)
+                        .where(and(
+                            eq(contractorDiaryItems.contractorId, contractorIdStr),
+                            eq(contractorDiaryItems.status, 'open'),
+                            gte(contractorDiaryItems.date, windowStart),
+                            lt(contractorDiaryItems.date, windowEnd),
+                        )),
                 ]);
                 // Expand each row into the dates it occupies (actual span
                 // dates when stored; consecutive fallback for legacy rows).
@@ -437,6 +454,18 @@ export async function reserveSlot(params: {
                         list.push({ slot: l.scheduledSlot });
                         locksByDate.set(ds, list);
                     }
+                }
+                // Diary minutes per day (pg DATE parses at LOCAL midnight — use
+                // local getters, never toISOString, to recover the stored day).
+                const diaryByDate = new Map<string, Array<{ slot: string; minutes: number }>>();
+                for (const d of windowDiary) {
+                    const raw = d.date as unknown;
+                    const ds = typeof raw === 'string'
+                        ? raw.slice(0, 10)
+                        : `${(raw as Date).getFullYear()}-${String((raw as Date).getMonth() + 1).padStart(2, '0')}-${String((raw as Date).getDate()).padStart(2, '0')}`;
+                    const list = diaryByDate.get(ds) ?? [];
+                    list.push({ slot: d.slot ?? 'am', minutes: d.minutes ?? 0 });
+                    diaryByDate.set(ds, list);
                 }
 
                 // Full per-day gate: availability + conflicts + capacity.
@@ -470,6 +499,19 @@ export async function reserveSlot(params: {
                         : dayLocks.some((l) => conflictingSlots.includes(l.slot as SlotType));
                     if (lockBlocked) return false;
 
+                    // Diary items on this day (quote visits): capacity, not a
+                    // binary block — an AM visit's minutes count against the AM
+                    // or full_day candidate, a PM visit against PM or full_day.
+                    const diarySlotMinutes = (diaryByDate.get(ds) ?? [])
+                        .filter((di) => effectiveSlot === 'full_day' || di.slot === effectiveSlot)
+                        .reduce((s, di) => s + di.minutes, 0);
+                    // Even without coords/travel data the visit's own minutes
+                    // must leave room for this job's per-day work.
+                    if (perDayWork > 0 && diarySlotMinutes > 0 && perDayWork + diarySlotMinutes > slotCapacity) {
+                        console.log(`[BookingEngine] Skip ${contractorIdStr} day ${ds} (slot fit, diary): ${perDayWork}min/day + ${diarySlotMinutes}min diary > ${slotCapacity} ${effectiveSlot} cap`);
+                        return false;
+                    }
+
                     // Travel-aware capacity checks for this day.
                     if (perDayWork > 0 && customerCoords) {
                         const [profile] = await tx.select({
@@ -484,10 +526,10 @@ export async function reserveSlot(params: {
                             const cLng = parseFloat(profile.lng);
                             if (!isNaN(cLat) && !isNaN(cLng)) {
                                 const travel = await getTravelTimeMinutes(cLat, cLng, customerCoords.lat, customerCoords.lng);
-                                const required = perDayWork + travel.minutes;
-                                // (a) slot fit — per-day work + travel ≤ slot cap
+                                const required = perDayWork + travel.minutes + diarySlotMinutes;
+                                // (a) slot fit — per-day work + travel + diary ≤ slot cap
                                 if (required > slotCapacity) {
-                                    console.log(`[BookingEngine] Skip ${contractorIdStr} day ${ds} (slot fit): ${perDayWork}min/day + ${travel.minutes}min travel = ${required} > ${slotCapacity} ${effectiveSlot} cap`);
+                                    console.log(`[BookingEngine] Skip ${contractorIdStr} day ${ds} (slot fit): ${perDayWork}min/day + ${travel.minutes}min travel + ${diarySlotMinutes}min diary = ${required} > ${slotCapacity} ${effectiveSlot} cap`);
                                     return false;
                                 }
                             }

@@ -12,6 +12,7 @@ import {
     personalizedQuotes,
     bookingSlotLocks,
     handymanSkills,
+    contractorDiaryItems,
 } from '../shared/schema';
 import { eq, and, gte, lte, or, inArray } from 'drizzle-orm';
 import { toZonedTime, format as formatTz } from 'date-fns-tz';
@@ -982,9 +983,8 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
         const CAL_TRAVEL_ALLOWANCE_MIN = 20;
         const requiredDays = computeRequiredDays(timeEstimate);
         const perDayWork = requiredDays > 0 ? Math.ceil(timeEstimate / requiredDays) : timeEstimate;
-        const fitsHalfSlot = perDayWork + CAL_TRAVEL_ALLOWANCE_MIN <= 240;
+        const fitsHalfSlot = perDayWork + CAL_TRAVEL_ALLOWANCE_MIN <= 240; // half too small ⇒ full-day only
         const fitsFullDay = perDayWork + CAL_TRAVEL_ALLOWANCE_MIN <= 480;
-        const requireFullDay = !fitsHalfSlot; // too big for a 4h arrival window
 
         if (!categoriesParam) {
             return res.status(400).json({ error: 'categories parameter required' });
@@ -1067,7 +1067,7 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
         // Multi-day spans STARTING before the window can still occupy days inside it.
         const bookingLookbackUTC = ukDayStartUTC(addDaysStr(todayUk, -14));
 
-        const [overrideRows, patternRows, blockedRows, bookingRows] = freshContractors.length
+        const [overrideRows, patternRows, blockedRows, bookingRows, diaryRows] = freshContractors.length
             ? await Promise.all([
                 db.select({
                     contractorId: contractorAvailabilityDates.contractorId,
@@ -1112,8 +1112,24 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
                         lte(contractorBookingRequests.scheduledDate, windowEndUTC),
                         eq(contractorBookingRequests.status, 'accepted'),
                     )),
+                // Diary items (quote visits) = capacity, not bookings: they never
+                // binary-close a slot, but their minutes shrink what THIS job can
+                // still fit alongside them.
+                db.select({
+                    contractorId: contractorDiaryItems.contractorId,
+                    date: contractorDiaryItems.date,
+                    slot: contractorDiaryItems.slot,
+                    minutes: contractorDiaryItems.minutes,
+                })
+                    .from(contractorDiaryItems)
+                    .where(and(
+                        inArray(contractorDiaryItems.contractorId, freshContractors),
+                        eq(contractorDiaryItems.status, 'open'),
+                        gte(contractorDiaryItems.date, windowStartUTC),
+                        lte(contractorDiaryItems.date, windowEndUTC),
+                    )),
             ])
-            : [[], [], [], []];
+            : [[], [], [], [], []];
 
         // Index by UK-day string. Overrides are stored at UTC midnight (pure days).
         const overrideByKey = new Map<string, { isAvailable: boolean; startTime: string | null; endTime: string | null }>();
@@ -1147,6 +1163,23 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
             }
         }
 
+        // Diary minutes per contractor-day-half (quote visits etc.). Diary items
+        // consume MINUTES, never the binary slot: the half stays offerable while
+        // this job's work + travel + diary minutes still fit its capacity.
+        // NOTE: pg DATE parses at LOCAL midnight — use local getters for the day.
+        const pgDayStr = (d: unknown): string => {
+            if (typeof d === 'string') return d.slice(0, 10);
+            const dt = d as Date;
+            return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+        };
+        const diaryLoad = new Map<string, { am: number; pm: number }>(); // `${cid}|${day}`
+        for (const d of diaryRows) {
+            const key = `${d.contractorId}|${pgDayStr(d.date)}`;
+            const cur = diaryLoad.get(key) ?? { am: 0, pm: 0 };
+            if (d.slot === 'pm') cur.pm += d.minutes ?? 0; else cur.am += d.minutes ?? 0;
+            diaryLoad.set(key, cur);
+        }
+
         // 3a. Precompute each contractor's free halves per day over the EXTENDED
         // window: (override || pattern) MINUS booked occupancy. Multi-day spans
         // walk this map beyond the visible window.
@@ -1176,7 +1209,11 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
         }
         const fullyOpen = (cid: string, day: string) => {
             const h = openHalves.get(`${cid}|${day}`);
-            return !!h && h.am && h.pm;
+            if (!h || !h.am || !h.pm) return false;
+            // Diary items shrink the day: a multi-day span day is full_day, so
+            // this day's per-day work + travel + diary minutes must fit 480.
+            const dl = diaryLoad.get(`${cid}|${day}`);
+            return perDayWork + CAL_TRAVEL_ALLOWANCE_MIN + (dl ? dl.am + dl.pm : 0) <= 480;
         };
 
         // 3b. Resolve each visible day — capacity-aware, not just slot-aware:
@@ -1210,18 +1247,19 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
                     const h = openHalves.get(`${contractorId}|${dateStr}`);
                     if (!h) continue;
                     availableContractorCount++;
-                    if (h.am) hasAm = true;
-                    if (h.pm) hasPm = true;
-                    if (h.am && h.pm) hasFull = true;
+                    // Gate each half/day by whether the JOB fits it for THIS
+                    // contractor: per-day work + travel + diary minutes ≤ cap.
+                    // Diary items (quote visits) consume minutes, not the slot —
+                    // a 45min visit leaves the half offerable to a small job but
+                    // not to one that would overflow the arrival window.
+                    const dl = diaryLoad.get(`${contractorId}|${dateStr}`) ?? { am: 0, pm: 0 };
+                    if (h.am && fitsHalfSlot && perDayWork + CAL_TRAVEL_ALLOWANCE_MIN + dl.am <= 240) hasAm = true;
+                    if (h.pm && fitsHalfSlot && perDayWork + CAL_TRAVEL_ALLOWANCE_MIN + dl.pm <= 240) hasPm = true;
+                    if (h.am && h.pm && fitsFullDay && perDayWork + CAL_TRAVEL_ALLOWANCE_MIN + dl.am + dl.pm <= 480) hasFull = true;
                 }
-                // Gate each slot by whether the JOB fits it (work + travel ≤ cap).
-                if (hasFull && fitsFullDay) {
-                    slots.push('full');
-                    if (fitsHalfSlot) slots.push('am', 'pm');
-                } else if (!requireFullDay && fitsHalfSlot) {
-                    if (hasAm) slots.push('am');
-                    if (hasPm) slots.push('pm');
-                }
+                if (hasFull) slots.push('full');
+                if (hasAm) slots.push('am');
+                if (hasPm) slots.push('pm');
             }
 
             if (slots.length > 0) {

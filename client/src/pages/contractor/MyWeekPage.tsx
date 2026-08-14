@@ -13,7 +13,7 @@ import { useRoute, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft, LogOut, Share2, Check, ShoppingBasket, ExternalLink } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Phone, Play, ChevronLeft, LogOut, Share2, Check, ShoppingBasket, ExternalLink } from 'lucide-react';
 import type { QuoteMaterial } from '@shared/materials';
 import { sharePartnerBragCard } from '@/lib/partner-brag-card';
 import CompletionSheet from './CompletionSheet';
@@ -104,9 +104,26 @@ interface FlexJob {
   blockStarts: Array<{ startDate: string; endDate: string; reasons: string[] }>;
 }
 
+/** Non-job diary entry (e.g. a quote visit) — occupies time, no payout. */
+interface DiaryItem {
+  id: string;
+  date: string;
+  slot: 'am' | 'pm';
+  startTime: string | null;
+  minutes: number;
+  kind: string;
+  customerName: string;
+  phone?: string | null;
+  address: string | null;
+  postcode: string | null;
+  notes: string | null;
+  status: 'open' | 'done';
+}
+
 interface JobsPayload {
   booked: BookedJob[];
   flex: FlexJob[];
+  diaryItems?: DiaryItem[];
 }
 
 type DayPlanGoal = 'earnings' | 'fewest_days' | 'soonest';
@@ -190,6 +207,10 @@ interface JobDetail {
   evidenceUrls?: string[] | null;
   signatureDataUrl?: string | null;
   completionNotes?: string | null;
+  // Diary-only (quote visit): swaps the money/actions chrome for visit chrome.
+  kind?: 'diary';
+  phone?: string | null;
+  diaryId?: string;
 }
 
 // Candidate days to move a booked visit onto (server-validated feasibility).
@@ -277,6 +298,34 @@ const flexToDetail = (f: FlexJob): JobDetail => ({
   materialsAllowancePence: f.materialsAllowancePence,
   payLines: f.payLines,
 });
+// "15:30" → "3:30pm", "09:00" → "9am".
+const fmtDiaryTime = (t: string | null): string | null => {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  if (!Number.isFinite(h)) return null;
+  const h12 = h % 12 || 12;
+  return `${h12}${Number.isFinite(m) && m > 0 ? `:${String(m).padStart(2, '0')}` : ''}${h >= 12 ? 'pm' : 'am'}`;
+};
+const diaryToDetail = (d: DiaryItem): JobDetail => {
+  const time = fmtDiaryTime(d.startTime);
+  const day = d.date === format(new Date(), 'yyyy-MM-dd') ? 'Today' : format(new Date(d.date + 'T00:00:00'), 'EEE d MMM');
+  return {
+    id: '', // never a booking — keeps Mark complete / Move off this sheet
+    title: d.customerName.trim(),
+    area: null,
+    whenLabel: `${day}${time ? ` · ${time}` : ''} · ${d.minutes} min`,
+    status: 'booked',
+    fullDescription: d.notes,
+    mapQuery: d.address ? [d.address, d.postcode].filter(Boolean).join(', ') : d.postcode,
+    photoUrls: null,
+    payoutPence: null,
+    materialsAllowancePence: null,
+    payLines: null,
+    kind: 'diary',
+    phone: d.phone ?? null,
+    diaryId: d.id,
+  };
+};
 const TIER_LABEL: Record<string, string> = { specialist: 'Specialist', skilled: 'Skilled', general: 'General', outdoor: 'Outdoor' };
 const isVideo = (url: string) => /\.(mp4|mov|webm|m4v|ogg)(\?|$)/i.test(url);
 
@@ -379,6 +428,31 @@ export default function MyWeekPage() {
       return res.json();
     },
     enabled: !!token,
+  });
+
+  // Diary item (quote visit) done-tick — optimistic so the card dims instantly.
+  const diaryDoneMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/contractor-app/${token}/diary/${id}/done`, { method: 'POST' });
+      if (!res.ok) throw new Error('update failed');
+    },
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ['contractor-app-jobs', token] });
+      const prev = queryClient.getQueryData<JobsPayload>(['contractor-app-jobs', token]);
+      if (prev?.diaryItems) {
+        queryClient.setQueryData<JobsPayload>(['contractor-app-jobs', token], {
+          ...prev,
+          diaryItems: prev.diaryItems.map((d) => (d.id === id ? { ...d, status: 'done' as const } : d)),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['contractor-app-jobs', token], ctx.prev);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+    },
   });
 
   // Materials run summary — powers the home-screen "to buy" reminder and links
@@ -605,6 +679,13 @@ export default function MyWeekPage() {
       list.push({ f, s });
       suggestedBy.set(s.date, list);
     }
+    // Diary items (quote visits) — non-job time, rendered with their slot.
+    const diaryBy = new Map<string, DiaryItem[]>();
+    for (const d of jobs.diaryItems ?? []) {
+      const list = diaryBy.get(d.date) ?? [];
+      list.push(d);
+      diaryBy.set(d.date, list);
+    }
     const blockBy = new Map<string, { f: FlexJob; start: FlexJob['blockStarts'][0] }>();
     const blockSpanBy = new Map<string, { f: FlexJob; idx: number }>();
     for (const f of jobs.flex) {
@@ -621,9 +702,42 @@ export default function MyWeekPage() {
       // Suggested ghosts render even alongside a pack (packedQuoteIds already
       // prevents the same job appearing twice) — a dropped/skipped job must
       // always have a visible, lockable home.
-      return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], pack: packBy.get(date), suggested: suggestedBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
+      return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], diary: diaryBy.get(date) ?? [], pack: packBy.get(date), suggested: suggestedBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
     });
   }, [data, jobs, dayPlans]);
+
+  // Diary item card (quote visit) — deliberately distinct from job cards:
+  // amber outline, no £, no lock. Done items dim + strike for the day.
+  const renderDiaryCard = (d: DiaryItem) => {
+    const done = d.status === 'done';
+    return (
+      <div
+        key={d.id}
+        onClick={() => setJobDetail(diaryToDetail(d))}
+        className={`p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center gap-3 cursor-pointer active:scale-[0.99] transition-all ${done ? 'opacity-50' : ''}`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Quote visit</span>
+            {d.startTime && <span className="text-[11px] font-bold text-amber-300 shrink-0">{fmtDiaryTime(d.startTime)}</span>}
+          </div>
+          <div className={`text-xs font-bold text-amber-100 mt-1 truncate ${done ? 'line-through' : ''}`}>
+            {d.customerName} <span className="font-semibold text-amber-300/70">· {d.minutes} min</span>
+          </div>
+          <div className="text-[10px] text-amber-400/60 font-semibold mt-0.5">tap for details ›</div>
+        </div>
+        <button
+          aria-label={done ? 'Done' : 'Mark done'}
+          disabled={done || diaryDoneMutation.isPending}
+          onClick={(e) => { e.stopPropagation(); diaryDoneMutation.mutate(d.id); }}
+          className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90 ${
+            done ? 'bg-amber-500 text-slate-950' : 'border border-amber-500/50 text-amber-400'
+          }`}>
+          <Check size={14} />
+        </button>
+      </div>
+    );
+  };
 
   const weeks = useMemo(() => {
     if (!data) return [];
@@ -1248,6 +1362,8 @@ export default function MyWeekPage() {
                         </div>
 
                         <div className="flex-1 min-w-0 space-y-1.5">
+                          {/* Diary items — AM visits above the bookings, PM below */}
+                          {row.diary.filter((d) => d.slot === 'am').map(renderDiaryCard)}
                           {row.booked.map((b, i) => (
                             <button key={i} onClick={() => setJobDetail(bookedToDetail(b.job))}
                               className="w-full text-left p-3 rounded-xl bg-blue-500/15 border border-blue-500/30 active:scale-[0.99] transition-transform">
@@ -1267,6 +1383,8 @@ export default function MyWeekPage() {
                               <div className="text-[10px] text-blue-400/60 font-semibold mt-0.5">{b.tag} · tap for details ›</div>
                             </button>
                           ))}
+
+                          {row.diary.filter((d) => d.slot === 'pm').map(renderDiaryCard)}
 
                           {row.blockSpan && (
                             <div className="min-h-[34px] rounded-xl border border-dashed bg-emerald-500/5 border-emerald-500/25 flex items-center px-3">
@@ -1340,7 +1458,7 @@ export default function MyWeekPage() {
                             );
                           })}
 
-                          {row.booked.length === 0 && !row.block && !row.blockSpan && !row.pack && !row.suggested && (
+                          {row.booked.length === 0 && row.diary.length === 0 && !row.block && !row.blockSpan && !row.pack && !row.suggested && (
                             state === 'open' ? (
                               <div className="min-h-[34px] h-full rounded-xl bg-slate-900/40 border border-emerald-500/20 flex items-center px-3">
                                 <span className="text-[10px] text-emerald-400/60 font-semibold">open · nothing fits yet</span>
@@ -1642,6 +1760,9 @@ export default function MyWeekPage() {
               <div className="p-5 pb-3 border-b border-slate-800">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
+                    {jobDetail.kind === 'diary' && (
+                      <span className="inline-block mb-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/40 text-[10px] font-bold uppercase tracking-wider text-amber-400">Quote visit</span>
+                    )}
                     <div className="text-lg font-bold leading-tight truncate">{jobDetail.title}</div>
                     <div className="text-xs text-slate-400 mt-0.5">
                       {jobDetail.area ? jobDetail.area : ''}{jobDetail.area && jobDetail.whenLabel ? ' · ' : ''}{jobDetail.whenLabel}
@@ -1663,7 +1784,21 @@ export default function MyWeekPage() {
                   </a>
                 )}
 
-                {/* Money summary — one compact row */}
+                {/* Tap to call — diary (quote visit) only */}
+                {jobDetail.kind === 'diary' && jobDetail.phone && (
+                  <a href={`tel:${jobDetail.phone}`}
+                    className="mt-2 flex items-center gap-2.5 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/25 active:scale-[0.99] transition-transform">
+                    <div className="w-9 h-9 rounded-lg bg-blue-500/20 flex items-center justify-center shrink-0"><Phone size={16} className="text-blue-300" /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-blue-200">Call customer</div>
+                      <div className="text-[10px] text-slate-400 truncate">{jobDetail.phone}</div>
+                    </div>
+                    <ChevronRight size={16} className="text-blue-400/60" />
+                  </a>
+                )}
+
+                {/* Money summary — one compact row (never for diary visits: no payout) */}
+                {jobDetail.kind !== 'diary' && (
                 <div className="flex items-center gap-2 mt-3">
                   <div className="flex-1 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
                     <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-400/80">You earn</div>
@@ -1694,6 +1829,7 @@ export default function MyWeekPage() {
                     );
                   })()}
                 </div>
+                )}
               </div>
 
               {/* Scroll region — the ONLY variable-height part, so 1-task and
@@ -1857,7 +1993,7 @@ export default function MyWeekPage() {
                   </div>
                 ) : jobDetail.fullDescription ? (
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">The work</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">{jobDetail.kind === 'diary' ? 'What to quote' : 'The work'}</div>
                     <p className="text-xs text-slate-300 leading-relaxed">{jobDetail.fullDescription}</p>
                   </div>
                 ) : null}
@@ -1868,7 +2004,19 @@ export default function MyWeekPage() {
                   </p>
                 )}
 
-                {jobDetail.status === 'booked' && jobDetail.id && !jobDetail.completed && (
+                {jobDetail.kind === 'diary' && jobDetail.diaryId && (
+                  <div className="mt-5">
+                    <button
+                      onClick={() => { diaryDoneMutation.mutate(jobDetail.diaryId!); closeJobDetail(); }}
+                      disabled={diaryDoneMutation.isPending}
+                      className="w-full py-3.5 rounded-2xl bg-amber-500 text-slate-950 font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
+                    >
+                      <Check size={18} strokeWidth={3} /> Mark visit done
+                    </button>
+                  </div>
+                )}
+
+                {jobDetail.kind !== 'diary' && jobDetail.status === 'booked' && jobDetail.id && !jobDetail.completed && (
                   <div className="mt-5 space-y-2">
                     <button
                       onClick={() => { setCompleteJob({ id: jobDetail.id, name: jobDetail.title, payoutPence: jobDetail.payoutPence }); closeJobDetail(); }}

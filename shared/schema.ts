@@ -710,6 +710,31 @@ export const contractorAvailabilityDatesRelations = relations(contractorAvailabi
     }),
 }));
 
+// Contractor Diary Items - non-job entries in a contractor's day (first kind:
+// quote_visit — survey/quote a prospect). Occupy real time (consume capacity)
+// but have NO payout/deposit/completion ceremony. Pure UK day, like availability.
+export const contractorDiaryItems = pgTable("contractor_diary_items", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").notNull(),
+    date: date("date", { mode: "date" }).notNull(), // pg date + mode:'date' → UTC-midnight Date round-trip
+    slot: varchar("slot", { length: 8 }).notNull().default("am"), // 'am' | 'pm'
+    startTime: varchar("start_time", { length: 5 }), // optional "HH:mm"
+    minutes: integer("minutes").notNull().default(45),
+    kind: varchar("kind", { length: 20 }).notNull().default("quote_visit"),
+    customerName: varchar("customer_name").notNull(),
+    customerPhone: varchar("customer_phone"),
+    address: text("address"),
+    postcode: varchar("postcode", { length: 12 }),
+    notes: text("notes"),
+    status: varchar("status", { length: 10 }).notNull().default("open"), // 'open' | 'done'
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+    index("idx_contractor_diary_items_contractor_date").on(table.contractorId, table.date),
+]);
+
+export type ContractorDiaryItem = typeof contractorDiaryItems.$inferSelect;
+
 // Master Availability - System-wide default availability patterns
 export const masterAvailability = pgTable("master_availability", {
     id: serial("id").primaryKey(),
@@ -3746,6 +3771,36 @@ export const quoteOfferDecisions = pgTable("quote_offer_decisions", {
     index("idx_offer_decisions_quote").on(table.quoteId),
     index("idx_offer_decisions_decided_at").on(table.decidedAt),
 ]);
+
+// ── GMB post log (server/gmb-posts/) ─────────────────────────────────────────
+// One row per generated Google Business Profile post — drafts, successes and
+// failures alike. Drives theme rotation (don't repeat the last N themes) and
+// gives an audit trail of exactly what was published, with which voice files.
+export const gmbPosts = pgTable("gmb_posts", {
+    id: serial("id").primaryKey(),
+    location: text("location").notNull(),               // internal key, e.g. "nottingham"
+    topicType: text("topic_type").default('STANDARD').notNull(), // STANDARD | EVENT | OFFER
+    theme: text("theme").notNull(),                     // rotation key, e.g. "service_spotlight"
+    themeDetail: text("theme_detail"),                  // e.g. the service featured
+    summary: text("summary").notNull(),                 // post body sent to Google (≤1500 chars)
+    ctaType: text("cta_type"),                          // LEARN_MORE | BOOK | CALL | ...
+    ctaUrl: text("cta_url"),
+    mediaUrl: text("media_url"),                        // public photo URL attached, if any
+    status: text("status").default('draft').notNull(),  // draft | posted | failed
+    googleName: text("google_name"),                    // resource name returned by the API
+    searchUrl: text("search_url"),                      // public post URL, when returned
+    error: text("error"),
+    model: text("model"),                               // LLM that wrote it
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    postedAt: timestamp("posted_at"),
+}, (table) => [
+    index("idx_gmb_posts_location").on(table.location),
+    index("idx_gmb_posts_created").on(table.createdAt),
+]);
+
+export const insertGmbPostSchema = createInsertSchema(gmbPosts);
+export type GmbPost = typeof gmbPosts.$inferSelect;
+export type InsertGmbPost = typeof gmbPosts.$inferInsert;
 
 export const insertQuoteOfferDecisionSchema = createInsertSchema(quoteOfferDecisions);
 export type QuoteOfferDecision = typeof quoteOfferDecisions.$inferSelect;

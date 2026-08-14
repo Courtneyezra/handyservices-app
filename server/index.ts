@@ -84,6 +84,7 @@ import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
 import contractorHubRouter from './contractor-hub-routes';
 import contractorAppRouter from './contractor-app-routes';
+import diaryItemsRouter from './diary-items-routes';
 import materialsRouter from './materials-routes';
 import osRouter from './os-routes';
 import adminDashboardRouter from './admin-dashboard-routes';
@@ -234,7 +235,7 @@ setInterval(async () => {
 // Overdue invoice check + dunning reminders — runs every hour
 setInterval(async () => {
     try {
-        const { checkOverdueInvoices, runDunningSequence } = await import('./invoice-generator');
+        const { checkOverdueInvoices } = await import('./invoice-generator');
 
         // 1. Mark overdue invoices
         const count = await checkOverdueInvoices();
@@ -242,11 +243,11 @@ setInterval(async () => {
             console.log(`[Invoice Cron] ${count} invoice(s) marked as overdue`);
         }
 
-        // 2. Send dunning reminders (Day 7, 14, 21, 30 escalation)
-        const dunning = await runDunningSequence();
-        if (dunning.reminded > 0 || dunning.escalated > 0) {
-            console.log(`[Invoice Cron] Dunning: ${dunning.reminded} reminders sent, ${dunning.escalated} escalated`);
-        }
+        // 2. Dunning reminders DISABLED (13 Aug 2026). runDunningSequence sent
+        // escalating chase emails keyed off createdAt even when the invoice was
+        // never sent to the customer (sentAt null) — Moira/INV-2026-0221 got a
+        // "Final Payment Notice" for an invoice she never received. Chasing is
+        // manual until the sequence gates on sentAt + human review.
 
         // 3. Completion sweep — stamp completedAt on jobs whose paid invoice
         // or passed scheduled date proves the work happened. Ops never drives
@@ -425,6 +426,7 @@ app.use('/api/admin/availability', requireAdmin, adminAvailabilityRouter); // Ma
 app.use('/api/admin/contractors', requireAdmin, adminContractorsRouter); // Admin contractors management
 app.use('/api/admin/contractor-hub', requireAdmin, contractorHubRouter); // Contractor Hub (Admin OS v1)
 app.use('/api/contractor-app', contractorAppRouter); // Tokenised contractor availability app (/my-week/:token)
+app.use('/api/admin/diary-items', requireAdmin, diaryItemsRouter); // Contractor diary items (quote visits etc.)
 app.use('/api/admin/os', requireAdmin, osRouter); // Admin OS — Pipeline + Send workspaces
 app.use('/api/admin/dashboard', requireAdmin, adminDashboardRouter); // Admin dashboard analytics
 app.use(leadTubeMapRouter); // Lead Tube Map API (includes its own /api/admin prefix)

@@ -29,10 +29,11 @@ import {
   contractorBookingRequests,
   bookingAssignments,
   personalizedQuotes,
+  contractorDiaryItems,
 } from '../shared/schema';
 import { timeRangeCoversSlot, SLOT_CAPACITY_MIN, type SlotType } from '../shared/slot-times';
 import { totalScheduleMinutes, computeBookingDurationDays, expandSpanDates } from '../shared/schedule-composition';
-import { ukToday, ukWeekStartDay, ukDayStartUTC } from '../shared/uk-time';
+import { ukToday, ukWeekStartDay, ukDayStartUTC, addDaysStr } from '../shared/uk-time';
 import { computeContractorPay } from './lib/contractor-pay';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
 import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, activeLineItems, lineItemsToDescription, type DayMode, type DayLoadBooking } from './lib/contractor-app';
@@ -57,6 +58,12 @@ const lineMaterials = (lines: any[]): any[] =>
 
 const BOOKED_STATUSES = new Set(['accepted', 'completed']);
 const BOOKED_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
+
+/** contractor_diary_items.date is a pure pg DATE; node-pg parses it at LOCAL
+ *  midnight, so recover the stored day with local getters (date-fns format),
+ *  never toISOString (which shifts the day on non-UTC machines). */
+const diaryDayStr = (d: string | Date): string =>
+  typeof d === 'string' ? d.slice(0, 10) : format(d, 'yyyy-MM-dd');
 const WEEKS_SERVED = 4; // grid horizon — keep ≥ the planner's window
 
 // Order a day's jobs by SLOT (am · full_day · pm), not by the stored timestamp's
@@ -367,6 +374,31 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
     spanByDate.set(s.date, list);
   }
 
+  // Diary items (quote visits) = CAPACITY, not bookings. Their minutes join
+  // the day-load (spanByDate) so day-packs / self-place / coexist / move all
+  // see the time consumed — but they never binary-own a slot: the grid half
+  // stays open-with-load unless the visit alone fills the slot cap.
+  const openDiaryRows = await db
+    .select({ date: contractorDiaryItems.date, slot: contractorDiaryItems.slot, minutes: contractorDiaryItems.minutes, postcode: contractorDiaryItems.postcode })
+    .from(contractorDiaryItems)
+    .where(and(
+      eq(contractorDiaryItems.contractorId, profileId),
+      eq(contractorDiaryItems.status, 'open'),
+      gte(contractorDiaryItems.date, todayStart),
+      lt(contractorDiaryItems.date, end),
+    ));
+  const diaryEntries = openDiaryRows.map((d) => ({
+    date: diaryDayStr(d.date as any),
+    slot: (d.slot === 'pm' ? 'pm' : 'am') as SlotType,
+    minutes: d.minutes ?? 45,
+    postcodeArea: outwardPostcode(d.postcode),
+  }));
+  for (const s of diaryEntries) {
+    const list = spanByDate.get(s.date) ?? [];
+    list.push({ slot: s.slot, minutes: s.minutes, postcodeArea: s.postcodeArea });
+    spanByDate.set(s.date, list);
+  }
+
   // Resolved grid over the horizon (pattern + overrides − bookings).
   const [patternRows, overrideRows] = await Promise.all([
     db.select({ dayOfWeek: handymanAvailability.dayOfWeek, startTime: handymanAvailability.startTime, endTime: handymanAvailability.endTime, isActive: handymanAvailability.isActive })
@@ -382,7 +414,13 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
     weekDates,
     weeklyPatterns: patternRows.map((p) => ({ dayOfWeek: p.dayOfWeek ?? 0, startTime: p.startTime ?? null, endTime: p.endTime ?? null, isActive: !!p.isActive })),
     overrides: overrideRows.map((o) => ({ date: format(new Date(o.date as any), 'yyyy-MM-dd'), isAvailable: !!o.isAvailable, startTime: o.startTime ?? null, endTime: o.endTime ?? null })),
-    bookings: spanEntries.map((s) => ({ date: s.date, slot: s.slot as SlotType | null })),
+    bookings: [
+      ...spanEntries.map((s) => ({ date: s.date, slot: s.slot as SlotType | null })),
+      // A diary item closes a half BINARILY only when it fills the whole slot
+      // cap — a 45min quote visit leaves the half open (its minutes still
+      // count via spanByDate; the grid must not sell the half as booked).
+      ...diaryEntries.filter((s) => s.minutes >= SLOT_CAPACITY_MIN[s.slot]).map((s) => ({ date: s.date, slot: s.slot as SlotType | null })),
+    ],
   });
 
   const bookedOut = booked
@@ -655,7 +693,11 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
     const profile = await findByAppToken(req.params.token);
     if (!profile) return res.status(404).json({ error: 'Link not recognised' });
 
-    const [{ bookedOut, days, spanByDate }, flexRows] = await Promise.all([
+    // Diary items (quote visits etc.) from yesterday (UK) forward — non-job
+    // time in his day, no payout/completion ceremony.
+    const diaryFromDate = new Date(`${addDaysStr(ukToday(), -1)}T00:00:00Z`);
+
+    const [{ bookedOut, days, spanByDate }, flexRows, diaryRows] = await Promise.all([
       loadJobsAndGrid(profile.id, profile.deliveryTier),
       db.select({
         id: personalizedQuotes.id,
@@ -675,7 +717,25 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
       }).from(personalizedQuotes)
         .where(and(eq(personalizedQuotes.leadContractorId, profile.id), isNotNull(personalizedQuotes.depositPaidAt), isNotNull(personalizedQuotes.flexBookingWithinDays), isNull(personalizedQuotes.bookedAt)))
         .orderBy(desc(personalizedQuotes.depositPaidAt)).limit(20),
+      db.select().from(contractorDiaryItems)
+        .where(and(eq(contractorDiaryItems.contractorId, profile.id), gte(contractorDiaryItems.date, diaryFromDate)))
+        .orderBy(contractorDiaryItems.date),
     ]);
+
+    const diaryItems = diaryRows.map((d) => ({
+      id: d.id,
+      date: diaryDayStr(d.date as any),
+      slot: d.slot,
+      startTime: d.startTime ?? null,
+      minutes: d.minutes,
+      kind: d.kind,
+      customerName: d.customerName,
+      phone: d.customerPhone ?? null,
+      address: d.address ?? null,
+      postcode: d.postcode ?? null,
+      notes: d.notes ?? null,
+      status: d.status,
+    }));
 
     const today = ukToday();
     // Span-expanded day loads (multi-day bookings occupy every day they span).
@@ -758,10 +818,28 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
       };
     });
 
-    res.json({ booked: bookedOut, flex });
+    res.json({ booked: bookedOut, flex, diaryItems });
   } catch (err: any) {
     console.error('[ContractorApp] jobs failed:', err?.message, err?.stack);
     res.status(500).json({ error: 'Failed to load your jobs' });
+  }
+});
+
+// POST /:token/diary/:id/done → mark a diary item (quote visit) done.
+router.post('/:token/diary/:id/done', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const [row] = await db.update(contractorDiaryItems)
+      .set({ status: 'done', updatedAt: new Date() })
+      .where(and(eq(contractorDiaryItems.id, req.params.id), eq(contractorDiaryItems.contractorId, profile.id)))
+      .returning();
+    if (!row) return res.status(404).json({ error: 'Diary item not found' });
+    res.json({ ok: true, id: row.id, status: row.status });
+  } catch (err: any) {
+    console.error('[ContractorApp] diary done failed:', err?.message);
+    res.status(500).json({ error: 'Failed to update diary item' });
   }
 });
 
