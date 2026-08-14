@@ -19,27 +19,49 @@ const STAGES: { n: number; title: string; sub: string; state: StageState; pay?: 
   { n: 6, title: "Completion", sub: "Balance £3,146 — when you’re happy", state: "upcoming" },
 ];
 
-// Value-weighted completion of the original agreed job (lights now complete).
-const PROGRESS = 85;
+// Value-weighted completion of the original agreed job (painting all done bar the back room).
+const PROGRESS = 95;
 
-const DONE: { t: string; amt: string }[] = [
-  { t: "Internal wall cracks repaired", amt: "£179" },
-  { t: "All ceiling & wall lights replaced", amt: "£202" },
-  { t: "Two new carpets fitted", amt: "£430" },
-  { t: "Re-plastering under the bay windows", amt: "£586" },
-  { t: "Front fascia painted (+ masonry, on us)", amt: "£365" },
-  { t: "Wall & stair repairs, splashback removed & skimmed", amt: "£545" },
-  { t: "New wall light, two-gang switch & new pendant feed", amt: "£1,055" },
-  { t: "Lining paper to the last room", amt: "£160" },
+// Per-line progress for every original + additional work item (from the itemised quote).
+type Work = { label: string; amt: string; pct: number };
+const WORKS: { group: string; items: Work[] }[] = [
+  { group: "Original works", items: [
+    { label: "Repair internal wall cracks", amt: "£179", pct: 100 },
+    { label: "Replace 10 ceiling & wall lights", amt: "£202", pct: 100 },
+    { label: "Fit 2 carpets", amt: "£430", pct: 100 },
+    { label: "Re-plaster below the bay windows", amt: "£586", pct: 100 },
+    { label: "Prepare walls for painting", amt: "£268", pct: 100 },
+    { label: "Repaint shed exterior", amt: "£174", pct: 100 },
+    { label: "Repaint 4 fence panels", amt: "£161", pct: 100 },
+    { label: "Repaint full house interior", amt: "£1,786", pct: 95 },
+    { label: "Front repointing", amt: "re-quoting", pct: 10 },
+  ] },
+  { group: "Additional works", items: [
+    { label: "Sand & paint fascia to apex", amt: "£365", pct: 100 },
+    { label: "Bonding — top of stairs", amt: "£185", pct: 100 },
+    { label: "Bonding — bay-window bedroom", amt: "£145", pct: 100 },
+    { label: "Remove old sink light & make safe", amt: "£75", pct: 100 },
+    { label: "Remove splashback & skim", amt: "£140", pct: 100 },
+    { label: "Bay-window wall light + make good", amt: "£700", pct: 100 },
+    { label: "Back-room two-gang switch", amt: "£120", pct: 100 },
+    { label: "Front-bedroom pendant feed", amt: "£235", pct: 100 },
+    { label: "Lining paper — last room", amt: "£160", pct: 100 },
+  ] },
 ];
 
 const TODO: { t: string; ours?: boolean }[] = [
-  { t: "Final paint finishing — caulking, touch-ups and tidy" },
-  { t: "Shed & fence — final coats" },
+  { t: "Downstairs back room — final paint, between Wed–Fri next week (better access while you’re out)" },
   { t: "Front repointing — re-quoted for the larger sections (a proper colour match), priced separately below" },
   { t: "Curtains — professionally cleaned, replaced if needed", ours: true },
   { t: "Full professional clean at the end", ours: true },
 ];
+
+function fmtDays(d: number): string {
+  if (d <= 0) return "—";
+  const half = Math.round(d * 2) / 2;
+  const s = half % 1 === 0 ? String(half) : `${Math.floor(half)}½`;
+  return `${s} ${half <= 1 ? "day" : "days"}`;
+}
 
 const gbp = (n: number) => "£" + n.toLocaleString("en-GB");
 const WA = "447449501762";
@@ -67,7 +89,7 @@ export default function PlanPage() {
     return s;
   }, [adds, opts]);
 
-  const { total, deposit, lines } = useMemo(() => computePlan(selection), [selection]);
+  const { total, deposit, days, lines } = useMemo(() => computePlan(selection), [selection]);
 
   const waHref = useMemo(() => {
     const t = ["Hi Handy Services — here are the extra works I'd like for 30 Sidney Road:", ""];
@@ -151,17 +173,31 @@ export default function PlanPage() {
           ))}
         </ol>
 
-        <SectionLabel muted>What’s done</SectionLabel>
+        <SectionLabel muted>Work tracker — every item</SectionLabel>
         <div className="rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
-          <ul className="flex flex-col gap-2.5">
-            {DONE.map((d) => (
-              <li key={d.t} className="flex gap-3 items-start text-[16px]">
-                <span className="text-[#2F7A3D] font-bold mt-[1px]">✓</span>
-                <span className="flex-1">{d.t}</span>
-                <span className="font-bold tabular-nums whitespace-nowrap text-[#5A6474]">{d.amt}</span>
-              </li>
-            ))}
-          </ul>
+          {WORKS.map((g) => (
+            <div key={g.group} className="mb-5 last:mb-0">
+              <div className="text-[#5A6474] text-[12px] font-bold tracking-[0.12em] uppercase mb-3">{g.group}</div>
+              <div className="flex flex-col gap-3.5">
+                {g.items.map((w) => (
+                  <div key={w.label}>
+                    <div className="flex justify-between items-baseline gap-3 text-[15px]">
+                      <span className="flex-1">{w.label}</span>
+                      <span className="tabular-nums whitespace-nowrap text-[#5A6474] text-[14px]">{w.amt}</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 mt-1.5">
+                      <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "#EDE8DC" }}>
+                        <div className="h-full rounded-full" style={{ width: `${w.pct}%`, background: w.pct === 100 ? "#2F7A3D" : "#F5A623" }} />
+                      </div>
+                      <span className="text-[12px] font-bold whitespace-nowrap" style={{ color: w.pct === 100 ? "#2F7A3D" : "#B4791F", minWidth: 44, textAlign: "right" }}>
+                        {w.pct === 100 ? "Done" : w.pct <= 10 ? "Re-quote" : `${w.pct}%`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         <SectionLabel muted>Your payments</SectionLabel>
@@ -223,6 +259,11 @@ export default function PlanPage() {
                 <span className="text-[20px] font-bold tabular-nums" style={{ color: "#1B2A4A" }}>{gbp(deposit)}</span>
               </div>
               <p className="text-[#5A6474] text-[13px] mt-1">30% of labour + materials up front. The rest is due once the work’s done and you’re happy.</p>
+              <div className="flex justify-between items-baseline mt-3 pt-3 border-t border-[#F3D9A6]">
+                <span className="text-[15px] font-semibold">Rough time on site</span>
+                <span className="text-[16px] font-bold" style={{ color: "#1B2A4A" }}>≈ {fmtDays(days)}</span>
+              </div>
+              <p className="text-[#5A6474] text-[13px] mt-1">A guide to the work involved — we’ll agree exact dates with you, never leave you guessing.</p>
             </div>
           )}
           <div className="flex flex-col gap-2.5 mt-4">
@@ -243,7 +284,7 @@ export default function PlanPage() {
           <div className="max-w-2xl mx-auto px-3">
             <div className="rounded-t-2xl bg-slate-900 text-white shadow-2xl px-4 py-3 flex items-center justify-between gap-3" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Deposit to book · {gbp(total)} total</div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-400">Deposit · {gbp(total)} total · ≈ {fmtDays(days)}</div>
                 <div className="text-[22px] font-bold tabular-nums" style={{ color: "#F5A623" }}>{gbp(deposit)}</div>
               </div>
               <button onClick={payDeposit} disabled={booking} className="rounded-xl font-bold text-[15px] px-4 py-3 whitespace-nowrap disabled:opacity-60" style={{ background: "#F5A623", color: "#1B2A4A" }}>
