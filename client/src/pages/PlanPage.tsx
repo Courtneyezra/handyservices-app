@@ -188,6 +188,13 @@ export default function PlanPage() {
           ))}
         </ol>
 
+        <div className="mt-1 rounded-2xl p-5" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
+          <div className="font-bold text-[16px] mb-1">What happens next</div>
+          <p className="text-[#5A6474] text-[15px] leading-relaxed">
+            This week we finish the <b>back room</b> and the last touches while you’re out. Then we <b>walk the whole house with you</b> — nothing’s signed off until you’re happy — and settle the <b>£2,653</b>. The extra work below is completely separate: add it whenever you like, or not at all.
+          </p>
+        </div>
+
         <SectionLabel muted>Work tracker — every item</SectionLabel>
         <div className="rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
           {WORKS.map((g) => (
