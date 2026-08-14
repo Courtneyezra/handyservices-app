@@ -247,7 +247,7 @@ export default function PlanPage() {
           <div className="font-bold text-[17px]" style={{ color: "#2F7A3D" }}>✓ Protection & full clean — included, no charge</div>
           <p className="text-[#5A6474] text-[15px] mt-1">Proper dust-sheeting, floor protection over your new carpets, rooms sealed off, a tidy-up every day, and a full clean at the end. On us.</p>
         </div>
-        <InfoCard title="Repointing — the two bays & above the front door" body="Now re-quoted as full sections — larger areas so the new mortar blends and there’s no patchy colour. This replaces the smaller repointing in your original works." note="Re-quoted for the larger area · figure to confirm · not in your total yet" />
+        <InfoCard title="Repointing — the two bays & above the front door — £2,450" body="Re-quoted as full sections — the whole of both bays plus the panel above the front door, so the new mortar blends and there’s no patchy colour. This replaces the smaller repointing in your original works. Tower access is included (no extra)." note="£2,450 · tower access included · confirmed on final measure · separate from your balance" />
         <InfoCard title="Kitchen damp / mould treatment" body="Priced once we’ve taken the corner unit out and seen the wall — no guesswork." note="Priced after the check above · not in your total yet" />
 
         <section className="mt-6 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
