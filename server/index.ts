@@ -65,6 +65,7 @@ import contentRouter from './content';
 import quotePlatformRouter, { autoSeedIfEmpty as autoSeedQuotePlatform } from './quote-platform/routes';
 import { setupCronJobs } from './cron';
 import uploadRouter from "./upload";
+import planRouter from "./plan-routes"; // customer /plan/:slug additional-works deposit checkout
 import invoiceRouter from './invoices'; // B2: Invoice management
 import prizeWheelRouter from './prize-wheel-routes'; // prize-wheel odds config
 import rewardsRouter from './rewards-routes'; // prize-wheel reward claim + email
@@ -385,6 +386,7 @@ app.use(prizeWheelRouter); // prize-wheel odds config (admin-editable)
 app.use(rewardsRouter); // prize-wheel reward claim + email
 app.use(quoteAnalyticsRouter);
 app.use(contentLibraryRouter);
+app.use('/api/plan', planRouter); // customer plan page — additional-works deposit checkout
 app.use('/api/quote-platform', quotePlatformRouter);
 app.use(leadsRouter);
 app.use('/api', voiceRouter);
