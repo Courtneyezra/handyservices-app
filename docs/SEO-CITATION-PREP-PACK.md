@@ -4,17 +4,15 @@ _Created 14 Aug 2026. Copy-paste content for the Wave-1 directory listings in th
 
 ---
 
-## ⚠️ DECIDE THESE FIRST (NAP inconsistencies found in the code/live site)
+## NAP decisions — RESOLVED 14 Aug 2026
 
-Pulling the brand data surfaced conflicts. Citations are only worth doing if every listing matches — so lock these before submitting anything:
-
-| Field | Conflict found | Decision needed |
-|---|---|---|
-| **Phone** | Live site CTAs call **07449 501762**; JSON-LD schema says **0115 824 0000** | Pick the **one number that actually rings + is answered** and use it everywhere. A real local **0115** landline reads best for local trust — but only if it's monitored. If the 0115 isn't real, remove it from the schema too. **My default below uses 07449 501762** (what the live site uses). Change if the 0115 is the true line. |
-| **Socials** | Schema lists `facebook.com/handyservicesapp` + `instagram.com/handyservicesapp`; the old search results showed `facebook.com/handymannottinghamm` + `instagram.com/handymannottingham` | Confirm which handles are **live**. Cite only the active ones. Update or redirect the old ones. |
-| **Email** | Schema `hello@handyservices.app`; old domain used `Info@handymannottingham.club` | Use a live `@handyservices.app` address. Default below: `hello@handyservices.app`. |
-| **Hours** | Not in code | Fill in real opening hours (default assumed below — confirm). |
-| **Year established** | Unknown | Some directories ask. Fill in the real founding year. |
+| Field | Status |
+|---|---|
+| **Phone** | ✅ **07449 501762** (confirmed the answered line). JSON-LD schema + llms.txt corrected to match — the old 0115 824 0000 was a bug. |
+| **Email** | ✅ **hello@handyservices.app** — ⚠️ **must be created before submitting**: directories send verification emails there. Set up the mailbox first. |
+| **Hours** | ✅ **24/7 (Open 24 hours)** — make sure the phone is genuinely answerable out-of-hours; 24/7 on a line that doesn't respond hurts more than it helps. |
+| **Year established** | ✅ **2015** |
+| **Socials** | ⚠️ **STILL OPEN** — schema uses `@handyservicesapp` (FB + IG); old listings used `@handymannottingham(m)`. Confirm which handles are live; cite only those, and redirect/update the old ones. |
 
 ---
 
@@ -27,9 +25,11 @@ City:            Nottingham
 County:          Nottinghamshire
 Postcode:        NG7 3QH
 Country:         United Kingdom
-Phone:           07449 501762          ← confirm vs 0115 824 0000
-Email:           hello@handyservices.app
+Phone:           07449 501762
+Email:           hello@handyservices.app   (create this mailbox first)
 Website:         https://www.handyservices.app
+Established:     2015
+Hours:           Open 24 hours (24/7)
 ```
 
 - **Format the phone consistently** — pick one style (e.g. `07449 501762`) and never vary it (no `+44`, no brackets, everywhere the same).
@@ -95,7 +95,8 @@ Insurance:        £2M public-liability insurance
 Guarantee:        Workmanship guarantee — we return and fix free if it's not right
 Payment methods:  Cash, Credit Card, Debit Card, Apple Pay, Google Pay
 Price range:      ££
-Opening hours:    Mon–Sat 08:00–18:00   ← CONFIRM
+Opening hours:    Open 24 hours (24/7)
+Established:       2015
 Free quotes:      Yes
 ```
 
