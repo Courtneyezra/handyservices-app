@@ -11,13 +11,13 @@ import { PLAN_ITEMS, computePlan, type PlanItem, type PlanOption, type Selection
  */
 
 type StageState = "done" | "current" | "upcoming";
-const STAGES: { n: number; title: string; sub: string; state: StageState; pay?: boolean }[] = [
+const STAGES: { n: number; title: string; sub: string; state: StageState; pay?: boolean; next?: boolean }[] = [
   { n: 1, title: "Quote agreed", sub: "Original works · £4,281", state: "done" },
   { n: 2, title: "Deposit paid", sub: "£1,760", state: "done", pay: true },
   { n: 3, title: "Works underway", sub: "Extra repairs £910 + new hard-wired lighting", state: "done" },
   { n: 4, title: "Milestone paid", sub: "£1,500", state: "done", pay: true },
-  { n: 5, title: "Finishing stage", sub: "You are here", state: "current" },
-  { n: 6, title: "Completion", sub: "Balance £3,146 — when you’re happy", state: "upcoming" },
+  { n: 5, title: "Finishing stage", sub: "You are here — back room this week", state: "current" },
+  { n: 6, title: "Completion & final balance", sub: "£2,653 due once it’s finished and you’re happy", state: "upcoming", next: true },
 ];
 
 // Value-weighted completion of the original agreed job (painting all done bar the back room).
@@ -166,17 +166,21 @@ export default function PlanPage() {
               <span className="absolute -left-9 top-1 grid place-items-center rounded-full text-[13px] font-bold"
                 style={{ width: 32, height: 32,
                   background: s.state === "done" ? "#2F7A3D" : s.state === "current" ? "#F5A623" : "#FFFFFF",
-                  color: s.state === "upcoming" ? "#9AA1AC" : "#FFFFFF",
-                  border: s.state === "upcoming" ? "2px solid #D8D3C6" : "none",
+                  color: s.state === "done" || s.state === "current" ? "#FFFFFF" : s.next ? "#B4791F" : "#9AA1AC",
+                  border: s.next ? "2px dashed #F5A623" : s.state === "upcoming" ? "2px solid #D8D3C6" : "none",
                   boxShadow: s.state === "current" ? "0 0 0 5px rgba(245,166,35,.22)" : "none" }} aria-hidden>
                 {s.state === "done" ? "✓" : s.n}
               </span>
-              <div className="rounded-xl border p-4 shadow-sm"
-                style={{ background: s.state === "current" ? "#FFF8EC" : "#FFFFFF", borderColor: s.state === "current" ? "#F3D9A6" : "#E7E2D6" }}>
+              <div className="rounded-xl p-4 shadow-sm"
+                style={{
+                  background: s.state === "current" ? "#FFF8EC" : s.next ? "#FFFDF6" : "#FFFFFF",
+                  border: s.next ? "1.5px dashed #E9B44C" : "1px solid " + (s.state === "current" ? "#F3D9A6" : "#E7E2D6"),
+                }}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-bold text-[17px]">{s.title}</div>
                   {s.pay && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style={{ background: "#EAF4EC", color: "#2F7A3D" }}>Paid</span>}
                   {s.state === "current" && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style={{ background: "#F5A623", color: "#1B2A4A" }}>Now</span>}
+                  {s.next && <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style={{ background: "#FFF1D6", color: "#B4791F", border: "1px solid #E9B44C" }}>Next ▸</span>}
                 </div>
                 <div className="text-[#5A6474] text-[14px] mt-0.5">{s.sub}</div>
               </div>
@@ -218,9 +222,9 @@ export default function PlanPage() {
           <PayRow label="Paid so far" value="£3,260.00" />
           <div className="flex justify-between items-baseline mt-2 pt-3 border-t-2 border-[#1B2A4A]">
             <span className="text-[17px] font-bold">Balance on completion</span>
-            <span className="text-[20px] font-bold tabular-nums" style={{ color: "#F5A623" }}>£3,146.00</span>
+            <span className="text-[20px] font-bold tabular-nums" style={{ color: "#F5A623" }}>£2,653.00</span>
           </div>
-          <p className="text-[#5A6474] text-[13.5px] mt-3">The balance is due only when the agreed works are finished and you’re happy — not before.</p>
+          <p className="text-[#5A6474] text-[13.5px] mt-3">The balance is due only when the agreed works are finished and you’re happy — not before. Repointing is quoted separately (below).</p>
         </div>
 
         <SectionLabel muted>Still to finish — included in the above</SectionLabel>
@@ -304,7 +308,7 @@ export default function PlanPage() {
             <a href={waHref} className="h-14 rounded-2xl font-bold text-[16px] grid place-items-center border-2 border-[#E7E2D6]">Send my choices instead (no payment)</a>
             <a href="tel:+447449501762" className="h-12 rounded-2xl font-semibold text-[15px] grid place-items-center text-[#5A6474]">Prefer to talk it through? Call Courtnee</a>
           </div>
-          <p className="text-[#5A6474] text-[13px] mt-4 leading-relaxed">Prices are fixed and include all materials. This is on top of your existing project — not part of the £3,146 balance. Paying the deposit books the work; we’ll then agree a start date together.</p>
+          <p className="text-[#5A6474] text-[13px] mt-4 leading-relaxed">Prices are fixed and include all materials. This is on top of your existing project — not part of the £2,653 balance. Paying the deposit books the work; we’ll then agree a start date together.</p>
         </section>
       </main>
 
