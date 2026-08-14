@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Loader2, ShieldCheck, Star, Wrench } from 'lucide-react';
+import { usePageShown } from '@/hooks/usePageShown';
 import handyLogo from '@/assets/handy-logo-transparent.png';
 import { AxaLogo } from '@/components/AxaInsuredBadge';
 import { orbitAvatarsForVertical } from '@/lib/contractor-roster';
@@ -197,14 +198,22 @@ function OrbitLoader({ ready, onComplete, customerName, pricingSettings, subcopy
   const lhAvatarRef = useRef<HTMLDivElement>(null);
   const flipFromRef = useRef<DOMRect | null>(null);
 
+  // The theatre only plays while someone can SEE it. In a document with no
+  // rendering frames (background tab, unpresented in-app browser view) the
+  // beat timers would still fire while every rise-animated element holds at
+  // opacity 0 — the customer switches over to a half-blank page "frozen
+  // mid-theatre". Holding the FIRST beat until the page is shown keeps the
+  // whole chain honest; `instant` stays ungated (it has no visual show).
+  const pageShown = usePageShown();
+
   // Orbit → resolve after ORBIT_MS ('checklist' hold freezes the orbit).
   // While the brand is pending (quote still loading), hold the orbit — never
   // resolve onto a fallback face before the real skin/vertical is known.
   useEffect(() => {
-    if (resolved || instant || holdBeat === 'checklist' || brandPending) return;
+    if (resolved || instant || holdBeat === 'checklist' || brandPending || !pageShown) return;
     const t = setTimeout(() => setResolved(true), ORBIT_MS);
     return () => clearTimeout(t);
-  }, [resolved, instant, holdBeat, brandPending]);
+  }, [resolved, instant, holdBeat, brandPending, pageShown]);
 
   // Late skip: `instant` is seeded into resolved/resolveDone at mount, but the
   // signals that flip it on (server viewCount>1, paid/booked) arrive WITH the
@@ -549,6 +558,8 @@ function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, sub
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
   const [activeStep, setActiveStep] = useState(instant ? STEPS_TO_USE.length : 0);
   const completedRef = useRef(false);
+  // Same visibility gate as the orbit — the checklist only ticks while shown.
+  const pageShown = usePageShown();
 
   useEffect(() => {
     if (activeStep >= STEPS_TO_USE.length) return;
@@ -556,9 +567,10 @@ function ChecklistLoader({ ready, onComplete, customerName, pricingSettings, sub
       setActiveStep(STEPS_TO_USE.length);
       return;
     }
+    if (!pageShown) return;
     const t = setTimeout(() => setActiveStep((s) => s + 1), STEPS_TO_USE[activeStep]?.dwellMs ?? STEP_MS);
     return () => clearTimeout(t);
-  }, [activeStep, STEPS_TO_USE.length, instant]);
+  }, [activeStep, STEPS_TO_USE.length, instant, pageShown]);
 
   useEffect(() => {
     if (completedRef.current) return;

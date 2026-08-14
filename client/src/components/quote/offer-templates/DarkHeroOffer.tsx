@@ -14,6 +14,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import handyLogo from '@/assets/handy-logo-transparent.png';
+import { usePageShown } from '@/hooks/usePageShown';
 import { HS_GREEN, firstNameOf, type OfferTemplateProps } from './types';
 
 /**
@@ -165,12 +166,16 @@ export function DarkHeroOffer({ offer, render, customerName, skin, addonMenu, on
     typeof window !== 'undefined' &&
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const [settled, setSettled] = useState(reduceMotion);
+  // Only run the hold-then-slide beat while the page is actually displayed —
+  // in a rendering-starved document (background tab) the timer would fire
+  // invisibly and the customer would arrive mid-scene. See usePageShown.
+  const pageShown = usePageShown();
   useEffect(() => {
-    if (reduceMotion) return;
+    if (reduceMotion || !pageShown) return;
     // Brief centred hold so the handoff frame registers, then slide up.
     const t = setTimeout(() => setSettled(true), 650);
     return () => clearTimeout(t);
-  }, [reduceMotion]);
+  }, [reduceMotion, pageShown]);
 
   return (
     <div className="min-h-screen bg-[#1D2D3D] text-white flex flex-col items-center justify-center px-6 py-2 font-sans antialiased">
