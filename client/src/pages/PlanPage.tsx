@@ -56,9 +56,16 @@ const TODO: { t: string; ours?: boolean }[] = [
   { t: "Full professional clean at the end", ours: true },
 ];
 
+// Adaptive rough-effort label: half-day → days → working weeks (5 working days/week).
 function fmtDays(d: number): string {
   if (d <= 0) return "—";
+  if (d <= 0.5) return "half a day";
   const half = Math.round(d * 2) / 2;
+  if (half >= 10) {
+    const weeks = Math.round((half / 5) * 2) / 2; // working weeks, nearest half
+    const ws = weeks % 1 === 0 ? String(weeks) : `${Math.floor(weeks)}½`;
+    return `${ws} ${weeks <= 1 ? "week" : "weeks"}`;
+  }
   const s = half % 1 === 0 ? String(half) : `${Math.floor(half)}½`;
   return `${s} ${half <= 1 ? "day" : "days"}`;
 }
