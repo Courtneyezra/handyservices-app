@@ -3,7 +3,8 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { db } from './db';
 import { personalizedQuotes, invoices, leads } from '../shared/schema';
-import { notifyQuoteAccepted, notifyNoContractor, notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
+import { notifyQuoteAccepted, notifyNoContractor, notifyInvoicePaid, notifyPlanDepositPaid, describeSchedule, summarizeLineItems } from './pushover';
+import { computePlan, type Selection as PlanSelection } from '../shared/plan-pricing';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
@@ -1337,6 +1338,24 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         // Never let a slot-offer failure 500 the webhook (Stripe would retry the
                         // whole event); log and acknowledge so other handlers stay unaffected.
                         console.error('[Stripe Webhook] confirmPaidPick threw:', slotErr);
+                    }
+                } else if (session.metadata?.kind === 'plan_additional_deposit') {
+                    // Customer paid the additional-works deposit on the /plan/:slug page.
+                    // Re-derive the human-readable items from the stored selection and alert the team.
+                    try {
+                        let selection: PlanSelection[] = [];
+                        try { selection = JSON.parse(session.metadata.items || '[]'); } catch { /* keep empty */ }
+                        const plan = computePlan(selection);
+                        await notifyPlanDepositPaid({
+                            customerName: session.customer_details?.name || 'Alicia',
+                            slug: session.metadata.slug || '',
+                            depositPence: parseInt(session.metadata.depositPence || '0', 10) || (session.amount_total ?? 0),
+                            totalPence: parseInt(session.metadata.worksTotalPence || '0', 10) || (plan.total * 100),
+                            itemTitles: plan.lines.map((l) => `${l.title} — £${l.price.toLocaleString('en-GB')}`),
+                        });
+                        console.log(`[Stripe Webhook] plan deposit paid (${session.metadata.slug}) — ${plan.lines.length} item(s), deposit ${session.metadata.depositPence}p`);
+                    } catch (planErr) {
+                        console.error('[Stripe Webhook] plan deposit notify threw:', planErr);
                     }
                 } else {
                     console.log('[Stripe Webhook] checkout.session.completed — not a slot-offer premium, ignoring');

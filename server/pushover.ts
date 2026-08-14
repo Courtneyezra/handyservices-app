@@ -254,6 +254,29 @@ export async function notifySiteSurveySubmitted(alert: SiteSurveyAlert): Promise
     });
 }
 
+interface PlanDepositAlert {
+    customerName?: string | null;
+    slug: string;
+    depositPence: number;
+    totalPence: number;
+    itemTitles: string[];
+}
+
+/** Fire a "plan additional-works deposit paid" push alert (customer booked extras). */
+export async function notifyPlanDepositPaid(alert: PlanDepositAlert): Promise<void> {
+    const who = alert.customerName?.trim() || 'Customer';
+    const gbp = (p: number) => '£' + Math.round(p / 100).toLocaleString('en-GB');
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const items = alert.itemTitles.slice(0, 15).map((t) => `• ${t}`).join('\n');
+    const more = alert.itemTitles.length > 15 ? `\n…+${alert.itemTitles.length - 15} more` : '';
+    await dispatch({
+        event: 'quote_accepted',
+        title: '💷 Extras deposit paid — 30 Sidney Road',
+        message: `${who} booked ${alert.itemTitles.length} extra item(s).\nDeposit ${gbp(alert.depositPence)} of ${gbp(alert.totalPence)} works.\n\n${items}${more}\n\n${baseUrl}/plan/${alert.slug}`,
+        force: true,
+    });
+}
+
 interface InboundMessageAlert {
     senderName?: string | null;
     phoneNumber?: string | null;
