@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useRoute } from "wouter";
 import handyLogo from "@/assets/handy-logo-transparent.png";
 import aliciaPhoto from "@/assets/alicia.jpg";
-import { PLAN_ITEMS, computePlan, type PlanItem, type PlanOption, type Selection } from "@shared/plan-pricing";
+import { PLAN_ITEMS, computePlan, type PlanItem, type PlanOption, type PlanCallout, type Selection } from "@shared/plan-pricing";
 
 /**
  * Public customer project page — the full story + additional-works choices.
@@ -89,6 +89,7 @@ export default function PlanPage() {
   const selection: Selection[] = useMemo(() => {
     const s: Selection[] = [];
     for (const it of PLAN_ITEMS) {
+      if (it.accepted) { s.push(it.kind === "opt" ? { id: it.id, opt: 0 } : { id: it.id }); continue; }
       if (it.kind === "add") { if (adds[it.id]) s.push({ id: it.id }); }
       else { const o = opts[it.id]; if (o != null && it.options[o] && it.options[o].price > 0) s.push({ id: it.id, opt: o }); }
     }
@@ -97,12 +98,6 @@ export default function PlanPage() {
 
   const { total, deposit, days, lines } = useMemo(() => computePlan(selection), [selection]);
 
-  const waHref = useMemo(() => {
-    const t = ["Hi Handy Services — here are the extra works I'd like for 30 Sidney Road:", ""];
-    lines.forEach((x) => t.push("• " + x.title + " — " + gbp(x.price)));
-    t.push("", "Extras total: " + gbp(total), "Deposit to start: " + gbp(deposit), "(Sent from my online project plan)");
-    return `https://wa.me/${WA}?text=` + encodeURIComponent(t.join("\n"));
-  }, [lines, total, deposit]);
 
   async function payDeposit() {
     if (!selection.length || booking) return;
@@ -256,19 +251,25 @@ export default function PlanPage() {
 
         {groups.map(([label, items]) => {
           const suggested = label.startsWith("Finishing");
+          const accepted = label === "Already accepted";
           return (
             <div key={label}>
-              {suggested ? (
-                <div className="mt-8 mb-3 rounded-xl px-4 py-3" style={{ background: "#EEF3FA", border: "1px solid #C3D0E6" }}>
-                  <div className="text-[13px] font-bold tracking-[0.10em] uppercase" style={{ color: "#3B5BA5" }}>✦ Things we spotted — our suggestions</div>
-                  <p className="text-[#5A6474] text-[14px] mt-0.5">Not on your original list — bits we noticed that would tidy the house up. Entirely optional.</p>
+              {accepted ? (
+                <div className="mt-6 mb-3 rounded-xl px-4 py-3" style={{ background: "#EAF4EC", border: "1px solid #BFE0C6" }}>
+                  <div className="text-[15px] font-extrabold uppercase tracking-wide" style={{ color: "#2F7A3D" }}>✓ Already accepted</div>
+                  <p className="text-[#5A6474] text-[14px] mt-0.5">You’ve said yes to this — the deposit is taken together with anything else you add below.</p>
+                </div>
+              ) : suggested ? (
+                <div className="mt-8 mb-3 rounded-xl px-4 py-3.5" style={{ background: "#EEF3FA", border: "1px solid #C3D0E6" }}>
+                  <div className="text-[18px] font-extrabold tracking-tight" style={{ color: "#3B5BA5" }}>✦ Things we spotted — our suggestions</div>
+                  <p className="text-[#5A6474] text-[14.5px] mt-1">Not on your original list — bits we noticed that would tidy the house up. Entirely optional.</p>
                 </div>
               ) : (
                 <div className="text-[#5A6474] text-[12.5px] font-bold tracking-[0.14em] uppercase mt-6 mb-3 px-1">{label}</div>
               )}
               {items.map((it) => it.kind === "add"
-                ? <AddCard key={it.id} title={it.title} desc={it.desc} price={it.price} suggested={suggested} on={!!adds[it.id]} onToggle={() => setAdds((s) => ({ ...s, [it.id]: !s[it.id] }))} />
-                : <OptCard key={it.id} title={it.title} desc={it.desc} options={it.options} chosen={opts[it.id] ?? -1} onChoose={(i) => setOpts((s) => ({ ...s, [it.id]: i }))} />
+                ? <AddCard key={it.id} title={it.title} desc={it.desc} price={it.price} callout={it.callout} accepted={it.accepted} suggested={suggested} on={!!adds[it.id]} onToggle={() => setAdds((s) => ({ ...s, [it.id]: !s[it.id] }))} />
+                : <OptCard key={it.id} title={it.title} desc={it.desc} callout={it.callout} options={it.options} chosen={opts[it.id] ?? -1} onChoose={(i) => setOpts((s) => ({ ...s, [it.id]: i }))} />
               )}
             </div>
           );
@@ -318,7 +319,6 @@ export default function PlanPage() {
               style={{ background: "#F5A623", color: "#1B2A4A" }}>
               {booking ? "Starting secure payment…" : total > 0 ? `Pay ${gbp(deposit)} deposit to book` : "Choose your extras to book"}
             </button>
-            <a href={waHref} className="h-14 rounded-2xl font-bold text-[16px] grid place-items-center border-2 border-[#E7E2D6]">Send my choices instead (no payment)</a>
             <a href="tel:+447449501762" className="h-12 rounded-2xl font-semibold text-[15px] grid place-items-center text-[#5A6474]">Prefer to talk it through? Call Courtnee</a>
           </div>
           <p className="text-[#5A6474] text-[13px] mt-4 leading-relaxed">Prices are fixed and include all materials. This is on top of your existing project — not part of the £2,653 balance. Paying the deposit books the work; we’ll then agree a start date together.</p>
@@ -357,30 +357,53 @@ function PayRow({ label, value, paid }: { label: string; value: string; paid?: b
   );
 }
 
-function AddCard({ title, desc, price, on, onToggle, suggested }: { title: string; desc: string; price: number; on: boolean; onToggle: () => void; suggested?: boolean }) {
+function Callout({ callout }: { callout: PlanCallout }) {
+  if (callout.kind === "goodwill") {
+    return (
+      <div className="mt-3 rounded-xl p-3.5 border-2" style={{ background: "#EAF4EC", borderColor: "#2F7A3D" }}>
+        <p className="text-[15px] font-bold leading-snug" style={{ color: "#1B2A4A" }}>{callout.text}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 rounded-xl p-3.5 flex gap-2.5 items-start" style={{ background: "#EEF3FA", border: "1px solid #C3D0E6" }}>
+      <span className="text-[18px] leading-none mt-0.5" aria-hidden>💡</span>
+      <p className="text-[#3B4A63] text-[14px] leading-snug">{callout.text}</p>
+    </div>
+  );
+}
+
+function AddCard({ title, desc, price, on, onToggle, suggested, callout, accepted }: { title: string; desc: string; price: number; on: boolean; onToggle: () => void; suggested?: boolean; callout?: PlanCallout; accepted?: boolean }) {
   const restBg = suggested ? "#EEF3FA" : "#FFFFFF";
   const restBorder = suggested ? "#C3D0E6" : "#E7E2D6";
+  const active = on || accepted;
   return (
-    <div className="rounded-2xl border shadow-sm p-4 sm:p-[18px] mb-3 sm:mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : restBg, borderColor: on ? "#BFE0C6" : restBorder }}>
+    <div className="rounded-2xl border shadow-sm p-4 sm:p-[18px] mb-3 sm:mb-3.5 transition-colors" style={{ background: active ? "#EAF4EC" : restBg, borderColor: active ? "#BFE0C6" : restBorder }}>
       <h3 className="text-[17px] sm:text-[19px] font-bold leading-snug">{title}</h3>
       <p className="text-[#5A6474] text-[14.5px] sm:text-[15.5px] mt-1">{desc}</p>
+      {callout && <Callout callout={callout} />}
       <div className="flex items-center justify-between gap-3 mt-3.5">
         <span className="text-[19px] sm:text-[20px] font-bold tabular-nums">{gbp(price)}</span>
-        <button onClick={onToggle} aria-pressed={on} className="min-h-12 px-5 rounded-full font-bold text-[15.5px] border-2 inline-flex items-center gap-2 transition-colors"
-          style={on ? { background: "#2F7A3D", borderColor: "#2F7A3D", color: "#fff" } : { background: "transparent", borderColor: "#1B2A4A", color: "#1B2A4A" }}>
-          {on ? "✓ Added" : "＋ Add"}
-        </button>
+        {accepted ? (
+          <span className="min-h-12 px-5 rounded-full font-bold text-[15.5px] inline-flex items-center gap-2" style={{ background: "#2F7A3D", color: "#fff" }}>✓ Accepted</span>
+        ) : (
+          <button onClick={onToggle} aria-pressed={on} className="min-h-12 px-5 rounded-full font-bold text-[15.5px] border-2 inline-flex items-center gap-2 transition-colors"
+            style={on ? { background: "#2F7A3D", borderColor: "#2F7A3D", color: "#fff" } : { background: "transparent", borderColor: "#1B2A4A", color: "#1B2A4A" }}>
+            {on ? "✓ Added" : "＋ Add"}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function OptCard({ title, desc, options, chosen, onChoose }: { title: string; desc: string; options: PlanOption[]; chosen: number; onChoose: (i: number) => void }) {
+function OptCard({ title, desc, options, chosen, onChoose, callout }: { title: string; desc: string; options: PlanOption[]; chosen: number; onChoose: (i: number) => void; callout?: PlanCallout }) {
   const on = chosen >= 0 && options[chosen] && options[chosen].price > 0;
   return (
     <div className="rounded-2xl border shadow-sm p-4 sm:p-[18px] mb-3 sm:mb-3.5 transition-colors" style={{ background: on ? "#EAF4EC" : "#FFFFFF", borderColor: on ? "#BFE0C6" : "#E7E2D6" }}>
       <h3 className="text-[17px] sm:text-[19px] font-bold leading-snug">{title}</h3>
       <p className="text-[#5A6474] text-[14.5px] sm:text-[15.5px] mt-1">{desc}</p>
+      {callout && <Callout callout={callout} />}
       <div className="flex flex-col gap-2.5 mt-3.5">
         {options.map((o, i) => {
           const active = chosen === i;

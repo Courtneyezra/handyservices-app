@@ -8,13 +8,21 @@
 
 export type PlanOption = { label: string; price: number; labour: number; materials: number; days: number };
 
+export type PlanCallout = { text: string; kind: "goodwill" | "info" };
+
 export type PlanItem =
-  | { id: string; kind: "add"; group: string; title: string; desc: string; price: number; labour: number; materials: number; days: number }
-  | { id: string; kind: "opt"; group: string; title: string; desc: string; options: PlanOption[] };
+  | { id: string; kind: "add"; group: string; title: string; desc: string; price: number; labour: number; materials: number; days: number; callout?: PlanCallout; accepted?: boolean }
+  | { id: string; kind: "opt"; group: string; title: string; desc: string; options: PlanOption[]; callout?: PlanCallout; accepted?: boolean };
 
 export const DEPOSIT_LABOUR_RATE = 0.30; // 30% of labour taken up front
 
 export const PLAN_ITEMS: PlanItem[] = [
+  // ---- Already accepted (deposit taken with the extras) ----
+  { id: "bathroom-damp", kind: "add", group: "Already accepted", accepted: true,
+    title: "Downstairs bathroom — damp repair & redecorate",
+    desc: "You’ve approved this one. Treat the small rising-damp patch by the toilet at the source (chemical DPC + salt-resistant render), then repaint once dry. Two stages — damp repair now, paint once the wall’s dry. You supply the paint; we supply all the damp materials.",
+    price: 625, labour: 535, materials: 90, days: 2 },
+
   // ---- Upstairs ----
   { id: "bay-walls", kind: "opt", group: "Upstairs", title: "Front bay bedroom — walls",
     desc: "Take down the old mirror and light, make good, and re-paper in thick, textured (paintable) paper that hides imperfections. The room’s already painted; this sorts the wallpaper. Your new carpet is fully protected throughout.",
@@ -39,19 +47,23 @@ export const PLAN_ITEMS: PlanItem[] = [
   { id: "bath-cupboard", kind: "add", group: "Upstairs", title: "Bathroom cupboard",
     desc: "Prep, prime and gloss the cupboard front and shelves.", price: 150, labour: 125, materials: 25, days: 0.5 },
   { id: "bay-sections", kind: "add", group: "Upstairs", title: "The two re-plastered bay sections",
-    desc: "Paper over the two freshly-plastered bay-window sections to finish them off — labour only (you supply the paper).", price: 200, labour: 200, materials: 0, days: 0.5 },
+    desc: "Paper over the two freshly-plastered bay-window sections to finish them off — labour only (you supply the paper).", price: 280, labour: 280, materials: 0, days: 0.5 },
 
   // ---- Downstairs ----
   { id: "entrance-wall", kind: "add", group: "Downstairs", title: "Entrance wall — as you come in",
     desc: "Skim the wall on the right as you come through the front door, and make good.", price: 350, labour: 295, materials: 55, days: 0.5 },
   { id: "halls-stairs", kind: "add", group: "Downstairs", title: "Halls & stairs",
-    desc: "The whole downstairs hallway, the landing and the stairwell — thick, textured (paintable) paper that hides any imperfections. We’ll repaint it for free and refund what you paid for the paint last time — our way of putting the finish right.", price: 1789, labour: 1500, materials: 289, days: 3.5 },
+    desc: "The whole downstairs hallway, the landing and the stairwell — thick, textured (paintable) paper that hides any imperfections.",
+    callout: { kind: "goodwill", text: "We’ll repaint it for free and refund what you paid for the paint last time — our way of putting the finish right." },
+    price: 1789, labour: 1500, materials: 289, days: 3.5 },
   { id: "kitchen-paint", kind: "add", group: "Downstairs", title: "Kitchen — cracks & repaint",
     desc: "Fill all the cracks and repaint the kitchen ceiling and walls.", price: 460, labour: 380, materials: 80, days: 1.5 },
   { id: "kitchen-grout", kind: "add", group: "Downstairs", title: "Kitchen — re-grout tiles",
     desc: "Rake out and re-grout the kitchen tiling for a clean, fresh finish.", price: 220, labour: 170, materials: 50, days: 0.5 },
   { id: "kitchen-check", kind: "add", group: "Downstairs", title: "Kitchen — check the damp behind the corner unit",
-    desc: "We won’t guess at the mould. We’ll take out the corner unit to see the actual wall and find the real cause. If it needs a repair, it’s typically £300–£650 depending on what’s behind there — we’ll price it exactly once we can see it, so you never pay for work you don’t need.", price: 150, labour: 140, materials: 10, days: 0.5 },
+    desc: "We won’t guess at the mould. We’ll take out the corner unit to see the actual wall and find the real cause.",
+    callout: { kind: "info", text: "If it needs a repair, it’s typically £300–£650 depending on what’s behind there — we’ll price it exactly once we can see it, so you never pay for work you don’t need." },
+    price: 150, labour: 140, materials: 10, days: 0.5 },
 
   // ---- Doors, banister & archway ----
   { id: "doors", kind: "add", group: "Doors, banister & archway", title: "5 internal doors",
