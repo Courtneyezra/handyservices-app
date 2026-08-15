@@ -142,13 +142,13 @@ export default function PlanPage() {
         {/* PROGRESS BAR — original agreed job */}
         <div className="mt-4 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
           <div className="flex items-baseline justify-between mb-2">
-            <span className="font-bold text-[16px]">Your project — completion</span>
-            <span className="font-bold text-[18px] tabular-nums" style={{ color: "#2F7A3D" }}>{PROGRESS}%</span>
+            <span className="font-bold text-[16px]">Your original project</span>
+            <span className="font-bold text-[18px] tabular-nums" style={{ color: "#2F7A3D" }}>{PROGRESS}% done</span>
           </div>
           <div className="h-3.5 rounded-full overflow-hidden" style={{ background: "#EDE8DC" }} role="progressbar" aria-valuenow={PROGRESS} aria-valuemin={0} aria-valuemax={100}>
             <div className="h-full rounded-full transition-all" style={{ width: `${PROGRESS}%`, background: "linear-gradient(90deg,#2F7A3D,#4F9E5B)" }} />
           </div>
-          <p className="text-[#5A6474] text-[14px] mt-2.5">On the home straight — most of the agreed works are complete, with the finishing items below still to wrap up.</p>
+          <p className="text-[#5A6474] text-[14px] mt-2.5">This is the work you originally agreed — nearly there, just the finishing items to wrap up. Any <b>extra work further down is separate</b>, and entirely your choice.</p>
         </div>
 
         <SectionLabel>The story so far</SectionLabel>
