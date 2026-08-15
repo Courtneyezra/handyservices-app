@@ -95,9 +95,14 @@ export function RequestVideoModal({
             context: string;
             callId?: string;
         }) => {
+            // /api/whatsapp/send-template requires admin auth — without this header it 401s.
+            const token = localStorage.getItem('adminToken');
             const res = await fetch('/api/whatsapp/send-template', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
                 body: JSON.stringify({
                     number: data.phone,
                     template: 'request_video',

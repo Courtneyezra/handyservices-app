@@ -8,7 +8,7 @@
  * - Real-time broadcasting
  */
 
-import { twilioClient, TWILIO_WHATSAPP_NUMBER } from './twilio-client';
+import { twilioClient, getWhatsAppSender } from './twilio-client';
 import { WebSocket, WebSocketServer } from 'ws';
 import { db } from './db';
 import { conversations, messages, type InsertConversation, type InsertMessage } from '../shared/schema';
@@ -227,10 +227,23 @@ export class ConversationEngine {
         console.log('[ConversationEngine] Inbound from:', From);
 
         try {
+            // Twilio prefixes WhatsApp senders with "whatsapp:"; a bare number is SMS. Both are
+            // reduced to the same conversation key so one person = one thread across channels.
+            const isWhatsApp = String(From).startsWith('whatsapp:');
+            const channel: 'whatsapp' | 'sms' = isWhatsApp ? 'whatsapp' : 'sms';
+
             const fromNumber = From.replace('whatsapp:', '').replace('+', '');
             const phoneNumber = `${fromNumber}@c.us`; // Normalized format
             const hasMedia = parseInt(NumMedia || '0') > 0;
             const now = new Date();
+
+            // Only an inbound WHATSAPP message opens Meta's 24-hour freeform window. An SMS does
+            // not — advancing lastInboundAt/canSendFreeform on an SMS would make the app believe
+            // it can send WhatsApp freeform and get rejected with error 63016. lastCustomerContactAt
+            // tracks "last heard from them on any channel" and is what the SLA clock reads.
+            const windowFields = isWhatsApp
+                ? { lastInboundAt: now, canSendFreeform: true, templateRequired: false }
+                : {};
 
             // 1. Get or Create Conversation
             let conv = await db.query.conversations.findFirst({
@@ -245,23 +258,21 @@ export class ConversationEngine {
                     status: 'active',
                     stage: 'new',
                     lastMessageAt: now,
-                    lastInboundAt: now,
-                    canSendFreeform: true,
-                    templateRequired: false,
+                    lastCustomerContactAt: now,
+                    ...windowFields,
                     lastMessagePreview: Body || (hasMedia ? 'Media received' : ''),
                     unreadCount: 1,
                 };
                 await db.insert(conversations).values(newConv);
                 conv = newConv as any;
-                console.log('[ConversationEngine] Created new conversation:', phoneNumber);
+                console.log(`[ConversationEngine] Created new conversation (${channel}):`, phoneNumber);
             } else {
                 // Update existing conversation
                 await db.update(conversations)
                     .set({
                         lastMessageAt: now,
-                        lastInboundAt: now,
-                        canSendFreeform: true,
-                        templateRequired: false,
+                        lastCustomerContactAt: now,
+                        ...windowFields,
                         stage: conv.stage === 'closed' ? 'active' : conv.stage,
                         lastMessagePreview: Body || (hasMedia ? 'Media received' : ''),
                         unreadCount: (conv.unreadCount || 0) + 1,
@@ -269,7 +280,7 @@ export class ConversationEngine {
                         updatedAt: now,
                     })
                     .where(eq(conversations.id, conv.id));
-                console.log('[ConversationEngine] Updated conversation:', phoneNumber);
+                console.log(`[ConversationEngine] Updated conversation (${channel}):`, phoneNumber);
             }
 
             // 2. Process Media (if any)
@@ -307,6 +318,7 @@ export class ConversationEngine {
                 direction: 'inbound',
                 content: Body || '',
                 type: hasMedia ? mediaType : 'text',
+                channel,
                 status: 'delivered',
                 senderName: ProfileName,
                 mediaUrl: mediaUrlLocal,
@@ -326,6 +338,7 @@ export class ConversationEngine {
                     direction: 'inbound',
                     content: newMessage.content,
                     type: newMessage.type,
+                    channel,
                     status: newMessage.status,
                     mediaUrl: mediaUrlLocal,
                     mediaType: MediaContentType0,
@@ -339,9 +352,12 @@ export class ConversationEngine {
                 conversationId: phoneNumber,
                 updates: {
                     lastMessageAt: now.toISOString(),
+                    lastCustomerContactAt: now.toISOString(),
                     lastMessagePreview: Body || (hasMedia ? 'Media received' : ''),
                     unreadCount: (conv?.unreadCount || 0) + 1,
-                    canSendFreeform: true,
+                    // Only a WhatsApp inbound opens the window — claiming otherwise would let the
+                    // UI offer a freeform composer that WhatsApp will reject.
+                    ...(isWhatsApp ? { canSendFreeform: true } : {}),
                 }
             });
 
@@ -407,7 +423,7 @@ export class ConversationEngine {
 
             // 2. Send via Twilio
             const messageOptions: any = {
-                from: TWILIO_WHATSAPP_NUMBER,
+                from: getWhatsAppSender(),
                 to: formattedNumber,
                 body,
             };

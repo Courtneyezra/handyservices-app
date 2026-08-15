@@ -40,6 +40,9 @@ import { dashboardRouter } from "./dashboard";
 import { whatsappRouter } from "./whatsapp-api";
 import { metaWhatsAppRouter, attachMetaWebSocket } from "./meta-whatsapp";
 import { whatsappExtRouter } from "./whatsapp-ext-routes";
+import { quickRepliesRouter } from "./quick-replies";
+import { maybeSendPostCallVideoRequest } from "./post-call-outreach";
+import { inboxBoardRouter } from "./inbox-board";
 import { trainingRouter } from './training-routes';
 import { pushRouter } from './web-push';
 import handymenRouter from './handymen';
@@ -396,6 +399,10 @@ app.use('/api', testRouter);
 app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks
 app.use('/api/whatsapp', metaWhatsAppRouter); // Meta Cloud API Webhooks
 app.use('/api/whatsapp', whatsappExtRouter); // Chrome Extension ingest (ext-ingest, ext-ping)
+// Both carry customer phone numbers and message content, so they sit behind admin auth
+// (requireAdmin also admits the 'va' role, which is how Ben reaches them).
+app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messages for the inbox
+app.use('/api/inbox', requireAdmin, inboxBoardRouter); // Kanban board over conversations
 app.use('/api/dashboard', requireAdmin, dashboardRouter);
 app.use('/api/va', requireAdmin, vaStatsRouter);
 app.use('/api/handymen', handymenRouter);
@@ -1392,6 +1399,20 @@ app.post('/api/twilio/status-callback', async (req, res) => {
                 outcome: (CallStatus === 'busy' || CallStatus === 'no-answer') ? 'MISSED_CALL' : undefined
             });
             console.log(`[Twilio] Finalized call ${callRecordId} via StatusCallback`);
+
+            // Automated post-call WhatsApp video request. Disabled by default and fails closed;
+            // fire-and-forget so outreach can never delay or break call finalization.
+            maybeSendPostCallVideoRequest({
+                callSid: CallSid,
+                callStatus: CallStatus,
+                from: req.body.From,
+                durationSeconds: Duration ? parseInt(Duration) : undefined,
+            })
+                .then((d) => {
+                    if (d.sent) console.log(`[Twilio] Post-call video request sent for ${CallSid}`);
+                    else if (d.reason !== 'DISABLED') console.log(`[Twilio] No post-call outreach for ${CallSid}: ${d.reason}`);
+                })
+                .catch((e) => console.warn('[Twilio] Post-call outreach error:', e));
 
             // Phone push alert (Pushover) — the call wasn't answered
             if (CallStatus === 'busy' || CallStatus === 'no-answer') {

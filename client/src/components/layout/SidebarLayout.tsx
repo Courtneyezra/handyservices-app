@@ -145,7 +145,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
                                 { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
-                                { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
+                                { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
                                 { icon: Map, label: "Dispatch Console", href: "/admin/dispatch-console" },
                                 { icon: Calendar, label: "Daily Planner", href: "/admin/daily-planner" },
@@ -257,7 +257,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     {!isCollapsed && !isVA && (
                         <div className="mt-4 px-4 pt-4 border-t border-border/50">
                             <p className="text-[10px] text-muted-foreground mb-2 font-mono uppercase">LEGACY VIEWS</p>
-                            <Link href="/admin/whatsapp-intake" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><MessageSquare className="w-3 h-3" /> WhatsApp CRM</Link>
+                            {/* The old WhatsApp-only CRM is retired; this now lands on unified Comms. */}
+                            <Link href="/admin/comms" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><MessageSquare className="w-3 h-3" /> WhatsApp CRM</Link>
                         </div>
                     )}
                 </nav>

@@ -3,8 +3,14 @@ import { conversationEngine } from "./conversation-engine";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
 import { notifyIncomingSms } from "./pushover";
 import { resolveCallerName } from "./caller-lookup";
+import { requireAdmin } from "./auth";
 
 export const whatsappRouter = Router();
+
+// NOTE ON AUTH: this router is mounted WITHOUT global auth because Twilio must be able to reach
+// the webhooks (/incoming, /status) unauthenticated. Auth is therefore applied per-route, and any
+// new route that SENDS a message or reads customer data must carry requireAdmin explicitly —
+// otherwise it becomes an open relay for the business's WhatsApp number.
 
 // GET /api/whatsapp/test - Health check
 whatsappRouter.get('/test', (req, res) => res.json({ status: 'active' }));
@@ -78,7 +84,7 @@ whatsappRouter.post('/incoming', async (req, res) => {
 });
 
 // POST /api/whatsapp/send - Send a message via Meta Cloud API
-whatsappRouter.post('/send', async (req, res) => {
+whatsappRouter.post('/send', requireAdmin, async (req, res) => {
     try {
         const { to, body, templateName, templateLanguage, templateComponents } = req.body;
 
@@ -102,7 +108,7 @@ whatsappRouter.post('/send', async (req, res) => {
 });
 
 // POST /api/whatsapp/send-template - Send a template message
-whatsappRouter.post('/send-template', async (req, res) => {
+whatsappRouter.post('/send-template', requireAdmin, async (req, res) => {
     try {
         const { number, template, customerName, context, contentSid, callId } = req.body;
 
@@ -192,7 +198,7 @@ whatsappRouter.post('/send-template', async (req, res) => {
 });
 
 // GET /api/whatsapp/can-freeform/:phone - Check if freeform is allowed
-whatsappRouter.get('/can-freeform/:phone', async (req, res) => {
+whatsappRouter.get('/can-freeform/:phone', requireAdmin, async (req, res) => {
     try {
         const { phone } = req.params;
         const canFreeform = await conversationEngine.canSendFreeform(phone);
@@ -200,5 +206,48 @@ whatsappRouter.get('/can-freeform/:phone', async (req, res) => {
     } catch (error) {
         console.error("[WhatsApp API] Check Error:", error);
         res.status(500).json({ error: "Failed to check status" });
+    }
+});
+
+// POST /api/whatsapp/status - Twilio delivery status callback.
+//
+// Without this, messages.status is frozen at whatever we wrote on send ('sent'), so a message that
+// Meta later rejected still reads as delivered in the inbox. Twilio posts here on every transition
+// (queued -> sent -> delivered -> read, or failed/undelivered with an error code).
+whatsappRouter.post('/status', async (req, res) => {
+    // Always ack fast — Twilio retries on non-2xx, and a slow/failing callback throttles delivery.
+    res.status(204).end();
+
+    try {
+        const { MessageSid, MessageStatus, ErrorCode, ErrorMessage } = req.body || {};
+        if (!MessageSid || !MessageStatus) {
+            console.warn('[WhatsApp Status] Callback missing MessageSid/MessageStatus:', req.body);
+            return;
+        }
+
+        const { db } = await import('./db');
+        const { messages } = await import('@shared/schema');
+        const { eq, or } = await import('drizzle-orm');
+
+        const patch: Record<string, unknown> = { status: MessageStatus };
+        if (ErrorCode) patch.errorCode = String(ErrorCode);
+        if (ErrorMessage) patch.errorMessage = String(ErrorMessage);
+
+        // Outbound rows are stored with id = Twilio SID, but twilioSid is the canonical column.
+        // Match either so older rows written before twilioSid was populated still resolve.
+        const updated = await db.update(messages)
+            .set(patch)
+            .where(or(eq(messages.twilioSid, MessageSid), eq(messages.id, MessageSid)))
+            .returning({ id: messages.id });
+
+        if (updated.length === 0) {
+            console.warn(`[WhatsApp Status] No message row for SID ${MessageSid} (status=${MessageStatus})`);
+        } else if (ErrorCode) {
+            console.error(`[WhatsApp Status] ${MessageSid} -> ${MessageStatus} (${ErrorCode}: ${ErrorMessage || 'no detail'})`);
+        } else {
+            console.log(`[WhatsApp Status] ${MessageSid} -> ${MessageStatus}`);
+        }
+    } catch (error) {
+        console.error('[WhatsApp Status] Failed to apply status update:', error);
     }
 });

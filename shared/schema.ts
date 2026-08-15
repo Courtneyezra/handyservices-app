@@ -1598,9 +1598,16 @@ export const conversations = pgTable("conversations", {
     lastMessagePreview: text("last_message_preview"), // Cache last message for list view
 
     // State Machine Fields (24h window, assignment, lifecycle)
-    lastInboundAt: timestamp("last_inbound_at"), // For 24h window calculation
+    //
+    // IMPORTANT: lastInboundAt is WhatsApp-window semantics ONLY. Only an inbound *WhatsApp*
+    // message opens Meta's 24-hour freeform window — an SMS, a call or a webform submission does
+    // not. Advancing this on any other channel would make the app believe it can send WhatsApp
+    // freeform when Meta will reject it (error 63016). Use lastCustomerContactAt for "when did we
+    // last hear from this person on any channel".
+    lastInboundAt: timestamp("last_inbound_at"), // WhatsApp-only; drives the 24h window
     canSendFreeform: boolean("can_send_freeform").default(false), // Computed from lastInboundAt
     templateRequired: boolean("template_required").default(true), // True if outside 24h window
+    lastCustomerContactAt: timestamp("last_customer_contact_at"), // Any channel; drives SLA/ageing
     assignedTo: varchar("assigned_to"), // User ID (VA/Contractor)
     priority: varchar("priority", { length: 10 }).default('normal'), // 'low', 'normal', 'high', 'urgent'
     stage: varchar("stage", { length: 20 }).default('new'), // 'new', 'active', 'waiting', 'closed'
@@ -1635,6 +1642,10 @@ export const messages = pgTable("messages", {
     content: text("content"), // Text body
     type: varchar("type", { length: 20 }).default('text'), // 'text', 'image', 'video', 'audio', 'document', 'template'
 
+    // Which pipe this travelled down. Everything before Aug 2026 was WhatsApp, hence the default.
+    // Drives thread rendering and, critically, whether an inbound opens the WhatsApp 24h window.
+    channel: varchar("channel", { length: 16 }).default('whatsapp').notNull(), // whatsapp|sms|call|webform|email|note
+
     // Media Support
     mediaUrl: text("media_url"), // URL to stored media
     mediaType: varchar("media_type"), // MIME type
@@ -1668,6 +1679,40 @@ export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export const insertMessageSchema = createInsertSchema(messages);
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+// Quick Replies - canned messages Ben can drop into a conversation.
+//
+// A reply with a contentSid is backed by a Twilio-approved WhatsApp template, so it can also be
+// sent OUTSIDE the 24-hour window. Replies without one are freeform and only sendable while the
+// window is open. The inbox uses this distinction to decide what to offer.
+export const quickReplies = pgTable("quick_replies", {
+    id: varchar("id").primaryKey().notNull(),
+    label: varchar("label", { length: 80 }).notNull(), // Shown in the picker, e.g. "Ask for a video"
+    body: text("body").notNull(), // Message text; may contain {{name}} / {{first_name}} placeholders
+    category: varchar("category", { length: 30 }).default('general'), // Grouping in the picker
+
+    // Template backing (optional) — presence means "sendable outside the 24h window"
+    contentSid: varchar("content_sid"), // Twilio Content Template SID (HX...)
+    contentVariables: jsonb("content_variables"), // Positional var map, e.g. {"1": "{{name}}"}
+
+    shortcut: varchar("shortcut", { length: 24 }), // Type-to-filter token, e.g. "/video"
+    sortOrder: integer("sort_order").default(0),
+    isActive: boolean("is_active").default(true),
+
+    // Usage telemetry — surfaces which replies actually earn their place
+    usageCount: integer("usage_count").default(0),
+    lastUsedAt: timestamp("last_used_at"),
+
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_quick_replies_active").on(table.isActive, table.sortOrder),
+    index("idx_quick_replies_category").on(table.category),
+]);
+
+export const insertQuickReplySchema = createInsertSchema(quickReplies);
+export type QuickReply = typeof quickReplies.$inferSelect;
+export type InsertQuickReply = z.infer<typeof insertQuickReplySchema>;
 
 // ==========================================
 // LANDING PAGE & BANNER OPTIMIZATION

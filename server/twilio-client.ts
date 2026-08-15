@@ -10,6 +10,6 @@ export const twilioClient = twilio(
     process.env.TWILIO_AUTH_TOKEN
 );
 
-// Helper to get the sender number (WABA number)
-// Priority: Env var > Hardcoded fallback (for testing)
-export const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+15558874602'; // Verified Twilio WhatsApp sender
+// The WhatsApp sender (WABA number), resolved and prefix-normalized in one place.
+// Re-exported for existing callers; see server/whatsapp-sender.ts for why there is no fallback.
+export { getWhatsAppSender, isWhatsAppSenderConfigured } from './whatsapp-sender';

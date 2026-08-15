@@ -14,6 +14,7 @@ import { eq, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { WebSocketServer, WebSocket } from 'ws';
 import { normalizePhoneNumber } from './phone-utils';
+import { getWhatsAppSender } from './whatsapp-sender';
 
 // Environment variables
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -25,7 +26,6 @@ const GRAPH_API_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 // Twilio credentials (for sending via Twilio WhatsApp API)
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || '+15558874602';
 
 export const metaWhatsAppRouter = Router();
 
@@ -344,6 +344,16 @@ async function handleStatusUpdate(status: any) {
     }
 }
 
+/**
+ * Public https URL Twilio should post delivery status to, or null when we have no reachable
+ * public origin (local dev). Returning null simply means statuses aren't tracked for that send.
+ */
+function getStatusCallbackUrl(): string | null {
+    const base = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+    if (!base.startsWith('https://')) return null;
+    return `${base}/api/whatsapp/status`;
+}
+
 // ==========================================
 // SEND MESSAGE (via Twilio WhatsApp API)
 // ==========================================
@@ -358,11 +368,21 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
         throw new Error('Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN');
     }
 
-    // Normalize the phone number to E.164 format (+44...)
+    // Normalize the recipient to E.164.
+    //
+    // A `...@c.us` key is WhatsApp's own format: the digits are ALREADY full international, just
+    // without the '+'. They must not go through normalizePhoneNumber(), which treats any bare
+    // 10-11 digit string as a UK national number and prepends +44 — that turned the Vietnamese
+    // number 84357691573 into +4484357691573, which Twilio accepted and then failed to deliver
+    // with error 63024. Silent, because the send itself returned 200.
+    const isConversationKey = to.includes('@c.us');
     const rawNumber = to.replace('@c.us', '');
-    const normalized = normalizePhoneNumber(rawNumber);
-    if (!normalized) {
-        throw new Error(`Invalid phone number: ${to}`);
+    const normalized = isConversationKey
+        ? `+${rawNumber.replace(/\D/g, '')}`
+        : normalizePhoneNumber(rawNumber);
+
+    if (!normalized || !/^\+[1-9]\d{7,14}$/.test(normalized)) {
+        throw new Error(`Invalid phone number: ${to} (resolved to ${normalized ?? 'null'})`);
     }
     // Remove the + for internal storage format
     const cleanNumber = normalized.replace('+', '');
@@ -371,7 +391,7 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
 
     // Format for Twilio WhatsApp (normalized already has +)
     const twilioTo = `whatsapp:${normalized}`;
-    const twilioFrom = `whatsapp:${TWILIO_WHATSAPP_NUMBER}`;
+    const twilioFrom = getWhatsAppSender();
 
     const isTemplate = !!options?.contentSid;
 
@@ -402,6 +422,14 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
     } else {
         // Freeform message
         formData.append('Body', body);
+    }
+
+    // Ask Twilio to report delivery transitions back to us, so messages.status reflects what
+    // actually happened rather than staying frozen at 'sent'. Only over https — Twilio cannot
+    // reach a localhost callback, and passing one makes the whole send fail with error 21609.
+    const statusCallbackUrl = getStatusCallbackUrl();
+    if (statusCallbackUrl) {
+        formData.append('StatusCallback', statusCallbackUrl);
     }
 
     const response = await fetch(twilioUrl, {
@@ -460,8 +488,13 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
             direction: 'outbound',
             content: messageContent,
             type: isTemplate ? 'template' : 'text',
-            status: 'sent',
+            channel: 'whatsapp', // This function sends over Twilio's WhatsApp channel only.
+            // Twilio's own initial state ('queued'), not an assumed 'sent' — the status callback
+            // advances it from here.
+            status: result.status || 'sent',
             senderName: 'Agent',
+            // Canonical external id, so delivery callbacks can resolve this row by SID.
+            twilioSid: result.sid || null,
             createdAt: now,
         };
 
@@ -475,7 +508,8 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
                 direction: 'outbound',
                 content: messageContent,
                 type: isTemplate ? 'template' : 'text',
-                status: 'sent',
+                channel: 'whatsapp',
+                status: result.status || 'sent',
                 senderName: 'Agent',
                 createdAt: now.toISOString(),
             }

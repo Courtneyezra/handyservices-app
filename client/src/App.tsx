@@ -25,7 +25,6 @@ import { Loader2 } from "lucide-react";
 // Admin/CRM pages - Eager loaded for smooth navigation within CRM
 import AudioUploadPage from "@/pages/AudioUploadPage";
 import SKUPage from "@/pages/SKUPage";
-import WhatsAppInbox from "@/pages/WhatsAppInbox";
 import HandymanMap from "@/pages/HandymanMap";
 import HandymanDashboard from "@/pages/HandymanDashboard"; // Legacy
 import { ThemeProvider } from "@/components/theme-provider";
@@ -34,7 +33,6 @@ import MainDashboard from "@/pages/MainDashboard";
 import TestLab from "./pages/TestLab";
 import TrainingCenter from "./pages/TrainingCenter";
 import SettingsPage from "./pages/SettingsPage";
-const AdminInboxPage = lazy(() => import("@/pages/admin/AdminInboxPage"));
 
 // Admin Content Management
 const LandingPages = lazy(() => import("@/pages/admin/LandingPages"));
@@ -70,6 +68,7 @@ const NotificationsPage = lazy(() => import("@/pages/admin/NotificationsPage"));
 const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
 const OfferDecisionsPage = lazy(() => import("@/pages/admin/OfferDecisionsPage"));
 const NudgeQueuePage = lazy(() => import("@/pages/admin/NudgeQueuePage"));
+const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
@@ -702,6 +701,22 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/comms">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <CommsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* Retired in favour of /admin/comms — kept as aliases so existing links land
+                    on the unified surface rather than 404ing. */}
+                <Route path="/admin/inbox-board">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <CommsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/pricing-engine">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
@@ -717,7 +732,7 @@ function Router() {
                 <Route path="/admin/inbox">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
-                            <AdminInboxPage />
+                            <CommsPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
@@ -905,7 +920,7 @@ function Router() {
                 <Route path="/admin/whatsapp-intake">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
-                            <WhatsAppInbox />
+                            <CommsPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

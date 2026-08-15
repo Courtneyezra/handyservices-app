@@ -25,6 +25,7 @@ import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import { sendWhatsAppMessage } from './meta-whatsapp';
+import { getWhatsAppSenderE164 } from './whatsapp-sender';
 
 export const landlordPortalRouter = Router();
 
@@ -484,7 +485,8 @@ landlordPortalRouter.post('/:token/properties/:propertyId/tenants', verifyLandlo
         }
 
         // Generate WhatsApp link for tenant
-        const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER?.replace('+', '') || '15558874602';
+        // wa.me wants bare digits — no '+' and no 'whatsapp:' prefix.
+        const whatsappNumber = (getWhatsAppSenderE164() ?? '').replace('+', '');
         const welcomeMessage = `Hi, I'm ${name} at ${property.address}`;
         const whatsappLink = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(welcomeMessage)}`;
 
