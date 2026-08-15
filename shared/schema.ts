@@ -3805,3 +3805,32 @@ export type InsertGmbPost = typeof gmbPosts.$inferInsert;
 export const insertQuoteOfferDecisionSchema = createInsertSchema(quoteOfferDecisions);
 export type QuoteOfferDecision = typeof quoteOfferDecisions.$inferSelect;
 export type InsertQuoteOfferDecision = typeof quoteOfferDecisions.$inferInsert;
+
+// ── Recovery-agent nudge queue ───────────────────────────────────────────────
+// The Recovery Agent's ONLY write surface: proposed follow-ups for stalled/
+// unopened quotes. Nothing sends from here without a human — Ben approves and
+// the send happens through a wa.me prefill he taps himself (trust-ladder v0).
+// Rows double as the lifetime-nudge log (max 3 per quote, enforced in the
+// candidate query) and the recovery-attribution source (nudge → paid ≤7d).
+export const nudgeQueue = pgTable("nudge_queue", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    quoteId: varchar("quote_id").notNull(),
+    slug: varchar("slug"),
+    phone: varchar("phone"),
+    status: varchar("status", { length: 20 }).default("proposed").notNull(), // proposed | approved | sent | dismissed | skipped
+    lever: varchar("lever", { length: 30 }),          // reminder | split | reassure | expiry | gift_unclaimed
+    message: text("message"),                          // the drafted WhatsApp text (null for skips)
+    reason: text("reason"),                            // agent's why (nudge rationale or skip reason)
+    sendAfter: timestamp("send_after"),                // UK-polite scheduling hint
+    agentRun: varchar("agent_run"),                    // transcript file ref for auditability
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    approvedAt: timestamp("approved_at"),
+    sentAt: timestamp("sent_at"),
+}, (table) => [
+    index("idx_nudge_queue_quote").on(table.quoteId),
+    index("idx_nudge_queue_status").on(table.status),
+    index("idx_nudge_queue_created").on(table.createdAt),
+]);
+
+export const insertNudgeQueueSchema = createInsertSchema(nudgeQueue);
+export type NudgeQueueRow = typeof nudgeQueue.$inferSelect;
