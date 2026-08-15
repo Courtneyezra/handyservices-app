@@ -135,8 +135,8 @@ export default function PlanPage() {
             <img src={aliciaPhoto} alt="Alicia" className="w-12 h-12 rounded-full object-cover ring-2 ring-white shadow flex-none" />
             <p className="text-[#5A6474] text-sm">30 Sidney Road, Beeston NG9 1AN<br />prepared for <span className="font-semibold text-[#1B2A4A]">Alicia</span></p>
           </div>
-          <p className="text-[15.5px] sm:text-[17px] mt-4">This is the full picture: what we agreed, what’s been done, what you’ve paid, where we are now — and then the extra work the house could have, entirely your choice.</p>
-          <p className="text-[#5A6474] text-[14.5px] sm:text-[15px] mt-3">No pressure on any of it, and nothing new starts until you say so.<br /><span className="font-semibold text-[#1B2A4A]">Courtnee — Handy Services</span></p>
+          <p className="text-[15.5px] sm:text-[17px] mt-4">The full picture — what’s done, what you’ve paid, where we’re up to, and any extras you could add.</p>
+          <p className="text-[#5A6474] text-[14.5px] sm:text-[15px] mt-3">No pressure — nothing new starts until you say so.<br /><span className="font-semibold text-[#1B2A4A]">Courtnee — Handy Services</span></p>
         </section>
 
         {/* PROGRESS BAR — original agreed job */}
@@ -187,10 +187,12 @@ export default function PlanPage() {
         </ol>
 
         <div className="mt-1 rounded-2xl p-5" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
-          <div className="font-bold text-[16px] mb-1">What happens next</div>
-          <p className="text-[#5A6474] text-[15px] leading-relaxed">
-            This week we finish the <b>back room</b> and the last touches while you’re out. Then we <b>walk the whole house with you</b> — nothing’s signed off until you’re happy — and settle the <b>£2,653</b>. The extra work below is completely separate: add it whenever you like, or not at all.
-          </p>
+          <div className="font-bold text-[16px] mb-2.5">What happens next</div>
+          <ul className="flex flex-col gap-2 text-[15px]">
+            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>1</span><span><b>This week</b> — back room + finishing, while you’re out.</span></li>
+            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>2</span><span><b>Then</b> — we walk the house together, you sign it off happy, and settle the <b>£2,653</b>.</span></li>
+            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>3</span><span><b>Extras below</b> — separate and optional, whenever suits.</span></li>
+          </ul>
         </div>
 
         <SectionLabel muted>Work tracker — every item</SectionLabel>
@@ -250,7 +252,7 @@ export default function PlanPage() {
         <div className="mt-10 mb-4 rounded-2xl p-6 text-center" style={{ background: "#1B2A4A" }}>
           <div className="text-[11px] font-extrabold uppercase tracking-[0.2em]" style={{ color: "#F5A623" }}>Part 2</div>
           <div className="text-[23px] font-extrabold text-white mt-1.5 leading-tight">What’s next — your choices</div>
-          <p className="text-slate-300 text-[14.5px] mt-2 leading-snug">Everything below is <b className="text-white">extra and entirely optional</b> — add what you’d like, skip the rest. Nothing is booked until you confirm.</p>
+          <p className="text-slate-300 text-[14.5px] mt-2 leading-snug"><b className="text-white">Extra, and entirely optional</b> — add what you’d like, skip the rest.</p>
         </div>
         <p className="rounded-xl text-[14px] p-3.5 mb-4 flex gap-2.5 items-start" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
           <span aria-hidden>✓</span>
@@ -265,12 +267,12 @@ export default function PlanPage() {
               {accepted ? (
                 <div className="mt-6 mb-3 rounded-xl px-4 py-3" style={{ background: "#EAF4EC", border: "1px solid #BFE0C6" }}>
                   <div className="text-[15px] font-extrabold uppercase tracking-wide" style={{ color: "#2F7A3D" }}>✓ Already accepted</div>
-                  <p className="text-[#5A6474] text-[14px] mt-0.5">You’ve said yes to this — the deposit is taken together with anything else you add below.</p>
+                  <p className="text-[#5A6474] text-[14px] mt-0.5">Deposit taken together with anything else you add below.</p>
                 </div>
               ) : suggested ? (
                 <div className="mt-8 mb-3 rounded-xl px-4 py-3.5" style={{ background: "#EEF3FA", border: "1px solid #C3D0E6" }}>
                   <div className="text-[18px] font-extrabold tracking-tight" style={{ color: "#3B5BA5" }}>✦ Things we spotted — our suggestions</div>
-                  <p className="text-[#5A6474] text-[14.5px] mt-1">Not on your original list — bits we noticed that would tidy the house up. Entirely optional.</p>
+                  <p className="text-[#5A6474] text-[14.5px] mt-1">Bits we noticed that’d tidy the house up — optional.</p>
                 </div>
               ) : (
                 <div className="text-[#5A6474] text-[12.5px] font-bold tracking-[0.14em] uppercase mt-6 mb-3 px-1">{label}</div>

@@ -20,12 +20,12 @@ export const PLAN_ITEMS: PlanItem[] = [
   // ---- Already accepted (deposit taken with the extras) ----
   { id: "bathroom-damp", kind: "add", group: "Already accepted", accepted: true,
     title: "Downstairs bathroom — damp repair & redecorate",
-    desc: "You’ve approved this one. Treat the small rising-damp patch by the toilet at the source (chemical DPC + salt-resistant render), then repaint once dry. Two stages — damp repair now, paint once the wall’s dry. You supply the paint; we supply all the damp materials.",
+    desc: "The rising-damp patch by the toilet, treated at the source (chemical DPC + salt-resistant render) then repainted once dry. You supply the paint; we supply the damp materials.",
     price: 625, labour: 535, materials: 90, days: 2 },
 
   // ---- Upstairs ----
   { id: "bay-walls", kind: "opt", group: "Upstairs", title: "Front bay bedroom — walls",
-    desc: "Take down the old mirror and light, make good, and re-paper in thick, textured (paintable) paper that hides imperfections. The room’s already painted; this sorts the wallpaper. Your new carpet is fully protected throughout.",
+    desc: "Take down the old mirror + light, make good, and re-paper in thick textured paper. New carpet fully protected throughout.",
     options: [
       { label: "One wall re-papered", price: 295, labour: 250, materials: 45, days: 0.5 },
       { label: "Whole room re-papered — fixes the mismatch", price: 750, labour: 610, materials: 140, days: 1.5 },
