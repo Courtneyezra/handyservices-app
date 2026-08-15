@@ -69,6 +69,7 @@ const PrizeWheelPage = lazy(() => import("@/pages/admin/PrizeWheelPage"));
 const NotificationsPage = lazy(() => import("@/pages/admin/NotificationsPage"));
 const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
 const OfferDecisionsPage = lazy(() => import("@/pages/admin/OfferDecisionsPage"));
+const NudgeQueuePage = lazy(() => import("@/pages/admin/NudgeQueuePage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
@@ -691,6 +692,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <OfferDecisionsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/nudges">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <NudgeQueuePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

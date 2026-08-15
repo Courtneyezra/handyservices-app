@@ -3379,6 +3379,64 @@ router.get('/api/admin/offer-decisions/summary', requireAdmin, async (req, res) 
   }
 });
 
+// ── Recovery-agent nudge queue (approval surface) ────────────────────────────
+// The human gate for server/agents/recovery.ts: list proposed nudges (joined
+// to their quotes + recovery attribution), edit the message, mark sent /
+// dismissed. SENDING = the operator taps a wa.me prefill and presses send in
+// WhatsApp themselves — deliberately, so the chat history (including replies
+// our ingest may have missed — the Sukhy lesson) is on screen at the moment
+// of decision. Recovered = deposit paid within 7 days of the send.
+router.get('/api/admin/nudges', requireAdmin, async (req, res) => {
+  try {
+    const rows = await db.execute(sql`
+      SELECT n.id, n.slug, n.phone, n.status, n.lever, n.message, n.reason,
+             n.created_at, n.sent_at,
+             q.customer_name, q.base_price, q.view_count, q.last_viewed_at,
+             q.expires_at, q.deposit_paid_at,
+             (n.sent_at IS NOT NULL AND q.deposit_paid_at IS NOT NULL
+              AND q.deposit_paid_at > n.sent_at
+              AND q.deposit_paid_at < n.sent_at + interval '7 days') AS recovered
+      FROM nudge_queue n
+      JOIN personalized_quotes q ON q.id = n.quote_id
+      WHERE n.status IN ('proposed', 'sent') OR n.sent_at > now() - interval '30 days'
+      ORDER BY (n.status = 'proposed') DESC, q.base_price DESC NULLS LAST`);
+    return res.json({ nudges: rows.rows });
+  } catch (err) {
+    console.error('[Nudges] list failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to load nudges' });
+  }
+});
+
+router.post('/api/admin/nudges/:id/action', requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const action = String(req.body?.action || '');
+    const message = typeof req.body?.message === 'string' ? req.body.message.slice(0, 1000) : null;
+    if (!['sent', 'dismissed', 'unsend'].includes(action)) {
+      return res.status(400).json({ error: 'action must be sent | dismissed | unsend' });
+    }
+    if (action === 'sent') {
+      await db.execute(sql`
+        UPDATE nudge_queue SET status = 'sent', approved_at = COALESCE(approved_at, now()),
+          sent_at = now(), message = COALESCE(${message}, message)
+        WHERE id = ${id} AND status IN ('proposed', 'sent')`);
+    } else if (action === 'unsend') {
+      // Operator opened WhatsApp but didn't send — put it back.
+      await db.execute(sql`
+        UPDATE nudge_queue SET status = 'proposed', sent_at = NULL WHERE id = ${id}`);
+    } else {
+      await db.execute(sql`
+        UPDATE nudge_queue SET status = 'dismissed',
+          reason = COALESCE(reason, '') || ' | dismissed by operator'
+        WHERE id = ${id}`);
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[Nudges] action failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'Failed to update nudge' });
+  }
+});
+
 // ── Offer decision log (observation mode) ────────────────────────────────────
 // Latest router decision for a quote — the builder's decision card refetches
 // through this after an override.
