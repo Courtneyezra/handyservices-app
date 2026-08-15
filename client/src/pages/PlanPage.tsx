@@ -140,7 +140,12 @@ export default function PlanPage() {
         </section>
 
         {/* PROGRESS BAR — original agreed job */}
-        <div className="mt-4 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
+        <div className="mt-6 mb-1 flex items-center gap-2.5 px-1">
+          <span className="text-[11px] font-extrabold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full" style={{ background: "#1B2A4A", color: "#fff" }}>Part 1</span>
+          <span className="text-[16px] font-extrabold" style={{ color: "#1B2A4A" }}>Your project so far</span>
+        </div>
+
+        <div className="mt-3 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
           <div className="flex items-baseline justify-between mb-2">
             <span className="font-bold text-[16px]">Your original project</span>
             <span className="font-bold text-[18px] tabular-nums" style={{ color: "#2F7A3D" }}>{PROGRESS}% done</span>
@@ -242,8 +247,11 @@ export default function PlanPage() {
           </ul>
         </div>
 
-        <SectionLabel>Your choices — additional work</SectionLabel>
-        <p className="rounded-xl bg-[#F5F1E9] text-[#5A6474] text-[15px] p-4 mb-4">These are <b>extra</b> and completely separate from everything above. Add anything you’d like, skip the rest — your total builds as you go, and nothing is booked until you confirm.</p>
+        <div className="mt-10 mb-4 rounded-2xl p-6 text-center" style={{ background: "#1B2A4A" }}>
+          <div className="text-[11px] font-extrabold uppercase tracking-[0.2em]" style={{ color: "#F5A623" }}>Part 2</div>
+          <div className="text-[23px] font-extrabold text-white mt-1.5 leading-tight">What’s next — your choices</div>
+          <p className="text-slate-300 text-[14.5px] mt-2 leading-snug">Everything below is <b className="text-white">extra and entirely optional</b> — add what you’d like, skip the rest. Nothing is booked until you confirm.</p>
+        </div>
         <p className="rounded-xl text-[14px] p-3.5 mb-4 flex gap-2.5 items-start" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
           <span aria-hidden>✓</span>
           <span>All new wallpaper is <b>thick, textured (paintable) paper</b> — chosen to hide any imperfections in the old walls for a smooth, even finish.</span>
