@@ -37,6 +37,15 @@ export default function WhatsAppOnboardPage() {
     const [result, setResult] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
     const sessionRef = useRef<SignupSession>({});
+    const stallTimerRef = useRef<number | null>(null);
+
+    /** Clears the stall timeout — must run on every path that produces a result. */
+    const clearStall = () => {
+        if (stallTimerRef.current !== null) {
+            window.clearTimeout(stallTimerRef.current);
+            stallTimerRef.current = null;
+        }
+    };
 
     const say = (m: string) => setLog((l) => [...l, `${new Date().toLocaleTimeString()}  ${m}`]);
 
@@ -69,8 +78,15 @@ export default function WhatsAppOnboardPage() {
                     sessionRef.current = { ...sessionRef.current, ...(data.data || {}) };
                     say(`signup event: ${data.event || 'data'} — waba=${sessionRef.current.waba_id ?? '?'} phone=${sessionRef.current.phone_number_id ?? '?'}`);
                 }
-                if (data.event === 'CANCEL') say(`cancelled at step: ${data.data?.current_step ?? 'unknown'}`);
-                if (data.event === 'ERROR') say(`error: ${data.data?.error_message ?? 'unknown'}`);
+                if (data.event === 'CANCEL') {
+                    clearStall();
+                    say(`cancelled at step: ${data.data?.current_step ?? 'unknown'}`);
+                }
+                if (data.event === 'ERROR') {
+                    clearStall();
+                    say(`error: ${data.data?.error_message ?? 'unknown'}`);
+                    setError(data.data?.error_message || 'Meta reported an error during signup.');
+                }
             } catch { /* not our message */ }
         }
         window.addEventListener('message', onMessage);
@@ -95,14 +111,39 @@ export default function WhatsAppOnboardPage() {
         if (!window.FB || !config) return;
         setBusy(true); setError(null); setResult(null); setLog([]);
         sessionRef.current = {};
+
+        // Surface the exact origin: Meta blocks the JS SDK on any domain not listed under
+        // "Allowed Domains for the JavaScript SDK", and www vs apex counts as different. When that
+        // happens FB.login simply never opens a popup and never calls back, which looks like a hang.
+        say(`origin: ${window.location.origin}`);
         say('launching Embedded Signup (coexistence)…');
+
+        // A popup opened from a click should appear immediately. If nothing has come back after
+        // this long, it was blocked or the domain was rejected — say so rather than spinning.
+        const stallTimer = window.setTimeout(() => {
+            setBusy(false);
+            setError(
+                `No response from Meta after 45s. Two usual causes: (1) the popup was blocked — ` +
+                `allow popups for ${window.location.hostname} and retry; (2) "${window.location.hostname}" ` +
+                `is not listed under Allowed Domains for the JavaScript SDK in the Meta app ` +
+                `(note www and non-www are different entries).`
+            );
+            say('timed out with no callback');
+        }, 45_000);
+        stallTimerRef.current = stallTimer;
 
         window.FB.login(
             async (response: any) => {
+                clearStall(); // Meta answered, whatever the answer was.
                 const code = response?.authResponse?.code;
                 if (!code) {
                     setBusy(false);
-                    setError('No code returned — the flow was closed or cancelled before finishing.');
+                    say(`callback with no code — status: ${response?.status ?? 'unknown'}`);
+                    setError(
+                        response?.status === 'not_authorized'
+                            ? 'Meta returned "not authorized" — the signed-in account needs an admin, developer or tester role on the app while it is in development mode.'
+                            : 'No code returned — the flow was closed or cancelled before finishing.'
+                    );
                     return;
                 }
                 say('code received, exchanging server-side…');
@@ -210,6 +251,14 @@ export default function WhatsAppOnboardPage() {
                 {busy ? 'Onboarding…' : 'Launch Embedded Signup'}
             </button>
             {!sdkReady && !blocked && <p className="mt-2 text-xs text-slate-400">Loading Facebook SDK…</p>}
+
+            {/* The domain mismatch is the most common reason the flow hangs, so state it up front
+                rather than leaving it to be discovered via the timeout. */}
+            <p className="mt-3 text-xs text-slate-500">
+                This page is on <code className="rounded bg-slate-100 px-1">{typeof window !== 'undefined' ? window.location.hostname : ''}</code>.
+                That exact hostname must be listed under <strong>Allowed Domains for the JavaScript SDK</strong> in
+                the Meta app — <code className="rounded bg-slate-100 px-1">www.</code> and the bare domain count separately.
+            </p>
 
             {error && (
                 <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
