@@ -104,6 +104,25 @@ whatsappOnboardingRouter.get('/onboard/status', requireAdmin, async (_req, res) 
     }
 });
 
+// DELETE /api/whatsapp/onboard/sender — forget the stored coexistence sender.
+//
+// Needed because onboarding the wrong number leaves a record that makes the system look configured
+// while being unusable, and blocks a clean retry. Only removes OUR record — it does not touch
+// anything at Meta, so the number stays exactly as it is on the WABA.
+whatsappOnboardingRouter.delete('/onboard/sender', requireAdmin, async (_req, res) => {
+    try {
+        const existing = await getCoexistenceSender();
+        await db.delete(appSettings).where(eq(appSettings.key, SETTING_KEY));
+        res.json({
+            success: true,
+            removed: existing ? { phoneNumberId: existing.phoneNumberId, displayPhoneNumber: existing.displayPhoneNumber } : null,
+        });
+    } catch (error: any) {
+        console.error('[WA Onboard] Failed to clear sender:', error);
+        res.status(500).json({ error: 'Failed to clear stored sender' });
+    }
+});
+
 // GET /api/whatsapp/onboard/diagnose — ask Meta directly why the flow won't launch.
 //
 // FB.login() fails silently when the app is misconfigured: no popup, no callback, no error. The
@@ -268,8 +287,37 @@ whatsappOnboardingRouter.post('/onboard/exchange', requireAdmin, async (req, res
             displayPhoneNumber = (await infoRes.json())?.display_phone_number;
         } catch { /* non-fatal */ }
 
+        // Refuse to store a sender that cannot actually send. Selecting an existing WABA in the
+        // dialog (instead of "connect an existing WhatsApp Business app number") lands you on a
+        // WABA whose only number is a Meta 555 test number — auto-resolution then picks it, and
+        // everything downstream looks onboarded while being unusable.
+        const liveInfo = await fetch(
+            `${GRAPH}/${phoneNumberId}?fields=display_phone_number,status,platform_type`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+        ).then((r) => r.json()).catch(() => null);
+
+        const num = (liveInfo?.display_phone_number ?? displayPhoneNumber ?? '').replace(/\s/g, '');
+        const is555 = /^\+1555/.test(num);
+        const disconnected = liveInfo?.status && liveInfo.status !== 'CONNECTED';
+
+        if (is555 || disconnected) {
+            steps.push({ step: 'validate_sender', ok: false, detail: liveInfo });
+            return res.status(400).json({
+                error:
+                    `Onboarded the wrong number: ${num || 'unknown'}` +
+                    (is555 ? ' is a Meta 555 test number and cannot message real customers.' : '') +
+                    (disconnected ? ` Its status is ${liveInfo.status}, not CONNECTED.` : '') +
+                    ' Re-run the flow and, at the WhatsApp Business account step, choose' +
+                    ' "connect an existing WhatsApp Business app number" and enter the handset' +
+                    ' number — do NOT select an existing WhatsApp Business account.',
+                resolvedWabaId: wabaId,
+                resolvedPhoneNumberId: phoneNumberId,
+                steps,
+            });
+        }
+
         await saveCoexistenceSender({
-            phoneNumberId, wabaId, displayPhoneNumber, accessToken,
+            phoneNumberId, wabaId, displayPhoneNumber: liveInfo?.display_phone_number ?? displayPhoneNumber, accessToken,
             onboardedAt: new Date().toISOString(),
         });
         steps.push({ step: 'persist', ok: true });
