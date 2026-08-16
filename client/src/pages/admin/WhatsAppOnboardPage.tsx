@@ -99,6 +99,8 @@ export default function WhatsAppOnboardPage() {
                         wabaId: params.get('waba_id') || undefined,
                         phoneNumberId: params.get('phone_number_id') || undefined,
                         resolveAssets: true,
+                        // Must match the redirect_uri the code was issued against, exactly.
+                        redirectUri: `${window.location.origin}${window.location.pathname}`,
                     }),
                 });
                 const body = await r.json();

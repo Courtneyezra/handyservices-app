@@ -172,12 +172,27 @@ whatsappOnboardingRouter.post('/onboard/exchange', requireAdmin, async (req, res
         tokenUrl.searchParams.set('client_id', appId);
         tokenUrl.searchParams.set('client_secret', appSecret);
         tokenUrl.searchParams.set('code', code);
+
+        // The REDIRECT flow must echo back the exact redirect_uri the code was issued against —
+        // Meta rejects the exchange otherwise. The popup/SDK flow (override_default_response_type)
+        // issues codes with no redirect_uri, and sending one there breaks it instead. So this is
+        // set only when the client tells us the code came back via a redirect.
+        const redirectUri: string | undefined = req.body?.redirectUri;
+        if (redirectUri) tokenUrl.searchParams.set('redirect_uri', redirectUri);
+
         const tokenRes = await fetch(tokenUrl.toString());
         const tokenBody: any = await tokenRes.json();
 
         if (!tokenRes.ok || !tokenBody.access_token) {
             steps.push({ step: 'exchange_code', ok: false, detail: tokenBody });
-            return res.status(400).json({ error: 'Code exchange failed', steps });
+            // Surface Meta's own wording — "Code exchange failed" alone is not actionable.
+            const metaMsg = tokenBody?.error?.message || tokenBody?.error_description;
+            return res.status(400).json({
+                error: metaMsg ? `Code exchange failed — Meta says: ${metaMsg}` : 'Code exchange failed',
+                metaError: tokenBody?.error ?? tokenBody,
+                usedRedirectUri: redirectUri ?? null,
+                steps,
+            });
         }
         const accessToken: string = tokenBody.access_token;
         steps.push({ step: 'exchange_code', ok: true, detail: { token: redact(accessToken) } });
