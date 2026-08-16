@@ -30,13 +30,41 @@ export const whatsappOnboardingRouter = Router();
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const SETTING_KEY = 'whatsapp_coexistence_sender';
 
-/** Public config the browser needs. The app secret is NEVER sent to the client. */
-export function getOnboardingConfig() {
+const CONFIG_OVERRIDE_KEY = 'whatsapp_es_config_id';
+
+/**
+ * Public config the browser needs. The app secret is NEVER sent to the client.
+ *
+ * The Embedded Signup config id can be overridden in the database because getting the login
+ * configuration right takes several attempts, and each one would otherwise mean an env change and
+ * a redeploy. It is not a secret — it only identifies which login flow to launch.
+ */
+export async function getOnboardingConfig() {
+    let configId = process.env.META_ES_CONFIG_ID || '';
+    try {
+        const [row] = await db.select().from(appSettings).where(eq(appSettings.key, CONFIG_OVERRIDE_KEY));
+        const stored = (row?.value as any)?.configId;
+        if (stored) configId = stored;
+    } catch { /* fall back to env */ }
+
     return {
         appId: process.env.META_APP_ID || '',
-        configId: process.env.META_ES_CONFIG_ID || '',
+        configId,
         hasSecret: !!process.env.META_APP_SECRET,
     };
+}
+
+/** Overrides the Embedded Signup config id without a redeploy. */
+export async function setOnboardingConfigId(configId: string) {
+    await db.insert(appSettings)
+        .values({
+            id: CONFIG_OVERRIDE_KEY,
+            key: CONFIG_OVERRIDE_KEY,
+            value: { configId },
+            description: 'Embedded Signup login configuration id (overrides META_ES_CONFIG_ID)',
+            updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value: { configId }, updatedAt: new Date() } });
 }
 
 export type CoexistenceSender = {
@@ -73,8 +101,8 @@ async function saveCoexistenceSender(sender: CoexistenceSender) {
 const redact = (t: string) => (t ? `${t.slice(0, 6)}…${t.slice(-4)} (${t.length} chars)` : '(empty)');
 
 // GET /api/whatsapp/onboard/config — public bits the launcher page needs.
-whatsappOnboardingRouter.get('/onboard/config', requireAdmin, (_req, res) => {
-    const cfg = getOnboardingConfig();
+whatsappOnboardingRouter.get('/onboard/config', requireAdmin, async (_req, res) => {
+    const cfg = await getOnboardingConfig();
     res.json({
         ...cfg,
         ready: !!cfg.appId && !!cfg.configId && cfg.hasSecret,
@@ -123,6 +151,21 @@ whatsappOnboardingRouter.delete('/onboard/sender', requireAdmin, async (_req, re
     }
 });
 
+// POST /api/whatsapp/onboard/config — point the flow at a different login configuration.
+whatsappOnboardingRouter.post('/onboard/config', requireAdmin, async (req, res) => {
+    try {
+        const { configId } = req.body || {};
+        if (!configId || !/^\d{6,}$/.test(String(configId))) {
+            return res.status(400).json({ error: "Provide a numeric 'configId'" });
+        }
+        await setOnboardingConfigId(String(configId));
+        res.json({ success: true, config: await getOnboardingConfig() });
+    } catch (error: any) {
+        console.error('[WA Onboard] Failed to set config id:', error);
+        res.status(500).json({ error: 'Failed to set config id' });
+    }
+});
+
 // GET /api/whatsapp/onboard/diagnose — ask Meta directly why the flow won't launch.
 //
 // FB.login() fails silently when the app is misconfigured: no popup, no callback, no error. The
@@ -131,7 +174,7 @@ whatsappOnboardingRouter.delete('/onboard/sender', requireAdmin, async (_req, re
 whatsappOnboardingRouter.get('/onboard/diagnose', requireAdmin, async (_req, res) => {
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
-    const configId = process.env.META_ES_CONFIG_ID;
+    const configId = (await getOnboardingConfig()).configId;
 
     if (!appId || !appSecret) return res.status(500).json({ error: 'META_APP_ID / META_APP_SECRET not set' });
 
