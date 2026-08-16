@@ -181,7 +181,7 @@ quickRepliesRouter.get('/preview/:id', async (req, res) => {
 // POST /api/quick-replies/:id/send — render and send to a phone number
 quickRepliesRouter.post('/:id/send', async (req, res) => {
     try {
-        const { phone } = req.body || {};
+        const { phone, via } = req.body || {};
         if (!phone) return res.status(400).json({ error: "Missing 'phone'" });
 
         const [reply] = await db.select().from(quickReplies).where(eq(quickReplies.id, req.params.id));
@@ -206,11 +206,13 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
             });
         }
 
+        const transport = via === 'meta' ? 'meta' : 'twilio';
         const result: any = windowOpen
-            ? await sendWhatsAppMessage(phone, rendered)
+            ? await sendWhatsAppMessage(phone, rendered, { via: transport })
             : await sendWhatsAppMessage(phone, rendered, {
                   contentSid: reply.contentSid!,
                   contentVariables: renderVariables(reply.contentVariables as any, contactName),
+                  via: transport,
               });
 
         // Telemetry is best-effort — a counter must never fail a send that already went out.

@@ -86,7 +86,7 @@ whatsappRouter.post('/incoming', async (req, res) => {
 // POST /api/whatsapp/send - Send a message via Meta Cloud API
 whatsappRouter.post('/send', requireAdmin, async (req, res) => {
     try {
-        const { to, body, templateName, templateLanguage, templateComponents } = req.body;
+        const { to, body, templateName, templateLanguage, templateComponents, via } = req.body;
 
         if (!to || !body) {
             return res.status(400).json({ error: "Missing 'to' or 'body'" });
@@ -97,7 +97,9 @@ whatsappRouter.post('/send', requireAdmin, async (req, res) => {
         const result = await sendWhatsAppMessage(to, body, {
             templateName,
             templateLanguage,
-            templateComponents
+            templateComponents,
+            // Selects the transport. A coexistence number cannot go via Twilio.
+            via: via === 'meta' ? 'meta' : 'twilio',
         });
 
         res.json({ success: true, messageId: result.messages?.[0]?.id });

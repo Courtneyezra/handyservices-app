@@ -122,6 +122,52 @@ function toCard(c: typeof conversations.$inferSelect, activity?: Activity): Boar
     };
 }
 
+// GET /api/inbox/senders — which numbers Ben can send from.
+//
+// Twilio carries +447449501762. A coexistence number onboarded via Embedded Signup cannot go
+// through Twilio at all, so it is listed as a separate sender with transport 'meta'. Without this
+// the UI has no way to reach the new number even once it is onboarded.
+inboxBoardRouter.get('/senders', async (_req, res) => {
+    try {
+        const { getWhatsAppSenderE164, isWhatsAppSenderConfigured } = await import('./whatsapp-sender');
+        const { getCoexistenceSender } = await import('./whatsapp-onboarding');
+
+        const senders: Array<{
+            id: string; transport: 'twilio' | 'meta'; displayPhone: string;
+            label: string; isDefault: boolean; available: boolean; note?: string;
+        }> = [];
+
+        const twilioE164 = getWhatsAppSenderE164();
+        senders.push({
+            id: 'twilio',
+            transport: 'twilio',
+            displayPhone: twilioE164 ?? '(not configured)',
+            label: 'Platform number',
+            isDefault: true,
+            available: isWhatsAppSenderConfigured(),
+            note: isWhatsAppSenderConfigured() ? undefined : 'TWILIO_WHATSAPP_NUMBER is not set',
+        });
+
+        const coexistence = await getCoexistenceSender();
+        if (coexistence) {
+            senders.push({
+                id: 'meta',
+                transport: 'meta',
+                displayPhone: coexistence.displayPhoneNumber ?? '(unknown)',
+                label: 'Handset number (coexistence)',
+                isDefault: false,
+                available: true,
+                note: 'Also live in the WhatsApp Business app — replies sync both ways',
+            });
+        }
+
+        res.json({ senders, coexistenceOnboarded: !!coexistence });
+    } catch (error: any) {
+        console.error('[InboxBoard] Failed to list senders:', error);
+        res.status(500).json({ error: 'Failed to list senders' });
+    }
+});
+
 // GET /api/inbox/board — every non-archived conversation, grouped into columns.
 inboxBoardRouter.get('/board', async (req, res) => {
     try {

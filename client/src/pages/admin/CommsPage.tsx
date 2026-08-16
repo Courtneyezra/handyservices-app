@@ -84,6 +84,16 @@ interface QuickReply {
     shortcut: string | null; contentSid: string | null;
 }
 
+interface Sender {
+    id: string;
+    transport: 'twilio' | 'meta';
+    displayPhone: string;
+    label: string;
+    isDefault: boolean;
+    available: boolean;
+    note?: string;
+}
+
 // ---------------------------------------------------------------- helpers
 
 const STAGE_META: Record<string, { label: string; hint: string; accent: string }> = {
@@ -277,6 +287,21 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         refetchInterval: 15_000,
     });
 
+    // Which number to send from. Only appears once a second sender exists, so the common
+    // single-number case stays uncluttered.
+    const { data: senderData } = useQuery<{ senders: Sender[]; coexistenceOnboarded: boolean }>({
+        queryKey: ['comms-senders'],
+        queryFn: async () => {
+            const r = await fetch('/api/inbox/senders', { headers: getAuthHeaders() });
+            if (!r.ok) return { senders: [], coexistenceOnboarded: false };
+            return r.json();
+        },
+        staleTime: 60_000,
+    });
+    const senders = senderData?.senders ?? [];
+    const [senderId, setSenderId] = useState<string>('twilio');
+    const activeSender = senders.find((s) => s.id === senderId) ?? senders[0];
+
     const { data: quickReplies } = useQuery<QuickReply[]>({
         queryKey: ['quick-replies'],
         queryFn: async () => {
@@ -301,7 +326,9 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             const res = await fetch('/api/whatsapp/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ to: card.phoneNumber, body }),
+                // 'via' picks the transport. A coexistence number cannot go through Twilio, so
+                // omitting this would silently send from the wrong number.
+                body: JSON.stringify({ to: card.phoneNumber, body, via: activeSender?.transport ?? 'twilio' }),
             });
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Send failed (${res.status})`);
             return res.json();
@@ -315,7 +342,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             const res = await fetch(`/api/quick-replies/${reply.id}/send`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ phone: card.phoneNumber }),
+                body: JSON.stringify({ phone: card.phoneNumber, via: activeSender?.transport ?? 'twilio' }),
             });
             const detail = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(detail.error === 'OUTSIDE_WINDOW' ? detail.message : detail.error || 'Send failed');
@@ -410,6 +437,27 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             </div>
 
             <div className="border-t border-slate-200 p-3">
+                {/* Only shown when there is genuinely a choice to make. */}
+                {senders.length > 1 && (
+                    <div className="mb-2 flex items-center gap-2 text-xs">
+                        <span className="text-slate-500">From</span>
+                        <select
+                            value={senderId}
+                            onChange={(e) => setSenderId(e.target.value)}
+                            className="rounded border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+                        >
+                            {senders.map((s) => (
+                                <option key={s.id} value={s.id} disabled={!s.available}>
+                                    {s.displayPhone} — {s.label}{s.available ? '' : ' (unavailable)'}
+                                </option>
+                            ))}
+                        </select>
+                        {activeSender?.note && (
+                            <span className="truncate text-[11px] text-slate-400">{activeSender.note}</span>
+                        )}
+                    </div>
+                )}
+
                 {!card.windowOpen && (
                     <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
                         <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
