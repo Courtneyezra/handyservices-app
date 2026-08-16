@@ -104,6 +104,50 @@ whatsappOnboardingRouter.get('/onboard/status', requireAdmin, async (_req, res) 
     }
 });
 
+// GET /api/whatsapp/onboard/diagnose — ask Meta directly why the flow won't launch.
+//
+// FB.login() fails silently when the app is misconfigured: no popup, no callback, no error. The
+// browser cannot see why. The server can, because it holds the app secret and can mint an app
+// access token to inspect the app's own configuration.
+whatsappOnboardingRouter.get('/onboard/diagnose', requireAdmin, async (_req, res) => {
+    const appId = process.env.META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+    const configId = process.env.META_ES_CONFIG_ID;
+
+    if (!appId || !appSecret) return res.status(500).json({ error: 'META_APP_ID / META_APP_SECRET not set' });
+
+    const appToken = `${appId}|${appSecret}`;
+    const checks: Record<string, any> = {};
+
+    const get = async (path: string, label: string) => {
+        try {
+            const r = await fetch(`${GRAPH}/${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(appToken)}`);
+            const body = await r.json();
+            checks[label] = { ok: r.ok, status: r.status, body };
+        } catch (e: any) {
+            checks[label] = { ok: false, error: e?.message };
+        }
+    };
+
+    // Does the app exist and what is it called?
+    await get(`${appId}?fields=id,name,category,link,app_domains,auth_dialog_data_help_url`, 'app');
+    // Is the Embedded Signup login configuration real, and what type is it?
+    if (configId) await get(`${configId}`, 'login_configuration');
+    // Which products are enabled — Facebook Login for Business must be one of them.
+    await get(`${appId}/subscribed_domains`, 'subscribed_domains');
+
+    res.json({
+        appId,
+        configId: configId || null,
+        checks,
+        hint:
+            'login_configuration must resolve. If it 404s, the config_id belongs to a different app ' +
+            'or was deleted. app_domains must contain the exact hostname serving the page ' +
+            '(www counts separately), and Allowed Domains for the JavaScript SDK is a SEPARATE ' +
+            'setting under Facebook Login for Business > Settings.',
+    });
+});
+
 // POST /api/whatsapp/onboard/exchange — the server-to-server half of Embedded Signup.
 whatsappOnboardingRouter.post('/onboard/exchange', requireAdmin, async (req, res) => {
     const { code, wabaId, phoneNumberId, pin } = req.body || {};
