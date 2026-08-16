@@ -150,7 +150,7 @@ whatsappOnboardingRouter.get('/onboard/diagnose', requireAdmin, async (_req, res
 
 // POST /api/whatsapp/onboard/exchange — the server-to-server half of Embedded Signup.
 whatsappOnboardingRouter.post('/onboard/exchange', requireAdmin, async (req, res) => {
-    const { code, wabaId, phoneNumberId, pin } = req.body || {};
+    let { code, wabaId, phoneNumberId, pin } = req.body || {};
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
 
@@ -158,7 +158,9 @@ whatsappOnboardingRouter.post('/onboard/exchange', requireAdmin, async (req, res
         return res.status(500).json({ error: 'META_APP_ID / META_APP_SECRET not configured on the server' });
     }
     if (!code) return res.status(400).json({ error: "Missing 'code' from Embedded Signup" });
-    if (!wabaId || !phoneNumberId) {
+
+    const resolveAssets = req.body?.resolveAssets === true;
+    if ((!wabaId || !phoneNumberId) && !resolveAssets) {
         return res.status(400).json({ error: "Missing 'wabaId' or 'phoneNumberId' — the signup event did not return them" });
     }
 
@@ -180,6 +182,49 @@ whatsappOnboardingRouter.post('/onboard/exchange', requireAdmin, async (req, res
         const accessToken: string = tokenBody.access_token;
         steps.push({ step: 'exchange_code', ok: true, detail: { token: redact(accessToken) } });
         console.log('[WA Onboard] Exchanged code for business token:', redact(accessToken));
+
+        // The popup flow supplies waba_id/phone_number_id via postMessage. The redirect flow does
+        // not, so derive them from the token itself: debug_token reports granular_scopes, whose
+        // target_ids for whatsapp_business_management are exactly the WABAs this token was granted.
+        let resolvedWabaId = wabaId as string | undefined;
+        let resolvedPhoneNumberId = phoneNumberId as string | undefined;
+
+        if (!resolvedWabaId || !resolvedPhoneNumberId) {
+            const dbg = await fetch(
+                `${GRAPH}/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`
+            ).then((r) => r.json()).catch(() => null);
+
+            const granular = dbg?.data?.granular_scopes as Array<{ scope: string; target_ids?: string[] }> | undefined;
+            const waTargets = granular?.find((g) => g.scope === 'whatsapp_business_management')?.target_ids
+                ?? granular?.find((g) => g.scope === 'whatsapp_business_messaging')?.target_ids;
+
+            resolvedWabaId = resolvedWabaId || waTargets?.[0];
+            steps.push({ step: 'resolve_waba', ok: !!resolvedWabaId, detail: { granted: waTargets ?? null } });
+
+            if (resolvedWabaId && !resolvedPhoneNumberId) {
+                const phones = await fetch(
+                    `${GRAPH}/${resolvedWabaId}/phone_numbers?fields=id,display_phone_number,platform_type,status`,
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
+                ).then((r) => r.json()).catch(() => null);
+
+                const list = phones?.data ?? [];
+                // Prefer a number that isn't the existing Twilio sender, so a coexistence onboarding
+                // doesn't accidentally pick up the number we already run through Twilio.
+                const existing = process.env.TWILIO_WHATSAPP_NUMBER?.replace(/\D/g, '');
+                const picked = list.find((p: any) => p.display_phone_number?.replace(/\D/g, '') !== existing) ?? list[0];
+                resolvedPhoneNumberId = picked?.id;
+                steps.push({ step: 'resolve_phone_number', ok: !!resolvedPhoneNumberId, detail: { candidates: list } });
+            }
+        }
+
+        if (!resolvedWabaId || !resolvedPhoneNumberId) {
+            return res.status(400).json({
+                error: 'Could not determine WABA / phone number from the token. Complete the flow again, or pass them explicitly.',
+                steps,
+            });
+        }
+        wabaId = resolvedWabaId;
+        phoneNumberId = resolvedPhoneNumberId;
 
         // 2. Register the number for Cloud API. Harmless if already registered — Meta returns an
         //    error we treat as non-fatal so a retry doesn't strand a half-finished onboarding.

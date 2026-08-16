@@ -66,6 +66,55 @@ export default function WhatsAppOnboardPage() {
         },
     });
 
+    // Redirect-flow return. The popup flow hands the code to a JS callback; the redirect flow comes
+    // back as ?code=... on this page instead. Handle both, because FB.login()'s popup is silently
+    // suppressed in some browsers and the redirect is the reliable fallback.
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const metaError = params.get('error_description') || params.get('error');
+
+        if (metaError) {
+            setError(`Meta returned: ${metaError}`);
+            window.history.replaceState({}, '', window.location.pathname);
+            return;
+        }
+        if (!code) return;
+
+        // Strip the code from the URL immediately — it is single-use and should not sit in
+        // history, get bookmarked, or leak via a Referer header.
+        window.history.replaceState({}, '', window.location.pathname);
+
+        (async () => {
+            setBusy(true);
+            say('returned from Meta with a code, exchanging server-side…');
+            try {
+                // The redirect flow gives no postMessage, so asset ids are resolved server-side
+                // from the WABA after the token exchange.
+                const r = await fetch('/api/whatsapp/onboard/exchange', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                    body: JSON.stringify({
+                        code,
+                        wabaId: params.get('waba_id') || undefined,
+                        phoneNumberId: params.get('phone_number_id') || undefined,
+                        resolveAssets: true,
+                    }),
+                });
+                const body = await r.json();
+                if (!r.ok) throw new Error(body.error || `Exchange failed (${r.status})`);
+                setResult(body);
+                say('onboarded ✓');
+                refetchStatus();
+            } catch (e: any) {
+                setError(e?.message || 'Exchange failed');
+                say(`failed: ${e?.message}`);
+            } finally {
+                setBusy(false);
+            }
+        })();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Meta posts asset ids here as the user moves through the flow. They arrive BEFORE the login
     // callback fires, so they must be captured separately and held until the code shows up.
     useEffect(() => {
