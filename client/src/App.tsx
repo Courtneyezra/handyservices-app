@@ -69,6 +69,7 @@ const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
 const OfferDecisionsPage = lazy(() => import("@/pages/admin/OfferDecisionsPage"));
 const NudgeQueuePage = lazy(() => import("@/pages/admin/NudgeQueuePage"));
 const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
+const WhatsAppOnboardPage = lazy(() => import("@/pages/admin/WhatsAppOnboardPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
@@ -705,6 +706,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <CommsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/whatsapp-onboard">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <WhatsAppOnboardPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
