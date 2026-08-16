@@ -282,6 +282,9 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
             direction: 'inbound',
             content,
             type: type === 'text' ? 'text' : type,
+            // Arrives over Meta Cloud API — still the WhatsApp channel, so it DOES open the 24h
+            // window (unlike SMS). The transport differs; the channel does not.
+            channel: 'whatsapp',
             status: 'delivered',
             senderName: profileName,
             mediaUrl,
@@ -345,6 +348,150 @@ async function handleStatusUpdate(status: any) {
 }
 
 /**
+ * Sends via Meta Cloud API rather than Twilio.
+ *
+ * This is the transport for a COEXISTENCE number — one onboarded through Embedded Signup that also
+ * runs on a handset. Twilio cannot carry those numbers (it does not support coexistence and its own
+ * numbers have no SIM), so they must go direct to Meta.
+ *
+ * Differences that matter versus the Twilio path:
+ *  - templates are addressed by NAME + language, not by Twilio's contentSid wrapper. Templates live
+ *    on the WABA, so both senders on WABA 1538004761222206 share the same approved set.
+ *  - there is no StatusCallback parameter; delivery status arrives on the Meta webhook instead.
+ */
+export async function sendViaMetaCloudApi(
+    phoneNumberId: string,
+    accessToken: string,
+    to: string,
+    body: string,
+    options?: {
+        templateName?: string;
+        templateLanguage?: string;
+        templateComponents?: any[];
+    }
+): Promise<{ sid?: string; status?: string; raw: any }> {
+    // A `...@c.us` key already holds full international digits; do not run UK normalization on it
+    // (that is what turned +84357691573 into +4484357691573 on the Twilio path).
+    const isConversationKey = to.includes('@c.us');
+    const raw = to.replace('@c.us', '');
+    const e164 = isConversationKey ? `+${raw.replace(/\D/g, '')}` : (normalizePhoneNumber(raw) ?? '');
+    if (!/^\+[1-9]\d{7,14}$/.test(e164)) {
+        throw new Error(`Invalid phone number for Meta send: ${to} (resolved to ${e164 || 'null'})`);
+    }
+
+    // Meta wants the number WITHOUT a leading '+'.
+    const recipient = e164.replace('+', '');
+    const isTemplate = !!options?.templateName;
+
+    const payload: Record<string, any> = isTemplate
+        ? {
+              messaging_product: 'whatsapp',
+              to: recipient,
+              type: 'template',
+              template: {
+                  name: options!.templateName,
+                  language: { code: options?.templateLanguage || 'en_GB' },
+                  ...(options?.templateComponents ? { components: options.templateComponents } : {}),
+              },
+          }
+        : {
+              messaging_product: 'whatsapp',
+              to: recipient,
+              type: 'text',
+              text: { preview_url: false, body },
+          };
+
+    console.log(`[Meta Cloud API] Sending ${isTemplate ? 'template' : 'freeform'} to +${recipient} via ${phoneNumberId}`);
+
+    const res = await fetch(`${GRAPH_API_URL}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const result: any = await res.json();
+
+    if (!res.ok) {
+        console.error('[Meta Cloud API] Send failed:', result?.error ?? result);
+        throw new Error(result?.error?.message || `Meta send failed (${res.status})`);
+    }
+
+    return {
+        sid: result?.messages?.[0]?.id,
+        // Meta does not return a status on send; the webhook reports it. 'accepted' mirrors what
+        // Twilio calls 'queued' so the two transports read the same in the inbox.
+        status: 'accepted',
+        raw: result,
+    };
+}
+
+/**
+ * Persists an outbound message and updates its conversation.
+ *
+ * The Twilio path does this inline; the Meta path calls this so a message sent over either
+ * transport appears identically in /admin/comms. Best-effort: a bookkeeping failure must never
+ * make a send that already left look like it failed.
+ */
+async function recordOutboundMessage(
+    to: string,
+    body: string,
+    meta: { messageId?: string; status?: string; isTemplate?: boolean; templateRef?: string }
+) {
+    try {
+        const digits = to.replace('@c.us', '').replace(/^\+/, '').replace(/\D/g, '');
+        const phoneNumber = `${digits}@c.us`;
+        const now = new Date();
+        const messageId = meta.messageId || uuidv4();
+        const content = meta.isTemplate ? `[Template: ${meta.templateRef ?? 'unknown'}]` : body;
+        const preview = meta.isTemplate ? '[Template message]' : body.substring(0, 50);
+
+        let conv = await db.query.conversations.findFirst({
+            where: eq(conversations.phoneNumber, phoneNumber),
+        });
+
+        if (!conv) {
+            const newConv: InsertConversation = {
+                id: uuidv4(),
+                phoneNumber,
+                status: 'active',
+                stage: 'active',
+                lastMessageAt: now,
+                lastMessagePreview: preview,
+            };
+            await db.insert(conversations).values(newConv);
+            conv = newConv as any;
+        } else {
+            await db.update(conversations)
+                .set({ lastMessageAt: now, lastMessagePreview: preview, stage: 'active', updatedAt: now })
+                .where(eq(conversations.id, conv.id));
+        }
+
+        await db.insert(messages).values({
+            id: messageId,
+            conversationId: conv!.id,
+            direction: 'outbound',
+            content,
+            type: meta.isTemplate ? 'template' : 'text',
+            channel: 'whatsapp',
+            status: meta.status || 'sent',
+            senderName: 'Agent',
+            twilioSid: meta.messageId || null,
+            createdAt: now,
+        } as InsertMessage);
+
+        broadcast('inbox:message', {
+            conversationId: phoneNumber,
+            message: {
+                id: messageId, direction: 'outbound', content,
+                type: meta.isTemplate ? 'template' : 'text', channel: 'whatsapp',
+                status: meta.status || 'sent', senderName: 'Agent', createdAt: now.toISOString(),
+            },
+        });
+    } catch (e) {
+        console.error('[WhatsApp] Failed to record outbound message (the send itself succeeded):', e);
+    }
+}
+
+/**
  * Public https URL Twilio should post delivery status to, or null when we have no reachable
  * public origin (local dev). Returning null simply means statuses aren't tracked for that send.
  */
@@ -360,10 +507,42 @@ function getStatusCallbackUrl(): string | null {
 export async function sendWhatsAppMessage(to: string, body: string, options?: {
     contentSid?: string;           // Twilio Content Template SID (e.g., HXxxxxx)
     contentVariables?: Record<string, string>;  // Template variables {"1": "John", "2": "kitchen tap"}
-    templateName?: string;         // Deprecated - use contentSid
-    templateLanguage?: string;     // Deprecated - use contentSid
-    templateComponents?: any[];    // Deprecated - use contentVariables
+    templateName?: string;         // Meta template name (used by the 'meta' transport)
+    templateLanguage?: string;     // Meta template language, e.g. 'en_GB'
+    templateComponents?: any[];    // Meta template components
+    /**
+     * Which transport carries this message.
+     *   'twilio' — the +447449501762 sender (default; unchanged behaviour)
+     *   'meta'   — the coexistence sender onboarded via Embedded Signup, which Twilio cannot carry
+     * Defaults to Twilio so nothing that exists today changes behaviour.
+     */
+    via?: 'twilio' | 'meta';
 }) {
+    // Route to Meta Cloud API for the coexistence sender. Done before the Twilio credential check
+    // because a Meta send needs none of them.
+    if (options?.via === 'meta') {
+        const { getCoexistenceSender } = await import('./whatsapp-onboarding');
+        const sender = await getCoexistenceSender();
+        if (!sender) {
+            throw new Error('No coexistence sender onboarded — run /admin/whatsapp-onboard first');
+        }
+        const result = await sendViaMetaCloudApi(
+            sender.phoneNumberId, sender.accessToken, to, body,
+            {
+                templateName: options.templateName,
+                templateLanguage: options.templateLanguage,
+                templateComponents: options.templateComponents,
+            }
+        );
+        await recordOutboundMessage(to, body, {
+            messageId: result.sid,
+            status: result.status,
+            isTemplate: !!options.templateName,
+            templateRef: options.templateName,
+        });
+        return result;
+    }
+
     if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
         throw new Error('Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN');
     }
