@@ -164,6 +164,7 @@ const CancellationPolicy = lazy(() => import("@/pages/CancellationPolicy"));
 // Client Portal Pages (public, token-based access)
 const InvoiceView = lazy(() => import("@/pages/client/InvoiceView"));
 const RewardsTermsPage = lazy(() => import("@/pages/RewardsTermsPage"));
+const PrivacyPolicyPage = lazy(() => import("@/pages/PrivacyPolicyPage"));
 const LeaveReview = lazy(() => import("@/pages/client/LeaveReview"));
 const PaymentPage = lazy(() => import("@/pages/client/PaymentPage"));
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
@@ -405,6 +406,10 @@ function Router() {
                 </Route>
                 <Route path="/rewards-terms">
                     <RewardsTermsPage />
+                </Route>
+                {/* Public privacy policy — Meta App Review opens privacy_policy_url and checks it */}
+                <Route path="/privacy">
+                    <PrivacyPolicyPage />
                 </Route>
                 {/* Customer flexible-booking slot picker (public, token-based, no login) */}
                 <Route path="/confirm-slot/:token">
