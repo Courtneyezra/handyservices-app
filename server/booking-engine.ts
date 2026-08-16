@@ -253,6 +253,15 @@ export async function reserveSlot(params: {
     await db.delete(bookingSlotLocks)
         .where(lt(bookingSlotLocks.expiresAt, staleThreshold));
 
+    // 1b. A quote holds at most ONE live reservation. Re-reserving (a new date,
+    // a retry after the client lost its reservation state, a zombie hold from a
+    // killed tab) REPLACES the previous hold instead of colliding with it — the
+    // server lock lives 20 minutes while the client countdown shows 5, so
+    // without this a customer's own still-live lock blocks their retry with
+    // "that time was just taken" (self-conflict, observed on dles0479 16 Aug).
+    await db.delete(bookingSlotLocks)
+        .where(eq(bookingSlotLocks.quoteId, quoteId));
+
     const conflictingSlots = getConflictingSlots(scheduledSlot);
 
     // Travel-aware capacity prerequisites — fetch the quote once so we know the
