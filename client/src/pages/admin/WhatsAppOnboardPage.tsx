@@ -158,6 +158,34 @@ export default function WhatsAppOnboardPage() {
         document.body.appendChild(s);
     }, [config?.appId]);
 
+    /**
+     * Full-page redirect into Embedded Signup.
+     *
+     * This is the default because FB.login()'s popup is silently suppressed on this setup — the
+     * launch line prints and nothing else ever happens. A top-level navigation cannot be blocked by
+     * a popup blocker or by the "Login with the JavaScript SDK" toggle, and the same URL was already
+     * confirmed working by hand.
+     */
+    function launchViaRedirect() {
+        if (!config) return;
+        const redirectUri = `${window.location.origin}${window.location.pathname}`;
+        const extras = JSON.stringify({
+            setup: {},
+            featureType: 'whatsapp_business_app_onboarding',
+            sessionInfoVersion: 3,
+        });
+        const url =
+            `https://www.facebook.com/v21.0/dialog/oauth` +
+            `?client_id=${encodeURIComponent(config.appId)}` +
+            `&config_id=${encodeURIComponent(config.configId)}` +
+            `&response_type=code&override_default_response_type=true` +
+            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+            `&extras=${encodeURIComponent(extras)}`;
+
+        say(`redirecting to Meta (redirect_uri: ${redirectUri})`);
+        window.location.href = url;
+    }
+
     function launch() {
         if (!window.FB || !config) return;
         setBusy(true); setError(null); setResult(null); setLog([]);
@@ -290,18 +318,32 @@ export default function WhatsAppOnboardPage() {
                 </p>
             </div>
 
-            <button
-                onClick={launch}
-                disabled={!sdkReady || busy || blocked}
-                className={cn(
-                    'mt-6 inline-flex items-center gap-2 rounded-lg px-5 py-3 font-semibold text-white transition-colors',
-                    !sdkReady || busy || blocked ? 'cursor-not-allowed bg-slate-300' : 'bg-emerald-600 hover:bg-emerald-700'
-                )}
-            >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                {busy ? 'Onboarding…' : 'Launch Embedded Signup'}
-            </button>
-            {!sdkReady && !blocked && <p className="mt-2 text-xs text-slate-400">Loading Facebook SDK…</p>}
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+                <button
+                    onClick={launchViaRedirect}
+                    disabled={busy || blocked}
+                    className={cn(
+                        'inline-flex items-center gap-2 rounded-lg px-5 py-3 font-semibold text-white transition-colors',
+                        busy || blocked ? 'cursor-not-allowed bg-slate-300' : 'bg-emerald-600 hover:bg-emerald-700'
+                    )}
+                >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                    {busy ? 'Onboarding…' : 'Launch Embedded Signup'}
+                </button>
+
+                {/* Kept as a fallback only — the popup is unreliable here, which is why the
+                    primary button navigates instead. */}
+                <button
+                    onClick={launch}
+                    disabled={!sdkReady || busy || blocked}
+                    className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-800 disabled:opacity-40"
+                >
+                    try popup instead
+                </button>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+                This navigates to Meta in this tab and returns here when done — no popup involved.
+            </p>
 
             {/* The domain mismatch is the most common reason the flow hangs, so state it up front
                 rather than leaving it to be discovered via the timeout. */}
