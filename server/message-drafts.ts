@@ -1,0 +1,201 @@
+/**
+ * Draft-and-approve: the human gate for system-originated outbound messages.
+ *
+ * Anything the SYSTEM composes — webform acknowledgements, post-call video requests, recovery
+ * nudges — is written here as a draft. Nothing reaches a customer until a person approves it.
+ * Ben's own typed replies do not pass through this; approval is for machine-authored messages.
+ *
+ * The reason is specific rather than theoretical: automated invoice dunning here once chased a
+ * customer over an invoice that had never been sent, and had to be disabled outright. The queue
+ * keeps the leverage of automation while leaving the send button with a human.
+ */
+import { Router } from 'express';
+import { db } from './db';
+import { messageDrafts, conversations } from '@shared/schema';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
+import { normalizePhoneNumber } from './phone-utils';
+
+export const messageDraftsRouter = Router();
+
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manual';
+
+/**
+ * Queues a message for approval. Returns the draft id, or null if it was suppressed.
+ *
+ * Deliberately never sends. Callers that used to send directly should call this instead — the
+ * only behavioural difference should be that a human taps approve.
+ */
+export async function queueDraft(input: {
+    phone: string;
+    body: string;
+    source: DraftSource;
+    reason?: string;
+    contentSid?: string;
+    contentVariables?: Record<string, string>;
+    /** Skip if an unsent draft from the same source already exists for this number. */
+    dedupe?: boolean;
+}): Promise<string | null> {
+    const phone = normalizePhoneNumber(input.phone);
+    if (!phone) {
+        console.warn('[Drafts] Refusing to queue for unparseable phone:', input.phone);
+        return null;
+    }
+
+    if (input.dedupe !== false) {
+        const [existing] = await db.select({ id: messageDrafts.id })
+            .from(messageDrafts)
+            .where(and(
+                eq(messageDrafts.phone, phone),
+                eq(messageDrafts.source, input.source),
+                inArray(messageDrafts.status, ['pending', 'approved']),
+            ))
+            .limit(1);
+        if (existing) {
+            console.log(`[Drafts] Skipping duplicate ${input.source} draft for ${phone}`);
+            return null;
+        }
+    }
+
+    const convKey = `${phone.replace('+', '')}@c.us`;
+    const [conv] = await db.select({ id: conversations.id })
+        .from(conversations).where(eq(conversations.phoneNumber, convKey));
+
+    const id = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await db.insert(messageDrafts).values({
+        id,
+        conversationId: conv?.id ?? null,
+        phone,
+        body: input.body,
+        channel: 'whatsapp',
+        contentSid: input.contentSid ?? null,
+        contentVariables: input.contentVariables ?? null,
+        source: input.source,
+        reason: input.reason ?? null,
+        status: 'pending',
+    });
+
+    console.log(`[Drafts] Queued ${input.source} draft ${id} for ${phone}`);
+    return id;
+}
+
+// GET /api/drafts — the approval queue. Pending first, newest last so it reads as a worklist.
+messageDraftsRouter.get('/', async (req, res) => {
+    try {
+        const status = String(req.query.status || 'pending');
+        const rows = await db.select().from(messageDrafts)
+            .where(status === 'all' ? sql`true` : eq(messageDrafts.status, status))
+            .orderBy(desc(messageDrafts.createdAt))
+            .limit(200);
+
+        // Tell the approver whether this can actually be delivered right now, rather than letting
+        // them approve something the 24h window will reject.
+        const enriched = await Promise.all(rows.map(async (d) => {
+            const windowOpen = await canSendFreeform(d.phone).catch(() => false);
+            return {
+                ...d,
+                windowOpen,
+                sendable: windowOpen || !!d.contentSid,
+                mode: windowOpen ? 'freeform' : d.contentSid ? 'template' : 'blocked',
+            };
+        }));
+
+        res.json({
+            drafts: enriched,
+            counts: {
+                pending: enriched.filter((d) => d.status === 'pending').length,
+                blocked: enriched.filter((d) => d.status === 'pending' && d.mode === 'blocked').length,
+            },
+        });
+    } catch (error: any) {
+        console.error('[Drafts] List failed:', error);
+        res.status(500).json({ error: 'Failed to load drafts' });
+    }
+});
+
+// PATCH /api/drafts/:id — edit the wording before approving.
+messageDraftsRouter.patch('/:id', async (req, res) => {
+    try {
+        const { body } = req.body || {};
+        if (typeof body !== 'string' || !body.trim()) {
+            return res.status(400).json({ error: "Missing 'body'" });
+        }
+        const [updated] = await db.update(messageDrafts)
+            .set({ body: body.trim() })
+            .where(and(eq(messageDrafts.id, req.params.id), eq(messageDrafts.status, 'pending')))
+            .returning();
+
+        if (!updated) return res.status(404).json({ error: 'Draft not found or no longer pending' });
+        res.json({ draft: updated });
+    } catch (error: any) {
+        console.error('[Drafts] Edit failed:', error);
+        res.status(500).json({ error: 'Failed to edit draft' });
+    }
+});
+
+// POST /api/drafts/:id/approve — the only path that actually sends.
+messageDraftsRouter.post('/:id/approve', async (req, res) => {
+    try {
+        const approvedBy = (req as any).user?.email || (req as any).user?.id || 'admin';
+
+        // Claim the row first so a double-click cannot send twice.
+        const [draft] = await db.update(messageDrafts)
+            .set({ status: 'approved', approvedAt: new Date(), approvedBy })
+            .where(and(eq(messageDrafts.id, req.params.id), eq(messageDrafts.status, 'pending')))
+            .returning();
+
+        if (!draft) return res.status(409).json({ error: 'Draft not found or already handled' });
+
+        const windowOpen = await canSendFreeform(draft.phone).catch(() => false);
+        if (!windowOpen && !draft.contentSid) {
+            await db.update(messageDrafts)
+                .set({ status: 'pending', approvedAt: null, approvedBy: null })
+                .where(eq(messageDrafts.id, draft.id));
+            return res.status(409).json({
+                error: 'OUTSIDE_WINDOW',
+                message: 'The 24-hour window is shut and this draft has no approved template behind it. It cannot be delivered as written.',
+            });
+        }
+
+        try {
+            const result: any = windowOpen
+                ? await sendWhatsAppMessage(draft.phone, draft.body)
+                : await sendWhatsAppMessage(draft.phone, draft.body, {
+                      contentSid: draft.contentSid!,
+                      contentVariables: (draft.contentVariables as any) ?? undefined,
+                  });
+
+            const [sent] = await db.update(messageDrafts)
+                .set({ status: 'sent', sentAt: new Date(), sentMessageId: result?.sid ?? null })
+                .where(eq(messageDrafts.id, draft.id))
+                .returning();
+
+            res.json({ success: true, draft: sent, mode: windowOpen ? 'freeform' : 'template' });
+        } catch (sendError: any) {
+            // Record the failure rather than leaving it stuck as 'approved' with nothing sent.
+            await db.update(messageDrafts)
+                .set({ status: 'failed', error: sendError?.message ?? 'send failed' })
+                .where(eq(messageDrafts.id, draft.id));
+            throw sendError;
+        }
+    } catch (error: any) {
+        console.error('[Drafts] Approve failed:', error);
+        res.status(500).json({ error: error?.message || 'Failed to send draft' });
+    }
+});
+
+// POST /api/drafts/:id/reject — decline without sending.
+messageDraftsRouter.post('/:id/reject', async (req, res) => {
+    try {
+        const [updated] = await db.update(messageDrafts)
+            .set({ status: 'rejected', approvedBy: (req as any).user?.email ?? 'admin', approvedAt: new Date() })
+            .where(and(eq(messageDrafts.id, req.params.id), eq(messageDrafts.status, 'pending')))
+            .returning();
+
+        if (!updated) return res.status(404).json({ error: 'Draft not found or no longer pending' });
+        res.json({ success: true, draft: updated });
+    } catch (error: any) {
+        console.error('[Drafts] Reject failed:', error);
+        res.status(500).json({ error: 'Failed to reject draft' });
+    }
+});

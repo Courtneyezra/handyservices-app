@@ -215,19 +215,31 @@ export async function maybeSendPostCallVideoRequest(input: {
             return { sent: false, reason: `QUIET_HOURS:${ukHourNow()}h` };
         }
 
-        // --- All guardrails passed: send the approved template ---
+        // --- All guardrails passed ---
         const name = (call.customerName || '').trim();
         const greetName = name && !/^(unknown|customer|caller)/i.test(name) ? name.split(/\s+/)[0] : 'there';
 
-        const result: any = await sendWhatsAppMessage(phone, '', {
+        // Queue for approval rather than sending. Every guardrail above is about whether this
+        // SHOULD be sent; the draft queue is about a human confirming it before it goes. Both
+        // matter — the guardrails stop obvious mistakes, the human catches the rest.
+        const { queueDraft } = await import('./message-drafts');
+        const draftId = await queueDraft({
+            phone,
+            body: `Hi ${greetName}, thanks for getting in touch! To give you an accurate quote, could you send us a quick video of the job? Just show us the area and tell us what needs doing. Thanks!`,
+            source: 'post_call_video',
+            reason: `Inbound call ${input.callSid} lasted ${duration}s. No video requested for this number in the last ${cfg.dedupeDays} days.`,
             contentSid: VIDEO_REQUEST_CONTENT_SID,
             contentVariables: { '1': greetName },
         });
 
+        if (!draftId) return { sent: false, reason: 'DUPLICATE_DRAFT' };
+
+        // Mark the call so the dedupe guard counts this attempt, whether or not it is approved —
+        // otherwise every subsequent call would re-queue the same draft.
         await recordVideoRequest({ callRecordId: call.id, phone, name: greetName, callSid: input.callSid });
 
-        console.log(`[PostCallOutreach] Video request sent to ${phone} for call ${input.callSid} (${result?.sid})`);
-        return { sent: true, reason: 'SENT', sid: result?.sid };
+        console.log(`[PostCallOutreach] Queued video request draft ${draftId} for ${phone} (call ${input.callSid})`);
+        return { sent: false, reason: 'QUEUED_FOR_APPROVAL', sid: draftId };
     } catch (error) {
         // Never let outreach break call finalization.
         console.error('[PostCallOutreach] Failed:', error);

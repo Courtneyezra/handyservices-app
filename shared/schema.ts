@@ -1714,6 +1714,46 @@ export const insertQuickReplySchema = createInsertSchema(quickReplies);
 export type QuickReply = typeof quickReplies.$inferSelect;
 export type InsertQuickReply = z.infer<typeof insertQuickReplySchema>;
 
+// Outbound drafts awaiting human approval.
+//
+// Every message the SYSTEM originates lands here first; nothing reaches a customer until someone
+// approves it. Ben's own typed replies bypass this entirely — approval is for machine-authored
+// messages, not for a person talking to a customer.
+//
+// This exists because automated outreach has gone wrong here before: invoice dunning chased a
+// customer over an invoice that was never sent, and had to be switched off entirely. A draft queue
+// keeps the leverage of automation without handing it the send button.
+export const messageDrafts = pgTable("message_drafts", {
+    id: varchar("id").primaryKey().notNull(),
+    conversationId: varchar("conversation_id"),          // null if no conversation exists yet
+    phone: varchar("phone").notNull(),                    // E.164 recipient
+
+    // What would be sent
+    body: text("body").notNull(),                         // rendered text (or the template's preview)
+    channel: varchar("channel", { length: 16 }).default('whatsapp').notNull(),
+    contentSid: varchar("content_sid"),                   // Twilio template, when outside the 24h window
+    contentVariables: jsonb("content_variables"),
+
+    // Why it was drafted — shown to the approver, and the audit trail afterwards
+    source: varchar("source", { length: 40 }).notNull(),  // webform_ack | post_call_video | recovery | manual
+    reason: text("reason"),                                // human-readable rationale
+
+    status: varchar("status", { length: 20 }).default('pending').notNull(), // pending|approved|sent|rejected|failed
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    approvedAt: timestamp("approved_at"),
+    approvedBy: varchar("approved_by"),
+    sentAt: timestamp("sent_at"),
+    sentMessageId: varchar("sent_message_id"),
+    error: text("error"),
+}, (table) => [
+    index("idx_message_drafts_status").on(table.status, table.createdAt),
+    index("idx_message_drafts_phone").on(table.phone),
+]);
+
+export const insertMessageDraftSchema = createInsertSchema(messageDrafts);
+export type MessageDraft = typeof messageDrafts.$inferSelect;
+export type InsertMessageDraft = z.infer<typeof insertMessageDraftSchema>;
+
 // ==========================================
 // LANDING PAGE & BANNER OPTIMIZATION
 // ==========================================

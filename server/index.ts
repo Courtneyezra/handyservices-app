@@ -44,6 +44,7 @@ import { quickRepliesRouter } from "./quick-replies";
 import { maybeSendPostCallVideoRequest } from "./post-call-outreach";
 import { inboxBoardRouter } from "./inbox-board";
 import { whatsappOnboardingRouter } from "./whatsapp-onboarding";
+import { messageDraftsRouter } from "./message-drafts";
 import { trainingRouter } from './training-routes';
 import { pushRouter } from './web-push';
 import handymenRouter from './handymen';
@@ -404,6 +405,7 @@ app.use('/api/whatsapp', whatsappExtRouter); // Chrome Extension ingest (ext-ing
 // (requireAdmin also admits the 'va' role, which is how Ben reaches them).
 app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messages for the inbox
 app.use('/api/inbox', requireAdmin, inboxBoardRouter); // Kanban board over conversations
+app.use('/api/drafts', requireAdmin, messageDraftsRouter); // Human approval gate for system-authored messages
 // Coexistence onboarding. Auth is applied per-route inside the router (same reason as whatsappRouter).
 app.use('/api/whatsapp', whatsappOnboardingRouter);
 app.use('/api/dashboard', requireAdmin, dashboardRouter);
