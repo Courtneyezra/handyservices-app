@@ -67,6 +67,7 @@ interface BoardResponse {
 }
 
 interface ThreadMessage {
+    kind?: 'message';
     id: string;
     direction: 'inbound' | 'outbound';
     channel: string;
@@ -78,6 +79,22 @@ interface ThreadMessage {
     senderName: string | null;
     createdAt: string;
 }
+
+/** A phone call, shown inline in the thread. Read-only — calls are context, not conversation. */
+interface CallEvent {
+    kind: 'call';
+    id: string;
+    direction: 'inbound' | 'outbound';
+    createdAt: string;
+    durationSeconds: number | null;
+    outcome: string | null;
+    summary: string | null;
+    transcript: string | null;
+    recordingUrl: string | null;
+    status: string | null;
+}
+
+type TimelineItem = ThreadMessage | CallEvent;
 
 interface QuickReply {
     id: string; label: string; body: string;
@@ -189,6 +206,81 @@ function DeliveryTick({ status }: { status: string }) {
     }
 }
 
+/** Seconds as "4m 12s" — raw seconds are hard to read at a glance. */
+function formatDuration(s: number | null): string {
+    if (s === null || s <= 0) return 'no answer';
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+/**
+ * A phone call in the thread.
+ *
+ * Rendered as a full-width event rather than a left/right bubble: a call isn't a message, and
+ * making it look like one would imply it can be replied to. Transcript and summary are collapsed
+ * because transcripts run long and would drown the conversation.
+ */
+function CallEventRow({ call }: { call: CallEvent }) {
+    const [open, setOpen] = useState(false);
+    const missed = !call.durationSeconds || call.outcome === 'MISSED_CALL';
+
+    return (
+        <div className="my-2">
+            <div className={cn(
+                'rounded-lg border px-3 py-2 text-xs',
+                missed ? 'border-red-200 bg-red-50' : 'border-purple-200 bg-purple-50'
+            )}>
+                <div className="flex items-center gap-2">
+                    <Phone className={cn('h-3.5 w-3.5 shrink-0', missed ? 'text-red-600' : 'text-purple-600')} />
+                    <span className={cn('font-semibold', missed ? 'text-red-800' : 'text-purple-900')}>
+                        {call.direction === 'inbound' ? 'Inbound call' : 'Outbound call'}
+                        {' · '}{formatDuration(call.durationSeconds)}
+                    </span>
+                    {call.outcome && (
+                        <span className="rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600">
+                            {call.outcome.replace(/_/g, ' ').toLowerCase()}
+                        </span>
+                    )}
+                    <span className="ml-auto text-[10px] text-slate-500">{timeLabel(call.createdAt)}</span>
+                </div>
+
+                {call.summary && (
+                    <p className="mt-1.5 leading-relaxed text-slate-700">{call.summary}</p>
+                )}
+
+                {(call.transcript || call.recordingUrl) && (
+                    <div className="mt-1.5 flex items-center gap-3">
+                        {call.transcript && (
+                            <button
+                                onClick={() => setOpen((v) => !v)}
+                                className="text-[11px] font-medium text-purple-700 underline underline-offset-2"
+                            >
+                                {open ? 'Hide transcript' : 'Show transcript'}
+                            </button>
+                        )}
+                        {call.recordingUrl && (
+                            <a
+                                href={call.recordingUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] font-medium text-purple-700 underline underline-offset-2"
+                            >
+                                Recording
+                            </a>
+                        )}
+                    </div>
+                )}
+
+                {open && call.transcript && (
+                    <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap rounded bg-white/80 p-2 text-[11px] leading-relaxed text-slate-700">
+                        {call.transcript}
+                    </pre>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function Card({ card, selected, onOpen }: { card: BoardCard; selected: boolean; onOpen: () => void }) {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id });
     return (
@@ -277,7 +369,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const [error, setError] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
 
-    const { data, isLoading } = useQuery<{ messages: ThreadMessage[]; totalMessages: number; truncated: boolean }>({
+    const { data, isLoading } = useQuery<{ messages: ThreadMessage[]; timeline?: TimelineItem[]; totalMessages: number; totalCalls?: number; truncated: boolean }>({
         queryKey: ['comms-thread', card.id],
         queryFn: async () => {
             const res = await fetch(`/api/inbox/conversations/${card.id}/thread`, { headers: getAuthHeaders() });
@@ -314,7 +406,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [data?.messages?.length]);
+    }, [data?.timeline?.length ?? data?.messages?.length]);
 
     const refresh = () => {
         queryClient.invalidateQueries({ queryKey: ['comms-thread', card.id] });
@@ -392,7 +484,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     <div className="flex h-full items-center justify-center text-slate-400">
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
                     </div>
-                ) : !data?.messages?.length ? (
+                ) : !(data?.timeline?.length ?? data?.messages?.length) ? (
                     <p className="py-10 text-center text-sm text-slate-400">No messages yet</p>
                 ) : (
                     <>
@@ -401,7 +493,11 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                                 Showing the latest {data.messages.length} of {data.totalMessages.toLocaleString()} messages
                             </p>
                         )}
-                        {data.messages.map((m) => {
+                        {(data.timeline ?? data.messages).map((item) => {
+                            // Calls sit inline as full-width events — they are context around the
+                            // conversation, not turns in it, so they are never bubbles.
+                            if (item.kind === 'call') return <CallEventRow key={item.id} call={item} />;
+                            const m = item;
                             const meta = CHANNEL_META[m.channel];
                             const Icon = meta?.icon;
                             const failed = m.status === 'failed' || m.status === 'undelivered';

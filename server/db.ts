@@ -3,6 +3,7 @@ import pg from "pg";
 import * as schema from "../shared/schema";
 import dotenv from "dotenv";
 import dns from "dns";
+import net from "net";
 
 dotenv.config();
 
@@ -10,23 +11,13 @@ if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL must be set. Did you forget to copy .env?");
 }
 
-// FIX: Aggressively force IPv4 by patching dns.lookup
-// This is necessary because 'dns.setDefaultResultOrder' was insufficient to prevent
-// IPv6 fallback issues on this Node v24 + Network environment.
-const originalLookup = dns.lookup;
-// @ts-ignore - TS might complain about matching exact signature, but this works at runtime
-dns.lookup = (hostname, options, callback) => {
-    if (typeof options === 'function') {
-        callback = options;
-        options = {};
-    } else if (!options) {
-        options = {};
-    }
-    // @ts-ignore
-    options.family = 4; // FORCE IPv4
-    // @ts-ignore
-    return originalLookup(hostname, options, callback);
-};
+// Prefer IPv4 but do NOT forbid IPv6. This used to hard-force family=4 via a dns.lookup patch
+// (added when IPv6 to Neon was broken on this machine); on 17 Aug 2026 the situation inverted —
+// IPv4 to Neon timed out while IPv6 worked — and the forced-IPv4 patch made every local DB
+// connection hang. ipv4first + happy-eyeballs tries IPv4 first and falls back automatically,
+// which covers both failure modes. Verified 3/3 connects ~3s on the previously-dead network.
+dns.setDefaultResultOrder("ipv4first");
+if (net.setDefaultAutoSelectFamily) net.setDefaultAutoSelectFamily(true);
 
 // FIX: Use Direct Endpoint to bypass Pooler SSL issues
 const connectionString = process.env.DATABASE_URL.replace("-pooler", "");

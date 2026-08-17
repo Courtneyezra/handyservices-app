@@ -7,7 +7,7 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { conversations, messages } from '@shared/schema';
+import { conversations, messages, calls } from '@shared/schema';
 import { eq, desc, ne, and, asc, inArray, sql } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
 
@@ -275,6 +275,69 @@ inboxBoardRouter.patch('/conversations/:id', async (req, res) => {
     }
 });
 
+/** A phone call rendered as a read-only timeline event. */
+export type CallEvent = {
+    kind: 'call';
+    id: string;
+    direction: 'inbound' | 'outbound';
+    createdAt: string;
+    durationSeconds: number | null;
+    outcome: string | null;
+    summary: string | null;
+    transcript: string | null;
+    recordingUrl: string | null;
+    status: string | null;
+};
+
+/**
+ * Loads calls for a conversation, joined on phone number.
+ *
+ * Calls live in their own table with no foreign key to conversations, so the only join available is
+ * the number itself. conversations.phoneNumber is stored WhatsApp-style (`447...@c.us`) while
+ * calls.phoneNumber is E.164 (`+447...`), so both are reduced to bare digits to compare.
+ *
+ * Deliberately read-only. Calls are shown for context — they are not repliable, they do not open
+ * the WhatsApp 24-hour window, and they do not feed the SLA clock (which reads only `messages`).
+ * A customer phoning us is not the same as a message awaiting a reply.
+ */
+async function loadCallsForConversation(conversationPhoneKey: string, limit = 50): Promise<CallEvent[]> {
+    const digits = conversationPhoneKey.replace('@c.us', '').replace(/\D/g, '');
+    if (!digits) return [];
+
+    const rows = await db
+        .select({
+            id: calls.id,
+            direction: calls.direction,
+            startTime: calls.startTime,
+            duration: calls.duration,
+            outcome: calls.outcome,
+            jobSummary: calls.jobSummary,
+            transcription: calls.transcription,
+            recordingUrl: calls.recordingUrl,
+            status: calls.status,
+        })
+        .from(calls)
+        // Compare on digits so '+447...' matches '447...@c.us'.
+        .where(sql`regexp_replace(${calls.phoneNumber}, '[^0-9]', '', 'g') = ${digits}`)
+        .orderBy(desc(calls.startTime))
+        .limit(limit);
+
+    return rows.map((c) => ({
+        kind: 'call' as const,
+        id: c.id,
+        // 'outbound-dial' and similar variants all mean outbound.
+        direction: (c.direction ?? '').startsWith('out') ? 'outbound' : 'inbound',
+        createdAt: (c.startTime ?? new Date()).toISOString(),
+        durationSeconds: c.duration ?? null,
+        outcome: c.outcome ?? null,
+        summary: c.jobSummary ?? null,
+        // Transcripts run to thousands of words; the thread shows an excerpt and links out.
+        transcript: c.transcription ? c.transcription.slice(0, 1500) : null,
+        recordingUrl: c.recordingUrl ?? null,
+        status: c.status ?? null,
+    }));
+}
+
 // GET /api/inbox/conversations/:id/thread — the unified timeline for one person.
 //
 // Newest-last so it reads like a chat. Limited because the messages table contains ~58k phantom
@@ -299,24 +362,38 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             .where(eq(messages.conversationId, conv.id));
 
         const activity = await loadActivity([conv.id]);
+        const callEvents = await loadCallsForConversation(conv.phoneNumber);
+
+        const messageEvents = recent.reverse().map((m) => ({
+            kind: 'message' as const,
+            id: m.id,
+            direction: m.direction,
+            channel: m.channel,
+            content: m.content,
+            type: m.type,
+            status: m.status,
+            errorCode: m.errorCode,
+            mediaUrl: m.mediaUrl,
+            mediaType: m.mediaType,
+            senderName: m.senderName,
+            createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
+        }));
+
+        // Merge into one chronological timeline. Calls sit inline with messages so a customer's
+        // history reads as a single sequence — the whole point of pulling them in.
+        const timeline = [...messageEvents, ...callEvents].sort(
+            (a, b) => new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime()
+        );
 
         res.json({
             card: toCard(conv, activity.get(conv.id)),
             totalMessages: total,
+            totalCalls: callEvents.length,
             truncated: total > recent.length,
-            messages: recent.reverse().map((m) => ({
-                id: m.id,
-                direction: m.direction,
-                channel: m.channel,
-                content: m.content,
-                type: m.type,
-                status: m.status,
-                errorCode: m.errorCode,
-                mediaUrl: m.mediaUrl,
-                mediaType: m.mediaType,
-                senderName: m.senderName,
-                createdAt: m.createdAt,
-            })),
+            // `messages` retained under its original name and shape for existing callers;
+            // `timeline` is the merged view the comms thread renders.
+            messages: messageEvents,
+            timeline,
         });
     } catch (error: any) {
         console.error('[InboxBoard] Thread load failed:', error);
