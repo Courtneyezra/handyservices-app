@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/core';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
-    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle,
+    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -63,6 +63,7 @@ interface BoardResponse {
     totals: {
         conversations: number; unread: number; windowsOpen: number;
         closingSoon: number; awaitingReply: number; breached: number;
+        pendingDrafts?: number; openQuestions?: number;
     };
 }
 
@@ -95,6 +96,30 @@ interface CallEvent {
 }
 
 type TimelineItem = ThreadMessage | CallEvent;
+
+/** A machine-authored message awaiting Ben's approval — the human gate before anything sends. */
+interface PendingDraft {
+    id: string;
+    phone: string;
+    body: string;
+    source: string;
+    reason: string | null;
+    contentSid: string | null;
+    status: string;
+    createdAt: string;
+}
+
+/** A question the agent is blocked on. Ben's answer feeds the agent's next run. */
+interface AgentQuestion {
+    id: string;
+    conversationId: string;
+    question: string;
+    context: string | null;
+    options: string[] | null;
+    answer: string | null;
+    status: 'open' | 'answered';
+    createdAt: string;
+}
 
 interface QuickReply {
     id: string; label: string; body: string;
@@ -362,6 +387,175 @@ function Column({ stage, cards, selectedId, onOpen }: {
 
 // ---------------------------------------------------------------- thread panel
 
+/**
+ * A machine-drafted reply, parked above the composer until Ben approves it. Bold amber block —
+ * this is a decision demanding attention, not a notification.
+ */
+function DraftApprovalCard({ draft, windowOpen, onDone }: {
+    draft: PendingDraft; windowOpen: boolean; onDone: () => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [body, setBody] = useState(draft.body);
+    const [error, setError] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+    const deliverable = windowOpen || !!draft.contentSid;
+
+    async function act(action: 'approve' | 'reject') {
+        setBusy(true); setError(null);
+        try {
+            // Save any edit first so what sends is what's on screen.
+            if (editing && body.trim() !== draft.body) {
+                const r = await fetch(`/api/drafts/${draft.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                    body: JSON.stringify({ body: body.trim() }),
+                });
+                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Edit failed');
+            }
+            const res = await fetch(`/api/drafts/${draft.id}/${action}`, {
+                method: 'POST', headers: getAuthHeaders(),
+            });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(detail.message || detail.error || `${action} failed`);
+            onDone();
+        } catch (e: any) {
+            setError(e.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3">
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase text-amber-800">
+                <Bot className="h-3.5 w-3.5" /> Drafted reply — needs your approval
+                {!deliverable && (
+                    <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[9px] text-white">window shut — can't send yet</span>
+                )}
+            </div>
+            {draft.reason && <p className="mt-1 text-[11px] italic text-amber-700">{draft.reason}</p>}
+            {editing ? (
+                <textarea
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    rows={Math.min(6, Math.max(2, body.split('\n').length + 1))}
+                    className="mt-2 w-full rounded border border-amber-300 bg-white p-2 text-sm focus:border-amber-500 focus:outline-none"
+                />
+            ) : (
+                <p className="mt-2 whitespace-pre-wrap rounded bg-white p-2 text-sm text-slate-800">{body}</p>
+            )}
+            {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+            <div className="mt-2 flex items-center gap-2">
+                <button
+                    onClick={() => act('approve')}
+                    disabled={busy || !deliverable || !body.trim()}
+                    className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+                >
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Approve & send'}
+                </button>
+                <button
+                    onClick={() => setEditing((v) => !v)}
+                    disabled={busy}
+                    className="rounded border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-40"
+                >
+                    {editing ? 'Preview' : 'Edit'}
+                </button>
+                <button
+                    onClick={() => act('reject')}
+                    disabled={busy}
+                    className="ml-auto rounded px-2 py-1.5 text-xs text-slate-500 hover:text-red-700 disabled:opacity-40"
+                >
+                    Reject
+                </button>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * The agent asking Ben for a decision it won't make itself. Tapping an option answers it; the
+ * agent's next run turns the answer into a draft (which still comes back here for approval).
+ */
+function AskBenCard({ q, onDone }: { q: AgentQuestion; onDone: () => void }) {
+    const [custom, setCustom] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    async function submit(answer: string, action: 'answer' | 'dismiss' = 'answer') {
+        setBusy(true); setError(null);
+        try {
+            const res = await fetch(`/api/agent-questions/${q.id}/${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: action === 'answer' ? JSON.stringify({ answer }) : undefined,
+            });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed');
+            onDone();
+        } catch (e: any) {
+            setError(e.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    if (q.status === 'answered') {
+        return (
+            <div className="rounded-lg border-l-4 border-indigo-300 bg-indigo-50/60 p-3 text-xs text-indigo-700">
+                <span className="font-bold">Answered:</span> {q.question} → <em>{q.answer}</em>
+                <span className="ml-1 text-indigo-400">(agent will draft from this on its next pass)</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="rounded-lg border-l-4 border-indigo-600 bg-indigo-50 p-3">
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase text-indigo-800">
+                <HelpCircle className="h-3.5 w-3.5" /> Agent needs a decision
+            </div>
+            <p className="mt-1.5 text-sm font-semibold text-slate-900">{q.question}</p>
+            {q.context && <p className="mt-0.5 text-xs text-indigo-700">{q.context}</p>}
+            {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+                {(q.options ?? []).map((opt) => (
+                    <button
+                        key={opt}
+                        disabled={busy}
+                        onClick={() => submit(opt)}
+                        className="rounded-full border border-indigo-500 bg-white px-3 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-600 hover:text-white disabled:opacity-40"
+                    >
+                        {opt}
+                    </button>
+                ))}
+            </div>
+            <div className="mt-2 flex gap-1.5">
+                <input
+                    value={custom}
+                    onChange={(e) => setCustom(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && custom.trim()) submit(custom.trim()); }}
+                    disabled={busy}
+                    placeholder="Or type your own answer…"
+                    className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
+                />
+                <button
+                    onClick={() => custom.trim() && submit(custom.trim())}
+                    disabled={busy || !custom.trim()}
+                    className="rounded bg-indigo-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-40"
+                >
+                    Answer
+                </button>
+                <button
+                    onClick={() => submit('', 'dismiss')}
+                    disabled={busy}
+                    title="I'll handle this thread myself"
+                    className="rounded px-2 py-1 text-xs text-slate-500 hover:text-red-700 disabled:opacity-40"
+                >
+                    Dismiss
+                </button>
+            </div>
+        </div>
+    );
+}
+
 function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }) {
     const queryClient = useQueryClient();
     const [input, setInput] = useState('');
@@ -369,7 +563,10 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const [error, setError] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
 
-    const { data, isLoading } = useQuery<{ messages: ThreadMessage[]; timeline?: TimelineItem[]; totalMessages: number; totalCalls?: number; truncated: boolean }>({
+    const { data, isLoading } = useQuery<{
+        messages: ThreadMessage[]; timeline?: TimelineItem[]; totalMessages: number; totalCalls?: number;
+        truncated: boolean; drafts?: PendingDraft[]; questions?: AgentQuestion[];
+    }>({
         queryKey: ['comms-thread', card.id],
         queryFn: async () => {
             const res = await fetch(`/api/inbox/conversations/${card.id}/thread`, { headers: getAuthHeaders() });
@@ -531,6 +728,17 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     </>
                 )}
             </div>
+
+            {/* The agent's pending work on this thread: questions it's blocked on, then drafts
+                awaiting approval. Above the composer so a decision is never below the fold. */}
+            {((data?.questions?.length ?? 0) > 0 || (data?.drafts?.length ?? 0) > 0) && (
+                <div className="space-y-2 border-t border-slate-200 bg-slate-50 p-3">
+                    {data!.questions?.map((q) => <AskBenCard key={q.id} q={q} onDone={refresh} />)}
+                    {data!.drafts?.map((d) => (
+                        <DraftApprovalCard key={d.id} draft={d} windowOpen={card.windowOpen} onDone={refresh} />
+                    ))}
+                </div>
+            )}
 
             <div className="border-t border-slate-200 p-3">
                 {/* Only shown when there is genuinely a choice to make. */}
@@ -740,6 +948,12 @@ export default function CommsPage() {
                 </div>
                 <div className="flex items-center gap-5">
                     <Stat label="Unanswered" value={data.totals.awaitingReply} tone={data.totals.awaitingReply > 0 ? 'red' : 'green'} big />
+                    {(data.totals.pendingDrafts ?? 0) > 0 && (
+                        <Stat label="To approve" value={data.totals.pendingDrafts!} tone="red" big />
+                    )}
+                    {(data.totals.openQuestions ?? 0) > 0 && (
+                        <Stat label="Agent asking" value={data.totals.openQuestions!} tone="red" big />
+                    )}
                     <Stat label="Conversations" value={data.totals.conversations} />
                     <Stat label="Windows open" value={data.totals.windowsOpen} tone="green" />
                 </div>

@@ -42,6 +42,27 @@ export function setupCronJobs() {
     });
 
     // ==========================================
+    // COMMS AGENT SLA SWEEP — every 30 min during working hours (Mon-Fri 8-18 UK).
+    // Ensures every conversation whose SLA clock is running ends up with either a
+    // pending draft for Ben to approve or an ask-Ben question. NEVER sends anything
+    // itself (drafts go through the approval gate). Gated on appSettings 'comms_agent'
+    // .enabled, which ships false — flip it via scripts/_comms-agent-config.ts.
+    // ==========================================
+    cron.schedule("*/30 8-17 * * 1-5", async () => {
+        try {
+            const { getCommsAgentConfig, sweepCommsAgent } = await import('./agents/comms');
+            const config = await getCommsAgentConfig();
+            if (!config.enabled) return;
+            const outcome = await sweepCommsAgent();
+            if (outcome.processed.length > 0) {
+                console.log(`[Cron] Comms sweep: ${outcome.eligible} eligible, ${outcome.processed.length} processed`);
+            }
+        } catch (error) {
+            console.error("[Cron] Comms agent sweep failed:", error);
+        }
+    }, { timezone: 'Europe/London' });
+
+    // ==========================================
     // DAY-BEFORE REMINDERS - Runs daily at 6pm
     // Sends WhatsApp reminders to CUSTOMERS about tomorrow's jobs
     // ==========================================
@@ -66,6 +87,21 @@ export function setupCronJobs() {
         console.log(`[Cron] SEO GMB metrics pull scheduled (${GMB_SCHEDULE.label}).`);
     } else {
         console.log("[Cron] SEO GMB metrics pull NOT scheduled — GOOGLE_GBP_* not set.");
+    }
+
+    // GMB POSTING — writes a brand-voice post to the Business Profile.
+    // Gated on the same GOOGLE_GBP_* creds as the metrics pull. Mon/Wed/Fri
+    // 10:05 (staggered off the hour so it never races the hourly job).
+    if (gmbEnabled()) {
+        const GMB_POST_CRON = process.env.GMB_POST_CRON || "5 10 * * 1,3,5";
+        cron.schedule(GMB_POST_CRON, async () => {
+            const { runGmbPostCycle } = await import("./gmb-posts");
+            await runGmbPostCycle("cron").catch((err) =>
+                console.error("[Cron] GMB post cycle failed:", err));
+        });
+        console.log(`[Cron] GMB posting scheduled (${GMB_POST_CRON}).`);
+    } else {
+        console.log("[Cron] GMB posting NOT scheduled — GOOGLE_GBP_* not set.");
     }
 
     if (gscEnabled()) {

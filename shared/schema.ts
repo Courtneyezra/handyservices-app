@@ -1723,6 +1723,30 @@ export type InsertQuickReply = z.infer<typeof insertQuickReplySchema>;
 // This exists because automated outreach has gone wrong here before: invoice dunning chased a
 // customer over an invoice that was never sent, and had to be switched off entirely. A draft queue
 // keeps the leverage of automation without handing it the send button.
+// Questions the comms agent asks Ben when it cannot safely draft a reply itself — e.g. the
+// customer wants a date we may not do, or is asking about money not covered by a quote. Ben's
+// tapped answer is consumed by the agent's next run, which then produces the draft. A question
+// is the agent's ONLY alternative to drafting: it never guesses and it never goes silent.
+export const agentQuestions = pgTable("agent_questions", {
+    id: varchar("id").primaryKey().notNull(),
+    conversationId: varchar("conversation_id").notNull(),
+    phone: varchar("phone").notNull(),                    // E.164, denormalised for the queue view
+    question: text("question").notNull(),                 // what the agent needs to know
+    context: text("context"),                             // why it's asking (shown under the question)
+    options: jsonb("options"),                            // string[] of tappable answers; freetext always allowed
+    answer: text("answer"),
+    answeredBy: varchar("answered_by"),
+    answeredAt: timestamp("answered_at"),
+    // open → answered (Ben replied, agent hasn't consumed it) → resolved (agent drafted from it).
+    // 'dismissed' = Ben decided no answer is needed (e.g. he'll reply himself).
+    status: varchar("status", { length: 16 }).default('open').notNull(),
+    source: varchar("source", { length: 40 }).default('comms_agent').notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_agent_questions_status").on(table.status, table.createdAt),
+    index("idx_agent_questions_conversation").on(table.conversationId),
+]);
+
 export const messageDrafts = pgTable("message_drafts", {
     id: varchar("id").primaryKey().notNull(),
     conversationId: varchar("conversation_id"),          // null if no conversation exists yet

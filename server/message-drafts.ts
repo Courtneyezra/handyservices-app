@@ -18,7 +18,7 @@ import { normalizePhoneNumber } from './phone-utils';
 
 export const messageDraftsRouter = Router();
 
-export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manual';
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manual' | 'comms_agent';
 
 /**
  * Queues a message for approval. Returns the draft id, or null if it was suppressed.
@@ -133,51 +133,71 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
     }
 });
 
+/**
+ * Approves a pending draft and sends it. The single code path behind the approve button AND the
+ * agent's whitelist auto-send — both routes claim the row first so nothing can send twice.
+ *
+ * Returns the outcome rather than throwing on business refusals, so callers can distinguish
+ * "window shut" (draft returned to pending, retryable later) from a hard send failure.
+ */
+export async function approveAndSendDraft(draftId: string, approvedBy: string): Promise<
+    | { ok: true; draft: typeof messageDrafts.$inferSelect; mode: 'freeform' | 'template' }
+    | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED'; message: string }
+> {
+    // Claim the row first so a double-click (or a racing auto-send) cannot send twice.
+    const [draft] = await db.update(messageDrafts)
+        .set({ status: 'approved', approvedAt: new Date(), approvedBy })
+        .where(and(eq(messageDrafts.id, draftId), eq(messageDrafts.status, 'pending')))
+        .returning();
+
+    if (!draft) return { ok: false, code: 'NOT_PENDING', message: 'Draft not found or already handled' };
+
+    const windowOpen = await canSendFreeform(draft.phone).catch(() => false);
+    if (!windowOpen && !draft.contentSid) {
+        await db.update(messageDrafts)
+            .set({ status: 'pending', approvedAt: null, approvedBy: null })
+            .where(eq(messageDrafts.id, draft.id));
+        return {
+            ok: false,
+            code: 'OUTSIDE_WINDOW',
+            message: 'The 24-hour window is shut and this draft has no approved template behind it. It cannot be delivered as written.',
+        };
+    }
+
+    try {
+        const result: any = windowOpen
+            ? await sendWhatsAppMessage(draft.phone, draft.body)
+            : await sendWhatsAppMessage(draft.phone, draft.body, {
+                  contentSid: draft.contentSid!,
+                  contentVariables: (draft.contentVariables as any) ?? undefined,
+              });
+
+        const [sent] = await db.update(messageDrafts)
+            .set({ status: 'sent', sentAt: new Date(), sentMessageId: result?.sid ?? null })
+            .where(eq(messageDrafts.id, draft.id))
+            .returning();
+
+        return { ok: true, draft: sent, mode: windowOpen ? 'freeform' : 'template' };
+    } catch (sendError: any) {
+        // Record the failure rather than leaving it stuck as 'approved' with nothing sent.
+        await db.update(messageDrafts)
+            .set({ status: 'failed', error: sendError?.message ?? 'send failed' })
+            .where(eq(messageDrafts.id, draft.id));
+        return { ok: false, code: 'SEND_FAILED', message: sendError?.message ?? 'send failed' };
+    }
+}
+
 // POST /api/drafts/:id/approve — the only path that actually sends.
 messageDraftsRouter.post('/:id/approve', async (req, res) => {
     try {
         const approvedBy = (req as any).user?.email || (req as any).user?.id || 'admin';
+        const result = await approveAndSendDraft(req.params.id, approvedBy);
 
-        // Claim the row first so a double-click cannot send twice.
-        const [draft] = await db.update(messageDrafts)
-            .set({ status: 'approved', approvedAt: new Date(), approvedBy })
-            .where(and(eq(messageDrafts.id, req.params.id), eq(messageDrafts.status, 'pending')))
-            .returning();
-
-        if (!draft) return res.status(409).json({ error: 'Draft not found or already handled' });
-
-        const windowOpen = await canSendFreeform(draft.phone).catch(() => false);
-        if (!windowOpen && !draft.contentSid) {
-            await db.update(messageDrafts)
-                .set({ status: 'pending', approvedAt: null, approvedBy: null })
-                .where(eq(messageDrafts.id, draft.id));
-            return res.status(409).json({
-                error: 'OUTSIDE_WINDOW',
-                message: 'The 24-hour window is shut and this draft has no approved template behind it. It cannot be delivered as written.',
-            });
+        if (!result.ok) {
+            if (result.code === 'SEND_FAILED') return res.status(500).json({ error: result.message });
+            return res.status(409).json({ error: result.code === 'NOT_PENDING' ? result.message : result.code, message: result.message });
         }
-
-        try {
-            const result: any = windowOpen
-                ? await sendWhatsAppMessage(draft.phone, draft.body)
-                : await sendWhatsAppMessage(draft.phone, draft.body, {
-                      contentSid: draft.contentSid!,
-                      contentVariables: (draft.contentVariables as any) ?? undefined,
-                  });
-
-            const [sent] = await db.update(messageDrafts)
-                .set({ status: 'sent', sentAt: new Date(), sentMessageId: result?.sid ?? null })
-                .where(eq(messageDrafts.id, draft.id))
-                .returning();
-
-            res.json({ success: true, draft: sent, mode: windowOpen ? 'freeform' : 'template' });
-        } catch (sendError: any) {
-            // Record the failure rather than leaving it stuck as 'approved' with nothing sent.
-            await db.update(messageDrafts)
-                .set({ status: 'failed', error: sendError?.message ?? 'send failed' })
-                .where(eq(messageDrafts.id, draft.id));
-            throw sendError;
-        }
+        res.json({ success: true, draft: result.draft, mode: result.mode });
     } catch (error: any) {
         console.error('[Drafts] Approve failed:', error);
         res.status(500).json({ error: error?.message || 'Failed to send draft' });

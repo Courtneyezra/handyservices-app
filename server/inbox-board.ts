@@ -7,7 +7,7 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { conversations, messages, calls } from '@shared/schema';
+import { conversations, messages, calls, messageDrafts, agentQuestions } from '@shared/schema';
 import { eq, desc, ne, and, asc, inArray, sql } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
 
@@ -52,9 +52,10 @@ export type BoardCard = {
 };
 
 /** Per-conversation last inbound/outbound and channel mix, for SLA + thread badges. */
-type Activity = { lastInbound: Date | null; lastOutbound: Date | null; channels: string[] };
+export type Activity = { lastInbound: Date | null; lastOutbound: Date | null; channels: string[] };
 
-async function loadActivity(conversationIds: string[]): Promise<Map<string, Activity>> {
+// Exported for the comms agent's SLA sweep, which needs the same wait-state inputs the board uses.
+export async function loadActivity(conversationIds: string[]): Promise<Map<string, Activity>> {
     const map = new Map<string, Activity>();
     if (conversationIds.length === 0) return map;
 
@@ -228,6 +229,13 @@ inboxBoardRouter.get('/board', async (req, res) => {
                 // The headline number for this platform: people we have not answered.
                 awaitingReply: cards.filter((c) => c.wait.awaitingReply).length,
                 breached: cards.filter((c) => c.wait.breached).length,
+                // The agent's queues: drafts awaiting approval, questions awaiting Ben.
+                pendingDrafts: await db.select({ n: sql<number>`count(*)::int` })
+                    .from(messageDrafts).where(eq(messageDrafts.status, 'pending'))
+                    .then((r) => r[0]?.n ?? 0),
+                openQuestions: await db.select({ n: sql<number>`count(*)::int` })
+                    .from(agentQuestions).where(eq(agentQuestions.status, 'open'))
+                    .then((r) => r[0]?.n ?? 0),
             },
         });
     } catch (error: any) {
@@ -364,6 +372,25 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
         const activity = await loadActivity([conv.id]);
         const callEvents = await loadCallsForConversation(conv.phoneNumber);
 
+        // The agent's pending work on this thread, shown above the composer: drafts awaiting
+        // Ben's approval, and questions the agent is blocked on. Matched on digits because
+        // drafts store E.164 while conversations store @c.us keys.
+        const convDigits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
+        const pendingDrafts = convDigits
+            ? await db.select().from(messageDrafts)
+                .where(and(
+                    eq(messageDrafts.status, 'pending'),
+                    sql`regexp_replace(${messageDrafts.phone}, '[^0-9]', '', 'g') = ${convDigits}`,
+                ))
+                .orderBy(desc(messageDrafts.createdAt))
+            : [];
+        const openQuestions = await db.select().from(agentQuestions)
+            .where(and(
+                eq(agentQuestions.conversationId, conv.id),
+                inArray(agentQuestions.status, ['open', 'answered']),
+            ))
+            .orderBy(desc(agentQuestions.createdAt));
+
         const messageEvents = recent.reverse().map((m) => ({
             kind: 'message' as const,
             id: m.id,
@@ -394,6 +421,8 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             // `timeline` is the merged view the comms thread renders.
             messages: messageEvents,
             timeline,
+            drafts: pendingDrafts,
+            questions: openQuestions,
         });
     } catch (error: any) {
         console.error('[InboxBoard] Thread load failed:', error);
