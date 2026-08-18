@@ -88,6 +88,7 @@ function formatDuration(seconds: number | null | undefined): string {
  */
 const FILLER_SUMMARY = [
     /^(unable to|could not|couldn't|insufficient|not enough)/i,
+    /^i (cannot|can't|could not|couldn't|am unable|was unable)/i,   // the summariser writing in first person
     /^no\b/i,                                   // "No job description provided.", "No specific job mentioned"
     /^the job we discussed\.?$/i,               // template variable, not a summary
     /^recovered from twilio logs\.?$/i,         // importer marker
