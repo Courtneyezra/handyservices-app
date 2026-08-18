@@ -77,6 +77,7 @@ interface ThreadMessage {
     status: string;
     errorCode: string | null;
     mediaUrl: string | null;
+    mediaType: string | null;
     senderName: string | null;
     createdAt: string;
 }
@@ -707,9 +708,18 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                                             : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'
                                     )}>
                                         {m.mediaUrl && (
-                                            <img src={m.mediaUrl} alt="" className="mb-1.5 max-w-full rounded-lg" />
+                                            (m.mediaType ?? '').startsWith('video/') || m.type === 'video' ? (
+                                                <video src={m.mediaUrl} controls preload="metadata" className="mb-1.5 max-h-72 max-w-full rounded-lg" />
+                                            ) : (m.mediaType ?? '').startsWith('audio/') || m.type === 'audio' ? (
+                                                <audio src={m.mediaUrl} controls preload="metadata" className="mb-1.5 w-56 max-w-full" />
+                                            ) : (
+                                                // Click opens the original — Ben zooms into job photos constantly.
+                                                <a href={m.mediaUrl} target="_blank" rel="noreferrer">
+                                                    <img src={m.mediaUrl} alt="" loading="lazy" className="mb-1.5 max-h-72 max-w-full rounded-lg" />
+                                                </a>
+                                            )
                                         )}
-                                        <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                                        {!!m.content?.trim() && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
                                         <div className={cn(
                                             'mt-1 flex items-center justify-end gap-1 text-[10px]',
                                             m.direction === 'outbound' ? 'opacity-80' : 'text-slate-400'

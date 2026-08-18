@@ -21,7 +21,9 @@ import { normalizePhoneNumber } from './phone-utils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const STORAGE_DIR = path.join(__dirname, '../storage/media');
+// Must match the /api/media static mount in index.ts (server/storage/media). This previously
+// pointed at the repo-root storage/media, so saved files were never actually servable.
+const STORAGE_DIR = path.join(process.cwd(), 'server/storage/media');
 
 // Ensure storage directory exists
 if (!fs.existsSync(STORAGE_DIR)) {
