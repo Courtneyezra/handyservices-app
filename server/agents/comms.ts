@@ -23,6 +23,7 @@ import { db } from '../db';
 import { conversations, messages, calls, personalizedQuotes, quickReplies, appSettings, messageDrafts, agentQuestions } from '@shared/schema';
 import { eq, ne, desc, and, inArray, sql } from 'drizzle-orm';
 import { runAgent, type AgentTool, type AgentRunResult } from './runner';
+import { buildMediaBlocks } from './media-context';
 import { queueDraft, approveAndSendDraft } from '../message-drafts';
 import { askBen, markQuestionResolved } from '../agent-questions';
 import { canSendFreeform } from '../meta-whatsapp';
@@ -120,7 +121,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     const tools: AgentTool[] = [
         {
             name: 'get_thread',
-            description: 'Read the merged timeline for this conversation: WhatsApp/SMS/webform messages AND phone calls (with transcripts), newest last. Also returns board state, the 24h WhatsApp window, SLA wait state, and any answered ask-Ben questions you should act on. Call this FIRST, always.',
+            description: 'Read the merged timeline for this conversation: WhatsApp/SMS/webform messages AND phone calls (with transcripts), newest last — including the customer\'s actual photos and video keyframes, which are part of the conversation and often say more than the text. Also returns board state, the 24h WhatsApp window, SLA wait state, and any answered ask-Ben questions you should act on. Call this FIRST, always.',
             input_schema: { type: 'object' as const, properties: {}, required: [] },
             run: async () => {
                 const recent = await db.select().from(messages)
@@ -158,7 +159,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     .where(and(eq(messageDrafts.phone, e164), eq(messageDrafts.status, 'pending')))
                     .limit(1);
 
-                return {
+                const data = {
                     contactName: conv.contactName, phone: e164,
                     stage: conv.stage, priority: conv.priority, tags: conv.tags ?? [],
                     whatsappWindowOpen: windowOpen,
@@ -171,6 +172,19 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     existingPendingDraft: pendingDraft ?? null,
                     timeline,
                 };
+
+                // The customer's photos and videos ARE the conversation — embed them so the
+                // agent reasons from what it can see, not from "hasMedia: true".
+                const mediaBlocks = await buildMediaBlocks(
+                    recent.filter((m) => m.mediaUrl).reverse().map((m) => ({
+                        mediaUrl: m.mediaUrl!,
+                        mediaType: m.mediaType,
+                        direction: m.direction,
+                        createdAt: m.createdAt as any,
+                        content: m.content,
+                    })),
+                );
+                return mediaBlocks.length ? { data, mediaBlocks } : data;
             },
         },
         {
@@ -380,6 +394,12 @@ For the conversation you are given, do this and nothing more:
 If get_thread shows answeredQuestions, that is Ben instructing you: draft from his answer now,
 then resolve_question. If it shows an existingPendingDraft, do NOT draft again — triage only.
 
+get_thread includes the customer's actual photos and video keyframes. LOOK at them — they are
+part of the conversation and usually say more than the text. Use what you can see to triage
+accurately, and reference specifics in drafts ("the D-shape seat in your photo") — concrete
+detail is how a customer knows they're dealing with people who do this every day. Never claim
+to see something you can't, and never diagnose beyond what a photo can actually show.
+
 HARD RULES — these are not preferences:
 - You never send anything. Drafts go to approval. That is the design, not a limitation.
 - Prices come ONLY from quotes (cite quote_slug) or from Ben's explicit answer to your question
@@ -404,7 +424,7 @@ export const STAFF = {
         never: ['Originate a price — £ figures must cite a quote or Ben\'s own answer', 'Promise unconfirmed dates or availability', 'Draft apology commitments on complaints (urgent + ask Ben instead)'],
     },
     tools: [
-        { name: 'get_thread', blurb: 'Merged timeline: messages, calls w/ transcripts, window + SLA state', kind: 'read' },
+        { name: 'get_thread', blurb: 'Merged timeline incl. the customer\'s actual photos + video keyframes, calls w/ transcripts, window + SLA state', kind: 'read' },
         { name: 'get_customer_context', blurb: 'The customer\'s quotes with real prices — the only allowed price source', kind: 'read' },
         { name: 'get_quick_replies', blurb: 'House-voice canned replies to adapt', kind: 'read' },
         { name: 'set_board_state', blurb: 'Stage / priority / tags — the autonomous tier', kind: 'write' },

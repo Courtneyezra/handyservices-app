@@ -27,6 +27,21 @@ export interface AgentTool {
     run: (input: any) => Promise<unknown>;
 }
 
+/**
+ * A tool result that carries media the model should SEE, not just read about.
+ * Return `{ data, mediaBlocks }` from a tool and the runner sends the data as
+ * text plus the blocks (images, interleaved with caption text blocks) in the
+ * same tool_result — this is how photos/video frames become real context.
+ */
+export interface MediaToolResult {
+    data: unknown;
+    mediaBlocks: Anthropic.ContentBlockParam[];
+}
+
+function isMediaToolResult(r: unknown): r is MediaToolResult {
+    return !!r && typeof r === 'object' && Array.isArray((r as any).mediaBlocks);
+}
+
 export interface AgentTranscriptEvent {
     at: string;
     type: 'assistant_text' | 'tool_call' | 'tool_result' | 'tool_error' | 'done' | 'turn_cap';
@@ -109,6 +124,18 @@ export async function runAgent(opts: {
             try {
                 if (!tool) throw new Error(`Unknown tool: ${tu.name}`);
                 const result = await tool.run(tu.input);
+                if (isMediaToolResult(result)) {
+                    // Log the data and the block count — never the base64 payloads.
+                    log('tool_result', { tool: tu.name, result: result.data, mediaBlocks: result.mediaBlocks.length });
+                    return {
+                        type: 'tool_result' as const,
+                        tool_use_id: tu.id,
+                        content: [
+                            { type: 'text' as const, text: JSON.stringify(result.data) },
+                            ...result.mediaBlocks,
+                        ],
+                    };
+                }
                 log('tool_result', { tool: tu.name, result });
                 return {
                     type: 'tool_result' as const,
