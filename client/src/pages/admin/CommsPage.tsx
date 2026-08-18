@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/core';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
-    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square,
+    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -622,6 +622,25 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         queryClient.invalidateQueries({ queryKey: ['comms-board'] });
     };
 
+    // Quote-prep agent: reads the whole thread (media included), returns a structured intake,
+    // and we carry it into the contextual builder via sessionStorage (same pattern as the old
+    // call-log prefill). The agent never prices; Ben does that in the builder.
+    const prepQuote = useMutation({
+        mutationFn: async () => {
+            const res = await fetch(`/api/agents/quote-prep/${card.id}`, {
+                method: 'POST', headers: getAuthHeaders(),
+            });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(detail.message || detail.error || 'Quote prep failed');
+            return detail as { intake: any };
+        },
+        onSuccess: ({ intake }) => {
+            sessionStorage.setItem('quoteFromComms', JSON.stringify(intake));
+            window.location.href = '/admin/generate-contextual-quote';
+        },
+        onError: (e: Error) => setError(e.message),
+    });
+
     const sendFreeform = useMutation({
         mutationFn: async (body: string) => {
             const res = await fetch('/api/whatsapp/send', {
@@ -734,6 +753,15 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => prepQuote.mutate()}
+                        disabled={prepQuote.isPending}
+                        title="Quote-prep agent reads this whole thread (photos included) and prefills the quote builder"
+                        className="flex items-center gap-1 rounded bg-slate-900 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-slate-700 disabled:opacity-60"
+                    >
+                        {prepQuote.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                        {prepQuote.isPending ? 'Reading thread…' : 'Prep quote'}
+                    </button>
                     {card.windowOpen ? (
                         <span className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white">
                             {card.windowHoursLeft}h window

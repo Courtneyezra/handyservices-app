@@ -1607,6 +1607,57 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     { id: generateId(), description: '', category: 'general_fixing' as JobCategory, estimatedMinutes: 30, materialsCostPounds: 0, source: 'custom' },
   ]);
 
+  // Prefill from the comms quote-prep agent ("Prep quote" button on a thread). The agent
+  // extracted who/where/what from the conversation and its media; each numbered job line
+  // becomes a line item (title in description, extracted context in details), and the
+  // agent's assumptions/missing notes ride the first line's details, clearly labelled so
+  // they're reviewed and moved/deleted, never silently shipped to a customer.
+  useEffect(() => {
+    const raw = sessionStorage.getItem('quoteFromComms');
+    if (!raw) return;
+    sessionStorage.removeItem('quoteFromComms');
+    try {
+      const intake = JSON.parse(raw);
+      if (intake.customerName) setCustomerName(intake.customerName);
+      if (intake.phone) setPhone(intake.phone);
+      if (intake.postcode) setPostcode(intake.postcode);
+
+      const lines: string[] = String(intake.jobSummary || '')
+        .split(/\n(?=\d+\.\s)/)
+        .map((l: string) => l.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean);
+
+      const notes: string[] = [];
+      if (intake.assumptions?.length) notes.push(`PRICE ASSUMES (agent, review):\n- ${intake.assumptions.join('\n- ')}`);
+      if (intake.missing?.length) notes.push(`STILL MISSING (agent, chase):\n- ${intake.missing.join('\n- ')}`);
+
+      if (lines.length) {
+        setLineItems(lines.map((line, i) => {
+          // "Replace bathroom light fitting — old and broken, see photo" → title / details
+          const splitAt = line.search(/\s[—–-]\s|\(/);
+          const description = (splitAt > 10 ? line.slice(0, splitAt) : line).trim().slice(0, 120);
+          const detailParts = [
+            splitAt > 10 ? line.slice(splitAt).replace(/^[\s—–-]+/, '').trim() : '',
+            i === 0 && notes.length ? notes.join('\n') : '',
+          ].filter(Boolean);
+          return {
+            id: generateId(),
+            description,
+            category: 'general_fixing' as JobCategory,
+            estimatedMinutes: 30,
+            materialsCostPounds: 0,
+            source: 'custom' as const,
+            ...(detailParts.length ? { details: detailParts.join('\n\n') } : {}),
+          };
+        }));
+      }
+      toast({
+        title: 'Prefilled from the conversation',
+        description: 'The quote-prep agent read the thread and its photos. Check each line and its details, then price as normal.',
+      });
+    } catch { /* malformed payload — start blank */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Pricing signals ──
   const [signals, setSignals] = useState<ContextSignals>({
     urgency: 'standard',

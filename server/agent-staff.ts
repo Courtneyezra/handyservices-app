@@ -13,6 +13,7 @@ import { eq, and, gte, sql } from 'drizzle-orm';
 import { STAFF as opsBriefStaff, SYSTEM as opsBriefSystem } from './agents/ops-brief';
 import { STAFF as recoveryStaff, SYSTEM as recoverySystem } from './agents/recovery';
 import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig } from './agents/comms';
+import { STAFF as quotePrepStaff, SYSTEM as quotePrepSystem, runQuotePrep } from './agents/quote-prep';
 
 export const agentStaffRouter = Router();
 
@@ -86,6 +87,13 @@ agentStaffRouter.get('/staff', async (_req, res) => {
                     ...recovery,
                 },
                 {
+                    ...quotePrepStaff,
+                    system: quotePrepSystem,
+                    accent: 'sky',
+                    stats: [],
+                    statusChips: [{ label: 'ON-DEMAND', on: true }],
+                },
+                {
                     ...opsBriefStaff,
                     system: opsBriefSystem,
                     accent: 'sky',
@@ -97,5 +105,21 @@ agentStaffRouter.get('/staff', async (_req, res) => {
     } catch (error: any) {
         console.error('[AgentStaff] Failed to build directory:', error);
         res.status(500).json({ error: 'Failed to load staff directory' });
+    }
+});
+
+// POST /api/agents/quote-prep/:conversationId — run the intake clerk on one thread.
+// Synchronous on purpose: the caller is a human who just clicked "Prep quote" and wants the
+// prefill; a run takes ~20-40s and the button shows progress.
+agentStaffRouter.post('/quote-prep/:conversationId', async (req, res) => {
+    try {
+        const { intake, summary, turns } = await runQuotePrep(req.params.conversationId);
+        if (!intake) {
+            return res.status(422).json({ error: 'NO_INTAKE', message: summary || 'The agent could not extract a usable intake from this thread.' });
+        }
+        res.json({ intake, summary, turns });
+    } catch (error: any) {
+        console.error('[QuotePrep] Run failed:', error);
+        res.status(500).json({ error: error?.message || 'Quote prep failed' });
     }
 });
