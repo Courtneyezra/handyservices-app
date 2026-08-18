@@ -74,6 +74,11 @@ interface BuildQuoteMessageCtx {
    *  complete on the link (full details + price) AND that they can ask any
    *  questions right here in this chat — the thread stays the support channel. */
   chatClose?: boolean;
+  /** In-chat card only: drop the "Hi <name>" greeting — the message continues an
+   *  existing conversation, so a salutation reads odd mid-thread. The body starts
+   *  at the thread-context line (or the contextual message when there isn't one).
+   *  The 'delay' style keeps its apology, just without the name. */
+  skipGreeting?: boolean;
 }
 
 /** Assemble the final WhatsApp message string for the chosen style. */
@@ -146,11 +151,20 @@ export function buildQuoteMessage(ctx: BuildQuoteMessageCtx): string {
   const s = styles[ctx.styleId] || styles.friendly;
   const closing = ctx.chatClose ? chatClosings[ctx.styleId] || chatClosings.friendly : s.closing;
 
-  const lines: string[] = [s.greeting];
-  if (ctx.threadContextLine?.trim()) lines.push('', ctx.threadContextLine.trim());
-  if (contextualMessage?.trim()) lines.push('', contextualMessage.trim());
-  lines.push('', s.linkIntro, quoteUrl);
-  if (closing?.trim()) lines.push('', closing.trim());
+  const paras: string[] = [];
+  if (!ctx.skipGreeting) {
+    paras.push(s.greeting);
+  } else if (ctx.styleId === 'delay') {
+    // Mid-thread the salutation goes, but the delay style's whole point is the
+    // apology — keep it, nameless and dash-free.
+    paras.push(reason
+      ? `Really sorry for the wait getting this over to you, ${reason}.`
+      : `Sorry for the wait getting this over to you.`);
+  }
+  if (ctx.threadContextLine?.trim()) paras.push(ctx.threadContextLine.trim());
+  if (contextualMessage?.trim()) paras.push(contextualMessage.trim());
+  paras.push(`${s.linkIntro}\n${quoteUrl}`);
+  if (closing?.trim()) paras.push(closing.trim());
 
-  return lines.join('\n') + (batchNudge || '');
+  return paras.join('\n\n') + (batchNudge || '');
 }

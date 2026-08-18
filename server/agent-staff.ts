@@ -269,13 +269,11 @@ agentStaffRouter.post('/quote-prep/:conversationId/draft-send-message', async (r
                 : '';
             return `${m.direction === 'inbound' ? 'CUSTOMER' : 'US'}: ${(m.content ?? '').slice(0, 200)}${media}`;
         }).join('\n');
-        const inboundMedia = turns.some((m) => m.direction === 'inbound' && m.mediaUrl);
 
-        // One short thread-context line — the only LLM-written part. Deterministic fallback so
-        // drafting never blocks the send.
-        let threadContextLine = inboundMedia
-            ? 'Thanks for sending the photos over, they made this easy to price up properly.'
-            : 'Thanks for all the detail you sent over.';
+        // One short thread-context line — the only LLM-written part. No stock fallback: when
+        // the LLM can't produce a grounded line the message simply starts at the contextual
+        // message (the card path has no greeting, so generic filler would be the opener).
+        let threadContextLine: string | undefined;
         try {
             const drafted = await claudeText({
                 system: `You write ONE short sentence that opens a WhatsApp quote-delivery message, acknowledging what the CUSTOMER sent us (their photos, video, or how they described the job), so it reads like the same person who was just talking to them.
@@ -306,6 +304,9 @@ Hard rules: one sentence, maximum 15 words. Refer ONLY to things marked CUSTOMER
                 : '',
             threadContextLine,
             chatClose: true,
+            // Mid-thread continuation: no "Hi <name>" salutation. The body opens at the
+            // thread-context line (or the contextual message when there isn't one).
+            skipGreeting: true,
         });
 
         // Voice hard rule for chat: no em/en dashes reach the customer. The price range uses an
