@@ -102,16 +102,18 @@ export async function createCall(data: CreateCallData): Promise<string> {
     // forever) and those are exactly the ones nobody answered. Waiting for finalization would hide
     // the most urgent cards. The row is rewritten on finalization with the real outcome; no ack
     // fires here because we do not yet know whether anyone picked up.
+    //
+    // Fire-and-forget on purpose: the caller of this function is the Twilio voice webhook, and
+    // every millisecond spent here is a millisecond of silence before the phone rings. Board
+    // bookkeeping must never sit between a customer and a dial tone.
     if (data.direction === 'inbound') {
-        try {
+        void (async () => {
             const { ingestCallIntoThread } = await import('./call-thread');
             const res = await ingestCallIntoThread(callRecordId, { markUnread: true });
             if (res.status !== 'skipped') {
                 console.log(`[CallLogger] Call ${callRecordId} on the board (${res.reason}${res.conversationCreated ? ', new conversation' : ''})`);
             }
-        } catch (e: any) {
-            console.warn('[CallLogger] Could not add call to comms thread:', e?.message ?? e);
-        }
+        })().catch((e: any) => console.warn('[CallLogger] Could not add call to comms thread:', e?.message ?? e));
     }
 
     return callRecordId;
