@@ -21,7 +21,6 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { assessScopeRisk } from '@/lib/scope-risk';
-import { getSuggestedAssumptions } from '@shared/assumptions-library';
 import {
   Phone,
   Clock,
@@ -79,6 +78,10 @@ import { getPricingConfig } from '@shared/pricing-models';
 import { verticalConfig } from '@shared/verticals';
 import { type QuoteMaterial, materialsCostPence } from '@shared/materials';
 import { MaterialsPicker } from '@/components/quote/MaterialsPicker';
+import { LineAssumptionsEditor } from '@/components/quote/LineAssumptionsEditor';
+import { SurveyGateCard } from '@/components/quote/SurveyGateCard';
+import { CrewSkinPicker } from '@/components/quote/CrewSkinPicker';
+import { ExtrasEditor } from '@/components/quote/ExtrasEditor';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -103,19 +106,6 @@ interface ContractorOption {
   postcode: string | null;
   categorySlugs: string[];
 }
-
-// Built-in static skins — generated contractor asset sets that front a quote
-// without a DB contractor row (server resolves skinContractorId "static:<key>"
-// in resolveQuoteSkin; <key> matches SKINNED_HERO_SETS for the job-scene set).
-const STATIC_SKINS: { value: string; name: string; avatar: string; vertical: 'handyman' | 'cleaning' }[] = [
-  { value: 'static:emile', name: 'Emile', avatar: '/assets/avatars/emile-avatar-1.webp', vertical: 'handyman' },
-  { value: 'static:courtnee', name: 'Courtnee', avatar: '/assets/avatars/courtnee-avatar-1.webp', vertical: 'handyman' },
-  { value: 'static:neil', name: 'Neil', avatar: '/assets/avatars/neil-avatar-1.webp', vertical: 'handyman' },
-  // Handy Cleaning personas (placeholder AI faces — see shared/verticals.ts).
-  { value: 'static:sofia', name: 'Sofia', avatar: '/assets/avatars/sofia-avatar-1.webp', vertical: 'cleaning' },
-  { value: 'static:maria', name: 'Maria', avatar: '/assets/avatars/maria-avatar-1.webp', vertical: 'cleaning' },
-  { value: 'static:lena', name: 'Lena', avatar: '/assets/avatars/lena-avatar-1.webp', vertical: 'cleaning' },
-];
 
 interface LineItem {
   id: string;
@@ -195,15 +185,6 @@ interface LineItem {
 // Optional Extras types
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ExtrasCatalogEntry {
-  id: string;
-  label: string;
-  description: string;
-  priceInPence: number;
-  badge?: string | null;
-  isActive: boolean;
-}
-
 interface OptionalExtra {
   label: string;
   description: string;
@@ -211,16 +192,6 @@ interface OptionalExtra {
   badge?: string;
   // Tracks whether this came from the library (id) or is a custom one
   catalogId?: string;
-}
-
-/** AI-generated extra suggestion — distinct from the saved OptionalExtra type
- *  because it carries a "reasoning" field and is keyed by label until ticked. */
-interface AiSuggestedExtra {
-  label: string;
-  description: string;
-  priceInPence: number;
-  badge?: string | null;
-  reasoning?: string | null;
 }
 
 interface ContextSignals {
@@ -1719,21 +1690,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [datePickerMonth, setDatePickerMonth] = useState(new Date());
 
-  // ── Optional extras (library + custom) attached to this quote ──
+  // ── Optional extras attached to this quote (suggestions + custom UI live
+  //    inside the shared ExtrasEditor; this page owns only the selection) ──
   const [optionalExtras, setOptionalExtras] = useState<OptionalExtra[]>([]);
-  const [showCustomExtraForm, setShowCustomExtraForm] = useState(false);
-  const [customExtraDraft, setCustomExtraDraft] = useState<{ label: string; description: string; pricePounds: string; badge: string }>({
-    label: '',
-    description: '',
-    pricePounds: '',
-    badge: '',
-  });
-
-  // ── AI-suggested extras (context + jobs driven) ──
-  const [aiSuggestedExtras, setAiSuggestedExtras] = useState<AiSuggestedExtra[]>([]);
-  const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
-  const aiSuggestionsAbortRef = useRef<AbortController | null>(null);
-  const aiSuggestionsLastKeyRef = useRef<string>('');
 
   // ── Contractor assignment ──
   const [selectedContractorId, setSelectedContractorId] = useState<string | null>(null);
@@ -1949,63 +1908,6 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     };
   }, [lineItems, signals, buildStructuredVaContext, fetchLivePreview, previewDecomposed, previewTravelMiles]);
-
-  // ── AI extras suggestions: fired when lineItems / vaContext stabilise ──
-  // Phase 16 — catalog-driven suggested extras (replaces the LLM call).
-  // Fetches from /api/admin/extras-catalog/suggested with the current line
-  // categories. Cheap (no LLM), curated, scored by category relevance.
-  const fetchAiSuggestedExtras = useCallback(async (force = false) => {
-    const validLines = lineItems.filter((li) => li.description.trim().length >= 1);
-    if (validLines.length === 0) {
-      setAiSuggestedExtras([]);
-      aiSuggestionsLastKeyRef.current = '';
-      return;
-    }
-    const cats = Array.from(new Set(validLines.map((l) => l.category))).sort();
-    const key = cats.join(',');
-    if (!force && key === aiSuggestionsLastKeyRef.current) return;
-    aiSuggestionsLastKeyRef.current = key;
-
-    aiSuggestionsAbortRef.current?.abort();
-    const controller = new AbortController();
-    aiSuggestionsAbortRef.current = controller;
-
-    setAiSuggestionsLoading(true);
-    try {
-      const params = new URLSearchParams({ categories: cats.join(','), limit: '6' });
-      const res = await fetch(`/api/admin/extras-catalog/suggested?${params.toString()}`, {
-        headers: { ...getAuthHeaders() },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        setAiSuggestedExtras([]);
-        return;
-      }
-      const data = await res.json();
-      // Map catalog shape → AiSuggestedExtra shape consumed by the UI
-      const mapped = (Array.isArray(data?.extras) ? data.extras : []).map((e: any) => ({
-        label: e.label,
-        description: e.description,
-        priceInPence: e.priceInPence,
-        badge: e.badge ?? undefined,
-        catalogId: e.id,
-      }));
-      setAiSuggestedExtras(mapped);
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') setAiSuggestedExtras([]);
-    } finally {
-      setAiSuggestionsLoading(false);
-    }
-  }, [lineItems]);
-
-  // Debounced trigger — wait 1.2s after last edit before suggesting, so we
-  // don't burn LLM calls during typing.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      fetchAiSuggestedExtras(false);
-    }, 1200);
-    return () => clearTimeout(t);
-  }, [fetchAiSuggestedExtras]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // API: Fetch recent callers
@@ -2270,29 +2172,6 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     },
     staleTime: 60_000,
   });
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // API: Fetch optional extras catalog (library)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const { data: extrasCatalog } = useQuery<ExtrasCatalogEntry[]>({
-    queryKey: ['admin-extras-catalog'],
-    queryFn: async () => {
-      const res = await fetch('/api/admin/extras-catalog', {
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error('Failed to fetch extras catalog');
-      const data = await res.json();
-      // Backend wraps the array as { extras: [...] }
-      return Array.isArray(data) ? data : (data?.extras ?? []);
-    },
-    staleTime: 60_000,
-  });
-
-  const activeExtrasCatalog = useMemo(
-    () => (Array.isArray(extrasCatalog) ? extrasCatalog : []).filter((e) => e.isActive),
-    [extrasCatalog],
-  );
 
   // Auto-suggest best contractor based on line item categories
   const suggestedContractor = useMemo(() => {
@@ -3015,81 +2894,17 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         </div>
         {/* Per-line assumptions — the caveats THIS line's price is based on.
             One-tap suggestion chips come from the category; ✨ drafts job-specific
-            ones; shown under the line on the customer page (cover-your-back). */}
-        {(() => {
-          const assumptions = item.assumptions ?? [];
-          const suggestions = getSuggestedAssumptions(item.category).filter(
-            (s) => !assumptions.some((a) => a.trim().toLowerCase() === s.trim().toLowerCase()),
-          );
-          const drafting = draftingAssumptionIds.has(item.id);
-          return (
-            <div className="space-y-1 mt-2 pt-2 border-t border-dashed border-handy-grid">
-              <div className="flex items-center justify-between">
-                <Label className="text-[10px] text-amber-600/90">
-                  Assumptions <span className="text-muted-foreground/50 font-normal">— protects your price</span>
-                </Label>
-                <button
-                  type="button"
-                  title="Draft assumptions from the line"
-                  aria-label="Draft assumptions"
-                  disabled={drafting || !item.description?.trim()}
-                  onClick={() => draftLineAssumptions(item.id, item.description, item.category, buildStructuredVaContext())}
-                  className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground/60 hover:text-amber-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <Wand2 className={`w-3 h-3 ${drafting ? 'animate-pulse' : ''}`} />
-                  {drafting ? 'drafting…' : 'Draft'}
-                </button>
-              </div>
-              {assumptions.map((a, idx) => (
-                <div key={idx} className="flex items-center gap-1">
-                  <Input
-                    value={a}
-                    placeholder="e.g. existing pipework is accessible and sound"
-                    onChange={(e) => {
-                      const next = [...assumptions];
-                      next[idx] = e.target.value;
-                      handleUpdateLineAssumptions(item.id, next);
-                    }}
-                    className="h-7 text-xs bg-transparent border-handy-grid focus:border-amber-400 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove assumption"
-                    onClick={() => handleUpdateLineAssumptions(item.id, assumptions.filter((_, i) => i !== idx))}
-                    className="shrink-0 text-muted-foreground/50 hover:text-red-500 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-              {suggestions.length > 0 && (
-                <div className="flex flex-wrap gap-1 pt-0.5">
-                  {suggestions.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      title={s}
-                      onClick={() => addLineAssumption(item.id, s)}
-                      className="text-[10px] px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors"
-                    >
-                      + {s.length > 44 ? s.slice(0, 42) + '…' : s}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {assumptions.length < 6 && (
-                <button
-                  type="button"
-                  onClick={() => handleUpdateLineAssumptions(item.id, [...assumptions, ''])}
-                  className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-handy-navy transition-colors"
-                >
-                  <Plus className="w-3 h-3" />
-                  Add assumption
-                </button>
-              )}
-            </div>
-          );
-        })()}
+            ones; shown under the line on the customer page (cover-your-back).
+            Shared editor (also used by the comms quote-prep panel); the draft
+            pipeline stays the builder's own so auto-drafts share its state. */}
+        <LineAssumptionsEditor
+          assumptions={item.assumptions ?? []}
+          category={item.category}
+          description={item.description}
+          onChange={(next) => handleUpdateLineAssumptions(item.id, next)}
+          onDraft={() => draftLineAssumptions(item.id, item.description, item.category, buildStructuredVaContext())}
+          drafting={draftingAssumptionIds.has(item.id)}
+        />
         {!hasSteps && item.details?.trim() ? (
           <Textarea
             id={`line-detail-${item.id}`}
@@ -4559,342 +4374,37 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             </Card>
             {/* ─── Survey gate — book a paid site survey before the job ─── */}
             {/* Sits below the Jobs section: the scope-risk suggestion is derived
-                from the entered line items, so it reads after them. */}
-            <div className={cn(
-              "rounded-lg border-2 px-4 py-3 shadow-sm transition-colors",
-              surveyRequired ? "border-[#7DB00E] bg-[#7DB00E]/5" : "border-handy-grid bg-white",
-            )}>
-              {/* Auto-suggest — fires when the entered work looks like scope could
-                  change on-site. Ben confirms with one click (prefills the fee);
-                  it never flips the gate on by itself. */}
-              {!surveyRequired && scopeRisk.level !== 'none' && (
-                <div className={cn(
-                  "mb-3 rounded-lg border-2 px-3 py-2.5",
-                  scopeRisk.level === 'likely'
-                    ? "border-amber-500 bg-amber-50"
-                    : "border-amber-300 bg-amber-50/60",
-                )}>
-                  <div className="flex items-start gap-2.5">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-bold text-handy-navy">
-                        {scopeRisk.level === 'likely'
-                          ? 'Scope likely to change on-site'
-                          : 'Scope could change on-site'}
-                        {' — survey first?'}
-                      </div>
-                      <ul className="mt-1 space-y-0.5">
-                        {scopeRisk.reasons.map((r) => (
-                          <li key={r} className="text-xs text-handy-navy/75 flex gap-1.5">
-                            <span className="text-amber-600">•</span>{r}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSurveyRequired(true);
-                        setSurveyFeePounds(String(Math.round(scopeRisk.suggestedFeePence / 100)));
-                      }}
-                      className="shrink-0 rounded-md bg-handy-navy px-3 py-1.5 text-xs font-bold text-white hover:bg-handy-navy/90 active:scale-[0.98] transition-transform whitespace-nowrap"
-                    >
-                      Require survey (£{Math.round(scopeRisk.suggestedFeePence / 100)})
-                    </button>
-                  </div>
-                </div>
-              )}
-              <Label htmlFor="survey-required" className="flex items-start gap-3 cursor-pointer select-none">
-                <Ruler className={cn("w-5 h-5 shrink-0 mt-0.5", surveyRequired ? "text-[#7DB00E]" : "text-handy-navy/50")} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-bold text-handy-navy text-sm">Survey required before booking</span>
-                    <Switch id="survey-required" checked={surveyRequired} onCheckedChange={setSurveyRequired} />
-                  </div>
-                  <div className="text-xs text-handy-navy/70 mt-0.5">
-                    Customer can't book the job (no flexible slot, no date-pick). They book &amp; pay a site survey first — the job is quoted properly on the day. Use when the scope can't be trusted sight-unseen.
-                  </div>
-                </div>
-              </Label>
-              {surveyRequired && (
-                <div className="mt-3 pl-8 flex items-center gap-3">
-                  <Label htmlFor="survey-fee" className="text-xs font-semibold text-handy-navy whitespace-nowrap">
-                    Survey fee (£)
-                  </Label>
-                  <div className="relative w-32">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-handy-navy/60 text-sm">£</span>
-                    <Input
-                      id="survey-fee"
-                      type="number"
-                      min={0}
-                      step={5}
-                      inputMode="numeric"
-                      value={surveyFeePounds}
-                      onChange={(e) => setSurveyFeePounds(e.target.value)}
-                      placeholder="49"
-                      className="pl-6 h-9"
-                    />
-                  </div>
-                  <span className="text-[11px] text-handy-navy/60 leading-tight">
-                    Credited to the job. Required — must be more than £0.
-                  </span>
-                </div>
-              )}
-            </div>
+                from the entered line items, so it reads after them. Shared card
+                (also used by the comms quote-prep panel). */}
+            <SurveyGateCard
+              surveyRequired={surveyRequired}
+              onSurveyRequiredChange={setSurveyRequired}
+              feePounds={surveyFeePounds}
+              onFeeChange={setSurveyFeePounds}
+              scopeRisk={scopeRisk}
+            />
 
-            {/* ─── Section 5a: Optional Extras (AI suggestions + library + custom) ─── */}
+            {/* ─── Section 5a: Optional Extras (catalog suggestions + custom) ─── */}
+            {/* Shared editor (also used by the comms quote-prep panel): it owns
+                the suggested-extras fetch; this page owns only the selection. */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">
               <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
-                <CardTitle className="text-base font-bold text-white tracking-tight flex items-center justify-between gap-2">
-                  <span>Optional Extras</span>
-                  <button
-                    type="button"
-                    onClick={() => fetchAiSuggestedExtras(true)}
-                    disabled={aiSuggestionsLoading || lineItems.length === 0}
-                    title="Re-suggest from current context"
-                    aria-label="Refresh AI suggestions"
-                    className="text-white/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${aiSuggestionsLoading ? 'animate-spin' : ''}`} />
-                  </button>
+                <CardTitle className="text-base font-bold text-white tracking-tight">
+                  Optional Extras
                 </CardTitle>
                 <p className="text-xs text-white/70 mt-1">
                   AI suggests context-relevant extras; you can also add a custom one-off below.
                 </p>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* AI Suggestions — context-driven, contextual to vaContext + jobs */}
-                {(aiSuggestedExtras.length > 0 || aiSuggestionsLoading) && (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-handy-yellow flex items-center gap-1.5">
-                      <Wand2 className="w-3 h-3" />
-                      AI suggestions
-                      {aiSuggestionsLoading && <span className="text-[10px] text-muted-foreground/60 animate-pulse ml-1">thinking...</span>}
-                    </Label>
-                    {aiSuggestedExtras.length === 0 && aiSuggestionsLoading && (
-                      <div className="text-[11px] text-muted-foreground/50 italic px-1">
-                        Reading context + jobs...
-                      </div>
-                    )}
-                    <div className="space-y-1.5">
-                      {aiSuggestedExtras.map((sug, idx) => {
-                        const checked = optionalExtras.some(
-                          (e) => !e.catalogId && e.label.toLowerCase() === sug.label.toLowerCase(),
-                        );
-                        return (
-                          <label
-                            key={`ai-${idx}`}
-                            className={`flex items-start gap-2.5 rounded-lg border px-2.5 py-2 cursor-pointer transition-colors ${
-                              checked
-                                ? 'border-handy-yellow bg-handy-yellow/15'
-                                : 'border-handy-yellow/30 bg-handy-cream hover:border-handy-yellow hover:bg-handy-yellow/15'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setOptionalExtras((prev) => [
-                                    ...prev,
-                                    {
-                                      label: sug.label,
-                                      description: sug.description,
-                                      priceInPence: sug.priceInPence,
-                                      badge: sug.badge ?? undefined,
-                                    },
-                                  ]);
-                                } else {
-                                  setOptionalExtras((prev) =>
-                                    prev.filter(
-                                      (x) => !(!x.catalogId && x.label.toLowerCase() === sug.label.toLowerCase()),
-                                    ),
-                                  );
-                                }
-                              }}
-                              className="mt-0.5 w-4 h-4 rounded border-handy-grid bg-handy-bg accent-handy-yellow shrink-0"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-medium text-foreground">{sug.label}</span>
-                                {sug.badge && (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-handy-yellow text-handy-yellow">
-                                    {sug.badge}
-                                  </Badge>
-                                )}
-                                <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                                  £{Math.round(sug.priceInPence / 100)}
-                                </span>
-                              </div>
-                              {sug.description && (
-                                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{sug.description}</p>
-                              )}
-                              {sug.reasoning && (
-                                <p className="text-[10px] text-handy-yellow/60 italic mt-0.5 flex items-start gap-1">
-                                  <Wand2 className="w-2.5 h-2.5 mt-0.5 shrink-0" />
-                                  <span>{sug.reasoning}</span>
-                                </p>
-                              )}
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Selected list (custom + picked) */}
-                {optionalExtras.length > 0 && (
-                  <div className="space-y-2 border-t border-border pt-3">
-                    <Label className="text-xs text-muted-foreground">Selected for this quote ({optionalExtras.length})</Label>
-                    <div className="space-y-1.5">
-                      {optionalExtras.map((extra, idx) => (
-                        <div
-                          key={`${extra.catalogId ?? 'custom'}-${idx}`}
-                          className="flex items-start gap-2 rounded-lg border border-handy-grid bg-handy-bg/50 px-2.5 py-2"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-medium text-foreground">{extra.label}</span>
-                              {extra.badge && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-handy-yellow text-handy-yellow">
-                                  {extra.badge}
-                                </Badge>
-                              )}
-                              {!extra.catalogId && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-handy-grid text-handy-muted">
-                                  custom
-                                </Badge>
-                              )}
-                              <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                                £{(extra.priceInPence / 100).toFixed(0)}
-                              </span>
-                            </div>
-                            {extra.description && (
-                              <p className="text-[11px] text-muted-foreground/70 mt-0.5">{extra.description}</p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setOptionalExtras((prev) => prev.filter((_, i) => i !== idx))}
-                            className="text-muted-foreground/40 hover:text-red-400 transition-colors p-1 -m-1 shrink-0"
-                            aria-label="Remove extra"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Add custom extra */}
-                <div className="border-t border-border pt-3">
-                  {!showCustomExtraForm ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowCustomExtraForm(true)}
-                      className="text-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5 mr-1" />
-                      Add custom extra
-                    </Button>
-                  ) : (
-                    <div className="space-y-2 rounded-lg border border-handy-yellow/40 bg-handy-cream p-3">
-                      <Label className="text-xs text-handy-navy">New custom extra</Label>
-                      <div>
-                        <Label className="text-[10px] text-muted-foreground">Label</Label>
-                        <Input
-                          placeholder="e.g. Hallway clean-up"
-                          value={customExtraDraft.label}
-                          onChange={(e) => setCustomExtraDraft((d) => ({ ...d, label: e.target.value }))}
-                          className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-[10px] text-muted-foreground">Description</Label>
-                        <Textarea
-                          placeholder="What's included…"
-                          value={customExtraDraft.description}
-                          onChange={(e) => setCustomExtraDraft((d) => ({ ...d, description: e.target.value }))}
-                          rows={2}
-                          className="mt-1 text-base sm:text-xs resize-none"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-[10px] text-muted-foreground">Price (£)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            placeholder="25"
-                            value={customExtraDraft.pricePounds}
-                            onChange={(e) => setCustomExtraDraft((d) => ({ ...d, pricePounds: e.target.value }))}
-                            className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-[10px] text-muted-foreground">Badge (optional)</Label>
-                          <Input
-                            placeholder="Popular"
-                            value={customExtraDraft.badge}
-                            onChange={(e) => setCustomExtraDraft((d) => ({ ...d, badge: e.target.value }))}
-                            className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex gap-2 pt-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="text-xs h-8"
-                          onClick={() => {
-                            const label = customExtraDraft.label.trim();
-                            const priceNum = parseFloat(customExtraDraft.pricePounds);
-                            if (!label) {
-                              toast({ title: 'Label required', description: 'Give the extra a label.', variant: 'destructive' });
-                              return;
-                            }
-                            if (!Number.isFinite(priceNum) || priceNum < 0) {
-                              toast({ title: 'Invalid price', description: 'Enter a valid £ amount.', variant: 'destructive' });
-                              return;
-                            }
-                            setOptionalExtras((prev) => [
-                              ...prev,
-                              {
-                                label,
-                                description: customExtraDraft.description.trim(),
-                                priceInPence: Math.round(priceNum * 100),
-                                badge: customExtraDraft.badge.trim() || undefined,
-                              },
-                            ]);
-                            setCustomExtraDraft({ label: '', description: '', pricePounds: '', badge: '' });
-                            setShowCustomExtraForm(false);
-                          }}
-                        >
-                          Add
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs h-8"
-                          onClick={() => {
-                            setShowCustomExtraForm(false);
-                            setCustomExtraDraft({ label: '', description: '', pricePounds: '', badge: '' });
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <CardContent>
+                <ExtrasEditor
+                  categories={lineItems.filter((li) => li.description.trim()).map((li) => li.category)}
+                  value={optionalExtras}
+                  onChange={setOptionalExtras}
+                />
               </CardContent>
             </Card>
+
 
 
             {/* Old Section 4 removed — line items now in unified Jobs section above */}
@@ -5040,115 +4550,20 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Brand vertical — handyman vs cleaning. Switching resets the
-                    skin selection since personas differ per vertical. */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Brand vertical</Label>
-                  <div className="flex gap-2">
-                    {(['handyman', 'cleaning'] as const).map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => { setVertical(v); setSkinContractorId(null); }}
-                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-                          vertical === v
-                            ? 'border-handy-navy bg-handy-navy text-white'
-                            : 'border-handy-grid bg-white text-handy-navy/70 hover:border-handy-navy/40'
-                        }`}
-                      >
-                        {v === 'handyman' ? 'Handyman' : 'Cleaning'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Solo / Team toggle */}
-                <div className="flex gap-2">
-                  {(['solo', 'team'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setCrewType(mode)}
-                      className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-                        crewType === mode
-                          ? 'border-handy-navy bg-handy-navy text-white'
-                          : 'border-handy-grid bg-white text-handy-navy/70 hover:border-handy-navy/40'
-                      }`}
-                    >
-                      {mode === 'solo' ? 'Solo' : 'Team'}
-                    </button>
-                  ))}
-                </div>
-
-                {crewType === 'team' ? (
-                  (contractorTeamsList?.length ?? 0) > 0 ? (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Team</Label>
-                      <Select
-                        value={skinTeamId ?? 'none'}
-                        onValueChange={(v) => setSkinTeamId(v === 'none' ? null : v)}
-                      >
-                        <SelectTrigger className="h-9">
-                          <SelectValue placeholder="Pick a team" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No team selected</SelectItem>
-                          {contractorTeamsList!.map((t) => (
-                            <SelectItem key={t.id} value={t.id}>
-                              {t.displayName} · crew {t.crewSize ?? t.members.length} ({t.members.length} member{t.members.length === 1 ? '' : 's'})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      No teams set up yet — the quote is marked as a team job, and the page shows the
-                      default skin until a team is created.
-                    </p>
-                  )
-                ) : (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Quote skin (contractor)</Label>
-                    <Select
-                      value={skinContractorId ?? 'default'}
-                      onValueChange={(v) => setSkinContractorId(v === 'default' ? null : v)}
-                    >
-                      <SelectTrigger className="h-9">
-                        <SelectValue placeholder={`Default (${verticalConfig(vertical).defaultFace.name})`} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="default">
-                          <span className="flex items-center gap-2">
-                            <img src={verticalConfig(vertical).defaultFace.avatarUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
-                            Default ({verticalConfig(vertical).defaultFace.name})
-                          </span>
-                        </SelectItem>
-                        {STATIC_SKINS.filter((s) => s.vertical === vertical).map((s) => (
-                          <SelectItem key={s.value} value={s.value}>
-                            <span className="flex items-center gap-2">
-                              <img src={s.avatar} alt="" className="w-5 h-5 rounded-full object-cover" />
-                              {s.name} · Nottingham
-                            </span>
-                          </SelectItem>
-                        ))}
-                        {(contractors ?? []).map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            <span className="flex items-center gap-2">
-                              {c.profileImageUrl ? (
-                                <img src={c.profileImageUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
-                              ) : (
-                                <span className="w-5 h-5 rounded-full bg-slate-200 shrink-0" />
-                              )}
-                              {c.name}
-                              {c.city ? ` · ${c.city}` : ''}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                {/* Vertical + Solo/Team + skin — shared picker (also used by the
+                    comms quote-prep panel). */}
+                <CrewSkinPicker
+                  vertical={vertical}
+                  onVerticalChange={setVertical}
+                  crewType={crewType}
+                  onCrewTypeChange={setCrewType}
+                  skinContractorId={skinContractorId}
+                  onSkinContractorIdChange={setSkinContractorId}
+                  skinTeamId={skinTeamId}
+                  onSkinTeamIdChange={setSkinTeamId}
+                  contractors={contractors}
+                  teams={contractorTeamsList}
+                />
 
                 {/* Materials & equipment logistics */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-handy-grid">

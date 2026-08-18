@@ -20,9 +20,9 @@ import {
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText,
-    ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -126,18 +126,6 @@ interface AgentQuestion {
 interface QuickReply {
     id: string; label: string; body: string;
     shortcut: string | null; contentSid: string | null;
-}
-
-/** The quote-prep agent's structured intake — what the in-chat review card renders. */
-interface QuoteIntake {
-    customerName: string | null;
-    phone: string;
-    postcode: string | null;
-    customerType?: 'homeowner' | 'landlord' | 'letting_agent' | 'business';
-    jobSummary: string;
-    assumptions: string[];
-    missing: string[];
-    urgency: 'low' | 'med' | 'high';
 }
 
 interface Sender {
@@ -638,15 +626,18 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     };
 
     // Quote-prep agent: reads the whole thread (media included), returns a structured intake,
-    // rendered as a compact review card right here in the thread panel. The full builder stays
-    // one click away (sessionStorage handoff, same as the old flow) for complex quotes.
-    // The agent never prices; the card's Save runs the same engine the builder uses.
+    // rendered in a full-height slide-over panel with builder parity (materials, assumptions,
+    // signals, crew/skin, extras). The thread stays one click back — closing the panel keeps
+    // its state, so Ben can check a message and reopen without losing edits. The full builder
+    // stays reachable from the panel for anything beyond it.
+    // The agent never prices; the panel's Save runs the same engine the builder uses.
     const [intake, setIntake] = useState<QuoteIntake | null>(null);
-    // Bumped per run so a re-prep remounts the card (fresh ticks/type from the new intake).
+    const [prepOpen, setPrepOpen] = useState(false);
+    // Bumped per run so a re-prep remounts the panel (fresh state from the new intake).
     const [intakeRun, setIntakeRun] = useState(0);
     // ThreadPanel is one instance across card switches — without this, another
-    // customer's intake card would linger on the newly opened thread.
-    useEffect(() => { setIntake(null); }, [card.id]);
+    // customer's intake panel would linger on the newly opened thread.
+    useEffect(() => { setIntake(null); setPrepOpen(false); }, [card.id]);
     const prepQuote = useMutation({
         mutationFn: async () => {
             const res = await fetch(`/api/agents/quote-prep/${card.id}`, {
@@ -660,6 +651,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             setError(null);
             setIntake(fresh);
             setIntakeRun((n) => n + 1);
+            setPrepOpen(true);
         },
         onError: (e: Error) => setError(e.message),
     });
@@ -875,16 +867,43 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 )}
             </div>
 
-            {/* Quote-prep review card — the intake as a compact card, not a page jump. */}
+            {/* Quote-prep slide-over — full builder parity over the thread. The panel stays
+                mounted (state intact) while intake exists; the Sheet just shows/hides it. */}
             {intake && (
-                <QuotePrepCard
+                <QuotePrepPanel
                     key={intakeRun}
                     intake={intake}
-                    card={card}
+                    conversation={card}
                     media={threadMedia}
-                    onDismiss={() => setIntake(null)}
+                    open={prepOpen}
+                    onOpenChange={setPrepOpen}
+                    onDismiss={() => { setIntake(null); setPrepOpen(false); }}
                     onRefresh={refresh}
                 />
+            )}
+
+            {/* Closed-but-alive prep: one tap back into the panel, nothing lost. */}
+            {intake && !prepOpen && (
+                <div className="flex items-center justify-between gap-2 border-t-2 border-slate-900 bg-white px-3 py-2">
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-900">
+                        <FileText className="h-3.5 w-3.5" /> Quote prep in progress
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={() => setPrepOpen(true)}
+                            className="rounded bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase text-white hover:bg-slate-700"
+                        >
+                            Reopen
+                        </button>
+                        <button
+                            onClick={() => setIntake(null)}
+                            title="Discard this prep"
+                            className="text-slate-400 hover:text-red-600"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+                </div>
             )}
 
             {/* The agent's pending work on this thread: questions it's blocked on, then drafts
@@ -993,592 +1012,6 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 </div>
             </div>
         </aside>
-    );
-}
-
-// ---------------------------------------------------------------- quote-prep card
-
-const CUSTOMER_TYPE_OPTIONS = [
-    { value: 'homeowner', label: 'Homeowner' },
-    { value: 'landlord', label: 'Landlord' },
-    { value: 'letting_agent', label: 'Letting agent' },
-    { value: 'business', label: 'Business' },
-] as const;
-
-/** The builder's message styles (mirrors MESSAGE_STYLES in server/contextual-pricing/
- *  quote-message.ts). Auto-picked from customerType server-side; this dropdown overrides. */
-const MESSAGE_STYLE_OPTIONS = [
-    { value: 'friendly', label: 'Friendly' },
-    { value: 'professional', label: 'Professional' },
-    { value: 'efficient', label: 'Hands-off' },
-    { value: 'reassuring', label: 'Reassuring' },
-    { value: 'delay', label: 'Apology for delay' },
-] as const;
-
-/** One editable job line on the card. category/minutes come from the parser (null until it
- *  runs) — descriptions are editable here; minutes and materials stay in the full builder. */
-interface CardLine {
-    key: string;
-    description: string;
-    category: string | null;
-    estimatedMinutes: number | null;
-}
-
-const formatPence = (pence: number) => `£${(pence / 100).toFixed(2).replace(/\.00$/, '')}`;
-
-/**
- * The compact review card a "Prep quote" run renders in the thread panel: who, where,
- * customer type, the job line by line, and the thread's photos/videos as tickable
- * thumbnails (all ticked — images and videos on the quote lift conversion; Ben unticks).
- *
- * Save = an UNSENT DRAFT through the builder's own creation path (parse-job → the same
- * pricing engine, isDraft flag) — resumable from the quotes list, nothing reaches the
- * customer. Missing name/postcode shows a waiting chip and a one-tap ask that queues a
- * brand-voice draft into the approval queue below; that draft also only sends if approved.
- */
-function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
-    intake: QuoteIntake;
-    card: BoardCard;
-    media: ThreadMessage[];
-    onDismiss: () => void;
-    onRefresh: () => void;
-}) {
-    const [customerType, setCustomerType] = useState<string>(intake.customerType || 'homeowner');
-    const [ticked, setTicked] = useState<Record<string, boolean>>(
-        () => Object.fromEntries(media.filter((m) => m.mediaUrl).map((m) => [m.mediaUrl!, true])),
-    );
-    const [saved, setSaved] = useState<{ slug: string; quoteId: string; total: string | null } | null>(null);
-    const [cardError, setCardError] = useState<string | null>(null);
-
-    // ── Editable job lines ──
-    // The intake's numbered lines become editable rows: reword, add or remove right here.
-    // Minutes, materials and overrides stay in the full builder — this card is review, not surgery.
-    const [lines, setLines] = useState<CardLine[]>(() =>
-        String(intake.jobSummary || '')
-            .split(/\n(?=\d+\.\s)/)
-            .map((l) => l.replace(/^\d+\.\s*/, '').trim())
-            .filter(Boolean)
-            .map((description, i) => ({ key: `prep_${Date.now()}_${i}`, description, category: null, estimatedMinutes: null })),
-    );
-    const nextLineKeyRef = useRef(1000);
-
-    // ── Live engine re-price, debounced ──
-    // Two stages: lines the parser hasn't classified yet (fresh intake, newly added) go through
-    // /api/pricing/parse-job for a category + realistic minutes; classified lines go straight to
-    // /api/pricing/multi-quote — the exact engine path the full builder's live preview calls —
-    // so the £ on this card is the £ the builder would show.
-    const [priced, setPriced] = useState<{ totalPence: number; perLine: Map<string, number> } | null>(null);
-    const [pricingBusy, setPricingBusy] = useState(false);
-    const priceAbortRef = useRef<AbortController | null>(null);
-    const priceRunRef = useRef(0);
-
-    useEffect(() => {
-        const run = ++priceRunRef.current;
-        const timer = setTimeout(async () => {
-            priceAbortRef.current?.abort();
-            const controller = new AbortController();
-            priceAbortRef.current = controller;
-            const headers = { 'Content-Type': 'application/json', ...getAuthHeaders() };
-            try {
-                // Stage 1: classify anything the engine can't price yet.
-                const pending = lines.filter((l) => !l.category && l.description.trim());
-                if (pending.length > 0) {
-                    setPricingBusy(true);
-                    const updates = new Map<string, { category: string; estimatedMinutes: number }>();
-                    for (const line of pending) {
-                        const res = await fetch('/api/pricing/parse-job', {
-                            method: 'POST', headers, signal: controller.signal,
-                            body: JSON.stringify({ description: line.description.slice(0, 2000) }),
-                        });
-                        const parsed = await res.json().catch(() => ({}));
-                        const first = Array.isArray(parsed.lines) ? parsed.lines[0] : null;
-                        if (res.ok && first?.category && first?.timeEstimateMinutes) {
-                            updates.set(line.key, { category: first.category, estimatedMinutes: first.timeEstimateMinutes });
-                        }
-                    }
-                    if (controller.signal.aborted || run !== priceRunRef.current) return;
-                    if (updates.size > 0) {
-                        // Merging re-fires this effect; the next pass finds nothing pending and prices.
-                        setLines((prev) => prev.map((l) => (updates.has(l.key) ? { ...l, ...updates.get(l.key)! } : l)));
-                        return;
-                    }
-                }
-
-                // Stage 2: price the classified lines through the engine.
-                const valid = lines.filter((l) => l.category && (l.estimatedMinutes ?? 0) > 0 && l.description.trim());
-                if (valid.length === 0) { setPriced(null); setPricingBusy(false); return; }
-                setPricingBusy(true);
-                const res = await fetch('/api/pricing/multi-quote', {
-                    method: 'POST', headers, signal: controller.signal,
-                    body: JSON.stringify({
-                        lines: valid.map((l) => ({
-                            id: l.key, description: l.description, category: l.category,
-                            timeEstimateMinutes: l.estimatedMinutes, materialsCostPence: 0,
-                        })),
-                        signals: { urgency: intake.urgency === 'high' ? 'priority' : 'standard' },
-                    }),
-                });
-                if (!res.ok) throw new Error('re-price failed');
-                const data = await res.json();
-                if (controller.signal.aborted || run !== priceRunRef.current) return;
-                const perLine = new Map<string, number>();
-                for (const li of data.lineItems ?? []) {
-                    if (typeof li.guardedPricePence === 'number') perLine.set(li.lineId, li.guardedPricePence);
-                }
-                setPriced({ totalPence: data.finalPricePence ?? 0, perLine });
-                setPricingBusy(false);
-            } catch (e: any) {
-                if (e?.name === 'AbortError') return;
-                if (run === priceRunRef.current) { setPriced(null); setPricingBusy(false); }
-            }
-        }, 700);
-        return () => clearTimeout(timer);
-    }, [lines, intake.urgency]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // A field is "waiting" when the agent couldn't extract it — the null is the
-    // signal; missing[] wording is only a fallback for older intake payloads.
-    const waitingOn = [
-        !intake.customerName || intake.missing?.some((m) => /\bname\b/i.test(m) && !intake.customerName) ? 'name' : null,
-        !intake.postcode ? 'postcode' : null,
-    ].filter((f): f is string => !!f);
-
-    const isVideo = (m: ThreadMessage) => (m.mediaType ?? '').startsWith('video/') || m.type === 'video';
-
-    const askCustomer = useMutation({
-        mutationFn: async () => {
-            const res = await fetch(`/api/agents/quote-prep/${card.id}/request-details`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ fields: waitingOn }),
-            });
-            const detail = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(detail.error || 'Could not queue the ask');
-            return detail as { queued: boolean; draftId: string | null };
-        },
-        onSuccess: () => { setCardError(null); onRefresh(); },
-        onError: (e: Error) => setCardError(e.message),
-    });
-
-    /**
-     * Persists the quote through the builder's own creation path, always as an UNSENT draft —
-     * the send flow flips it to non-draft only after the burst actually reaches the customer.
-     * A re-run passes the saved quoteId so edits re-save in place (same slug, same link).
-     */
-    async function persistQuote(): Promise<{ slug: string; quoteId: string; total: string | null }> {
-        const items = lines
-            .filter((l) => l.category && (l.estimatedMinutes ?? 0) > 0 && l.description.trim())
-            .map((l) => ({
-                id: l.key,
-                description: l.description.trim(),
-                category: l.category!,
-                estimatedMinutes: l.estimatedMinutes!,
-                materialsCostPence: 0,
-            }));
-        if (items.length === 0) throw new Error('No priceable job lines yet. Give the re-price a moment to classify them.');
-
-        const photos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && !isVideo(m)).map((m) => m.mediaUrl!).slice(0, 10);
-        const videos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && isVideo(m)).map((m) => m.mediaUrl!).slice(0, 5);
-        const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
-
-        const res = await fetch('/api/pricing/create-contextual-quote', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({
-                isDraft: true,
-                ...(saved ? { quoteId: saved.quoteId } : {}),
-                customerName: intake.customerName,
-                phone: intake.phone,
-                postcode: intake.postcode || undefined,
-                customerType,
-                jobDescription: items.map((i) => i.description).join('; '),
-                lines: items,
-                signals: { urgency: intake.urgency === 'high' ? 'priority' : 'standard' },
-                ...(intake.assumptions?.length ? { quoteAssumptions: intake.assumptions } : {}),
-                vaContext: [
-                    'Quote prepared from the comms thread (quote-prep agent intake).',
-                    intake.missing?.length ? `Still missing: ${intake.missing.join('; ')}` : '',
-                ].filter(Boolean).join(' ').slice(0, 2000),
-                sourceChannel: 'whatsapp',
-                ...(photos.length ? { customerPhotoUrls: photos } : {}),
-                ...(videos.length ? { customerVideoUrls: videos } : {}),
-                createdBy: adminUser?.id || undefined,
-                createdByName: adminUser?.name || adminUser?.email || undefined,
-            }),
-        });
-        const out = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(out.message || out.error || 'Could not save the quote');
-        const result = { slug: out.shortSlug as string, quoteId: out.quoteId as string, total: out.pricing?.totalFormatted ?? null };
-        setSaved(result);
-        return result;
-    }
-
-    const saveDraft = useMutation({
-        mutationFn: persistQuote,
-        onSuccess: () => setCardError(null),
-        onError: (e: Error) => setCardError(e.message),
-    });
-
-    // ── Send flow ──
-    // Send quote = persist (as draft) → agent drafts the delivery burst from the thread →
-    // Ben reviews/edits it in a textarea → Send. Ben's click IS the approval: the server sends
-    // directly (freeform burst, or template when the window is shut, or queues when neither
-    // can deliver) and only then flips the quote out of draft.
-    type SendPhase = 'idle' | 'preparing' | 'review' | 'sending' | 'sent' | 'queued';
-    const [sendPhase, setSendPhase] = useState<SendPhase>('idle');
-    const [sendMessage, setSendMessage] = useState('');
-    const [sendInfo, setSendInfo] = useState<string | null>(null);
-    const [windowOpenHint, setWindowOpenHint] = useState<boolean | null>(null);
-    // The builder-generator style in use. '' until the first draft returns; after that it's
-    // whatever the server auto-picked from customerType, or Ben's dropdown override.
-    const [sendStyle, setSendStyle] = useState<string>('');
-    const [redrafting, setRedrafting] = useState(false);
-
-    /** Fetches the builder-generated message for the saved quote. No style = server auto-picks
-     *  from the quote's customerType; an explicit style is the dropdown override. */
-    async function draftMessage(slug: string, style?: string) {
-        const res = await fetch(`/api/agents/quote-prep/${card.id}/draft-send-message`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ slug, ...(style ? { messageStyle: style } : {}) }),
-        });
-        const detail = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(detail.message || detail.error || 'Could not draft the message');
-        setSendMessage(detail.body);
-        setWindowOpenHint(detail.windowOpen ?? null);
-        setSendStyle(detail.styleUsed || '');
-    }
-
-    async function beginSend() {
-        setCardError(null);
-        setSendPhase('preparing');
-        try {
-            const q = await persistQuote();
-            await draftMessage(q.slug);
-            setSendPhase('review');
-        } catch (e: any) {
-            setCardError(e.message);
-            setSendPhase('idle');
-        }
-    }
-
-    /** Style override: re-drafts the whole message in the new style (edits are replaced —
-     *  the generator, not the textarea, is the source of the base copy). */
-    async function changeStyle(style: string) {
-        if (!saved || redrafting) return;
-        setRedrafting(true);
-        setCardError(null);
-        try {
-            await draftMessage(saved.slug, style);
-        } catch (e: any) {
-            setCardError(e.message);
-        } finally {
-            setRedrafting(false);
-        }
-    }
-
-    async function confirmSend() {
-        if (!saved) return;
-        setCardError(null);
-        setSendPhase('sending');
-        try {
-            const res = await fetch(`/api/agents/quote-prep/${card.id}/send-quote`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ slug: saved.slug, body: sendMessage }),
-            });
-            const detail = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(detail.message || detail.error || 'Send failed');
-            if (detail.queued) {
-                setSendInfo(detail.message ?? 'Window shut, queued for approval when the window reopens.');
-                setSendPhase('queued');
-            } else {
-                if (detail.partial) setSendInfo(detail.message ?? null);
-                setSendPhase('sent');
-            }
-            onRefresh();
-        } catch (e: any) {
-            setCardError(e.message);
-            setSendPhase('review');
-        }
-    }
-
-    const linkPresent = !!saved && sendMessage.includes(`/quote/${saved.slug}`);
-    // Line edits are frozen once a send is under way — the persisted quote must match the card.
-    const editingLocked = sendPhase !== 'idle';
-
-    const openFullBuilder = () => {
-        // Same handoff the old flow used — the builder's prefill effect consumes it.
-        sessionStorage.setItem('quoteFromComms', JSON.stringify({ ...intake, customerType }));
-        window.location.href = '/admin/generate-contextual-quote';
-    };
-
-    return (
-        <div className="max-h-[46vh] overflow-y-auto border-t-2 border-slate-900 bg-white p-3 text-sm">
-            <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                    <FileText className="h-3.5 w-3.5 text-slate-700" />
-                    <span className="text-xs font-bold uppercase tracking-wide text-slate-900">Quote prep — review</span>
-                    {intake.urgency === 'high' && (
-                        <span className="rounded bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">Urgent</span>
-                    )}
-                </div>
-                <button onClick={onDismiss} className="text-slate-400 hover:text-slate-700" title="Dismiss card">
-                    <X className="h-4 w-4" />
-                </button>
-            </div>
-
-            <div className="mb-2 grid grid-cols-3 gap-2 text-xs">
-                <div>
-                    <p className="text-[10px] font-semibold uppercase text-slate-400">Name</p>
-                    <p className={cn('truncate font-medium', intake.customerName ? 'text-slate-900' : 'text-amber-700')}>
-                        {intake.customerName || 'waiting on name'}
-                    </p>
-                </div>
-                <div>
-                    <p className="text-[10px] font-semibold uppercase text-slate-400">Postcode</p>
-                    <p className={cn('truncate font-medium', intake.postcode ? 'text-slate-900' : 'text-amber-700')}>
-                        {intake.postcode || 'waiting on postcode'}
-                    </p>
-                </div>
-                <div>
-                    <p className="text-[10px] font-semibold uppercase text-slate-400">Customer type</p>
-                    <select
-                        value={customerType}
-                        onChange={(e) => setCustomerType(e.target.value)}
-                        className="w-full rounded border border-slate-300 px-1 py-0.5 text-xs focus:border-slate-500 focus:outline-none"
-                    >
-                        {CUSTOMER_TYPE_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-
-            {waitingOn.length > 0 && (
-                <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
-                    <span className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 shrink-0" />
-                        Waiting on {waitingOn.join(' and ')}
-                    </span>
-                    <button
-                        onClick={() => askCustomer.mutate()}
-                        disabled={askCustomer.isPending || askCustomer.isSuccess}
-                        className="shrink-0 rounded bg-amber-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-amber-700 disabled:opacity-60"
-                    >
-                        {askCustomer.isPending ? 'Queueing…'
-                            : askCustomer.isSuccess
-                                ? (askCustomer.data?.queued ? 'Ask queued for approval' : 'Already queued')
-                                : 'Ask the customer'}
-                    </button>
-                </div>
-            )}
-
-            {/* Editable job lines with the engine's live £ per line and running total. */}
-            <div className="mb-2 space-y-1">
-                {lines.map((line, i) => (
-                    <div key={line.key} className="flex items-center gap-1.5">
-                        <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-slate-400">{i + 1}.</span>
-                        <input
-                            value={line.description}
-                            onChange={(e) => setLines((prev) => prev.map((l) =>
-                                // Rewording a line sends it back through the parser so its
-                                // category and minutes match the new description.
-                                l.key === line.key ? { ...l, description: e.target.value, category: null, estimatedMinutes: null } : l,
-                            ))}
-                            disabled={editingLocked}
-                            placeholder="Describe the work…"
-                            className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-1 text-xs text-slate-800 focus:border-slate-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
-                        />
-                        <span className="w-12 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-600">
-                            {priced?.perLine.has(line.key) ? formatPence(priced.perLine.get(line.key)!) : '…'}
-                        </span>
-                        <button
-                            onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
-                            disabled={editingLocked || lines.length <= 1}
-                            title="Remove line"
-                            className="shrink-0 text-slate-300 hover:text-red-600 disabled:opacity-30"
-                        >
-                            <X className="h-3.5 w-3.5" />
-                        </button>
-                    </div>
-                ))}
-                <div className="flex items-center justify-between pl-5">
-                    <button
-                        onClick={() => setLines((prev) => [...prev, {
-                            key: `prep_add_${nextLineKeyRef.current++}`, description: '', category: null, estimatedMinutes: null,
-                        }])}
-                        disabled={editingLocked}
-                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 disabled:opacity-40"
-                    >
-                        + Add line
-                    </button>
-                    <div className="flex items-center gap-1.5 text-xs">
-                        {pricingBusy && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
-                        <span className="text-[10px] font-semibold uppercase text-slate-400">Engine total</span>
-                        <span className="text-sm font-bold tabular-nums text-slate-900">
-                            {priced ? formatPence(priced.totalPence) : '—'}
-                        </span>
-                    </div>
-                </div>
-            </div>
-
-            {intake.assumptions?.length > 0 && (
-                <p className="mb-2 text-[11px] italic text-slate-500">
-                    Price will assume: {intake.assumptions.join('; ')}
-                </p>
-            )}
-
-            {media.length > 0 && (
-                <div className="mb-2">
-                    <p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">
-                        On the quote (tap to untick)
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                        {media.map((m) => (
-                            <button
-                                key={m.mediaUrl!}
-                                onClick={() => setTicked((t) => ({ ...t, [m.mediaUrl!]: !t[m.mediaUrl!] }))}
-                                className={cn(
-                                    'relative h-14 w-14 overflow-hidden rounded-lg border-2',
-                                    ticked[m.mediaUrl!] ? 'border-emerald-600' : 'border-slate-200 opacity-40',
-                                )}
-                                title={isVideo(m) ? 'Video' : 'Photo'}
-                            >
-                                {isVideo(m)
-                                    ? <video src={m.mediaUrl!} preload="metadata" muted className="h-full w-full object-cover" />
-                                    : <img src={m.mediaUrl!} alt="" loading="lazy" className="h-full w-full object-cover" />}
-                                {ticked[m.mediaUrl!] && (
-                                    <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-600 p-0.5">
-                                        <Check className="h-2.5 w-2.5 text-white" />
-                                    </span>
-                                )}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {cardError && (
-                <div className="mb-2 flex items-start gap-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">
-                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{cardError}</span>
-                </div>
-            )}
-
-            {(sendPhase === 'review' || sendPhase === 'sending') ? (
-                /* Ben's approval gate: the agent-drafted burst, editable, with Send as the approval. */
-                <div className="rounded-lg border border-slate-300 bg-slate-50 p-2.5">
-                    <div className="mb-1.5 flex items-center gap-2 text-[11px] font-bold uppercase text-slate-700">
-                        <Bot className="h-3.5 w-3.5" /> Message to the customer — edit, then send
-                        {windowOpenHint === false && (
-                            <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[9px] text-white">window shut — template or queue</span>
-                        )}
-                        {/* Builder generator style — auto-picked from customer type, overridable.
-                            Changing it re-drafts (and replaces) the message below. */}
-                        <span className="ml-auto flex items-center gap-1 normal-case">
-                            {redrafting && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
-                            <select
-                                value={sendStyle}
-                                onChange={(e) => changeStyle(e.target.value)}
-                                disabled={sendPhase === 'sending' || redrafting}
-                                title="Message style (auto-picked from customer type). Changing it re-drafts the message."
-                                className="rounded border border-slate-300 bg-white px-1 py-0.5 text-[11px] font-medium text-slate-700 focus:border-slate-500 focus:outline-none disabled:opacity-50"
-                            >
-                                {MESSAGE_STYLE_OPTIONS.map((o) => (
-                                    <option key={o.value} value={o.value}>{o.label}</option>
-                                ))}
-                            </select>
-                        </span>
-                    </div>
-                    <textarea
-                        value={sendMessage}
-                        onChange={(e) => setSendMessage(e.target.value)}
-                        disabled={sendPhase === 'sending' || redrafting}
-                        rows={Math.min(10, Math.max(4, sendMessage.split('\n').length + 1))}
-                        className="w-full rounded border border-slate-300 bg-white p-2 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-100"
-                    />
-                    <p className="mt-1 text-[10px] text-slate-500">A line with only --- splits into separate WhatsApp messages.</p>
-                    {!linkPresent && (
-                        <p className="mt-1 text-[11px] font-semibold text-red-700">
-                            The quote link is missing. Put it back or the customer gets words with no quote.
-                        </p>
-                    )}
-                    <div className="mt-2 flex items-center gap-2">
-                        <button
-                            onClick={confirmSend}
-                            disabled={sendPhase === 'sending' || redrafting || !linkPresent || !sendMessage.trim()}
-                            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                            {sendPhase === 'sending' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                            {sendPhase === 'sending' ? 'Sending…' : `Send quote${saved?.total ? ` (${saved.total})` : ''}`}
-                        </button>
-                        <button
-                            onClick={() => setSendPhase('idle')}
-                            disabled={sendPhase === 'sending'}
-                            className="rounded px-2 py-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40"
-                        >
-                            Back
-                        </button>
-                    </div>
-                </div>
-            ) : sendPhase === 'sent' ? (
-                <div className="rounded-lg bg-emerald-600 px-3 py-2 text-xs text-white">
-                    <p className="font-bold">
-                        Quote sent{saved?.total ? ` at ${saved.total}` : ''}. Thread moved to Waiting.
-                    </p>
-                    {sendInfo && <p className="mt-0.5 font-medium text-emerald-100">{sendInfo}</p>}
-                    {saved && (
-                        <a href={`/quote/${saved.slug}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold underline underline-offset-2">
-                            View what they received
-                        </a>
-                    )}
-                </div>
-            ) : sendPhase === 'queued' ? (
-                <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    <p className="font-bold">Window shut — queued for approval when the window reopens.</p>
-                    {sendInfo && <p className="mt-0.5">{sendInfo}</p>}
-                </div>
-            ) : (
-                <>
-                    {saved && (
-                        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
-                            <span className="font-medium">
-                                Draft saved{saved.total ? ` at ${saved.total}` : ''}. Nothing sent to the customer.
-                            </span>
-                            <a
-                                href={`/admin/quotes/${saved.slug}/edit`}
-                                className="shrink-0 rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-emerald-700"
-                            >
-                                Open in builder
-                            </a>
-                        </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => saveDraft.mutate()}
-                            disabled={saveDraft.isPending || sendPhase === 'preparing' || !intake.customerName || lines.length === 0}
-                            title={intake.customerName ? 'Prices through the quote engine and saves an unsent draft' : 'Needs a name first'}
-                            className="flex items-center gap-1.5 rounded-lg border border-slate-900 px-3 py-1.5 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
-                        >
-                            {saveDraft.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                            {saveDraft.isPending ? 'Saving…' : saved ? 'Re-save draft' : 'Save draft'}
-                        </button>
-                        <button
-                            onClick={beginSend}
-                            disabled={saveDraft.isPending || sendPhase === 'preparing' || !intake.customerName || lines.length === 0}
-                            title={intake.customerName ? 'Creates the quote, drafts the WhatsApp message for your review, then you send' : 'Needs a name first'}
-                            className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-50"
-                        >
-                            {sendPhase === 'preparing' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                            {sendPhase === 'preparing' ? 'Pricing & drafting…' : 'Send quote…'}
-                        </button>
-                        <button
-                            onClick={openFullBuilder}
-                            className="ml-auto flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900"
-                        >
-                            <ExternalLink className="h-3 w-3" /> Builder
-                        </button>
-                    </div>
-                </>
-            )}
-        </div>
     );
 }
 
