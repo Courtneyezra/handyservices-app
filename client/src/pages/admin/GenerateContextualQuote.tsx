@@ -1579,10 +1579,11 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   ]);
 
   // Prefill from the comms quote-prep agent ("Prep quote" button on a thread). The agent
-  // extracted who/where/what from the conversation and its media; each numbered job line
-  // becomes a line item (title in description, extracted context in details), and the
-  // agent's assumptions/missing notes ride the first line's details, clearly labelled so
-  // they're reviewed and moved/deleted, never silently shipped to a customer.
+  // hands over lines already split for the quote, so the mapping is direct and nothing is
+  // guessed here: title → description, detail → details, assumptions → the line's own
+  // assumptions. Quote-level caveats and any unanswered questions from the readiness verdict
+  // ride line 1's details, clearly labelled so they're reviewed and moved or deleted, never
+  // silently shipped to a customer.
   useEffect(() => {
     const raw = sessionStorage.getItem('quoteFromComms');
     if (!raw) return;
@@ -1596,38 +1597,49 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       // business from messaging signals) — a valid builder value or ignored.
       if (CUSTOMER_TYPES.some((t) => t.value === intake.customerType)) setCustomerType(intake.customerType);
 
-      const lines: string[] = String(intake.jobSummary || '')
-        .split(/\n(?=\d+\.\s)/)
-        .map((l: string) => l.replace(/^\d+\.\s*/, '').trim())
-        .filter(Boolean);
+      const agentLines: { title?: string; detail?: string; assumptions?: string[] }[] =
+        Array.isArray(intake.lines) ? intake.lines : [];
 
       const notes: string[] = [];
       if (intake.assumptions?.length) notes.push(`PRICE ASSUMES (agent, review):\n- ${intake.assumptions.join('\n- ')}`);
-      if (intake.missing?.length) notes.push(`STILL MISSING (agent, chase):\n- ${intake.missing.join('\n- ')}`);
+      const openGaps: { question?: string; audience?: string }[] = Array.isArray(intake.gaps) ? intake.gaps : [];
+      if (openGaps.length) {
+        notes.push(`STILL UNANSWERED (agent, chase):\n- ${openGaps
+          .map((g) => `${g.question}${g.audience === 'customer' ? ' (ask the customer)' : ' (Ben)'}`)
+          .join('\n- ')}`);
+      }
 
-      if (lines.length) {
-        setLineItems(lines.map((line, i) => {
-          // "Replace bathroom light fitting — old and broken, see photo" → title / details
-          const splitAt = line.search(/\s[—–-]\s|\(/);
-          const description = (splitAt > 10 ? line.slice(0, splitAt) : line).trim().slice(0, 120);
+      if (agentLines.length) {
+        setLineItems(agentLines.map((line, i) => {
           const detailParts = [
-            splitAt > 10 ? line.slice(splitAt).replace(/^[\s—–-]+/, '').trim() : '',
+            (line.detail || '').trim(),
             i === 0 && notes.length ? notes.join('\n') : '',
           ].filter(Boolean);
+          const lineAssumptions = (line.assumptions ?? []).map((a) => String(a).trim()).filter(Boolean);
           return {
             id: generateId(),
-            description,
+            description: (line.title || '').trim().slice(0, 120),
             category: 'general_fixing' as JobCategory,
             estimatedMinutes: 30,
             materialsCostPounds: 0,
             source: 'custom' as const,
             ...(detailParts.length ? { details: detailParts.join('\n\n') } : {}),
+            ...(lineAssumptions.length ? { assumptions: lineAssumptions } : {}),
           };
         }));
       }
+      // The agent's verdict travels with the prefill: "visit first" means it judged the job
+      // unpriceable from the thread, so the survey gate starts on rather than being remembered.
+      if (intake.readiness === 'visit_first') setSurveyRequired(true);
       toast({
-        title: 'Prefilled from the conversation',
-        description: 'The quote-prep agent read the thread and its photos. Check each line and its details, then price as normal.',
+        title: intake.readiness === 'quote_ready'
+          ? 'Prefilled from the conversation'
+          : intake.readiness === 'visit_first'
+            ? 'Prefilled — agent says visit first'
+            : 'Prefilled — questions still open',
+        description: intake.readiness === 'quote_ready'
+          ? 'The quote-prep agent read the thread and its photos. Check each line and its details, then price as normal.'
+          : 'The quote-prep agent read the thread and its photos. Its open questions are on line 1\'s details, check them before you send.',
       });
     } catch { /* malformed payload — start blank */ }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

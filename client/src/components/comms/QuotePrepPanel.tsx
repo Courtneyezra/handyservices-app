@@ -42,14 +42,33 @@ function getAuthHeaders(): Record<string, string> {
 // ---------------------------------------------------------------- prop shapes
 
 /** The quote-prep agent's structured intake (mirrors server/agents/quote-prep.ts). */
+export interface IntakeLine {
+    /** Customer-facing quote line title (server-capped at 60 chars). */
+    title: string;
+    /** Internal evidence behind the line: what the photo/thread shows. */
+    detail: string;
+    /** Caveats this line's price depends on. */
+    assumptions: string[];
+}
+
+export type IntakeReadiness = 'quote_ready' | 'needs_info' | 'visit_first';
+
+export interface IntakeGap {
+    question: string;
+    audience: 'customer' | 'ben';
+    /** 1-based index into lines[]; null = whole job. */
+    lineIndex: number | null;
+}
+
 export interface QuoteIntake {
     customerName: string | null;
     phone: string;
     postcode: string | null;
     customerType?: 'homeowner' | 'landlord' | 'letting_agent' | 'business';
-    jobSummary: string;
+    lines: IntakeLine[];
     assumptions: string[];
-    missing: string[];
+    readiness: IntakeReadiness;
+    gaps: IntakeGap[];
     urgency: 'low' | 'med' | 'high';
 }
 
@@ -117,6 +136,8 @@ function formatMinutes(mins: number | null): string {
 interface PanelLine {
     key: string;
     description: string;
+    /** Internal evidence (the agent's `detail`) — saved as the line's `details`. */
+    detail: string;
     category: string | null;
     estimatedMinutes: number | null;
     materials: QuoteMaterial[];
@@ -124,75 +145,50 @@ interface PanelLine {
     scopeSteps: string[];
 }
 
-const STOPWORDS = new Set([
-    'that', 'this', 'with', 'from', 'will', 'have', 'been', 'assumes', 'assumed',
-    'assuming', 'existing', 'standard', 'access', 'work', 'area', 'there', 'where',
-    'their', 'they', 'would', 'could', 'needs', 'need', 'into', 'onto', 'over',
-]);
-
-function significantWords(text: string): Set<string> {
-    return new Set(
-        text.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && !STOPWORDS.has(w)),
-    );
-}
-
 /**
- * Match each agent assumption to the job line it belongs to (word overlap);
- * anything that fits no single line stays quote-level. One line = everything
- * is that line's. This is what turns the agent's caveats into REAL per-line
- * assumptions that show under the line on the customer's quote page.
+ * The agent now hands over lines already split the way the quote needs them, so this is a
+ * direct map: title → the customer-facing description, detail → the line's internal details,
+ * assumptions → the line's own assumptions. Nothing is guessed here any more (the old
+ * word-overlap matcher and title/detail split heuristic are gone); intake.assumptions is
+ * exactly what the agent judged to be quote-level.
  */
-function distributeAssumptions(
-    assumptions: string[],
-    lines: { key: string; description: string }[],
-): { perLine: Map<string, string[]>; quoteLevel: string[] } {
-    const perLine = new Map<string, string[]>();
-    const quoteLevel: string[] = [];
-    const lineWords = lines.map((l) => ({ key: l.key, words: significantWords(l.description) }));
-
-    for (const raw of assumptions) {
-        const a = raw.trim();
-        if (!a) continue;
-        if (lines.length === 1) {
-            perLine.set(lines[0].key, [...(perLine.get(lines[0].key) ?? []), a]);
-            continue;
-        }
-        const aWords = significantWords(a);
-        let bestKey: string | null = null;
-        let bestScore = 0;
-        for (const lw of lineWords) {
-            let score = 0;
-            for (const w of aWords) if (lw.words.has(w)) score++;
-            if (score > bestScore) { bestScore = score; bestKey = lw.key; }
-        }
-        if (bestKey && bestScore > 0) {
-            perLine.set(bestKey, [...(perLine.get(bestKey) ?? []), a]);
-        } else {
-            quoteLevel.push(a);
-        }
-    }
-    return { perLine, quoteLevel };
-}
-
 function buildInitialLines(intake: QuoteIntake): { lines: PanelLine[]; quoteLevel: string[] } {
-    const bare = String(intake.jobSummary || '')
-        .split(/\n(?=\d+\.\s)/)
-        .map((l) => l.replace(/^\d+\.\s*/, '').trim())
-        .filter(Boolean)
-        .map((description, i) => ({ key: `prep_${Date.now()}_${i}`, description }));
-    const { perLine, quoteLevel } = distributeAssumptions(intake.assumptions ?? [], bare);
+    const stamp = Date.now();
     return {
-        lines: bare.map((l) => ({
-            ...l,
+        lines: (intake.lines ?? []).map((l, i) => ({
+            key: `prep_${stamp}_${i}`,
+            description: (l.title ?? '').trim(),
+            detail: (l.detail ?? '').trim(),
             category: null,
             estimatedMinutes: null,
             materials: [],
-            assumptions: perLine.get(l.key) ?? [],
+            assumptions: (l.assumptions ?? []).map((a) => a.trim()).filter(Boolean),
             scopeSteps: [],
         })),
-        quoteLevel,
+        quoteLevel: (intake.assumptions ?? []).map((a) => a.trim()).filter(Boolean),
     };
 }
+
+const READINESS_UI: Record<IntakeReadiness, { label: string; blurb: string; chip: string; card: string }> = {
+    quote_ready: {
+        label: 'Quote ready',
+        blurb: 'Everything needed to price this is in the thread.',
+        chip: 'bg-emerald-600 text-white',
+        card: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    },
+    needs_info: {
+        label: 'Needs info',
+        blurb: 'These answers change the price or the scope. Ask before you send.',
+        chip: 'bg-amber-500 text-white',
+        card: 'border-amber-200 bg-amber-50 text-amber-900',
+    },
+    visit_first: {
+        label: 'Visit first',
+        blurb: 'This one cannot be priced honestly from the thread. Send them the survey route, not a guess.',
+        chip: 'bg-slate-700 text-white',
+        card: 'border-slate-300 bg-slate-100 text-slate-800',
+    },
+};
 
 // ---------------------------------------------------------------- panel
 
@@ -233,12 +229,57 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
     const updateLine = (key: string, patch: Partial<PanelLine>) =>
         setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
+    // ── Readiness + gaps ──
+    // The agent's verdict for the whole conversation, and the questions behind it. A gap is
+    // "resolved" when it has actually been dealt with: a customer gap once the ask is queued
+    // for approval, a Ben gap once he's typed the answer. Unresolved gaps are what the
+    // save/send checklist puts in front of him.
+    const readiness: IntakeReadiness = intake.readiness ?? 'needs_info';
+    const gaps = intake.gaps ?? [];
+    const readinessUi = READINESS_UI[readiness] ?? READINESS_UI.needs_info;
+    const [askedGaps, setAskedGaps] = useState<Set<number>>(new Set());
+    const [gapAnswers, setGapAnswers] = useState<Record<number, string>>({});
+    // Which Ben-audience chip is open for an answer.
+    const [openGap, setOpenGap] = useState<number | null>(null);
+    const [gapDraft, setGapDraft] = useState('');
+
+    const gapResolved = (i: number) => askedGaps.has(i) || !!gapAnswers[i]?.trim();
+    const unresolvedGaps = gaps.map((g, i) => ({ g, i })).filter(({ i }) => !gapResolved(i));
+
+    /**
+     * Ben's answer to a clarify chip lands where it belongs: appended to that line's internal
+     * detail (question and answer, so the reason survives), or to the quote-level notes when
+     * the gap spans the whole job.
+     */
+    const [jobNotes, setJobNotes] = useState<string[]>([]);
+    const answerGap = (i: number, answer: string) => {
+        const gap = gaps[i];
+        const text = answer.trim();
+        if (!gap || !text) return;
+        const note = `${gap.question} ${text}`;
+        const idx = gap.lineIndex;
+        if (idx && idx >= 1 && idx <= lines.length) {
+            const key = lines[idx - 1].key;
+            setLines((prev) => prev.map((l) => (
+                l.key === key ? { ...l, detail: [l.detail, note].filter(Boolean).join('\n') } : l
+            )));
+            setOpenSections((prev) => new Set(prev).add(`${key}:detail`));
+        } else {
+            setJobNotes((prev) => [...prev, note]);
+        }
+        setGapAnswers((prev) => ({ ...prev, [i]: text }));
+        setOpenGap(null);
+        setGapDraft('');
+    };
+
     // ── Signals ──
     const [urgency, setUrgency] = useState<'standard' | 'priority' | 'emergency'>(
         intake.urgency === 'high' ? 'priority' : 'standard',
     );
     const [timeOfService, setTimeOfService] = useState<'standard' | 'after_hours' | 'weekend'>('standard');
-    const [surveyRequired, setSurveyRequired] = useState(false);
+    // "Visit first" pre-toggles the survey gate: the agent has already said this can't be
+    // priced from the thread, so the default is the survey route, not a guessed quote.
+    const [surveyRequired, setSurveyRequired] = useState(readiness === 'visit_first');
     const [surveyFeePounds, setSurveyFeePounds] = useState('');
 
     // ── Crew & skin ──
@@ -431,6 +472,26 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
         onError: (e: Error) => setCardError(e.message),
     });
 
+    /** One customer-audience gap, queued as an approval draft in the brand voice. Nothing sends. */
+    const askGap = useMutation({
+        mutationFn: async ({ index }: { index: number }) => {
+            const res = await fetch(`/api/agents/quote-prep/${conversation.id}/request-details`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ question: gaps[index].question }),
+            });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(detail.error || 'Could not queue the ask');
+            return { index, ...(detail as { queued: boolean; draftId: string | null }) };
+        },
+        onSuccess: ({ index }) => {
+            setCardError(null);
+            setAskedGaps((prev) => new Set(prev).add(index));
+            onRefresh();
+        },
+        onError: (e: Error) => setCardError(e.message),
+    });
+
     /**
      * Persists the quote through the builder's own creation path, always as an UNSENT draft —
      * the send flow flips it to non-draft only after the burst actually reaches the customer.
@@ -462,6 +523,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                 lines: items.map((l) => ({
                     id: l.key,
                     description: l.description.trim(),
+                    ...(l.detail.trim() ? { details: l.detail.trim() } : {}),
                     category: l.category!,
                     estimatedMinutes: l.estimatedMinutes!,
                     materialsCostPence: materialsCostPence(l.materials),
@@ -499,7 +561,11 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                     : {}),
                 vaContext: [
                     'Quote prepared from the comms thread (quote-prep agent intake).',
-                    intake.missing?.length ? `Still missing: ${intake.missing.join('; ')}` : '',
+                    `Agent readiness: ${readinessUi.label}.`,
+                    jobNotes.length ? `Ben answered: ${jobNotes.join('; ')}` : '',
+                    unresolvedGaps.length
+                        ? `Still unanswered: ${unresolvedGaps.map(({ g }) => g.question).join('; ')}`
+                        : '',
                 ].filter(Boolean).join(' ').slice(0, 2000),
                 sourceChannel: 'whatsapp',
                 ...(photos.length ? { customerPhotoUrls: photos } : {}),
@@ -520,6 +586,20 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
         onSuccess: () => setCardError(null),
         onError: (e: Error) => setCardError(e.message),
     });
+
+    // ── "Nothing missed?" checklist ──
+    // Saving or sending with questions still open is exactly how a quote goes out half-scoped,
+    // so the open ones get put in front of Ben first. He can still proceed: this is a checklist,
+    // not a lock.
+    const [checklistFor, setChecklistFor] = useState<'save' | 'send' | null>(null);
+    const requestSave = () => (unresolvedGaps.length ? setChecklistFor('save') : saveDraft.mutate());
+    const requestSend = () => (unresolvedGaps.length ? setChecklistFor('send') : void beginSend());
+    const proceedAnyway = () => {
+        const action = checklistFor;
+        setChecklistFor(null);
+        if (action === 'save') saveDraft.mutate();
+        if (action === 'send') void beginSend();
+    };
 
     // ── Send flow ──
     // Send quote = persist (as draft) → agent drafts the delivery burst from the thread →
@@ -631,6 +711,10 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                         <SheetTitle className="text-sm font-bold uppercase tracking-wide text-slate-900">
                             Quote prep — review &amp; send
                         </SheetTitle>
+                        {/* The verdict, loud: it decides whether Ben prices this at all. */}
+                        <span className={cn('rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', readinessUi.chip)}>
+                            {readinessUi.label}
+                        </span>
                         {intake.urgency === 'high' && (
                             <span className="rounded bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">Urgent</span>
                         )}
@@ -703,6 +787,95 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
 
                 {/* ── Scrollable body: full builder parity ── */}
                 <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4">
+                    {/* The readiness verdict and the questions behind it. Customer questions
+                        queue an approval draft; Ben's questions he answers right here, and the
+                        answer lands on the line it belongs to. */}
+                    <div className={cn('rounded-lg border p-3', readinessUi.card)}>
+                        <div className="flex items-center gap-2">
+                            <span className={cn('rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide', readinessUi.chip)}>
+                                {readinessUi.label}
+                            </span>
+                            <p className="text-[11px] font-medium">{readinessUi.blurb}</p>
+                        </div>
+
+                        {readiness === 'visit_first' && (
+                            <p className="mt-2 rounded bg-white/70 px-2 py-1.5 text-[11px] font-semibold">
+                                Survey gate switched on below. Price the visit, send that, and quote the work once we've seen it.
+                            </p>
+                        )}
+
+                        {gaps.length > 0 && (
+                            <div className="mt-2 space-y-1.5">
+                                {gaps.map((gap, i) => {
+                                    const resolved = gapResolved(i);
+                                    const lineLabel = gap.lineIndex ? `line ${gap.lineIndex}` : 'whole job';
+                                    if (gap.audience === 'customer') {
+                                        return (
+                                            <div key={i} className="flex items-start justify-between gap-2 rounded-lg bg-white px-2.5 py-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-medium text-slate-800">{gap.question}</p>
+                                                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Customer · {lineLabel}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => askGap.mutate({ index: i })}
+                                                    disabled={resolved || (askGap.isPending && askGap.variables?.index === i)}
+                                                    className="shrink-0 rounded bg-amber-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-amber-700 disabled:opacity-60"
+                                                >
+                                                    {resolved
+                                                        ? 'Ask queued'
+                                                        : askGap.isPending && askGap.variables?.index === i ? 'Queueing…' : 'Ask customer'}
+                                                </button>
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <div key={i} className="rounded-lg bg-white px-2.5 py-2">
+                                            <button
+                                                onClick={() => {
+                                                    setOpenGap(openGap === i ? null : i);
+                                                    setGapDraft(gapAnswers[i] ?? '');
+                                                }}
+                                                className="flex w-full items-start justify-between gap-2 text-left"
+                                            >
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-medium text-slate-800">{gap.question}</p>
+                                                    <p className="text-[10px] uppercase tracking-wide text-slate-400">
+                                                        Ben · {lineLabel}{resolved ? ' · answered' : ''}
+                                                    </p>
+                                                </div>
+                                                {resolved
+                                                    ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                                    : <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />}
+                                            </button>
+                                            {resolved && openGap !== i && (
+                                                <p className="mt-1 text-[11px] italic text-slate-500">{gapAnswers[i]}</p>
+                                            )}
+                                            {openGap === i && (
+                                                <div className="mt-1.5 flex items-center gap-1.5">
+                                                    <input
+                                                        value={gapDraft}
+                                                        autoFocus
+                                                        onChange={(e) => setGapDraft(e.target.value)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') answerGap(i, gapDraft); }}
+                                                        placeholder="Answer it, goes on the line's detail"
+                                                        className="h-7 min-w-0 flex-1 rounded border border-slate-300 px-1.5 text-xs focus:border-slate-500 focus:outline-none"
+                                                    />
+                                                    <button
+                                                        onClick={() => answerGap(i, gapDraft)}
+                                                        disabled={!gapDraft.trim()}
+                                                        className="shrink-0 rounded bg-slate-900 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-slate-700 disabled:opacity-40"
+                                                    >
+                                                        Save
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Job lines, each with materials / assumptions / steps */}
                     <div className="rounded-lg border border-slate-200 bg-white p-3">
                         {sectionTitle('Job lines')}
@@ -711,6 +884,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                 const matKey = `${line.key}:materials`;
                                 const assKey = `${line.key}:assumptions`;
                                 const stepKey = `${line.key}:steps`;
+                                const detKey = `${line.key}:detail`;
                                 const matCost = materialsCostPence(line.materials);
                                 return (
                                     <div key={line.key} className="rounded-lg border border-slate-200 p-2">
@@ -745,6 +919,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                                 <span className="text-[10px] tabular-nums text-slate-400">{formatMinutes(line.estimatedMinutes)}</span>
                                             ) : null}
                                             {([
+                                                { key: detKey, label: line.detail.trim() ? 'Detail ✓' : 'Detail' },
                                                 { key: matKey, label: `Materials${line.materials.length ? ` (${line.materials.length} · ${formatPence(matCost)})` : ''}` },
                                                 { key: assKey, label: `Assumptions${line.assumptions.length ? ` (${line.assumptions.length})` : ''}` },
                                                 {
@@ -770,6 +945,21 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                                 </button>
                                             ))}
                                         </div>
+
+                                        {/* The agent's evidence for this line, plus anything Ben
+                                            answered on a clarify chip. Internal: it rides the
+                                            quote as the line's `details`, not as customer copy. */}
+                                        {openSections.has(detKey) && !editingLocked && (
+                                            <div className="mt-1.5 pl-5">
+                                                <textarea
+                                                    value={line.detail}
+                                                    onChange={(e) => updateLine(line.key, { detail: e.target.value })}
+                                                    rows={Math.min(6, Math.max(2, line.detail.split('\n').length + 1))}
+                                                    placeholder="What the photos and messages actually show (internal)"
+                                                    className="w-full rounded border border-slate-200 bg-slate-50/60 px-1.5 py-1 text-[11px] text-slate-700 focus:border-slate-500 focus:outline-none"
+                                                />
+                                            </div>
+                                        )}
 
                                         {openSections.has(matKey) && !editingLocked && (
                                             <div className="mt-2 pl-5">
@@ -845,7 +1035,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                         <div className="mt-2 flex items-center justify-between pl-5">
                             <button
                                 onClick={() => setLines((prev) => [...prev, {
-                                    key: `prep_add_${nextLineKeyRef.current++}`, description: '', category: null,
+                                    key: `prep_add_${nextLineKeyRef.current++}`, description: '', detail: '', category: null,
                                     estimatedMinutes: null, materials: [], assumptions: [], scopeSteps: [],
                                 }])}
                                 disabled={editingLocked}
@@ -1112,6 +1302,42 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                             <p className="font-bold">Window shut — queued for approval when the window reopens.</p>
                             {sendInfo && <p className="mt-0.5">{sendInfo}</p>}
                         </div>
+                    ) : checklistFor ? (
+                        /* "Nothing missed?" — the open questions, one last time, before the
+                           quote is priced and (maybe) sent. Proceeding is allowed; ignoring
+                           them by accident is not. */
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5">
+                            <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
+                                Nothing missed? {unresolvedGaps.length} still open
+                            </p>
+                            <ul className="mt-1.5 space-y-1">
+                                {unresolvedGaps.map(({ g, i }) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-[11px] text-amber-900">
+                                        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                                        <span>
+                                            {g.question}
+                                            <span className="ml-1 text-[10px] uppercase text-amber-700">
+                                                ({g.audience === 'customer' ? 'ask the customer' : 'Ben'})
+                                            </span>
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                            <div className="mt-2 flex items-center gap-2">
+                                <button
+                                    onClick={() => setChecklistFor(null)}
+                                    className="rounded-lg border border-amber-700 px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                                >
+                                    Go ask first
+                                </button>
+                                <button
+                                    onClick={proceedAnyway}
+                                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700"
+                                >
+                                    {checklistFor === 'send' ? 'Send anyway' : 'Save draft anyway'}
+                                </button>
+                            </div>
+                        </div>
                     ) : (
                         <>
                             {saved && (
@@ -1129,7 +1355,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                             )}
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => saveDraft.mutate()}
+                                    onClick={requestSave}
                                     disabled={saveDraft.isPending || sendPhase === 'preparing' || !hasName || lines.length === 0}
                                     title={hasName ? 'Prices through the quote engine and saves an unsent draft' : 'Needs a name first'}
                                     className="flex items-center gap-1.5 rounded-lg border border-slate-900 px-3 py-1.5 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
@@ -1138,7 +1364,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                     {saveDraft.isPending ? 'Saving…' : saved ? 'Re-save draft' : 'Save draft'}
                                 </button>
                                 <button
-                                    onClick={beginSend}
+                                    onClick={requestSend}
                                     disabled={saveDraft.isPending || sendPhase === 'preparing' || !hasName || lines.length === 0}
                                     title={hasName ? 'Creates the quote, drafts the WhatsApp message for your review, then you send' : 'Needs a name first'}
                                     className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-50"

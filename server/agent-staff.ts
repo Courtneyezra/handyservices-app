@@ -120,8 +120,9 @@ agentStaffRouter.get('/staff', async (_req, res) => {
     }
 });
 
-// POST /api/agents/quote-prep/:conversationId/request-details — queue the "what's the
-// postcode / what name goes on the quote" ask into the comms draft queue. Deterministic
+// POST /api/agents/quote-prep/:conversationId/request-details — queue an ask into the comms
+// draft queue: either the "what's the postcode / what name goes on the quote" fields, or one
+// customer-audience gap from the readiness verdict (`question`). Deterministic
 // copy (brand voice: whatsapp-comms.md — postcode only, never full address, no em dashes,
 // short bursts split by '---'). Nothing sends here: the draft waits for Ben's approval.
 agentStaffRouter.post('/quote-prep/:conversationId/request-details', async (req, res) => {
@@ -129,8 +130,11 @@ agentStaffRouter.post('/quote-prep/:conversationId/request-details', async (req,
         const fields: string[] = Array.isArray(req.body?.fields) ? req.body.fields : [];
         const wantName = fields.includes('name');
         const wantPostcode = fields.includes('postcode');
-        if (!wantName && !wantPostcode) {
-            return res.status(400).json({ error: "fields must include 'name' and/or 'postcode'" });
+        // A scoping gap from the intake's readiness verdict, asked in the agent's own
+        // customer-friendly wording. Same queue, same approval gate as name/postcode.
+        const gapQuestion = String(req.body?.question || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+        if (!wantName && !wantPostcode && !gapQuestion) {
+            return res.status(400).json({ error: "Send fields ('name'/'postcode') or a question to ask" });
         }
 
         const [conv] = await db.select().from(conversations)
@@ -141,18 +145,32 @@ agentStaffRouter.post('/quote-prep/:conversationId/request-details', async (req,
 
         // One question max per reply: the postcode gets the question, the name rides
         // along as a statement. Never the full address — that's collected at booking.
-        const body = wantPostcode && wantName
-            ? 'Nearly ready to price this up for you.\n---\nWhat’s the postcode? Just so we can price it properly.\n---\nAnd a name to put on the quote would help too.'
-            : wantPostcode
-                ? 'Quick one so we can get your quote sorted.\n---\nWhat’s the postcode? Just so we can price it properly.'
-                : 'Nearly ready to send your quote over.\n---\nWhat name should we put on it?';
+        let body: string;
+        let reason: string;
+        if (gapQuestion) {
+            // Voice rules apply to text the agent wrote: no dashes-as-punctuation, one
+            // question, a short lead-in of its own so it lands as a burst not a form.
+            const asked = stripChatDashes(gapQuestion).replace(/\?*$/, '?');
+            if (/\b(full )?address\b/i.test(asked)) {
+                return res.status(422).json({ error: 'That question asks for an address. Postcode only, address comes at booking.' });
+            }
+            body = `Quick one before we price this up.\n---\n${asked}`;
+            reason = `Quote prep needs this answered before the quote can go out: ${asked}`;
+        } else {
+            body = wantPostcode && wantName
+                ? 'Nearly ready to price this up for you.\n---\nWhat’s the postcode? Just so we can price it properly.\n---\nAnd a name to put on the quote would help too.'
+                : wantPostcode
+                    ? 'Quick one so we can get your quote sorted.\n---\nWhat’s the postcode? Just so we can price it properly.'
+                    : 'Nearly ready to send your quote over.\n---\nWhat name should we put on it?';
+            const missing = [wantName ? 'name' : null, wantPostcode ? 'postcode' : null].filter(Boolean).join(' + ');
+            reason = `Quote prep is waiting on the customer's ${missing}`;
+        }
 
-        const missing = [wantName ? 'name' : null, wantPostcode ? 'postcode' : null].filter(Boolean).join(' + ');
         const draftId = await queueDraft({
             phone: `+${digits}`,
             body,
             source: 'comms_agent',
-            reason: `Quote prep is waiting on the customer's ${missing}`,
+            reason,
         });
 
         // null = suppressed as a duplicate (an unsent comms_agent draft already exists
