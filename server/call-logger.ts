@@ -97,6 +97,23 @@ export async function createCall(data: CreateCallData): Promise<string> {
 
     console.log(`[CallLogger] Created call record ${callRecordId} for Twilio CallSid ${data.callId}`);
 
+    // Put the call on the comms board straight away, while it is still ringing. Roughly 4% of call
+    // records never reach finalizeCall (no status callback ever arrives, so they sit at 'ringing'
+    // forever) and those are exactly the ones nobody answered. Waiting for finalization would hide
+    // the most urgent cards. The row is rewritten on finalization with the real outcome; no ack
+    // fires here because we do not yet know whether anyone picked up.
+    if (data.direction === 'inbound') {
+        try {
+            const { ingestCallIntoThread } = await import('./call-thread');
+            const res = await ingestCallIntoThread(callRecordId, { markUnread: true });
+            if (res.status !== 'skipped') {
+                console.log(`[CallLogger] Call ${callRecordId} on the board (${res.reason}${res.conversationCreated ? ', new conversation' : ''})`);
+            }
+        } catch (e: any) {
+            console.warn('[CallLogger] Could not add call to comms thread:', e?.message ?? e);
+        }
+    }
+
     return callRecordId;
 }
 
@@ -239,6 +256,27 @@ export async function finalizeCall(
 
     console.log(`[CallLogger] Finalized call record ${callRecordId}`);
 
+    // --- COMMS BOARD: the call becomes thread activity ---
+    //
+    // Rewrites the row created at ring time now that duration, outcome and the AI job summary are
+    // known, and creates the conversation if the caller never had one. This is what gives a
+    // call-only thread its preview, its phone icon, its SLA clock and its place in the Unanswered
+    // headline. Awaited (not fire-and-forget) so it lands before the post-call outreach that runs
+    // straight after this in the status callback: that path checks "have we ever messaged this
+    // person", and the two must not race.
+    //
+    // Deliberately does NOT touch conversations.lastInboundAt — a call does not open WhatsApp's
+    // 24h freeform window. See server/call-thread.ts.
+    try {
+        const { ingestCallIntoThread } = await import('./call-thread');
+        const board = await ingestCallIntoThread(callRecordId, { markUnread: true, ack: true });
+        if (board.status !== 'skipped') {
+            console.log(`[CallLogger] Call ${callRecordId} thread activity: ${board.reason} "${board.preview}"${board.ack ? ` | ack: ${board.ack.reason}` : ''}`);
+        }
+    } catch (e: any) {
+        console.warn('[CallLogger] Comms thread ingest failed (call still finalized):', e?.message ?? e);
+    }
+
     // --- AI CALL SCORING (fire-and-forget; must never block or fail finalization) ---
     (async () => {
         const { scoreCall } = await import("./call-scoring");
@@ -303,11 +341,13 @@ export async function finalizeCall(
                     let [conv] = await db.select().from(conversations).where(eq(conversations.phoneNumber, waId));
 
                     if (conv) {
+                        // Metadata only. This used to overwrite lastMessagePreview with
+                        // "[Agent Plan] CALL_BACK: Hi there, thanks...", which is a note to
+                        // ourselves, not a summary of what the customer said. The board preview
+                        // now belongs to the call ingest ("Inbound call (2m 3s): Replacing the
+                        // toilet seat cover"), which is the line Ben actually needs on a card.
                         await db.update(conversations)
-                            .set({
-                                metadata: plan as any,
-                                lastMessagePreview: `[Agent Plan] ${plan.recommendedAction}: ${plan.draftReply.substring(0, 30)}...`
-                            })
+                            .set({ metadata: plan as any })
                             .where(eq(conversations.id, conv.id));
                     } else {
                         // Create phantom conversation for the Agent Plan to live in the Inbox

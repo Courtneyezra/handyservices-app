@@ -109,6 +109,7 @@ export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Pro
 export const DRAFT_INTENTS = [
     'ack_photos',       // "got your photos, quote coming"
     'ack_enquiry',      // "got your message, we'll come back to you"
+    'ack_missed_call',  // "sorry we missed your call, we'll ring you back"
     'chase_response',   // we asked them something and they went quiet
     'scheduling',       // date/time coordination already agreed in the thread
     'quote_followup',   // nudging a sent quote, price already quoted
@@ -148,7 +149,11 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         const [last] = await db.select({ channel: messages.channel }).from(messages)
             .where(and(eq(messages.conversationId, conv.id), eq(messages.direction, 'inbound')))
             .orderBy(desc(messages.createdAt)).limit(1);
-        return last?.channel === 'sms' ? 'sms' : 'whatsapp';
+        // 'call' rows are written by server/call-thread.ts; the first-contact config calls that
+        // surface 'post_call', so a caller is gated by the post_call switch, not the WhatsApp one.
+        if (last?.channel === 'sms') return 'sms';
+        if (last?.channel === 'call') return 'post_call';
+        return 'whatsapp';
     };
 
     // ---- tools ----
@@ -168,7 +173,10 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     .orderBy(desc(calls.startTime)).limit(10);
 
                 const timeline = [
-                    ...recent.map((m) => ({
+                    // Calls are on this thread twice by design: a summary row in `messages` (so the
+                    // board can see them) and the full record below. Drop the summary and keep the
+                    // record, which carries the transcript.
+                    ...recent.filter((m) => m.channel !== 'call').map((m) => ({
                         kind: 'message', at: m.createdAt?.toISOString(), direction: m.direction,
                         channel: m.channel, content: (m.content ?? '').slice(0, 400),
                         hasMedia: !!m.mediaUrl, status: m.status,

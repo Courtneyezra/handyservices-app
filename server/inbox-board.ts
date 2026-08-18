@@ -10,6 +10,7 @@ import { db } from './db';
 import { conversations, messages, calls, messageDrafts, agentQuestions } from '@shared/schema';
 import { eq, desc, ne, and, asc, inArray, sql } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
+import { callMessageId } from './call-thread';
 
 export const inboxBoardRouter = Router();
 
@@ -423,9 +424,20 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
         }));
 
+        // Every call is on this thread twice on purpose: once as a `messages` row with
+        // channel='call' (written by server/call-thread.ts, which is what gives a call-only
+        // conversation a preview, a channel icon and an SLA clock) and once as the full call
+        // record above, which carries duration, outcome, transcript and recording.
+        //
+        // The timeline keeps the richer one. Matching is by the deterministic id the ingest
+        // writes, so a call message whose `calls` row has since been deleted still renders rather
+        // than vanishing.
+        const renderedCallMessageIds = new Set(callEvents.map((c) => callMessageId(c.id)));
+        const timelineMessages = messageEvents.filter((m) => !renderedCallMessageIds.has(m.id));
+
         // Merge into one chronological timeline. Calls sit inline with messages so a customer's
         // history reads as a single sequence — the whole point of pulling them in.
-        const timeline = [...messageEvents, ...callEvents].sort(
+        const timeline = [...timelineMessages, ...callEvents].sort(
             (a, b) => new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime()
         );
 

@@ -53,7 +53,7 @@ export const DEFAULT_FIRST_CONTACT_ACK: FirstContactAckConfig = {
  * have the message and will come back, and nothing else. Deliberately a subset of DRAFT_INTENTS
  * so the comms agent's whitelist vocabulary and this one cannot drift apart.
  */
-export const FIRST_CONTACT_ACK_INTENTS = ['ack_enquiry', 'ack_photos'] as const;
+export const FIRST_CONTACT_ACK_INTENTS = ['ack_enquiry', 'ack_photos', 'ack_missed_call'] as const;
 export type FirstContactAckIntent = (typeof FIRST_CONTACT_ACK_INTENTS)[number];
 
 /**
@@ -66,6 +66,22 @@ export const FIRST_CONTACT_TEMPLATE_PREFERENCE = [
     'video_request',       // UTILITY: "thanks for getting in touch, send a quick video"
     'postcode_request',    // UTILITY: acknowledges and asks the one thing we need to price
     '1_contact_generic',   // MARKETING fallback, reads as post-call ("as discussed")
+];
+
+/**
+ * Same idea for a call nobody answered, and it needs its own list because the ordinary one is
+ * wrong here. A phone call almost never leaves the WhatsApp window open (only an inbound WhatsApp
+ * message does), so a missed-call ack is a template send nearly every time.
+ *
+ * 'missed_call_ack' does not exist yet: it is the honest wording ("sorry we missed you, we'll ring
+ * back") and belongs in the next template submission. Until it is approved, 'video_request' is the
+ * closest approved UTILITY template that is still TRUE of a missed call (they did get in touch,
+ * and a video is what we need next) — and anything not approved is skipped, so if none of these
+ * are live the acknowledgement is queued for Ben rather than dropped.
+ */
+export const MISSED_CALL_TEMPLATE_PREFERENCE = [
+    'missed_call_ack',     // not yet submitted; picked up automatically once approved
+    'video_request',       // UTILITY: "thanks for getting in touch, send us a quick video"
 ];
 
 async function readConfig(): Promise<FirstContactAckConfig> {
@@ -161,17 +177,26 @@ export function composeFirstContactAck(input: {
     const outOfHours = isOutOfHours(hour);
     const hi = `Hi${greetingFor(input.contactName)}`;
 
+    // A missed call is the one case where the acknowledgement has to admit something: they rang and
+    // nobody picked up. Saying "thanks for your message" to a caller reads as a bot that did not
+    // notice. The promise is still content-free, it is only a promise to make contact.
     const opener = input.intent === 'ack_photos'
         ? `${hi}, thanks for sending those over.`
-        : `${hi}, thanks for getting in touch.`;
+        : input.intent === 'ack_missed_call'
+            ? `${hi}, sorry we missed your call.`
+            : `${hi}, thanks for getting in touch.`;
 
     const follow = outOfHours
         ? (input.intent === 'ack_photos'
             ? "Got them. You've caught us out of hours, so we'll have a proper look and come back to you first thing."
-            : "You've caught us out of hours, so we'll come back to you first thing.")
+            : input.intent === 'ack_missed_call'
+                ? "You've caught us out of hours, so we'll ring you back first thing."
+                : "You've caught us out of hours, so we'll come back to you first thing.")
         : (input.intent === 'ack_photos'
             ? "Got them. We'll have a look and come back to you shortly."
-            : "We've got your message and we'll come back to you shortly.");
+            : input.intent === 'ack_missed_call'
+                ? "We'll ring you back shortly. If it is easier, just reply here and tell us what needs doing."
+                : "We've got your message and we'll come back to you shortly.");
 
     return { body: `${opener}\n---\n${follow}`, outOfHours, intent: input.intent };
 }
@@ -216,6 +241,12 @@ export async function maybeAutoAckFirstContact(input: {
     contactName?: string | null;
     /** Media on the first message makes it an ack_photos rather than an ack_enquiry. */
     hasMedia?: boolean;
+    /**
+     * Override the intent the copy is composed from. The call ingest passes 'ack_missed_call',
+     * because "thanks for your message" is the wrong thing to say to someone whose call rang out.
+     * Still constrained to FIRST_CONTACT_ACK_INTENTS, so it can never widen what may auto-send.
+     */
+    intent?: FirstContactAckIntent;
 }): Promise<FirstContactAckResult> {
     try {
         if (!input.phone || !input.phone.replace(/\D/g, '')) return { sent: false, reason: 'NO_PHONE' };
@@ -229,7 +260,10 @@ export async function maybeAutoAckFirstContact(input: {
             return { sent: false, reason: 'NOT_FIRST_CONTACT' };
         }
 
-        const intent: FirstContactAckIntent = input.hasMedia ? 'ack_photos' : 'ack_enquiry';
+        const intent: FirstContactAckIntent = input.intent
+            && (FIRST_CONTACT_ACK_INTENTS as readonly string[]).includes(input.intent)
+            ? input.intent
+            : input.hasMedia ? 'ack_photos' : 'ack_enquiry';
         const composed = composeFirstContactAck({ intent, contactName: input.contactName });
 
         const e164 = input.phone.includes('@c.us')
@@ -247,7 +281,7 @@ export async function maybeAutoAckFirstContact(input: {
 
         if (!windowOpen) {
             const picked = await findApprovedTemplate(
-                FIRST_CONTACT_TEMPLATE_PREFERENCE,
+                intent === 'ack_missed_call' ? MISSED_CALL_TEMPLATE_PREFERENCE : FIRST_CONTACT_TEMPLATE_PREFERENCE,
                 [greetingFor(input.contactName).trim() || 'there', 'the job'],
             );
             if (!picked) {
