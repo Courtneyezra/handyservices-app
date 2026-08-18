@@ -46,6 +46,7 @@ import { inboxBoardRouter } from "./inbox-board";
 import { whatsappOnboardingRouter } from "./whatsapp-onboarding";
 import { messageDraftsRouter } from "./message-drafts";
 import { agentQuestionsRouter } from "./agent-questions";
+import { agentStaffRouter } from "./agent-staff";
 import { trainingRouter } from './training-routes';
 import { pushRouter } from './web-push';
 import handymenRouter from './handymen';
@@ -408,6 +409,7 @@ app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messa
 app.use('/api/inbox', requireAdmin, inboxBoardRouter); // Kanban board over conversations
 app.use('/api/drafts', requireAdmin, messageDraftsRouter); // Human approval gate for system-authored messages
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue
+app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
 // Coexistence onboarding. Auth is applied per-route inside the router (same reason as whatsappRouter).
 app.use('/api/whatsapp', whatsappOnboardingRouter);
 app.use('/api/dashboard', requireAdmin, dashboardRouter);

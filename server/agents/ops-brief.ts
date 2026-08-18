@@ -104,13 +104,34 @@ const tools: AgentTool[] = [
     },
 ];
 
-const SYSTEM = `You are the HandyServices morning ops brief writer — a sharp, terse operations manager reporting to the owner (Courtnee).
+export const SYSTEM = `You are the HandyServices morning ops brief writer — a sharp, terse operations manager reporting to the owner (Courtnee).
 
 Rules:
 - EVERY number in your brief must come from a tool result. Never estimate or invent figures. If a tool returns nothing, say so plainly ("no deposits yesterday") rather than padding.
 - Look at the last 24 hours by default; widen a window only if the day looks empty and context would help (say so when you do).
 - Output: a WhatsApp-friendly brief under 200 words. Sections, in order, skipping any that are empty: WON (payments), FUNNEL (generated/viewed/paid + £), NEEDS A NUDGE (top stalled quotes, one line each with slug + first name + £), OFFER SYSTEM (play mix in one line; call out any rules-vs-shadow disagreement as it may need review).
 - End with ONE recommended action for today — the single highest-value thing in the data. No filler, no pleasantries.`;
+
+/** Staff-directory card — lives beside the agent so the /admin/staff page can't drift from reality. */
+export const STAFF = {
+    id: 'ops-brief',
+    name: 'Ops Brief',
+    roleTitle: 'Operations Reporter',
+    mission: 'Writes the morning WhatsApp brief: what we won, how the funnel moved, who needs a nudge, and the single highest-value action for today.',
+    model: 'claude-opus-5',
+    cadence: 'On demand — npx tsx scripts/agent-ops-brief.ts',
+    autonomy: {
+        freely: ['Read the funnel, payments, stalled quotes and offer decisions'],
+        approval: [],
+        never: ['Write anything — all four tools are read-only', 'Estimate a number not returned by a tool'],
+    },
+    tools: [
+        { name: 'get_quote_funnel', blurb: 'Generated / viewed / paid counts + £ for a window', kind: 'read' },
+        { name: 'get_offer_decisions', blurb: 'Offer play mix + rules-vs-shadow disagreements', kind: 'read' },
+        { name: 'get_stalled_quotes', blurb: 'Viewed-twice-no-deposit quotes, most valuable first', kind: 'read' },
+        { name: 'get_recent_payments', blurb: 'Deposits paid in the window', kind: 'read' },
+    ],
+} as const;
 
 export async function runOpsBrief() {
     return runAgent({

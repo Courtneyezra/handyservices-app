@@ -346,7 +346,26 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         },
     ];
 
-    const system = `You are the comms triage agent for Handy Services, a Nottingham handyman company.
+    const system = SYSTEM;
+
+    const result = await runAgent({
+        name: 'comms',
+        system,
+        goal: `Triage conversation ${conv.id} (customer: ${conv.contactName || e164}). Trigger: ${trigger}.`,
+        tools,
+        model: 'claude-sonnet-5',
+        maxTurns: 10,
+        maxTokens: 4000,
+    });
+
+    const actions = result.transcript
+        .filter((e) => e.type === 'tool_call' && ['set_board_state', 'queue_draft', 'ask_ben', 'resolve_question'].includes(e.detail.tool))
+        .map((e) => ({ tool: e.detail.tool, input: e.detail.input }));
+
+    return { conversationId: conv.id, result, actions, autosent };
+}
+
+export const SYSTEM = `You are the comms triage agent for Handy Services, a Nottingham handyman company.
 Ben (the VA) works the /admin/comms board; your job is to make his 4-working-hour SLA achievable.
 
 For the conversation you are given, do this and nothing more:
@@ -371,22 +390,29 @@ HARD RULES — these are not preferences:
 
 Finish with one line: what you did and why. Be terse.`;
 
-    const result = await runAgent({
-        name: 'comms',
-        system,
-        goal: `Triage conversation ${conv.id} (customer: ${conv.contactName || e164}). Trigger: ${trigger}.`,
-        tools,
-        model: 'claude-sonnet-5',
-        maxTurns: 10,
-        maxTokens: 4000,
-    });
-
-    const actions = result.transcript
-        .filter((e) => e.type === 'tool_call' && ['set_board_state', 'queue_draft', 'ask_ben', 'resolve_question'].includes(e.detail.tool))
-        .map((e) => ({ tool: e.detail.tool, input: e.detail.input }));
-
-    return { conversationId: conv.id, result, actions, autosent };
-}
+/** Staff-directory card — lives beside the agent so the /admin/staff page can't drift from reality. */
+export const STAFF = {
+    id: 'comms',
+    name: 'Comms',
+    roleTitle: 'Triage Officer & Drafting Clerk',
+    mission: 'Reads every thread (messages + call transcripts), keeps the Kanban board honest, and makes Ben\'s 4-working-hour SLA achievable: draft a reply, ask Ben a structured question, or justify doing nothing.',
+    model: 'claude-sonnet-5',
+    cadence: 'SLA sweep every 30 min in working hours (cron, gated) · manual via scripts/agent-comms.ts',
+    autonomy: {
+        freely: ['Move cards, set priority, add tags on the board', 'Read threads, quotes and call transcripts'],
+        approval: ['Every reply — drafted into message_drafts for Ben', 'Whitelisted acks may auto-send ONLY when the autosend gate is on (ships off)'],
+        never: ['Originate a price — £ figures must cite a quote or Ben\'s own answer', 'Promise unconfirmed dates or availability', 'Draft apology commitments on complaints (urgent + ask Ben instead)'],
+    },
+    tools: [
+        { name: 'get_thread', blurb: 'Merged timeline: messages, calls w/ transcripts, window + SLA state', kind: 'read' },
+        { name: 'get_customer_context', blurb: 'The customer\'s quotes with real prices — the only allowed price source', kind: 'read' },
+        { name: 'get_quick_replies', blurb: 'House-voice canned replies to adapt', kind: 'read' },
+        { name: 'set_board_state', blurb: 'Stage / priority / tags — the autonomous tier', kind: 'write' },
+        { name: 'queue_draft', blurb: 'Draft to approval queue (money guard + gated auto-send live here)', kind: 'gated' },
+        { name: 'ask_ben', blurb: 'Structured question with tappable options', kind: 'write' },
+        { name: 'resolve_question', blurb: 'Marks Ben\'s answer consumed after drafting from it', kind: 'write' },
+    ],
+} as const;
 
 // ---------------------------------------------------------------- Phase 2: SLA sweep
 

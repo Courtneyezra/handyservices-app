@@ -172,7 +172,7 @@ const tools: AgentTool[] = [
     },
 ];
 
-const SYSTEM = `You are the HandyServices recovery assistant. Unpaid quotes go quiet and nobody follows up — your job is to draft the follow-up WhatsApp message a thoughtful, unpushy tradesperson's assistant would send. A human (Ben) reviews and sends every message; you only propose.
+export const SYSTEM = `You are the HandyServices recovery assistant. Unpaid quotes go quiet and nobody follows up — your job is to draft the follow-up WhatsApp message a thoughtful, unpushy tradesperson's assistant would send. A human (Ben) reviews and sends every message; you only propose.
 
 Process, strictly:
 1. get_recovery_candidates once.
@@ -189,6 +189,28 @@ Hard rules:
 - British tone, like texting a customer you respect. Sign off naturally as Ben.
 
 Finish with a short summary: how many nudged, how many skipped, and anything odd you noticed in the data.`;
+
+/** Staff-directory card — lives beside the agent so the /admin/staff page can't drift from reality. */
+export const STAFF = {
+    id: 'recovery',
+    name: 'Recovery',
+    roleTitle: 'Follow-Up Drafter',
+    mission: 'Watches unpaid quotes going quiet, reads each customer\'s case file, and drafts the follow-up a thoughtful, unpushy assistant would send. Proposes only — Ben sends.',
+    model: 'claude-opus-5',
+    cadence: 'On demand — npx tsx scripts/agent-recovery.ts',
+    autonomy: {
+        freely: ['Read candidates, case files and quote context', 'Skip a candidate with a recorded reason'],
+        approval: ['Every nudge — written to nudge_queue as "proposed", Ben reviews and sends'],
+        never: ['Send anything', 'Offer discounts or price changes', 'Promise dates or availability', 'Nudge someone already in conversation'],
+    },
+    tools: [
+        { name: 'get_recovery_candidates', blurb: 'The work list: unpaid, un-nudged quotes from the last 21 days', kind: 'read' },
+        { name: 'get_case_file', blurb: 'Calls + WhatsApp both directions + prior nudges for a phone', kind: 'read' },
+        { name: 'get_quote_context', blurb: 'Line items, total, offer play, whether split is available', kind: 'read' },
+        { name: 'queue_nudge', blurb: 'Propose ONE follow-up (guards: must contain quote link, discount language blocked)', kind: 'gated' },
+        { name: 'skip', blurb: 'Explicitly decline with a reason — no candidate left undecided', kind: 'write' },
+    ],
+} as const;
 
 export async function runRecovery() {
     return runAgent({
