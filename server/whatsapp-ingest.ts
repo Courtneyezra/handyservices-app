@@ -24,6 +24,7 @@ import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizePhoneNumber } from './phone-utils';
 import { broadcast } from './meta-whatsapp';
+import { scheduleInboundTriage } from './agents/comms-lanes';
 
 export interface IngestInput {
     /** Raw phone number as seen on the source (e.g. "447508744402" or "+447508744402@c.us") */
@@ -224,6 +225,9 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
             }
             throw err;
         }
+
+        // On-inbound lane: the comms agent triages this thread after the burst settles.
+        if (direction === 'inbound') scheduleInboundTriage(conv!.id, phoneNumber);
 
         // --- 4. Broadcast to connected admin UI clients (WebSocket) ---
         try {

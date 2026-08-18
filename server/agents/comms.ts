@@ -33,10 +33,14 @@ import { loadActivity } from '../inbox-board';
 // ---------------------------------------------------------------- config
 
 export interface CommsAgentConfig {
-    /** Master switch for anything cron-triggered. Scripts can still run it manually. */
+    /** Master switch for anything auto-triggered (sweeps + on-inbound). Scripts can still run it manually. */
     enabled: boolean;
     /** Max conversations one sweep will process — bounds cost per run. */
     sweepLimit: number;
+    /** The instant lane: triage a thread shortly after a customer message arrives. */
+    onInbound: boolean;
+    /** How long after the LAST inbound to run — lets a burst of messages finish first. */
+    inboundDebounceMinutes: number;
     autosend: {
         enabled: boolean;
         /** Intents allowed to skip human approval. Keep this to content-free acknowledgements. */
@@ -48,6 +52,8 @@ const SETTING_KEY = 'comms_agent';
 const DEFAULT_CONFIG: CommsAgentConfig = {
     enabled: false,
     sweepLimit: 5,
+    onInbound: true,
+    inboundDebounceMinutes: 10,
     autosend: { enabled: false, intents: [] },
 };
 
@@ -400,6 +406,14 @@ accurately, and reference specifics in drafts ("the D-shape seat in your photo")
 detail is how a customer knows they're dealing with people who do this every day. Never claim
 to see something you can't, and never diagnose beyond what a photo can actually show.
 
+Your trigger tells you why you were called, and it changes the emphasis:
+- inbound_message: the customer just wrote. Respond to what they actually need right now.
+- sla_sweep / window_closing: they've been waiting (window_closing = the 24h freeform window
+  shuts within hours — if a reply is warranted at all, draft it NOW, before we're template-only).
+- backlog_revival: a long-dead thread. Be decisive: obviously dead or spam → stage=closed with a
+  tag saying why; genuinely worth reviving → tag revive_candidate and ask_ben how to approach it;
+  draft only if the window is somehow open. Do not draft into a shut window.
+
 HARD RULES — these are not preferences:
 - You never send anything. Drafts go to approval. That is the design, not a limitation.
 - Prices come ONLY from quotes (cite quote_slug) or from Ben's explicit answer to your question
@@ -417,7 +431,7 @@ export const STAFF = {
     roleTitle: 'Triage Officer & Drafting Clerk',
     mission: 'Reads every thread (messages + call transcripts), keeps the Kanban board honest, and makes Ben\'s 4-working-hour SLA achievable: draft a reply, ask Ben a structured question, or justify doing nothing.',
     model: 'claude-sonnet-5',
-    cadence: 'SLA sweep every 30 min in working hours (cron, gated) · manual via scripts/agent-comms.ts',
+    cadence: 'On new inbound (debounced ~10 min) · SLA sweep every 30 min working hours · window-closing sweep hourly · all gated on one switch',
     autonomy: {
         freely: ['Move cards, set priority, add tags on the board', 'Read threads, quotes and call transcripts'],
         approval: ['Every reply — drafted into message_drafts for Ben', 'Whitelisted acks may auto-send ONLY when the autosend gate is on (ships off)'],
@@ -441,6 +455,19 @@ export interface SweepOutcome {
     eligible: number;
     processed: CommsAgentOutcome[];
     skipped: { conversationId: string; why: string }[];
+}
+
+/** A thread with a pending draft or open question is already on Ben's desk — leave it alone. */
+async function hasPendingAgentWork(conversationId: string, digits: string): Promise<string | null> {
+    const [draft] = await db.select({ id: messageDrafts.id }).from(messageDrafts)
+        .where(and(eq(messageDrafts.phone, `+${digits}`), inArray(messageDrafts.status, ['pending', 'approved'])))
+        .limit(1);
+    if (draft) return 'pending draft exists';
+    const [question] = await db.select({ id: agentQuestions.id }).from(agentQuestions)
+        .where(and(eq(agentQuestions.conversationId, conversationId), inArray(agentQuestions.status, ['open', 'answered'])))
+        .limit(1);
+    if (question) return 'open question exists';
+    return null;
 }
 
 /**
@@ -473,15 +500,8 @@ export async function sweepCommsAgent(opts: { limit?: number; dryRun?: boolean }
         if (!wait.awaitingReply || (wait.severity !== 'due' && wait.severity !== 'breached')) continue;
 
         // Already has agent work parked on it → the human is the bottleneck, not us.
-        const [draft] = await db.select({ id: messageDrafts.id }).from(messageDrafts)
-            .where(and(eq(messageDrafts.phone, `+${digits}`), inArray(messageDrafts.status, ['pending', 'approved'])))
-            .limit(1);
-        if (draft) { skipped.push({ conversationId: conv.id, why: 'pending draft exists' }); continue; }
-
-        const [question] = await db.select({ id: agentQuestions.id }).from(agentQuestions)
-            .where(and(eq(agentQuestions.conversationId, conv.id), inArray(agentQuestions.status, ['open', 'answered'])))
-            .limit(1);
-        if (question) { skipped.push({ conversationId: conv.id, why: 'open question exists' }); continue; }
+        const parked = await hasPendingAgentWork(conv.id, digits);
+        if (parked) { skipped.push({ conversationId: conv.id, why: parked }); continue; }
 
         eligible.push(conv);
     }
@@ -501,5 +521,62 @@ export async function sweepCommsAgent(opts: { limit?: number; dryRun?: boolean }
         }
     }
 
+    return { scanned: convs.length, eligible: eligible.length, processed, skipped };
+}
+
+// ---------------------------------------------------------------- window-closing lane
+
+/**
+ * The perishable-asset lane: WhatsApp's 24h freeform window is the only time we can reply
+ * without a template, and it shuts silently. This sweep finds windows closing within
+ * `hoursLeft` where the customer is still waiting on us and nothing is parked with Ben,
+ * and runs the worker so a draft exists BEFORE the window dies.
+ */
+export async function windowClosingSweep(opts: { hoursLeft?: number; dryRun?: boolean } = {}): Promise<SweepOutcome> {
+    const config = await getCommsAgentConfig();
+    const hoursLeft = opts.hoursLeft ?? 4;
+
+    // Window = lastInboundAt + 24h (WhatsApp inbound only — the column is WhatsApp-semantics).
+    const convs = await db.select().from(conversations)
+        .where(and(
+            ne(conversations.status, 'blocked'),
+            ne(conversations.stage, 'closed'),
+            sql`${conversations.lastInboundAt} > now() - interval '24 hours'`,
+            sql`${conversations.lastInboundAt} <= now() - (interval '24 hours' - ${`${hoursLeft} hours`}::interval)`,
+        ))
+        .orderBy(desc(conversations.lastInboundAt))
+        .limit(50);
+
+    const activity = await loadActivity(convs.map((c) => c.id));
+    const skipped: SweepOutcome['skipped'] = [];
+    const eligible: typeof convs = [];
+
+    for (const conv of convs) {
+        const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
+        if (!digits) { skipped.push({ conversationId: conv.id, why: 'no usable phone' }); continue; }
+        if (digits.includes('7700900')) { skipped.push({ conversationId: conv.id, why: 'test number' }); continue; }
+
+        const act = activity.get(conv.id);
+        const wait = computeWaitState(act?.lastInbound ?? null, act?.lastOutbound ?? null);
+        if (!wait.awaitingReply) continue; // we've already replied inside the window
+
+        const parked = await hasPendingAgentWork(conv.id, digits);
+        if (parked) { skipped.push({ conversationId: conv.id, why: parked }); continue; }
+
+        eligible.push(conv);
+    }
+
+    const toProcess = eligible.slice(0, config.sweepLimit);
+    const processed: CommsAgentOutcome[] = [];
+    if (!opts.dryRun) {
+        for (const conv of toProcess) {
+            try {
+                processed.push(await runCommsAgent(conv.id, 'window_closing'));
+            } catch (error: any) {
+                console.error(`[CommsAgent] Window sweep failed for ${conv.id}:`, error?.message);
+                skipped.push({ conversationId: conv.id, why: `run failed: ${error?.message}` });
+            }
+        }
+    }
     return { scanned: convs.length, eligible: eligible.length, processed, skipped };
 }

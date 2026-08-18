@@ -15,6 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { WebSocketServer, WebSocket } from 'ws';
 import { normalizePhoneNumber } from './phone-utils';
 import { getWhatsAppSender } from './whatsapp-sender';
+import { scheduleInboundTriage } from './agents/comms-lanes';
 
 // Environment variables
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -294,6 +295,9 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
 
         await db.insert(messages).values(newMessage);
         console.log('[Meta WhatsApp] Stored message:', messageId);
+
+        // On-inbound lane: the comms agent triages this thread after the burst settles.
+        scheduleInboundTriage(conv!.id, phoneNumber);
 
         // 3. Broadcast to clients
         broadcast('inbox:message', {

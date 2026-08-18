@@ -62,6 +62,23 @@ export function setupCronJobs() {
         }
     }, { timezone: 'Europe/London' });
 
+    // COMMS AGENT WINDOW-CLOSING LANE — hourly, ALL days/hours (the 24h window doesn't keep
+    // office hours; a Sunday-morning enquiry's window dies Monday 09:00 if nobody drafts).
+    // Same master gate as the sweep.
+    cron.schedule("15 * * * *", async () => {
+        try {
+            const { getCommsAgentConfig, windowClosingSweep } = await import('./agents/comms');
+            const config = await getCommsAgentConfig();
+            if (!config.enabled) return;
+            const outcome = await windowClosingSweep();
+            if (outcome.processed.length > 0) {
+                console.log(`[Cron] Window-closing sweep: ${outcome.eligible} eligible, ${outcome.processed.length} processed`);
+            }
+        } catch (error) {
+            console.error("[Cron] Window-closing sweep failed:", error);
+        }
+    }, { timezone: 'Europe/London' });
+
     // ==========================================
     // DAY-BEFORE REMINDERS - Runs daily at 6pm
     // Sends WhatsApp reminders to CUSTOMERS about tomorrow's jobs

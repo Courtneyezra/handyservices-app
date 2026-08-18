@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePhoneNumber } from './phone-utils';
+import { scheduleInboundTriage } from './agents/comms-lanes';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -331,6 +332,9 @@ export class ConversationEngine {
 
             await db.insert(messages).values(newMessage);
             console.log('[ConversationEngine] Stored message:', MessageSid);
+
+            // On-inbound lane: the comms agent triages this thread after the burst settles.
+            scheduleInboundTriage(conv!.id, phone);
 
             // 4. Broadcast to all connected clients
             this.broadcast('inbox:message', {

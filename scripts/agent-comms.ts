@@ -4,7 +4,8 @@
  *
  *   npx tsx scripts/agent-comms.ts <conversationId>      # triage one conversation
  *   npx tsx scripts/agent-comms.ts --phone +447700900999 # ...found by phone
- *   npx tsx scripts/agent-comms.ts --sweep               # Phase 2: SLA sweep (respects config limit)
+ *   npx tsx scripts/agent-comms.ts --sweep               # SLA sweep (respects config limit)
+ *   npx tsx scripts/agent-comms.ts --window-sweep        # windows closing within 4h
  *   npx tsx scripts/agent-comms.ts --sweep --dry-run     # show who WOULD be processed, run nothing
  *   npx tsx scripts/agent-comms.ts --config              # show current config
  */
@@ -13,7 +14,7 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { db } from '../server/db';
 import { conversations } from '@shared/schema';
 import { eq } from 'drizzle-orm';
-import { runCommsAgent, sweepCommsAgent, getCommsAgentConfig } from '../server/agents/comms';
+import { runCommsAgent, sweepCommsAgent, windowClosingSweep, getCommsAgentConfig } from '../server/agents/comms';
 
 function save(name: string, data: unknown): string {
     mkdirSync('agent-runs', { recursive: true });
@@ -30,9 +31,11 @@ async function main() {
         process.exit(0);
     }
 
-    if (args.includes('--sweep')) {
+    if (args.includes('--sweep') || args.includes('--window-sweep')) {
         const dryRun = args.includes('--dry-run');
-        const outcome = await sweepCommsAgent({ dryRun });
+        const outcome = args.includes('--window-sweep')
+            ? await windowClosingSweep({ dryRun })
+            : await sweepCommsAgent({ dryRun });
         console.log('\n════════ SWEEP ════════');
         console.log(`scanned=${outcome.scanned} eligible=${outcome.eligible} processed=${outcome.processed.length} (dryRun=${dryRun})`);
         for (const s of outcome.skipped.slice(0, 20)) console.log(`  skip ${s.conversationId}: ${s.why}`);
