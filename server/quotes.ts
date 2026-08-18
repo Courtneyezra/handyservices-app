@@ -15,6 +15,7 @@ import { detectMultipleTasks } from "./skuDetector";
 import { findDuplicateLead } from "./lead-deduplication";
 import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
+import { markConversationWonByPhone } from "./conversation-stage";
 import { captureServerEvent } from "./posthog";
 import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
@@ -1986,6 +1987,9 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
                 ...((quote as any).clientId ? {} : { clientId: clientId ?? undefined }),
             })
             .where(eq(personalizedQuotes.id, id));
+
+        // Funnel: manual quick-book counts as deposit paid — move the comms thread to WON.
+        await markConversationWonByPhone(quote.phone);
 
         // Generate invoice number
         const invoiceNumber = `INV-${Date.now().toString(36).toUpperCase()}`;

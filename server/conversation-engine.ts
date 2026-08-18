@@ -19,6 +19,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePhoneNumber } from './phone-utils';
 import { scheduleInboundTriage } from './agents/comms-lanes';
+import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -259,7 +260,7 @@ export class ConversationEngine {
                     phoneNumber,
                     contactName: ProfileName || fromNumber,
                     status: 'active',
-                    stage: 'new',
+                    stage: 'enquiry',
                     lastMessageAt: now,
                     lastCustomerContactAt: now,
                     ...windowFields,
@@ -276,7 +277,7 @@ export class ConversationEngine {
                         lastMessageAt: now,
                         lastCustomerContactAt: now,
                         ...windowFields,
-                        stage: conv.stage === 'closed' ? 'active' : conv.stage,
+                        stage: stageAfterInbound(conv.stage),
                         lastMessagePreview: Body || (hasMedia ? 'Media received' : ''),
                         unreadCount: (conv.unreadCount || 0) + 1,
                         contactName: ProfileName || conv.contactName,
@@ -410,7 +411,7 @@ export class ConversationEngine {
                     phoneNumber,
                     contactName: cleanNumber,
                     status: 'active',
-                    stage: 'active',
+                    stage: 'scoping',
                     lastMessageAt: now,
                     lastMessagePreview: body.substring(0, 50),
                 };
@@ -421,7 +422,9 @@ export class ConversationEngine {
                     .set({
                         lastMessageAt: now,
                         lastMessagePreview: body.substring(0, 50),
-                        stage: 'active',
+                        // First reply moves an enquiry into scoping; quote_sent/won are never
+                        // demoted by merely talking (see conversation-stage.ts).
+                        stage: stageAfterOutbound(conv.stage),
                         updatedAt: now,
                     })
                     .where(eq(conversations.id, conv.id));

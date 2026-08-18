@@ -322,7 +322,7 @@ export async function finalizeCall(
                                 lastMessagePreview: `[Agent Plan] ${plan.recommendedAction}`,
                                 metadata: plan as any,
                                 // Metadata for timeline
-                                stage: 'new',
+                                stage: 'enquiry',
                                 priority: plan.urgency === 'critical' ? 'urgent' : plan.urgency === 'high' ? 'high' : 'normal'
                             });
                             console.log(`[Agent-Reflexion] Created new conversation for ${waId}`);

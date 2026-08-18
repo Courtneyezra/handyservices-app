@@ -13,9 +13,25 @@ import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './c
 
 export const inboxBoardRouter = Router();
 
-/** Column order is the lifecycle order Ben works left-to-right. */
-export const BOARD_STAGES = ['new', 'active', 'waiting', 'closed'] as const;
+/** Column order is the FUNNEL order Ben works left-to-right: enquiry → scoping → quote_sent → won.
+ *  closed is the graveyard. See server/conversation-stage.ts for the transition rules. */
+export const BOARD_STAGES = ['enquiry', 'scoping', 'quote_sent', 'won', 'closed'] as const;
 export type BoardStage = (typeof BOARD_STAGES)[number];
+
+/**
+ * Rows written by pre-funnel code (old deploys, old seeds) still carry the conversation-mechanics
+ * vocabulary. Normalize at read time so the board never renders a phantom column: 'waiting' meant
+ * "ball in their court", which is quote_sent when a quote actually went out, otherwise scoping.
+ */
+function normalizeStage(stage: string | null, tags: string[]): string {
+    switch (stage) {
+        case 'new': return 'enquiry';
+        case 'active': return 'scoping';
+        case 'waiting': return tags.includes('quote_sent') ? 'quote_sent' : 'scoping';
+        case null: case '': return 'enquiry';
+        default: return stage as string;
+    }
+}
 
 const WINDOW_HOURS = 24;
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -92,6 +108,7 @@ function toCard(c: typeof conversations.$inferSelect, activity?: Activity): Boar
     const expiresAt = lastInbound ? new Date(lastInbound.getTime() + WINDOW_HOURS * 3600_000) : null;
     const msLeft = expiresAt ? expiresAt.getTime() - Date.now() : 0;
     const lastMsg = c.lastMessageAt ? new Date(c.lastMessageAt) : null;
+    const tags = (c.tags as string[] | null) ?? [];
 
     return {
         id: c.id,
@@ -102,10 +119,10 @@ function toCard(c: typeof conversations.$inferSelect, activity?: Activity): Boar
         lastMessageAt: lastMsg ? lastMsg.toISOString() : null,
         lastInboundAt: lastInbound ? lastInbound.toISOString() : null,
         unreadCount: c.unreadCount ?? 0,
-        stage: c.stage || 'new',
+        stage: normalizeStage(c.stage, tags),
         priority: c.priority || 'normal',
         assignedTo: c.assignedTo,
-        tags: (c.tags as string[] | null) ?? [],
+        tags,
         leadId: c.leadId,
         windowOpen: msLeft > 0,
         windowExpiresAt: expiresAt ? expiresAt.toISOString() : null,

@@ -152,11 +152,13 @@ interface Sender {
 
 // ---------------------------------------------------------------- helpers
 
+// Funnel columns, not conversation mechanics — each column answers "where is the MONEY?".
 const STAGE_META: Record<string, { label: string; hint: string; accent: string }> = {
-    new: { label: 'New', hint: 'Not yet picked up', accent: 'bg-blue-600' },
-    active: { label: 'Active', hint: 'In conversation', accent: 'bg-emerald-600' },
-    waiting: { label: 'Waiting', hint: 'Ball in their court', accent: 'bg-amber-600' },
-    closed: { label: 'Closed', hint: 'Done or dead', accent: 'bg-slate-500' },
+    enquiry: { label: 'Enquiry', hint: 'Unanswered — clock running', accent: 'bg-blue-600' },
+    scoping: { label: 'Scoping', hint: 'Getting what a quote needs', accent: 'bg-violet-600' },
+    quote_sent: { label: 'Quote Sent', hint: 'Live quote out — chase it', accent: 'bg-amber-500' },
+    won: { label: 'Won', hint: 'Deposit paid', accent: 'bg-emerald-600' },
+    closed: { label: 'Closed', hint: 'Dead, spam or done', accent: 'bg-slate-500' },
 };
 
 const CHANNEL_META: Record<string, { icon: typeof Phone; label: string; tint: string }> = {

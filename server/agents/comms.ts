@@ -244,11 +244,11 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         },
         {
             name: 'set_board_state',
-            description: 'Triage: move the conversation on the Kanban board and/or tag it. Reversible and internal, so use it freely. Stages: new (untouched), active (in conversation), waiting (ball in customer\'s court), closed (done or dead).',
+            description: 'Triage: move the conversation on the FUNNEL board and/or tag it. Reversible and internal, so use it freely. Stages: enquiry (new and unanswered, SLA clock running), scoping (in conversation, gathering what a quote needs), quote_sent (a live quote is out — the system sets this on send; only set it yourself when the thread proves a quote went out), won (deposit paid — the payment webhook sets this, never set it on a hunch), closed (dead, spam or done).',
             input_schema: {
                 type: 'object' as const,
                 properties: {
-                    stage: { type: 'string', enum: ['new', 'active', 'waiting', 'closed'] },
+                    stage: { type: 'string', enum: ['enquiry', 'scoping', 'quote_sent', 'won', 'closed'] },
                     priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
                     add_tags: { type: 'array', items: { type: 'string' }, description: 'Short lowercase labels, e.g. ["needs_quote","photos_received"]' },
                 },
@@ -420,6 +420,16 @@ Ben (the VA) works the /admin/comms board; your job is to make his 4-working-hou
 For the conversation you are given, do this and nothing more:
 1. Read the thread (get_thread). Understand what the customer needs RIGHT NOW.
 2. Triage: set stage/priority/tags to match reality (set_board_state).
+
+The board is a SALES FUNNEL, worked left to right. Its stages mean exactly this:
+- enquiry: new and unanswered. The SLA clock is running; still worth winning.
+- scoping: we are in conversation, gathering what a quote needs (job, photos, postcode).
+- quote_sent: a live quote is out and being chased. The system sets this when a quote
+  sends; move a thread here yourself only when the thread proves a quote went out.
+- won: deposit paid. The payment webhook sets this. Never set won on a hunch.
+- closed: dead, spam, or done.
+An enquiry stays an enquiry until WE reply; our first reply moves it to scoping.
+Never demote quote_sent or won just because messages are flowing.
 3. Then exactly ONE of:
    a. queue_draft — when a good reply is safely writable from what you know.
    b. ask_ben    — when drafting would require guessing about money, dates, scope or a complaint.
@@ -618,4 +628,89 @@ export async function windowClosingSweep(opts: { hoursLeft?: number; dryRun?: bo
         }
     }
     return { scanned: convs.length, eligible: eligible.length, processed, skipped };
+}
+
+// ---------------------------------------------------------------- backlog / ageing lane
+
+export interface BacklogSweepOutcome extends SweepOutcome {
+    /** Action tallies parsed from the runs — the "what happened" line for logs. */
+    tallies: { closed: number; reviveCandidates: number; drafts: number; questions: number };
+    /** The eligible conversations, for --dry-run listings. */
+    eligibleConversations: { id: string; phoneNumber: string; lastCustomerContactAt: Date | null; preview: string }[];
+}
+
+/**
+ * The ageing lane: enquiries nobody answered for `olderThanDays` get auto-triaged with the
+ * backlog_revival trigger — obviously dead/spam threads are closed with a reason tag, genuine
+ * leads get tagged revive_candidate plus an ask-Ben on how to approach them. The SLA sweep owns
+ * anything fresher. Runs weekly from cron (same comms_agent.enabled gate) and manually via
+ * scripts/comms-backlog-pass.ts.
+ */
+export async function backlogSweep(opts: { olderThanDays?: number; limit?: number; dryRun?: boolean } = {}): Promise<BacklogSweepOutcome> {
+    const olderThanDays = opts.olderThanDays ?? 21;
+    const limit = opts.limit ?? 10;
+
+    const convs = await db.select().from(conversations)
+        .where(and(
+            ne(conversations.status, 'blocked'),
+            ne(conversations.stage, 'closed'),
+            // Won threads age off the board via the auto-archive lane, not revival triage.
+            ne(conversations.stage, 'won'),
+            sql`${conversations.lastCustomerContactAt} < now() - make_interval(days => ${olderThanDays})`,
+        ))
+        .orderBy(desc(conversations.lastCustomerContactAt))
+        .limit(300);
+
+    const activity = await loadActivity(convs.map((c) => c.id));
+    const skipped: SweepOutcome['skipped'] = [];
+    const eligible: typeof convs = [];
+
+    for (const conv of convs) {
+        const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
+        if (!digits || digits.includes('7700900')) continue; // unusable or Ofcom test range
+
+        const act = activity.get(conv.id);
+        const wait = computeWaitState(act?.lastInbound ?? null, act?.lastOutbound ?? null);
+        if (!wait.awaitingReply) continue;
+
+        const parked = await hasPendingAgentWork(conv.id, digits);
+        if (parked) { skipped.push({ conversationId: conv.id, why: parked }); continue; }
+
+        eligible.push(conv);
+    }
+
+    const processed: CommsAgentOutcome[] = [];
+    const tallies = { closed: 0, reviveCandidates: 0, drafts: 0, questions: 0 };
+
+    if (!opts.dryRun) {
+        for (const conv of eligible.slice(0, limit)) {
+            try {
+                const outcome = await runCommsAgent(conv.id, 'backlog_revival');
+                processed.push(outcome);
+                for (const a of outcome.actions) {
+                    if (a.tool === 'set_board_state' && a.input?.stage === 'closed') tallies.closed++;
+                    if (a.tool === 'set_board_state' && (a.input?.add_tags ?? []).includes('revive_candidate')) tallies.reviveCandidates++;
+                    if (a.tool === 'queue_draft') tallies.drafts++;
+                    if (a.tool === 'ask_ben') tallies.questions++;
+                }
+            } catch (error: any) {
+                console.error(`[CommsAgent] Backlog run failed for ${conv.id}:`, error?.message);
+                skipped.push({ conversationId: conv.id, why: `run failed: ${error?.message}` });
+            }
+        }
+    }
+
+    return {
+        scanned: convs.length,
+        eligible: eligible.length,
+        processed,
+        skipped,
+        tallies,
+        eligibleConversations: eligible.map((c) => ({
+            id: c.id,
+            phoneNumber: c.phoneNumber,
+            lastCustomerContactAt: c.lastCustomerContactAt,
+            preview: (c.lastMessagePreview || '').slice(0, 50),
+        })),
+    };
 }

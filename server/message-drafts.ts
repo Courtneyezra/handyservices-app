@@ -204,7 +204,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
                         .where(eq(conversations.id, draft.conversationId));
                     await db.update(conversations)
                         .set({
-                            stage: 'waiting',
+                            stage: 'quote_sent',
                             tags: Array.from(new Set([...(conv?.tags ?? []), 'quote_sent'])),
                             updatedAt: new Date(),
                         })

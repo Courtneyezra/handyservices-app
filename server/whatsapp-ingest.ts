@@ -25,6 +25,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { normalizePhoneNumber } from './phone-utils';
 import { broadcast } from './meta-whatsapp';
 import { scheduleInboundTriage } from './agents/comms-lanes';
+import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
 
 export interface IngestInput {
     /** Raw phone number as seen on the source (e.g. "447508744402" or "+447508744402@c.us") */
@@ -132,7 +133,7 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
                 phoneNumber,
                 contactName: contactName || phoneNumber,
                 status: 'active',
-                stage: 'new',
+                stage: direction === 'inbound' ? 'enquiry' : 'scoping',
                 lastMessageAt: now,
                 lastInboundAt: direction === 'inbound' ? now : null,
                 canSendFreeform: direction === 'inbound',
@@ -155,7 +156,13 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
                 patch.canSendFreeform = true;
                 patch.templateRequired = false;
                 patch.unreadCount = (conv.unreadCount || 0) + 1;
-                if (conv.stage === 'closed') patch.stage = 'active';
+                const next = stageAfterInbound(conv.stage);
+                if (next !== conv.stage) patch.stage = next;
+            } else {
+                // Outbound (e.g. Ben replying from the handset app) — the reply that moves
+                // an enquiry into scoping, same funnel rule as every other send path.
+                const next = stageAfterOutbound(conv.stage);
+                if (next !== conv.stage) patch.stage = next;
             }
             await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));
         }

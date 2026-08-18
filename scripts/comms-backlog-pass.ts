@@ -1,6 +1,6 @@
 /**
- * One-off backlog revival: triages the long-unanswered threads the SLA sweep never reaches
- * (it only looks at recent activity — these have been sitting for days or weeks).
+ * Manual backlog revival pass — same engine the weekly ageing cron runs (backlogSweep in
+ * server/agents/comms.ts), exposed for hand-driven batches and dry runs.
  *
  * Per thread the worker decides: dead/spam → closed with a reason tag; worth reviving →
  * revive_candidate tag + ask-Ben; window somehow open → a draft. It never drafts into a shut
@@ -9,78 +9,38 @@
  *
  *   npx tsx scripts/comms-backlog-pass.ts --dry-run       # list who would be triaged
  *   npx tsx scripts/comms-backlog-pass.ts --limit 10      # triage a batch (default 10)
+ *   npx tsx scripts/comms-backlog-pass.ts --days 21       # age threshold (default 3 for manual passes)
  */
 import 'dotenv/config';
-import { db } from '../server/db';
-import { conversations, messageDrafts, agentQuestions } from '@shared/schema';
-import { and, ne, desc, eq, inArray, sql } from 'drizzle-orm';
-import { runCommsAgent } from '../server/agents/comms';
-import { loadActivity } from '../server/inbox-board';
-import { computeWaitState } from '../server/comms-sla';
+import { backlogSweep } from '../server/agents/comms';
 
 async function main() {
     const args = process.argv.slice(2);
     const dryRun = args.includes('--dry-run');
     const limitIdx = args.indexOf('--limit');
     const limit = limitIdx >= 0 ? Math.max(1, Number(args[limitIdx + 1]) || 10) : 10;
+    const daysIdx = args.indexOf('--days');
+    // Manual passes default to the historical 3-day horizon; the weekly cron runs at 21.
+    const olderThanDays = daysIdx >= 0 ? Math.max(1, Number(args[daysIdx + 1]) || 3) : 3;
 
-    // Old = last customer contact more than 3 days ago; the SLA sweep owns anything fresher.
-    const convs = await db.select().from(conversations)
-        .where(and(
-            ne(conversations.status, 'blocked'),
-            ne(conversations.stage, 'closed'),
-            sql`${conversations.lastCustomerContactAt} < now() - interval '3 days'`,
-        ))
-        .orderBy(desc(conversations.lastCustomerContactAt))
-        .limit(300);
+    const outcome = await backlogSweep({ olderThanDays, limit, dryRun });
 
-    const activity = await loadActivity(convs.map((c) => c.id));
-    const eligible: typeof convs = [];
-
-    for (const conv of convs) {
-        const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
-        if (!digits || digits.includes('7700900')) continue;
-
-        const act = activity.get(conv.id);
-        const wait = computeWaitState(act?.lastInbound ?? null, act?.lastOutbound ?? null);
-        if (!wait.awaitingReply) continue;
-
-        const [draft] = await db.select({ id: messageDrafts.id }).from(messageDrafts)
-            .where(and(eq(messageDrafts.phone, `+${digits}`), inArray(messageDrafts.status, ['pending', 'approved'])))
-            .limit(1);
-        if (draft) continue;
-        const [question] = await db.select({ id: agentQuestions.id }).from(agentQuestions)
-            .where(and(eq(agentQuestions.conversationId, conv.id), inArray(agentQuestions.status, ['open', 'answered'])))
-            .limit(1);
-        if (question) continue;
-
-        eligible.push(conv);
-    }
-
-    console.log(`backlog: ${eligible.length} unanswered thread(s) older than 3 days${dryRun ? ' (dry run)' : `, processing ${Math.min(limit, eligible.length)}`}`);
+    console.log(`backlog: ${outcome.eligible} unanswered thread(s) older than ${olderThanDays} days${dryRun ? ' (dry run)' : `, processed ${outcome.processed.length}`}`);
     if (dryRun) {
-        for (const c of eligible) {
-            console.log(`  ${c.id}  ${c.phoneNumber.padEnd(20)}  last: ${c.lastCustomerContactAt?.toISOString().slice(0, 10)}  "${(c.lastMessagePreview || '').slice(0, 50)}"`);
+        for (const c of outcome.eligibleConversations) {
+            console.log(`  ${c.id}  ${c.phoneNumber.padEnd(20)}  last: ${c.lastCustomerContactAt?.toISOString().slice(0, 10)}  "${c.preview}"`);
         }
         process.exit(0);
     }
 
-    let closed = 0, revived = 0, drafted = 0, asked = 0;
-    for (const conv of eligible.slice(0, limit)) {
-        try {
-            const outcome = await runCommsAgent(conv.id, 'backlog_revival');
-            for (const a of outcome.actions) {
-                if (a.tool === 'set_board_state' && a.input?.stage === 'closed') closed++;
-                if (a.tool === 'set_board_state' && (a.input?.add_tags ?? []).includes('revive_candidate')) revived++;
-                if (a.tool === 'queue_draft') drafted++;
-                if (a.tool === 'ask_ben') asked++;
-            }
-            console.log(`  ✓ ${conv.phoneNumber}: ${outcome.result.finalText.slice(0, 110)}`);
-        } catch (error: any) {
-            console.log(`  ✗ ${conv.phoneNumber}: ${error?.message}`);
-        }
+    for (const p of outcome.processed) {
+        console.log(`  ✓ ${p.conversationId}: ${p.result.finalText.slice(0, 110)}`);
     }
-    console.log(`\nclosed=${closed} revive_candidates=${revived} drafts=${drafted} questions=${asked}`);
+    for (const s of outcome.skipped.filter((s) => s.why.startsWith('run failed'))) {
+        console.log(`  ✗ ${s.conversationId}: ${s.why}`);
+    }
+    const t = outcome.tallies;
+    console.log(`\nclosed=${t.closed} revive_candidates=${t.reviveCandidates} drafts=${t.drafts} questions=${t.questions}`);
     console.log('Rerun until "backlog: 0" to finish the pass.');
     process.exit(0);
 }

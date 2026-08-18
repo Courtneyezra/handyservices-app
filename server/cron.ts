@@ -79,6 +79,35 @@ export function setupCronJobs() {
         }
     }, { timezone: 'Europe/London' });
 
+    // COMMS AGENT AGEING LANE — weekly (Mon 09:30 UK). Enquiries nobody answered for 21+
+    // days get auto-triaged with the backlog_revival trigger: dead/spam → closed with a
+    // reason tag, genuine leads → revive_candidate tag + ask-Ben. Same master gate as the
+    // other comms-agent lanes; never sends anything itself.
+    cron.schedule("30 9 * * 1", async () => {
+        try {
+            const { getCommsAgentConfig, backlogSweep } = await import('./agents/comms');
+            const config = await getCommsAgentConfig();
+            if (!config.enabled) return;
+            const outcome = await backlogSweep({ olderThanDays: 21, limit: 10 });
+            console.log(`[Cron] Backlog ageing sweep: ${outcome.eligible} eligible, ${outcome.processed.length} processed ` +
+                `(closed=${outcome.tallies.closed}, revive=${outcome.tallies.reviveCandidates}, asked=${outcome.tallies.questions})`);
+        } catch (error) {
+            console.error("[Cron] Backlog ageing sweep failed:", error);
+        }
+    }, { timezone: 'Europe/London' });
+
+    // WON AUTO-ARCHIVE — daily 03:10. Won cards stay on the board 7 days (post-payment
+    // coordination), then archive off it. Pure bookkeeping — no LLM, no sends, no gate.
+    // The thread stays searchable; archiving is a board filter, not a deletion.
+    cron.schedule("10 3 * * *", async () => {
+        try {
+            const { archiveStaleWonConversations } = await import('./conversation-stage');
+            await archiveStaleWonConversations(7);
+        } catch (error) {
+            console.error("[Cron] Won auto-archive failed:", error);
+        }
+    }, { timezone: 'Europe/London' });
+
     // ==========================================
     // DAY-BEFORE REMINDERS - Runs daily at 6pm
     // Sends WhatsApp reminders to CUSTOMERS about tomorrow's jobs

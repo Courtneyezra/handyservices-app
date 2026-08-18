@@ -16,6 +16,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { normalizePhoneNumber } from './phone-utils';
 import { getWhatsAppSender } from './whatsapp-sender';
 import { scheduleInboundTriage } from './agents/comms-lanes';
+import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
 
 // Environment variables
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -246,7 +247,7 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
                 phoneNumber,
                 contactName: profileName,
                 status: 'active',
-                stage: 'new',
+                stage: 'enquiry',
                 lastMessageAt: now,
                 lastInboundAt: now,
                 canSendFreeform: true,
@@ -265,7 +266,7 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
                     lastInboundAt: now,
                     canSendFreeform: true,
                     templateRequired: false,
-                    stage: conv.stage === 'closed' ? 'active' : conv.stage,
+                    stage: stageAfterInbound(conv.stage),
                     lastMessagePreview: content.substring(0, 50),
                     unreadCount: (conv.unreadCount || 0) + 1,
                     contactName: profileName || conv.contactName,
@@ -457,7 +458,7 @@ async function recordOutboundMessage(
                 id: uuidv4(),
                 phoneNumber,
                 status: 'active',
-                stage: 'active',
+                stage: 'scoping',
                 lastMessageAt: now,
                 lastMessagePreview: preview,
             };
@@ -465,7 +466,7 @@ async function recordOutboundMessage(
             conv = newConv as any;
         } else {
             await db.update(conversations)
-                .set({ lastMessageAt: now, lastMessagePreview: preview, stage: 'active', updatedAt: now })
+                .set({ lastMessageAt: now, lastMessagePreview: preview, stage: stageAfterOutbound(conv.stage), updatedAt: now })
                 .where(eq(conversations.id, conv.id));
         }
 
@@ -659,7 +660,7 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
                 id: uuidv4(),
                 phoneNumber,
                 status: 'active',
-                stage: 'active',
+                stage: 'scoping',
                 lastMessageAt: now,
                 lastMessagePreview: messagePreview,
             };
@@ -670,7 +671,8 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
                 .set({
                     lastMessageAt: now,
                     lastMessagePreview: messagePreview,
-                    stage: 'active',
+                    // First reply promotes an enquiry to scoping; never demotes quote_sent/won.
+                    stage: stageAfterOutbound(conv.stage),
                     updatedAt: now,
                 })
                 .where(eq(conversations.id, conv.id));

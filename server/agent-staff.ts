@@ -210,14 +210,14 @@ function stripChatDashes(text: string): string {
 
 const quoteUrlFor = (slug: string) => `${process.env.BASE_URL || 'https://handyservices.app'}/quote/${slug}`;
 
-/** Marks the quote as actually sent: out of draft, thread to 'waiting', tagged quote_sent. */
+/** Marks the quote as actually sent: out of draft, thread to funnel stage 'quote_sent', tagged. */
 async function finalizeQuoteSent(quoteId: string, conversationId: string): Promise<void> {
     await db.update(personalizedQuotes).set({ isDraft: false }).where(eq(personalizedQuotes.id, quoteId));
     const [conv] = await db.select({ tags: conversations.tags }).from(conversations)
         .where(eq(conversations.id, conversationId));
     await db.update(conversations)
         .set({
-            stage: 'waiting',
+            stage: 'quote_sent',
             tags: Array.from(new Set([...(conv?.tags ?? []), 'quote_sent'])),
             updatedAt: new Date(),
         })

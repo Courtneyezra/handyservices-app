@@ -8,6 +8,7 @@ import { computePlan, type Selection as PlanSelection } from '../shared/plan-pri
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
+import { markConversationWonByPhone } from './conversation-stage';
 import { getPricingSettings } from './pricing-settings';
 import { insertInvoiceWithRetry } from './invoices';
 import { extendLock, confirmBooking, autoAssignPaidJob } from './booking-engine';
@@ -842,6 +843,10 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             .where(eq(personalizedQuotes.id, quoteId));
 
                         console.log(`[Stripe Webhook] Quote ${quoteId} marked as paid. Deposit: £${(depositAmount / 100).toFixed(2)}`);
+
+                        // Funnel: deposit paid moves the comms thread to WON. Best-effort —
+                        // board bookkeeping never fails the payment webhook.
+                        await markConversationWonByPhone(quote.phone);
 
                         // Phone push alert (Pushover) — quote accepted / deposit paid
                         notifyQuoteAccepted({
