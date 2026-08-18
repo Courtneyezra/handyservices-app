@@ -56,7 +56,7 @@ const DAILY_METRICS = [
 
 type DailyMetric = (typeof DAILY_METRICS)[number];
 
-interface LocationConfig {
+export interface LocationConfig {
     /** Internal key, e.g. "nottingham" */
     key: string;
     /** Full GBP resource name: accounts/{a}/locations/{l} */
@@ -65,15 +65,16 @@ interface LocationConfig {
     locationId: string;
 }
 
-interface GbpEnv {
+export interface GbpEnv {
     clientId: string;
     clientSecret: string;
     refreshToken: string;
     locations: LocationConfig[];
 }
 
-/** Read + validate env. Returns null (and logs) when not fully configured. */
-function readEnv(): GbpEnv | null {
+/** Read + validate env. Returns null (and logs) when not fully configured.
+ * Shared with the GMB posting system (server/gmb-posts/). */
+export function readGbpEnv(): GbpEnv | null {
     const clientId = process.env.GOOGLE_GBP_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_GBP_CLIENT_SECRET;
     const refreshToken = process.env.GOOGLE_GBP_REFRESH_TOKEN;
@@ -118,7 +119,7 @@ function readEnv(): GbpEnv | null {
 }
 
 /** Exchange the refresh token for a short-lived access token. */
-async function getAccessToken(env: GbpEnv): Promise<string> {
+export async function getGbpAccessToken(env: GbpEnv): Promise<string> {
     const body = new URLSearchParams({
         client_id: env.clientId,
         client_secret: env.clientSecret,
@@ -248,7 +249,7 @@ export interface PullResult {
  * and write a gmb_metrics snapshot row for each. Returns the rows written.
  */
 export async function pullGmbMetrics(opts?: { location?: string }): Promise<PullResult[]> {
-    const env = readEnv();
+    const env = readGbpEnv();
     if (!env) return [];
 
     let locations = env.locations;
@@ -262,7 +263,7 @@ export async function pullGmbMetrics(opts?: { location?: string }): Promise<Pull
 
     let accessToken: string;
     try {
-        accessToken = await getAccessToken(env);
+        accessToken = await getGbpAccessToken(env);
     } catch (err: any) {
         console.error(`[gmb] aborting — could not obtain access token: ${err.message}`);
         return [];
