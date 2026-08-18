@@ -66,6 +66,14 @@ interface BuildQuoteMessageCtx {
   finalPricePence: number;
   batchNudge?: string; // single-job "anything else while we're there?"
   delayReason?: string; // optional, surfaced by the 'delay' style
+  /** In-chat card only: one short line acknowledging what the customer sent
+   *  (photos, video, their description) — sits right after the greeting so the
+   *  message reads like the same person who was just talking to them. */
+  threadContextLine?: string;
+  /** In-chat card only: swap the closing for one that says the service is
+   *  complete on the link (full details + price) AND that they can ask any
+   *  questions right here in this chat — the thread stays the support channel. */
+  chatClose?: boolean;
 }
 
 /** Assemble the final WhatsApp message string for the chosen style. */
@@ -123,12 +131,26 @@ export function buildQuoteMessage(ctx: BuildQuoteMessageCtx): string {
     },
   };
 
+  // In-chat variant closings (chatClose): same booking-forward beat, but woven with
+  // "everything's complete on the link" + "ask any questions right here in this chat".
+  // Written dash-free on purpose — this path goes straight into a customer chat where
+  // the voice hard rule is no em dashes (feedback-customer-comms-style).
+  const chatClosings: Record<MessageStyleId, string> = {
+    friendly: `Everything's on the link, the full breakdown, the price and picking a day, takes about a minute and you're booked in. Any questions at all, just ask me here.`,
+    professional: `The link has everything, itemised pricing and self serve booking, choose a date and it's confirmed straight away. Happy to answer any questions here.`,
+    efficient: `It's all on the link, price, details and booking, pick a date and it's locked in, we take it from there. Any questions, just reply here.`,
+    reassuring: `Everything is laid out on the link with no surprises, the full price and details, and when you're ready you can choose a day right there. If anything's unclear just ask me here and I'll talk you through it.`,
+    delay: `Thanks for your patience. Everything's on the link, full details and price, pick a day there when you're ready. Any questions, just ask me here.`,
+  };
+
   const s = styles[ctx.styleId] || styles.friendly;
+  const closing = ctx.chatClose ? chatClosings[ctx.styleId] || chatClosings.friendly : s.closing;
 
   const lines: string[] = [s.greeting];
+  if (ctx.threadContextLine?.trim()) lines.push('', ctx.threadContextLine.trim());
   if (contextualMessage?.trim()) lines.push('', contextualMessage.trim());
   lines.push('', s.linkIntro, quoteUrl);
-  if (s.closing?.trim()) lines.push('', s.closing.trim());
+  if (closing?.trim()) lines.push('', closing.trim());
 
   return lines.join('\n') + (batchNudge || '');
 }

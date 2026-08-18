@@ -1003,6 +1003,16 @@ const CUSTOMER_TYPE_OPTIONS = [
     { value: 'business', label: 'Business' },
 ] as const;
 
+/** The builder's message styles (mirrors MESSAGE_STYLES in server/contextual-pricing/
+ *  quote-message.ts). Auto-picked from customerType server-side; this dropdown overrides. */
+const MESSAGE_STYLE_OPTIONS = [
+    { value: 'friendly', label: 'Friendly' },
+    { value: 'professional', label: 'Professional' },
+    { value: 'efficient', label: 'Hands-off' },
+    { value: 'reassuring', label: 'Reassuring' },
+    { value: 'delay', label: 'Apology for delay' },
+] as const;
+
 /** One editable job line on the card. category/minutes come from the parser (null until it
  *  runs) — descriptions are editable here; minutes and materials stay in the full builder. */
 interface CardLine {
@@ -1215,24 +1225,50 @@ function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
     const [sendMessage, setSendMessage] = useState('');
     const [sendInfo, setSendInfo] = useState<string | null>(null);
     const [windowOpenHint, setWindowOpenHint] = useState<boolean | null>(null);
+    // The builder-generator style in use. '' until the first draft returns; after that it's
+    // whatever the server auto-picked from customerType, or Ben's dropdown override.
+    const [sendStyle, setSendStyle] = useState<string>('');
+    const [redrafting, setRedrafting] = useState(false);
+
+    /** Fetches the builder-generated message for the saved quote. No style = server auto-picks
+     *  from the quote's customerType; an explicit style is the dropdown override. */
+    async function draftMessage(slug: string, style?: string) {
+        const res = await fetch(`/api/agents/quote-prep/${card.id}/draft-send-message`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ slug, ...(style ? { messageStyle: style } : {}) }),
+        });
+        const detail = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(detail.message || detail.error || 'Could not draft the message');
+        setSendMessage(detail.body);
+        setWindowOpenHint(detail.windowOpen ?? null);
+        setSendStyle(detail.styleUsed || '');
+    }
 
     async function beginSend() {
         setCardError(null);
         setSendPhase('preparing');
         try {
             const q = await persistQuote();
-            const res = await fetch(`/api/agents/quote-prep/${card.id}/draft-send-message`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ slug: q.slug }),
-            });
-            const detail = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(detail.message || detail.error || 'Could not draft the message');
-            setSendMessage(detail.body);
-            setWindowOpenHint(detail.windowOpen ?? null);
+            await draftMessage(q.slug);
             setSendPhase('review');
         } catch (e: any) {
             setCardError(e.message);
             setSendPhase('idle');
+        }
+    }
+
+    /** Style override: re-drafts the whole message in the new style (edits are replaced —
+     *  the generator, not the textarea, is the source of the base copy). */
+    async function changeStyle(style: string) {
+        if (!saved || redrafting) return;
+        setRedrafting(true);
+        setCardError(null);
+        try {
+            await draftMessage(saved.slug, style);
+        } catch (e: any) {
+            setCardError(e.message);
+        } finally {
+            setRedrafting(false);
         }
     }
 
@@ -1432,11 +1468,27 @@ function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
                         {windowOpenHint === false && (
                             <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[9px] text-white">window shut — template or queue</span>
                         )}
+                        {/* Builder generator style — auto-picked from customer type, overridable.
+                            Changing it re-drafts (and replaces) the message below. */}
+                        <span className="ml-auto flex items-center gap-1 normal-case">
+                            {redrafting && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+                            <select
+                                value={sendStyle}
+                                onChange={(e) => changeStyle(e.target.value)}
+                                disabled={sendPhase === 'sending' || redrafting}
+                                title="Message style (auto-picked from customer type). Changing it re-drafts the message."
+                                className="rounded border border-slate-300 bg-white px-1 py-0.5 text-[11px] font-medium text-slate-700 focus:border-slate-500 focus:outline-none disabled:opacity-50"
+                            >
+                                {MESSAGE_STYLE_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                        </span>
                     </div>
                     <textarea
                         value={sendMessage}
                         onChange={(e) => setSendMessage(e.target.value)}
-                        disabled={sendPhase === 'sending'}
+                        disabled={sendPhase === 'sending' || redrafting}
                         rows={Math.min(10, Math.max(4, sendMessage.split('\n').length + 1))}
                         className="w-full rounded border border-slate-300 bg-white p-2 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-100"
                     />
@@ -1449,7 +1501,7 @@ function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
                     <div className="mt-2 flex items-center gap-2">
                         <button
                             onClick={confirmSend}
-                            disabled={sendPhase === 'sending' || !linkPresent || !sendMessage.trim()}
+                            disabled={sendPhase === 'sending' || redrafting || !linkPresent || !sendMessage.trim()}
                             className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
                             {sendPhase === 'sending' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}

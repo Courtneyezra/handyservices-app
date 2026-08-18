@@ -19,6 +19,9 @@ import { queueDraft } from './message-drafts';
 import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
 import { renderQuickReply } from './quick-replies';
 import { claudeText } from './llm';
+import {
+    buildQuoteMessage, defaultStyleForCustomerType, MESSAGE_STYLES, type MessageStyleId,
+} from './contextual-pricing/quote-message';
 import { STAFF as opsBriefStaff, SYSTEM as opsBriefSystem } from './agents/ops-brief';
 import { STAFF as recoveryStaff, SYSTEM as recoverySystem } from './agents/recovery';
 import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig } from './agents/comms';
@@ -232,9 +235,15 @@ async function findQuoteSendTemplate() {
     return rows.find((r) => (r.body + JSON.stringify(r.contentVariables ?? {})).includes('{{quote_link}}')) ?? null;
 }
 
-// POST /api/agents/quote-prep/:conversationId/draft-send-message — draft the WhatsApp burst
-// that delivers a finished quote link, from what the customer actually sent. Drafting only:
-// nothing is sent here. Ben reviews/edits the text on the card; his Send IS the approval.
+// POST /api/agents/quote-prep/:conversationId/draft-send-message — assemble the WhatsApp
+// message that delivers a finished quote link. This is the BUILDER'S OWN generator
+// (buildQuoteMessage: style-varied greeting / price-range pre-anchor / link / closing), not a
+// freestyle LLM draft, so what the card sends is what the builder would send — with two
+// card-only additions: a one-line acknowledgement of what the customer actually sent in the
+// thread (photos etc), and a closing that says the service is complete on the link but we're
+// happy to answer any questions right here in the chat. Style defaults from the quote's
+// customerType; `messageStyle` in the body overrides it (the card's dropdown re-drafts).
+// Drafting only: nothing is sent here. Ben reviews/edits the text; his Send IS the approval.
 agentStaffRouter.post('/quote-prep/:conversationId/draft-send-message', async (req, res) => {
     try {
         const slug = String(req.body?.slug || '').trim();
@@ -244,49 +253,68 @@ agentStaffRouter.post('/quote-prep/:conversationId/draft-send-message', async (r
         const { conv, quote, phone } = loaded;
         const quoteUrl = quoteUrlFor(slug);
 
-        // The last few turns, so the message can reference what they sent (photos included).
+        const styleParam = String(req.body?.messageStyle || '').trim();
+        const styleId: MessageStyleId = MESSAGE_STYLES.some((s) => s.id === styleParam)
+            ? (styleParam as MessageStyleId)
+            : defaultStyleForCustomerType(quote.customerType);
+
+        // The last few turns, so the context line can reference what they sent (photos included).
         const recent = await db.select().from(messages)
             .where(eq(messages.conversationId, conv.id))
             .orderBy(desc(messages.createdAt)).limit(8);
-        const thread = recent.reverse().map((m) => {
+        const turns = recent.reverse();
+        const thread = turns.map((m) => {
             const media = m.mediaUrl
                 ? ` [sent ${(m.mediaType ?? '').startsWith('video') ? 'a video' : 'a photo'}]`
                 : '';
             return `${m.direction === 'inbound' ? 'CUSTOMER' : 'US'}: ${(m.content ?? '').slice(0, 200)}${media}`;
         }).join('\n');
+        const inboundMedia = turns.some((m) => m.direction === 'inbound' && m.mediaUrl);
 
-        // Deterministic fallback — voice-safe, link guaranteed — so drafting never blocks the send.
-        const fallback = [
-            "That's your quote done.",
-            `Everything's itemised so you can see what you're paying for: ${quoteUrl}`,
-            'Any questions, just reply here.',
-        ].join('\n---\n');
-
-        let body = fallback;
+        // One short thread-context line — the only LLM-written part. Deterministic fallback so
+        // drafting never blocks the send.
+        let threadContextLine = inboundMedia
+            ? 'Thanks for sending the photos over, they made this easy to price up properly.'
+            : 'Thanks for all the detail you sent over.';
         try {
             const drafted = await claudeText({
-                system: `You draft the short WhatsApp messages that deliver a finished quote link to a customer, in the voice below.
+                system: `You write ONE short sentence that opens a WhatsApp quote-delivery message, acknowledging what the CUSTOMER sent us (their photos, video, or how they described the job), so it reads like the same person who was just talking to them.
 
 ${loadChatVoice()}
 
-Hard rules for THIS message:
-- 2-3 short parts, separated by a line containing only ---
-- The first part reacts to what the customer actually sent (their words, their photos or video), so it reads like the same person who was just talking to them.
-- The quote link must appear EXACTLY once, unchanged: ${quoteUrl}
-- No prices (the quote page carries the price). No dates or times. No em dashes. Never ask for an address. No sign-offs, no emoji.
-- Return ONLY the message text with the --- separators. No preamble, no quotes around it.`,
-                user: `Conversation so far:\n${thread || '(no messages captured)'}\n\nCustomer name: ${quote.customerName || conv.contactName || 'unknown'}\nJob quoted: ${(quote.jobDescription || '').slice(0, 400)}\nQuote link: ${quoteUrl}`,
-                maxTokens: 300,
+Hard rules: one sentence, maximum 15 words. Refer ONLY to things marked CUSTOMER in the thread, never to our own messages. Do not mention the quote, any link, booking, prices or dates. No questions, no em dashes or hyphens, no emoji, never mention an address. Return ONLY the sentence.`,
+                user: `Conversation so far:\n${thread || '(no messages captured)'}\n\nJob quoted: ${(quote.jobDescription || '').slice(0, 400)}`,
+                maxTokens: 60,
             });
-            const cleaned = stripChatDashes(drafted.trim().replace(/^["']|["']$/g, ''));
-            // The link is the whole point of the message — a draft without it is not usable.
-            if (cleaned.includes(quoteUrl)) body = cleaned;
+            const line = stripChatDashes(drafted.trim().replace(/^["']|["']$/g, '')).split('\n')[0].trim();
+            if (line && line.length <= 140 && !line.includes('?')) threadContextLine = line;
         } catch (draftError: any) {
-            console.warn('[QuotePrep] Send-message drafting fell back to template copy:', draftError?.message);
+            console.warn('[QuotePrep] Thread-context line fell back to stock copy:', draftError?.message);
         }
 
+        const firstName = (quote.customerName || conv.contactName || '').split(' ')[0] || 'there';
+        const lineCount = Array.isArray(quote.pricingLineItems) ? (quote.pricingLineItems as any[]).length : 0;
+        const assembled = buildQuoteMessage({
+            styleId,
+            firstName,
+            contextualMessage: quote.contextualMessage || '',
+            whatsappClosing: quote.whatsappClosing || '',
+            quoteUrl,
+            finalPricePence: quote.basePrice || 0,
+            batchNudge: lineCount === 1
+                ? '\n\nAnything else needs doing while we\'re there? You can add extra small jobs right inside the link too.'
+                : '',
+            threadContextLine,
+            chatClose: true,
+        });
+
+        // Voice hard rule for chat: no em/en dashes reach the customer. The price range uses an
+        // en dash (£80–£100) which stripChatDashes would mangle into "£80, £100", so rewrite
+        // ranges to "to" FIRST, then strip whatever dashes the style copy carries.
+        const body = stripChatDashes(assembled.replace(/£(\d+)–£(\d+)/g, '£$1 to £$2'));
+
         const windowOpen = await canSendFreeform(phone).catch(() => false);
-        res.json({ body, quoteUrl, windowOpen });
+        res.json({ body, quoteUrl, windowOpen, styleUsed: styleId, styles: MESSAGE_STYLES });
     } catch (error: any) {
         console.error('[QuotePrep] draft-send-message failed:', error);
         res.status(500).json({ error: error?.message || 'Failed to draft the message' });
