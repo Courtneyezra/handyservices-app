@@ -11,7 +11,7 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { messageDrafts, conversations } from '@shared/schema';
+import { messageDrafts, conversations, personalizedQuotes } from '@shared/schema';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber } from './phone-utils';
@@ -187,6 +187,33 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             .set({ status: 'sent', sentAt: new Date(), sentMessageId: result?.sid ?? null })
             .where(eq(messageDrafts.id, draft.id))
             .returning();
+
+        // A draft carrying a contextual quote link (the shut-window fallback from the in-chat
+        // quote card) has just delivered that quote — flip it out of draft and stage the thread,
+        // exactly as a direct card send would have. Best-effort: the message is already with the
+        // customer, so bookkeeping must never turn a successful send into an error.
+        const quoteSlug = draft.body.match(/\/quote\/([a-z0-9]{6,12})\b/i)?.[1];
+        if (quoteSlug) {
+            try {
+                const [flipped] = await db.update(personalizedQuotes)
+                    .set({ isDraft: false })
+                    .where(and(eq(personalizedQuotes.shortSlug, quoteSlug), eq(personalizedQuotes.isDraft, true)))
+                    .returning({ id: personalizedQuotes.id });
+                if (flipped && draft.conversationId) {
+                    const [conv] = await db.select({ tags: conversations.tags }).from(conversations)
+                        .where(eq(conversations.id, draft.conversationId));
+                    await db.update(conversations)
+                        .set({
+                            stage: 'waiting',
+                            tags: Array.from(new Set([...(conv?.tags ?? []), 'quote_sent'])),
+                            updatedAt: new Date(),
+                        })
+                        .where(eq(conversations.id, draft.conversationId));
+                }
+            } catch (hookError: any) {
+                console.warn('[Drafts] Quote-sent bookkeeping failed after send:', hookError?.message);
+            }
+        }
 
         return { ok: true, draft: sent, mode: windowOpen ? 'freeform' : 'template' };
     } catch (sendError: any) {

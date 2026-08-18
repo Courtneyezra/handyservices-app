@@ -1003,6 +1003,17 @@ const CUSTOMER_TYPE_OPTIONS = [
     { value: 'business', label: 'Business' },
 ] as const;
 
+/** One editable job line on the card. category/minutes come from the parser (null until it
+ *  runs) — descriptions are editable here; minutes and materials stay in the full builder. */
+interface CardLine {
+    key: string;
+    description: string;
+    category: string | null;
+    estimatedMinutes: number | null;
+}
+
+const formatPence = (pence: number) => `£${(pence / 100).toFixed(2).replace(/\.00$/, '')}`;
+
 /**
  * The compact review card a "Prep quote" run renders in the thread panel: who, where,
  * customer type, the job line by line, and the thread's photos/videos as tickable
@@ -1024,15 +1035,93 @@ function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
     const [ticked, setTicked] = useState<Record<string, boolean>>(
         () => Object.fromEntries(media.filter((m) => m.mediaUrl).map((m) => [m.mediaUrl!, true])),
     );
-    const [saved, setSaved] = useState<{ slug: string; total: string | null } | null>(null);
+    const [saved, setSaved] = useState<{ slug: string; quoteId: string; total: string | null } | null>(null);
     const [cardError, setCardError] = useState<string | null>(null);
 
-    const jobLines = useMemo(() =>
+    // ── Editable job lines ──
+    // The intake's numbered lines become editable rows: reword, add or remove right here.
+    // Minutes, materials and overrides stay in the full builder — this card is review, not surgery.
+    const [lines, setLines] = useState<CardLine[]>(() =>
         String(intake.jobSummary || '')
             .split(/\n(?=\d+\.\s)/)
             .map((l) => l.replace(/^\d+\.\s*/, '').trim())
-            .filter(Boolean),
-    [intake.jobSummary]);
+            .filter(Boolean)
+            .map((description, i) => ({ key: `prep_${Date.now()}_${i}`, description, category: null, estimatedMinutes: null })),
+    );
+    const nextLineKeyRef = useRef(1000);
+
+    // ── Live engine re-price, debounced ──
+    // Two stages: lines the parser hasn't classified yet (fresh intake, newly added) go through
+    // /api/pricing/parse-job for a category + realistic minutes; classified lines go straight to
+    // /api/pricing/multi-quote — the exact engine path the full builder's live preview calls —
+    // so the £ on this card is the £ the builder would show.
+    const [priced, setPriced] = useState<{ totalPence: number; perLine: Map<string, number> } | null>(null);
+    const [pricingBusy, setPricingBusy] = useState(false);
+    const priceAbortRef = useRef<AbortController | null>(null);
+    const priceRunRef = useRef(0);
+
+    useEffect(() => {
+        const run = ++priceRunRef.current;
+        const timer = setTimeout(async () => {
+            priceAbortRef.current?.abort();
+            const controller = new AbortController();
+            priceAbortRef.current = controller;
+            const headers = { 'Content-Type': 'application/json', ...getAuthHeaders() };
+            try {
+                // Stage 1: classify anything the engine can't price yet.
+                const pending = lines.filter((l) => !l.category && l.description.trim());
+                if (pending.length > 0) {
+                    setPricingBusy(true);
+                    const updates = new Map<string, { category: string; estimatedMinutes: number }>();
+                    for (const line of pending) {
+                        const res = await fetch('/api/pricing/parse-job', {
+                            method: 'POST', headers, signal: controller.signal,
+                            body: JSON.stringify({ description: line.description.slice(0, 2000) }),
+                        });
+                        const parsed = await res.json().catch(() => ({}));
+                        const first = Array.isArray(parsed.lines) ? parsed.lines[0] : null;
+                        if (res.ok && first?.category && first?.timeEstimateMinutes) {
+                            updates.set(line.key, { category: first.category, estimatedMinutes: first.timeEstimateMinutes });
+                        }
+                    }
+                    if (controller.signal.aborted || run !== priceRunRef.current) return;
+                    if (updates.size > 0) {
+                        // Merging re-fires this effect; the next pass finds nothing pending and prices.
+                        setLines((prev) => prev.map((l) => (updates.has(l.key) ? { ...l, ...updates.get(l.key)! } : l)));
+                        return;
+                    }
+                }
+
+                // Stage 2: price the classified lines through the engine.
+                const valid = lines.filter((l) => l.category && (l.estimatedMinutes ?? 0) > 0 && l.description.trim());
+                if (valid.length === 0) { setPriced(null); setPricingBusy(false); return; }
+                setPricingBusy(true);
+                const res = await fetch('/api/pricing/multi-quote', {
+                    method: 'POST', headers, signal: controller.signal,
+                    body: JSON.stringify({
+                        lines: valid.map((l) => ({
+                            id: l.key, description: l.description, category: l.category,
+                            timeEstimateMinutes: l.estimatedMinutes, materialsCostPence: 0,
+                        })),
+                        signals: { urgency: intake.urgency === 'high' ? 'priority' : 'standard' },
+                    }),
+                });
+                if (!res.ok) throw new Error('re-price failed');
+                const data = await res.json();
+                if (controller.signal.aborted || run !== priceRunRef.current) return;
+                const perLine = new Map<string, number>();
+                for (const li of data.lineItems ?? []) {
+                    if (typeof li.guardedPricePence === 'number') perLine.set(li.lineId, li.guardedPricePence);
+                }
+                setPriced({ totalPence: data.finalPricePence ?? 0, perLine });
+                setPricingBusy(false);
+            } catch (e: any) {
+                if (e?.name === 'AbortError') return;
+                if (run === priceRunRef.current) { setPriced(null); setPricingBusy(false); }
+            }
+        }, 700);
+        return () => clearTimeout(timer);
+    }, [lines, intake.urgency]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // A field is "waiting" when the agent couldn't extract it — the null is the
     // signal; missing[] wording is only a fallback for older intake payloads.
@@ -1058,63 +1147,123 @@ function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
         onError: (e: Error) => setCardError(e.message),
     });
 
+    /**
+     * Persists the quote through the builder's own creation path, always as an UNSENT draft —
+     * the send flow flips it to non-draft only after the burst actually reaches the customer.
+     * A re-run passes the saved quoteId so edits re-save in place (same slug, same link).
+     */
+    async function persistQuote(): Promise<{ slug: string; quoteId: string; total: string | null }> {
+        const items = lines
+            .filter((l) => l.category && (l.estimatedMinutes ?? 0) > 0 && l.description.trim())
+            .map((l) => ({
+                id: l.key,
+                description: l.description.trim(),
+                category: l.category!,
+                estimatedMinutes: l.estimatedMinutes!,
+                materialsCostPence: 0,
+            }));
+        if (items.length === 0) throw new Error('No priceable job lines yet. Give the re-price a moment to classify them.');
+
+        const photos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && !isVideo(m)).map((m) => m.mediaUrl!).slice(0, 10);
+        const videos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && isVideo(m)).map((m) => m.mediaUrl!).slice(0, 5);
+        const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+
+        const res = await fetch('/api/pricing/create-contextual-quote', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({
+                isDraft: true,
+                ...(saved ? { quoteId: saved.quoteId } : {}),
+                customerName: intake.customerName,
+                phone: intake.phone,
+                postcode: intake.postcode || undefined,
+                customerType,
+                jobDescription: items.map((i) => i.description).join('; '),
+                lines: items,
+                signals: { urgency: intake.urgency === 'high' ? 'priority' : 'standard' },
+                ...(intake.assumptions?.length ? { quoteAssumptions: intake.assumptions } : {}),
+                vaContext: [
+                    'Quote prepared from the comms thread (quote-prep agent intake).',
+                    intake.missing?.length ? `Still missing: ${intake.missing.join('; ')}` : '',
+                ].filter(Boolean).join(' ').slice(0, 2000),
+                sourceChannel: 'whatsapp',
+                ...(photos.length ? { customerPhotoUrls: photos } : {}),
+                ...(videos.length ? { customerVideoUrls: videos } : {}),
+                createdBy: adminUser?.id || undefined,
+                createdByName: adminUser?.name || adminUser?.email || undefined,
+            }),
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(out.message || out.error || 'Could not save the quote');
+        const result = { slug: out.shortSlug as string, quoteId: out.quoteId as string, total: out.pricing?.totalFormatted ?? null };
+        setSaved(result);
+        return result;
+    }
+
     const saveDraft = useMutation({
-        mutationFn: async () => {
-            const auth = { 'Content-Type': 'application/json', ...getAuthHeaders() };
-
-            // Same two steps as the builder: the AI parser structures the lines
-            // (category + realistic minutes), then the multi-line engine prices them.
-            const parseRes = await fetch('/api/pricing/parse-job', {
-                method: 'POST', headers: auth,
-                body: JSON.stringify({
-                    description: jobLines.map((l, i) => `${i + 1}. ${l}`).join('\n').slice(0, 2000),
-                }),
-            });
-            const parsed = await parseRes.json().catch(() => ({}));
-            if (!parseRes.ok || !Array.isArray(parsed.lines) || parsed.lines.length === 0) {
-                throw new Error(parsed.error || 'Could not structure the job lines');
-            }
-
-            const photos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && !isVideo(m)).map((m) => m.mediaUrl!).slice(0, 10);
-            const videos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && isVideo(m)).map((m) => m.mediaUrl!).slice(0, 5);
-            const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
-
-            const res = await fetch('/api/pricing/create-contextual-quote', {
-                method: 'POST', headers: auth,
-                body: JSON.stringify({
-                    isDraft: true,
-                    customerName: intake.customerName,
-                    phone: intake.phone,
-                    postcode: intake.postcode || undefined,
-                    customerType,
-                    jobDescription: jobLines.join('; '),
-                    lines: parsed.lines.map((line: any, i: number) => ({
-                        id: line.id || `prep_${Date.now()}_${i}`,
-                        description: line.description,
-                        category: line.category,
-                        estimatedMinutes: line.timeEstimateMinutes,
-                        materialsCostPence: 0,
-                    })),
-                    signals: { urgency: intake.urgency === 'high' ? 'priority' : 'standard' },
-                    ...(intake.assumptions?.length ? { quoteAssumptions: intake.assumptions } : {}),
-                    vaContext: [
-                        'Draft saved from the comms thread (quote-prep agent intake). Review before sending.',
-                        intake.missing?.length ? `Still missing: ${intake.missing.join('; ')}` : '',
-                    ].filter(Boolean).join(' ').slice(0, 2000),
-                    sourceChannel: 'whatsapp',
-                    ...(photos.length ? { customerPhotoUrls: photos } : {}),
-                    ...(videos.length ? { customerVideoUrls: videos } : {}),
-                    createdBy: adminUser?.id || undefined,
-                    createdByName: adminUser?.name || adminUser?.email || undefined,
-                }),
-            });
-            const out = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(out.message || out.error || 'Could not save the draft');
-            return { slug: out.shortSlug as string, total: out.pricing?.totalFormatted ?? null };
-        },
-        onSuccess: (r) => { setCardError(null); setSaved(r); },
+        mutationFn: persistQuote,
+        onSuccess: () => setCardError(null),
         onError: (e: Error) => setCardError(e.message),
     });
+
+    // ── Send flow ──
+    // Send quote = persist (as draft) → agent drafts the delivery burst from the thread →
+    // Ben reviews/edits it in a textarea → Send. Ben's click IS the approval: the server sends
+    // directly (freeform burst, or template when the window is shut, or queues when neither
+    // can deliver) and only then flips the quote out of draft.
+    type SendPhase = 'idle' | 'preparing' | 'review' | 'sending' | 'sent' | 'queued';
+    const [sendPhase, setSendPhase] = useState<SendPhase>('idle');
+    const [sendMessage, setSendMessage] = useState('');
+    const [sendInfo, setSendInfo] = useState<string | null>(null);
+    const [windowOpenHint, setWindowOpenHint] = useState<boolean | null>(null);
+
+    async function beginSend() {
+        setCardError(null);
+        setSendPhase('preparing');
+        try {
+            const q = await persistQuote();
+            const res = await fetch(`/api/agents/quote-prep/${card.id}/draft-send-message`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ slug: q.slug }),
+            });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(detail.message || detail.error || 'Could not draft the message');
+            setSendMessage(detail.body);
+            setWindowOpenHint(detail.windowOpen ?? null);
+            setSendPhase('review');
+        } catch (e: any) {
+            setCardError(e.message);
+            setSendPhase('idle');
+        }
+    }
+
+    async function confirmSend() {
+        if (!saved) return;
+        setCardError(null);
+        setSendPhase('sending');
+        try {
+            const res = await fetch(`/api/agents/quote-prep/${card.id}/send-quote`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ slug: saved.slug, body: sendMessage }),
+            });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(detail.message || detail.error || 'Send failed');
+            if (detail.queued) {
+                setSendInfo(detail.message ?? 'Window shut, queued for approval when the window reopens.');
+                setSendPhase('queued');
+            } else {
+                if (detail.partial) setSendInfo(detail.message ?? null);
+                setSendPhase('sent');
+            }
+            onRefresh();
+        } catch (e: any) {
+            setCardError(e.message);
+            setSendPhase('review');
+        }
+    }
+
+    const linkPresent = !!saved && sendMessage.includes(`/quote/${saved.slug}`);
+    // Line edits are frozen once a send is under way — the persisted quote must match the card.
+    const editingLocked = sendPhase !== 'idle';
 
     const openFullBuilder = () => {
         // Same handoff the old flow used — the builder's prefill effect consumes it.
@@ -1183,9 +1332,54 @@ function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
                 </div>
             )}
 
-            <ol className="mb-2 list-decimal space-y-1 pl-5 text-xs text-slate-800">
-                {jobLines.map((line, i) => <li key={i}>{line}</li>)}
-            </ol>
+            {/* Editable job lines with the engine's live £ per line and running total. */}
+            <div className="mb-2 space-y-1">
+                {lines.map((line, i) => (
+                    <div key={line.key} className="flex items-center gap-1.5">
+                        <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-slate-400">{i + 1}.</span>
+                        <input
+                            value={line.description}
+                            onChange={(e) => setLines((prev) => prev.map((l) =>
+                                // Rewording a line sends it back through the parser so its
+                                // category and minutes match the new description.
+                                l.key === line.key ? { ...l, description: e.target.value, category: null, estimatedMinutes: null } : l,
+                            ))}
+                            disabled={editingLocked}
+                            placeholder="Describe the work…"
+                            className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-1 text-xs text-slate-800 focus:border-slate-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                        />
+                        <span className="w-12 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-600">
+                            {priced?.perLine.has(line.key) ? formatPence(priced.perLine.get(line.key)!) : '…'}
+                        </span>
+                        <button
+                            onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
+                            disabled={editingLocked || lines.length <= 1}
+                            title="Remove line"
+                            className="shrink-0 text-slate-300 hover:text-red-600 disabled:opacity-30"
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
+                ))}
+                <div className="flex items-center justify-between pl-5">
+                    <button
+                        onClick={() => setLines((prev) => [...prev, {
+                            key: `prep_add_${nextLineKeyRef.current++}`, description: '', category: null, estimatedMinutes: null,
+                        }])}
+                        disabled={editingLocked}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 disabled:opacity-40"
+                    >
+                        + Add line
+                    </button>
+                    <div className="flex items-center gap-1.5 text-xs">
+                        {pricingBusy && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+                        <span className="text-[10px] font-semibold uppercase text-slate-400">Engine total</span>
+                        <span className="text-sm font-bold tabular-nums text-slate-900">
+                            {priced ? formatPence(priced.totalPence) : '—'}
+                        </span>
+                    </div>
+                </div>
+            </div>
 
             {intake.assumptions?.length > 0 && (
                 <p className="mb-2 text-[11px] italic text-slate-500">
@@ -1230,36 +1424,105 @@ function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
                 </div>
             )}
 
-            {saved ? (
-                <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
-                    <span className="font-medium">
-                        Draft saved{saved.total ? ` at ${saved.total}` : ''}. Nothing sent to the customer.
-                    </span>
-                    <a
-                        href={`/admin/quotes/${saved.slug}/edit`}
-                        className="shrink-0 rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-emerald-700"
-                    >
-                        Open in builder
-                    </a>
+            {(sendPhase === 'review' || sendPhase === 'sending') ? (
+                /* Ben's approval gate: the agent-drafted burst, editable, with Send as the approval. */
+                <div className="rounded-lg border border-slate-300 bg-slate-50 p-2.5">
+                    <div className="mb-1.5 flex items-center gap-2 text-[11px] font-bold uppercase text-slate-700">
+                        <Bot className="h-3.5 w-3.5" /> Message to the customer — edit, then send
+                        {windowOpenHint === false && (
+                            <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[9px] text-white">window shut — template or queue</span>
+                        )}
+                    </div>
+                    <textarea
+                        value={sendMessage}
+                        onChange={(e) => setSendMessage(e.target.value)}
+                        disabled={sendPhase === 'sending'}
+                        rows={Math.min(10, Math.max(4, sendMessage.split('\n').length + 1))}
+                        className="w-full rounded border border-slate-300 bg-white p-2 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-100"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-500">A line with only --- splits into separate WhatsApp messages.</p>
+                    {!linkPresent && (
+                        <p className="mt-1 text-[11px] font-semibold text-red-700">
+                            The quote link is missing. Put it back or the customer gets words with no quote.
+                        </p>
+                    )}
+                    <div className="mt-2 flex items-center gap-2">
+                        <button
+                            onClick={confirmSend}
+                            disabled={sendPhase === 'sending' || !linkPresent || !sendMessage.trim()}
+                            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                            {sendPhase === 'sending' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                            {sendPhase === 'sending' ? 'Sending…' : `Send quote${saved?.total ? ` (${saved.total})` : ''}`}
+                        </button>
+                        <button
+                            onClick={() => setSendPhase('idle')}
+                            disabled={sendPhase === 'sending'}
+                            className="rounded px-2 py-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40"
+                        >
+                            Back
+                        </button>
+                    </div>
+                </div>
+            ) : sendPhase === 'sent' ? (
+                <div className="rounded-lg bg-emerald-600 px-3 py-2 text-xs text-white">
+                    <p className="font-bold">
+                        Quote sent{saved?.total ? ` at ${saved.total}` : ''}. Thread moved to Waiting.
+                    </p>
+                    {sendInfo && <p className="mt-0.5 font-medium text-emerald-100">{sendInfo}</p>}
+                    {saved && (
+                        <a href={`/quote/${saved.slug}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold underline underline-offset-2">
+                            View what they received
+                        </a>
+                    )}
+                </div>
+            ) : sendPhase === 'queued' ? (
+                <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <p className="font-bold">Window shut — queued for approval when the window reopens.</p>
+                    {sendInfo && <p className="mt-0.5">{sendInfo}</p>}
                 </div>
             ) : (
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => saveDraft.mutate()}
-                        disabled={saveDraft.isPending || !intake.customerName || jobLines.length === 0}
-                        title={intake.customerName ? 'Prices through the quote engine and saves an unsent draft' : 'Needs a name first'}
-                        className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-50"
-                    >
-                        {saveDraft.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                        {saveDraft.isPending ? 'Pricing & saving…' : 'Save quote (unsent draft)'}
-                    </button>
-                    <button
-                        onClick={openFullBuilder}
-                        className="flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900"
-                    >
-                        <ExternalLink className="h-3 w-3" /> Open full builder
-                    </button>
-                </div>
+                <>
+                    {saved && (
+                        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
+                            <span className="font-medium">
+                                Draft saved{saved.total ? ` at ${saved.total}` : ''}. Nothing sent to the customer.
+                            </span>
+                            <a
+                                href={`/admin/quotes/${saved.slug}/edit`}
+                                className="shrink-0 rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-emerald-700"
+                            >
+                                Open in builder
+                            </a>
+                        </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => saveDraft.mutate()}
+                            disabled={saveDraft.isPending || sendPhase === 'preparing' || !intake.customerName || lines.length === 0}
+                            title={intake.customerName ? 'Prices through the quote engine and saves an unsent draft' : 'Needs a name first'}
+                            className="flex items-center gap-1.5 rounded-lg border border-slate-900 px-3 py-1.5 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                            {saveDraft.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                            {saveDraft.isPending ? 'Saving…' : saved ? 'Re-save draft' : 'Save draft'}
+                        </button>
+                        <button
+                            onClick={beginSend}
+                            disabled={saveDraft.isPending || sendPhase === 'preparing' || !intake.customerName || lines.length === 0}
+                            title={intake.customerName ? 'Creates the quote, drafts the WhatsApp message for your review, then you send' : 'Needs a name first'}
+                            className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-50"
+                        >
+                            {sendPhase === 'preparing' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                            {sendPhase === 'preparing' ? 'Pricing & drafting…' : 'Send quote…'}
+                        </button>
+                        <button
+                            onClick={openFullBuilder}
+                            className="ml-auto flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900"
+                        >
+                            <ExternalLink className="h-3 w-3" /> Builder
+                        </button>
+                    </div>
+                </>
             )}
         </div>
     );
