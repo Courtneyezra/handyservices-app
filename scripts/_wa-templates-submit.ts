@@ -49,6 +49,13 @@ const TEMPLATES: Tpl[] = [
         variables: { '1': 'Roshan', '2': 'the grab rails and bathroom light', '3': 'https://handyservices.app/quote/ab12cd34' },
     },
     {
+        name: 'missed_call_ack',
+        category: 'UTILITY',
+        purpose: 'Answer a missed call. A call does NOT open the freeform window, so calls almost always need a template',
+        body: 'Hi {{1}}, sorry we missed your call. Tell us what needs doing and we will price it up for you, or we will try you again shortly.',
+        variables: { '1': 'Marc' },
+    },
+    {
         name: 'postcode_request',
         category: 'UTILITY',
         purpose: 'Ask for the postcode when it is the last thing blocking a quote (postcode only, never the address)',
