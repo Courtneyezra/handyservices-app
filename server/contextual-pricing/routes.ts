@@ -1817,6 +1817,12 @@ const contextualQuoteInputSchema = z.object({
   // gate is on, so the customer page always has a real amount to charge.
   surveyRequired: z.boolean().optional(),
   surveyFeePence: z.number().int().nonnegative().optional(),
+
+  // Unsent draft (in-chat quote card in /admin/comms). Persisted through the
+  // normal creation path so the draft is resumable like any quote, but flagged
+  // so customer-facing automations skip it. A builder save omits the flag, so
+  // resuming + saving clears draft status — that's Ben taking the quote over.
+  isDraft: z.boolean().optional(),
 }).refine(
   (v) => !v.surveyRequired || (typeof v.surveyFeePence === 'number' && v.surveyFeePence > 0),
   { message: 'surveyFeePence must be a positive amount when surveyRequired is true', path: ['surveyFeePence'] },
@@ -2793,6 +2799,10 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         const uncovered = new Set(marginPreviewData.uncoveredCategories ?? []).size;
         return Math.round(((total - uncovered) / total) * 100);
       })(),
+
+      // Draft flag: on edit this is included in editableFields, so a builder save
+      // (which never sends isDraft) clears a comms-card draft back to a normal quote.
+      isDraft: input.isDraft ?? false,
 
       createdAt: new Date(),
       // Price-banded validity window — anchors the customer page's price-lock timer

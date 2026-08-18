@@ -20,6 +20,7 @@ import {
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText,
+    ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -125,6 +126,18 @@ interface AgentQuestion {
 interface QuickReply {
     id: string; label: string; body: string;
     shortcut: string | null; contentSid: string | null;
+}
+
+/** The quote-prep agent's structured intake — what the in-chat review card renders. */
+interface QuoteIntake {
+    customerName: string | null;
+    phone: string;
+    postcode: string | null;
+    customerType?: 'homeowner' | 'landlord' | 'letting_agent' | 'business';
+    jobSummary: string;
+    assumptions: string[];
+    missing: string[];
+    urgency: 'low' | 'med' | 'high';
 }
 
 interface Sender {
@@ -623,8 +636,15 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     };
 
     // Quote-prep agent: reads the whole thread (media included), returns a structured intake,
-    // and we carry it into the contextual builder via sessionStorage (same pattern as the old
-    // call-log prefill). The agent never prices; Ben does that in the builder.
+    // rendered as a compact review card right here in the thread panel. The full builder stays
+    // one click away (sessionStorage handoff, same as the old flow) for complex quotes.
+    // The agent never prices; the card's Save runs the same engine the builder uses.
+    const [intake, setIntake] = useState<QuoteIntake | null>(null);
+    // Bumped per run so a re-prep remounts the card (fresh ticks/type from the new intake).
+    const [intakeRun, setIntakeRun] = useState(0);
+    // ThreadPanel is one instance across card switches — without this, another
+    // customer's intake card would linger on the newly opened thread.
+    useEffect(() => { setIntake(null); }, [card.id]);
     const prepQuote = useMutation({
         mutationFn: async () => {
             const res = await fetch(`/api/agents/quote-prep/${card.id}`, {
@@ -632,14 +652,30 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             });
             const detail = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(detail.message || detail.error || 'Quote prep failed');
-            return detail as { intake: any };
+            return detail as { intake: QuoteIntake };
         },
-        onSuccess: ({ intake }) => {
-            sessionStorage.setItem('quoteFromComms', JSON.stringify(intake));
-            window.location.href = '/admin/generate-contextual-quote';
+        onSuccess: ({ intake: fresh }) => {
+            setError(null);
+            setIntake(fresh);
+            setIntakeRun((n) => n + 1);
         },
         onError: (e: Error) => setError(e.message),
     });
+
+    // The thread's photos and videos, offered on the card as tickable thumbnails.
+    // Deduped by URL; audio and documents can't illustrate a quote so they're skipped.
+    const threadMedia = useMemo(() => {
+        const seen = new Map<string, ThreadMessage>();
+        for (const m of data?.messages ?? []) {
+            if (!m.mediaUrl || seen.has(m.mediaUrl)) continue;
+            const mime = m.mediaType ?? '';
+            if (mime.startsWith('audio/') || m.type === 'audio') continue;
+            if (mime.startsWith('image/') || mime.startsWith('video/') || m.type === 'image' || m.type === 'video' || mime === '') {
+                seen.set(m.mediaUrl, m);
+            }
+        }
+        return [...seen.values()];
+    }, [data?.messages]);
 
     const sendFreeform = useMutation({
         mutationFn: async (body: string) => {
@@ -837,6 +873,18 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 )}
             </div>
 
+            {/* Quote-prep review card — the intake as a compact card, not a page jump. */}
+            {intake && (
+                <QuotePrepCard
+                    key={intakeRun}
+                    intake={intake}
+                    card={card}
+                    media={threadMedia}
+                    onDismiss={() => setIntake(null)}
+                    onRefresh={refresh}
+                />
+            )}
+
             {/* The agent's pending work on this thread: questions it's blocked on, then drafts
                 awaiting approval. Above the composer so a decision is never below the fold. */}
             {((data?.questions?.length ?? 0) > 0 || (data?.drafts?.length ?? 0) > 0) && (
@@ -943,6 +991,277 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 </div>
             </div>
         </aside>
+    );
+}
+
+// ---------------------------------------------------------------- quote-prep card
+
+const CUSTOMER_TYPE_OPTIONS = [
+    { value: 'homeowner', label: 'Homeowner' },
+    { value: 'landlord', label: 'Landlord' },
+    { value: 'letting_agent', label: 'Letting agent' },
+    { value: 'business', label: 'Business' },
+] as const;
+
+/**
+ * The compact review card a "Prep quote" run renders in the thread panel: who, where,
+ * customer type, the job line by line, and the thread's photos/videos as tickable
+ * thumbnails (all ticked — images and videos on the quote lift conversion; Ben unticks).
+ *
+ * Save = an UNSENT DRAFT through the builder's own creation path (parse-job → the same
+ * pricing engine, isDraft flag) — resumable from the quotes list, nothing reaches the
+ * customer. Missing name/postcode shows a waiting chip and a one-tap ask that queues a
+ * brand-voice draft into the approval queue below; that draft also only sends if approved.
+ */
+function QuotePrepCard({ intake, card, media, onDismiss, onRefresh }: {
+    intake: QuoteIntake;
+    card: BoardCard;
+    media: ThreadMessage[];
+    onDismiss: () => void;
+    onRefresh: () => void;
+}) {
+    const [customerType, setCustomerType] = useState<string>(intake.customerType || 'homeowner');
+    const [ticked, setTicked] = useState<Record<string, boolean>>(
+        () => Object.fromEntries(media.filter((m) => m.mediaUrl).map((m) => [m.mediaUrl!, true])),
+    );
+    const [saved, setSaved] = useState<{ slug: string; total: string | null } | null>(null);
+    const [cardError, setCardError] = useState<string | null>(null);
+
+    const jobLines = useMemo(() =>
+        String(intake.jobSummary || '')
+            .split(/\n(?=\d+\.\s)/)
+            .map((l) => l.replace(/^\d+\.\s*/, '').trim())
+            .filter(Boolean),
+    [intake.jobSummary]);
+
+    // A field is "waiting" when the agent couldn't extract it — the null is the
+    // signal; missing[] wording is only a fallback for older intake payloads.
+    const waitingOn = [
+        !intake.customerName || intake.missing?.some((m) => /\bname\b/i.test(m) && !intake.customerName) ? 'name' : null,
+        !intake.postcode ? 'postcode' : null,
+    ].filter((f): f is string => !!f);
+
+    const isVideo = (m: ThreadMessage) => (m.mediaType ?? '').startsWith('video/') || m.type === 'video';
+
+    const askCustomer = useMutation({
+        mutationFn: async () => {
+            const res = await fetch(`/api/agents/quote-prep/${card.id}/request-details`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ fields: waitingOn }),
+            });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(detail.error || 'Could not queue the ask');
+            return detail as { queued: boolean; draftId: string | null };
+        },
+        onSuccess: () => { setCardError(null); onRefresh(); },
+        onError: (e: Error) => setCardError(e.message),
+    });
+
+    const saveDraft = useMutation({
+        mutationFn: async () => {
+            const auth = { 'Content-Type': 'application/json', ...getAuthHeaders() };
+
+            // Same two steps as the builder: the AI parser structures the lines
+            // (category + realistic minutes), then the multi-line engine prices them.
+            const parseRes = await fetch('/api/pricing/parse-job', {
+                method: 'POST', headers: auth,
+                body: JSON.stringify({
+                    description: jobLines.map((l, i) => `${i + 1}. ${l}`).join('\n').slice(0, 2000),
+                }),
+            });
+            const parsed = await parseRes.json().catch(() => ({}));
+            if (!parseRes.ok || !Array.isArray(parsed.lines) || parsed.lines.length === 0) {
+                throw new Error(parsed.error || 'Could not structure the job lines');
+            }
+
+            const photos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && !isVideo(m)).map((m) => m.mediaUrl!).slice(0, 10);
+            const videos = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl] && isVideo(m)).map((m) => m.mediaUrl!).slice(0, 5);
+            const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+
+            const res = await fetch('/api/pricing/create-contextual-quote', {
+                method: 'POST', headers: auth,
+                body: JSON.stringify({
+                    isDraft: true,
+                    customerName: intake.customerName,
+                    phone: intake.phone,
+                    postcode: intake.postcode || undefined,
+                    customerType,
+                    jobDescription: jobLines.join('; '),
+                    lines: parsed.lines.map((line: any, i: number) => ({
+                        id: line.id || `prep_${Date.now()}_${i}`,
+                        description: line.description,
+                        category: line.category,
+                        estimatedMinutes: line.timeEstimateMinutes,
+                        materialsCostPence: 0,
+                    })),
+                    signals: { urgency: intake.urgency === 'high' ? 'priority' : 'standard' },
+                    ...(intake.assumptions?.length ? { quoteAssumptions: intake.assumptions } : {}),
+                    vaContext: [
+                        'Draft saved from the comms thread (quote-prep agent intake). Review before sending.',
+                        intake.missing?.length ? `Still missing: ${intake.missing.join('; ')}` : '',
+                    ].filter(Boolean).join(' ').slice(0, 2000),
+                    sourceChannel: 'whatsapp',
+                    ...(photos.length ? { customerPhotoUrls: photos } : {}),
+                    ...(videos.length ? { customerVideoUrls: videos } : {}),
+                    createdBy: adminUser?.id || undefined,
+                    createdByName: adminUser?.name || adminUser?.email || undefined,
+                }),
+            });
+            const out = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(out.message || out.error || 'Could not save the draft');
+            return { slug: out.shortSlug as string, total: out.pricing?.totalFormatted ?? null };
+        },
+        onSuccess: (r) => { setCardError(null); setSaved(r); },
+        onError: (e: Error) => setCardError(e.message),
+    });
+
+    const openFullBuilder = () => {
+        // Same handoff the old flow used — the builder's prefill effect consumes it.
+        sessionStorage.setItem('quoteFromComms', JSON.stringify({ ...intake, customerType }));
+        window.location.href = '/admin/generate-contextual-quote';
+    };
+
+    return (
+        <div className="max-h-[46vh] overflow-y-auto border-t-2 border-slate-900 bg-white p-3 text-sm">
+            <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-slate-700" />
+                    <span className="text-xs font-bold uppercase tracking-wide text-slate-900">Quote prep — review</span>
+                    {intake.urgency === 'high' && (
+                        <span className="rounded bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">Urgent</span>
+                    )}
+                </div>
+                <button onClick={onDismiss} className="text-slate-400 hover:text-slate-700" title="Dismiss card">
+                    <X className="h-4 w-4" />
+                </button>
+            </div>
+
+            <div className="mb-2 grid grid-cols-3 gap-2 text-xs">
+                <div>
+                    <p className="text-[10px] font-semibold uppercase text-slate-400">Name</p>
+                    <p className={cn('truncate font-medium', intake.customerName ? 'text-slate-900' : 'text-amber-700')}>
+                        {intake.customerName || 'waiting on name'}
+                    </p>
+                </div>
+                <div>
+                    <p className="text-[10px] font-semibold uppercase text-slate-400">Postcode</p>
+                    <p className={cn('truncate font-medium', intake.postcode ? 'text-slate-900' : 'text-amber-700')}>
+                        {intake.postcode || 'waiting on postcode'}
+                    </p>
+                </div>
+                <div>
+                    <p className="text-[10px] font-semibold uppercase text-slate-400">Customer type</p>
+                    <select
+                        value={customerType}
+                        onChange={(e) => setCustomerType(e.target.value)}
+                        className="w-full rounded border border-slate-300 px-1 py-0.5 text-xs focus:border-slate-500 focus:outline-none"
+                    >
+                        {CUSTOMER_TYPE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            {waitingOn.length > 0 && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                    <span className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 shrink-0" />
+                        Waiting on {waitingOn.join(' and ')}
+                    </span>
+                    <button
+                        onClick={() => askCustomer.mutate()}
+                        disabled={askCustomer.isPending || askCustomer.isSuccess}
+                        className="shrink-0 rounded bg-amber-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-amber-700 disabled:opacity-60"
+                    >
+                        {askCustomer.isPending ? 'Queueing…'
+                            : askCustomer.isSuccess
+                                ? (askCustomer.data?.queued ? 'Ask queued for approval' : 'Already queued')
+                                : 'Ask the customer'}
+                    </button>
+                </div>
+            )}
+
+            <ol className="mb-2 list-decimal space-y-1 pl-5 text-xs text-slate-800">
+                {jobLines.map((line, i) => <li key={i}>{line}</li>)}
+            </ol>
+
+            {intake.assumptions?.length > 0 && (
+                <p className="mb-2 text-[11px] italic text-slate-500">
+                    Price will assume: {intake.assumptions.join('; ')}
+                </p>
+            )}
+
+            {media.length > 0 && (
+                <div className="mb-2">
+                    <p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">
+                        On the quote (tap to untick)
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                        {media.map((m) => (
+                            <button
+                                key={m.mediaUrl!}
+                                onClick={() => setTicked((t) => ({ ...t, [m.mediaUrl!]: !t[m.mediaUrl!] }))}
+                                className={cn(
+                                    'relative h-14 w-14 overflow-hidden rounded-lg border-2',
+                                    ticked[m.mediaUrl!] ? 'border-emerald-600' : 'border-slate-200 opacity-40',
+                                )}
+                                title={isVideo(m) ? 'Video' : 'Photo'}
+                            >
+                                {isVideo(m)
+                                    ? <video src={m.mediaUrl!} preload="metadata" muted className="h-full w-full object-cover" />
+                                    : <img src={m.mediaUrl!} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                                {ticked[m.mediaUrl!] && (
+                                    <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-600 p-0.5">
+                                        <Check className="h-2.5 w-2.5 text-white" />
+                                    </span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {cardError && (
+                <div className="mb-2 flex items-start gap-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{cardError}</span>
+                </div>
+            )}
+
+            {saved ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
+                    <span className="font-medium">
+                        Draft saved{saved.total ? ` at ${saved.total}` : ''}. Nothing sent to the customer.
+                    </span>
+                    <a
+                        href={`/admin/quotes/${saved.slug}/edit`}
+                        className="shrink-0 rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-emerald-700"
+                    >
+                        Open in builder
+                    </a>
+                </div>
+            ) : (
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => saveDraft.mutate()}
+                        disabled={saveDraft.isPending || !intake.customerName || jobLines.length === 0}
+                        title={intake.customerName ? 'Prices through the quote engine and saves an unsent draft' : 'Needs a name first'}
+                        className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                        {saveDraft.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                        {saveDraft.isPending ? 'Pricing & saving…' : 'Save quote (unsent draft)'}
+                    </button>
+                    <button
+                        onClick={openFullBuilder}
+                        className="flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900"
+                    >
+                        <ExternalLink className="h-3 w-3" /> Open full builder
+                    </button>
+                </div>
+            )}
+        </div>
     );
 }
 

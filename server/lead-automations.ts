@@ -18,7 +18,7 @@
 
 import { db } from "./db";
 import { leads, personalizedQuotes, calls, type LeadStage } from "@shared/schema";
-import { eq, desc, and, lt, isNull, isNotNull, or, ne } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, isNotNull, or, ne, sql } from "drizzle-orm";
 import { updateLeadStage, STAGE_SLA_HOURS } from "./lead-stage-engine";
 import { sendWhatsAppMessage, canSendFreeform } from "./meta-whatsapp";
 import { checkWebFormFollowups } from "./services/webform-chase-service";
@@ -191,7 +191,10 @@ async function checkQuoteSentReminders(): Promise<AutomationResult[]> {
                 isNull(personalizedQuotes.viewedAt),
                 isNull(personalizedQuotes.reminderSentAt), // DEDUP: only if not already reminded
                 lt(personalizedQuotes.createdAt, cutoffTime),
-                isNotNull(personalizedQuotes.phone)
+                isNotNull(personalizedQuotes.phone),
+                // Unsent drafts were never messaged — reminding about one would be
+                // the exact never-sent-invoice failure the dunning incident taught.
+                sql`${personalizedQuotes.isDraft} IS NOT TRUE`
             )
         )
         .limit(10);
@@ -267,7 +270,9 @@ async function checkQuoteViewedFollowups(): Promise<AutomationResult[]> {
                 isNull(personalizedQuotes.selectedAt),
                 isNull(personalizedQuotes.followupSentAt), // DEDUP: only if not already followed up
                 lt(personalizedQuotes.viewedAt, cutoffTime),
-                isNotNull(personalizedQuotes.phone)
+                isNotNull(personalizedQuotes.phone),
+                // A viewed draft shouldn't exist, but never chase one regardless.
+                sql`${personalizedQuotes.isDraft} IS NOT TRUE`
             )
         )
         .limit(10);

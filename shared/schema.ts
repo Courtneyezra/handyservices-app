@@ -1171,6 +1171,12 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     deliveryChannel: varchar("delivery_channel", { length: 20 }), // whatsapp | sms | email
     deliveryStatus: varchar("delivery_status", { length: 20 }), // pending | delivered | read | failed
 
+    // Unsent draft (saved from the in-chat quote card in /admin/comms). A draft
+    // is resumable from the quotes list / builder but must never reach the
+    // customer: customer-facing automations skip it, and a normal builder save
+    // (no isDraft flag) clears it — that's Ben taking the quote over.
+    isDraft: boolean("is_draft").default(false),
+
     // Revocation
     revokedAt: timestamp("revoked_at"),
 

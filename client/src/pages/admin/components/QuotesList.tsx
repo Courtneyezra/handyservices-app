@@ -37,6 +37,8 @@ interface PersonalizedQuote {
     elitePrice: number | null;
     visitTierMode?: 'tiers' | 'fixed' | null;
     regenerationCount?: number | null;
+    // Unsent draft saved from the in-chat quote card — resumable via edit, never messaged
+    isDraft?: boolean | null;
     // Payment fields
     depositPaidAt: string | null;
     depositAmountPence: number | null;
@@ -155,6 +157,11 @@ export function QuotesList({ quotes, onDelete, onRenew, renewingId, onEdit, link
                                 </TableCell>
                                 <TableCell>
                                     <div className="flex flex-wrap gap-1">
+                                        {quote.isDraft && (
+                                            <Badge variant="outline" className="text-amber-700 border-amber-400 bg-amber-50 text-[10px]" title="Saved from the comms thread — not sent to the customer yet. Open in the builder to finish and send.">
+                                                <FileEdit className="h-3 w-3 mr-0.5" /> Draft
+                                            </Badge>
+                                        )}
                                         {quote.viewedAt && (
                                             <Badge variant="outline" className="text-green-600 border-green-600 text-[10px]">
                                                 Opened

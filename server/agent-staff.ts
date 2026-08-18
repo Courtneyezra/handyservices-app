@@ -8,8 +8,9 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { messageDrafts, agentQuestions, appSettings } from '@shared/schema';
+import { messageDrafts, agentQuestions, appSettings, conversations } from '@shared/schema';
 import { eq, and, gte, sql } from 'drizzle-orm';
+import { queueDraft } from './message-drafts';
 import { STAFF as opsBriefStaff, SYSTEM as opsBriefSystem } from './agents/ops-brief';
 import { STAFF as recoveryStaff, SYSTEM as recoverySystem } from './agents/recovery';
 import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig } from './agents/comms';
@@ -105,6 +106,50 @@ agentStaffRouter.get('/staff', async (_req, res) => {
     } catch (error: any) {
         console.error('[AgentStaff] Failed to build directory:', error);
         res.status(500).json({ error: 'Failed to load staff directory' });
+    }
+});
+
+// POST /api/agents/quote-prep/:conversationId/request-details — queue the "what's the
+// postcode / what name goes on the quote" ask into the comms draft queue. Deterministic
+// copy (brand voice: whatsapp-comms.md — postcode only, never full address, no em dashes,
+// short bursts split by '---'). Nothing sends here: the draft waits for Ben's approval.
+agentStaffRouter.post('/quote-prep/:conversationId/request-details', async (req, res) => {
+    try {
+        const fields: string[] = Array.isArray(req.body?.fields) ? req.body.fields : [];
+        const wantName = fields.includes('name');
+        const wantPostcode = fields.includes('postcode');
+        if (!wantName && !wantPostcode) {
+            return res.status(400).json({ error: "fields must include 'name' and/or 'postcode'" });
+        }
+
+        const [conv] = await db.select().from(conversations)
+            .where(eq(conversations.id, req.params.conversationId));
+        if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+        const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
+        if (!digits) return res.status(422).json({ error: 'Conversation has no usable phone' });
+
+        // One question max per reply: the postcode gets the question, the name rides
+        // along as a statement. Never the full address — that's collected at booking.
+        const body = wantPostcode && wantName
+            ? 'Nearly ready to price this up for you.\n---\nWhat’s the postcode? Just so we can price it properly.\n---\nAnd a name to put on the quote would help too.'
+            : wantPostcode
+                ? 'Quick one so we can get your quote sorted.\n---\nWhat’s the postcode? Just so we can price it properly.'
+                : 'Nearly ready to send your quote over.\n---\nWhat name should we put on it?';
+
+        const missing = [wantName ? 'name' : null, wantPostcode ? 'postcode' : null].filter(Boolean).join(' + ');
+        const draftId = await queueDraft({
+            phone: `+${digits}`,
+            body,
+            source: 'comms_agent',
+            reason: `Quote prep is waiting on the customer's ${missing}`,
+        });
+
+        // null = suppressed as a duplicate (an unsent comms_agent draft already exists
+        // for this number) — tell the card so it shows "already queued", not an error.
+        res.json({ queued: !!draftId, draftId });
+    } catch (error: any) {
+        console.error('[QuotePrep] request-details failed:', error);
+        res.status(500).json({ error: error?.message || 'Failed to queue the ask' });
     }
 });
 

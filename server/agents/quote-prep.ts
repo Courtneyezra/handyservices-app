@@ -14,10 +14,14 @@ import { eq, desc, sql } from 'drizzle-orm';
 import { runAgent, type AgentTool } from './runner';
 import { buildMediaBlocks } from './media-context';
 
+export type IntakeCustomerType = 'homeowner' | 'landlord' | 'letting_agent' | 'business';
+
 export interface QuoteIntake {
     customerName: string | null;
     phone: string;
     postcode: string | null;
+    /** Inferred from how the customer talks about the property; homeowner unless signalled. */
+    customerType: IntakeCustomerType;
     /** Builder-ready job description: numbered job lines with the detail the pricing analysis needs. */
     jobSummary: string;
     /** Cover-your-back caveats the quote should carry, from what the media can't confirm. */
@@ -92,12 +96,17 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
                 properties: {
                     customerName: { type: ['string', 'null'], description: 'Real name only; null if unknown or a placeholder.' },
                     postcode: { type: ['string', 'null'], description: 'UK postcode if given anywhere in the thread; null otherwise. Never invent.' },
+                    customerType: {
+                        type: 'string',
+                        enum: ['homeowner', 'landlord', 'letting_agent', 'business'],
+                        description: 'Inferred from the messaging: "my tenant"/"my rental"/BTL → landlord; managing on behalf of a landlord/portfolio/agency → letting_agent; shop/office/company premises → business. Default homeowner when nothing signals otherwise.',
+                    },
                     jobSummary: { type: 'string', description: 'Numbered job lines with the concrete detail visible in text/photos/video. No prices.' },
                     assumptions: { type: 'array', items: { type: 'string' }, description: 'What the price will have to assume because the thread/media cannot confirm it.' },
                     missing: { type: 'array', items: { type: 'string' }, description: 'What we still need before/at booking (e.g. postcode, exact leak source).' },
                     urgency: { type: 'string', enum: ['low', 'med', 'high'] },
                 },
-                required: ['customerName', 'postcode', 'jobSummary', 'assumptions', 'missing', 'urgency'],
+                required: ['customerName', 'postcode', 'customerType', 'jobSummary', 'assumptions', 'missing', 'urgency'],
             },
             run: async (input: any) => {
                 if (/£\s*\d/.test(input.jobSummary ?? '')) {
@@ -107,6 +116,8 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
                     customerName: input.customerName ?? conv.contactName ?? null,
                     phone: e164,
                     postcode: input.postcode ?? null,
+                    customerType: (['homeowner', 'landlord', 'letting_agent', 'business'] as const)
+                        .includes(input.customerType) ? input.customerType : 'homeowner',
                     jobSummary: String(input.jobSummary).slice(0, 4000),
                     assumptions: (input.assumptions ?? []).slice(0, 8).map((s: any) => String(s).slice(0, 200)),
                     missing: (input.missing ?? []).slice(0, 8).map((s: any) => String(s).slice(0, 200)),
@@ -143,7 +154,11 @@ Method:
 4. submit_intake exactly once.
 
 Rules: no prices anywhere. Names: real names only, never placeholders. Postcode only if stated
-somewhere; never inferred. UK English, plain trade language (silicone/reseal, trap, architrave).`;
+somewhere; never inferred. UK English, plain trade language (silicone/reseal, trap, architrave).
+customerType: read HOW they talk about the property — "my tenant"/"my rental"/buy-to-let means
+landlord; acting for a landlord, portfolio or agency means letting_agent; shop/office/company
+premises means business; homeowner otherwise. This one field IS an inference — but from real
+signals in the thread, never a guess dressed as one.`;
 
 /** Staff-directory card — lives beside the agent so /admin/staff can't drift from reality. */
 export const STAFF = {

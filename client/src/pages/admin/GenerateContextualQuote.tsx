@@ -1621,6 +1621,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       if (intake.customerName) setCustomerName(intake.customerName);
       if (intake.phone) setPhone(intake.phone);
       if (intake.postcode) setPostcode(intake.postcode);
+      // Agent-inferred customer type (homeowner default; landlord/letting-agent/
+      // business from messaging signals) — a valid builder value or ignored.
+      if (CUSTOMER_TYPES.some((t) => t.value === intake.customerType)) setCustomerType(intake.customerType);
 
       const lines: string[] = String(intake.jobSummary || '')
         .split(/\n(?=\d+\.\s)/)

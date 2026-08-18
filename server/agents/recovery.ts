@@ -47,6 +47,7 @@ const tools: AgentTool[] = [
                 ) n ON n.quote_id = q.id
                 WHERE q.created_at >= now() - interval '21 days'
                   AND q.deposit_paid_at IS NULL
+                  AND q.is_draft IS NOT TRUE -- unsent drafts: the customer has never seen them, nothing to recover
                   AND ${SCRUB}
                   AND COALESCE(n.total, 0) < 3
                   AND (n.last_at IS NULL OR n.last_at < now() - interval '5 days')
