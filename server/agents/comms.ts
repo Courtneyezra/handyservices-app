@@ -312,6 +312,13 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 required: ['body', 'reason', 'intent'],
             },
             run: async (input: { body: string; reason: string; intent: string; quote_slug?: string; price_source?: string }) => {
+                // Deliverability guard, checked first: freeform only reaches a customer while the
+                // 24h window is open. Drafting prose into a shut window fills the approval queue
+                // with messages nobody can send, so refuse and point at the routes that do work.
+                if (!(await canSendFreeform(e164).catch(() => false))) {
+                    throw new Error('The 24-hour window is shut, so a freeform reply cannot be delivered. Do not draft prose. Use ask_ben to get a decision from Ben, who can send an approved template instead.');
+                }
+
                 // Money guard: a £ in the body must trace to a source a human controls — a real
                 // quote for this customer, or a figure Ben himself gave in an answered question.
                 // The one thing that can never happen is the model inventing a number.
@@ -503,6 +510,10 @@ Your trigger tells you why you were called, and it changes the emphasis:
   tag saying why; genuinely worth reviving → tag revive_candidate and ask_ben how to approach it;
   draft only if the window is somehow open. Do not draft into a shut window.
 
+DELIVERABILITY FIRST: get_thread tells you whatsappWindowOpen. When it is FALSE a freeform reply
+cannot be delivered at all, so drafting prose is wasted work and queue_draft will refuse it. Do
+the triage, then ask_ben — he can send an approved template. Never spend a draft on a shut window.
+
 HARD RULES — these are not preferences:
 - You never send anything. Drafts go to approval. That is the design, not a limitation.
 - Prices come ONLY from quotes (cite quote_slug) or from Ben's explicit answer to your question
@@ -605,6 +616,15 @@ export async function sweepCommsAgent(opts: { limit?: number; dryRun?: boolean }
         // Already has agent work parked on it → the human is the bottleneck, not us.
         const parked = await hasPendingAgentWork(conv.id, digits);
         if (parked) { skipped.push({ conversationId: conv.id, why: parked }); continue; }
+
+        // A shut window makes a freeform reply undeliverable, so an LLM run here can only
+        // produce a draft nobody can send. Skip BEFORE spending the tokens. These threads are
+        // not abandoned: the weekly backlog lane triages them (template or ask-Ben), and the
+        // moment the customer messages again the window reopens and the on-inbound lane fires.
+        if (!(await canSendFreeform(`+${digits}`).catch(() => false))) {
+            skipped.push({ conversationId: conv.id, why: 'window shut — freeform undeliverable, backlog lane owns it' });
+            continue;
+        }
 
         eligible.push(conv);
     }
