@@ -298,7 +298,11 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
         console.log('[Meta WhatsApp] Stored message:', messageId);
 
         // On-inbound lane: the comms agent triages this thread after the burst settles.
-        scheduleInboundTriage(conv!.id, phoneNumber);
+        scheduleInboundTriage(conv!.id, phoneNumber, {
+            channel: 'whatsapp',
+            contactName: profileName || conv!.contactName,
+            hasMedia: !!mediaUrl,
+        });
 
         // 3. Broadcast to clients
         broadcast('inbox:message', {
@@ -646,9 +650,13 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
 
     // Store outbound message
     const isVoice = (options?.mediaType ?? '').startsWith('audio/');
-    const messagePreview = isTemplate ? '[Template message]'
+    // A template send that supplies the RENDERED text records that text, so the thread shows what
+    // the customer actually read rather than an opaque SID (which told Ben — and the comms agent
+    // reading the thread — nothing about what we said). Callers that pass no body keep the SID.
+    const templateLabel = body?.trim() ? body : `[Template: ${options?.contentSid}]`;
+    const messagePreview = isTemplate ? templateLabel.substring(0, 50)
         : options?.mediaUrl ? (isVoice ? '🎤 Voice note' : '📎 Media') : body.substring(0, 50);
-    const messageContent = isTemplate ? `[Template: ${options?.contentSid}]` : body;
+    const messageContent = isTemplate ? templateLabel : body;
 
     try {
         let conv = await db.query.conversations.findFirst({

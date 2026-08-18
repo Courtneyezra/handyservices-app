@@ -39,7 +39,7 @@ const WEBFORM_TEMPLATES = {
 export interface WebFormChaseResult {
     leadId: string;
     customerName: string;
-    action: 'ack_sent' | 'followup_sent' | 'marked_needs_chase' | 'skipped' | 'error';
+    action: 'ack_sent' | 'ack_queued' | 'followup_sent' | 'marked_needs_chase' | 'skipped' | 'error';
     message?: string;
     error?: string;
     timestamp: Date;
@@ -96,8 +96,45 @@ export async function processWebFormLead(leadId: string): Promise<WebFormChaseRe
         const firstName = lead.customerName.split(' ')[0];
         const message = WEBFORM_TEMPLATES.IMMEDIATE_ACK(firstName, lead.jobDescription || '');
 
-        // Send WhatsApp message
-        await sendWhatsAppMessage(lead.phone, message);
+        // Draft-and-approve, with one exception. This used to send directly, which meant a repeat
+        // customer filling the form in again got a machine-written message with no human in the
+        // loop. Now it queues like every other system-composed message, and only a genuine FIRST
+        // contact (a number we have never messaged) may skip the queue — the owner's sanctioned
+        // first-touch rule, enforced server-side in first-contact-ack.ts and off by default.
+        const { queueDraft } = await import('../message-drafts');
+        const draftId = await queueDraft({
+            phone: lead.phone,
+            body: message,
+            source: 'webform_ack',
+            reason: `Web form lead ${leadId} (${lead.source}). Immediate acknowledgement.`,
+        });
+
+        if (!draftId) {
+            return {
+                leadId,
+                customerName: lead.customerName,
+                action: 'skipped',
+                message: 'An unsent webform acknowledgement already exists for this number',
+                timestamp: new Date(),
+            };
+        }
+
+        const { maybeAutoSendFirstContactDraft } = await import('../first-contact-ack');
+        const auto = await maybeAutoSendFirstContactDraft(draftId, {
+            phone: lead.phone,
+            channel: 'webform',
+        });
+
+        if (!auto.sent) {
+            console.log(`[WebFormChase] Queued ack draft ${draftId} for ${lead.customerName} (${leadId}) — ${auto.reason}`);
+            return {
+                leadId,
+                customerName: lead.customerName,
+                action: 'ack_queued',
+                message,
+                timestamp: new Date(),
+            };
+        }
 
         // Update lead stage to contacted
         await updateLeadStage(leadId, 'contacted' as LeadStage, {

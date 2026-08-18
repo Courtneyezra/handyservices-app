@@ -31,6 +31,10 @@ import { askBen, markQuestionResolved } from '../agent-questions';
 import { canSendFreeform } from '../meta-whatsapp';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS } from '../comms-sla';
 import { loadActivity } from '../inbox-board';
+import {
+    isFirstContact, FIRST_CONTACT_ACK_INTENTS, DEFAULT_FIRST_CONTACT_ACK,
+    type FirstContactAckConfig, type FirstContactChannel,
+} from '../first-contact-ack';
 
 // ---------------------------------------------------------------- config
 
@@ -48,6 +52,11 @@ export interface CommsAgentConfig {
         /** Intents allowed to skip human approval. Keep this to content-free acknowledgements. */
         intents: string[];
     };
+    /**
+     * The first-contact exception (server/first-contact-ack.ts): a number we have NEVER messaged
+     * may be acknowledged without approval, 24/7. Everything else keeps the gate.
+     */
+    firstContactAutoAck: FirstContactAckConfig;
 }
 
 const SETTING_KEY = 'comms_agent';
@@ -57,6 +66,7 @@ const DEFAULT_CONFIG: CommsAgentConfig = {
     onInbound: true,
     inboundDebounceMinutes: 10,
     autosend: { enabled: false, intents: [] },
+    firstContactAutoAck: DEFAULT_FIRST_CONTACT_ACK,
 };
 
 export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
@@ -64,7 +74,11 @@ export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
         const [row] = await db.select().from(appSettings).where(eq(appSettings.key, SETTING_KEY));
         if (!row) return DEFAULT_CONFIG;
         const stored = row.value as Partial<CommsAgentConfig>;
-        return { ...DEFAULT_CONFIG, ...stored, autosend: { ...DEFAULT_CONFIG.autosend, ...(stored.autosend ?? {}) } };
+        return {
+            ...DEFAULT_CONFIG, ...stored,
+            autosend: { ...DEFAULT_CONFIG.autosend, ...(stored.autosend ?? {}) },
+            firstContactAutoAck: { ...DEFAULT_FIRST_CONTACT_ACK, ...(stored.firstContactAutoAck ?? {}) },
+        };
     } catch (error) {
         console.error('[CommsAgent] Could not read config, treating as disabled:', error);
         return { ...DEFAULT_CONFIG, enabled: false }; // Fail closed.
@@ -77,6 +91,7 @@ export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Pro
         ...current,
         ...patch,
         autosend: { ...current.autosend, ...(patch.autosend ?? {}) },
+        firstContactAutoAck: { ...current.firstContactAutoAck, ...(patch.firstContactAutoAck ?? {}) },
     };
     await db.insert(appSettings)
         .values({
@@ -127,6 +142,14 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     // a dedupe error (which strands the fragment), a repeat queue_draft in the SAME run
     // supersedes the earlier one — the final call always wins.
     let draftedThisRun: string | null = null;
+
+    /** Which surface this customer last came in on — the first-contact config is per channel. */
+    const inboundChannel = async (): Promise<FirstContactChannel> => {
+        const [last] = await db.select({ channel: messages.channel }).from(messages)
+            .where(and(eq(messages.conversationId, conv.id), eq(messages.direction, 'inbound')))
+            .orderBy(desc(messages.createdAt)).limit(1);
+        return last?.channel === 'sms' ? 'sms' : 'whatsapp';
+    };
 
     // ---- tools ----
 
@@ -329,12 +352,31 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // Phase 3: whitelisted intents may auto-send — same claimed-row path a human uses.
                 // Guarded by config (off by default), the intent whitelist, and UK daytime hours.
                 const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
-                if (config.autosend.enabled && config.autosend.intents.includes(input.intent)
-                    && input.intent !== 'other' && ukHour >= 8 && ukHour < 20) {
-                    const sent = await approveAndSendDraft(id, 'comms_agent:autosend');
+                const whitelisted = config.autosend.enabled && input.intent !== 'other'
+                    && config.autosend.intents.includes(input.intent) && ukHour >= 8 && ukHour < 20;
+
+                // The first-contact exception: an acknowledgement to a number we have never
+                // messaged may go out round the clock, so the 8-20 guard above is skipped — but
+                // ONLY here, and only after the same hard server-side first-contact check the
+                // deterministic responder uses. Normally the inbound lane has already acked and
+                // this is false by the time the agent runs; this covers the case where it did not
+                // (process restart, feature switched on mid-thread).
+                const firstContactOk = config.firstContactAutoAck.enabled
+                    && (FIRST_CONTACT_ACK_INTENTS as readonly string[]).includes(input.intent)
+                    && config.firstContactAutoAck.channels.includes(await inboundChannel())
+                    && await isFirstContact({ conversationId: conv.id, phone: e164 });
+
+                if (whitelisted || firstContactOk) {
+                    const by = firstContactOk && !whitelisted ? 'comms_agent:first_contact_ack' : 'comms_agent:autosend';
+                    const sent = await approveAndSendDraft(id, by);
                     if (sent.ok) {
                         autosent = true;
-                        return { queued: true, draftId: id, autosent: true, note: 'Intent is whitelisted — sent immediately.' };
+                        return {
+                            queued: true, draftId: id, autosent: true,
+                            note: firstContactOk && !whitelisted
+                                ? 'First contact with this number — acknowledged immediately.'
+                                : 'Intent is whitelisted — sent immediately.',
+                        };
                     }
                     return { queued: true, draftId: id, autosent: false, note: `Auto-send refused (${sent.code}); left for Ben to approve.` };
                 }
@@ -483,7 +525,11 @@ export const STAFF = {
     cadence: 'On new inbound (debounced ~10 min) · SLA sweep every 30 min working hours · window-closing sweep hourly · all gated on one switch',
     autonomy: {
         freely: ['Move cards, set priority, add tags on the board', 'Read threads, quotes and call transcripts'],
-        approval: ['Every reply — drafted into message_drafts for Ben', 'Whitelisted acks may auto-send ONLY when the autosend gate is on (ships off)'],
+        approval: [
+            'Every reply — drafted into message_drafts for Ben',
+            'Whitelisted acks may auto-send ONLY when the autosend gate is on (ships off), UK 8-20',
+            'FIRST contact only (a number we have never messaged) may be acknowledged automatically, 24/7, content-free — the one sanctioned exception (ships off)',
+        ],
         never: ['Originate a price — £ figures must cite a quote or Ben\'s own answer', 'Promise unconfirmed dates or availability', 'Draft apology commitments on complaints (urgent + ask Ben instead)'],
     },
     tools: [

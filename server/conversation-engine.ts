@@ -335,7 +335,11 @@ export class ConversationEngine {
             console.log('[ConversationEngine] Stored message:', MessageSid);
 
             // On-inbound lane: the comms agent triages this thread after the burst settles.
-            scheduleInboundTriage(conv!.id, phone);
+            scheduleInboundTriage(conv!.id, phone, {
+                channel: channel === 'sms' ? 'sms' : 'whatsapp',
+                contactName: ProfileName || conv!.contactName,
+                hasMedia,
+            });
 
             // 4. Broadcast to all connected clients
             this.broadcast('inbox:message', {

@@ -7,9 +7,17 @@
  *   npx tsx scripts/_comms-agent-config.ts --autosend ack_photos,ack_enquiry   # autosend ON for intents
  *   npx tsx scripts/_comms-agent-config.ts --no-autosend         # autosend OFF
  *   npx tsx scripts/_comms-agent-config.ts --sweep-limit 10
+ *
+ * First-contact auto-acknowledgement (the one sanctioned exception to draft-and-approve — a
+ * number we have NEVER messaged gets an instant content-free ack, 24/7):
+ *
+ *   npx tsx scripts/_comms-agent-config.ts --first-contact-ack       # ON
+ *   npx tsx scripts/_comms-agent-config.ts --no-first-contact-ack    # OFF (ships off)
+ *   npx tsx scripts/_comms-agent-config.ts --first-contact-channels whatsapp,sms
  */
 import 'dotenv/config';
 import { getCommsAgentConfig, setCommsAgentConfig, DRAFT_INTENTS } from '../server/agents/comms';
+import { FIRST_CONTACT_CHANNELS, type FirstContactChannel } from '../server/first-contact-ack';
 
 async function main() {
     const args = process.argv.slice(2);
@@ -28,6 +36,20 @@ async function main() {
             process.exit(1);
         }
         patch = { ...patch, autosend: { enabled: true, intents } };
+    }
+
+    if (args.includes('--first-contact-ack')) patch = { ...patch, firstContactAutoAck: { ...patch?.firstContactAutoAck, enabled: true } };
+    if (args.includes('--no-first-contact-ack')) patch = { ...patch, firstContactAutoAck: { ...patch?.firstContactAutoAck, enabled: false } };
+
+    const channelsIdx = args.indexOf('--first-contact-channels');
+    if (channelsIdx >= 0) {
+        const channels = (args[channelsIdx + 1] || '').split(',').map((s) => s.trim()).filter(Boolean);
+        const invalid = channels.filter((c) => !FIRST_CONTACT_CHANNELS.includes(c as FirstContactChannel));
+        if (invalid.length || channels.length === 0) {
+            console.error(`Invalid channels: ${invalid.join(', ') || '(none given)'}. Allowed: ${FIRST_CONTACT_CHANNELS.join(', ')}`);
+            process.exit(1);
+        }
+        patch = { ...patch, firstContactAutoAck: { ...patch?.firstContactAutoAck, channels: channels as FirstContactChannel[] } };
     }
 
     const limitIdx = args.indexOf('--sweep-limit');

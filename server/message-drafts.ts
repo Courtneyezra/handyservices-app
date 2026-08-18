@@ -18,7 +18,7 @@ import { normalizePhoneNumber } from './phone-utils';
 
 export const messageDraftsRouter = Router();
 
-export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manual' | 'comms_agent';
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack';
 
 /**
  * Queues a message for approval. Returns the draft id, or null if it was suppressed.

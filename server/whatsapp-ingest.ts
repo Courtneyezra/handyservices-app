@@ -234,7 +234,13 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
         }
 
         // On-inbound lane: the comms agent triages this thread after the burst settles.
-        if (direction === 'inbound') scheduleInboundTriage(conv!.id, phoneNumber);
+        if (direction === 'inbound') {
+            scheduleInboundTriage(conv!.id, phoneNumber, {
+                channel: 'whatsapp',
+                contactName: contactName || conv!.contactName,
+                hasMedia: !!mediaUrl,
+            });
+        }
 
         // --- 4. Broadcast to connected admin UI clients (WebSocket) ---
         try {

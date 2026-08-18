@@ -16,6 +16,12 @@
  *    is sent.
  *
  * Enable with:  npx tsx scripts/_post-call-outreach-toggle.ts on
+ *
+ * One exception to the approval queue: when the caller is a genuine FIRST contact (a number we
+ * have never messaged), the queued draft may auto-send — the owner's sanctioned first-touch rule,
+ * enforced server-side in first-contact-ack.ts and off by default. The quiet-hours guard below
+ * still applies here: unlike a freeform acknowledgement, this template's wording is fixed by Meta
+ * and cannot say "we'll come back to you first thing", so a 2am send would read as a live human.
  */
 import { db } from './db';
 import { calls, leads, appSettings, messages, conversations } from '@shared/schema';
@@ -234,11 +240,26 @@ export async function maybeSendPostCallVideoRequest(input: {
 
         if (!draftId) return { sent: false, reason: 'DUPLICATE_DRAFT' };
 
+        // The first-contact exception: a caller we have never messaged is exactly the case the
+        // owner sanctioned for auto-acknowledgement, and a video request is worth most while the
+        // call is still fresh. The guard is server-side and lives in first-contact-ack.ts — every
+        // guardrail above still had to pass first, and anything it refuses stays a pending draft.
+        const { maybeAutoSendFirstContactDraft } = await import('./first-contact-ack');
+        const auto = await maybeAutoSendFirstContactDraft(draftId, {
+            conversationId: conv?.id ?? null,
+            phone,
+            channel: 'post_call',
+        });
         // Mark the call so the dedupe guard counts this attempt, whether or not it is approved —
         // otherwise every subsequent call would re-queue the same draft.
         await recordVideoRequest({ callRecordId: call.id, phone, name: greetName, callSid: input.callSid });
 
-        console.log(`[PostCallOutreach] Queued video request draft ${draftId} for ${phone} (call ${input.callSid})`);
+        if (auto.sent) {
+            console.log(`[PostCallOutreach] Auto-sent first-contact video request ${draftId} to ${phone} (call ${input.callSid})`);
+            return { sent: true, reason: 'SENT_FIRST_CONTACT', sid: draftId };
+        }
+
+        console.log(`[PostCallOutreach] Queued video request draft ${draftId} for ${phone} (call ${input.callSid}) — ${auto.reason}`);
         return { sent: false, reason: 'QUEUED_FOR_APPROVAL', sid: draftId };
     } catch (error) {
         // Never let outreach break call finalization.
