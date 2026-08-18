@@ -96,6 +96,19 @@ export function setupCronJobs() {
         }
     }, { timezone: 'Europe/London' });
 
+    // WHATSAPP TEMPLATE APPROVAL POLL — hourly at :40 (off the hour, so it never races the
+    // other lanes). Twilio has NO webhook for Meta's approval decision, so polling is the only
+    // way to learn a template went live. Read-only against Twilio, no LLM, no sends, so it runs
+    // ungated — and it alerts via Pushover on approve/reject (see whatsapp-template-sync.ts).
+    cron.schedule("40 * * * *", async () => {
+        try {
+            const { syncWhatsAppTemplates } = await import('./whatsapp-template-sync');
+            await syncWhatsAppTemplates('cron');
+        } catch (error) {
+            console.error("[Cron] WhatsApp template sync failed:", error);
+        }
+    }, { timezone: 'Europe/London' });
+
     // WON AUTO-ARCHIVE — daily 03:10. Won cards stay on the board 7 days (post-payment
     // coordination), then archive off it. Pure bookkeeping — no LLM, no sends, no gate.
     // The thread stays searchable; archiving is a board filter, not a deletion.

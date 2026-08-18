@@ -450,6 +450,40 @@ export async function notifyNoContractor(alert: NoContractorAlert): Promise<void
     });
 }
 
+interface TemplateStatusAlert {
+    /** Template name as submitted, e.g. "quote_ready_link". */
+    name: string;
+    status: 'approved' | 'rejected';
+    category?: string | null;
+    /** Meta's rejection reason, when it gives one. */
+    reason?: string | null;
+    /** Template text, so the alert says what actually went live. */
+    body?: string | null;
+}
+
+/**
+ * Fire a "Meta moved a WhatsApp template" alert.
+ *
+ * Twilio pushes nothing when Meta decides, so without this the only way to learn a template went
+ * live is to go looking. An approval unlocks a whole outreach path; a rejection needs a rewrite
+ * and resubmission. No phone link — the action is in the app, not a call.
+ */
+export async function notifyTemplateStatus(alert: TemplateStatusAlert): Promise<void> {
+    const approved = alert.status === 'approved';
+    const lines = [`${alert.name}${alert.category ? ` (${alert.category})` : ''}`];
+    if (approved) {
+        lines.push('Approved by Meta — usable outside the 24h window now.');
+        if (alert.body) lines.push(`“${truncate(alert.body.trim(), 300)}”`);
+    } else {
+        lines.push(`Rejected by Meta${alert.reason ? `: ${alert.reason}` : ''}. Needs a rewrite and resubmit.`);
+    }
+    await dispatch({
+        event: 'template_status',
+        title: approved ? '✅ WhatsApp template approved' : '❌ WhatsApp template rejected',
+        message: lines.join('\n'),
+    });
+}
+
 /**
  * Send a test alert — to one recipient (by user key) or the whole event audience.
  * Bypasses enabled/quiet-hours gating so the tester always gets it.

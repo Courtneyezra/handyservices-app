@@ -41,6 +41,7 @@ import { whatsappRouter } from "./whatsapp-api";
 import { metaWhatsAppRouter, attachMetaWebSocket } from "./meta-whatsapp";
 import { whatsappExtRouter } from "./whatsapp-ext-routes";
 import { quickRepliesRouter } from "./quick-replies";
+import { whatsappTemplatesRouter } from "./whatsapp-template-sync";
 import { maybeSendPostCallVideoRequest } from "./post-call-outreach";
 import { inboxBoardRouter } from "./inbox-board";
 import { whatsappOnboardingRouter } from "./whatsapp-onboarding";
@@ -407,6 +408,7 @@ app.use('/api/whatsapp', whatsappExtRouter); // Chrome Extension ingest (ext-ing
 // Both carry customer phone numbers and message content, so they sit behind admin auth
 // (requireAdmin also admits the 'va' role, which is how Ben reaches them).
 app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messages for the inbox
+app.use('/api/whatsapp-templates', requireAdmin, whatsappTemplatesRouter); // Meta template approval status + template sends
 app.use('/api/inbox', requireAdmin, inboxBoardRouter); // Kanban board over conversations
 app.use('/api/drafts', requireAdmin, messageDraftsRouter); // Human approval gate for system-authored messages
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue

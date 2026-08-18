@@ -128,6 +128,22 @@ interface QuickReply {
     shortcut: string | null; contentSid: string | null;
 }
 
+/**
+ * A Meta-approved template, prefilled for this thread by the server.
+ * Only approved ones are ever returned — the picker cannot offer something Meta would reject.
+ */
+interface ApprovedTemplate {
+    contentSid: string;
+    name: string;
+    category: string | null;
+    body: string | null;
+    hints: Record<string, 'name' | 'link' | 'text'>;
+    prefill: Record<string, string>;
+    preview: string;
+    /** Variable keys the server could not fill (e.g. a link template on a thread with no quote). */
+    missing: string[];
+}
+
 interface Sender {
     id: string;
     transport: 'twilio' | 'meta';
@@ -571,10 +587,148 @@ function AskBenCard({ q, onDone }: { q: AgentQuestion; onDone: () => void }) {
     );
 }
 
+/**
+ * The shut-window send path, made first-class.
+ *
+ * Outside the 24h window a Meta-approved template is the ONLY thing that can be delivered, and
+ * until now the composer just said "use a template" while offering quick replies that happened to
+ * carry a contentSid. This lists the real approved templates, shows the exact text the customer
+ * will read, and prefills the obvious variables (their first name, and the quote link when the
+ * thread has a live quote) so sending is one click rather than a retype.
+ *
+ * Only approved templates ever appear — the list comes from the approval cache, so a pending
+ * template cannot be picked and rejected by Meta at send time.
+ */
+function TemplatePicker({ conversationId, transport, onSent, onError }: {
+    conversationId: string;
+    transport: 'twilio' | 'meta';
+    onSent: () => void;
+    onError: (message: string) => void;
+}) {
+    const [selected, setSelected] = useState<string | null>(null);
+    const [vars, setVars] = useState<Record<string, string>>({});
+    const [sending, setSending] = useState(false);
+
+    const { data, isLoading } = useQuery<{ templates: ApprovedTemplate[]; quoteUrl: string | null }>({
+        queryKey: ['comms-templates', conversationId],
+        queryFn: async () => {
+            const res = await fetch(`/api/whatsapp-templates/for-conversation/${conversationId}`, { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error('Failed to load templates');
+            return res.json();
+        },
+        staleTime: 60_000,
+    });
+
+    const templates = data?.templates ?? [];
+    const active = templates.find((t) => t.contentSid === selected) ?? null;
+
+    const pick = (t: ApprovedTemplate) => {
+        setSelected(t.contentSid);
+        setVars(t.prefill);
+    };
+
+    const send = async () => {
+        if (!active) return;
+        setSending(true);
+        try {
+            const res = await fetch('/api/whatsapp-templates/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ conversationId, contentSid: active.contentSid, variables: vars, via: transport }),
+            });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(detail.message || detail.error || `Send failed (${res.status})`);
+            setSelected(null);
+            onSent();
+        } catch (e: any) {
+            onError(e?.message || 'Template send failed');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    // What the customer will actually read, from the values in the boxes right now.
+    const preview = active?.body
+        ? active.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, k) => vars[k] || `{{${k}}}`)
+        : '';
+    const incomplete = active ? Object.values(vars).some((v) => !v.trim()) : true;
+
+    if (isLoading) {
+        return <div className="mb-2 flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-xs text-slate-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading approved templates…
+        </div>;
+    }
+
+    return (
+        <div className="mb-2 rounded-lg border border-slate-200">
+            <div className="border-b border-slate-100 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Approved templates
+            </div>
+            {templates.length === 0 ? (
+                <p className="p-3 text-center text-xs text-slate-500">
+                    No approved templates yet. Check status on the AI Staff page.
+                </p>
+            ) : (
+                <div className="max-h-40 overflow-y-auto">
+                    {templates.map((t) => (
+                        <button
+                            key={t.contentSid}
+                            onClick={() => pick(t)}
+                            className={cn('w-full border-b border-slate-100 px-3 py-2 text-left last:border-0 hover:bg-slate-50',
+                                t.contentSid === selected && 'bg-slate-50')}
+                        >
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-slate-900">{t.name}</span>
+                                {t.category && <span className="rounded bg-slate-100 px-1 text-[9px] font-bold uppercase text-slate-500">{t.category}</span>}
+                                {t.missing.length > 0 && (
+                                    <span className="rounded bg-amber-100 px-1 text-[9px] font-bold uppercase text-amber-700">Needs input</span>
+                                )}
+                            </div>
+                            <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{t.preview}</p>
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {active && (
+                <div className="space-y-2 border-t border-slate-200 bg-slate-50 p-3">
+                    {Object.keys(vars).sort((a, b) => Number(a) - Number(b)).map((key) => (
+                        <div key={key} className="flex items-center gap-2">
+                            <span className="w-24 shrink-0 text-[10px] font-bold uppercase text-slate-500">
+                                {active.hints[key] === 'name' ? 'First name' : active.hints[key] === 'link' ? 'Link' : `Variable ${key}`}
+                            </span>
+                            <input
+                                value={vars[key] ?? ''}
+                                onChange={(e) => setVars((v) => ({ ...v, [key]: e.target.value }))}
+                                placeholder={active.hints[key] === 'link' ? 'https://handyservices.app/quote/…' : ''}
+                                className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+                            />
+                        </div>
+                    ))}
+                    <p className="rounded bg-white p-2 text-[11px] leading-relaxed text-slate-700">{preview}</p>
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400">Sends as an approved template, so the shut window does not block it.</span>
+                        <button
+                            onClick={send}
+                            disabled={sending || incomplete}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+                        >
+                            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Send template'}
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }) {
     const queryClient = useQueryClient();
     const [input, setInput] = useState('');
     const [showQuick, setShowQuick] = useState(false);
+    // Opens itself on a shut-window thread: with the composer disabled, a template is the only
+    // thing Ben can actually do here, so it should not need finding.
+    const [showTemplates, setShowTemplates] = useState(!card.windowOpen);
     const [error, setError] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -637,7 +791,9 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const [intakeRun, setIntakeRun] = useState(0);
     // ThreadPanel is one instance across card switches — without this, another
     // customer's intake panel would linger on the newly opened thread.
-    useEffect(() => { setIntake(null); setPrepOpen(false); }, [card.id]);
+    // Same reason the template picker is reset here: ThreadPanel is one instance across card
+    // switches, so per-thread panel state has to follow the card or it leaks between customers.
+    useEffect(() => { setIntake(null); setPrepOpen(false); setShowTemplates(!card.windowOpen); }, [card.id]);
     const prepQuote = useMutation({
         mutationFn: async () => {
             const res = await fetch(`/api/agents/quote-prep/${card.id}`, {
@@ -940,10 +1096,28 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 )}
 
                 {!card.windowOpen && (
-                    <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
-                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span><strong>WhatsApp window closed.</strong> Only an approved template can be delivered until they message again.</span>
-                    </div>
+                    <>
+                        <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
+                            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span className="flex-1">
+                                <strong>WhatsApp window closed.</strong> Only an approved template can be delivered until they message again.
+                            </span>
+                            <button
+                                onClick={() => setShowTemplates((v) => !v)}
+                                className="shrink-0 rounded bg-amber-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-amber-700"
+                            >
+                                {showTemplates ? 'Hide templates' : 'Use a template'}
+                            </button>
+                        </div>
+                        {showTemplates && (
+                            <TemplatePicker
+                                conversationId={card.id}
+                                transport={activeSender?.transport ?? 'twilio'}
+                                onSent={() => { setShowTemplates(false); setError(null); refresh(); }}
+                                onError={setError}
+                            />
+                        )}
+                    </>
                 )}
                 {error && (
                     <div className="mb-2 flex items-start gap-2 rounded-lg bg-red-50 p-2.5 text-xs text-red-700">

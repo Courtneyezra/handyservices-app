@@ -20,7 +20,8 @@ export type PushoverEventKey =
     | 'quote_accepted'
     | 'payment'
     | 'site_survey'
-    | 'no_contractor';
+    | 'no_contractor'
+    | 'template_status';
 
 export interface PushoverEventDef {
     key: PushoverEventKey;
@@ -45,6 +46,9 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     { key: 'payment', label: 'Final payment / invoice paid', short: 'Paid', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },
     { key: 'site_survey', label: 'Site survey submitted by contractor', short: 'Survey', group: 'Dispatch', defaultPriority: 1, defaultSound: 'intermission' },
     { key: 'no_contractor', label: 'No contractor available', short: 'Dispatch', group: 'Dispatch', defaultPriority: 2, defaultSound: 'siren' },
+    // Meta approvals arrive with no webhook and no email anyone reads — an approval unlocks
+    // outreach, a rejection needs a rewrite, and both used to be found by accident days later.
+    { key: 'template_status', label: 'WhatsApp template approved / rejected', short: 'Templates', group: 'Dispatch', defaultPriority: 0, defaultSound: 'magic' },
 ];
 
 export const PUSHOVER_EVENT_KEYS: PushoverEventKey[] = PUSHOVER_EVENT_DEFS.map((e) => e.key);

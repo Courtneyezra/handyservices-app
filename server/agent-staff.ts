@@ -18,6 +18,7 @@ import { eq, and, gte, desc, isNotNull, sql } from 'drizzle-orm';
 import { queueDraft } from './message-drafts';
 import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
 import { renderQuickReply } from './quick-replies';
+import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
 import { claudeText } from './llm';
 import {
     buildQuoteMessage, defaultStyleForCustomerType, MESSAGE_STYLES, type MessageStyleId,
@@ -243,9 +244,22 @@ async function finalizeQuoteSent(quoteId: string, conversationId: string): Promi
 }
 
 /**
+ * The Meta template purpose-built to carry a quote link outside the 24h window.
+ *
+ * Looked up BY NAME against the live approval cache on every send, never by hardcoded SID: at the
+ * time this was wired `quote_ready_link` was still pending with Meta, and a template's status
+ * moves without warning in both directions. Null means "not approved (yet)" — the caller falls
+ * back rather than attempting a send Meta would reject.
+ */
+const QUOTE_LINK_TEMPLATE = process.env.QUOTE_LINK_TEMPLATE_NAME || 'quote_ready_link';
+
+/**
  * A shut-window send needs an approved Twilio template with somewhere to PUT the link — a
  * `{{quote_link}}` placeholder in its body or variable map. A template without one could be
  * delivered but could never carry the quote, so it doesn't count as suitable.
+ *
+ * This is the FALLBACK path, kept for quick replies an operator has wired up by hand; the
+ * approved-template lookup above is tried first.
  */
 async function findQuoteSendTemplate() {
     const rows = await db.select().from(quickReplies)
@@ -401,6 +415,37 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
         }
 
         // Window shut — only an approved template can be delivered.
+        //
+        // First choice is the dedicated quote-link template, resolved by name against the
+        // approval cache at send time. While it is pending this returns null and we fall
+        // straight through; the hour it flips to approved, this path starts working with no
+        // deploy and no config change.
+        const firstName = renderQuickReply('{{first_name}}', quote.customerName || conv.contactName);
+        const approved = await findApprovedTemplate(QUOTE_LINK_TEMPLATE).catch(() => null);
+        if (approved) {
+            const vars = buildTemplateVariables(approved, { firstName, quoteUrl });
+            const rendered = renderTemplateBody(approved.body, vars);
+            // Same contract as the freeform path: if the link cannot actually ride this template,
+            // it is not a delivery route — better to queue than to send words with no quote.
+            if (rendered.includes(quoteUrl)) {
+                try {
+                    const result: any = await sendWhatsAppMessage(phone, rendered, {
+                        contentSid: approved.contentSid,
+                        contentVariables: vars,
+                    });
+                    await finalizeQuoteSent(quote.id, conv.id);
+                    return res.json({
+                        sent: true, mode: 'template', sids: [result?.sid ?? 'unknown'],
+                        templateName: approved.name, rendered,
+                    });
+                } catch (templateError: any) {
+                    console.warn(`[QuotePrep] ${approved.name} send failed, trying fallbacks:`, templateError?.message);
+                }
+            } else {
+                console.warn(`[QuotePrep] ${approved.name} is approved but its body has nowhere to put the quote link — skipping it.`);
+            }
+        }
+
         const template = await findQuoteSendTemplate();
         if (template) {
             const renderWithLink = (text: string) =>
@@ -437,7 +482,10 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             sent: false,
             queued: true,
             draftId,
-            message: 'Window shut, queued for approval when the window reopens. The quote stays a draft until it actually sends.',
+            templatePending: !approved,
+            message: approved
+                ? 'Window shut and the template send did not go through, so it is queued for approval. The quote stays a draft until it actually sends.'
+                : `Window shut and "${QUOTE_LINK_TEMPLATE}" is not approved by Meta yet, so it is queued for approval when the window reopens. The quote stays a draft until it actually sends.`,
         });
     } catch (error: any) {
         console.error('[QuotePrep] send-quote failed:', error);

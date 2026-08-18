@@ -1720,6 +1720,49 @@ export const insertQuickReplySchema = createInsertSchema(quickReplies);
 export type QuickReply = typeof quickReplies.$inferSelect;
 export type InsertQuickReply = z.infer<typeof insertQuickReplySchema>;
 
+// Local cache of every WhatsApp template on the Twilio account, with its Meta approval status.
+//
+// Twilio has NO push webhook for template approval — the only way to learn that Meta approved a
+// template is to ask. server/whatsapp-template-sync.ts polls hourly and writes here, so the app
+// (composer picker, quote send path, staff page) can answer "what can we send right now?" from
+// the DB instead of a live API call on every render.
+export const whatsappTemplates = pgTable("whatsapp_templates", {
+    contentSid: varchar("content_sid").primaryKey().notNull(),  // Twilio Content SID (HX...)
+    name: varchar("name", { length: 160 }).notNull(),           // friendly_name, e.g. quote_ready_link
+    status: varchar("status", { length: 24 }).notNull(),        // approved | pending | received | rejected | unsubmitted
+    category: varchar("category", { length: 24 }),              // UTILITY | MARKETING | AUTHENTICATION
+    language: varchar("language", { length: 12 }),
+    body: text("body"),                                         // template text with {{1}} placeholders
+    variables: jsonb("variables"),                              // Twilio's sample map, e.g. {"1":"Courtnee"}
+    rejectionReason: text("rejection_reason"),
+
+    firstSeenAt: timestamp("first_seen_at").defaultNow(),
+    lastCheckedAt: timestamp("last_checked_at").defaultNow(),
+    statusChangedAt: timestamp("status_changed_at"),            // when the CACHED status last moved
+    approvedAt: timestamp("approved_at"),                       // first time we observed 'approved'
+}, (table) => [
+    index("idx_whatsapp_templates_status").on(table.status),
+]);
+
+// Status history — one row per observed transition. Kept because "when did this go live?" and
+// "what did Meta say when it bounced?" are questions asked days later, and the current-status
+// row alone cannot answer either.
+export const whatsappTemplateEvents = pgTable("whatsapp_template_events", {
+    id: varchar("id").primaryKey().notNull(),
+    contentSid: varchar("content_sid").notNull(),
+    name: varchar("name", { length: 160 }),
+    fromStatus: varchar("from_status", { length: 24 }),         // null on first sight
+    toStatus: varchar("to_status", { length: 24 }).notNull(),
+    reason: text("reason"),                                     // Meta's rejection reason, when given
+    notified: boolean("notified").default(false),               // did a Pushover alert go out for it
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_whatsapp_template_events_sid").on(table.contentSid, table.createdAt),
+]);
+
+export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
+export type WhatsappTemplateEvent = typeof whatsappTemplateEvents.$inferSelect;
+
 // Outbound drafts awaiting human approval.
 //
 // Every message the SYSTEM originates lands here first; nothing reaches a customer until someone
