@@ -436,14 +436,25 @@ function DraftApprovalCard({ draft, windowOpen, onDone }: {
             </div>
             {draft.reason && <p className="mt-1 text-[11px] italic text-amber-700">{draft.reason}</p>}
             {editing ? (
-                <textarea
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    rows={Math.min(6, Math.max(2, body.split('\n').length + 1))}
-                    className="mt-2 w-full rounded border border-amber-300 bg-white p-2 text-sm focus:border-amber-500 focus:outline-none"
-                />
+                <>
+                    <textarea
+                        value={body}
+                        onChange={(e) => setBody(e.target.value)}
+                        rows={Math.min(8, Math.max(2, body.split('\n').length + 1))}
+                        className="mt-2 w-full rounded border border-amber-300 bg-white p-2 text-sm focus:border-amber-500 focus:outline-none"
+                    />
+                    <p className="mt-1 text-[10px] text-amber-600">A line with only --- splits into separate WhatsApp messages.</p>
+                </>
             ) : (
-                <p className="mt-2 whitespace-pre-wrap rounded bg-white p-2 text-sm text-slate-800">{body}</p>
+                // Preview exactly what the customer gets: each part is its own bubble, sent
+                // a moment apart — like a person texting, not a letter arriving.
+                <div className="mt-2 space-y-1.5">
+                    {body.split(/\n\s*---\s*\n/).map((part, i) => part.trim() && (
+                        <p key={i} className="whitespace-pre-wrap rounded-lg rounded-bl-sm bg-white p-2 text-sm text-slate-800 shadow-sm">
+                            {part.trim()}
+                        </p>
+                    ))}
+                </div>
             )}
             {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
             <div className="mt-2 flex items-center gap-2">

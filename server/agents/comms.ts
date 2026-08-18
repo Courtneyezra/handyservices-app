@@ -121,6 +121,10 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
 
     const config = await getCommsAgentConfig();
     let autosent = false;
+    // The model sometimes queues part 1 and then the full reply. Instead of punishing that with
+    // a dedupe error (which strands the fragment), a repeat queue_draft in the SAME run
+    // supersedes the earlier one — the final call always wins.
+    let draftedThisRun: string | null = null;
 
     // ---- tools ----
 
@@ -262,11 +266,11 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         },
         {
             name: 'queue_draft',
-            description: 'Draft the reply. It goes to Ben\'s approval queue — it does NOT send. One draft per conversation. HARD RULE: if the body mentions any price or £ figure it must have a source: pass quote_slug for a quoted price, or price_source="ben_answer" when the figure comes from Ben\'s answer to an ask_ben question. If neither covers it, use ask_ben instead. Never invent prices, dates or promises.',
+            description: 'Draft the COMPLETE reply — every bubble of it in this one body, parts separated by "---" lines. It goes to Ben\'s approval queue; it does NOT send. This is NOT a per-message send button: one call carries the whole reply. If you call it again, your new body REPLACES the previous draft entirely (the latest call wins), so a repeat call must also contain the complete reply. HARD RULE: if the body mentions any price or £ figure it must have a source: pass quote_slug for a quoted price, or price_source="ben_answer" when the figure comes from Ben\'s answer to an ask_ben question. If neither covers it, use ask_ben instead. Never invent prices, dates or promises.',
             input_schema: {
                 type: 'object' as const,
                 properties: {
-                    body: { type: 'string', description: 'The message exactly as it would be sent. Warm, brief, UK English, no corporate filler. Sign off as "Handy Services".' },
+                    body: { type: 'string', description: 'The reply as it would be sent. Write like a person texts on WhatsApp: 2-3 SHORT messages, each on its own, separated by a line containing only "---". Each part lands as a separate bubble a moment apart. Warm, brief, UK English, no corporate filler.' },
                     reason: { type: 'string', description: 'One line for the approver: why this reply, why now.' },
                     intent: { type: 'string', enum: [...DRAFT_INTENTS] },
                     quote_slug: { type: 'string', description: 'Cite when a price in the body comes from a quote.' },
@@ -305,6 +309,11 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     }
                 }
 
+                if (draftedThisRun) {
+                    await db.update(messageDrafts)
+                        .set({ status: 'rejected', approvedBy: 'comms_agent:superseded', approvedAt: new Date() })
+                        .where(and(eq(messageDrafts.id, draftedThisRun), eq(messageDrafts.status, 'pending')));
+                }
                 const id = await queueDraft({
                     phone: e164,
                     body: input.body,
@@ -312,6 +321,8 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     reason: `[${input.intent}] ${input.reason}${input.quote_slug ? ` (quote ${input.quote_slug})` : ''}`,
                 });
                 if (!id) return { queued: false, note: 'A pending comms_agent draft already exists for this customer.' };
+                const superseded = draftedThisRun;
+                draftedThisRun = id;
 
                 // Phase 3: whitelisted intents may auto-send — same claimed-row path a human uses.
                 // Guarded by config (off by default), the intent whitelist, and UK daytime hours.
@@ -326,7 +337,10 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     return { queued: true, draftId: id, autosent: false, note: `Auto-send refused (${sent.code}); left for Ben to approve.` };
                 }
 
-                return { queued: true, draftId: id, autosent: false };
+                return {
+                    queued: true, draftId: id, autosent: false,
+                    ...(superseded ? { note: 'Replaced your earlier draft from this run — this complete version is the one Ben will see.' } : {}),
+                };
             },
         },
         {
@@ -420,7 +434,13 @@ HARD RULES — these are not preferences:
   (price_source="ben_answer"). You never originate a number yourself. No source → ask_ben.
 - Never promise dates, times or availability that the thread does not already confirm.
 - Complaints and angry customers: triage to priority=urgent and ask_ben. Do not draft apologies with commitments.
-- Tone when you do draft: warm, brief, first-name if known, UK English, no corporate filler, sign off "— Handy Services".
+- Tone when you do draft: warm, brief, first-name if known, UK English, no corporate filler.
+- FORMAT like a person texting, not a letter: split the reply into 2-3 short messages separated by
+  a line containing only "---". First part = the human beat (acknowledge what they sent, in their
+  terms); the ask or information goes in its own part. No sign-offs or signatures — nobody signs
+  a WhatsApp message. One question max across all parts. queue_draft carries the WHOLE reply in
+  one body — it is not a per-message send button. If you realise the draft is incomplete or
+  wrong, call queue_draft again with the full corrected reply; the latest call replaces it.
 
 Finish with one line: what you did and why. Be terse.`;
 

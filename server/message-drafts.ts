@@ -165,12 +165,23 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
     }
 
     try {
-        const result: any = windowOpen
-            ? await sendWhatsAppMessage(draft.phone, draft.body)
-            : await sendWhatsAppMessage(draft.phone, draft.body, {
-                  contentSid: draft.contentSid!,
-                  contentVariables: (draft.contentVariables as any) ?? undefined,
-              });
+        let result: any;
+        if (windowOpen) {
+            // A body may contain several messages split by a lone '---' line — sent as separate
+            // WhatsApp bubbles, briefly paced, because that's how a person actually texts.
+            // One draft row = one approval; the split is presentation, not process.
+            const parts = draft.body.split(/\n\s*---\s*\n/).map((p) => p.trim()).filter(Boolean).slice(0, 4);
+            for (let i = 0; i < parts.length; i++) {
+                if (i > 0) await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
+                result = await sendWhatsAppMessage(draft.phone, parts[i]);
+            }
+        } else {
+            // Templates are a single fixed message — no splitting.
+            result = await sendWhatsAppMessage(draft.phone, draft.body, {
+                contentSid: draft.contentSid!,
+                contentVariables: (draft.contentVariables as any) ?? undefined,
+            });
+        }
 
         const [sent] = await db.update(messageDrafts)
             .set({ status: 'sent', sentAt: new Date(), sentMessageId: result?.sid ?? null })
