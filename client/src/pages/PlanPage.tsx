@@ -72,6 +72,17 @@ function fmtDays(d: number): string {
 const gbp = (n: number) => "£" + n.toLocaleString("en-GB");
 const WA = "447449501762";
 
+// The 14 items Alicia booked + paid the deposit on (15 Aug). Everything NOT in
+// here is still available to add below. Kept as a set so the two lists can never
+// drift: booked shows up top, the rest render as choices.
+const BOOKED_IDS = new Set<string>([
+  "bathroom-damp", "hall-ceiling", "up-bathroom", "halls-stairs", "kitchen-paint",
+  "kitchen-grout", "kitchen-check", "doors", "banister", "archway",
+  "gloss-woodwork", "window-sills", "attic-hatch", "skirting-section",
+]);
+const BOOKED_SELECTION: Selection[] = Array.from(BOOKED_IDS, (id) => ({ id }));
+const BOOKED_DEPOSIT_PAID = 2924; // actually paid (Stripe, 15 Aug)
+
 export default function PlanPage() {
   const [, params] = useRoute("/plan/:slug");
   const slug = params?.slug ?? "";
@@ -80,16 +91,21 @@ export default function PlanPage() {
   const [opts, setOpts] = useState<Record<string, number>>({});
   const [booking, setBooking] = useState(false);
 
+  // What she's already booked (shown up top), computed from the same table.
+  const booked = useMemo(() => computePlan(BOOKED_SELECTION), []);
+  const bookedBalance = booked.total - BOOKED_DEPOSIT_PAID;
+
+  // Only the not-yet-booked items are offered as choices below.
   const groups = useMemo(() => {
     const m = new Map<string, PlanItem[]>();
-    for (const it of PLAN_ITEMS) { if (!m.has(it.group)) m.set(it.group, []); m.get(it.group)!.push(it); }
+    for (const it of PLAN_ITEMS) { if (BOOKED_IDS.has(it.id)) continue; if (!m.has(it.group)) m.set(it.group, []); m.get(it.group)!.push(it); }
     return Array.from(m.entries());
   }, []);
 
   const selection: Selection[] = useMemo(() => {
     const s: Selection[] = [];
     for (const it of PLAN_ITEMS) {
-      if (it.accepted) { s.push(it.kind === "opt" ? { id: it.id, opt: 0 } : { id: it.id }); continue; }
+      if (BOOKED_IDS.has(it.id)) continue;
       if (it.kind === "add") { if (adds[it.id]) s.push({ id: it.id }); }
       else { const o = opts[it.id]; if (o != null && it.options[o] && it.options[o].price > 0) s.push({ id: it.id, opt: o }); }
     }
@@ -137,6 +153,30 @@ export default function PlanPage() {
           </div>
           <p className="text-[15.5px] sm:text-[17px] mt-4">The full picture — what’s done, what you’ve paid, where we’re up to, and any extras you could add.</p>
           <p className="text-[#5A6474] text-[14.5px] sm:text-[15px] mt-3">No pressure — nothing new starts until you say so.<br /><span className="font-semibold text-[#1B2A4A]">Courtnee — Handy Services</span></p>
+        </section>
+
+        {/* WHAT YOU'VE BOOKED — confirmation, up top */}
+        <section className="mt-5 rounded-2xl border-2 shadow-sm p-5 sm:p-6" style={{ background: "#EAF4EC", borderColor: "#2F7A3D" }}>
+          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+            <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] px-2.5 py-1 rounded-full" style={{ background: "#2F7A3D", color: "#fff" }}>✓ Booked</span>
+            <span className="text-[13px] font-semibold" style={{ color: "#2F7A3D" }}>Deposit received — thank you</span>
+          </div>
+          <h2 className="text-[20px] sm:text-[24px] font-bold leading-tight">The work you’ve booked in</h2>
+          <p className="text-[#5A6474] text-[14.5px] sm:text-[15px] mt-1">{booked.lines.length} items confirmed — here’s everything, with what’s paid and what’s left.</p>
+          <ul className="flex flex-col mt-4">
+            {booked.lines.map((x) => (
+              <li key={x.id} className="flex justify-between items-baseline gap-3 py-2 border-b text-[14.5px] sm:text-[15px]" style={{ borderColor: "#CFE6D4" }}>
+                <span className="flex items-start gap-2"><span className="font-bold mt-[1px]" style={{ color: "#2F7A3D" }}>✓</span><span>{x.title}</span></span>
+                <span className="font-bold tabular-nums whitespace-nowrap">{gbp(x.price)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4 rounded-xl bg-white p-4" style={{ border: "1px solid #CFE6D4" }}>
+            <div className="flex justify-between items-baseline py-1 text-[15px]"><span>Booked total</span><span className="font-bold tabular-nums">{gbp(booked.total)}</span></div>
+            <div className="flex justify-between items-baseline py-1 text-[15px]"><span>Deposit paid · 15 Aug</span><span className="font-bold tabular-nums" style={{ color: "#2F7A3D" }}>−{gbp(BOOKED_DEPOSIT_PAID)}</span></div>
+            <div className="flex justify-between items-baseline mt-1 pt-2 border-t-2 border-[#1B2A4A]"><span className="text-[16px] font-bold">Balance on completion</span><span className="text-[20px] font-bold tabular-nums" style={{ color: "#F5A623" }}>{gbp(bookedBalance)}</span></div>
+          </div>
+          <p className="text-[#5A6474] text-[13px] mt-3">This is the <b>new work</b> — separate from your original project below. The balance is due only when it’s finished and you’re happy.</p>
         </section>
 
         {/* PROGRESS BAR — original agreed job */}
@@ -251,8 +291,8 @@ export default function PlanPage() {
 
         <div className="mt-10 mb-4 rounded-2xl p-6 text-center" style={{ background: "#1B2A4A" }}>
           <div className="text-[11px] font-extrabold uppercase tracking-[0.2em]" style={{ color: "#F5A623" }}>Part 2</div>
-          <div className="text-[23px] font-extrabold text-white mt-1.5 leading-tight">What’s next — your choices</div>
-          <p className="text-slate-300 text-[14.5px] mt-2 leading-snug"><b className="text-white">Extra, and entirely optional</b> — add what you’d like, skip the rest.</p>
+          <div className="text-[23px] font-extrabold text-white mt-1.5 leading-tight">Add more — still available</div>
+          <p className="text-slate-300 text-[14.5px] mt-2 leading-snug">The items you <b className="text-white">haven’t booked yet</b> — add any whenever suits, skip the rest.</p>
         </div>
         <p className="rounded-xl text-[14px] p-3.5 mb-4 flex gap-2.5 items-start" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
           <span aria-hidden>✓</span>
@@ -261,15 +301,9 @@ export default function PlanPage() {
 
         {groups.map(([label, items]) => {
           const suggested = label.startsWith("Finishing");
-          const accepted = label === "Already accepted";
           return (
             <div key={label}>
-              {accepted ? (
-                <div className="mt-6 mb-3 rounded-xl px-4 py-3" style={{ background: "#EAF4EC", border: "1px solid #BFE0C6" }}>
-                  <div className="text-[15px] font-extrabold uppercase tracking-wide" style={{ color: "#2F7A3D" }}>✓ Already accepted</div>
-                  <p className="text-[#5A6474] text-[14px] mt-0.5">Deposit taken together with anything else you add below.</p>
-                </div>
-              ) : suggested ? (
+              {suggested ? (
                 <div className="mt-8 mb-3 rounded-xl px-4 py-3.5" style={{ background: "#EEF3FA", border: "1px solid #C3D0E6" }}>
                   <div className="text-[18px] font-extrabold tracking-tight" style={{ color: "#3B5BA5" }}>✦ Things we spotted — our suggestions</div>
                   <p className="text-[#5A6474] text-[14.5px] mt-1">Bits we noticed that’d tidy the house up — optional.</p>
@@ -278,7 +312,7 @@ export default function PlanPage() {
                 <div className="text-[#5A6474] text-[12.5px] font-bold tracking-[0.14em] uppercase mt-6 mb-3 px-1">{label}</div>
               )}
               {items.map((it) => it.kind === "add"
-                ? <AddCard key={it.id} title={it.title} desc={it.desc} price={it.price} callout={it.callout} accepted={it.accepted} suggested={suggested} on={!!adds[it.id]} onToggle={() => setAdds((s) => ({ ...s, [it.id]: !s[it.id] }))} />
+                ? <AddCard key={it.id} title={it.title} desc={it.desc} price={it.price} callout={it.callout} suggested={suggested} on={!!adds[it.id]} onToggle={() => setAdds((s) => ({ ...s, [it.id]: !s[it.id] }))} />
                 : <OptCard key={it.id} title={it.title} desc={it.desc} callout={it.callout} options={it.options} chosen={opts[it.id] ?? -1} onChoose={(i) => setOpts((s) => ({ ...s, [it.id]: i }))} />
               )}
             </div>

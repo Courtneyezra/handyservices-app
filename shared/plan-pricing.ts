@@ -17,11 +17,15 @@ export type PlanItem =
 export const DEPOSIT_LABOUR_RATE = 0.30; // 30% of labour taken up front
 
 export const PLAN_ITEMS: PlanItem[] = [
-  // ---- Already accepted (deposit taken with the extras) ----
-  { id: "bathroom-damp", kind: "add", group: "Already accepted", accepted: true,
+  { id: "bathroom-damp", kind: "add", group: "Downstairs",
     title: "Downstairs bathroom — damp repair & redecorate",
     desc: "The rising-damp patch by the toilet, treated at the source (chemical DPC + salt-resistant render) then repainted once dry. You supply the paint; we supply the damp materials.",
     price: 625, labour: 535, materials: 90, days: 2 },
+  { id: "downstairs-bay-room", kind: "add", group: "Downstairs",
+    title: "Downstairs bay-window room — decorate to match",
+    desc: "The same re-papering as the upstairs bedroom, for the room directly below with the bay window. Same size, same works — so same price. Thick textured (paintable) paper over your already-painted walls.",
+    callout: { kind: "info", text: "This is the room you asked us to quote — priced to match the upstairs bedroom exactly, nothing added." },
+    price: 750, labour: 610, materials: 140, days: 1.5 },
 
   // ---- Upstairs ----
   { id: "bay-walls", kind: "opt", group: "Upstairs", title: "Front bay bedroom — walls",
