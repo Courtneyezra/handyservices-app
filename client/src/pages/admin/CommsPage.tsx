@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/core';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
-    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle,
+    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -651,7 +651,66 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         return usable.filter((r) => r.shortcut?.toLowerCase().startsWith(q) || r.label.toLowerCase().includes(q.slice(1)));
     }, [quickReplies, input, card.windowOpen]);
 
-    const sending = sendFreeform.isPending || sendQuick.isPending;
+    // Voice notes: record in the browser, server transcodes to OGG/Opus and sends.
+    // Voice is freeform-only (no template can carry audio), so it's gated on the window.
+    const [recording, setRecording] = useState(false);
+    const [recordSeconds, setRecordSeconds] = useState(0);
+    const [sendingVoice, setSendingVoice] = useState(false);
+    const recorderRef = useRef<MediaRecorder | null>(null);
+    const chunksRef = useRef<Blob[]>([]);
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    async function startRecording() {
+        setError(null);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const rec = new MediaRecorder(stream);
+            chunksRef.current = [];
+            rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+            rec.onstop = async () => {
+                stream.getTracks().forEach((t) => t.stop());
+                const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
+                if (blob.size < 2000) return; // a fumbled tap, not a message
+                setSendingVoice(true);
+                try {
+                    const form = new FormData();
+                    form.append('audio', blob, 'note.webm');
+                    form.append('to', card.phoneNumber);
+                    const res = await fetch('/api/whatsapp/voice-note', {
+                        method: 'POST', headers: getAuthHeaders(), body: form,
+                    });
+                    const detail = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(detail.message || detail.error || 'Voice note failed');
+                    refresh();
+                } catch (e: any) {
+                    setError(e.message);
+                } finally {
+                    setSendingVoice(false);
+                }
+            };
+            rec.start();
+            recorderRef.current = rec;
+            setRecording(true);
+            setRecordSeconds(0);
+            timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+        } catch {
+            setError('Microphone unavailable — check browser permissions.');
+        }
+    }
+
+    function stopRecording() {
+        recorderRef.current?.stop();
+        recorderRef.current = null;
+        setRecording(false);
+        if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    }
+
+    useEffect(() => () => { // don't leave the mic running if the panel unmounts mid-recording
+        recorderRef.current?.stream?.getTracks().forEach((t) => t.stop());
+        if (timerRef.current) clearInterval(timerRef.current);
+    }, []);
+
+    const sending = sendFreeform.isPending || sendQuick.isPending || sendingVoice;
 
     return (
         <aside className="flex w-[440px] shrink-0 flex-col border-l border-slate-200 bg-white">
@@ -822,9 +881,19 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                         onChange={(e) => { setInput(e.target.value); if (e.target.value.startsWith('/')) setShowQuick(true); }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && input.trim() && card.windowOpen) sendFreeform.mutate(input.trim()); }}
                         disabled={sending || !card.windowOpen}
-                        placeholder={card.windowOpen ? 'Reply, or / for quick replies…' : 'Window closed — use a template'}
+                        placeholder={recording ? `Recording… ${recordSeconds}s — tap ■ to send` : card.windowOpen ? 'Reply, or / for quick replies…' : 'Window closed — use a template'}
                         className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
                     />
+                    <button
+                        onClick={() => (recording ? stopRecording() : startRecording())}
+                        disabled={(sending && !recording) || !card.windowOpen}
+                        title={card.windowOpen ? (recording ? 'Stop and send' : 'Record a voice note') : 'Window closed — voice notes need an open window'}
+                        className={cn('rounded-lg px-3 transition-colors',
+                            recording ? 'animate-pulse bg-red-600 text-white'
+                            : 'border border-slate-300 text-slate-500 hover:text-slate-800 disabled:opacity-40')}
+                    >
+                        {sendingVoice ? <Loader2 className="h-4 w-4 animate-spin" /> : recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </button>
                     <button
                         onClick={() => input.trim() && sendFreeform.mutate(input.trim())}
                         disabled={!input.trim() || sending || !card.windowOpen}

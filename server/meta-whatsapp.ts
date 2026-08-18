@@ -517,6 +517,14 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
      * Defaults to Twilio so nothing that exists today changes behaviour.
      */
     via?: 'twilio' | 'meta';
+    /**
+     * Absolute https URL of media to attach (voice note, image…). Twilio FETCHES this itself,
+     * so it must be publicly reachable — a localhost URL will fail in Twilio's queue, not here.
+     * Media is freeform-only (24h window); it cannot ride a template.
+     */
+    mediaUrl?: string;
+    /** Mime of the attached media, stored on the message row so the thread renders a player. */
+    mediaType?: string;
 }) {
     // Route to Meta Cloud API for the coexistence sender. Done before the Twilio credential check
     // because a Meta send needs none of them.
@@ -600,7 +608,8 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
         }
     } else {
         // Freeform message
-        formData.append('Body', body);
+        if (body) formData.append('Body', body);
+        if (options?.mediaUrl) formData.append('MediaUrl', options.mediaUrl);
     }
 
     // Ask Twilio to report delivery transitions back to us, so messages.status reflects what
@@ -631,7 +640,9 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
     const messageId = result.sid || uuidv4();
 
     // Store outbound message
-    const messagePreview = isTemplate ? '[Template message]' : body.substring(0, 50);
+    const isVoice = (options?.mediaType ?? '').startsWith('audio/');
+    const messagePreview = isTemplate ? '[Template message]'
+        : options?.mediaUrl ? (isVoice ? '🎤 Voice note' : '📎 Media') : body.substring(0, 50);
     const messageContent = isTemplate ? `[Template: ${options?.contentSid}]` : body;
 
     try {
@@ -666,8 +677,11 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
             conversationId: conv!.id,
             direction: 'outbound',
             content: messageContent,
-            type: isTemplate ? 'template' : 'text',
+            type: isTemplate ? 'template' : options?.mediaUrl ? (isVoice ? 'audio' : 'file') : 'text',
             channel: 'whatsapp', // This function sends over Twilio's WhatsApp channel only.
+            // Store the LOCAL path (strip origin) so the thread player serves our own copy.
+            mediaUrl: options?.mediaUrl ? options.mediaUrl.replace(/^https?:\/\/[^/]+/, '') : null,
+            mediaType: options?.mediaType ?? null,
             // Twilio's own initial state ('queued'), not an assumed 'sent' — the status callback
             // advances it from here.
             status: result.status || 'sent',

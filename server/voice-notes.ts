@@ -1,0 +1,94 @@
+/**
+ * Outbound voice notes for /admin/comms — voice makes it personal.
+ *
+ * Flow: the browser records with MediaRecorder (webm/opus on Chrome, mp4/aac on Safari) and
+ * posts it here. WhatsApp does not accept webm, so ffmpeg transcodes to OGG/Opus — the format
+ * WhatsApp treats as a proper voice message. The file lands in the same served media directory
+ * as inbound media, and goes out via the normal sendWhatsAppMessage path (Twilio fetches the
+ * public URL itself).
+ *
+ * Constraints that matter:
+ * - Freeform-only: a voice note cannot ride a template, so the 24h window must be open (409
+ *   OUTSIDE_WINDOW otherwise, same contract the quick-replies send uses).
+ * - Twilio must be able to FETCH the file, so PUBLIC_BASE_URL has to be a real https origin.
+ *   On localhost the send is refused up front with a clear error instead of failing silently
+ *   in Twilio's queue.
+ */
+import { Router } from 'express';
+import multer from 'multer';
+import { execFileSync } from 'child_process';
+import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import path from 'path';
+import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
+import { normalizePhoneNumber } from './phone-utils';
+
+export const voiceNotesRouter = Router();
+
+const MEDIA_DIR = path.join(process.cwd(), 'server/storage/media');
+const TMP_DIR = path.join(MEDIA_DIR, '.voice-tmp');
+
+const upload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => {
+            mkdirSync(TMP_DIR, { recursive: true });
+            cb(null, TMP_DIR);
+        },
+        filename: (_req, file, cb) => cb(null, `rec_${Date.now()}${path.extname(file.originalname || '.webm') || '.webm'}`),
+    }),
+    limits: { fileSize: 16 * 1024 * 1024 }, // WhatsApp's own media cap
+    fileFilter: (_req, file, cb) => cb(null, (file.mimetype || '').startsWith('audio/') || (file.mimetype || '').startsWith('video/')),
+});
+
+function publicBase(): string | null {
+    const base = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+    return base.startsWith('https://') ? base : null;
+}
+
+// POST /api/whatsapp/voice-note  (multipart: audio=<blob>, to=<phone>)
+voiceNotesRouter.post('/voice-note', upload.single('audio'), async (req, res) => {
+    const tmpPath = req.file?.path;
+    try {
+        const to = String(req.body?.to || '');
+        const phone = normalizePhoneNumber(to.replace('@c.us', ''));
+        if (!req.file || !tmpPath) return res.status(400).json({ error: "Missing 'audio' file" });
+        if (!phone) return res.status(400).json({ error: `Unparseable phone: ${to}` });
+
+        // Voice is freeform-only — no template can carry it, so the window is a hard gate.
+        const windowOpen = await canSendFreeform(phone).catch(() => false);
+        if (!windowOpen) {
+            return res.status(409).json({
+                error: 'OUTSIDE_WINDOW',
+                message: 'The 24-hour window is shut — voice notes cannot be sent as templates. Wait for the customer to message again.',
+            });
+        }
+
+        const base = publicBase();
+        if (!base) {
+            return res.status(503).json({
+                error: 'NO_PUBLIC_URL',
+                message: 'PUBLIC_BASE_URL is not an https origin, so Twilio cannot fetch the audio. Voice notes work on the deployed server.',
+            });
+        }
+
+        // Transcode whatever the browser produced into OGG/Opus — WhatsApp's voice-note format.
+        const fileName = `vn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.ogg`;
+        const outPath = path.join(MEDIA_DIR, fileName);
+        execFileSync('ffmpeg', [
+            '-y', '-i', tmpPath,
+            '-vn', '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1',
+            outPath,
+        ], { stdio: 'pipe', timeout: 60_000 });
+
+        const result: any = await sendWhatsAppMessage(phone, '', {
+            mediaUrl: `${base}/api/media/${fileName}`,
+            mediaType: 'audio/ogg',
+        });
+
+        res.json({ success: true, sid: result?.sid ?? null, mediaUrl: `/api/media/${fileName}` });
+    } catch (error: any) {
+        console.error('[VoiceNotes] Send failed:', error);
+        res.status(500).json({ error: error?.message || 'Voice note failed' });
+    } finally {
+        if (tmpPath && existsSync(tmpPath)) { try { unlinkSync(tmpPath); } catch {} }
+    }
+});
