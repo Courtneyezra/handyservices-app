@@ -22,7 +22,7 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import { db } from '../db';
-import { conversations, messages, calls, personalizedQuotes, quickReplies, appSettings, messageDrafts, agentQuestions } from '@shared/schema';
+import { conversations, messages, calls, quickReplies, appSettings, messageDrafts, agentQuestions } from '@shared/schema';
 import { eq, ne, desc, and, inArray, sql } from 'drizzle-orm';
 import { runAgent, type AgentTool, type AgentRunResult } from './runner';
 import { buildMediaBlocks } from './media-context';
@@ -36,6 +36,9 @@ import {
     isFirstContact, FIRST_CONTACT_ACK_INTENTS, DEFAULT_FIRST_CONTACT_ACK,
     type FirstContactAckConfig, type FirstContactChannel,
 } from '../first-contact-ack';
+import { loadQuoteContexts, checkDateSignal, type QuoteContext } from './quote-context';
+import { postQuoteStandingOrders } from './objection-levers';
+import { MONEY_RE, checkDraft } from './draft-guards';
 
 // ---------------------------------------------------------------- config
 
@@ -115,10 +118,22 @@ export const DRAFT_INTENTS = [
     'scheduling',       // date/time coordination already agreed in the thread
     'quote_followup',   // nudging a sent quote, price already quoted
     'answer_question',  // answering a factual question about their job
+    // ---- post-quote (a live quote is out and the customer has responded to it) ----
+    'quote_question',   // "what does the £340 cover", "is the paint included"
+    'price_objection',  // they pushed back on the number
+    'rescope_offer',    // offering to edit the scope — never a price
+    'timing_hold',      // "not right now": a scheduling state, not a rejection
     'other',
 ] as const;
 
-const MONEY_RE = /£\s*\d|(?:\b\d+(?:\.\d+)?\s*(?:pounds|quid)\b)/i;
+/**
+ * Intents that may NEVER be added to the auto-send whitelist, whatever the config says. The
+ * whitelist is meant for content-free acknowledgements; every intent here is money-adjacent or
+ * negotiation, and those always pass a human first. 'other' is already excluded at the call site.
+ */
+export const NEVER_AUTOSEND_INTENTS: readonly string[] = [
+    'quote_question', 'price_objection', 'rescope_offer', 'timing_hold', 'quote_followup',
+];
 
 // ---------------------------------------------------------------- per-conversation run
 
@@ -157,12 +172,32 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         return 'whatsapp';
     };
 
+    /**
+     * The customer's quotes, loaded once per run and shared by get_thread, check_date and the
+     * money guard. One read, one truth: the figures the guard accepts are exactly the figures the
+     * agent was shown.
+     */
+    let quoteCache: QuoteContext[] | null = null;
+    const quotes = async (): Promise<QuoteContext[]> => {
+        if (quoteCache) return quoteCache;
+        quoteCache = await loadQuoteContexts({ digits, conversationId: conv.id }).catch((error) => {
+            console.error('[CommsAgent] Could not load quote context:', error?.message);
+            return [] as QuoteContext[];
+        });
+        return quoteCache;
+    };
+    /** The quote the conversation is actually about: newest live one, else newest of any. */
+    const liveQuote = async (): Promise<QuoteContext | null> => {
+        const all = await quotes();
+        return all.find((q) => q.isLive) ?? all[0] ?? null;
+    };
+
     // ---- tools ----
 
     const tools: AgentTool[] = [
         {
             name: 'get_thread',
-            description: 'Read the merged timeline for this conversation: WhatsApp/SMS/webform messages AND phone calls (with transcripts), newest last — including the customer\'s actual photos and video keyframes, which are part of the conversation and often say more than the text. Also returns board state, the 24h WhatsApp window, SLA wait state, and any answered ask-Ben questions you should act on. Call this FIRST, always. A message marked neverSent was written but NEVER reached the customer (a dead sender or a runaway loop), so it is not a reply and they have not been answered.',
+            description: 'Read the merged timeline for this conversation: WhatsApp/SMS/webform messages AND phone calls (with transcripts), newest last — including the customer\'s actual photos and video keyframes, which are part of the conversation and often say more than the text. Also returns board state, the 24h WhatsApp window, SLA wait state, any answered ask-Ben questions you should act on, and — when a quote is out — the QUOTE ITSELF: total, line items, when the link was sent, how many times they have opened it, expiry, deposit status, whether it has been amended before, and the price band that decides your posture. Call this FIRST, always. A message marked neverSent was written but NEVER reached the customer (a dead sender or a runaway loop), so it is not a reply and they have not been answered.',
             input_schema: { type: 'object' as const, properties: {}, required: [] },
             run: async () => {
                 const recent = await db.select().from(messages)
@@ -207,6 +242,12 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     .where(and(eq(messageDrafts.phone, e164), eq(messageDrafts.status, 'pending')))
                     .limit(1);
 
+                // The quote is part of the thread once one is out. Without it the agent cannot
+                // answer a single real post-quote question, and it is the price band — not the
+                // wording — that decides how the reply should be shaped.
+                const quoteRows = await quotes();
+                const live = quoteRows.find((q) => q.isLive) ?? null;
+
                 const data = {
                     contactName: conv.contactName, phone: e164,
                     stage: conv.stage, priority: conv.priority, tags: conv.tags ?? [],
@@ -218,6 +259,16 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         note: 'Draft from this answer, then call resolve_question with this id.',
                     })),
                     existingPendingDraft: pendingDraft ?? null,
+                    liveQuote: live,
+                    otherQuotes: quoteRows.filter((q) => q !== live).map((q) => ({
+                        slug: q.slug, totalGBP: q.totalGBP, depositPaid: q.depositPaid,
+                        createdAt: q.createdAt, job: q.job.slice(0, 120),
+                    })),
+                    postQuoteNote: live
+                        ? `A live quote is out: ${live.slug}, £${live.totalGBP}, band "${live.priceBand.label}" (${live.priceBand.conversion}). ${live.priceBand.posture} ${live.viewNote} Silence after a quote is normal: the median time to a deposit is 39 hours and the upper quartile is five days.`
+                        : quoteRows.length
+                            ? 'No live quote. Older quotes are listed for reference only; do not chase a paid or long-dead one.'
+                            : 'No quote for this number. You may not mention any price at all.',
                     timeline,
                 };
 
@@ -237,36 +288,27 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         },
         {
             name: 'get_customer_context',
-            description: 'Look up this customer across the CRM: their quotes (with REAL prices — the only prices you may ever reference), whether they viewed/paid, and expiry. Call before drafting anything that touches money, scope or job status.',
+            description: 'Look up this customer\'s quotes in full: REAL prices (the only prices you may ever reference), the line items behind them, view history, expiry, deposit status and amendment history. get_thread already gives you the live one; call this when you need the older ones too, or a line-by-line breakdown to answer "what does it cover".',
             input_schema: { type: 'object' as const, properties: {}, required: [] },
             run: async () => {
-                const quotes = await db.select({
-                    slug: personalizedQuotes.shortSlug,
-                    customerName: personalizedQuotes.customerName,
-                    jobDescription: personalizedQuotes.jobDescription,
-                    basePrice: personalizedQuotes.basePrice,
-                    selectedTierPricePence: personalizedQuotes.selectedTierPricePence,
-                    depositPaidAt: personalizedQuotes.depositPaidAt,
-                    viewedAt: personalizedQuotes.viewedAt,
-                    expiresAt: personalizedQuotes.expiresAt,
-                    createdAt: personalizedQuotes.createdAt,
-                }).from(personalizedQuotes)
-                    .where(sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${digits}`)
-                    .orderBy(desc(personalizedQuotes.createdAt)).limit(5);
-
+                const rows = await quotes();
                 return {
-                    quotes: quotes.map((q) => ({
-                        slug: q.slug,
-                        job: (q.jobDescription ?? '').slice(0, 250),
-                        priceGBP: q.selectedTierPricePence != null ? q.selectedTierPricePence / 100
-                                : q.basePrice != null ? q.basePrice / 100 : null,
-                        depositPaid: !!q.depositPaidAt,
-                        viewed: !!q.viewedAt,
-                        expiresAt: q.expiresAt, createdAt: q.createdAt,
-                    })),
-                    note: quotes.length === 0 ? 'No quotes for this number — do NOT mention any price.' : undefined,
+                    quotes: rows,
+                    note: rows.length === 0
+                        ? 'No quotes for this number — do NOT mention any price.'
+                        : 'Only figures that appear on these quotes may be written to a customer, and only with quote_slug cited. Everything else goes to ask_ben.',
                 };
             },
+        },
+        {
+            name: 'check_date',
+            description: 'READ-ONLY. Answers "can you come Tuesday" the only way that is safe: it tells you whether that date is already offered on THEIR quote, and whether the master calendar has it blocked. It books nothing, reserves nothing and never authorises you to confirm a date. If the date is on their quote, point them at the quote\'s own date picker. If it is not, use ask_ben. Pass the date as YYYY-MM-DD.',
+            input_schema: {
+                type: 'object' as const,
+                properties: { date: { type: 'string', description: 'YYYY-MM-DD, resolved from what the customer said. If you cannot resolve it confidently, ask Ben instead.' } },
+                required: ['date'],
+            },
+            run: async (input: { date: string }) => checkDateSignal(String(input.date ?? ''), await liveQuote()),
         },
         {
             name: 'get_quick_replies',
@@ -324,18 +366,16 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     throw new Error('The 24-hour window is shut, so a freeform reply cannot be delivered. Do not draft prose. Use ask_ben to get a decision from Ben, who can send an approved template instead.');
                 }
 
-                // Money guard: a £ in the body must trace to a source a human controls — a real
-                // quote for this customer, or a figure Ben himself gave in an answered question.
-                // The one thing that can never happen is the model inventing a number.
+                // Money SOURCE, the part that needs the database: a £ in the body must trace to a
+                // real quote for this customer, or to a figure Ben himself gave in an answered
+                // question. The one thing that can never happen is the model inventing a number.
+                // Whether the figure is actually ON that quote is settled by checkDraft below.
+                const cited = input.quote_slug
+                    ? (await quotes()).find((q) => q.slug === input.quote_slug) ?? null
+                    : null;
                 if (MONEY_RE.test(input.body)) {
                     if (input.quote_slug) {
-                        const [q] = await db.select({ slug: personalizedQuotes.shortSlug })
-                            .from(personalizedQuotes)
-                            .where(and(
-                                eq(personalizedQuotes.shortSlug, input.quote_slug),
-                                sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${digits}`,
-                            ));
-                        if (!q) {
+                        if (!cited) {
                             throw new Error(`Quote ${input.quote_slug} does not exist for this customer. Use ask_ben instead of guessing.`);
                         }
                     } else if (input.price_source === 'ben_answer') {
@@ -353,6 +393,23 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         throw new Error('Draft mentions money with no source. Cite quote_slug, or price_source="ben_answer" if Ben stated the figure, or use ask_ben — never invent a price.');
                     }
                 }
+
+                // Everything decidable from the text plus the quote: a discount offer (which need
+                // not carry a £ sign at all), a figure that is not on the cited quote, a line
+                // implying they have not seen it, a capitulation, a promised date. One chain,
+                // shared with scripts/_post-quote-test.ts so what is proven is what runs.
+                const live = await liveQuote();
+                const violation = checkDraft({
+                    body: input.body,
+                    intent: input.intent,
+                    allowedFigurePence: cited ? cited.allowedFigurePence : null,
+                    quoteSlug: cited?.slug ?? null,
+                    quoteSeen: !!live && (live.viewCount > 0 || !!live.firstViewedAt),
+                    quoteViewCount: live?.viewCount,
+                    offeredDates: live?.offeredDates ?? [],
+                    quoteTotalPence: live?.totalPence ?? null,
+                });
+                if (violation) throw new Error(violation.message);
 
                 if (draftedThisRun) {
                     await db.update(messageDrafts)
@@ -372,7 +429,10 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // Phase 3: whitelisted intents may auto-send — same claimed-row path a human uses.
                 // Guarded by config (off by default), the intent whitelist, and UK daytime hours.
                 const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
+                // Post-quote intents are money-adjacent negotiation and can never be whitelisted,
+                // whatever someone puts in the config. The whitelist exists for content-free acks.
                 const whitelisted = config.autosend.enabled && input.intent !== 'other'
+                    && !NEVER_AUTOSEND_INTENTS.includes(input.intent)
                     && config.autosend.intents.includes(input.intent) && ukHour >= 8 && ukHour < 20;
 
                 // The first-contact exception: an acknowledgement to a number we have never
@@ -544,6 +604,8 @@ HARD RULES — these are not preferences:
   one body — it is not a per-message send button. If you realise the draft is incomplete or
   wrong, call queue_draft again with the full corrected reply; the latest call replaces it.
 
+${postQuoteStandingOrders()}
+
 VOICE — how everything customer-facing must sound (follow this to the letter):
 ${loadVoice()}
 
@@ -554,7 +616,7 @@ export const STAFF = {
     id: 'comms',
     name: 'Comms',
     roleTitle: 'Triage Officer & Drafting Clerk',
-    mission: 'Reads every thread (messages + call transcripts), keeps the Kanban board honest, and makes Ben\'s 4-working-hour SLA achievable: draft a reply, ask Ben a structured question, or justify doing nothing.',
+    mission: 'Reads every thread (messages + call transcripts), keeps the Kanban board honest, and makes Ben\'s 4-working-hour SLA achievable: draft a reply, ask Ben a structured question, or justify doing nothing. Once a quote is out it keeps the same job and gains the quote itself, routing the reply by price band rather than by better prose.',
     model: 'claude-sonnet-5',
     cadence: 'On new inbound (debounced ~10 min) · SLA sweep every 30 min working hours · window-closing sweep hourly · all gated on one switch',
     autonomy: {
@@ -564,11 +626,19 @@ export const STAFF = {
             'Whitelisted acks may auto-send ONLY when the autosend gate is on (ships off), UK 8-20',
             'FIRST contact only (a number we have never messaged) may be acknowledged automatically, 24/7, content-free — the one sanctioned exception (ships off)',
         ],
-        never: ['Originate a price — £ figures must cite a quote or Ben\'s own answer', 'Promise unconfirmed dates or availability', 'Draft apology commitments on complaints (urgent + ask Ben instead)'],
+        never: [
+            'Originate a price — every £ figure must already appear on the cited quote, or come from Ben\'s own answer',
+            'Offer a discount, a percentage off, or any hint of room to move — volume discounts are Ben\'s alone',
+            'Promise unconfirmed dates or availability (check_date is read-only and books nothing)',
+            'Capitulate to a price objection — the graceful exit converted 1 time in 8',
+            'Imply the customer has not seen their quote — 102 of 104 quiet customers had already opened theirs',
+            'Draft apology commitments on complaints (urgent + ask Ben instead)',
+        ],
     },
     tools: [
-        { name: 'get_thread', blurb: 'Merged timeline incl. the customer\'s actual photos + video keyframes, calls w/ transcripts, window + SLA state', kind: 'read' },
-        { name: 'get_customer_context', blurb: 'The customer\'s quotes with real prices — the only allowed price source', kind: 'read' },
+        { name: 'get_thread', blurb: 'Merged timeline incl. the customer\'s actual photos + video keyframes, calls w/ transcripts, window + SLA state, and the live quote with line items, views, expiry + price band', kind: 'read' },
+        { name: 'get_customer_context', blurb: 'The customer\'s quotes in full — line items, view history, amendment history, and the only allowed price source', kind: 'read' },
+        { name: 'check_date', blurb: 'Read-only: is that date already offered on their quote? Books nothing, confirms nothing', kind: 'read' },
         { name: 'get_quick_replies', blurb: 'House-voice canned replies to adapt', kind: 'read' },
         { name: 'set_board_state', blurb: 'Stage / priority / tags — the autonomous tier', kind: 'write' },
         { name: 'queue_draft', blurb: 'Draft to approval queue (money guard + gated auto-send live here)', kind: 'gated' },
