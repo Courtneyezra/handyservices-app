@@ -1,23 +1,34 @@
 /**
- * The Comms Agent — triage officer and drafting clerk for /admin/comms. Never the sender.
+ * The Comms Agent — triage officer and reply writer for /admin/comms.
  *
- * Its constitution is the platform's locked rule: nothing reaches a customer without approval.
- * The agent reads a thread (messages, calls, webforms — the merged timeline), then does at most
- * three kinds of work:
+ * DIRECT SEND (owner's decision, 20 Aug 2026). The per-draft human approval step is GONE. A reply
+ * that clears the full deterministic guard chain leaves immediately, before AND after a quote is
+ * out. The guards are the reader now: they were attacked line by line on 19 Aug 2026 (91 attacks
+ * green, commits 63def73 / c30f16a) and they check facts the model cannot relabel — figures against
+ * the customer's own quote, discounts however they are phrased, date commitments, credentials,
+ * liability, the house voice. A human re-reading the same text adds latency, not safety.
  *
+ * Ben's two human moments are what is left, and they are the ones that cost money to get wrong:
+ *   1. PRICING — he prices and sends the quote (the quote-prep handoff below puts it on his desk).
+ *   2. ASK_BEN — he answers the escalations the agent raises.
+ *
+ * THE ONE ABSOLUTE RAIL, which is the handoff itself rather than a check: anything that changes
+ * what the customer pays or when we turn up — a money figure, a discount, a price change, a date
+ * commitment, an admission of liability — is never sent by this agent. The guard chain refuses it
+ * at draft time and the refusal is ROUTED TO ask_ben (see escalations below), so a refused draft
+ * becomes a question for Ben rather than a message nobody reads.
+ *
+ * So the agent still does exactly three kinds of work:
  *   1. TRIAGE  — set stage/priority/tags on the board (reversible, internal → autonomous).
- *   2. DRAFT   — write the reply into message_drafts, where Ben approves/edits/rejects it.
- *   3. ASK     — when it cannot safely draft (dates we may not do, money not covered by a
- *                quote), it raises an agent_questions row with tappable options. Ben's answer
- *                feeds the next run. Asking is its ONLY alternative to drafting — it never
- *                guesses and never goes silent.
+ *   2. REPLY   — write the reply; it sends if every guard passes and it carries no money or date.
+ *                If the kill switch (autosend.enabled) is off, the same reply queues for approval
+ *                exactly as it used to. Nothing else changes when it is flipped.
+ *   3. ASK     — when it cannot safely reply, it raises an agent_questions row with tappable
+ *                options. Asking is its ONLY alternative to replying — it never guesses.
  *
- * Money guard: any draft containing a £ figure must cite the quote it came from, or the tool
- * refuses and tells the agent to ask instead. Prices come from quotes, never from the model.
- *
- * Phase 3 (auto-send) is a config-gated exception: intents on an explicit whitelist can be
- * auto-approved through the SAME approveAndSendDraft path a human uses — logged, visible in the
- * thread, and OFF by default.
+ * Everything, sent or queued, is frozen into agent_outcomes. A direct send records verdict
+ * 'auto_sent' and is excluded from the trust-ladder rate by design: the ledger keeps measuring
+ * quality even though it no longer gates anything.
  */
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -40,8 +51,12 @@ import {
     type FirstContactAckConfig, type FirstContactChannel,
 } from '../first-contact-ack';
 import { loadQuoteContexts, checkDateSignal, type QuoteContext } from './quote-context';
+import type { IntakeReadiness } from './quote-prep';
 import { postQuoteStandingOrders } from './objection-levers';
-import { MONEY_RE, checkDraft, extractMoneyFigures } from './draft-guards';
+import {
+    MONEY_RE, checkDraft, extractMoneyFigures, detectDiscountOffer, detectDatePromise,
+    detectLiabilityAdmission, type DraftViolation,
+} from './draft-guards';
 
 // ---------------------------------------------------------------- config
 
@@ -55,18 +70,53 @@ export interface CommsAgentConfig {
     /** How long after the LAST inbound to run — lets a burst of messages finish first. */
     inboundDebounceMinutes: number;
     autosend: {
+        /**
+         * DIRECT SEND, the kill switch. True (the new normal): a reply that clears every guard and
+         * carries no money or date figure goes straight to the customer. False: the identical reply
+         * queues in message_drafts for approval, which is exactly the old behaviour — flipping this
+         * back is a complete, instant reversal with nothing to unwind.
+         */
         enabled: boolean;
-        /** Intents allowed to skip human approval. Keep this to content-free acknowledgements. */
+        /**
+         * DEAD FIELD, kept only so an existing app_settings row still parses.
+         *
+         * It used to be the intent whitelist, and the whitelist was the wrong shape: `intent` is a
+         * label the MODEL writes on its own draft, so a price objection filed as 'ack_enquiry'
+         * cleared it. The gate is now content-based (maySendDirect) and reads facts the run cannot
+         * relabel. Nothing reads this. Do not add to it expecting an effect.
+         */
         intents: string[];
     };
     /**
-     * The first-contact exception (server/first-contact-ack.ts): a number we have NEVER messaged
-     * may be acknowledged without approval, 24/7. Everything else keeps the gate.
+     * The first-contact responder (server/first-contact-ack.ts): a number we have NEVER messaged is
+     * acknowledged instantly, 24/7, deterministically, without an LLM run. It predates direct send
+     * and is unchanged by it — it is the cheap instant lane, not an exception any more.
      */
     firstContactAutoAck: FirstContactAckConfig;
+    /**
+     * THE HANDOFF TO BEN. When the agent's triage concludes a thread has everything needed to price
+     * it, quote-prep runs by itself and the priced-up intake lands on Ben's desk. See
+     * maybeAutoQuotePrep.
+     */
+    quotePrep: {
+        enabled: boolean;
+        /**
+         * Cost bound: at most one automatic run per conversation per this many hours, UNLESS new
+         * substantive info arrived since the last one (a new photo, a postcode). Without the
+         * exception a thread that is genuinely progressing would be stuck behind a timer; without
+         * the timer a chatty thread would re-prep on every message.
+         */
+        minHoursBetweenRuns: number;
+    };
 }
 
 const SETTING_KEY = 'comms_agent';
+/**
+ * Note `autosend.enabled: false` here against the live config's `true`. This object is what applies
+ * when the app_settings row is MISSING or UNREADABLE, and the house rule for that case is fail
+ * closed: a config we could not read is not permission to message customers. The owner's decision
+ * is recorded in the database, where it can be read back and audited, not in a default.
+ */
 const DEFAULT_CONFIG: CommsAgentConfig = {
     enabled: false,
     sweepLimit: 5,
@@ -74,6 +124,7 @@ const DEFAULT_CONFIG: CommsAgentConfig = {
     inboundDebounceMinutes: 10,
     autosend: { enabled: false, intents: [] },
     firstContactAutoAck: DEFAULT_FIRST_CONTACT_ACK,
+    quotePrep: { enabled: true, minHoursBetweenRuns: 6 },
 };
 
 export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
@@ -85,6 +136,7 @@ export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
             ...DEFAULT_CONFIG, ...stored,
             autosend: { ...DEFAULT_CONFIG.autosend, ...(stored.autosend ?? {}) },
             firstContactAutoAck: { ...DEFAULT_FIRST_CONTACT_ACK, ...(stored.firstContactAutoAck ?? {}) },
+            quotePrep: { ...DEFAULT_CONFIG.quotePrep, ...(stored.quotePrep ?? {}) },
         };
     } catch (error) {
         console.error('[CommsAgent] Could not read config, treating as disabled:', error);
@@ -99,6 +151,7 @@ export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Pro
         ...patch,
         autosend: { ...current.autosend, ...(patch.autosend ?? {}) },
         firstContactAutoAck: { ...current.firstContactAutoAck, ...(patch.firstContactAutoAck ?? {}) },
+        quotePrep: { ...current.quotePrep, ...(patch.quotePrep ?? {}) },
     };
     await db.insert(appSettings)
         .values({
@@ -130,39 +183,91 @@ export const DRAFT_INTENTS = [
 ] as const;
 
 /**
- * Intents that may NEVER be added to the auto-send whitelist, whatever the config says. The
- * whitelist is meant for content-free acknowledgements; every intent here is money-adjacent or
- * negotiation, and those always pass a human first. 'other' is already excluded at the call site.
+ * THE ONE ABSOLUTE RAIL. Not a check on the way to sending — the handoff itself.
+ *
+ * Anything in a reply that changes what the customer PAYS or WHEN WE TURN UP is Ben's, permanently,
+ * whatever the config says and whatever the run calls itself. This function names those things by
+ * reading the body, because the body is the only thing the model cannot relabel: it can file a
+ * price objection as 'ack_enquiry', but it cannot put £340 in a message and have the £ not be there.
+ *
+ * Four families, and each one is a different way of committing the business:
+ *   money       any figure at all. Even a TRUE one, quoted correctly off their own live quote, is
+ *               held: repeating a price is how a price gets renegotiated, and the renegotiation is
+ *               the part Ben owns. checkDraft has already proved the figure is real; this decides
+ *               that a real figure still does not go out unread.
+ *   discount    a reduction with or without a number ("a bit of wiggle room", "10% off").
+ *   date        a commitment to a day or an arrival time.
+ *   liability   an admission of fault or a promise to pay for damage.
+ *
+ * The last three are already refused outright by checkDraft, so in practice a body carrying one
+ * never reaches here. They are repeated anyway: this is the rail the owner said is not negotiable,
+ * and a rail that depends on a different function still being wired up is not a rail.
+ *
+ * Pure, so scripts/_adversarial-test.ts attacks the real branch rather than trusting it.
  */
-export const NEVER_AUTOSEND_INTENTS: readonly string[] = [
-    'quote_question', 'price_objection', 'rescope_offer', 'timing_hold', 'quote_followup',
-];
+export function neverSendDirectReason(body: string): string | null {
+    if (MONEY_RE.test(body)) return 'it contains a money figure';
+    const discount = detectDiscountOffer(body);
+    if (discount) return `it offers a reduction ("${discount}")`;
+    const date = detectDatePromise(body);
+    if (date) return `it commits to a date or an arrival time ("${date}")`;
+    const liability = detectLiabilityAdmission(body);
+    if (liability) return `it admits liability ("${liability}")`;
+    return null;
+}
+
+/** Why a reply did or did not go straight out. The string is logged and returned to the model. */
+export interface DirectSendDecision {
+    send: boolean;
+    reason: string;
+}
 
 /**
- * May this draft leave without a human? Pure, so scripts/_adversarial-test.ts can attack it
- * directly instead of taking the branch on trust.
+ * May this reply go straight to the customer?
  *
- * The intent is a label the MODEL writes, which makes an intent-only whitelist self-certifying: a
- * price objection answered under intent='ack_enquiry' used to clear it and go out unread. The two
- * facts below cannot be relabelled by the run that wants past them:
- *   postQuoteThread   a live quote is out, so this thread is a negotiation whatever it is called
- *   money in the body an acknowledgement with a price in it is not an acknowledgement
+ * The old version asked "is this intent on a whitelist, and is the thread pre-quote". Both were the
+ * wrong question. The intent is a label the model writes about its own draft, and "pre-quote" is a
+ * proxy for "no money involved" that was wrong in both directions: it blocked "yes we can do that,
+ * I will get Ben to look at it" on a quoted thread, and it waved through anything at all before a
+ * quote existed.
+ *
+ * The question now is the one that actually matters, and every part of it is a fact:
+ *   1. is the kill switch on                    (config, a human's decision)
+ *   2. did the FULL guard chain pass            (checkDraft, deterministic, adversarially tested)
+ *   3. is this Ben's alone                      (neverSendDirectReason, reads the body)
+ *   4. is it a civilised hour to text somebody  (UK 8-20; outside it the reply waits for Ben)
+ *
+ * `postQuoteThread` is still taken, and still recorded in the reason, because knowing whether a
+ * live quote is out is worth having in the log. It no longer blocks anything by itself.
+ *
+ * Pure, so scripts/_adversarial-test.ts can attack the real branch.
  */
-export function mayAutoSendWhitelisted(opts: {
+export function maySendDirect(opts: {
     config: CommsAgentConfig;
     intent: string;
     body: string;
     ukHour: number;
     postQuoteThread: boolean;
-}): boolean {
-    const { config, intent, body, ukHour, postQuoteThread } = opts;
-    if (!config.autosend.enabled) return false;
-    if (intent === 'other') return false;
-    if (NEVER_AUTOSEND_INTENTS.includes(intent)) return false;
-    if (postQuoteThread) return false;
-    if (MONEY_RE.test(body)) return false;
-    if (!config.autosend.intents.includes(intent)) return false;
-    return ukHour >= 8 && ukHour < 20;
+    /** True only when checkDraft returned null for this exact body. Never assume it. */
+    guardsPassed: boolean;
+}): DirectSendDecision {
+    const { config, intent, body, ukHour, postQuoteThread, guardsPassed } = opts;
+    const where = postQuoteThread ? 'post-quote' : 'pre-quote';
+
+    if (!config.autosend.enabled) {
+        return { send: false, reason: 'direct send is switched off, so this queues for approval' };
+    }
+    if (!guardsPassed) {
+        return { send: false, reason: 'the guard chain did not pass, so nothing may leave' };
+    }
+    const never = neverSendDirectReason(body);
+    if (never) {
+        return { send: false, reason: `held for Ben because ${never} — that decision is his, not yours` };
+    }
+    if (ukHour < 8 || ukHour >= 20) {
+        return { send: false, reason: `it is ${ukHour}:00 UK, outside 08-20, so this waits rather than buzzing a phone at night` };
+    }
+    return { send: true, reason: `every guard passed and it commits nothing (${where}, intent ${intent})` };
 }
 
 // ---------------------------------------------------------------- tool-boundary refusals
@@ -226,7 +331,12 @@ export interface CommsAgentOutcome {
     result: AgentRunResult;
     /** What actually got written, parsed from the transcript — the audit summary. */
     actions: { tool: string; input: any }[];
+    /** True when a reply left for the customer during this run without a human reading it. */
     autosent: boolean;
+    /** True when a guard refusal was turned into an ask-Ben question the model had not raised. */
+    escalated: boolean;
+    /** What the automatic quote-prep handoff did, or null when it did not run. */
+    handoff: QuotePrepHandoff | null;
 }
 
 export async function runCommsAgent(conversationId: string, trigger: string): Promise<CommsAgentOutcome> {
@@ -243,6 +353,24 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     // a dedupe error (which strands the fragment), a repeat queue_draft in the SAME run
     // supersedes the earlier one — the final call always wins.
     let draftedThisRun: string | null = null;
+
+    /**
+     * ROUTING THE REFUSAL TO BEN.
+     *
+     * The absolute rail says money, discounts, price changes and dates go to ask_ben. checkDraft
+     * refuses them at draft time and the error text tells the model to ask instead — but "the error
+     * text tells it to" is a hope, not a mechanism. A run that got refused and then wandered off
+     * used to leave a customer with a live question and Ben with nothing on his desk.
+     *
+     * So every refusal in the Ben-only families is collected here, and if the run ends without the
+     * model having raised a question, one is raised FOR it after the run. The escalation is the
+     * rail; the model's cooperation is not required for it to fire.
+     */
+    const escalations: { violation: DraftViolation; attemptedBody: string }[] = [];
+    const ESCALATE_CODES: readonly DraftViolation['code'][] = [
+        'figure_not_on_quote', 'discount_offer', 'date_promise', 'liability_admission',
+    ];
+    let askedBenThisRun = false;
 
     /** Which surface this customer last came in on — the first-contact config is per channel. */
     const inboundChannel = async (): Promise<FirstContactChannel> => {
@@ -435,7 +563,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         },
         {
             name: 'queue_draft',
-            description: 'Draft the COMPLETE reply — every bubble of it in this one body, parts separated by "---" lines. It goes to Ben\'s approval queue; it does NOT send. This is NOT a per-message send button: one call carries the whole reply. If you call it again, your new body REPLACES the previous draft entirely (the latest call wins), so a repeat call must also contain the complete reply. HARD RULE: if the body mentions any price or £ figure it must have a source: pass quote_slug for a quoted price, or price_source="ben_answer" when the figure comes from Ben\'s answer to an ask_ben question. If neither covers it, use ask_ben instead. Never invent prices, dates or promises.',
+            description: 'SEND the COMPLETE reply — every bubble of it in this one body, parts separated by "---" lines. Despite the name this GOES TO THE CUSTOMER: if it clears the guards and commits to no money and no date, it is on their phone within seconds and cannot be recalled. This is NOT a per-message send button: one call carries the whole reply. If you call it again the new body REPLACES the previous one, so a repeat call must also contain the complete reply. HARD RULE: if the body mentions any price or £ figure it must have a source: pass quote_slug for a quoted price, or price_source="ben_answer" when the figure came from Ben\'s answer to an ask_ben question. A reply carrying a figure or a date is held for Ben even when the source is valid, because changing what someone pays is his call, so if money or a date is really the answer, use ask_ben and say something true meanwhile. Never invent prices, dates or promises.',
             input_schema: {
                 type: 'object' as const,
                 properties: {
@@ -523,7 +651,14 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     quoteTotalPence: live?.totalPence ?? null,
                     customerText: lastInbound?.content ?? null,
                 });
-                if (violation) throw new Error(violation.message);
+                if (violation) {
+                    // Ben-only territory: remember it, so the run cannot end in silence even if the
+                    // model ignores the instruction in the error text.
+                    if (ESCALATE_CODES.includes(violation.code)) {
+                        escalations.push({ violation, attemptedBody: input.body });
+                    }
+                    throw new Error(violation.message);
+                }
 
                 if (draftedThisRun) {
                     await db.update(messageDrafts)
@@ -540,54 +675,54 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 const superseded = draftedThisRun;
                 draftedThisRun = id;
 
-                // Phase 3: whitelisted intents may auto-send — same claimed-row path a human uses.
-                // Guarded by config (off by default), the intent whitelist, and UK daytime hours.
+                // DIRECT SEND. Same claimed-row path a human's click takes, so the message, the
+                // thread record, the ledger row and the delivery fallbacks are all identical to an
+                // approved send. The only thing missing is the wait.
                 const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
-                // Post-quote intents are money-adjacent negotiation and can never be whitelisted,
-                // whatever someone puts in the config. The whitelist exists for content-free acks.
-                //
-                // NEVER_AUTOSEND_INTENTS alone was not enough, because the intent is a label the
-                // MODEL writes: a price objection answered under intent='ack_enquiry' cleared the
-                // whitelist and would have gone out unread. These two facts cannot be relabelled —
-                // a live quote is out, or the body has a price in it — and either one holds the
-                // draft for Ben regardless of what the run called itself.
                 const postQuoteThread = !!live?.isLive;
-                const whitelisted = mayAutoSendWhitelisted({
+                // guardsPassed is true here BECAUSE checkDraft returned null a few lines up and
+                // threw otherwise. It is passed explicitly rather than assumed inside the gate so
+                // the adversarial suite can attack the false branch, which is unreachable from here.
+                const decision = maySendDirect({
                     config, intent: input.intent, body: input.body, ukHour, postQuoteThread,
+                    guardsPassed: true,
                 });
 
-                // The first-contact exception: an acknowledgement to a number we have never
-                // messaged may go out round the clock, so the 8-20 guard above is skipped — but
-                // ONLY here, and only after the same hard server-side first-contact check the
-                // deterministic responder uses. Normally the inbound lane has already acked and
-                // this is false by the time the agent runs; this covers the case where it did not
-                // (process restart, feature switched on mid-thread).
-                const firstContactOk = config.firstContactAutoAck.enabled
+                // The first-contact responder keeps its own 24/7 lane: a number we have never
+                // messaged is acknowledged whatever the hour, because an acknowledgement is only
+                // worth anything while they are still holding the phone. It is content-free by
+                // definition, so a price in the body disqualifies it whatever the intent says.
+                // Normally the deterministic lane has already acked and this is false by the time
+                // the agent runs; this covers the case where it did not (restart, switched on
+                // mid-thread).
+                const firstContactOk = !decision.send
+                    && config.firstContactAutoAck.enabled
                     && (FIRST_CONTACT_ACK_INTENTS as readonly string[]).includes(input.intent)
-                    // An acknowledgement is content-free by definition. A price in it means this
-                    // is not one, whatever the intent says.
-                    && !postQuoteThread && !MONEY_RE.test(input.body)
+                    && !neverSendDirectReason(input.body)
                     && config.firstContactAutoAck.channels.includes(await inboundChannel())
                     && await isFirstContact({ conversationId: conv.id, phone: e164 });
 
-                if (whitelisted || firstContactOk) {
-                    const by = firstContactOk && !whitelisted ? 'comms_agent:first_contact_ack' : 'comms_agent:autosend';
+                if (decision.send || firstContactOk) {
+                    const by = firstContactOk && !decision.send ? 'comms_agent:first_contact_ack' : 'comms_agent:autosend';
                     const sent = await approveAndSendDraft(id, by);
                     if (sent.ok) {
                         autosent = true;
+                        console.log(`[CommsAgent] SENT DIRECTLY to ${e164} [${input.intent}]: ${decision.reason}`);
                         return {
                             queued: true, draftId: id, autosent: true,
-                            note: firstContactOk && !whitelisted
-                                ? 'First contact with this number — acknowledged immediately.'
-                                : 'Intent is whitelisted — sent immediately.',
+                            note: firstContactOk && !decision.send
+                                ? 'First contact with this number, acknowledged immediately. It has been SENT.'
+                                : 'SENT to the customer. It has left; do not write it again.',
                         };
                     }
-                    return { queued: true, draftId: id, autosent: false, note: `Auto-send refused (${sent.code}); left for Ben to approve.` };
+                    return { queued: true, draftId: id, autosent: false, note: `Send refused by the delivery layer (${sent.code}); left for Ben to approve.` };
                 }
 
+                console.log(`[CommsAgent] queued for approval for ${e164} [${input.intent}]: ${decision.reason}`);
                 return {
                     queued: true, draftId: id, autosent: false,
-                    ...(superseded ? { note: 'Replaced your earlier draft from this run — this complete version is the one Ben will see.' } : {}),
+                    note: `Not sent: ${decision.reason}. It is waiting for Ben.`,
+                    ...(superseded ? { superseded: 'Replaced your earlier draft from this run — this complete version is the one that counts.' } : {}),
                 };
             },
         },
@@ -609,6 +744,9 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     question: input.question, context: input.context,
                     options: input.options?.slice(0, 4),
                 });
+                // Either way Ben has an open question on this thread, so the post-run escalation
+                // fallback must not raise a second one.
+                askedBenThisRun = true;
                 if (!id) return { asked: false, note: 'An open question already exists for this conversation.' };
                 return { asked: true, questionId: id };
             },
@@ -737,7 +875,252 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         .filter((e) => e.type === 'tool_call' && ['set_board_state', 'queue_draft', 'ask_ben', 'schedule_recontact', 'resolve_question'].includes(e.detail.tool))
         .map((e) => ({ tool: e.detail.tool, input: e.detail.input }));
 
-    return { conversationId: conv.id, result, actions, autosent };
+    // THE RAIL, closed. A refusal in Ben-only territory becomes a question on his desk whether or
+    // not the model chose to raise one. Fire-and-forget in spirit but awaited, because a run that
+    // reports "done" while the escalation is still in flight is the failure this is here to remove.
+    const escalated = await routeRefusalsToBen({
+        conversationId: conv.id, phone: e164, escalations, alreadyAsked: askedBenThisRun,
+    });
+
+    // THE HANDOFF. Triage said this thread is priceable, so quote-prep runs and the intake lands on
+    // Ben's desk with a push. Bounded, and never allowed to break a run that has already replied.
+    const handoff = await maybeAutoQuotePrep(conv.id, config).catch((error: any) => {
+        console.error(`[CommsAgent] Auto quote-prep failed for ${conv.id}:`, error?.message);
+        return null;
+    });
+
+    return { conversationId: conv.id, result, actions, autosent, escalated, handoff };
+}
+
+/**
+ * Turn the guard chain's refusals into one question for Ben, when the model did not ask one itself.
+ *
+ * Deliberately ONE question however many refusals there were: askBen already enforces one open
+ * question per conversation, and a customer who asked about the price and the date has one problem,
+ * not two. The attempted body is quoted in the context because "the agent tried to say £340 and was
+ * stopped" is exactly what Ben needs to see to answer in five seconds.
+ */
+async function routeRefusalsToBen(opts: {
+    conversationId: string;
+    phone: string;
+    escalations: { violation: DraftViolation; attemptedBody: string }[];
+    alreadyAsked: boolean;
+}): Promise<boolean> {
+    if (opts.alreadyAsked || !opts.escalations.length) return false;
+    const first = opts.escalations[0];
+    const codes = [...new Set(opts.escalations.map((e) => e.violation.code))].join(', ');
+    try {
+        const id = await askBen({
+            conversationId: opts.conversationId,
+            phone: opts.phone,
+            question: 'The agent tried to reply with something only you can decide. What should it say?',
+            context: [
+                `The guard chain refused its draft (${codes}) and the run ended without a question, so this was raised automatically.`,
+                `What it tried to write: "${first.attemptedBody.replace(/\n+/g, ' / ').slice(0, 300)}"`,
+                `Why it was refused: ${first.violation.message.slice(0, 400)}`,
+            ].join('\n'),
+            options: ['Reply with the figure/date I give you', 'Tell them I will come back to them', 'I will handle this one myself'],
+        });
+        if (id) console.log(`[CommsAgent] Refusal routed to ask_ben (${codes}) on ${opts.conversationId}`);
+        return !!id;
+    } catch (error: any) {
+        console.error('[CommsAgent] Could not route a refusal to ask_ben:', error?.message);
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------- the handoff to Ben
+
+/** The tag triage sets when it judges the thread has everything needed to price the job. */
+export const READY_TO_PRICE_TAG = 'needs_quote';
+/** Set once quote-prep agrees. This is the tag Ben's board filters on. */
+export const QUOTE_READY_TAG = 'quote_ready';
+/** Set when quote-prep says it cannot be priced remotely at all. */
+export const VISIT_FIRST_TAG = 'visit_first';
+/** Whatever the verdict, this is the "a human is needed here" flag on the card. */
+export const NEEDS_BEN_TAG = 'needs_ben';
+
+export interface QuotePrepHandoff {
+    ran: boolean;
+    /** Why it did not run, when it did not. */
+    skipped?: string;
+    readiness?: IntakeReadiness;
+    lines?: number;
+    gaps?: number;
+    /** True when Ben's phone was buzzed about it. */
+    notified?: boolean;
+}
+
+/** Bookkeeping kept on conversations.metadata so an auto-run can be rate limited without new DDL. */
+interface QuotePrepAutoState {
+    lastRunAt?: string;
+    lastReadiness?: IntakeReadiness;
+    /** How many inbound media messages existed at the last run — a new photo is new information. */
+    mediaCount?: number;
+    /** Whether a postcode had appeared by the last run — one appearing is new information. */
+    postcodeSeen?: boolean;
+}
+
+const UK_POSTCODE_RE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
+
+/** Where a verdict puts the card, and whether Ben's phone should ring about it. */
+export interface VerdictRouting {
+    /** null = leave the stage alone. */
+    stage: 'scoping' | null;
+    tags: string[];
+    notify: boolean;
+}
+
+/**
+ * The routing table for a readiness verdict, as a pure function so all three branches can be proved
+ * without three model runs.
+ *
+ * The trigger tag is ALWAYS consumed, whatever the verdict, and that is the load-bearing part: a
+ * needs_quote left set re-fires the clerk on the customer's very next message, which is a paid
+ * model call to be told the same thing. The agent re-tags when the picture actually changes.
+ *
+ * needs_info deliberately does NOT reach Ben. Its next step is a question the agent is about to
+ * send by itself, so putting it on his desk would be handing him a job he must not do.
+ */
+export function routeIntakeVerdict(readiness: IntakeReadiness, currentTags: readonly string[]): VerdictRouting {
+    const keep = currentTags.filter((t) => ![READY_TO_PRICE_TAG, QUOTE_READY_TAG, VISIT_FIRST_TAG, 'quote_gaps'].includes(t));
+    if (readiness === 'needs_info') {
+        return { stage: null, tags: [...new Set([...keep, 'quote_gaps'])], notify: false };
+    }
+    return {
+        stage: 'scoping',
+        tags: [...new Set([...keep, NEEDS_BEN_TAG, readiness === 'visit_first' ? VISIT_FIRST_TAG : QUOTE_READY_TAG])],
+        notify: true,
+    };
+}
+
+/**
+ * What the thread contains RIGHT NOW that quote-prep would care about. Used twice: to decide
+ * whether anything substantive has changed since the last automatic run, and to record the new
+ * high-water mark afterwards.
+ */
+async function substantiveSignals(conversationId: string): Promise<{ mediaCount: number; postcodeSeen: boolean }> {
+    const rows = await db.select({ mediaUrl: messages.mediaUrl, content: messages.content })
+        .from(messages)
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.direction, 'inbound')))
+        .limit(200);
+    return {
+        mediaCount: rows.filter((r) => !!r.mediaUrl).length,
+        postcodeSeen: rows.some((r) => UK_POSTCODE_RE.test(r.content ?? '')),
+    };
+}
+
+/**
+ * THE AUTOMATIC HANDOFF. Triage tagged the thread ready to price, so quote-prep runs by itself and
+ * the result lands where Ben works instead of waiting for someone to click a button.
+ *
+ * Before direct send this was manual on purpose: a human was reading every reply anyway, so a human
+ * clicking "Prep quote" cost nothing. Now the conversation runs on its own, and a thread that has
+ * everything needed to price it can sit there indefinitely with nobody to notice. The handoff has
+ * to be an event.
+ *
+ * The three verdicts route differently, and the difference is the whole point:
+ *   quote_ready  Ben's move. Card to scoping with quote_ready + needs_ben, intake stored so the
+ *                slide-over opens straight into it, and a push so he knows it is there.
+ *   needs_info   the AGENT's move. It has gaps and it can now send its own questions, so nothing is
+ *                escalated: it keeps conversing and re-tags when it has what it needs.
+ *   visit_first  Ben's move again, but a different one. Tagged and pushed; the panel pre-toggles
+ *                the survey gate off the same verdict (QuotePrepPanel, already built).
+ *
+ * COST. One sonnet run per conversation per minHoursBetweenRuns, unless a new photo or a postcode
+ * arrived — the two things that most often turn needs_info into quote_ready. Failure is swallowed
+ * by the caller: a broken handoff must never cost a customer the reply that already went out.
+ */
+export async function maybeAutoQuotePrep(
+    conversationId: string,
+    config: CommsAgentConfig,
+): Promise<QuotePrepHandoff> {
+    if (!config.quotePrep.enabled) return { ran: false, skipped: 'quote-prep handoff disabled in config' };
+
+    // Re-read: the run we were called from has just written tags and a stage.
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
+    if (!conv) return { ran: false, skipped: 'conversation vanished' };
+
+    const tags = conv.tags ?? [];
+    if (!tags.includes(READY_TO_PRICE_TAG)) {
+        return { ran: false, skipped: `triage did not tag ${READY_TO_PRICE_TAG}` };
+    }
+
+    // A live quote is already out. Prepping another intake behind a customer's back is how a second
+    // price appears for the same job, which is the one thing a quoted thread must never produce.
+    const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
+    const existing = await loadQuoteContexts({ digits, conversationId: conv.id }).catch(() => [] as QuoteContext[]);
+    if (existing.some((q) => q.isLive)) {
+        return { ran: false, skipped: 'a live quote is already out for this number' };
+    }
+
+    const meta = (conv.metadata ?? {}) as Record<string, any>;
+    const state: QuotePrepAutoState = meta.quotePrepAuto ?? {};
+    const now = await substantiveSignals(conv.id);
+    const newInfo = now.mediaCount > (state.mediaCount ?? 0)
+        || (now.postcodeSeen && !state.postcodeSeen);
+    const hoursSince = state.lastRunAt
+        ? (Date.now() - new Date(state.lastRunAt).getTime()) / 3_600_000
+        : Infinity;
+    if (hoursSince < config.quotePrep.minHoursBetweenRuns && !newInfo) {
+        return {
+            ran: false,
+            skipped: `last auto-prep was ${hoursSince.toFixed(1)}h ago (limit ${config.quotePrep.minHoursBetweenRuns}h) and nothing substantive arrived since`,
+        };
+    }
+
+    console.log(`[CommsAgent] Auto quote-prep firing for ${conv.id}${newInfo ? ' (new photo/postcode)' : ''}`);
+    const { runQuotePrep } = await import('./quote-prep');
+    const { intake } = await runQuotePrep(conv.id);
+
+    // Whatever happened, the run happened: record it so a failed extraction cannot loop.
+    const writeState = async (patch: Partial<QuotePrepAutoState>, extra: Record<string, any> = {}) => {
+        await db.update(conversations).set({
+            metadata: {
+                ...meta,
+                ...extra,
+                quotePrepAuto: { ...state, lastRunAt: new Date().toISOString(), ...now, ...patch },
+            },
+            updatedAt: new Date(),
+        }).where(eq(conversations.id, conv.id));
+    };
+
+    if (!intake) {
+        await writeState({});
+        return { ran: true, skipped: 'the clerk could not extract a usable intake' };
+    }
+
+    const handoff: QuotePrepHandoff = {
+        ran: true, readiness: intake.readiness, lines: intake.lines.length, gaps: intake.gaps.length,
+    };
+    const route = routeIntakeVerdict(intake.readiness, tags);
+    await db.update(conversations).set({
+        ...(route.stage ? { stage: route.stage } : {}),
+        tags: route.tags,
+        priority: intake.urgency === 'high' ? 'high' : conv.priority ?? 'normal',
+        updatedAt: new Date(),
+    }).where(eq(conversations.id, conv.id));
+    // The intake itself, so opening the thread opens the slide-over already filled in. Ephemeral by
+    // design: it is a prefill, and the quote Ben saves from it is the record.
+    await writeState({ lastReadiness: intake.readiness }, { quotePrepIntake: intake });
+    if (!route.notify) return handoff;
+
+    try {
+        const { notifyQuotePrepReady } = await import('../pushover');
+        await notifyQuotePrepReady({
+            conversationId: conv.id,
+            customerName: intake.customerName ?? conv.contactName,
+            phoneNumber: `+${digits}`,
+            readiness: intake.readiness,
+            lines: intake.lines.map((l) => l.title),
+            postcode: intake.postcode,
+            urgency: intake.urgency,
+        });
+        handoff.notified = true;
+    } catch (error: any) {
+        console.warn('[CommsAgent] Quote-prep push failed (ignored):', error?.message);
+    }
+    return handoff;
 }
 
 /**
@@ -753,10 +1136,17 @@ function loadVoice(): string {
     }
 }
 
-export const SYSTEM = `You are the comms triage agent for Handy Services, a Nottingham handyman company.
-Ben (the VA) works the /admin/comms board; your job is to make his 4-working-hour SLA achievable.
+export const SYSTEM = `You are Handy Services' reply on WhatsApp. Handy Services is a Nottingham
+handyman company. When you write to a customer, they are talking to us, so write like Ben would.
 
-For the conversation you are given, do this and nothing more:
+YOU ARE THE ONE REPLYING NOW. Your messages go straight to the customer's phone: nobody reads them
+first, nobody tidies them up, and you cannot take one back. That is not licence to say more, it is
+the reason to say less. Two things are still Ben's and only Ben's, and you hand them to him:
+  · the PRICE. Every figure, every discount, anything that changes what they pay.
+  · a DATE. Any commitment about when we turn up.
+Reach for ask_ben the moment either is in play, and say something true and useful meanwhile.
+
+For the conversation you are given:
 1. Read the thread (get_thread). Understand what the customer needs RIGHT NOW.
 2. Triage: set stage/priority/tags to match reality (set_board_state).
 
@@ -770,26 +1160,38 @@ The board is a SALES FUNNEL, worked left to right. Its stages mean exactly this:
 - closed: dead, spam, or done.
 An enquiry stays an enquiry until WE reply; our first reply moves it to scoping.
 Never demote quote_sent or won just because messages are flowing.
+
+THE ONE TAG THAT STARTS SOMETHING: "needs_quote". Add it the moment you judge that this thread now
+has everything needed to price the job — what the work actually is, the photos you asked for, and
+the postcode. Tagging it fires the quote clerk automatically and puts a prepped intake in front of
+Ben, so it is how a conversation becomes a quote. Do not tag it hopefully: if you are still missing
+something that would change the price, keep asking for it instead, which is your job and no longer
+needs anyone's permission. Do not tag it when a live quote is already out.
 3. Then:
-   a. queue_draft — when a good reply is safely writable from what you know.
+   a. queue_draft — the reply itself. Despite the name it SENDS, immediately, to the customer.
    b. ask_ben    — when deciding would require guessing about money, dates, scope or a complaint.
    c. BOTH, in the same turn. This is the normal shape whenever you have to ask, and you should
       reach for it before you reach for (b) alone: ask_ben is not a reply, it is a note to a
-      colleague, and the customer sees nothing until he answers. Almost every thread has a true,
+      colleague, and the customer hears nothing until he answers. Almost every thread has a true,
       useful, commitment-free thing you can say NOW — what you are chasing, what you need from
-      them, that you are finding out and will come back. Draft that, and ask him the rest.
-      The draft must not pre-empt his answer: no figure, no date, no direction he has not picked.
-      Say in your ask_ben context that a draft is already queued so he reads them together.
+      them, that you are finding out and will come back. Send that, and ask him the rest.
+      What you send must not pre-empt his answer: no figure, no date, no direction he has not
+      picked. Say in your ask_ben context what you have already told them, so he knows.
+      Write that holding reply in the FIRST PERSON and name nobody. "Let me check on that and come
+      straight back to you" is right. "Let me check that with Ben" is wrong, and it is wrong for a
+      reason worth understanding: you sign off as Ben, so a customer reading that sees two people
+      and starts wondering who they are actually talking to. Ask_ben is internal. They never see it.
    d. Nothing    — when no response is needed (we already replied and the ball is with the customer,
       or the thread is spam/dead). Say NO_ACTION and why. "They are not ready yet" is NOT one of
       these: see the timing rules below.
    Never (a) alone when you had to guess, and never (b) alone when you could have said something
    true and useful while he reads his queue. Silence is a choice with a cost.
 
-If get_thread shows answeredQuestions, that is Ben instructing you: draft from his answer now,
-then resolve_question. That is true even if a draft is already pending — his answer supersedes it,
-and your new queue_draft replaces it. Otherwise, if there is an existingPendingDraft and no answer
-from Ben, do NOT draft again: triage only.
+If get_thread shows answeredQuestions, that is Ben instructing you: reply from his answer now, then
+resolve_question. That is true even if a draft is already pending — his answer supersedes it, and
+your new queue_draft replaces it. Otherwise, if there is an existingPendingDraft and no answer from
+Ben, do NOT write again: triage only. A pending draft means the last thing you wrote was held back
+for him, and writing a second one on top of it is how a customer gets the same message twice.
 
 FIRST REPLY TO A NEW ENQUIRY: ask for a PHOTO OR VIDEO, and usually nothing else in that message.
 Observed at Ben's first reply in 69% of threads, and it is the single most consistent thing he does.
@@ -826,16 +1228,17 @@ from a reply to our own acknowledgement, so they are the customer's actual words
   again when a good time would be.
 
 HARD RULES — these are not preferences:
-- You never send anything. Drafts go to approval. That is the design, not a limitation.
+- What you write REACHES THEM. There is no approval step and no second reader. Write one reply, the
+  whole reply, and mean it.
 - Prices come ONLY from quotes (cite quote_slug) or from Ben's explicit answer to your question
   (price_source="ben_answer"). You never originate a number yourself. No source → ask_ben.
 - Never promise dates, times or availability that the thread does not already confirm.
-- Complaints, chases and angry customers: triage to priority=urgent and ask_ben. Draft the
+- Complaints, chases and angry customers: triage to priority=urgent and ask_ben. Send the
   acknowledgement TOO, in the same turn, as long as it commits us to nothing: no admission of
   fault, no promised date, no figure, no "we will put it right free". "Really sorry, I am finding
   out where we are up to and will come straight back to you today" is inside your authority and it
   is far better than a customer waiting in silence while Ben reads his queue. What you must never
-  draft is an apology that carries a commitment.
+  write is an apology that carries a commitment.
 - ADDRESS: never ask for a full address BEFORE the deposit. Postcode only, and only when it is
   needed to price or route. AFTER the deposit the full address and a site contact are exactly what
   you should ask for, because that is how the job gets dispatched. The rule is about sequence, not
@@ -843,9 +1246,10 @@ HARD RULES — these are not preferences:
 - NO em dashes or hyphens-as-punctuation in anything the customer will read. Comma, full stop,
   or a new message part instead.
 - FORMAT mechanics: split the reply into 2-3 short message parts separated by a line containing
-  only "---" (each part lands as its own WhatsApp bubble). queue_draft carries the WHOLE reply in
-  one body — it is not a per-message send button. If you realise the draft is incomplete or
-  wrong, call queue_draft again with the full corrected reply; the latest call replaces it.
+  only "---" (each part lands as its own WhatsApp bubble). Keep every part under 25 words: his
+  median is 15, and anything longer reads as a paragraph rather than a text. queue_draft carries
+  the WHOLE reply in one body — it is not a per-message send button. If you realise the reply is
+  incomplete or wrong, call queue_draft again with the full corrected version; the latest wins.
 
 ${postQuoteStandingOrders()}
 
@@ -858,18 +1262,24 @@ Finish with one line: what you did and why. Be terse.`;
 export const STAFF = {
     id: 'comms',
     name: 'Comms',
-    roleTitle: 'Triage Officer & Drafting Clerk',
-    mission: 'Reads every thread (messages + call transcripts), keeps the Kanban board honest, and makes Ben\'s 4-working-hour SLA achievable: draft a reply, ask Ben a structured question, or justify doing nothing. Once a quote is out it keeps the same job and gains the quote itself, routing the reply by price band rather than by better prose.',
+    roleTitle: 'The Reply — Triage Officer & Correspondent',
+    mission: 'Runs the customer conversation end to end, before and after a quote. Reads every thread (messages, photos, call transcripts), keeps the Kanban board honest, and REPLIES DIRECTLY — the guard chain is the reader, not a human. It escalates the two things it may never decide (money and dates) to Ben, and when a thread becomes priceable it fires the quote clerk and puts a prepped intake on his desk.',
     model: 'claude-sonnet-5',
     cadence: 'On new inbound (debounced ~10 min) · SLA sweep every 30 min working hours · window-closing sweep hourly · all gated on one switch',
     autonomy: {
-        freely: ['Move cards, set priority, add tags on the board', 'Read threads, quotes and call transcripts'],
+        freely: [
+            'REPLY TO THE CUSTOMER — pre-quote and post-quote, sent on the spot, no human reads it first',
+            'Move cards, set priority, add tags on the board',
+            'Read threads, quotes and call transcripts',
+            'Fire the quote clerk when a thread has everything needed to price it, and push it to Ben',
+        ],
         approval: [
-            'Every reply — drafted into message_drafts for Ben',
-            'Whitelisted acks may auto-send ONLY when the autosend gate is on (ships off), UK 8-20',
-            'FIRST contact only (a number we have never messaged) may be acknowledged automatically, 24/7, content-free — the one sanctioned exception (ships off)',
+            'Any reply carrying a £ figure, a discount, a price change or a date — held for Ben, always',
+            'Anything the guard chain refuses — the refusal becomes an ask-Ben question automatically',
+            'Everything, whenever the direct-send kill switch is off: the same replies queue as before',
         ],
         never: [
+            'Send a price, a discount or a date without Ben — this is the rail, not a setting',
             'Mark a thread won — that means the deposit is paid, and only a real payment event may say so',
             'Originate a price — every £ figure must already appear on the cited quote, or come from Ben\'s own answer',
             'Quote from a WITHDRAWN quote — a price Ben took off the table is not a price source',
@@ -877,7 +1287,7 @@ export const STAFF = {
             'Promise unconfirmed dates or availability (check_date is read-only and books nothing)',
             'Capitulate to a price objection — the graceful exit converted 1 time in 8',
             'Imply the customer has not seen their quote — 102 of 104 quiet customers had already opened theirs',
-            'Draft apology commitments on complaints (urgent + ask Ben instead)',
+            'Admit fault or promise to pay for damage (urgent + ask Ben instead)',
         ],
     },
     tools: [
@@ -885,9 +1295,9 @@ export const STAFF = {
         { name: 'get_customer_context', blurb: 'The customer\'s quotes in full — line items, view history, amendment history, and the only allowed price source', kind: 'read' },
         { name: 'check_date', blurb: 'Read-only: is that date already offered on their quote? Books nothing, confirms nothing', kind: 'read' },
         { name: 'get_quick_replies', blurb: 'House-voice canned replies to adapt', kind: 'read' },
-        { name: 'set_board_state', blurb: 'Stage / priority / tags — the autonomous tier, minus "won", which only a payment can set', kind: 'write' },
-        { name: 'queue_draft', blurb: 'Draft to approval queue (money guard + gated auto-send live here)', kind: 'gated' },
-        { name: 'ask_ben', blurb: 'Structured question with tappable options — pairs with a draft, it does not replace one', kind: 'write' },
+        { name: 'set_board_state', blurb: 'Stage / priority / tags — the autonomous tier, minus "won", which only a payment can set. Tagging "needs_quote" fires the quote clerk', kind: 'write' },
+        { name: 'queue_draft', blurb: 'THE REPLY. Sends on the spot once the full guard chain passes; held for Ben the moment it carries money or a date', kind: 'gated' },
+        { name: 'ask_ben', blurb: 'Structured question with tappable options — pairs with a reply, it does not replace one', kind: 'write' },
         { name: 'schedule_recontact', blurb: 'Records an agreed date to come back to a held job — proposed into the nudge queue, sends nothing', kind: 'gated' },
         { name: 'resolve_question', blurb: 'Marks Ben\'s answer consumed after drafting from it', kind: 'write' },
     ],

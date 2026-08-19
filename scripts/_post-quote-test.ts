@@ -325,9 +325,12 @@ async function main() {
     const guardsOnly = process.argv.includes('--guards-only');
 
     const savedConfig = await retry('read config', getCommsAgentConfig);
-    // Belt and braces: nothing in this suite may reach a phone, even one nobody owns.
+    // Belt and braces: nothing in this suite may reach a phone, even one nobody owns. quotePrep is
+    // off too — an agent run here can tag needs_quote, and the handoff would answer that with a
+    // paid model run and a Pushover alert at the owner about a thread that does not exist.
     await retry('disable autosend', () => setCommsAgentConfig({
         autosend: { enabled: false, intents: [] },
+        quotePrep: { ...savedConfig.quotePrep, enabled: false },
         firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: false },
     }));
 
@@ -476,8 +479,11 @@ async function main() {
         await retry('cleanup thread', () => clearThread(CONV_ID)).catch((e) => console.error('cleanup failed:', e?.message));
         await retry('restore config', () => setCommsAgentConfig({
             autosend: savedConfig.autosend,
+            quotePrep: savedConfig.quotePrep,
             firstContactAutoAck: savedConfig.firstContactAutoAck,
         })).catch((e) => console.error('config restore failed:', e?.message));
+        const back = await retry('read config back', getCommsAgentConfig).catch(() => null);
+        console.log(`\nCONFIG READ BACK: autosend(DIRECT SEND)=${back?.autosend.enabled} quotePrep=${back?.quotePrep.enabled} firstContactAutoAck=${back?.firstContactAutoAck.enabled}`);
         console.log(`\n${failures === 0 ? 'ALL GREEN' : `${failures} FAILURE(S)`}`);
     }
 }

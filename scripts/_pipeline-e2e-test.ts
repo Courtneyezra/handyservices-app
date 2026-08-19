@@ -35,6 +35,9 @@
  *                          the ack lane, which is enabled and would otherwise answer a first contact
  *   3. triage with a photo the agent reads the thread WITH the image embedded (media-context.ts)
  *   4. quote prep          runQuotePrep returns structured lines and a readiness verdict
+ *  4b. the handoff        tagging needs_quote fires the clerk by itself, routes the verdict onto
+ *                         the board, stores the intake and pushes Ben — the event that replaced
+ *                         the "Prep quote" button when nobody was left reading the thread
  *   5. quote sent          the thread moves to quote_sent, the quote is live and non-draft
  *   6. price objection     the agent answers with a LEVER and invents no figure
  *   7. the £1,000 wall     a £1,200 objection goes to Ben instead of being improvised
@@ -59,7 +62,12 @@ import {
 import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { scheduleInboundTriage } from '../server/agents/comms-lanes';
-import { getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, DRAFT_INTENTS, NEVER_AUTOSEND_INTENTS, type CommsAgentOutcome } from '../server/agents/comms';
+import {
+    getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, DRAFT_INTENTS,
+    maySendDirect, neverSendDirectReason, maybeAutoQuotePrep, routeIntakeVerdict,
+    READY_TO_PRICE_TAG, QUOTE_READY_TAG, VISIT_FIRST_TAG, NEEDS_BEN_TAG,
+    type CommsAgentOutcome,
+} from '../server/agents/comms';
 import { runQuotePrep } from '../server/agents/quote-prep';
 import { loadQuoteContexts } from '../server/agents/quote-context';
 import { buildMediaBlocks } from '../server/agents/media-context';
@@ -421,7 +429,12 @@ async function stage3_triageWithPhoto(): Promise<CommsAgentOutcome | null> {
         d ? `draft ${d.id}` : `${q.length} question(s)`);
     if (d) {
         console.log(`\ndraft:\n${d.body}\n`);
-        check('the draft is waiting for approval, not sent', d.status === 'pending', `status=${d.status}`);
+        // Direct send is off for this suite, so the reply must queue. Under the live config it
+        // would have gone straight out, which is exactly what the second line records.
+        check('with direct send off, the reply queued instead of sending', d.status === 'pending', `status=${d.status}`);
+        const held = neverSendDirectReason(d.body);
+        check('and the reply commits to nothing, so under the live config it would have SENT',
+            held === null, held ? `would be HELD FOR BEN: ${held}` : 'no money, no date, no liability');
         assertDraftIsSafe('triage', d.body);
         created.drafts.push(d.id);
     }
@@ -450,6 +463,108 @@ async function stage4_quotePrep(): Promise<void> {
         intake!.readiness !== 'quote_ready' || !intake!.gaps.some((g) => g.audience === 'customer'),
         `${intake!.readiness} with ${intake!.gaps.length} gap(s)`);
     check('the phone on the intake is the thread\'s own', intake!.phone === MAIN, intake!.phone);
+}
+
+/**
+ * The handoff that replaced the "Prep quote" button.
+ *
+ * Before 20 Aug 2026 a human read every reply, so a human clicking Prep quote cost nothing. The
+ * agent now runs the conversation alone, and a thread that has become priceable will sit there
+ * until somebody happens to look — so the handoff had to become an event. maybeAutoQuotePrep is
+ * driven directly here rather than through an agent run, because what needs proving is the
+ * ROUTING (verdict → board state → stored intake → push → rate limit), not that the model can
+ * decide to type a tag.
+ *
+ * PUSHOVER_APP_TOKEN is unset for the duration. The whole notify path still executes; dispatch()
+ * short-circuits at the documented no-token no-op instead of buzzing the owner's real phone, which
+ * keeps this script's promise that a full run fires zero immediate alerts.
+ */
+async function stage4b_autoHandoff(): Promise<void> {
+    stage('4b', 'The automatic handoff: triage tags it, the clerk runs, Ben gets a card and a push');
+    if (NO_LLM) { skipStage('--no-llm: the handoff runs a real quote-prep model call'); return; }
+
+    const cfg = { ...(await getCommsAgentConfig()), quotePrep: { enabled: true, minHoursBetweenRuns: 6 } };
+
+    // Nothing happens without the tag. That is the whole trigger, so it is the first thing checked.
+    await db.update(conversations).set({ tags: ['photos_received'] }).where(eq(conversations.id, CONV_MAIN));
+    const untagged = await maybeAutoQuotePrep(CONV_MAIN, cfg);
+    check('no needs_quote tag, no run — the clerk is not fired speculatively',
+        untagged.ran === false && /needs_quote/.test(untagged.skipped ?? ''), untagged.skipped);
+
+    const token = process.env.PUSHOVER_APP_TOKEN;
+    delete process.env.PUSHOVER_APP_TOKEN;
+    let handoff: Awaited<ReturnType<typeof maybeAutoQuotePrep>>;
+    try {
+        await db.update(conversations).set({ tags: ['photos_received', READY_TO_PRICE_TAG] })
+            .where(eq(conversations.id, CONV_MAIN));
+        handoff = await retry('auto handoff', () => maybeAutoQuotePrep(CONV_MAIN, cfg));
+    } finally {
+        if (token) process.env.PUSHOVER_APP_TOKEN = token;
+    }
+
+    console.log(`handoff: ${JSON.stringify(handoff)}`);
+    if (!check('tagging needs_quote fired the clerk', handoff.ran === true, handoff.skipped)) return;
+    check('it came back with a readiness verdict',
+        ['quote_ready', 'needs_info', 'visit_first'].includes(handoff.readiness ?? ''), handoff.readiness);
+
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, CONV_MAIN));
+    const tags = conv?.tags ?? [];
+    const meta = (conv?.metadata ?? {}) as any;
+    console.log(`board after handoff: stage=${conv?.stage} tags=${JSON.stringify(tags)}`);
+
+    // The trigger tag is consumed, whatever the verdict. Leaving it set is how a thread re-preps
+    // itself on every inbound until the rate limiter happens to catch it.
+    check('the needs_quote trigger is consumed, so it cannot re-fire on the next message',
+        !tags.includes(READY_TO_PRICE_TAG), JSON.stringify(tags));
+    // The intake is stored, which is the only reason Ben's slide-over can open without paying for
+    // a second identical run.
+    check('the intake is stored on the conversation for the slide-over to open',
+        Array.isArray(meta?.quotePrepIntake?.lines) && meta.quotePrepIntake.lines.length >= 1,
+        `${meta?.quotePrepIntake?.lines?.length ?? 0} line(s) stored`);
+    check('no price anywhere in the stored intake (the clerk never prices)',
+        !/£\s*\d/.test(JSON.stringify(meta?.quotePrepIntake ?? {})));
+
+    // The live run lands on ONE verdict, so the branch it happened to take is checked against the
+    // board it actually left behind…
+    const live = routeIntakeVerdict(handoff.readiness!, ['photos_received', READY_TO_PRICE_TAG]);
+    check(`the board matches the routing for the verdict it returned (${handoff.readiness})`,
+        live.tags.every((t) => tags.includes(t)) && (!live.stage || conv?.stage === live.stage),
+        `expected ${JSON.stringify(live.tags)}${live.stage ? ` + stage ${live.stage}` : ''}, got ${JSON.stringify(tags)} stage=${conv?.stage}`);
+    check('and Ben was buzzed exactly when the routing says he should be',
+        !!handoff.notified === live.notify, `notified=${handoff.notified} expected=${live.notify}`);
+
+    // …and all three branches are proved from the pure routing table, because paying for three
+    // model runs to see three tag sets would be absurd.
+    const before = ['photos_received', READY_TO_PRICE_TAG];
+    const ready = routeIntakeVerdict('quote_ready', before);
+    check('quote_ready: card to scoping, tagged for Ben, and he is notified',
+        ready.stage === 'scoping' && ready.tags.includes(NEEDS_BEN_TAG)
+        && ready.tags.includes(QUOTE_READY_TAG) && ready.notify === true, JSON.stringify(ready));
+    const visit = routeIntakeVerdict('visit_first', before);
+    check('visit_first: same card move, tagged visit_first so the panel pre-sets the survey gate',
+        visit.stage === 'scoping' && visit.tags.includes(VISIT_FIRST_TAG)
+        && visit.tags.includes(NEEDS_BEN_TAG) && visit.notify === true, JSON.stringify(visit));
+    const info = routeIntakeVerdict('needs_info', before);
+    check('needs_info stays with the agent: stage untouched, no needs_ben, no push',
+        info.stage === null && !info.tags.includes(NEEDS_BEN_TAG)
+        && info.tags.includes('quote_gaps') && info.notify === false, JSON.stringify(info));
+    check('every verdict consumes the needs_quote trigger, so none of them can re-fire the clerk',
+        [ready, visit, info].every((r) => !r.tags.includes(READY_TO_PRICE_TAG)));
+    check('and none of them loses a tag that was already on the card',
+        [ready, visit, info].every((r) => r.tags.includes('photos_received')));
+
+    // The cost bound. A second call moments later must not spend another model run.
+    const again = await maybeAutoQuotePrep(CONV_MAIN, cfg);
+    check('a second call inside the window is refused (cost bound holds)',
+        again.ran === false, again.skipped);
+    // …unless something substantive arrived. A new photo is the commonest thing that turns
+    // needs_info into quote_ready, so it must beat the timer.
+    await db.update(conversations).set({ tags: [...tags, READY_TO_PRICE_TAG] }).where(eq(conversations.id, CONV_MAIN));
+    const stillBarred = await maybeAutoQuotePrep(CONV_MAIN, cfg);
+    check('re-tagging alone does not defeat the cost bound', stillBarred.ran === false, stillBarred.skipped);
+
+    // Reset the board so stage 5 starts where it expects to.
+    await db.update(conversations).set({ tags: [], metadata: null }).where(eq(conversations.id, CONV_MAIN));
 }
 
 async function stage5_quoteSent(): Promise<void> {
@@ -645,14 +760,31 @@ async function stage8_ledger(base: string): Promise<void> {
     check('the four post-quote intents are actually in the agent\'s vocabulary',
         postQuote.every((i) => (DRAFT_INTENTS as readonly string[]).includes(i)));
 
-    // Where the two commits meet on autonomy: these four are negotiation about money, so none may
-    // ever reach the auto-send whitelist. If one did, the ledger would record it as `auto_sent` —
-    // truthfully, but auto_sent is excluded from the trust ladder by design, so a money-adjacent
-    // capability would be sending itself while contributing nothing to the number that is supposed
-    // to govern whether it may.
-    check('no post-quote intent can ever be auto-sent, whatever the config says',
-        postQuote.every((i) => NEVER_AUTOSEND_INTENTS.includes(i)),
-        `never-autosend list: ${NEVER_AUTOSEND_INTENTS.join(', ')}`);
+    // Where the two commits meet on autonomy, REWRITTEN 20 Aug 2026.
+    //
+    // This used to assert that no post-quote intent could ever auto-send, because the intent list
+    // was the gate. The owner removed per-draft approval and the gate moved to the body: a
+    // post-quote reply now sends when every guard passes and it commits to no money and no date.
+    // So the contract to assert is the one that replaced it — and it is stricter, because it does
+    // not care what the model called its own draft.
+    const cfgOn = { ...(await getCommsAgentConfig()), autosend: { enabled: true, intents: [] } };
+    const gate = (body: string, intent: string) => maySendDirect({
+        config: cfgOn, intent, body, ukHour: 12, postQuoteThread: true, guardsPassed: true,
+    }).send;
+    for (const intent of postQuote) {
+        check(`${intent}: a reply carrying a price is held for Ben, post-quote`,
+            gate('That comes to £340 all in.', intent) === false);
+        check(`${intent}: a reply carrying a date is held for Ben, post-quote`,
+            gate('We can come Tuesday.', intent) === false);
+    }
+    check('a post-quote reply that commits to nothing now SENDS (this is the policy change)',
+        gate('Happy to edit it for you, which bits matter most?', 'rescope_offer') === true);
+    check('and the money rail is content-based, so no intent can carry a figure out',
+        (DRAFT_INTENTS as readonly string[]).every((i) => gate('I can do it for £150.', i) === false));
+    check('neverSendDirectReason names why, so the log says what was held and what for',
+        neverSendDirectReason('That comes to £340 all in.') !== null
+        && neverSendDirectReason('Happy to edit it for you, which bits matter most?') === null,
+        neverSendDirectReason('That comes to £340 all in.') ?? '');
 
     // ---- approval, unedited. WhatsApp (not SMS) so Twilio queues rather than hard-failing: an
     // SMS to this range returns 21211 at request time and fires a real Pushover alert.
@@ -836,10 +968,15 @@ async function main(): Promise<void> {
     const base = `http://127.0.0.1:${(server.address() as any).port}`;
 
     try {
-        // Auto-send stays OFF throughout: nothing in this suite may send itself. The first-contact
-        // ack is switched ON only so stage 1 exercises the real lane, and is switched back below.
+        // Direct send stays OFF throughout, which is the KILL SWITCH being exercised: under the live
+        // config every agent reply in stages 3, 6 and 7 would leave for the customer, and this suite
+        // asserts they queue instead. The gate's send-side is proven purely in stage 8, where it
+        // costs nothing and reaches nobody. The automatic quote-prep handoff is off too — stage 4
+        // drives runQuotePrep directly and a second automatic run would double the model spend.
+        // The first-contact ack is switched ON only so stage 1 exercises the real lane.
         await retry('arm config', () => setCommsAgentConfig({
             autosend: { enabled: false, intents: [] },
+            quotePrep: { ...savedConfig.quotePrep, enabled: false },
             firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'] },
         }));
 
@@ -866,6 +1003,7 @@ async function main(): Promise<void> {
 
         await run(stage3_triageWithPhoto);
         await run(stage4_quotePrep);
+        await run(stage4b_autoHandoff);
         await run(stage5_quoteSent);
         await run(stage6_priceObjection);
         await run(stage7_theWall);
@@ -906,12 +1044,16 @@ async function main(): Promise<void> {
         try {
             await retry('restore config', () => setCommsAgentConfig({
                 autosend: savedConfig.autosend,
+                quotePrep: savedConfig.quotePrep,
                 firstContactAutoAck: savedConfig.firstContactAutoAck,
             }));
             const readBack = await retry('read back config', getCommsAgentConfig);
             restoredOk = readBack.firstContactAutoAck.enabled === savedConfig.firstContactAutoAck.enabled
-                && readBack.autosend.enabled === savedConfig.autosend.enabled;
-            console.log(`\nCONFIG READ BACK: firstContactAutoAck.enabled=${readBack.firstContactAutoAck.enabled} autosend.enabled=${readBack.autosend.enabled}`);
+                && readBack.autosend.enabled === savedConfig.autosend.enabled
+                && readBack.quotePrep.enabled === savedConfig.quotePrep.enabled;
+            console.log(`\nCONFIG READ BACK: firstContactAutoAck.enabled=${readBack.firstContactAutoAck.enabled}`
+                + ` autosend.enabled(DIRECT SEND)=${readBack.autosend.enabled}`
+                + ` quotePrep.enabled=${readBack.quotePrep.enabled}`);
             if (readBack.firstContactAutoAck.enabled) {
                 console.error('\n*** WARNING: firstContactAutoAck IS STILL ENABLED. Disable it before leaving. ***');
             }

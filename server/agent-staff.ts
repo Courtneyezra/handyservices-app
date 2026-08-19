@@ -84,18 +84,35 @@ async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: stri
 
     return {
         stats: [
-            // First in the list on purpose: this is the number that decides whether any of this
-            // agent's capabilities graduate to auto-send.
+            // Still first, and still the honest number — but it no longer gates anything. Under
+            // direct send it measures quality rather than deciding permission, so it is read as
+            // "when Ben DOES look, how often does he change the words", off the replies the rail
+            // held back for him.
             ...(trust ? [trust] : []),
-            { label: 'Drafts awaiting approval', value: pending.n, tone: pending.n > 0 ? 'warn' : 'plain' },
-            { label: 'Approved & sent (7d)', value: sent7d.n, tone: 'good' },
+            {
+                label: config.autosend.enabled ? 'Held for Ben (money/date/out of hours)' : 'Drafts awaiting approval',
+                value: pending.n,
+                tone: pending.n > 0 ? 'warn' : 'plain',
+            },
+            { label: 'Sent (7d)', value: sent7d.n, tone: 'good' },
             { label: 'Rejected (7d)', value: rejected7d.n, tone: rejected7d.n > 0 ? 'bad' : 'plain' },
             { label: 'Questions waiting on Ben', value: openQ.n, tone: openQ.n > 0 ? 'warn' : 'plain' },
             { label: 'Answers ready to consume', value: answeredQ.n, tone: 'plain' },
         ],
         statusChips: [
             { label: config.enabled ? 'SLA SWEEP ON' : 'SLA SWEEP OFF', on: config.enabled },
-            { label: config.autosend.enabled ? `AUTO-SEND ON (${config.autosend.intents.join(', ')})` : 'AUTO-SEND OFF', on: config.autosend.enabled },
+            // Say what the mode actually is. "AUTO-SEND OFF" read as "safe" when it meant
+            // "everything queues"; "DIRECT SEND ON" reads as what it is: replies are leaving.
+            {
+                label: config.autosend.enabled
+                    ? 'DIRECT SEND ON · money + dates still go to Ben'
+                    : 'DIRECT SEND OFF · every reply queues for approval',
+                on: config.autosend.enabled,
+            },
+            {
+                label: config.quotePrep.enabled ? 'AUTO QUOTE-PREP ON' : 'AUTO QUOTE-PREP OFF',
+                on: config.quotePrep.enabled,
+            },
         ],
     };
 }
@@ -768,6 +785,32 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
     } catch (error: any) {
         console.error('[QuotePrep] send-quote failed:', error);
         res.status(500).json({ error: error?.message || 'Failed to send the quote' });
+    }
+});
+
+// GET /api/agents/quote-prep/:conversationId/intake — the intake the AUTOMATIC handoff already
+// prepped, if there is one.
+//
+// The manual "Prep quote" button runs the clerk synchronously and hands the result straight to the
+// panel. Under direct send the clerk usually runs by itself (server/agents/comms.ts,
+// maybeAutoQuotePrep) minutes before Ben ever opens the thread, so the intake is sitting in
+// conversations.metadata with a Pushover alert already on his phone. Without this route the panel
+// would have no way to reach it and he would pay for a second identical run to see it.
+agentStaffRouter.get('/quote-prep/:conversationId/intake', async (req, res) => {
+    try {
+        const [conv] = await db.select().from(conversations)
+            .where(eq(conversations.id, req.params.conversationId));
+        if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+        const meta = (conv.metadata ?? {}) as Record<string, any>;
+        const intake = meta.quotePrepIntake ?? null;
+        res.json({
+            intake,
+            preparedAt: meta.quotePrepAuto?.lastRunAt ?? null,
+            readiness: intake?.readiness ?? meta.quotePrepAuto?.lastReadiness ?? null,
+        });
+    } catch (error: any) {
+        console.error('[QuotePrep] Stored intake read failed:', error);
+        res.status(500).json({ error: error?.message || 'Could not read the stored intake' });
     }
 });
 

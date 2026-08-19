@@ -320,6 +320,52 @@ export async function notifyVoicemail(alert: VoicemailAlert): Promise<void> {
     });
 }
 
+interface QuotePrepReadyAlert {
+    conversationId: string;
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    readiness: 'quote_ready' | 'needs_info' | 'visit_first';
+    /** The job lines the clerk extracted, customer-facing titles. */
+    lines: string[];
+    postcode?: string | null;
+    urgency?: 'low' | 'med' | 'high';
+}
+
+/**
+ * Fire an "a prepped intake is waiting for you to price" alert.
+ *
+ * This is the automatic handoff from the comms agent (server/agents/comms.ts, maybeAutoQuotePrep).
+ * The agent now runs the conversation without a human reading it, so nothing else in the system
+ * ever puts a thread in front of Ben — and the moment a job becomes priceable is precisely when a
+ * human is needed. No £ figure anywhere in this alert: quote-prep does not price, and an intake
+ * that arrived with a number attached would be the wrong thing entirely.
+ */
+export async function notifyQuotePrepReady(alert: QuotePrepReadyAlert): Promise<void> {
+    const who = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const visit = alert.readiness === 'visit_first';
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+
+    const lines = [`${who} — ${number}${alert.postcode ? ` · ${alert.postcode}` : ''}`];
+    if (alert.lines.length) {
+        lines.push(alert.lines.slice(0, 5).map((t) => `• ${truncate(t, 60)}`).join('\n'));
+        if (alert.lines.length > 5) lines.push(`…+${alert.lines.length - 5} more`);
+    }
+    lines.push(visit
+        ? '🔍 Cannot be priced from the thread. Survey gate is pre-set in the panel.'
+        : '✅ Scoped and ready. Open the thread, check it, price it, send it.');
+    if (alert.urgency === 'high') lines.push('🔥 They want this soon.');
+    lines.push(`${baseUrl}/admin/comms?conversation=${alert.conversationId}`);
+
+    await dispatch({
+        event: 'quote_prep_ready',
+        title: visit ? '🔍 Needs a visit before we can price it' : '📋 Intake ready to price',
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: who,
+    });
+}
+
 interface QuoteViewedAlert {
     customerName?: string | null;
     phoneNumber?: string | null;

@@ -198,6 +198,15 @@ async function main() {
     console.log('smoke thread board state at start:', JSON.stringify(originalBoard));
 
     try {
+        // Direct send and the quote-prep handoff are forced off for the whole suite. This file is
+        // about the DETERMINISTIC ack lane, and since 20 Aug 2026 the LLM agent it is compared
+        // against would otherwise send its own reply for real (case b) and fire a paid quote-prep
+        // run with a Pushover alert. Restored with everything else in the finally block.
+        await setCommsAgentConfig({
+            autosend: { enabled: false, intents: [] },
+            quotePrep: { ...original.quotePrep, enabled: false },
+        });
+
         // ---------------------------------------------------------------- e) flag OFF
         head('CASE (e)  flag OFF — the shipped default. Nothing sends, nothing queues.');
         await setCommsAgentConfig({ firstContactAutoAck: { enabled: false, channels: ['whatsapp', 'sms', 'webform', 'post_call'] } });
@@ -248,18 +257,21 @@ async function main() {
         console.log(`owner's real thread (${OWNER_PHONE}, 29 prior outbound) isFirstContact:`, owner);
         pass(owner === false, "a real thread with history is not a first contact (read-only check)");
 
-        console.log('\nrunning the ordinary comms agent on the same thread — it must QUEUE, not send…');
+        // The ack lane and the LLM agent share a thread, and the point of this check has changed.
+        // It used to be "the agent obeys the approval gate". There is no approval gate any more, so
+        // what is proved is the KILL SWITCH: with direct send off (forced above) the agent's reply
+        // queues, which is the state Ben falls back to if he ever flips it.
+        console.log('\nrunning the ordinary comms agent on the same thread — with direct send OFF it must QUEUE…');
         const run = await runCommsAgent(OFCOM_CONV, 'inbound_message');
         console.log('agent actions:', JSON.stringify(run.actions.map((a) => a.tool)));
         const afterAgent = await draftsFor(OFCOM_PHONE);
         console.log('drafts after agent run:', JSON.stringify(afterAgent, null, 2));
-        pass(run.autosent === false, 'agent did not auto-send');
-        // What matters here is that NOTHING reached the customer without approval. Whether the
-        // agent then queued a draft, asked Ben, or correctly declared NO_ACTION is its judgement
-        // — on this smoke thread it recognises the test data and closes, which is the right call.
-        // Asserting "a draft exists" would fail the agent for being smarter than the test.
+        pass(run.autosent === false, 'with the kill switch off, the agent sent nothing');
+        // Whether the agent then queued a draft, asked Ben, or correctly declared NO_ACTION is its
+        // judgement — on this smoke thread it recognises the test data and closes, which is the
+        // right call. Asserting "a draft exists" would fail the agent for being smarter than the test.
         pass(!afterAgent.some((d) => d.source === 'comms_agent' && d.status === 'sent'),
-            'agent sent nothing to the customer; any reply it wrote is still behind the gate');
+            'nothing from the agent reached the customer; any reply it wrote is still queued');
 
         // ---------------------------------------------------------------- c) out of hours
         head('CASE (c)  out-of-hours wording differs and never implies someone is working now.');
@@ -629,7 +641,11 @@ async function main() {
         pass(/Could not write the audit row/.test(logBroken.log), 'and it says so in the logs rather than failing silently');
 
     } finally {
-        const restored = await setCommsAgentConfig({ firstContactAutoAck: original.firstContactAutoAck });
+        const restored = await setCommsAgentConfig({
+            firstContactAutoAck: original.firstContactAutoAck,
+            autosend: original.autosend,
+            quotePrep: original.quotePrep,
+        });
         if (originalBoard) {
             await db.update(conversations)
                 .set({ priority: originalBoard.priority, tags: originalBoard.tags, stage: originalBoard.stage })
@@ -645,7 +661,8 @@ async function main() {
         // Same for the landline failure cases, which queue drafts against a reserved number.
         await db.delete(messageDrafts).where(eq(messageDrafts.phone, OFCOM_LANDLINE)).catch(() => { });
 
-        head(`CONFIG RESTORED: firstContactAutoAck = ${JSON.stringify(restored.firstContactAutoAck)}`);
+        head(`CONFIG RESTORED: firstContactAutoAck = ${JSON.stringify(restored.firstContactAutoAck)}`
+            + ` · autosend(DIRECT SEND) = ${restored.autosend.enabled} · quotePrep = ${restored.quotePrep.enabled}`);
         console.log(`smoke thread board state restored: ${JSON.stringify(await boardState(OFCOM_CONV))}`);
     }
     process.exit(process.exitCode ?? 0);

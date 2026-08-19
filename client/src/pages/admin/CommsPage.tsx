@@ -884,6 +884,27 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         setIntake(null); setPrepOpen(false); setShowTemplates(false);
         setChannel(defaultChannel(card));
     }, [card.id]);
+
+    // The comms agent runs the conversation on its own now, and when it decides a thread is
+    // priceable it fires the clerk itself and pushes Ben a notification. By the time he taps
+    // through, the intake is already prepped and stored — so load it rather than making him click
+    // "Prep quote" and pay for the identical run a second time. The panel opens closed (the chip
+    // below is one tap) so arriving at a thread does not shove a slide-over over the messages he
+    // came to read.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/agents/quote-prep/${card.id}/intake`, { headers: getAuthHeaders() });
+                if (!res.ok) return;
+                const detail = await res.json().catch(() => ({}));
+                if (cancelled || !detail?.intake) return;
+                setIntake(detail.intake as QuoteIntake);
+                setIntakeRun((n) => n + 1);
+            } catch { /* a missing prefill is not an error worth showing anyone */ }
+        })();
+        return () => { cancelled = true; };
+    }, [card.id]);
     const prepQuote = useMutation({
         mutationFn: async () => {
             const res = await fetch(`/api/agents/quote-prep/${card.id}`, {
@@ -1165,14 +1186,17 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             {intake && !prepOpen && (
                 <div className="flex items-center justify-between gap-2 border-t-2 border-slate-900 bg-white px-3 py-2">
                     <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-900">
-                        <FileText className="h-3.5 w-3.5" /> Quote prep in progress
+                        <FileText className="h-3.5 w-3.5" />
+                        {intake.readiness === 'quote_ready' ? 'Intake ready to price'
+                            : intake.readiness === 'visit_first' ? 'Needs a visit before pricing'
+                                : 'Quote prep in progress'}
                     </span>
                     <div className="flex items-center gap-1.5">
                         <button
                             onClick={() => setPrepOpen(true)}
                             className="rounded bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase text-white hover:bg-slate-700"
                         >
-                            Reopen
+                            Open
                         </button>
                         <button
                             onClick={() => setIntake(null)}

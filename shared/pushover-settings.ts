@@ -15,6 +15,7 @@ export type PushoverEventKey =
     | 'sms'
     | 'lead'
     | 'voicemail'
+    | 'quote_prep_ready'
     | 'quote_viewed'
     | 'quote_followup'
     | 'quote_accepted'
@@ -41,6 +42,10 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     { key: 'sms', label: 'Incoming SMS', short: 'SMS', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
     { key: 'lead', label: 'New lead (web form / video / booking)', short: 'Leads', group: 'Inbound', defaultPriority: 1, defaultSound: 'cashregister' },
     { key: 'voicemail', label: 'Voicemail / missed call', short: 'Missed', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
+    // The agent has run the conversation on its own, decided the job is priceable, and prepped the
+    // intake. Nothing else in the system will tell Ben that a thread is waiting on HIM to price it,
+    // and a priced-up intake nobody looks at is a lead going cold in a database.
+    { key: 'quote_prep_ready', label: 'Intake prepped — waiting on you to price it', short: 'To price', group: 'Money', defaultPriority: 1, defaultSound: 'intermission' },
     { key: 'quote_viewed', label: 'Quote viewed by customer', short: 'Viewed', group: 'Money', defaultPriority: 0, defaultSound: 'incoming' },
     { key: 'quote_followup', label: 'Quote not accepted — follow up', short: 'Chase', group: 'Money', defaultPriority: 1, defaultSound: 'intermission' },
     { key: 'quote_accepted', label: 'Quote accepted / deposit paid', short: 'Accepted', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },

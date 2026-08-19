@@ -58,7 +58,7 @@ const VERDICT: Record<string, { label: string; cls: string }> = {
     approved_edited: { label: 'Edited then sent', cls: 'bg-amber-100 text-amber-900' },
     approved_unknown: { label: 'Approved (pre-ledger)', cls: 'bg-slate-100 text-slate-600' },
     rejected: { label: 'Rejected', cls: 'bg-red-100 text-red-800' },
-    auto_sent: { label: 'Auto-sent (no human)', cls: 'bg-purple-100 text-purple-800' },
+    auto_sent: { label: 'Sent direct (no human read it)', cls: 'bg-purple-100 text-purple-800' },
     superseded: { label: 'Superseded by agent', cls: 'bg-slate-100 text-slate-500' },
     blocked: { label: 'Blocked (opt-out)', cls: 'bg-slate-100 text-slate-500' },
     expired: { label: 'Expired unactioned', cls: 'bg-slate-100 text-slate-500' },
@@ -459,10 +459,12 @@ export default function AgentOutcomesPanel() {
                 <div>
                     <h2 className="text-lg font-black text-slate-900">The loop</h2>
                     <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-slate-500">
-                        Every proposal an agent made, what the human did with it, and what the customer did next.
-                        The number that decides whether a capability graduates to auto-send is the unedited-approval
-                        rate: machine-approved sends are excluded from it, and approvals from before this ledger
-                        existed are counted separately because their original wording was never captured.
+                        Every message an agent wrote, whether it went straight out or waited for a human, and
+                        what the customer did next. <span className="font-semibold text-slate-700">DIRECT SEND
+                        IS ON</span>: replies that clear the guard chain reach the customer unread and land here
+                        as <span className="font-semibold">Sent direct</span>. Money, discounts and dates still go
+                        to Ben, so the unedited-approval rate below is now a quality signal off the replies he
+                        does see, not a gate anything is waiting behind.
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
