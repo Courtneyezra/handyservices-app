@@ -44,7 +44,7 @@ function isMediaToolResult(r: unknown): r is MediaToolResult {
 
 export interface AgentTranscriptEvent {
     at: string;
-    type: 'assistant_text' | 'tool_call' | 'tool_result' | 'tool_error' | 'done' | 'turn_cap';
+    type: 'assistant_text' | 'tool_call' | 'tool_result' | 'tool_error' | 'done' | 'turn_cap' | 'truncated';
     detail: any;
 }
 
@@ -73,7 +73,10 @@ export async function runAgent(opts: {
         if (type === 'tool_call') console.log(`${label} → ${detail.tool}(${JSON.stringify(detail.input).slice(0, 160)})`);
         else if (type === 'tool_result') console.log(`${label} ← ${detail.tool}: ${JSON.stringify(detail.result).slice(0, 160)}…`);
         else if (type === 'assistant_text' && detail.text) console.log(`${label} 💬 ${String(detail.text).slice(0, 200)}`);
-        else if (type !== 'assistant_text') console.log(`${label} ${type}`);
+        // stop_reason on the console, not just in the transcript. A turn that ended because it ran
+        // out of output tokens looks exactly like a turn that finished its work, and an agent whose
+        // whole job is "never go silent" must not be able to go silent invisibly.
+        else if (type !== 'assistant_text') console.log(`${label} ${type}${detail?.stop_reason ? ` (stop_reason=${detail.stop_reason})` : ''}`);
     };
 
     const toolSchemas: Anthropic.Tool[] = opts.tools.map((t) => ({
@@ -103,6 +106,21 @@ export async function runAgent(opts: {
                 log('assistant_text', { text: block.text });
                 finalText = block.text;
             }
+        }
+
+        // A turn that ran out of output tokens did not finish deciding, and until 19 Aug 2026 it was
+        // indistinguishable from one that did: stop_reason was recorded but never acted on, so a
+        // truncated first turn returned an empty, successful-looking run. The comms agent's whole
+        // contract is that it drafts, asks, or explains itself — "silently did nothing, reported
+        // success" is the one outcome it must not have. Any truncation is a failed run, including a
+        // truncated tool_use, whose arguments may be cut off mid-JSON and must never be executed.
+        if (response.stop_reason === 'max_tokens') {
+            log('truncated', { stop_reason: response.stop_reason, turns, textSoFar: finalText.slice(0, 200) });
+            throw new Error(
+                `Agent "${opts.name}" hit max_tokens (${opts.maxTokens ?? 8000}) on turn ${turns} and produced no usable action. `
+                + 'The run is failed rather than reported as done, because a truncated turn that decided nothing '
+                + 'must not look like a turn that decided to do nothing. Raise maxTokens or shorten the context.',
+            );
         }
 
         if (response.stop_reason !== 'tool_use') {

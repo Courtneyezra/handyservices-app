@@ -61,6 +61,15 @@ export interface QuoteContext {
     depositPaid: boolean;
     depositPaidAt: string | null;
 
+    /**
+     * Ben WITHDREW this price. The quote stays visible — the customer has seen it and may well be
+     * asking about it — but it is not a price source, and server/agents/comms.ts refuses it as one.
+     * A PAID quote is different: "what did I pay you" is a fair question with a true answer, so
+     * depositPaid alone never blocks a citation. Only this does.
+     */
+    revoked: boolean;
+    revokedAt: string | null;
+
     /** Has this customer's quote already been changed once? The only lever with a surviving signal. */
     amendment: {
         isRegeneration: boolean;
@@ -267,6 +276,8 @@ export async function loadQuoteContexts(opts: {
             expired,
             depositPaid: !!q.depositPaidAt,
             depositPaidAt: iso(q.depositPaidAt),
+            revoked: !!q.revokedAt,
+            revokedAt: iso(q.revokedAt),
             amendment: {
                 isRegeneration,
                 regenerationCount,
@@ -282,7 +293,8 @@ export async function loadQuoteContexts(opts: {
             allowedFigurePence: Array.from(allowed).sort((a, b) => a - b),
             // A revoked quote stays VISIBLE — the customer has seen it and may well be asking about
             // it — but it is never the live one. Ben withdrew that price, so nothing may be shaped
-            // around it or quoted back as current. server/quote-followup-alerts.ts draws the same line.
+            // around it or quoted back as current. server/quote-followup-alerts.ts draws the same
+            // line, and queue_draft refuses a revoked slug as a price source on the strength of it.
             isLive: !q.depositPaidAt
                 && !q.revokedAt
                 && createdMs != null

@@ -207,6 +207,12 @@ const LEVER_MARKERS = [
     /\b(?:a few more quotes|other quotes|shop(?:ping)? around|happy to book you in)\b/i,
     // a dated re-contact
     /\b(?:check back|come back to you|drop you a line|give you a shout)\b/i,
+    // an offer to refresh a stale quote (the `expiry_is_not_a_weapon` lever). Ben's own line for it
+    // is "No problem, I can get that refreshed for you", which this guard read as a capitulation
+    // until 19 Aug 2026 — refusing a lever we issue in the playbook and which classifyLever in
+    // scripts/_backtest-corpus.ts already scores as holding. Offering a fresh quote keeps the offer
+    // alive; it is the opposite of agreeing to end the conversation.
+    /\b(?:refresh(?:ed)?|re-?issue[ds]?|get (?:that|it) (?:updated|sorted)|new quote|updated quote)\b/i,
     // a question keeps the thread alive
     /\?/,
 ];

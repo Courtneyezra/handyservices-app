@@ -26,6 +26,9 @@ const LEVER_LABELS: Record<string, string> = {
   reassure: 'Reassurance',
   expiry: 'Expiry heads-up',
   gift_unclaimed: 'Gift waiting',
+  // Written by the comms agent, not recovery: a date the customer themselves asked us to come
+  // back on. Send it on the day rather than early — the whole point is that they set it.
+  recontact: 'Agreed re-contact',
 };
 
 interface NudgeRow {

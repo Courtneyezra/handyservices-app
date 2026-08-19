@@ -85,6 +85,16 @@ const EXTRACT_ONLY = flag('extract-only');
 /** Re-print the report from the last run's cached scores. No model calls, no database. */
 const REPORT_ONLY = flag('report-only');
 const KIND_FILTER = value('kind', '') as DecisionKind | '';
+/**
+ * Re-run named decision points and nothing else, e.g. --only po_92128055_11,th_15681836_57.
+ *
+ * This is how a behaviour fix gets evidence rather than a claim: run the two cases the last full
+ * pass got wrong and show they now come out differently. A filtered run deliberately does NOT
+ * overwrite the cached scores, because those 15 cases are the baseline the fix is measured against
+ * and a two-case run would silently replace them.
+ */
+const ONLY = value('only', '').split(',').map((s) => s.trim()).filter(Boolean);
+const FILTERED = ONLY.length > 0 || !!KIND_FILTER;
 
 // ───────────────────────────────────────────────────────────────── the fixture
 //
@@ -281,6 +291,12 @@ function scoreCase(point: DecisionPoint, outcome: CommsAgentOutcome, quoteCtx: a
     const body = last?.body ?? null;
 
     // An agent that drafts nothing and asks Ben has escalated. One that does neither did nothing.
+    //
+    // A run that DRAFTS AND ASKS is classified on its draft, because that is what the customer
+    // receives. Note that classifyLever may still call that draft 'escalate' on its own wording
+    // ("let me check with the team and come back to you") — correctly, since that is the class Ben's
+    // own taxonomy gives the same sentence. What matters for the over-escalation count is not the
+    // class but whether a reply exists at all, which is why that metric keys on draftBody below.
     const agentClass: LeverClass = body
         ? classifyLever(body)
         : ask ? 'escalate' : 'no_reply';
@@ -352,6 +368,18 @@ function axisFor(r: CaseResult): { ben: string; agent: string; comparable: boole
  */
 const rankable = (r: CaseResult) => r.point.kind === 'price_objection';
 
+/**
+ * The escalation that actually costs money: handed to Ben AND the customer left with silence.
+ *
+ * Asking Ben is not the failure. A turn is now allowed to draft the half the agent owns and ask him
+ * the half he owns, which is the shape of the reply that won the £984 shed thread. What cost that
+ * job was the version with no draft in it, where the customer heard nothing until a human got to
+ * the queue. So this keys on the absence of a reply, not on the presence of a question — and not on
+ * the lever class either, since "let me check with the team and I'll come back to you" classifies
+ * as 'escalate' while being a perfectly good thing for a customer to receive.
+ */
+const overEscalation = (r: CaseResult) => !r.draftBody && !!r.askedBen;
+
 /** Both moves ranked, on a point where ranking is meaningful. */
 function rankPair(r: CaseResult): { ben: number; agent: number } | null {
     if (!rankable(r)) return null;
@@ -371,7 +399,7 @@ function interestScore(r: CaseResult): number {
     if (axis.comparable && axis.ben !== axis.agent) s += 2;
     if (r.point.kind !== 'first_reply') {
         if (r.agentClass === 'capitulate' && (r.point.bensClass === 'hold_with_reason' || r.point.bensClass === 'rescope')) s += 4;
-        if (r.agentClass === 'escalate' && isRanked(r.point.bensClass)) s += 3;
+        if (overEscalation(r) && isRanked(r.point.bensClass)) s += 3;
         const rank = rankPair(r);
         if (rank && rank.agent > rank.ben && !r.point.converted) s += 4;   // beat a move that lost
         if (rank && rank.agent < rank.ben && r.point.converted) s += 4;    // undercut a move that won
@@ -408,7 +436,7 @@ function report(results: CaseResult[], halted: string | null, inventory: Decisio
         const agree = comparable.filter((r) => axisFor(r).ben === axisFor(r).agent);
         const capitulatedWhereHeHeld = g.filter((r) => r.agentClass === 'capitulate'
             && (r.point.bensClass === 'hold_with_reason' || r.point.bensClass === 'rescope'));
-        const escalatedWhereHeCoped = g.filter((r) => r.agentClass === 'escalate' && isRanked(r.point.bensClass));
+        const escalatedWhereHeCoped = g.filter((r) => overEscalation(r) && isRanked(r.point.bensClass));
         const better = g.filter((r) => { const k = rankPair(r); return !!k && k.agent > k.ben; });
         const worse = g.filter((r) => { const k = rankPair(r); return !!k && k.agent < k.ben; });
         rows.push({
@@ -430,8 +458,10 @@ function report(results: CaseResult[], halted: string | null, inventory: Decisio
 
     const comparable = done.filter((r) => axisFor(r).comparable);
     const agreed = comparable.filter((r) => axisFor(r).ben === axisFor(r).agent);
-    const escalated = done.filter((r) => r.agentClass === 'escalate');
-    const overEscalated = done.filter((r) => r.agentClass === 'escalate' && isRanked(r.point.bensClass));
+    const escalated = done.filter((r) => !!r.askedBen);
+    const draftedAndAsked = escalated.filter((r) => !!r.draftBody);
+    const overEscalated = done.filter((r) => overEscalation(r) && isRanked(r.point.bensClass));
+    const silent = done.filter((r) => !r.draftBody && !r.askedBen);
     const capit = done.filter((r) => r.agentClass === 'capitulate');
     const better = done.filter((r) => { const k = rankPair(r); return !!k && k.agent > k.ben; });
     const betterOnLosers = better.filter((r) => !r.point.converted);
@@ -446,7 +476,9 @@ function report(results: CaseResult[], halted: string | null, inventory: Decisio
   gradable against Ben .......... ${comparable.length}   (the rest: he answered by voice note, a channel this agent has not got)
   AGREEMENT with Ben ............ ${agreed.length}/${comparable.length} (${pct(agreed.length, comparable.length)})
   drafted a reply ............... ${done.filter((r) => r.draftBody).length}
-  escalated to Ben .............. ${escalated.length}   of which OVER-escalation (he coped alone): ${overEscalated.length} (${pct(overEscalated.length, done.length)})
+  asked Ben ..................... ${escalated.length}   of which ALSO drafted (the intended shape): ${draftedAndAsked.length}
+  OVER-escalation ............... ${overEscalated.length} (${pct(overEscalated.length, done.length)})   asked Ben, drafted NOTHING, and he had coped alone
+  said nothing at all ........... ${silent.length}   (no draft, no question)
   capitulated ................... ${capit.length}   of which where he held or re-scoped: ${capit.filter((r) => r.point.bensClass === 'hold_with_reason' || r.point.bensClass === 'rescope').length}
   BETTER class than Ben ......... ${better.length}   of which on threads that did NOT convert: ${betterOnLosers.length}
   WORSE class than Ben .......... ${worseOnWinners.length} (on threads that DID convert)
@@ -500,7 +532,14 @@ function report(results: CaseResult[], halted: string | null, inventory: Decisio
         console.log(`\n   ${p.bensReplyWasTemplate ? 'WHAT THEY ACTUALLY GOT (our own template, not Ben typing)' : 'BEN ACTUALLY SAID'}${p.converted ? '  (and this thread PAID)' : '  (and this thread did not convert)'}:`);
         console.log(p.bensReply.length ? indent(p.bensReply.join('\n---\n')) : indent(p.bensClass === 'voice_note' ? '[voice note — no text]' : '[nothing at all]'));
         console.log(`\n   THE AGENT DRAFTED:`);
-        console.log(r.draftBody ? indent(r.draftBody) : indent(r.askedBen ? `[no draft — asked Ben] ${r.askedBen.question}\n  options: ${r.askedBen.options.join(' | ')}` : `[no draft, no question] ${r.finalText.slice(0, 200)}`));
+        console.log(r.draftBody ? indent(r.draftBody) : indent(r.askedBen ? '[no draft]' : `[no draft, no question] ${r.finalText.slice(0, 200)}`));
+        // A draft AND an ask in the same turn is the intended shape, not a contradiction: the
+        // customer gets the half the agent owns while Ben decides the half he owns. Printing only
+        // one of them hid exactly the behaviour the draft-and-ask change was made to produce.
+        if (r.askedBen) {
+            console.log(`\n   AND ASKED BEN${r.draftBody ? ' (in the same turn as that draft)' : ' INSTEAD OF REPLYING'}:`);
+            console.log(indent(`${r.askedBen.question}\n  options: ${r.askedBen.options.join(' | ')}`));
+        }
         if (r.guardRefusals.length) console.log(`\n   GUARD REFUSED FIRST:\n${indent(r.guardRefusals[0].slice(0, 220))}`);
         if (r.residualViolations.length) console.log(`\n   *** VIOLATION IN THE FINAL DRAFT: ${r.residualViolations.map((v) => v.code).join(', ')}`);
         if (r.voice.length) console.log(`\n   voice: ${r.voice.map((v) => v.rule).join(', ')}`);
@@ -551,6 +590,14 @@ async function main(): Promise<void> {
         writeCache({ decisionPoints: points, extractedAt: new Date().toISOString() });
     }
     if (KIND_FILTER) points = points.filter((p) => p.kind === KIND_FILTER);
+    if (ONLY.length) {
+        points = points.filter((p) => ONLY.includes(p.id));
+        const missing = ONLY.filter((id) => !points.some((p) => p.id === id));
+        if (missing.length) {
+            console.error(`--only: no such decision point(s): ${missing.join(', ')}. Re-cut with --refresh?`);
+            if (!points.length) process.exit(1);
+        }
+    }
 
     box('DECISION POINTS AVAILABLE IN THE CORPUS');
     const inv: any[] = [];
@@ -623,7 +670,14 @@ async function main(): Promise<void> {
     } finally {
         // Scores are saved BEFORE anything else in this block, so a halted run (an exhausted
         // balance, a dropped connection) still leaves everything it managed to buy on disk.
-        try { writeCache({ results, ranAt: new Date().toISOString() }); } catch { /* report still prints */ }
+        // A FILTERED run never overwrites them: --only exists to re-test two cases against the
+        // 15-case baseline, and replacing the baseline with the two would erase what it is measured
+        // against (and break --report-only for everyone else).
+        if (!FILTERED) {
+            try { writeCache({ results, ranAt: new Date().toISOString() }); } catch { /* report still prints */ }
+        } else {
+            console.log(`\n  (filtered run: the cached ${readCache().results?.length ?? 0}-case baseline is left untouched)`);
+        }
 
         // ---- teardown, then prove the database is as we found it ----
         await tearDown();

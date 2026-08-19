@@ -82,7 +82,7 @@ export const PRICE_BANDS: readonly PriceBand[] = [
         maxPence: null,
         conversion: '15% (5 paid / 34 quoted) — 85% of these die',
         posture: 'Structural, not conversational. A better paragraph does not fix this number.',
-        playbook: 'The answer is a different SHAPE of job: split it across visits, defer lines to a second visit, de-scope to the urgent part, or a paid survey first. Propose that to Ben with ask_ben. Do not improvise a restructure at the customer.',
+        playbook: 'The answer is a different SHAPE of job: split it across visits, defer lines to a second visit, de-scope to the urgent part, or a paid survey first. ask_ben is MANDATORY here with those options named, and a draft never replaces it. Do not improvise a restructure at the customer.',
     },
 ] as const;
 
@@ -117,6 +117,18 @@ export interface ObjectionLever {
     authority: LeverAuthority;
     /** Ben's own words, verbatim from the corpus. Riff on these; do not recite them. */
     bensWords: readonly string[];
+    /**
+     * For an 'ask_ben' lever: the half of the move the agent may still make ALONE, in the same
+     * turn it asks.
+     *
+     * An authority of 'ask_ben' used to mean the whole lever was unreachable, and the agent read
+     * that as "say nothing" — it escalated and the customer got silence while Ben's real reply had
+     * done BOTH things at once. Every ask_ben lever that has a content-free half says so here, and
+     * the standing orders permit a draft carrying that half alongside the question.
+     */
+    agentMayAlone?: string;
+    /** Ben's own words for that half specifically, so the safe sentence is as concrete as the unsafe one. */
+    agentWords?: readonly string[];
     /** Why we believe it, in one line. */
     evidence: string;
     /** The thing that most easily goes wrong with it. */
@@ -169,10 +181,13 @@ export const OBJECTION_LEVERS: readonly ObjectionLever[] = [
         bensWords: [
             'Yeah no problem let us edit it for you.',
             'I will amend the quote to add one more window and take out the other jobs.',
-            'We just noticed you quote is set to home owner not property manager. When we set it to property manager then Thats will bring the price down, let me edit and do that and then you can view it again.',
+            // His line, minus the half he is allowed to say and you are not. The original went on
+            // "then Thats will bring the price down", which commits to a direction on price and is
+            // refused by the discount guard, correctly and by this lever's own guardrail.
+            'We just noticed you quote is set to home owner not property manager. Let me edit and do that and then you can view it again.',
         ],
         evidence: 'Amending or re-quoting converted 2 of 3, the best of any response. All 9 threads carrying more than one quote version paid, 6 of them re-quoted before the deposit.',
-        guardrail: 'You may OFFER the edit and ask which parts matter most. You may NEVER state what the edited price would be, and you may never edit the quote yourself. The new number is Ben\'s to set.',
+        guardrail: 'You may OFFER the edit and ask which parts matter most. You may NEVER state what the edited price would be, and you may never edit the quote yourself. The new number is Ben\'s to set. That includes the third line above: Ben may tell a customer a segment change "will bring the price down", and you may not, because it commits to a direction on price. Say you have spotted the quote is on the wrong customer type and that you will get it corrected.',
     },
     {
         id: 'structural_split',
@@ -184,7 +199,7 @@ export const OBJECTION_LEVERS: readonly ObjectionLever[] = [
             'I will amend the quote to add one more window and take out the other jobs.',
         ],
         evidence: '15% conversion above £1,000 against 59% at £100-200. The size of the number is the objection.',
-        guardrail: 'Take it to Ben with concrete options drawn from the quote\'s own line items (which line defers, what the urgent half is, whether a paid survey should come first). Do not present a restructure to the customer before Ben has picked one.',
+        guardrail: 'You MUST call ask_ben, every time, with concrete options drawn from the quote\'s own line items (which line defers, what the urgent half is, whether a paid survey should come first). Naming the options is the work; a question with none is not this lever. You may draft a holding reply alongside it, but never present a restructure to the customer before Ben has picked one, and never let the draft stand in for the question.',
     },
     {
         id: 'volume_discount',
@@ -193,10 +208,16 @@ export const OBJECTION_LEVERS: readonly ObjectionLever[] = [
         bands: ['micro', 'sweet', 'plateau', 'wall'],
         authority: 'ask_ben',
         bensWords: [
+            // BEN'S HALF. He may say this; you may not, and the discount guard will refuse it.
             'Yeah we can definitely offer some discount if we do it together.',
         ],
-        evidence: 'The only discount that appears in the corpus, and it is always customer-initiated. Ben discounts for volume, never for pressure.',
-        guardrail: 'ALWAYS ask_ben. You may tell them we can look at doing both together, but any figure, percentage or word implying a reduction is Ben\'s alone.',
+        agentMayAlone: 'Get what a combined quote would NEED. That is a scope question, it carries no figure, and it is the half of his reply that moves the job forward: a photo of the second job, what else is in scope, which one they want doing first. Draft that AND ask Ben for the figure in the same turn.',
+        agentWords: [
+            // His own second message on the same thread, the half with no money in it.
+            'If you get me a picture of the other one also I can happily amend the quote for you to include both sheds.',
+        ],
+        evidence: 'The only discount that appears in the corpus, and it is always customer-initiated. Ben discounts for volume, never for pressure. His winning reply to the £984 shed thread (which PAID) did both halves at once: the discount sentence and the photo ask.',
+        guardrail: 'The FIGURE is Ben\'s, always: no number, no percentage, no word implying a reduction, and never "yes we can discount that". The SCOPE half is yours and you should send it, because an escalation on its own leaves the customer with silence while Ben reads his queue.',
     },
     {
         id: 'deposit_is_policy',
@@ -219,8 +240,8 @@ export const OBJECTION_LEVERS: readonly ObjectionLever[] = [
         bensWords: [
             'No problem, I will check back in with you then.',
         ],
-        evidence: 'One "not right now" thread went on to pay £984. An agent that reads these as rejections destroys value.',
-        guardrail: 'Agree a date to COME BACK TO THEM. That is not a booking, and it must never be written as one. Do not send a rescue message and do not re-pitch.',
+        evidence: 'One "not right now" thread went on to pay £984, another £479 after nothing more than "Ok no problem". An agent that reads these as rejections destroys value.',
+        guardrail: 'Agree a date to COME BACK TO THEM, then actually record it with schedule_recontact so the thread does not die here. A re-contact date is not a booking and must never be written as one. Do not send a rescue message and do not re-pitch.',
     },
     {
         id: 'expiry_is_not_a_weapon',
@@ -255,12 +276,21 @@ export function leversForBand(band: PriceBandId): ObjectionLever[] {
 
 function renderLever(l: ObjectionLever): string {
     const words = l.bensWords.map((w) => `      "${w}"`).join('\n');
+    const authority = l.authority === 'agent'
+        ? 'you may use this alone'
+        : l.agentMayAlone
+            ? 'the FIGURE is BEN\'S — but draft the half below in the same turn'
+            : 'ASK BEN, always';
     return [
-        `  - ${l.name} [${l.authority === 'agent' ? 'you may use this alone' : 'ASK BEN, always'}]`,
+        `  - ${l.name} [${authority}]`,
         `    when: ${l.whenItApplies}`,
         `    bands: ${l.bands.join(', ')}`,
-        `    his words:`,
+        `    ${l.authority === 'ask_ben' && l.agentMayAlone ? 'HIS words, not yours' : 'his words'}:`,
         words,
+        ...(l.agentMayAlone ? [
+            `    YOUR half, draft this while you ask him: ${l.agentMayAlone}`,
+            ...(l.agentWords?.length ? [`    in his words:`, l.agentWords.map((w) => `      "${w}"`).join('\n')] : []),
+        ] : []),
         `    watch out: ${l.guardrail}`,
     ].join('\n');
 }
@@ -302,6 +332,23 @@ NEVER: ${BANNED_MOVE.why}
 If you find yourself drafting agreement with the customer's decision to stop, you have picked the
 losing move. Use a lever, or ask Ben.
 
+DRAFT *AND* ASK — the escalation that leaves them with silence is its own losing move.
+A lever marked ask_ben means the FIGURE is Ben's. It does not mean the customer hears nothing until
+he gets to his queue. When the only thing you cannot answer is money (or something else only he can
+decide), do BOTH in the same turn: queue_draft the content-free half, and ask_ben the rest.
+  - The £984 shed thread PAID, and his reply was exactly this shape: the discount sentence (his) and
+    "if you get me a picture of the other one I can happily amend the quote" (yours). The agent that
+    only escalated left a paying customer waiting.
+  - The draft must NOT pre-empt his answer. No figure, no percentage, no "yes we can do that", no
+    hint of the direction he will land on. If you cannot write the half you own without leaning on
+    the half you do not, then ask alone.
+  - Say in your ask_ben context that a draft is already queued, so he reads them together.
+  - This runs BOTH ways, and the second way matters just as much: a draft never SUBSTITUTES for the
+    question. If the decision is his, ask him, whether or not you also wrote something. Answering
+    around a decision you do not own is worse than escalating without a draft, because now nobody
+    knows the decision was ever needed. Above £1,000 in particular the structural call is always
+    his: draft the holding half if you have one, but the ask_ben is not optional.
+
 MONEY, POST-QUOTE (the guard is absolute and it is enforced in the tool, not on trust):
   - You may repeat a figure that is ALREADY on their quote, and you must cite quote_slug when you
     do. The guard checks the figure against the quote's real numbers, so a figure that is not on
@@ -319,5 +366,14 @@ SCHEDULING, POST-QUOTE:
   - If the date IS on their quote, point them at the quote's date picker; the booking happens
     there, with the deposit. Do not confirm it yourself.
   - If it is NOT on their quote, ask Ben. Never promise a date the thread or the quote does not
-    already confirm.`;
+    already confirm.
+
+"NOT RIGHT NOW" IS THE ONE THAT COSTS MOST, because doing nothing looks correct:
+  - It is a scheduling state, not a rejection. One of these paid £984 and another paid £479 after
+    Ben said nothing more than "Ok no problem".
+  - The move is two parts and you own both. Reply warmly, name the thing they are waiting on, and
+    say you will check back. Then call schedule_recontact with the date, which writes a PROPOSED
+    follow-up for Ben to approve later. It sends nothing and it books nothing.
+  - NO_ACTION on a timing hold is how a live lead becomes a dead one. If you cannot work out a
+    sensible date, ask them when to check back, or ask Ben. Do not just leave it.`;
 }
