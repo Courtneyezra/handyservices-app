@@ -149,8 +149,13 @@ const PHRASE_MARKETING = [
     'opt out', 'opt me out', 'opted out',
     'stop messaging', 'stop texting', 'stop contacting',
     'stop sending me messages', 'stop sending me texts', 'stop sending me anything',
-    'stop these messages', 'stop the messages', 'stop these texts',
+    // Added 19 Aug 2026 after an adversarial pass: "please stop sending me these messages" and
+    // "stop sending me these texts please" both missed, and they are what a real person types.
+    // 'stop sending' alone stays out — "stop sending someone round on Fridays" is a job request.
+    'stop sending me these', 'stop sending these', 'stop sending any more',
+    'stop these messages', 'stop the messages', 'stop these texts', 'stop the texts',
     'no more messages', 'no more texts', 'no more marketing',
+    'any more of these messages', 'any more of these texts', 'any more of these',
     'take me off your list', 'take me off the list', 'take me off your mailing list',
     'take me off this list', 'take me off your database',
     'remove me from your list', 'remove me from the list', 'remove me from your database',
@@ -198,6 +203,11 @@ export function detectOptOut(text: string | null | undefined): OptOutMatch | nul
     if (!text) return null;
     let s = normaliseForMatch(text);
     if (!s) return null;
+
+    // "S T O P" and "S.T.O.P" are the same instruction typed by someone making a point. A message
+    // that is nothing but single letters separated by spaces gets them joined back up before the
+    // keyword lists see it. Anything longer or mixed is left exactly as it was.
+    if (/^(?:[a-z] ){2,}[a-z]$/.test(s)) s = s.replace(/ /g, '');
 
     // Strip a politeness wrapper from each end, repeatedly ("please please stop thanks mate").
     for (let i = 0; i < 3; i++) {

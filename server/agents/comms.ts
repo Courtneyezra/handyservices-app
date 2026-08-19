@@ -38,7 +38,7 @@ import {
 } from '../first-contact-ack';
 import { loadQuoteContexts, checkDateSignal, type QuoteContext } from './quote-context';
 import { postQuoteStandingOrders } from './objection-levers';
-import { MONEY_RE, checkDraft } from './draft-guards';
+import { MONEY_RE, checkDraft, extractMoneyFigures } from './draft-guards';
 
 // ---------------------------------------------------------------- config
 
@@ -134,6 +134,33 @@ export const DRAFT_INTENTS = [
 export const NEVER_AUTOSEND_INTENTS: readonly string[] = [
     'quote_question', 'price_objection', 'rescope_offer', 'timing_hold', 'quote_followup',
 ];
+
+/**
+ * May this draft leave without a human? Pure, so scripts/_adversarial-test.ts can attack it
+ * directly instead of taking the branch on trust.
+ *
+ * The intent is a label the MODEL writes, which makes an intent-only whitelist self-certifying: a
+ * price objection answered under intent='ack_enquiry' used to clear it and go out unread. The two
+ * facts below cannot be relabelled by the run that wants past them:
+ *   postQuoteThread   a live quote is out, so this thread is a negotiation whatever it is called
+ *   money in the body an acknowledgement with a price in it is not an acknowledgement
+ */
+export function mayAutoSendWhitelisted(opts: {
+    config: CommsAgentConfig;
+    intent: string;
+    body: string;
+    ukHour: number;
+    postQuoteThread: boolean;
+}): boolean {
+    const { config, intent, body, ukHour, postQuoteThread } = opts;
+    if (!config.autosend.enabled) return false;
+    if (intent === 'other') return false;
+    if (NEVER_AUTOSEND_INTENTS.includes(intent)) return false;
+    if (postQuoteThread) return false;
+    if (MONEY_RE.test(body)) return false;
+    if (!config.autosend.intents.includes(intent)) return false;
+    return ukHour >= 8 && ukHour < 20;
+}
 
 // ---------------------------------------------------------------- per-conversation run
 
@@ -373,6 +400,11 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 const cited = input.quote_slug
                     ? (await quotes()).find((q) => q.slug === input.quote_slug) ?? null
                     : null;
+                // Figures Ben himself typed into an answer. Until 19 Aug 2026 the "ben_answer"
+                // route only checked that SOME price existed in SOME answer, so once Ben had said
+                // "£320" anywhere on the thread, any number at all could ride out under that flag.
+                // Now his actual figures join the allowed set and everything else is refused.
+                let bensFigurePence: number[] = [];
                 if (MONEY_RE.test(input.body)) {
                     if (input.quote_slug) {
                         if (!cited) {
@@ -385,8 +417,11 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                                 eq(agentQuestions.conversationId, conv.id),
                                 inArray(agentQuestions.status, ['answered', 'resolved']),
                             ));
-                        const benGaveMoney = answered.some((q) => q.answer && MONEY_RE.test(q.answer));
-                        if (!benGaveMoney) {
+                        bensFigurePence = answered
+                            .flatMap((q) => extractMoneyFigures(q.answer ?? ''))
+                            .map((f) => f.pence)
+                            .filter((p) => Number.isFinite(p));
+                        if (!bensFigurePence.length) {
                             throw new Error('price_source is "ben_answer" but no answered question from Ben contains a price for this conversation. Use ask_ben.');
                         }
                     } else {
@@ -399,15 +434,25 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // implying they have not seen it, a capitulation, a promised date. One chain,
                 // shared with scripts/_post-quote-test.ts so what is proven is what runs.
                 const live = await liveQuote();
+                // The customer's OWN last words, so the capitulation rail is armed by what they
+                // said rather than by the label the model chose to put on its own draft.
+                const [lastInbound] = await db.select({ content: messages.content })
+                    .from(messages)
+                    .where(and(eq(messages.conversationId, conv.id), eq(messages.direction, 'inbound')))
+                    .orderBy(desc(messages.createdAt)).limit(1);
+                const allowedFigurePence = cited
+                    ? [...cited.allowedFigurePence, ...bensFigurePence]
+                    : bensFigurePence.length ? bensFigurePence : null;
                 const violation = checkDraft({
                     body: input.body,
                     intent: input.intent,
-                    allowedFigurePence: cited ? cited.allowedFigurePence : null,
+                    allowedFigurePence,
                     quoteSlug: cited?.slug ?? null,
                     quoteSeen: !!live && (live.viewCount > 0 || !!live.firstViewedAt),
                     quoteViewCount: live?.viewCount,
                     offeredDates: live?.offeredDates ?? [],
                     quoteTotalPence: live?.totalPence ?? null,
+                    customerText: lastInbound?.content ?? null,
                 });
                 if (violation) throw new Error(violation.message);
 
@@ -431,9 +476,16 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
                 // Post-quote intents are money-adjacent negotiation and can never be whitelisted,
                 // whatever someone puts in the config. The whitelist exists for content-free acks.
-                const whitelisted = config.autosend.enabled && input.intent !== 'other'
-                    && !NEVER_AUTOSEND_INTENTS.includes(input.intent)
-                    && config.autosend.intents.includes(input.intent) && ukHour >= 8 && ukHour < 20;
+                //
+                // NEVER_AUTOSEND_INTENTS alone was not enough, because the intent is a label the
+                // MODEL writes: a price objection answered under intent='ack_enquiry' cleared the
+                // whitelist and would have gone out unread. These two facts cannot be relabelled —
+                // a live quote is out, or the body has a price in it — and either one holds the
+                // draft for Ben regardless of what the run called itself.
+                const postQuoteThread = !!live?.isLive;
+                const whitelisted = mayAutoSendWhitelisted({
+                    config, intent: input.intent, body: input.body, ukHour, postQuoteThread,
+                });
 
                 // The first-contact exception: an acknowledgement to a number we have never
                 // messaged may go out round the clock, so the 8-20 guard above is skipped — but
@@ -443,6 +495,9 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // (process restart, feature switched on mid-thread).
                 const firstContactOk = config.firstContactAutoAck.enabled
                     && (FIRST_CONTACT_ACK_INTENTS as readonly string[]).includes(input.intent)
+                    // An acknowledgement is content-free by definition. A price in it means this
+                    // is not one, whatever the intent says.
+                    && !postQuoteThread && !MONEY_RE.test(input.body)
                     && config.firstContactAutoAck.channels.includes(await inboundChannel())
                     && await isFirstContact({ conversationId: conv.id, phone: e164 });
 
