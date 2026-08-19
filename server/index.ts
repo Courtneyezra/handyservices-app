@@ -1054,13 +1054,70 @@ app.post('/api/twilio/sip-outbound', async (req, res) => {
     }
 
     console.log(`[SIP-Outbound] ${req.body.From} -> ${dialled}`);
+
+    // Fork media to the same realtime transcriber the inbound path uses, so calls Ben MAKES
+    // are captured too (they never were — see docs/PIPELINE_AUDIT_2026-08.md).
+    //
+    // Two parameters matter and both are load-bearing:
+    //  - phoneNumber is the DIALLED number, not `From`. On this leg `From` is a SIP URI, and
+    //    every consumer (call record, lead lookup) means "the customer's number" by it.
+    //  - legRole tells the handler Ben originated this leg, so it can swap the speaker labels.
+    //    Twilio's `inbound` track is audio FROM the originator — that's Ben here, the customer
+    //    on a normal inbound call. Without the swap every outbound transcript is speaker-inverted.
+    const wsProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
+    const streamUrl = `${wsProtocol}://${req.headers.host}/api/twilio/realtime`;
+    const httpProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+
     res.type('text/xml');
     res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial callerId="${callerId}" answerOnBridge="true">
+  <Start>
+    <Stream url="${streamUrl}" track="both_tracks">
+      <Parameter name="phoneNumber" value="${dialled}" />
+      <Parameter name="legRole" value="agent_originated" />
+    </Stream>
+  </Start>
+  <Dial callerId="${callerId}" answerOnBridge="true" action="${httpProtocol}://${req.headers.host}/api/twilio/sip-outbound-status" method="POST">
     <Number>${dialled}</Number>
   </Dial>
 </Response>`);
+});
+
+/**
+ * Completion callback for calls Ben DIALS OUT from Groundwire.
+ *
+ * Deliberately NOT /api/twilio/dial-status. That handler treats an unanswered dial as a missed
+ * INBOUND call: it flags the row MISSED_CALL/critical with a `va_no_answer` tag and then routes
+ * the caller onward to voicemail or an ElevenLabs agent. Pointed at an outbound leg it would
+ * fill the action centre with fake missed calls and connect *Ben* to our own AI receptionist
+ * when a customer didn't pick up. This one only records what happened.
+ */
+app.post('/api/twilio/sip-outbound-status', async (req, res) => {
+    try {
+        const { DialCallStatus, DialCallDuration, CallSid } = req.body;
+        console.log(`[SIP-Outbound] Dial status for ${CallSid}: ${DialCallStatus} (${DialCallDuration || 0}s)`);
+
+        const callRecordId = await findCallByTwilioSid(CallSid);
+        if (callRecordId) {
+            const answered = DialCallStatus === 'completed' || DialCallStatus === 'answered';
+            const duration = parseInt(DialCallDuration, 10);
+            await updateCall(callRecordId, {
+                status: 'completed',
+                endTime: new Date(),
+                duration: Number.isFinite(duration) ? duration : undefined,
+                // No action-centre urgency: an outbound call Ben chose to make and that went
+                // unanswered is his to retry, not a customer waiting on us.
+                outcome: answered ? 'OUTBOUND_ANSWERED' : 'OUTBOUND_NO_ANSWER',
+                missedReason: answered ? undefined : DialCallStatus,
+                handledBy: 'va',
+            });
+        }
+    } catch (e) {
+        console.warn('[SIP-Outbound] Failed to record dial status:', e);
+    }
+    // Empty response ends the call normally — no fallback routing on an outbound leg.
+    res.type('text/xml');
+    res.send('<?xml version="1.0" encoding="UTF-8"?><Response/>');
 });
 
 // Eleven Labs Register Call - Uses official Eleven Labs API

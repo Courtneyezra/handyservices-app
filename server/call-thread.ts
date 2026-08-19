@@ -23,6 +23,11 @@
  *   3. IDEMPOTENT. finalizeCall runs more than once for some calls (status callback plus the
  *      call-ended redirect), and the backfill re-runs over history. Writing twice must be a no-op,
  *      so the second write updates the existing row rather than inserting another.
+ *   4. A CALL WE MADE IS NOT AN ENQUIRY. An outbound call may open a card (see
+ *      MIN_OUTBOUND_SECONDS_TO_OPEN_CARD and outboundCardRefusal), but it must never look like
+ *      someone waiting on us: no unread badge, no SLA clock, no acknowledgement message, and it
+ *      lands in 'scoping' rather than 'enquiry'. All four fall out of `direction`, which is why
+ *      every write below is guarded on it rather than on the caller passing the right flags.
  */
 import { db } from './db';
 import { calls, conversations, messages } from '@shared/schema';
@@ -121,7 +126,12 @@ export type CallDescriptor = {
 function isMissedCall(call: Pick<CallRow, 'status' | 'outcome' | 'handledBy' | 'duration'>): boolean {
     const status = (call.status ?? '').toLowerCase();
     if (['no-answer', 'busy', 'failed', 'canceled', 'cancelled'].includes(status)) return true;
-    if ((call.outcome ?? '').toUpperCase() === 'MISSED_CALL') return true;
+    const outcome = (call.outcome ?? '').toUpperCase();
+    if (outcome === 'MISSED_CALL') return true;
+    // A call Ben placed that nobody picked up. Needed as its own case because the outbound dial
+    // handler records status 'completed' (the TwiML verb completed fine) and carries the real
+    // result in `outcome` — without this an unanswered outbound reads as "Outbound call (0s)".
+    if (outcome === 'OUTBOUND_NO_ANSWER') return true;
     if (['missed', 'voicemail'].includes((call.handledBy ?? '').toLowerCase())) return true;
     // Never connected and never finalized (the 'ringing' rows) — nobody spoke to them.
     if (status === 'ringing' && !call.duration) return true;
@@ -158,6 +168,60 @@ export function describeCall(call: Pick<CallRow,
     return { missed, direction, summary, preview: summary ? `${head}: ${summary}` : head };
 }
 
+// ---------------------------------------------------------------- the outbound gate
+
+/**
+ * How long an outbound call must last before it is allowed to OPEN a new card.
+ *
+ * Chosen from the 148 calls Ben actually made from Groundwire between 30 Apr and 18 Aug 2026
+ * (Twilio's own call log — the `calls` table holds almost no outbound history because this capture
+ * path is new). Their durations are sharply bimodal:
+ *
+ *     0s      35   every one of them no-answer, busy or failed. Nobody spoke.
+ *     1-3s    25   answered and instantly over: misdials and redial storms. One number was
+ *                  dialled seven times, longest 5s; another six times, longest 3s.
+ *     4-10s   14
+ *     11-30s   5
+ *     31s+    69   real conversations, median around two minutes.
+ *
+ * So 41% of outbound calls are 3 seconds or less, and there is a thin valley between the fumbles
+ * and the conversations. Grouping by destination and asking how many NEW cards each threshold would
+ * have opened, every value from 11s to 31s gives the identical answer (22 new cards, 11 suppressed)
+ * — the numbers in that band are all people already on the board. 10s is chosen at the bottom of
+ * that flat region: it clears the entire misdial mass, and on 110 days of real traffic it differs
+ * from a 30s rule by a single call. Erring low is deliberate, because the cost of the two mistakes
+ * is not symmetric — a spurious card is visible and deletable, a conversation that never got
+ * recorded is invisible and gone.
+ *
+ * This gate governs CREATING A CARD only. A call to someone we already have a thread with is
+ * appended whatever its length, so no call is ever lost from a conversation that exists.
+ */
+export const MIN_OUTBOUND_SECONDS_TO_OPEN_CARD = 10;
+
+/**
+ * May this outbound call open a brand new card? Returns the refusal reason, or null to allow.
+ *
+ * The order matters: identity first (a two-minute call to a contractor is still not a customer
+ * card), then substance.
+ */
+async function outboundCardRefusal(call: CallRow, info: CallDescriptor): Promise<string | null> {
+    const { classifyNonCustomerNumber } = await import('./internal-numbers');
+    const nonCustomer = await classifyNonCustomerNumber(call.phoneNumber);
+    if (nonCustomer) return `OUTBOUND_NON_CUSTOMER:${nonCustomer.code}`;
+
+    // Rang out, engaged or failed. A call nobody answered is not the start of a relationship, and
+    // it is 24% of everything Ben dials.
+    if (info.missed) return 'OUTBOUND_UNANSWERED';
+
+    // Duration not recorded yet. Ingest is idempotent and re-runs once finalization fills it in, so
+    // this defers the decision rather than making it wrongly.
+    if (call.duration === null || call.duration === undefined) return 'OUTBOUND_DURATION_UNKNOWN';
+
+    if (call.duration < MIN_OUTBOUND_SECONDS_TO_OPEN_CARD) return 'OUTBOUND_TOO_SHORT';
+
+    return null;
+}
+
 // ---------------------------------------------------------------- ingest
 
 export type CallThreadResult = {
@@ -174,8 +238,20 @@ export type CallThreadResult = {
 };
 
 export interface IngestCallOptions {
-    /** Create a conversation when the caller has none. Inbound only; outbound never opens a card. */
+    /**
+     * Force the create/don't-create decision. Leave unset to use the normal rules: an inbound call
+     * always opens a card, an outbound one only if it passes `outboundCardRefusal`.
+     */
     createConversation?: boolean;
+    /**
+     * Let a call BEN MADE open a new card. Live path only.
+     *
+     * Defaults to FALSE, and that default is load-bearing: the owner asked for future calls only
+     * and explicitly does NOT want history rewritten. scripts/migrate-calls-into-threads.ts inherits
+     * these defaults, so leaving this off is what keeps a backfill from conjuring cards for every
+     * supplier Ben has ever rung. Only server/call-logger.ts finalizeCall turns it on.
+     */
+    outboundOpensCard?: boolean;
     /** Backfill passes true so smoke numbers stay out of history. Live ingest passes false. */
     skipTestNumbers?: boolean;
     /** Bump the unread badge. True on the live path, false for the backfill. */
@@ -218,7 +294,29 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
     const digits = (call.phoneNumber ?? '').replace(/\D/g, '');
     const info = describeCall(call);
     const at = call.startTime ?? call.endTime ?? new Date();
-    const createConversation = opts.createConversation ?? (info.direction === 'inbound');
+
+    // May this call open a card that does not exist yet?
+    //
+    // Inbound: always. Someone rang us; that is the most urgent thing the board can show.
+    //
+    // Outbound: only on the live path, and only when it survives the gate. Before this, an outbound
+    // call could join a thread but never start one, so the first time Ben rang a NEW number the
+    // conversation was recorded and transcribed and then shown to nobody — the record went missing
+    // at exactly the moment a relationship begins. Opening a card for EVERY outbound call is the
+    // other failure: he also rings suppliers, merchants and his own team all day.
+    let createConversation: boolean;
+    let outboundRefusal: string | null = null;
+    if (opts.createConversation !== undefined) {
+        createConversation = opts.createConversation;
+    } else if (info.direction === 'inbound') {
+        createConversation = true;
+    } else if (!opts.outboundOpensCard) {
+        createConversation = false;
+        outboundRefusal = 'OUTBOUND_CARDS_DISABLED';
+    } else {
+        outboundRefusal = await outboundCardRefusal(call, info);
+        createConversation = outboundRefusal === null;
+    }
 
     // The message id is derived from the call id alone, so "have we already done this one?" is
     // answerable before we know anything about the conversation — which is what lets --dry-run
@@ -238,7 +336,9 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
 
     let conversationCreated = false;
     if (!conv) {
-        if (!createConversation) return { status: 'skipped', reason: 'NO_CONVERSATION' };
+        // The refusal reason travels out with the result, so "why is this call not on the board?"
+        // is answerable from the log line rather than by re-deriving the rules.
+        if (!createConversation) return { status: 'skipped', reason: outboundRefusal ?? 'NO_CONVERSATION' };
         if (opts.dryRun) {
             return {
                 status: existing ? 'updated' : 'written',
@@ -256,11 +356,27 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
             phoneNumber: `${digits}@c.us`,
             contactName: realName,
             status: 'active',
-            stage: 'enquiry',
-            unreadCount: opts.markUnread ? 1 : 0,
+            // A thread WE started is not an enquiry. 'enquiry' means new and unanswered, with the
+            // SLA clock running and someone waiting on us — and nobody enquired here, we rang them.
+            // Filing it as an enquiry would put a card in the column Ben works top-down for people
+            // who are waiting, when this one is already spoken to. 'scoping' is the honest column:
+            // "we're in conversation, gathering what a quote needs". It is also exactly where the
+            // thread would have landed anyway — stageAfterOutbound() moves an enquiry to scoping the
+            // moment we reply, so an outbound-first thread simply starts where our first outbound
+            // would have put it.
+            stage: info.direction === 'outbound' ? 'scoping' : 'enquiry',
+            // Unread means "they said something you have not read". A call we placed is not unread,
+            // Ben was on it. (The update path further down already guards this on direction; the
+            // insert did not, because until outbound calls could open a card it never came up.)
+            unreadCount: opts.markUnread && info.direction === 'inbound' ? 1 : 0,
             lastMessageAt: at,
             lastMessagePreview: info.preview,
-            // NOT lastInboundAt: a call does not open WhatsApp's 24h freeform window.
+            // NOT lastInboundAt: a call does not open WhatsApp's 24h freeform window. Doubly true
+            // for one we placed — nothing has arrived FROM them at all.
+            //
+            // NOT lastCustomerContactAt either, on an outbound call. That column is the any-channel
+            // "last heard from them" clock; setting it because we rang them would age the thread as
+            // though they had made contact, and the comms agent's re-engagement query reads it.
             lastCustomerContactAt: info.direction === 'inbound' ? at : null,
         }).onConflictDoNothing({ target: conversations.phoneNumber });
 

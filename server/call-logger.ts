@@ -223,13 +223,28 @@ export async function finalizeCall(
         jobSummary = await extractJobSummary(data.transcription);
     }
 
+    // On a call BEN DIALLED, the dial-status webhook has already written the truth and this
+    // function is about to overwrite it with something worse.
+    //
+    // finalizeCall is driven by the media stream, which starts with the TwiML (before the dial) and
+    // stops when the call ends, so its `duration` is ring time PLUS talk time and its `outcome` is
+    // whatever the agentic summariser guessed. /api/twilio/sip-outbound-status, by contrast, gets
+    // DialCallDuration — the real talk time, 0 when nobody answered — and records OUTBOUND_ANSWERED
+    // or OUTBOUND_NO_ANSWER. It fires first, so without this guard a call that rang for 25 seconds
+    // and was never picked up would end up stored as a 25-second call with no record that it went
+    // unanswered, and the outbound card gate would open a card for it.
+    const [before] = await db.select({ direction: calls.direction, outcome: calls.outcome })
+        .from(calls).where(eq(calls.id, callRecordId)).limit(1);
+    const dialResultAlreadyRecorded = (before?.direction ?? '').startsWith('out')
+        && (before?.outcome ?? '').startsWith('OUTBOUND_');
+
     // Filter out undefined values to prevent overwriting existing data with NULL
     const dataToUpdate = Object.fromEntries(
         Object.entries({
-            duration: data.duration,
+            duration: dialResultAlreadyRecorded ? undefined : data.duration,
             endTime: data.endTime || new Date(),
             recordingUrl: data.recordingUrl,
-            outcome: data.outcome,
+            outcome: dialResultAlreadyRecorded ? undefined : data.outcome,
             transcription: data.transcription,
             jobSummary: jobSummary,
             segments: data.segments,
@@ -269,9 +284,18 @@ export async function finalizeCall(
     //
     // Deliberately does NOT touch conversations.lastInboundAt — a call does not open WhatsApp's
     // 24h freeform window. See server/call-thread.ts.
+    //
+    // outboundOpensCard is set HERE and nowhere else. This is the live, forward-looking path — the
+    // one call that just happened — so it is the only place a call Ben made is allowed to start a
+    // new thread. The backfill script shares this module's ingest function and must keep the
+    // default (off): the owner wants future calls captured, not history rewritten.
     try {
         const { ingestCallIntoThread } = await import('./call-thread');
-        const board = await ingestCallIntoThread(callRecordId, { markUnread: true, ack: true });
+        const board = await ingestCallIntoThread(callRecordId, {
+            markUnread: true,
+            ack: true,
+            outboundOpensCard: true,
+        });
         if (board.status !== 'skipped') {
             console.log(`[CallLogger] Call ${callRecordId} thread activity: ${board.reason} "${board.preview}"${board.ack ? ` | ack: ${board.ack.reason}` : ''}`);
         }

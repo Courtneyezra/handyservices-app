@@ -129,12 +129,19 @@ export class MediaStreamTranscriber {
     private inboundRecordingStream: fs.WriteStream | null = null;
     private outboundRecordingStream: fs.WriteStream | null = null;
     private skipTranscription: boolean = false; // Flag to skip transcription for Eleven Labs calls
+    /**
+     * True when BEN dialled out (Groundwire → /api/twilio/sip-outbound), false for a normal
+     * inbound call. Twilio's `inbound` track is always audio FROM whoever originated the leg,
+     * so on an outbound call that is Ben and not the customer. Everything speaker-shaped keys
+     * off this — get it wrong and every outbound transcript is inverted.
+     */
+    private agentOriginated: boolean = false;
 
     // Tier 2 job complexity classification debounce
     private tier2DebounceTimer: NodeJS.Timeout | null = null;
     private lastJobClassifications: Map<string, JobComplexityResult> = new Map();
 
-    constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipTranscription: boolean = false) {
+    constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipTranscription: boolean = false, agentOriginated: boolean = false) {
         this.ws = ws;
         this.callSid = callSid;
         this.streamSid = streamSid;
@@ -142,6 +149,7 @@ export class MediaStreamTranscriber {
         this.broadcast = broadcast;
         this.callStartTime = new Date();
         this.skipTranscription = skipTranscription;
+        this.agentOriginated = agentOriginated;
 
         // Setup local recording with dual-channel support
         const recordingDir = path.join(process.cwd(), 'storage/recordings');
@@ -169,15 +177,25 @@ export class MediaStreamTranscriber {
         this.lookupExistingLead();
 
         // Initialize transcription if not skipped (e.g., for Eleven Labs calls)
+        //
+        // Speaker labels follow WHO ORIGINATED the leg, not the track name. Twilio's `inbound`
+        // track carries audio from the originator: the customer on a normal inbound call, but
+        // BEN on a call he dialled out from Groundwire. Labelling by track alone would name Ben
+        // "Caller" and the customer "Agent" on every outbound call, and every downstream reader
+        // (metadata extraction, segment detection, scoring, future intake agents) would have the
+        // two speakers the wrong way round.
+        const inboundTrackSpeaker = this.agentOriginated ? 'Agent' : 'Caller';
+        const outboundTrackSpeaker = this.agentOriginated ? 'Caller' : 'Agent';
+
         if (!this.skipTranscription) {
             if (USE_WISPRFLOW) {
                 // Use WisprFlow for transcription
-                this.initializeWisprFlow('inbound', 'Caller');
-                this.initializeWisprFlow('outbound', 'Agent');
+                this.initializeWisprFlow('inbound', inboundTrackSpeaker);
+                this.initializeWisprFlow('outbound', outboundTrackSpeaker);
             } else if (deepgram) {
                 // Fallback to Deepgram
-                this.initializeDeepgram('inbound', 'Caller');
-                this.initializeDeepgram('outbound', 'Agent');
+                this.initializeDeepgram('inbound', inboundTrackSpeaker);
+                this.initializeDeepgram('outbound', outboundTrackSpeaker);
             } else {
                 console.warn(`[Transcription] No transcription service available for ${this.callSid}`);
             }
@@ -185,8 +203,11 @@ export class MediaStreamTranscriber {
             console.log(`[Transcription] Skipping initialization for ${this.callSid} (Eleven Labs call)`);
         }
 
-        // Initialize Call Script Tube Map session for VA coaching
-        this.initializeCallScript();
+        // Call Script Tube Map coaches the VA through answering an incoming enquiry. It has no
+        // meaning on a call Ben placed himself, so outbound legs skip it.
+        if (!this.agentOriginated) {
+            this.initializeCallScript();
+        }
     }
 
     private async initializeCallScript() {
@@ -226,8 +247,10 @@ export class MediaStreamTranscriber {
             } else {
                 this.callRecordId = await createCall({
                     callId: this.callSid,
+                    // phoneNumber is always the CUSTOMER's number: `From` on an inbound call,
+                    // the dialled number passed as a Stream parameter on an outbound one.
                     phoneNumber: this.phoneNumber,
-                    direction: "inbound",
+                    direction: this.agentOriginated ? "outbound" : "inbound",
                     status: "in-progress",
                 });
                 console.log(`[CallLogger] Created call record ${this.callRecordId} for ${this.callSid}`);
@@ -1270,7 +1293,10 @@ export function setupTwilioSocket(wss: WebSocketServer, broadcast: (message: any
                         // Support both old and new parameter names for backwards compatibility
                         const skipTranscription = msg.start.customParameters?.skipTranscription === 'true' ||
                                                   msg.start.customParameters?.skipDeepgram === 'true';
-                        transcriber = new MediaStreamTranscriber(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast, skipTranscription);
+                        // Set by /api/twilio/sip-outbound only: Ben dialled this leg, so the
+                        // track→speaker mapping is reversed. Absent = a normal inbound call.
+                        const agentOriginated = msg.start.customParameters?.legRole === 'agent_originated';
+                        transcriber = new MediaStreamTranscriber(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast, skipTranscription, agentOriginated);
                         break;
                     case 'media':
                         if (transcriber) {
