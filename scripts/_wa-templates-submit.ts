@@ -49,6 +49,13 @@ const TEMPLATES: Tpl[] = [
         variables: { '1': 'Roshan', '2': 'the grab rails and bathroom light', '3': 'https://handyservices.app/quote/ab12cd34' },
     },
     {
+        name: 'call_request',
+        category: 'UTILITY',
+        purpose: 'First reply to an enquiry that arrived with the WhatsApp window shut (SMS, webform). Voice warms a lead faster than text ping-pong',
+        body: 'Hi {{1}}, thanks for getting in touch. Is it OK if we give you a quick call to run through what you need? Or just reply here with the details and we will price it up.',
+        variables: { '1': 'Sarah' },
+    },
+    {
         name: 'missed_call_ack',
         category: 'UTILITY',
         purpose: 'Answer a missed call. A call does NOT open the freeform window, so calls almost always need a template',
