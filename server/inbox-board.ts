@@ -8,10 +8,14 @@
 import { Router } from 'express';
 import { db } from './db';
 import { conversations, messages, calls, messageDrafts, agentQuestions } from '@shared/schema';
-import { eq, desc, ne, and, asc, inArray, sql } from 'drizzle-orm';
+import { eq, desc, ne, and, asc, inArray, isNull, sql } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
 import { callMessageId } from './call-thread';
 import { neverSentMeta } from './message-quarantine';
+import {
+    loadAutoAckSends, autoAckSpansByConversation, insideAnyAutoAckSpan, notWrittenByAnyAutoAck,
+    type AutoAckSend,
+} from './auto-ack-window';
 
 export const inboxBoardRouter = Router();
 
@@ -122,10 +126,64 @@ export async function loadActivity(conversationIds: string[]): Promise<Map<strin
             lastInboundChannel: r.lastInboundChannel ?? null,
         });
     }
+
+    // AN AUTO-ACKNOWLEDGEMENT IS NOT A REPLY. See server/auto-ack-window.ts for the whole argument
+    // and for why the discriminator is the message_drafts pair rather than the audit log or the
+    // Twilio sid. Same shape as the quarantine rule above: nothing is mutated, the messages stay in
+    // the thread, they just stop counting as an answer.
+    //
+    // Deliberately a second pass rather than one clever query. Auto-acks are rare, so the common
+    // case costs one small indexed read and nothing else, and the correction only touches the
+    // threads whose NEWEST outbound is actually a machine receipt.
+    await excludeAutoAcksFromLastOutbound(conversationIds, map);
     return map;
 }
 
-function toCard(c: typeof conversations.$inferSelect, activity?: Activity): BoardCard {
+/**
+ * Re-derives `lastOutbound` for any thread whose newest outbound turns out to be the machine's own
+ * acknowledgement. Best-effort by design: if this cannot run, the board is merely as wrong as it
+ * was before, never broken.
+ */
+async function excludeAutoAcksFromLastOutbound(
+    conversationIds: string[],
+    map: Map<string, Activity>,
+): Promise<void> {
+    try {
+        const sends: AutoAckSend[] = await loadAutoAckSends();
+        if (!sends.length) return;
+
+        const spansByConversation = await autoAckSpansByConversation(conversationIds, sends);
+        if (!spansByConversation.size) return;
+
+        for (const [conversationId, spans] of spansByConversation) {
+            const activity = map.get(conversationId);
+            if (!activity?.lastOutbound) continue;
+            // Only threads whose LATEST outbound is an ack can be reading as answered because of
+            // one. Everything else already has a real reply on top and needs no correction.
+            if (!insideAnyAutoAckSpan(activity.lastOutbound, spans)) continue;
+
+            const [row] = await db
+                .select({
+                    lastOutbound: sql<string | null>`max(${messages.createdAt})`,
+                })
+                .from(messages)
+                .where(and(
+                    eq(messages.conversationId, conversationId),
+                    eq(messages.direction, 'outbound'),
+                    isNull(messages.quarantinedAt),
+                    notWrittenByAnyAutoAck(messages.createdAt, spans.map((s) => s.draftId)),
+                ));
+
+            activity.lastOutbound = row?.lastOutbound ? new Date(row.lastOutbound) : null;
+        }
+    } catch (error: any) {
+        console.warn('[InboxBoard] Auto-ack exclusion failed, SLA falls back to raw outbound:', error?.message);
+    }
+}
+
+// Exported so a test can assert on the SAME object the board counts, rather than on a
+// reimplementation of it — the Unanswered headline is literally cards.filter(c => c.wait.awaitingReply).
+export function toCard(c: typeof conversations.$inferSelect, activity?: Activity): BoardCard {
     const lastInbound = c.lastInboundAt ? new Date(c.lastInboundAt) : null;
     const expiresAt = lastInbound ? new Date(lastInbound.getTime() + WINDOW_HOURS * 3600_000) : null;
     const msLeft = expiresAt ? expiresAt.getTime() - Date.now() : 0;

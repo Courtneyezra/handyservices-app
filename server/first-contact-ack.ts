@@ -273,6 +273,14 @@ export interface ContactHistory {
  * Quarantined messages do not count as outbound at all — see server/message-quarantine.ts. They
  * were written, but nobody received them, and "we sent you something you never got" is not prior
  * contact.
+ *
+ * A PREVIOUS AUTO-ACKNOWLEDGEMENT, HOWEVER, COUNTS IN FULL, and that asymmetry is deliberate.
+ * server/auto-ack-window.ts stops an ack counting as a REPLY, so the SLA clock keeps running and
+ * the customer stays in the Unanswered column until a human answers them. This function asks a
+ * different question: have we ever messaged this person? An ack means we have, and if it did not
+ * count here the same number would be acknowledged again on their next message. It counts twice
+ * over, in fact — the `messages` row AND the approved/sent draft below — so neither path alone
+ * can lose it.
  */
 export async function readContactHistory(input: { conversationId?: string | null; phone: string }): Promise<ContactHistory> {
     try {
