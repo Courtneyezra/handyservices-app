@@ -59,3 +59,6 @@ agent-runs/
 
 # scratch cache for scripts/_wa-corpus-analyse.ts
 .wa-corpus-cache.json
+
+# scratch cache for scripts/_agent-backtest.ts
+.agent-backtest-cache.json
