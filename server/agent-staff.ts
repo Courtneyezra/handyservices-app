@@ -12,7 +12,7 @@ import path from 'path';
 import { db } from './db';
 import {
     messageDrafts, agentQuestions, appSettings, conversations, messages,
-    personalizedQuotes, quickReplies,
+    personalizedQuotes, quickReplies, firstContactAckLog,
 } from '@shared/schema';
 import { eq, and, gte, desc, isNotNull, sql } from 'drizzle-orm';
 import { queueDraft } from './message-drafts';
@@ -25,8 +25,9 @@ import {
 } from './contextual-pricing/quote-message';
 import { STAFF as opsBriefStaff, SYSTEM as opsBriefSystem } from './agents/ops-brief';
 import { STAFF as recoveryStaff, SYSTEM as recoverySystem } from './agents/recovery';
-import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig } from './agents/comms';
+import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig, setCommsAgentConfig } from './agents/comms';
 import { STAFF as quotePrepStaff, SYSTEM as quotePrepSystem, runQuotePrep } from './agents/quote-prep';
+import { FIRST_CONTACT_CHANNELS, type FirstContactChannel } from './first-contact-ack';
 
 export const agentStaffRouter = Router();
 
@@ -180,6 +181,101 @@ agentStaffRouter.post('/quote-prep/:conversationId/request-details', async (req,
     } catch (error: any) {
         console.error('[QuotePrep] request-details failed:', error);
         res.status(500).json({ error: error?.message || 'Failed to queue the ask' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// First-contact auto-responder: control panel + audit log.
+//
+// This is the ONE feature in the system that messages a stranger without a human first, and until
+// now its settings lived only in a CLI script and its refusals only in console output. Nobody
+// should be asked to switch that on blind. These three endpoints are the whole reason the panel in
+// /admin/comms can exist: read the true state, change it, and see every decision it has made.
+//
+// Auth: the router is mounted behind requireAdmin in server/index.ts (which also admits the 'va'
+// role, so Ben can reach it).
+// ---------------------------------------------------------------------------
+
+// GET /api/agents/first-contact/config — the live config, read from the DB, never a cached guess.
+agentStaffRouter.get('/first-contact/config', async (_req, res) => {
+    try {
+        const config = await getCommsAgentConfig();
+        res.json({ config: config.firstContactAutoAck, channels: FIRST_CONTACT_CHANNELS });
+    } catch (error: any) {
+        console.error('[FirstContact] Config read failed:', error);
+        res.status(500).json({ error: error?.message || 'Could not read the config' });
+    }
+});
+
+// PATCH /api/agents/first-contact/config — { enabled?, channels?, returningAfterDays? }.
+//
+// Validated here rather than trusted from the client: `channels` is the list of surfaces allowed
+// to message a stranger, so an unknown string in it is a silent widening of that permission.
+// Returns the config as it now stands, so the panel renders the truth rather than its own optimism.
+agentStaffRouter.patch('/first-contact/config', async (req, res) => {
+    try {
+        const patch: Record<string, any> = {};
+
+        if (req.body?.enabled !== undefined) {
+            if (typeof req.body.enabled !== 'boolean') {
+                return res.status(400).json({ error: "'enabled' must be true or false" });
+            }
+            patch.enabled = req.body.enabled;
+        }
+
+        if (req.body?.channels !== undefined) {
+            const channels = req.body.channels;
+            if (!Array.isArray(channels)) return res.status(400).json({ error: "'channels' must be an array" });
+            const invalid = channels.filter((c: any) => !FIRST_CONTACT_CHANNELS.includes(c));
+            if (invalid.length) {
+                return res.status(400).json({ error: `Unknown channel(s): ${invalid.join(', ')}. Allowed: ${FIRST_CONTACT_CHANNELS.join(', ')}` });
+            }
+            // De-duplicated, so the stored list matches what the toggles show.
+            patch.channels = Array.from(new Set(channels)) as FirstContactChannel[];
+        }
+
+        if (req.body?.returningAfterDays !== undefined) {
+            const n = Number(req.body.returningAfterDays);
+            if (!Number.isInteger(n) || n < 1 || n > 3650) {
+                return res.status(400).json({ error: "'returningAfterDays' must be a whole number of days between 1 and 3650" });
+            }
+            patch.returningAfterDays = n;
+        }
+
+        if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to change' });
+
+        const next = await setCommsAgentConfig({ firstContactAutoAck: patch as any });
+        console.log(`[FirstContact] Config changed via /admin/comms: ${JSON.stringify(next.firstContactAutoAck)}`);
+        res.json({ config: next.firstContactAutoAck, channels: FIRST_CONTACT_CHANNELS });
+    } catch (error: any) {
+        console.error('[FirstContact] Config write failed:', error);
+        res.status(500).json({ error: error?.message || 'Could not save the config' });
+    }
+});
+
+// GET /api/agents/first-contact/log?limit=100 — every decision, newest first, refusals included.
+// The refusals are the point: a log of successes alone cannot answer "why did nobody get a reply?".
+agentStaffRouter.get('/first-contact/log', async (req, res) => {
+    try {
+        const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+        const rows = await db.select().from(firstContactAckLog)
+            .orderBy(desc(firstContactAckLog.createdAt)).limit(limit);
+
+        // A one-line summary of the last 7 days, so the panel can lead with "23 refused, 4 sent"
+        // rather than making someone count rows.
+        const week = new Date(Date.now() - 7 * 24 * 3600_000);
+        const summary = await db.select({
+            reason: firstContactAckLog.reason,
+            n: sql<number>`count(*)::int`,
+        }).from(firstContactAckLog)
+            .where(gte(firstContactAckLog.createdAt, week))
+            .groupBy(firstContactAckLog.reason);
+
+        res.json({ rows, summary });
+    } catch (error: any) {
+        // A missing table (migration not run) must read as "no log yet", not as a broken page.
+        console.error('[FirstContact] Log read failed:', error);
+        res.status(500).json({ error: error?.message || 'Could not read the log' });
     }
 });
 

@@ -1827,6 +1827,52 @@ export const insertMessageDraftSchema = createInsertSchema(messageDrafts);
 export type MessageDraft = typeof messageDrafts.$inferSelect;
 export type InsertMessageDraft = z.infer<typeof insertMessageDraftSchema>;
 
+/**
+ * Every decision the first-contact auto-responder makes, sent OR refused.
+ *
+ * Until this table existed the only trace of the feature working was a message_drafts row, which
+ * by definition only exists when something was composed. Every refusal — disabled, mid-thread,
+ * out of area, spam, no template — was a console line on a server nobody tails, so the one
+ * question an operator actually asks ("this enquiry got no reply, why?") had no answer. That is
+ * the whole reason the feature could never responsibly be switched on.
+ *
+ * Written fire-and-forget on every outcome: an insert here must never be able to stop, slow or
+ * break a send. Deliberately denormalised (phone, name and body are copied in) so a row still
+ * explains itself after the conversation is archived or the draft is purged.
+ */
+export const firstContactAckLog = pgTable("first_contact_ack_log", {
+    id: varchar("id").primaryKey().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+
+    // Who, and on which surface it arrived
+    conversationId: varchar("conversation_id"),
+    phone: varchar("phone").notNull(),
+    contactName: varchar("contact_name"),
+    channel: varchar("channel", { length: 16 }).notNull(),   // whatsapp | sms | webform | post_call
+
+    // What we decided
+    intent: varchar("intent", { length: 24 }),               // ack_enquiry | ack_photos | ack_missed_call | ack_returning
+    contactClass: varchar("contact_class", { length: 12 }),  // first | returning | ongoing
+    sent: boolean("sent").default(false).notNull(),
+    /** SENT | DISABLED | NOT_FIRST_CONTACT | OUT_OF_AREA | LOOKS_LIKE_SPAM | QUEUED_NO_TEMPLATE |
+     *  DUPLICATE_DRAFT | SEND_REFUSED:<code> | ERROR | CHANNEL_NOT_ENABLED | NO_PHONE */
+    reason: varchar("reason", { length: 48 }).notNull(),
+    /** Which rule refused, when one did (the spam pattern's name, the dialling prefix, …). */
+    detail: text("detail"),
+
+    // What actually went out, when anything did
+    mode: varchar("mode", { length: 16 }),                   // freeform | template | sms
+    templateName: varchar("template_name"),
+    outOfHours: boolean("out_of_hours"),
+    body: text("body"),
+    draftId: varchar("draft_id"),
+}, (table) => [
+    index("idx_fca_log_created").on(table.createdAt),
+    index("idx_fca_log_phone").on(table.phone),
+]);
+
+export type FirstContactAckLogRow = typeof firstContactAckLog.$inferSelect;
+
 // ==========================================
 // LANDING PAGE & BANNER OPTIMIZATION
 // ==========================================

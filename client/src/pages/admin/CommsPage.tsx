@@ -20,9 +20,11 @@ import {
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText,
+    ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
+import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -1270,6 +1272,10 @@ export default function CommsPage() {
     const [selected, setSelected] = useState<BoardCard | null>(null);
     const [search, setSearch] = useState('');
     const [onlyUnanswered, setOnlyUnanswered] = useState(false);
+    // The first-contact auto-responder's control panel. It lives here rather than on /admin/staff
+    // because the question it answers ("did this enquiry get a reply, and why not?") is asked while
+    // looking at this board, not while reading an agent's dossier.
+    const [autoReplyOpen, setAutoReplyOpen] = useState(false);
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -1381,6 +1387,13 @@ export default function CommsPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-5">
+                    <button
+                        onClick={() => setAutoReplyOpen(true)}
+                        className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400"
+                        title="Settings and log for the automatic reply to first-time enquiries"
+                    >
+                        <ShieldCheck className="h-4 w-4" /> Auto-reply
+                    </button>
                     <Stat label="Unanswered" value={data.totals.awaitingReply} tone={data.totals.awaitingReply > 0 ? 'red' : 'green'} big />
                     {(data.totals.pendingDrafts ?? 0) > 0 && (
                         <Stat label="To approve" value={data.totals.pendingDrafts!} tone="red" big />
@@ -1450,6 +1463,8 @@ export default function CommsPage() {
 
                 {selected && <ThreadPanel card={selected} onClose={() => setSelected(null)} />}
             </div>
+
+            <FirstContactPanel open={autoReplyOpen} onClose={() => setAutoReplyOpen(false)} />
         </div>
     );
 }

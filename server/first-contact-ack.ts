@@ -42,7 +42,7 @@
  * Ships disabled (`comms_agent.firstContactAutoAck.enabled = false`).
  */
 import { db } from './db';
-import { conversations, messages, messageDrafts } from '@shared/schema';
+import { conversations, messages, messageDrafts, firstContactAckLog } from '@shared/schema';
 import { eq, and, inArray, sql, desc } from 'drizzle-orm';
 import { queueDraft, approveAndSendDraft, type DraftSource } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
@@ -88,11 +88,25 @@ export type FirstContactAckIntent = (typeof FIRST_CONTACT_ACK_INTENTS)[number];
  * today may be approved tomorrow without a deploy. Anything not currently approved is skipped.
  */
 export const FIRST_CONTACT_TEMPLATE_PREFERENCE = [
+    // The ask itself, out of hours or out of window: "is it OK if we give you a quick call?".
+    // Submitted 19 Aug 2026 as UTILITY and PENDING with Meta at the time of writing, which is
+    // exactly why it is a NAME here. The moment Meta approves it the hourly sync flips its cached
+    // status and this list starts using it with no deploy; while it is pending the lookup skips it
+    // and falls through. Never hardcode the SID of something that is not approved yet.
+    'call_request',
     'first_contact_ack',   // a dedicated ack, if one is ever approved
     'video_request',       // UTILITY: "thanks for getting in touch, send a quick video"
     'postcode_request',    // UTILITY: acknowledges and asks the one thing we need to price
     '1_contact_generic',   // MARKETING fallback, reads as post-call ("as discussed")
 ];
+
+/**
+ * The same list with the call-ask removed, for a customer who has told us to keep it in writing.
+ * A template is still a message we chose to send: honouring `prefers_text` has to survive the
+ * shut-window path too, or the promise only holds when the window happens to be open.
+ */
+export const PREFERS_TEXT_TEMPLATE_PREFERENCE = FIRST_CONTACT_TEMPLATE_PREFERENCE
+    .filter((name) => name !== 'call_request');
 
 /**
  * Same idea for a call nobody answered, and it needs its own list because the ordinary one is
@@ -109,6 +123,17 @@ export const MISSED_CALL_TEMPLATE_PREFERENCE = [
     'missed_call_ack',     // not yet submitted; picked up automatically once approved
     'video_request',       // UTILITY: "thanks for getting in touch, send us a quick video"
 ];
+
+/**
+ * Which template list applies. Three-way, and each branch exists for a reason a reader will
+ * otherwise re-litigate: a missed call is answered by ringing back (asking permission to ring
+ * someone who just rang us is a confidence leak), a `prefers_text` customer is never offered a
+ * call on any surface, and everyone else gets the call-ask first.
+ */
+export function templatePreferenceFor(intent: FirstContactAckIntent, prefersText?: boolean): string[] {
+    if (intent === 'ack_missed_call') return MISSED_CALL_TEMPLATE_PREFERENCE;
+    return prefersText ? PREFERS_TEXT_TEMPLATE_PREFERENCE : FIRST_CONTACT_TEMPLATE_PREFERENCE;
+}
 
 async function readConfig(): Promise<FirstContactAckConfig> {
     // Lazy: this module is imported by hot ingest paths, and the comms agent module pulls in the
@@ -338,8 +363,30 @@ function greetingFor(contactName?: string | null): string {
 
 /**
  * The acknowledgement itself. Brand voice (brand-voice/whatsapp-comms.md): two short bursts split
- * on "---", no em dashes, no sign-off, no question. Nothing here states a price, a date, an
- * availability promise or an answer, and there is no branch that could add one.
+ * on "---", no em dashes, no sign-off, ONE question at most. Nothing here states a price, a date,
+ * an availability promise or an answer, and there is no branch that could add one.
+ *
+ * WHY THIS ASKS FOR A CALL RATHER THAN PROMISING A REPLY (owner's decision, 19 Aug 2026).
+ *
+ * The old copy said "we'll come back to you shortly" and then went quiet until a human got to it.
+ * That is a promise the customer has to wait on, and waiting is where a lead cools. Voice warms a
+ * lead: a two-minute call scopes the job, tells us whether it is even ours, and converts far better
+ * than a chain of texts. So the ack now ASKS ("is it OK if we give you a quick call?") and offers
+ * the written route in the same breath, so a customer who hates the phone loses nothing.
+ *
+ * Two intents deliberately do NOT ask:
+ *
+ *   ack_missed_call — they already rang US. Asking permission to ring back someone who just tried
+ *     to reach us by phone is a confidence leak: it reads as hesitancy where the customer has
+ *     already stated the preference. This one keeps telling, not asking. Owner's explicit call.
+ *
+ *   anything for a prefers_text customer — they have answered this exact question once already and
+ *     said no. Asking again is the single fastest way to make an automated system feel like one.
+ *     Note this suppression has to hold on EVERY surface, so `templatePreferenceFor()` drops the
+ *     call-ask template too, not just the freeform wording.
+ *
+ * Out of hours the ask survives but the timing moves: "first thing", never anything that implies
+ * somebody is sitting at a desk at 11pm.
  */
 export function composeFirstContactAck(input: {
     intent: FirstContactAckIntent;
@@ -374,28 +421,29 @@ export function composeFirstContactAck(input: {
 
     // A customer who asked to stay in writing does not get promised a phone call, even when the
     // thing they just did was ring us.
-    const callFollowInHours = input.prefersText
-        ? "We'll pick this up here on text shortly. Just tell us what needs doing and we'll take it from there."
-        : "We'll ring you back shortly. If it is easier, just reply here and tell us what needs doing.";
-    const callFollowOutOfHours = input.prefersText
-        ? "You've caught us out of hours, so we'll come back to you here first thing."
-        : "You've caught us out of hours, so we'll ring you back first thing.";
+    const missedCallFollow = outOfHours
+        ? (input.prefersText
+            ? "You've caught us out of hours, so we'll come back to you here first thing."
+            : "You've caught us out of hours, so we'll ring you back first thing.")
+        : (input.prefersText
+            ? "We'll pick this up here on text shortly. Just tell us what needs doing and we'll take it from there."
+            // Telling, not asking. See the note above the function.
+            : "We'll ring you back shortly. If it is easier, just reply here and tell us what needs doing.");
 
-    const follow = outOfHours
-        ? (input.intent === 'ack_photos'
-            ? "Got them. You've caught us out of hours, so we'll have a proper look and come back to you first thing."
-            : input.intent === 'ack_missed_call'
-                ? callFollowOutOfHours
-                : input.intent === 'ack_returning'
-                    ? "You've caught us out of hours, so we'll pick this up and come back to you first thing."
-                    : "You've caught us out of hours, so we'll come back to you first thing.")
-        : (input.intent === 'ack_photos'
-            ? "Got them. We'll have a look and come back to you shortly."
-            : input.intent === 'ack_missed_call'
-                ? callFollowInHours
-                : input.intent === 'ack_returning'
-                    ? "We've got your message and we'll come back to you shortly."
-                    : "We've got your message and we'll come back to you shortly.");
+    // The ask. One question, then the written alternative as a plain statement, so the reply is
+    // never "two questions in a row" and a text-only customer is not cornered into a phone call.
+    const callAsk = outOfHours
+        ? "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+        : "Is it OK if we give you a quick call to run through it? Or just reply here with the details.";
+
+    // What a prefers_text customer gets instead: the same acknowledgement with no phone in it.
+    const writtenFollow = outOfHours
+        ? "You've caught us out of hours, so we'll come back to you here first thing."
+        : "We've got it and we'll come back to you here shortly. Just tell us what needs doing and we'll take it from there.";
+
+    const follow = input.intent === 'ack_missed_call'
+        ? missedCallFollow
+        : input.prefersText ? writtenFollow : callAsk;
 
     return { body: `${opener}\n---\n${follow}`, outOfHours, intent: input.intent };
 }
@@ -485,9 +533,75 @@ export interface FirstContactAckResult {
     contactClass?: ContactClass;
 }
 
+// ---------------------------------------------------------------- the log
+//
+// The refusals ARE the product here. A feature that answers strangers automatically can only be
+// switched on by someone who can see what it did and, far more often, what it declined to do —
+// and until this table existed the only evidence a refusal ever happened was a console line.
+//
+// Three rules keep it honest and cheap:
+//   · ONE insert, fire-and-forget, wrapped in its own try/catch. A logging failure must never turn
+//     into a send failure; the worst case is a missing row, never a missing acknowledgement.
+//   · EVERY outcome, including DISABLED. "Nothing happened because the feature is off" is the most
+//     common answer to "why did nobody get a reply?", and it is worthless if it is not recorded.
+//   · The body as SENT, not as composed, so the log shows what the customer actually saw.
+
+/** Record one decision. Never throws, never awaited on the send path. */
+export async function logFirstContactAck(
+    input: {
+        conversationId?: string | null;
+        phone: string;
+        channel: FirstContactChannel;
+        contactName?: string | null;
+    },
+    result: FirstContactAckResult,
+): Promise<void> {
+    try {
+        await db.insert(firstContactAckLog).values({
+            id: `fca_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            conversationId: input.conversationId ?? null,
+            phone: input.phone || '(none)',
+            contactName: input.contactName ?? null,
+            channel: input.channel,
+            intent: result.intent ?? null,
+            contactClass: result.contactClass ?? null,
+            sent: result.sent,
+            // The reason column is 48 chars; SEND_REFUSED:<code> is the only variable-length one.
+            reason: String(result.reason).slice(0, 48),
+            detail: result.detail ?? null,
+            mode: result.mode ?? null,
+            templateName: result.templateName ?? null,
+            outOfHours: result.outOfHours ?? null,
+            body: result.body ?? null,
+            draftId: result.draftId ?? null,
+        });
+    } catch (error: any) {
+        // Deliberately swallowed. A log row is worth less than the send it must not endanger.
+        console.warn('[FirstContact] Could not write the audit row:', error?.message);
+    }
+}
+
 /**
  * Acknowledge a genuinely-first inbound (or a customer coming back after months), or explain why
- * not. Never throws: a lane must not be able to break ingest.
+ * not, and record the decision either way. Never throws: a lane must not be able to break ingest.
+ */
+export async function maybeAutoAckFirstContact(input: {
+    conversationId?: string | null;
+    phone: string;
+    channel: FirstContactChannel;
+    contactName?: string | null;
+    hasMedia?: boolean;
+    text?: string | null;
+    intent?: FirstContactAckIntent;
+}): Promise<FirstContactAckResult> {
+    const result = await runFirstContactAck(input);
+    // Fire and forget: the caller is an ingest path and the customer is already answered.
+    void logFirstContactAck(input, result);
+    return result;
+}
+
+/**
+ * The decision itself.
  *
  * Always ends in one of three states — sent, queued for Ben, or a logged reason for doing nothing.
  * It never queues when the feature is off, the thread is mid-conversation, or a screen refused,
@@ -497,7 +611,7 @@ export interface FirstContactAckResult {
  * Order matters. Cheap local checks (flag, channel, geography) come before any query; the spam
  * screen runs before the history query; and everything runs before a single penny of send.
  */
-export async function maybeAutoAckFirstContact(input: {
+async function runFirstContactAck(input: {
     conversationId?: string | null;
     phone: string;
     channel: FirstContactChannel;
@@ -594,7 +708,7 @@ export async function maybeAutoAckFirstContact(input: {
             //      SMS existed as a channel, this branch could only queue and hope.
             //   3. Failing even that (no SMS sender configured), queue it for a human. Never drop.
             const picked = await findApprovedTemplate(
-                intent === 'ack_missed_call' ? MISSED_CALL_TEMPLATE_PREFERENCE : FIRST_CONTACT_TEMPLATE_PREFERENCE,
+                templatePreferenceFor(intent, prefersText),
                 [greetingFor(input.contactName).trim() || 'there', 'the job'],
             );
             if (picked) {
@@ -817,6 +931,17 @@ export async function triageAckReply(input: {
  * Leaves the draft pending on every refusal, so the worst case is the behaviour we had before.
  */
 export async function maybeAutoSendFirstContactDraft(draftId: string, input: {
+    conversationId?: string | null;
+    phone: string;
+    channel: FirstContactChannel;
+}): Promise<FirstContactAckResult> {
+    // Same lane, same question ("why did nobody get a reply?"), so the same log.
+    const result = await runAutoSendFirstContactDraft(draftId, input);
+    void logFirstContactAck(input, result);
+    return result;
+}
+
+async function runAutoSendFirstContactDraft(draftId: string, input: {
     conversationId?: string | null;
     phone: string;
     channel: FirstContactChannel;

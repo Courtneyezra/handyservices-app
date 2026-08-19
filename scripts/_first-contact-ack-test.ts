@@ -22,6 +22,15 @@
  *   l) returning       → a thread quiet for months acks as ack_returning and is bumped up the board
  *   m) ack replies     → "yes call me" → callback_requested + urgent; "no, text" → prefers_text
  *   n) SMS-first ack   → an SMS-first contact is acknowledged BY SMS, never by WhatsApp
+ *   o) the audit log   → every decision above, sent AND refused, is readable from the DB
+ *
+ * Case (c) also pins the owner's 19 Aug 2026 copy decision: the ack ASKS for a quick call rather
+ * than promising a reply, except for a missed call (they rang us, so we ring back) and except for
+ * anyone tagged prefers_text (case m), who is never offered a call on any surface.
+ *
+ * Case (o) leaves its rows in first_contact_ack_log on purpose. It is an audit trail: deleting the
+ * evidence that a refusal happened would defeat the only reason the table exists. Every row is
+ * against a reserved test number.
  *
  * Live-send notes, so the next reader does not repeat the probing:
  *   · Twilio REJECTS SMS to the Ofcom range with 21211 ("Invalid 'To' Phone Number"), so any case
@@ -38,12 +47,12 @@
 import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
 import { db } from '../server/db';
-import { conversations, messages, messageDrafts, agentQuestions } from '@shared/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { conversations, messages, messageDrafts, agentQuestions, firstContactAckLog } from '@shared/schema';
+import { eq, and, gte, desc, sql } from 'drizzle-orm';
 import {
     maybeAutoAckFirstContact, isFirstContact, composeFirstContactAck,
     looksLikeSpam, screenGeography, classifyAckReply, triageAckReply,
-    readContactHistory, classifyHistory,
+    readContactHistory, classifyHistory, templatePreferenceFor, logFirstContactAck,
     CALLBACK_TAG, PREFERS_TEXT_TAG,
 } from '../server/first-contact-ack';
 import { sendSmsMessage } from '../server/sms';
@@ -181,6 +190,8 @@ async function boardState(convId: string) {
 }
 
 async function main() {
+    /** Everything logged from here on belongs to this run — case (o) reads back exactly that. */
+    const runStartedAt = new Date();
     const original = await getCommsAgentConfig();
     const originalBoard = await boardState(OFCOM_CONV);
     console.log('config at start:', JSON.stringify(original.firstContactAutoAck));
@@ -260,9 +271,40 @@ async function main() {
             pass(day.body !== night.body, `${intent}: wording differs in vs out of hours`);
             pass(night.outOfHours && /first thing/i.test(night.body), `${intent}: out-of-hours promises "first thing"`);
             pass(!night.body.includes('—') && !day.body.includes('—'), `${intent}: no em dashes`);
+            // The owner's change: the ack ASKS for a call rather than promising a reply, because
+            // voice warms a lead. Both variants ask; only the timing moves.
+            pass(/is it OK if we give you a quick call/i.test(day.body), `${intent}: in hours, asks for a quick call`);
+            pass(/is it OK if we give you a quick call/i.test(night.body), `${intent}: out of hours, still asks for the call`);
+            pass(/reply here with the details/i.test(day.body) && /reply here with the details/i.test(night.body),
+                `${intent}: the written route is offered alongside, so a phone-averse customer loses nothing`);
+            // Brand voice, hard rule: one question per reply, total. Two feels like a form.
+            pass((day.body.match(/\?/g) ?? []).length === 1, `${intent}: exactly one question in hours`);
+            pass((night.body.match(/\?/g) ?? []).length === 1, `${intent}: exactly one question out of hours`);
+            // "Shortly" at 9pm implies someone is at a desk. Out of hours it must be "first thing".
+            pass(!/shortly/i.test(night.body), `${intent}: out-of-hours copy never implies someone is working now`);
         }
         const early = composeFirstContactAck({ intent: 'ack_enquiry', contactName: 'Marc', hour: 6 });
         pass(early.outOfHours, '06:00 also counts as out of hours (the 8-20 boundary)');
+
+        // The one intent that deliberately does NOT ask. They already rang us: asking permission
+        // to ring back reads as hesitancy. Owner's explicit decision, so it is pinned by a test.
+        const missedDay = composeFirstContactAck({ intent: 'ack_missed_call', contactName: 'Marc', hour: 11 });
+        const missedNight = composeFirstContactAck({ intent: 'ack_missed_call', contactName: 'Marc', hour: 21 });
+        console.log(`\n--- ack_missed_call @11:00 ---\n${missedDay.body}\n\n--- ack_missed_call @21:00 ---\n${missedNight.body}`);
+        pass(!missedDay.body.includes('?') && !missedNight.body.includes('?'),
+            'ack_missed_call tells rather than asks, in and out of hours');
+        pass(/we'll ring you back shortly/i.test(missedDay.body), 'the in-hours missed-call ack keeps its exact shape');
+        pass(/reply here and tell us what needs doing/i.test(missedDay.body), 'and still offers the written route');
+
+        // The call-ask has to be suppressed on EVERY surface for a prefers_text customer, which
+        // means the template list too — a template is a message we chose to send.
+        const preferred = templatePreferenceFor('ack_enquiry', false);
+        console.log('template preference (ack_enquiry):', JSON.stringify(preferred));
+        pass(preferred[0] === 'call_request', "'call_request' is first choice by NAME, so it starts working the hour Meta approves it");
+        pass(!templatePreferenceFor('ack_enquiry', true).includes('call_request'),
+            'a prefers_text customer is never offered the call-ask template either');
+        pass(!templatePreferenceFor('ack_missed_call').includes('call_request'),
+            'and neither is a missed call');
 
         // ---------------------------------------------------------------- d) shut window
         head('CASE (d)  shut WhatsApp window → approved template looked up at runtime, or a queued draft.');
@@ -512,6 +554,19 @@ async function main() {
         pass(/ring you back/i.test(normalCall.body), 'the ordinary missed-call ack promises a ring back');
         pass(!/ring|call you/i.test(noCall.body), 'a prefers_text customer is never promised one');
 
+        // And now that the ordinary ack ASKS for a call, the same suppression has to hold on every
+        // intent, in and out of hours. Asking a customer a question they have already answered no
+        // to is the fastest way to make an automated system feel like one.
+        for (const intent of ['ack_enquiry', 'ack_photos', 'ack_returning'] as const) {
+            for (const hour of [11, 21]) {
+                const quiet = composeFirstContactAck({ intent, contactName: 'Marc', hour, prefersText: true });
+                console.log(`\n--- ${intent} @${hour}:00, prefers_text ---\n${quiet.body}`);
+                pass(!/call|ring|phone/i.test(quiet.body), `${intent} @${hour}:00: no call-ask for a prefers_text customer`);
+                pass(!quiet.body.includes('?'), `${intent} @${hour}:00: and no question at all, because there is nothing to ask`);
+                pass(!quiet.body.includes('—'), `${intent} @${hour}:00: no em dashes`);
+            }
+        }
+
         // A thread with no recent ack must not have its replies read as answers to one.
         await db.delete(messageDrafts).where(eq(messageDrafts.phone, OFCOM_PHONE));
         const orphan = await triageAckReply({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, text: 'yes' });
@@ -533,6 +588,45 @@ async function main() {
         // and that failure must be loud, which is the same guarantee case (i) proves.
         pass(smsFirst.result.reason === 'SENT' || String(smsFirst.result.reason).startsWith('SEND_REFUSED'),
             `ended in a definite state: ${smsFirst.result.reason}`);
+
+        // ---------------------------------------------------------------- o) the audit log
+        head('CASE (o)  every decision above was written to first_contact_ack_log, refusals included.');
+        // The insert is fire-and-forget on purpose (a log row must never endanger a send), so give
+        // the in-flight ones a moment to land before reading.
+        await new Promise((r) => setTimeout(r, 1500));
+        const logRows = await db.select().from(firstContactAckLog)
+            .where(gte(firstContactAckLog.createdAt, runStartedAt))
+            .orderBy(desc(firstContactAckLog.createdAt));
+        console.table(logRows.map((r) => ({
+            at: r.createdAt?.toISOString().slice(11, 19),
+            phone: r.phone, channel: r.channel, intent: r.intent,
+            reason: r.reason, detail: (r.detail ?? '').slice(0, 24), sent: r.sent,
+        })));
+
+        const reasons = new Set(logRows.map((r) => r.reason));
+        console.log('outcomes recorded this run:', JSON.stringify([...reasons]));
+        pass(logRows.length > 0, `${logRows.length} decisions were logged`);
+
+        const sentRow = logRows.find((r) => r.reason === 'SENT' && r.sent);
+        pass(!!sentRow, 'a SENT row exists');
+        pass(!!sentRow?.body, 'and it records the body the customer actually received, not just that something happened');
+        pass(!!sentRow?.channel && !!sentRow?.intent, 'with the channel and intent, so the row explains itself');
+
+        // The whole point of the table: "why did nobody get a reply?" has to be answerable.
+        const refusals = [...reasons].filter((r) => r !== 'SENT');
+        pass(refusals.length >= 2, `at least two different refusal reasons are visible (${refusals.join(', ')})`);
+        pass(reasons.has('DISABLED'), "the shipped default ('the feature is off') is recorded, not silently skipped");
+        pass(logRows.some((r) => r.reason === 'LOOKS_LIKE_SPAM' && !!r.detail),
+            'a screen refusal records WHICH rule fired, not just that one did');
+
+        // A logging failure must never be able to break a send.
+        const logBroken = await withCapturedLogs(() => logFirstContactAck(
+            // channel is varchar(16), so this insert is guaranteed to be rejected by Postgres.
+            { phone: OFCOM_PHONE, channel: 'a_channel_far_too_long_to_store' as any },
+            { sent: false, reason: 'ERROR' },
+        ).then(() => 'resolved').catch(() => 'threw'));
+        pass(logBroken.result === 'resolved', 'a failing log write resolves rather than throwing into the send path');
+        pass(/Could not write the audit row/.test(logBroken.log), 'and it says so in the logs rather than failing silently');
 
     } finally {
         const restored = await setCommsAgentConfig({ firstContactAutoAck: original.firstContactAutoAck });

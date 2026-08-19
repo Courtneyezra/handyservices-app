@@ -14,6 +14,11 @@
  *   npx tsx scripts/_comms-agent-config.ts --first-contact-ack       # ON
  *   npx tsx scripts/_comms-agent-config.ts --no-first-contact-ack    # OFF (ships off)
  *   npx tsx scripts/_comms-agent-config.ts --first-contact-channels whatsapp,sms
+ *   npx tsx scripts/_comms-agent-config.ts --returning-after-days 60
+ *
+ * These same first-contact settings now have a UI: /admin/comms → "Auto-reply". Both read and
+ * write the one appSettings row, so they cannot disagree. The panel also carries the audit log
+ * (first_contact_ack_log), which this script cannot show.
  */
 import 'dotenv/config';
 import { getCommsAgentConfig, setCommsAgentConfig, DRAFT_INTENTS } from '../server/agents/comms';
@@ -50,6 +55,16 @@ async function main() {
             process.exit(1);
         }
         patch = { ...patch, firstContactAutoAck: { ...patch?.firstContactAutoAck, channels: channels as FirstContactChannel[] } };
+    }
+
+    const returningIdx = args.indexOf('--returning-after-days');
+    if (returningIdx >= 0) {
+        const n = Number(args[returningIdx + 1]);
+        if (!Number.isInteger(n) || n < 1 || n > 3650) {
+            console.error('returning-after-days must be a whole number of days between 1 and 3650');
+            process.exit(1);
+        }
+        patch = { ...patch, firstContactAutoAck: { ...patch?.firstContactAutoAck, returningAfterDays: n } };
     }
 
     const limitIdx = args.indexOf('--sweep-limit');
