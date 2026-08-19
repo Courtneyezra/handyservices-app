@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -1887,6 +1887,111 @@ export const firstContactAckLog = pgTable("first_contact_ack_log", {
 ]);
 
 export type FirstContactAckLogRow = typeof firstContactAckLog.$inferSelect;
+
+/**
+ * THE OUTCOME LEDGER — every agent proposal, what the human did with it, and what happened next.
+ *
+ * The trust ladder in this system says autonomy is EARNED per capability, measured by how often a
+ * human approves a draft unedited. Until this table existed that number could not be computed at
+ * all: `message_drafts.body` is EDITED IN PLACE by PATCH /api/drafts/:id, so by the time anyone
+ * approved a draft the agent's original wording was gone. An approval and an approval-after-a-
+ * rewrite were the same row. That is the one distinction the whole gating decision rests on.
+ *
+ * So the proposal is copied HERE at the moment it is written, immutably, and the verdict is
+ * recorded against it later. The diff between `proposed_body` and `final_body` is the training
+ * signal — what Ben changed says more than any satisfaction score.
+ *
+ * SHAPE — one row per proposal, keyed by (kind, ref_id) so a hook can never double-write. Rows are
+ * denormalised on purpose (phone, body, capability are copied in) so a row still explains itself
+ * after the draft is purged or the conversation archived.
+ *
+ * WRITES ARE FIRE-AND-FORGET. Every call site wraps this in its own try/catch: the ledger must
+ * never be able to stop, slow or break a send. A missing row is a gap in a report; a thrown error
+ * would be a customer who never got their reply.
+ *
+ * VERDICT is deliberately fine-grained, because the cheap version of this metric lies:
+ *   approved_unedited  a human approved the agent's words verbatim   ← THE trust-ladder number
+ *   approved_edited    a human approved after changing the text      (edit_distance is the signal)
+ *   approved_unknown   backfilled: approved, but the pre-edit text was never captured
+ *   rejected           a human declined it
+ *   auto_sent          the machine approved itself (whitelist/first-contact). NOT a human signal
+ *   superseded         the agent replaced its own draft in the same run. Not a judgement either
+ *   blocked            the system refused at send time (opt-out). Not a judgement
+ *   expired            nobody acted for long enough that it stopped being actionable
+ *   answered/dismissed the ask-Ben equivalents of approved/rejected, for kind='question'
+ *
+ * `send_status` is kept separate from `verdict` for the same reason: a human approving wording that
+ * later failed to send is still a vote of confidence in the wording. Trust metrics read `verdict`;
+ * reply and conversion metrics read `send_status = 'sent'`.
+ */
+export const agentOutcomes = pgTable("agent_outcomes", {
+    id: varchar("id").primaryKey().notNull(),
+
+    // WHO PROPOSED IT
+    agent: varchar("agent", { length: 32 }).notNull(),        // comms | recovery | quote_prep | system
+    /** The unit autonomy is granted in: a draft intent, a nudge lever, 'question'. */
+    capability: varchar("capability", { length: 40 }).notNull(),
+    kind: varchar("kind", { length: 16 }).notNull(),          // draft | question | nudge
+    source: varchar("source", { length: 40 }),                // message_drafts.source, when it came from one
+
+    // WHAT IT WAS ABOUT
+    /** message_drafts.id / agent_questions.id / nudge_queue.id — unique with `kind`. */
+    refId: varchar("ref_id").notNull(),
+    conversationId: varchar("conversation_id"),
+    phone: varchar("phone"),
+    /** commsPhoneKey() — THE identity key. Raw phone strings do not join across these tables. */
+    phoneKey: varchar("phone_key", { length: 20 }),
+    quoteSlug: varchar("quote_slug", { length: 24 }),
+
+    // THE PROPOSAL, frozen at the moment it was made
+    proposedBody: text("proposed_body").notNull(),
+    reason: text("reason"),
+    proposedAt: timestamp("proposed_at").defaultNow().notNull(),
+
+    // THE HUMAN VERDICT
+    verdict: varchar("verdict", { length: 24 }).default('pending').notNull(),
+    decidedBy: varchar("decided_by"),
+    decidedAt: timestamp("decided_at"),
+    /** Seconds from proposal to a human acting on it — the queue's real latency. */
+    timeToActionSeconds: integer("time_to_action_seconds"),
+
+    // WHAT HE CHANGED — the valuable part
+    /** The text as actually sent (or the answer he typed), when it differs from the proposal. */
+    finalBody: text("final_body"),
+    editDistance: integer("edit_distance"),                   // Levenshtein, trimmed both sides
+    /** distance / longer length. 0 = verbatim, 1 = rewritten from scratch. */
+    editRatio: doublePrecision("edit_ratio"),
+
+    // DELIVERY
+    sendStatus: varchar("send_status", { length: 16 }),       // sent | failed | null (never attempted)
+    sentAt: timestamp("sent_at"),
+    sentMessageId: varchar("sent_message_id"),
+
+    // WHAT THE CUSTOMER DID NEXT
+    customerRepliedAt: timestamp("customer_replied_at"),
+    replyLatencySeconds: integer("reply_latency_seconds"),
+    /** Deposit paid on any quote for this number after the send — the loop actually closing. */
+    convertedQuoteId: varchar("converted_quote_id"),
+    convertedAt: timestamp("converted_at"),
+    conversionValuePence: integer("conversion_value_pence"),
+    /** Last time the downstream columns above were recomputed. */
+    outcomeCheckedAt: timestamp("outcome_checked_at"),
+
+    /** Room for per-kind extras (option lists, whether Ben tapped an offered answer, backfill notes). */
+    meta: jsonb("meta"),
+    /** True when the row was reconstructed from history rather than captured live. */
+    backfilled: boolean("backfilled").default(false).notNull(),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex("idx_agent_outcomes_ref").on(table.kind, table.refId),
+    index("idx_agent_outcomes_agent").on(table.agent, table.capability, table.proposedAt),
+    index("idx_agent_outcomes_verdict").on(table.verdict, table.proposedAt),
+    index("idx_agent_outcomes_phone_key").on(table.phoneKey),
+]);
+
+export type AgentOutcome = typeof agentOutcomes.$inferSelect;
 
 /**
  * THE SUPPRESSION LIST. Every "stop messaging me" this business has ever been told.

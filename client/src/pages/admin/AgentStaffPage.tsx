@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import AgentOutcomesPanel from '@/components/AgentOutcomesPanel';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -408,6 +409,11 @@ export default function AgentStaffPage() {
                     <StaffBadge key={m.id} member={m} onOpen={() => setSelectedId(m.id)} />
                 ))}
             </div>
+
+            {/* The closed loop: proposal → verdict → what the customer did. Directly under the
+                roster because the badges say what each agent is carrying, and this says whether
+                anyone should trust it with more. */}
+            <AgentOutcomesPanel />
 
             <TemplateStatusPanel />
 

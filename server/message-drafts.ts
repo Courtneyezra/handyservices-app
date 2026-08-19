@@ -17,6 +17,7 @@ import { canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { sendCustomerMessage, type OutboundChannel } from './outbound';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
+import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
 
 export const messageDraftsRouter = Router();
 
@@ -129,6 +130,21 @@ export async function queueDraft(input: {
         status: 'pending',
     });
 
+    // OUTCOME LEDGER — freeze the proposal as written, before anyone can edit it.
+    //
+    // This has to happen HERE and not at approval time: PATCH /api/drafts/:id rewrites `body` in
+    // place, so by the time a human approves, the agent's original wording no longer exists
+    // anywhere. Capturing it at the choke point also means an agent author cannot forget to.
+    // Fire-and-forget: a bookkeeping failure must never cost a customer their reply.
+    safely('recordDraftProposal', () => recordDraftProposal({
+        draftId: id,
+        conversationId: conv?.id ?? null,
+        phone,
+        body: input.body,
+        source: input.source,
+        reason: input.reason ?? null,
+    }));
+
     console.log(`[Drafts] Queued ${input.source} draft ${id} for ${phone}`);
     return id;
 }
@@ -219,6 +235,10 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             .set({ status: 'rejected', error: `opted out (${suppression.scope}) on ${suppression.at.toISOString()}` })
             .where(eq(messageDrafts.id, draft.id));
         console.warn(`[Drafts] Refused to send draft ${draft.id} to ${draft.phone}: opted out (${suppression.scope})`);
+        // Recorded as 'blocked', not 'rejected': the system refused it, no human judged the wording.
+        safely('recordDraftVerdict:blocked', () => recordDraftVerdict({
+            draftId: draft.id, outcome: 'blocked', decidedBy: approvedBy,
+        }));
         return { ok: false, code: 'OPTED_OUT', message: optOutRefusalMessage(suppression) };
     }
 
@@ -296,6 +316,13 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             await db.update(messageDrafts)
                 .set({ status: 'failed', error: result.error ?? 'send failed on every channel' })
                 .where(eq(messageDrafts.id, draft.id));
+            // The approval still happened and is still a judgement on the wording — send_status
+            // carries the delivery failure separately, so a broken pipe cannot look like a
+            // rejected draft in the trust metrics.
+            safely('recordDraftVerdict:failed', () => recordDraftVerdict({
+                draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
+                finalBody: draft.body, sendStatus: 'failed',
+            }));
             return { ok: false, code: 'SEND_FAILED', message: result.error ?? 'send failed on every channel' };
         }
 
@@ -308,6 +335,16 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             })
             .where(eq(messageDrafts.id, draft.id))
             .returning();
+
+        // OUTCOME LEDGER — the verdict. `draft.body` here is the text as it actually went out,
+        // carrying whatever the approver changed; the ledger holds the agent's original, so the
+        // diff between them is the training signal. `approvedBy` distinguishes a human approval
+        // from the agent auto-sending itself, which must never count toward the trust ladder.
+        safely('recordDraftVerdict:sent', () => recordDraftVerdict({
+            draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
+            finalBody: draft.body, sendStatus: 'sent',
+            sentAt: sent?.sentAt ?? new Date(), sentMessageId: result.sid ?? null,
+        }));
 
         // A draft carrying a contextual quote link (the shut-window fallback from the in-chat
         // quote card) has just delivered that quote — flip it out of draft and stage the thread,
@@ -351,6 +388,10 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
         await db.update(messageDrafts)
             .set({ status: 'failed', error: sendError?.message ?? 'send failed' })
             .where(eq(messageDrafts.id, draft.id));
+        safely('recordDraftVerdict:threw', () => recordDraftVerdict({
+            draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
+            finalBody: draft.body, sendStatus: 'failed',
+        }));
         const { notifyOutboundSendFailure } = await import('./pushover');
         await notifyOutboundSendFailure({
             phone: draft.phone,
@@ -385,12 +426,18 @@ messageDraftsRouter.post('/:id/approve', async (req, res) => {
 // POST /api/drafts/:id/reject — decline without sending.
 messageDraftsRouter.post('/:id/reject', async (req, res) => {
     try {
+        const rejectedBy = (req as any).user?.email ?? 'admin';
         const [updated] = await db.update(messageDrafts)
-            .set({ status: 'rejected', approvedBy: (req as any).user?.email ?? 'admin', approvedAt: new Date() })
+            .set({ status: 'rejected', approvedBy: rejectedBy, approvedAt: new Date() })
             .where(and(eq(messageDrafts.id, req.params.id), eq(messageDrafts.status, 'pending')))
             .returning();
 
         if (!updated) return res.status(404).json({ error: 'Draft not found or no longer pending' });
+        // A rejection is the loudest signal the ledger gets — a human read the agent's words and
+        // decided none of them should reach the customer.
+        safely('recordDraftVerdict:rejected', () => recordDraftVerdict({
+            draftId: updated.id, outcome: 'rejected', decidedBy: rejectedBy,
+        }));
         res.json({ success: true, draft: updated });
     } catch (error: any) {
         console.error('[Drafts] Reject failed:', error);

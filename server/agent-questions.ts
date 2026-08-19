@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { db } from './db';
 import { agentQuestions } from '@shared/schema';
 import { eq, and, desc, inArray } from 'drizzle-orm';
+import { recordQuestionProposal, recordQuestionVerdict, safely } from './agent-outcomes';
 
 export const agentQuestionsRouter = Router();
 
@@ -51,6 +52,19 @@ export async function askBen(input: {
         source: input.source ?? 'comms_agent',
         status: 'open',
     });
+    // OUTCOME LEDGER — an escalation is a proposal too. Its fate (answered / dismissed / never
+    // touched) is how you find out whether an agent is asking useful questions or hiding behind
+    // them, and whether the options it offers are ever the ones Ben picks.
+    safely('recordQuestionProposal', () => recordQuestionProposal({
+        questionId: id,
+        conversationId: input.conversationId,
+        phone: input.phone,
+        question: input.question,
+        context: input.context ?? null,
+        options: input.options ?? null,
+        source: input.source ?? 'comms_agent',
+    }));
+
     console.log(`[AgentQuestions] Asked: ${input.question.slice(0, 80)}`);
     return id;
 }
@@ -95,10 +109,11 @@ agentQuestionsRouter.post('/:id/answer', async (req, res) => {
         if (typeof answer !== 'string' || !answer.trim()) {
             return res.status(400).json({ error: "Missing 'answer'" });
         }
+        const answeredBy = (req as any).user?.email || (req as any).user?.id || 'admin';
         const [updated] = await db.update(agentQuestions)
             .set({
                 answer: answer.trim(),
-                answeredBy: (req as any).user?.email || (req as any).user?.id || 'admin',
+                answeredBy,
                 answeredAt: new Date(),
                 status: 'answered',
             })
@@ -106,6 +121,9 @@ agentQuestionsRouter.post('/:id/answer', async (req, res) => {
             .returning();
 
         if (!updated) return res.status(404).json({ error: 'Question not found or no longer open' });
+        safely('recordQuestionVerdict:answered', () => recordQuestionVerdict({
+            questionId: updated.id, outcome: 'answered', answer: updated.answer, decidedBy: answeredBy,
+        }));
         res.json({ question: updated });
     } catch (error: any) {
         console.error('[AgentQuestions] Answer failed:', error);
@@ -116,12 +134,16 @@ agentQuestionsRouter.post('/:id/answer', async (req, res) => {
 // POST /api/agent-questions/:id/dismiss — Ben will deal with the thread himself.
 agentQuestionsRouter.post('/:id/dismiss', async (req, res) => {
     try {
+        const dismissedBy = (req as any).user?.email ?? 'admin';
         const [updated] = await db.update(agentQuestions)
-            .set({ status: 'dismissed', answeredBy: (req as any).user?.email ?? 'admin', answeredAt: new Date() })
+            .set({ status: 'dismissed', answeredBy: dismissedBy, answeredAt: new Date() })
             .where(and(eq(agentQuestions.id, req.params.id), inArray(agentQuestions.status, ['open', 'answered'])))
             .returning();
 
         if (!updated) return res.status(404).json({ error: 'Question not found or already closed' });
+        safely('recordQuestionVerdict:dismissed', () => recordQuestionVerdict({
+            questionId: updated.id, outcome: 'dismissed', decidedBy: dismissedBy,
+        }));
         res.json({ question: updated });
     } catch (error: any) {
         console.error('[AgentQuestions] Dismiss failed:', error);

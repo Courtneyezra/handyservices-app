@@ -28,10 +28,44 @@ import { STAFF as recoveryStaff, SYSTEM as recoverySystem } from './agents/recov
 import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig, setCommsAgentConfig } from './agents/comms';
 import { STAFF as quotePrepStaff, SYSTEM as quotePrepSystem, runQuotePrep } from './agents/quote-prep';
 import { FIRST_CONTACT_CHANNELS, type FirstContactChannel } from './first-contact-ack';
+import {
+    outcomeMetrics, outcomePatterns, recentDecisions, reconcileOutcomes, refreshOutcomes,
+    exportApprovedExamples, getOutcomeLoopConfig, setOutcomeLoopConfig,
+} from './agent-outcomes';
 
 export const agentStaffRouter = Router();
 
 type Stat = { label: string; value: number | string; tone?: 'good' | 'warn' | 'bad' | 'plain' };
+
+/**
+ * The trust-ladder number, as a badge stat: of everything a human actually judged, how much of it
+ * went out with not one word changed.
+ *
+ * Deliberately fails soft. If the ledger table is missing (migration not run on this environment)
+ * the staff directory must still render — losing a metric is a gap, losing the page is an outage.
+ * A capability with fewer than 3 human decisions shows the count instead of a percentage, because
+ * "100% unedited" off one approval is the kind of number that gets a capability promoted for no
+ * reason.
+ */
+async function trustStat(agent: string): Promise<Stat | null> {
+    try {
+        const { byAgent } = await outcomeMetrics({ days: 90, agent });
+        const row = byAgent[0];
+        if (!row) return null;
+        if (row.humanDecided < 3 || row.uneditedRate === null) {
+            return { label: 'Approved unedited (90d)', value: `${row.approvedUnedited}/${row.humanDecided}`, tone: 'plain' };
+        }
+        const pct = Math.round(row.uneditedRate * 100);
+        return {
+            label: `Approved unedited (${row.humanDecided} judged, 90d)`,
+            value: `${pct}%`,
+            tone: pct >= 70 ? 'good' : pct >= 40 ? 'warn' : 'bad',
+        };
+    } catch (error: any) {
+        console.warn(`[AgentStaff] Trust stat unavailable for ${agent}:`, error?.message);
+        return null;
+    }
+}
 
 async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: string; on: boolean }[] }> {
     const week = new Date(Date.now() - 7 * 24 * 3600_000);
@@ -46,9 +80,13 @@ async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: stri
     const [answeredQ] = await db.select({ n: sql<number>`count(*)::int` }).from(agentQuestions)
         .where(eq(agentQuestions.status, 'answered'));
     const config = await getCommsAgentConfig();
+    const trust = await trustStat('comms');
 
     return {
         stats: [
+            // First in the list on purpose: this is the number that decides whether any of this
+            // agent's capabilities graduate to auto-send.
+            ...(trust ? [trust] : []),
             { label: 'Drafts awaiting approval', value: pending.n, tone: pending.n > 0 ? 'warn' : 'plain' },
             { label: 'Approved & sent (7d)', value: sent7d.n, tone: 'good' },
             { label: 'Rejected (7d)', value: rejected7d.n, tone: rejected7d.n > 0 ? 'bad' : 'plain' },
@@ -71,8 +109,11 @@ async function recoveryStats(): Promise<{ stats: Stat[]; statusChips: { label: s
         FROM nudge_queue
     `).then((x: any) => (x.rows ?? x)[0]);
 
+    const trust = await trustStat('recovery');
+
     return {
         stats: [
+            ...(trust ? [trust] : []),
             { label: 'Nudges awaiting approval', value: r.proposed, tone: r.proposed > 0 ? 'warn' : 'plain' },
             { label: 'Approved (7d)', value: r.approved_7d, tone: 'good' },
             { label: 'Skipped with reason (7d)', value: r.skipped_7d, tone: 'plain' },
@@ -119,6 +160,147 @@ agentStaffRouter.get('/staff', async (_req, res) => {
     } catch (error: any) {
         console.error('[AgentStaff] Failed to build directory:', error);
         res.status(500).json({ error: 'Failed to load staff directory' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// THE OUTCOME LOOP — /api/agents/outcomes/*
+//
+// What each agent proposed, what the human did with it, and what the customer did next. The
+// headline is the unedited-approval rate: the trust ladder says autonomy is earned per capability,
+// and this is the evidence it is earned with. Everything here reads server/agent-outcomes.ts;
+// nothing in this section sends anything or changes an agent's behaviour, with the single exception
+// of the config PATCH, which is explicit and reversible.
+// ---------------------------------------------------------------------------
+
+/** Reconcile + attribute at most this often on a page load. The panel is polled; the joins are not free. */
+const OUTCOME_REFRESH_MS = 5 * 60_000;
+let lastOutcomeRefresh = 0;
+
+/**
+ * Keeps the ledger honest on read, cheaply.
+ *
+ * Reconcile catches proposals whose fate was decided outside the hooks; refresh attributes replies
+ * and deposits. Both are throttled and both are best-effort: a stale number is better than a
+ * dashboard that 500s, and neither is on any send path.
+ */
+async function refreshOutcomesIfStale(force = false): Promise<void> {
+    if (!force && Date.now() - lastOutcomeRefresh < OUTCOME_REFRESH_MS) return;
+    lastOutcomeRefresh = Date.now();
+    try {
+        await reconcileOutcomes({ limit: 300 });
+        await refreshOutcomes({ limit: 300 });
+    } catch (error: any) {
+        console.warn('[Outcomes] Background refresh failed:', error?.message);
+    }
+}
+
+// GET /api/agents/outcomes?days=90 — the aggregates, the patterns, and the feedback config.
+agentStaffRouter.get('/outcomes', async (req, res) => {
+    try {
+        const days = Math.min(Math.max(Number(req.query.days) || 90, 1), 3650);
+        await refreshOutcomesIfStale();
+        const [metrics, patterns, loopConfig] = await Promise.all([
+            outcomeMetrics({ days, includeTest: req.query.includeTest === '1' }),
+            outcomePatterns({ days }),
+            getOutcomeLoopConfig(),
+        ]);
+        res.json({ ...metrics, patterns, loopConfig });
+    } catch (error: any) {
+        console.error('[Outcomes] Metrics failed:', error);
+        res.status(500).json({ error: error?.message || 'Failed to load outcome metrics' });
+    }
+});
+
+// GET /api/agents/outcomes/decisions — proposal, edit and outcome side by side, newest first.
+// This is the one a human actually reads: an aggregate tells you a capability is being rewritten,
+// only the diff tells you what it keeps getting wrong.
+agentStaffRouter.get('/outcomes/decisions', async (req, res) => {
+    try {
+        const rows = await recentDecisions({
+            limit: Number(req.query.limit) || 40,
+            agent: req.query.agent ? String(req.query.agent) : undefined,
+            verdict: req.query.verdict ? String(req.query.verdict) : undefined,
+            // Test traffic (the Ofcom range) is hidden by default and only ever shown on request —
+            // the feed is a reading list for a human, not a log of what the test suite did.
+            includeTest: req.query.includeTest === '1',
+        });
+        res.json({ decisions: rows });
+    } catch (error: any) {
+        console.error('[Outcomes] Decisions failed:', error);
+        res.status(500).json({ error: error?.message || 'Failed to load decisions' });
+    }
+});
+
+// GET /api/agents/outcomes/examples — a PREVIEW of the few-shot examples the agents would be
+// handed if the flag were on. Previewing is not injecting: the alternative is switching a
+// behaviour-changing flag on without ever seeing what it would feed the model.
+agentStaffRouter.get('/outcomes/examples', async (req, res) => {
+    try {
+        const [examples, loopConfig] = await Promise.all([
+            exportApprovedExamples({
+                agent: req.query.agent ? String(req.query.agent) : undefined,
+                capability: req.query.capability ? String(req.query.capability) : undefined,
+                ignoreFlag: true,
+            }),
+            getOutcomeLoopConfig(),
+        ]);
+        res.json({ examples, loopConfig, live: loopConfig.fewShot.enabled });
+    } catch (error: any) {
+        console.error('[Outcomes] Examples failed:', error);
+        res.status(500).json({ error: error?.message || 'Failed to load examples' });
+    }
+});
+
+// PATCH /api/agents/outcomes/config — the ONE switch here that changes agent behaviour.
+//
+// Turning `fewShot.enabled` on lets agents load approved-unedited drafts as examples. It ships OFF,
+// it is fully reversible (nothing is written into a prompt), and it is validated here rather than
+// trusted from the client because `limit` is the cap on how much history can be pushed into a
+// model's context.
+agentStaffRouter.patch('/outcomes/config', async (req, res) => {
+    try {
+        const patch: any = {};
+        const fs = req.body?.fewShot;
+        if (fs && typeof fs === 'object') {
+            const next: any = {};
+            if (fs.enabled !== undefined) {
+                if (typeof fs.enabled !== 'boolean') return res.status(400).json({ error: "'fewShot.enabled' must be true or false" });
+                next.enabled = fs.enabled;
+            }
+            if (fs.limit !== undefined) {
+                const n = Number(fs.limit);
+                if (!Number.isInteger(n) || n < 1 || n > 20) return res.status(400).json({ error: "'fewShot.limit' must be a whole number between 1 and 20" });
+                next.limit = n;
+            }
+            if (fs.maxAgeDays !== undefined) {
+                const n = Number(fs.maxAgeDays);
+                if (!Number.isInteger(n) || n < 1 || n > 3650) return res.status(400).json({ error: "'fewShot.maxAgeDays' must be a whole number of days between 1 and 3650" });
+                next.maxAgeDays = n;
+            }
+            if (Object.keys(next).length) patch.fewShot = next;
+        }
+        if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to change' });
+
+        const loopConfig = await setOutcomeLoopConfig(patch);
+        console.log(`[Outcomes] Feedback config changed: ${JSON.stringify(loopConfig)}`);
+        res.json({ loopConfig });
+    } catch (error: any) {
+        console.error('[Outcomes] Config write failed:', error);
+        res.status(500).json({ error: error?.message || 'Failed to save the config' });
+    }
+});
+
+// POST /api/agents/outcomes/refresh — force the reconcile + attribution pass.
+agentStaffRouter.post('/outcomes/refresh', async (_req, res) => {
+    try {
+        const reconciled = await reconcileOutcomes({ limit: 1000 });
+        const refreshed = await refreshOutcomes({ limit: 1000 });
+        lastOutcomeRefresh = Date.now();
+        res.json({ reconciled, refreshed });
+    } catch (error: any) {
+        console.error('[Outcomes] Refresh failed:', error);
+        res.status(500).json({ error: error?.message || 'Refresh failed' });
     }
 });
 
