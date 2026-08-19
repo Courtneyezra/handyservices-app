@@ -21,7 +21,8 @@ export type PushoverEventKey =
     | 'payment'
     | 'site_survey'
     | 'no_contractor'
-    | 'template_status';
+    | 'template_status'
+    | 'send_failed';
 
 export interface PushoverEventDef {
     key: PushoverEventKey;
@@ -49,6 +50,9 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // Meta approvals arrive with no webhook and no email anyone reads — an approval unlocks
     // outreach, a rejection needs a rewrite, and both used to be found by accident days later.
     { key: 'template_status', label: 'WhatsApp template approved / rejected', short: 'Templates', group: 'Dispatch', defaultPriority: 0, defaultSound: 'magic' },
+    // A message that reached the customer by neither WhatsApp nor SMS. Used to be a 'failed' draft
+    // row nobody read, which is how a first contact could be dropped in total silence.
+    { key: 'send_failed', label: 'Message not delivered (no channel worked)', short: 'Undelivered', group: 'Dispatch', defaultPriority: 1, defaultSound: 'siren' },
 ];
 
 export const PUSHOVER_EVENT_KEYS: PushoverEventKey[] = PUSHOVER_EVENT_DEFS.map((e) => e.key);

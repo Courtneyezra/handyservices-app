@@ -484,6 +484,49 @@ export async function notifyTemplateStatus(alert: TemplateStatusAlert): Promise<
     });
 }
 
+interface OutboundSendFailureAlert {
+    phone: string;
+    contactName?: string | null;
+    /** e.g. 'first_contact_ack:whatsapp' — what was trying to send. */
+    context?: string | null;
+    attempts: Array<{ channel: string; ok: boolean; error?: string; code?: number | null }>;
+    /** True when a later channel rescued it: the customer HAS the message, but something is wrong. */
+    recovered: boolean;
+    body?: string | null;
+}
+
+/**
+ * Fire a "we could not deliver this" alert.
+ *
+ * Two distinct situations, and both need a human:
+ *   recovered=false — the customer got nothing. Someone must pick up the phone.
+ *   recovered=true  — SMS rescued it, but WhatsApp failed for a reason that is OUR fault (a broken
+ *                     sender, an unrecognised error). The message landed; the plumbing is leaking.
+ *
+ * The link is a tel/WhatsApp link to the customer, because the useful action is contacting them.
+ */
+export async function notifyOutboundSendFailure(alert: OutboundSendFailureAlert): Promise<void> {
+    const who = alert.contactName?.trim() || alert.phone;
+    const trail = alert.attempts
+        .map((a) => `${a.channel}: ${a.ok ? 'sent' : `failed${a.code ? ` (${a.code})` : ''}${a.error ? ` ${truncate(a.error, 80)}` : ''}`}`)
+        .join('\n');
+
+    const lines = [who];
+    if (alert.context) lines.push(alert.context);
+    lines.push(trail);
+    if (!alert.recovered && alert.body) lines.push(`Undelivered: “${truncate(alert.body.replace(/\n\s*---\s*\n/g, ' / ').trim(), 200)}”`);
+
+    await dispatch({
+        event: 'send_failed',
+        title: alert.recovered
+            ? '⚠️ WhatsApp failed, SMS delivered'
+            : '🚨 Message NOT delivered to customer',
+        message: lines.join('\n'),
+        linkPhone: alert.phone,
+        linkName: alert.contactName || 'customer',
+    });
+}
+
 /**
  * Send a test alert — to one recipient (by user key) or the whole event audience.
  * Bypasses enabled/quiet-hours gating so the tester always gets it.

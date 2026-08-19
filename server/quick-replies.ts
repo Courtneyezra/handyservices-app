@@ -9,6 +9,7 @@ import { db } from './db';
 import { quickReplies, conversations } from '@shared/schema';
 import { eq, and, asc, sql } from 'drizzle-orm';
 import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
+import { sendCustomerMessage } from './outbound';
 
 export const quickRepliesRouter = Router();
 
@@ -181,7 +182,7 @@ quickRepliesRouter.get('/preview/:id', async (req, res) => {
 // POST /api/quick-replies/:id/send — render and send to a phone number
 quickRepliesRouter.post('/:id/send', async (req, res) => {
     try {
-        const { phone, via } = req.body || {};
+        const { phone, via, channel } = req.body || {};
         if (!phone) return res.status(400).json({ error: "Missing 'phone'" });
 
         const [reply] = await db.select().from(quickReplies).where(eq(quickReplies.id, req.params.id));
@@ -191,10 +192,25 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
             .where(eq(conversations.phoneNumber, toConversationKey(phone)));
         const contactName = conv?.contactName ?? null;
 
+        const rendered = renderQuickReply(reply.body, contactName);
+
+        // SMS has no 24-hour window and needs no template, so an SMS quick reply is always
+        // sendable — the window question below applies to WhatsApp alone.
+        if (channel === 'sms') {
+            const smsResult = await sendCustomerMessage({
+                to: phone, body: rendered, channel: 'sms', contactName, context: `quick_reply:${reply.id}`,
+            });
+            if (!smsResult.ok) return res.status(500).json({ error: smsResult.error || 'SMS send failed', rendered });
+            db.update(quickReplies)
+                .set({ usageCount: sql`${quickReplies.usageCount} + 1`, lastUsedAt: new Date() })
+                .where(eq(quickReplies.id, reply.id))
+                .catch((e) => console.warn('[QuickReplies] usage bump failed:', e));
+            return res.json({ success: true, mode: 'sms', rendered, sid: smsResult.sid });
+        }
+
         // Decide against the live window, not the denormalized conversations.can_send_freeform
         // column — that column is only refreshed on write and goes stale as the window ages out.
         const windowOpen = await canSendFreeform(phone);
-        const rendered = renderQuickReply(reply.body, contactName);
 
         if (!windowOpen && !reply.contentSid) {
             return res.status(409).json({

@@ -239,6 +239,7 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
                 channel: 'whatsapp',
                 contactName: contactName || conv!.contactName,
                 hasMedia: !!mediaUrl,
+                text: content || null,
             });
         }
 

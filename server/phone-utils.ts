@@ -57,6 +57,23 @@ export function isValidUKPhone(phone: string | null | undefined): boolean {
 }
 
 /**
+ * True when the number definitely cannot receive WhatsApp.
+ *
+ * Only decidable for UK numbers, where mobiles are +447 and everything else under +44 (the 01/02/03
+ * ranges) is a landline or non-mobile service. A large share of inbound contacts come from 020/0121
+ * style numbers — sales calls and businesses — and a WhatsApp send to one of those is guaranteed
+ * waste: it burns a template, it fails, and the failure looks like a delivery problem. Non-UK
+ * numbers are left alone because the mobile/landline split is not inferable from the prefix.
+ *
+ * Lives here (rather than in post-call-outreach.ts where it was written) because three callers now
+ * need it: post-call outreach, the outbound router's skip-straight-to-SMS rule, and the tests.
+ */
+export function isNonMobileUkNumber(e164: string): boolean {
+    if (!e164.startsWith('+44')) return false;
+    return !e164.startsWith('+447');
+}
+
+/**
  * Format a normalized phone number for display
  * +442012345678 → "020 1234 5678"
  * +447700900123 → "07700 900123"

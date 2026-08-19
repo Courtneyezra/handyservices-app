@@ -52,6 +52,8 @@ interface BoardCard {
     priority: string;
     tags: string[];
     channels: string[];
+    /** What the customer last used inbound — the composer's default reply channel. */
+    lastInboundChannel: string | null;
     windowOpen: boolean;
     windowHoursLeft: number;
     wait: WaitState;
@@ -171,6 +173,23 @@ const CHANNEL_META: Record<string, { icon: typeof Phone; label: string; tint: st
     call: { icon: Phone, label: 'Call', tint: 'text-purple-600' },
     webform: { icon: Globe, label: 'Web form', tint: 'text-orange-600' },
 };
+
+/**
+ * Which channel the composer should start on.
+ *
+ * Three rules, in order of how certain they are:
+ *   1. A UK non-mobile (01/02/03) cannot have WhatsApp at all, so SMS is the only real option.
+ *   2. A shut 24-hour window makes SMS the route that simply works. Before this, the composer went
+ *      dead and offered a template — which costs money, has to be pre-approved, and can only say
+ *      what Meta approved. SMS has no window and no template requirement.
+ *   3. Otherwise reply on whatever they last used. Answering a texter on WhatsApp is how a reply
+ *      ends up at a number that never had WhatsApp.
+ */
+function defaultChannel(card: BoardCard): 'whatsapp' | 'sms' {
+    if (/^\+44(?!7)/.test(card.displayPhone)) return 'sms';
+    if (!card.windowOpen) return 'sms';
+    return card.lastInboundChannel === 'sms' ? 'sms' : 'whatsapp';
+}
 
 /** Placeholder names written by ingest — showing them is worse than showing the number. */
 function isRealName(name?: string | null): boolean {
@@ -726,9 +745,11 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const queryClient = useQueryClient();
     const [input, setInput] = useState('');
     const [showQuick, setShowQuick] = useState(false);
-    // Opens itself on a shut-window thread: with the composer disabled, a template is the only
-    // thing Ben can actually do here, so it should not need finding.
-    const [showTemplates, setShowTemplates] = useState(!card.windowOpen);
+    // Templates are now the SECOND option on a shut window (SMS is the first), so the picker stays
+    // folded away until Ben asks for it.
+    const [showTemplates, setShowTemplates] = useState(false);
+    // WhatsApp or SMS. Defaults per defaultChannel(); Ben can always override per message.
+    const [channel, setChannel] = useState<'whatsapp' | 'sms'>(() => defaultChannel(card));
     const [error, setError] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -793,7 +814,10 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     // customer's intake panel would linger on the newly opened thread.
     // Same reason the template picker is reset here: ThreadPanel is one instance across card
     // switches, so per-thread panel state has to follow the card or it leaks between customers.
-    useEffect(() => { setIntake(null); setPrepOpen(false); setShowTemplates(!card.windowOpen); }, [card.id]);
+    useEffect(() => {
+        setIntake(null); setPrepOpen(false); setShowTemplates(false);
+        setChannel(defaultChannel(card));
+    }, [card.id]);
     const prepQuote = useMutation({
         mutationFn: async () => {
             const res = await fetch(`/api/agents/quote-prep/${card.id}`, {
@@ -834,7 +858,8 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                 // 'via' picks the transport. A coexistence number cannot go through Twilio, so
                 // omitting this would silently send from the wrong number.
-                body: JSON.stringify({ to: card.phoneNumber, body, via: activeSender?.transport ?? 'twilio' }),
+                // 'channel' picks the pipe: SMS bypasses the 24h window entirely.
+                body: JSON.stringify({ to: card.phoneNumber, body, via: activeSender?.transport ?? 'twilio', channel }),
             });
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Send failed (${res.status})`);
             return res.json();
@@ -848,7 +873,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             const res = await fetch(`/api/quick-replies/${reply.id}/send`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ phone: card.phoneNumber, via: activeSender?.transport ?? 'twilio' }),
+                body: JSON.stringify({ phone: card.phoneNumber, via: activeSender?.transport ?? 'twilio', channel }),
             });
             const detail = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(detail.error === 'OUTSIDE_WINDOW' ? detail.message : detail.error || 'Send failed');
@@ -858,14 +883,19 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         onError: (e: Error) => setError(e.message),
     });
 
-    // With the window shut only template-backed replies can be delivered.
+    // Can a freeform reply be delivered right now? On SMS: always. On WhatsApp: only inside the
+    // 24-hour window.
+    const canWriteFreely = channel === 'sms' || card.windowOpen;
+
+    // With the WhatsApp window shut only template-backed replies can be delivered. On SMS every
+    // quick reply is usable, template or not.
     const usableQuickReplies = useMemo(() => {
         const all = quickReplies ?? [];
-        const usable = card.windowOpen ? all : all.filter((r) => r.contentSid);
+        const usable = canWriteFreely ? all : all.filter((r) => r.contentSid);
         const q = input.trim().toLowerCase();
         if (!q.startsWith('/')) return usable;
         return usable.filter((r) => r.shortcut?.toLowerCase().startsWith(q) || r.label.toLowerCase().includes(q.slice(1)));
-    }, [quickReplies, input, card.windowOpen]);
+    }, [quickReplies, input, canWriteFreely]);
 
     // Voice notes: record in the browser, server transcodes to OGG/Opus and sends.
     // Voice is freeform-only (no template can carry audio), so it's gated on the window.
@@ -1095,13 +1125,48 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     </div>
                 )}
 
-                {!card.windowOpen && (
+                {/* Channel choice. Two buttons rather than a dropdown: which pipe a reply leaves by
+                    is a decision Ben makes per message, and it must be readable at a glance. */}
+                <div className="mb-2 flex items-center gap-1.5">
+                    {(['whatsapp', 'sms'] as const).map((ch) => {
+                        const meta = CHANNEL_META[ch];
+                        const Icon = meta.icon;
+                        const active = channel === ch;
+                        return (
+                            <button
+                                key={ch}
+                                onClick={() => setChannel(ch)}
+                                className={cn(
+                                    'flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors',
+                                    active ? 'border-slate-900 bg-slate-900 text-white'
+                                        : 'border-slate-300 text-slate-500 hover:text-slate-800',
+                                )}
+                            >
+                                <Icon className={cn('h-3.5 w-3.5', active ? 'text-white' : meta.tint)} />
+                                {meta.label}
+                            </button>
+                        );
+                    })}
+                    <span className="ml-1 truncate text-[10px] text-slate-400">
+                        {channel === 'sms'
+                            ? 'No 24h window, no template needed'
+                            : card.windowOpen ? `Window open, ${card.windowHoursLeft}h left` : 'Window closed'}
+                    </span>
+                </div>
+
+                {!card.windowOpen && channel === 'whatsapp' && (
                     <>
-                        <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
+                        <div className="mb-2 flex flex-wrap items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
                             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                             <span className="flex-1">
-                                <strong>WhatsApp window closed.</strong> Only an approved template can be delivered until they message again.
+                                <strong>WhatsApp window closed.</strong> Send it as an SMS, or use an approved template.
                             </span>
+                            <button
+                                onClick={() => setChannel('sms')}
+                                className="shrink-0 rounded bg-slate-900 px-2 py-1 text-[11px] font-bold text-white hover:bg-slate-700"
+                            >
+                                Switch to SMS
+                            </button>
                             <button
                                 onClick={() => setShowTemplates((v) => !v)}
                                 className="shrink-0 rounded bg-amber-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-amber-700"
@@ -1161,15 +1226,22 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     <input
                         value={input}
                         onChange={(e) => { setInput(e.target.value); if (e.target.value.startsWith('/')) setShowQuick(true); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && input.trim() && card.windowOpen) sendFreeform.mutate(input.trim()); }}
-                        disabled={sending || !card.windowOpen}
-                        placeholder={recording ? `Recording… ${recordSeconds}s — tap ■ to send` : card.windowOpen ? 'Reply, or / for quick replies…' : 'Window closed — use a template'}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && input.trim() && canWriteFreely) sendFreeform.mutate(input.trim()); }}
+                        disabled={sending || !canWriteFreely}
+                        placeholder={recording ? `Recording… ${recordSeconds}s — tap ■ to send`
+                            : channel === 'sms' ? 'Reply by SMS, or / for quick replies…'
+                                : card.windowOpen ? 'Reply, or / for quick replies…'
+                                    : 'Window closed — switch to SMS or use a template'}
                         className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
                     />
                     <button
                         onClick={() => (recording ? stopRecording() : startRecording())}
-                        disabled={(sending && !recording) || !card.windowOpen}
-                        title={card.windowOpen ? (recording ? 'Stop and send' : 'Record a voice note') : 'Window closed — voice notes need an open window'}
+                        // Voice notes are WhatsApp-only: SMS carries no audio, and no template can
+                        // carry one either, so this stays gated on a live WhatsApp window.
+                        disabled={(sending && !recording) || !card.windowOpen || channel === 'sms'}
+                        title={channel === 'sms' ? 'Voice notes are WhatsApp only'
+                            : card.windowOpen ? (recording ? 'Stop and send' : 'Record a voice note')
+                                : 'Window closed — voice notes need an open window'}
                         className={cn('rounded-lg px-3 transition-colors',
                             recording ? 'animate-pulse bg-red-600 text-white'
                             : 'border border-slate-300 text-slate-500 hover:text-slate-800 disabled:opacity-40')}
@@ -1178,8 +1250,9 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     </button>
                     <button
                         onClick={() => input.trim() && sendFreeform.mutate(input.trim())}
-                        disabled={!input.trim() || sending || !card.windowOpen}
-                        className="rounded-lg bg-emerald-600 px-3 text-white transition-colors hover:bg-emerald-700 disabled:opacity-40"
+                        disabled={!input.trim() || sending || !canWriteFreely}
+                        className={cn('rounded-lg px-3 text-white transition-colors disabled:opacity-40',
+                            channel === 'sms' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700')}
                     >
                         {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </button>

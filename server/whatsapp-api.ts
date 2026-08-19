@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { conversationEngine } from "./conversation-engine";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
+import { sendCustomerMessage } from "./outbound";
 import { notifyIncomingSms } from "./pushover";
 import { resolveCallerName } from "./caller-lookup";
 import { requireAdmin } from "./auth";
@@ -83,26 +84,44 @@ whatsappRouter.post('/incoming', async (req, res) => {
     }
 });
 
-// POST /api/whatsapp/send - Send a message via Meta Cloud API
+// POST /api/whatsapp/send - Send a message from the composer.
+//
+// Despite the route name this is the composer's ONE send endpoint for both channels: `channel:
+// 'sms'` sends an SMS instead, which has no 24-hour window and no template requirement, so it is
+// the answer when the WhatsApp window is shut or the customer has only ever texted. A WhatsApp send
+// falls back to SMS by itself when the recipient turns out not to be a WhatsApp user
+// (server/outbound.ts), and the response says which channel actually carried it.
 whatsappRouter.post('/send', requireAdmin, async (req, res) => {
     try {
-        const { to, body, templateName, templateLanguage, templateComponents, via } = req.body;
+        const { to, body, templateName, templateLanguage, templateComponents, via, channel } = req.body;
 
         if (!to || !body) {
             return res.status(400).json({ error: "Missing 'to' or 'body'" });
         }
 
-        console.log(`[WhatsApp API] Sending message to ${to} via Meta Cloud API`);
+        // The Meta coexistence transport has its own template plumbing and no SMS equivalent, so it
+        // keeps the direct path; everything else goes through the router.
+        if (via === 'meta' || templateName) {
+            const result = await sendWhatsAppMessage(to, body, {
+                templateName,
+                templateLanguage,
+                templateComponents,
+                via: via === 'meta' ? 'meta' : 'twilio',
+            });
+            return res.json({ success: true, messageId: result.messages?.[0]?.id, channel: 'whatsapp' });
+        }
 
-        const result = await sendWhatsAppMessage(to, body, {
-            templateName,
-            templateLanguage,
-            templateComponents,
-            // Selects the transport. A coexistence number cannot go via Twilio.
-            via: via === 'meta' ? 'meta' : 'twilio',
+        const result = await sendCustomerMessage({
+            to,
+            body,
+            channel: channel === 'sms' ? 'sms' : 'whatsapp',
+            context: 'composer',
         });
 
-        res.json({ success: true, messageId: result.messages?.[0]?.id });
+        if (!result.ok) {
+            return res.status(500).json({ error: result.error || 'Failed to send message', attempts: result.attempts });
+        }
+        res.json({ success: true, messageId: result.sid, channel: result.channel, fellBack: result.fellBack });
     } catch (error: any) {
         console.error("[WhatsApp API] Send Error:", error);
         res.status(500).json({ error: error.message || "Failed to send message" });

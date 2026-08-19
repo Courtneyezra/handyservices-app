@@ -28,7 +28,7 @@ import { calls, leads, appSettings, messages, conversations } from '@shared/sche
 import { eq, and, gte, desc, sql } from 'drizzle-orm';
 import { sendWhatsAppMessage } from './meta-whatsapp';
 import { isWhatsAppSenderConfigured } from './whatsapp-sender';
-import { normalizePhoneNumber } from './phone-utils';
+import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 
 const SETTING_KEY = 'post_call_video_request';
 
@@ -62,17 +62,11 @@ const DEFAULT_CONFIG: PostCallOutreachConfig = {
 };
 
 /**
- * True when the number definitely cannot receive WhatsApp.
- *
- * Only decidable for UK numbers, where mobiles are +447 and everything else under +44 (01/02/03
- * ranges) is a landline or non-mobile service. A large share of inbound calls come from 020/0121
- * style numbers — sales calls and businesses — and templating those burns spend for nothing.
- * Non-UK numbers are left alone because the mobile/landline split isn't inferable from the prefix.
+ * Moved to phone-utils.ts once the outbound router needed the same rule (a landline must skip
+ * WhatsApp entirely, not just skip post-call outreach). Re-exported so existing imports and the
+ * verify scripts keep working against their original module.
  */
-export function isNonMobileUkNumber(e164: string): boolean {
-    if (!e164.startsWith('+44')) return false;
-    return !e164.startsWith('+447');
-}
+export { isNonMobileUkNumber } from './phone-utils';
 
 export async function getOutreachConfig(): Promise<PostCallOutreachConfig> {
     try {

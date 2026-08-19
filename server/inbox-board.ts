@@ -61,6 +61,14 @@ export type BoardCard = {
     hoursSinceLastMessage: number | null;
     /** Channels seen on this thread, e.g. ['whatsapp','sms']. */
     channels: string[];
+    /**
+     * The channel the CUSTOMER last used inbound, or null if they have never messaged.
+     *
+     * This is what the composer defaults to: replying by WhatsApp to someone who has only ever
+     * texted us is how a reply ends up at a number that is not on WhatsApp. `channels` cannot
+     * answer this — it is a set, with no order and no direction.
+     */
+    lastInboundChannel: string | null;
     /** When the customer last said anything on ANY channel — unlike lastInboundAt, which is
      *  WhatsApp-only and stays null on an SMS-only thread. */
     lastCustomerMessageAt: string | null;
@@ -69,7 +77,13 @@ export type BoardCard = {
 };
 
 /** Per-conversation last inbound/outbound and channel mix, for SLA + thread badges. */
-export type Activity = { lastInbound: Date | null; lastOutbound: Date | null; channels: string[] };
+export type Activity = {
+    lastInbound: Date | null;
+    lastOutbound: Date | null;
+    channels: string[];
+    /** Channel of the most recent inbound message — the composer's default reply channel. */
+    lastInboundChannel: string | null;
+};
 
 // Exported for the comms agent's SLA sweep, which needs the same wait-state inputs the board uses.
 export async function loadActivity(conversationIds: string[]): Promise<Map<string, Activity>> {
@@ -84,21 +98,20 @@ export async function loadActivity(conversationIds: string[]): Promise<Map<strin
             lastInbound: sql<string | null>`max(${messages.createdAt}) FILTER (WHERE ${messages.direction} = 'inbound')`,
             lastOutbound: sql<string | null>`max(${messages.createdAt}) FILTER (WHERE ${messages.direction} = 'outbound')`,
             channels: sql<string[]>`array_agg(DISTINCT ${messages.channel})`,
+            // The channel attached to the newest inbound row. Same grouped pass — no extra query.
+            lastInboundChannel: sql<string | null>`(array_agg(${messages.channel} ORDER BY ${messages.createdAt} DESC)
+                FILTER (WHERE ${messages.direction} = 'inbound'))[1]`,
         })
         .from(messages)
         .where(inArray(messages.conversationId, conversationIds))
         .groupBy(messages.conversationId);
 
-    for (const r of rows.map((r) => ({
-        conversation_id: r.conversationId,
-        last_inbound: r.lastInbound,
-        last_outbound: r.lastOutbound,
-        channels: r.channels,
-    }))) {
-        map.set(r.conversation_id, {
-            lastInbound: r.last_inbound ? new Date(r.last_inbound) : null,
-            lastOutbound: r.last_outbound ? new Date(r.last_outbound) : null,
+    for (const r of rows) {
+        map.set(r.conversationId, {
+            lastInbound: r.lastInbound ? new Date(r.lastInbound) : null,
+            lastOutbound: r.lastOutbound ? new Date(r.lastOutbound) : null,
             channels: (r.channels ?? []).filter(Boolean),
+            lastInboundChannel: r.lastInboundChannel ?? null,
         });
     }
     return map;
@@ -130,6 +143,7 @@ function toCard(c: typeof conversations.$inferSelect, activity?: Activity): Boar
         windowHoursLeft: msLeft > 0 ? Math.floor(msLeft / 3600_000) : 0,
         hoursSinceLastMessage: lastMsg ? Math.floor((Date.now() - lastMsg.getTime()) / 3600_000) : null,
         channels: activity?.channels ?? [],
+        lastInboundChannel: activity?.lastInboundChannel ?? null,
         lastCustomerMessageAt: (activity?.lastInbound ?? (c.lastCustomerContactAt ? new Date(c.lastCustomerContactAt) : null))?.toISOString() ?? null,
         // Falls back to the conversation's own timestamps when per-message activity wasn't loaded
         // (e.g. the single-card responses from PATCH), so the shape is always complete.

@@ -63,6 +63,59 @@ export function toWhatsAppChannel(e164: string): string {
     return `whatsapp:${stripChannelPrefix(e164)}`;
 }
 
+// ---------------------------------------------------------------- SMS
+//
+// SMS resolution lives here rather than in its own module on purpose: on this account the SMS
+// sender and the WhatsApp sender are THE SAME PHYSICAL NUMBER (+447449501762 is sms=true,
+// voice=true, and is the registered WhatsApp sender), and the failure this file exists to prevent
+// — two modules each inventing their own fallback number — is exactly what a second sender module
+// would reintroduce. One file, one resolution order, one place to look when a send comes from the
+// wrong number.
+//
+// Resolution order, most specific first:
+//   1. TWILIO_SMS_NUMBER   — set this the day SMS moves to a different number
+//   2. TWILIO_PHONE_NUMBER — the account's voice/SMS number (what is set today)
+//   3. the WhatsApp sender — same number here, and provably a real number on the account
+//
+// Read lazily rather than captured at import, so a process that loads dotenv after this module
+// (scripts do) still resolves correctly.
+
+/**
+ * The SMS sender in bare E.164 form, or null when nothing usable is configured.
+ *
+ * Note there is no `sms:` channel prefix in Twilio's API — an SMS send is just a bare E.164 `From`,
+ * which is why this returns the same shape as `getWhatsAppSenderE164()` and there is no
+ * `getSmsChannel()` counterpart.
+ */
+export function getSmsSenderE164(): string | null {
+    for (const raw of [process.env.TWILIO_SMS_NUMBER, process.env.TWILIO_PHONE_NUMBER]) {
+        if (!raw) continue;
+        const bare = stripChannelPrefix(raw);
+        if (E164.test(bare)) return bare;
+    }
+    return getWhatsAppSenderE164();
+}
+
+/**
+ * The SMS sender, or a loud throw. Same reasoning as `getWhatsAppSender()`: a clear error at send
+ * time beats a message that leaves from a number the account does not own and dies at the carrier.
+ */
+export function getSmsSender(): string {
+    const bare = getSmsSenderE164();
+    if (!bare) {
+        throw new Error(
+            'No SMS sender is configured. Set TWILIO_SMS_NUMBER (or TWILIO_PHONE_NUMBER) to a ' +
+            'sms-capable number on the Twilio account, e.g. "+447449501762".'
+        );
+    }
+    return bare;
+}
+
+/** True when outbound SMS is configured. Use to gate features rather than letting sends throw. */
+export function isSmsSenderConfigured(): boolean {
+    return getSmsSenderE164() !== null;
+}
+
 // Surface misconfiguration at boot rather than on the first customer message.
 if (!isWhatsAppSenderConfigured()) {
     console.warn(

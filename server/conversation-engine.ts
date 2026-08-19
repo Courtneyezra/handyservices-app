@@ -339,6 +339,7 @@ export class ConversationEngine {
                 channel: channel === 'sms' ? 'sms' : 'whatsapp',
                 contactName: ProfileName || conv!.contactName,
                 hasMedia,
+                text: Body || null,
             });
 
             // 4. Broadcast to all connected clients

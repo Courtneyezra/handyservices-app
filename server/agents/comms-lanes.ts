@@ -5,10 +5,17 @@
  *
  * Two things happen on an inbound, and they are deliberately on different clocks:
  *
- *   IMMEDIATE — if this is a genuine FIRST contact (a number we have never messaged), the
- *   first-contact responder acknowledges it now, not in ten minutes. An acknowledgement is only
- *   worth anything while the customer is still holding the phone, and it is the one sanctioned
- *   exception to draft-and-approve (server/first-contact-ack.ts owns every guard). Ships off.
+ *   IMMEDIATE — two deterministic passes, no model, no cost:
+ *     · if this is a genuine FIRST contact (a number we have never messaged), or a customer
+ *       returning after months, the first-contact responder acknowledges it NOW, not in ten
+ *       minutes. An acknowledgement is only worth anything while the customer is still holding the
+ *       phone, and it is the one sanctioned exception to draft-and-approve
+ *       (server/first-contact-ack.ts owns every guard). Ships off.
+ *     · if the customer is answering an acknowledgement we already sent ("yes, call me" / "no,
+ *       just text"), the thread is tagged and, for a yes, pushed to urgent. Asking a question and
+ *       then treating the answer as ordinary board traffic is how an auto-ask becomes a broken
+ *       promise. This runs whether or not the ack feature is currently enabled, because the ack
+ *       being answered may have been sent while it was.
  *
  *   DEBOUNCED — the LLM triage run, unchanged: it waits for the burst to settle, then drafts for
  *   Ben's approval. By the time it runs, the ack above is already an outbound message in the
@@ -36,12 +43,19 @@ export function scheduleInboundTriage(conversationId: string, phone: string, opt
     channel?: FirstContactChannel;
     contactName?: string | null;
     hasMedia?: boolean;
+    /** The message body — used by the spam screen and by the ack-reply classifier. */
+    text?: string | null;
 } = {}): void {
-    // Instant lane, before the debounce: only ever fires on a thread with no outbound history.
-    // Runs for test numbers too — it costs no agent run, and the smoke conversation is how this
-    // path is exercised without messaging a real customer.
+    // Instant lane, before the debounce: only ever fires on a thread with no outbound history, or
+    // one that has been silent longer than the returning threshold. Runs for test numbers too — it
+    // costs no agent run, and the smoke conversation is how this path is exercised without
+    // messaging a real customer.
     ackFirstContact(conversationId, phone, opts).catch((e) =>
         console.error('[CommsLanes] first-contact ack error:', e?.message ?? e));
+
+    // Also instant, also deterministic: is this the answer to an ack we already sent?
+    tagAckReply(conversationId, phone, opts).catch((e) =>
+        console.error('[CommsLanes] ack-reply triage error:', e?.message ?? e));
 
     arm(conversationId, phone).catch((e) =>
         console.error('[CommsLanes] scheduleInboundTriage error:', e?.message ?? e));
@@ -51,6 +65,7 @@ async function ackFirstContact(conversationId: string, phone: string, opts: {
     channel?: FirstContactChannel;
     contactName?: string | null;
     hasMedia?: boolean;
+    text?: string | null;
 }): Promise<void> {
     if (!conversationId) return;
     const { maybeAutoAckFirstContact } = await import('../first-contact-ack');
@@ -60,10 +75,20 @@ async function ackFirstContact(conversationId: string, phone: string, opts: {
         channel: opts.channel ?? 'whatsapp',
         contactName: opts.contactName,
         hasMedia: opts.hasMedia,
+        text: opts.text,
     });
     // Everything is logged, including the refusals — "why did nobody get an ack?" must be answerable.
     if (result.reason !== 'DISABLED' && result.reason !== 'NOT_FIRST_CONTACT') {
-        console.log(`[CommsLanes] First-contact ack for ${conversationId}: ${result.reason}`);
+        console.log(`[CommsLanes] First-contact ack for ${conversationId}: ${result.reason}${result.detail ? ` (${result.detail})` : ''}`);
+    }
+}
+
+async function tagAckReply(conversationId: string, phone: string, opts: { text?: string | null }): Promise<void> {
+    if (!conversationId) return;
+    const { triageAckReply } = await import('../first-contact-ack');
+    const result = await triageAckReply({ conversationId, phone, text: opts.text });
+    if (result.reason === 'TAGGED') {
+        console.log(`[CommsLanes] Ack reply on ${conversationId}: tagged ${result.tagged}${result.priority ? `, priority ${result.priority}` : ''}`);
     }
 }
 

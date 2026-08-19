@@ -302,6 +302,7 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
             channel: 'whatsapp',
             contactName: profileName || conv!.contactName,
             hasMedia: !!mediaUrl,
+            text: content || null,
         });
 
         // 3. Broadcast to clients
@@ -642,7 +643,16 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
 
     if (!response.ok) {
         console.error('[Twilio WhatsApp] Send error:', result);
-        throw new Error(result.message || 'Failed to send message');
+        // Throw with Twilio's numeric code attached. Callers need to tell "this person is not a
+        // WhatsApp user" (63003 and neighbours — fall back to SMS) apart from "our sender is
+        // misconfigured" (63007/21910 — fall back AND shout), and a message string is not a
+        // contract. See server/outbound.ts for the classification.
+        const { TwilioSendError } = await import('./sms');
+        throw new TwilioSendError(
+            result.message || 'Failed to send message',
+            typeof result.code === 'number' ? result.code : null,
+            response.status,
+        );
     }
 
     console.log('[Twilio WhatsApp] Message sent:', result.sid);

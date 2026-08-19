@@ -13,8 +13,9 @@ import { Router } from 'express';
 import { db } from './db';
 import { messageDrafts, conversations, personalizedQuotes } from '@shared/schema';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
-import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
-import { normalizePhoneNumber } from './phone-utils';
+import { canSendFreeform } from './meta-whatsapp';
+import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
+import { sendCustomerMessage, type OutboundChannel } from './outbound';
 
 export const messageDraftsRouter = Router();
 
@@ -33,6 +34,12 @@ export async function queueDraft(input: {
     reason?: string;
     contentSid?: string;
     contentVariables?: Record<string, string>;
+    /**
+     * Which pipe this should leave by. Defaults to WhatsApp, which is what every existing caller
+     * meant. 'sms' is for a customer who has only ever used SMS, or whose number cannot have
+     * WhatsApp — approveAndSendDraft honours it and never opens the window question at all.
+     */
+    channel?: OutboundChannel;
     /** Skip if an unsent draft from the same source already exists for this number. */
     dedupe?: boolean;
 }): Promise<string | null> {
@@ -67,7 +74,9 @@ export async function queueDraft(input: {
         conversationId: conv?.id ?? null,
         phone,
         body: input.body,
-        channel: 'whatsapp',
+        // A UK landline can never receive WhatsApp, so a draft for one is an SMS draft from the
+        // moment it is written — the approver should see the truth, not discover it at send time.
+        channel: input.channel ?? (isNonMobileUkNumber(phone) ? 'sms' : 'whatsapp'),
         contentSid: input.contentSid ?? null,
         contentVariables: input.contentVariables ?? null,
         source: input.source,
@@ -91,12 +100,14 @@ messageDraftsRouter.get('/', async (req, res) => {
         // Tell the approver whether this can actually be delivered right now, rather than letting
         // them approve something the 24h window will reject.
         const enriched = await Promise.all(rows.map(async (d) => {
-            const windowOpen = await canSendFreeform(d.phone).catch(() => false);
+            // An SMS draft is always sendable: there is no window and no template gate on SMS.
+            const smsOnly = d.channel === 'sms' || isNonMobileUkNumber(d.phone);
+            const windowOpen = smsOnly ? false : await canSendFreeform(d.phone).catch(() => false);
             return {
                 ...d,
                 windowOpen,
-                sendable: windowOpen || !!d.contentSid,
-                mode: windowOpen ? 'freeform' : d.contentSid ? 'template' : 'blocked',
+                sendable: smsOnly || windowOpen || !!d.contentSid,
+                mode: smsOnly ? 'sms' : windowOpen ? 'freeform' : d.contentSid ? 'template' : 'blocked',
             };
         }));
 
@@ -141,7 +152,7 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
  * "window shut" (draft returned to pending, retryable later) from a hard send failure.
  */
 export async function approveAndSendDraft(draftId: string, approvedBy: string): Promise<
-    | { ok: true; draft: typeof messageDrafts.$inferSelect; mode: 'freeform' | 'template' }
+    | { ok: true; draft: typeof messageDrafts.$inferSelect; mode: 'freeform' | 'template' | 'sms'; channel: OutboundChannel; fellBack: boolean }
     | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED'; message: string }
 > {
     // Claim the row first so a double-click (or a racing auto-send) cannot send twice.
@@ -152,39 +163,86 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
 
     if (!draft) return { ok: false, code: 'NOT_PENDING', message: 'Draft not found or already handled' };
 
-    const windowOpen = await canSendFreeform(draft.phone).catch(() => false);
-    if (!windowOpen && !draft.contentSid) {
+    // Which pipe. An SMS draft (explicitly chosen, or a landline) skips the window question
+    // entirely: Meta's 24-hour rule governs WhatsApp and nothing else, so an SMS reply is always
+    // allowed. Only a WhatsApp draft can be blocked by a shut window.
+    const smsOnly = draft.channel === 'sms' || isNonMobileUkNumber(draft.phone);
+    const windowOpen = smsOnly ? false : await canSendFreeform(draft.phone).catch(() => false);
+
+    if (!smsOnly && !windowOpen && !draft.contentSid) {
         await db.update(messageDrafts)
             .set({ status: 'pending', approvedAt: null, approvedBy: null })
             .where(eq(messageDrafts.id, draft.id));
         return {
             ok: false,
             code: 'OUTSIDE_WINDOW',
-            message: 'The 24-hour window is shut and this draft has no approved template behind it. It cannot be delivered as written.',
+            message: 'The 24-hour window is shut and this draft has no approved template behind it. It cannot be delivered as written. Switch the draft to SMS, or use a template.',
         };
     }
 
     try {
-        let result: any;
-        if (windowOpen) {
+        let result: Awaited<ReturnType<typeof sendCustomerMessage>>;
+        if (smsOnly) {
+            // One SMS carrying the whole reply — sendCustomerMessage rejoins the '---' bursts,
+            // because on SMS each burst is a separately billed message.
+            result = await sendCustomerMessage({
+                to: draft.phone, body: draft.body, channel: 'sms',
+                context: `draft:${draft.source}`,
+            });
+        } else if (windowOpen) {
             // A body may contain several messages split by a lone '---' line — sent as separate
             // WhatsApp bubbles, briefly paced, because that's how a person actually texts.
             // One draft row = one approval; the split is presentation, not process.
+            //
+            // Only the FIRST burst may fall back to SMS: if it did, the rest must follow it down
+            // the same pipe, or the customer gets bubble one by SMS and bubble two by WhatsApp.
             const parts = draft.body.split(/\n\s*---\s*\n/).map((p) => p.trim()).filter(Boolean).slice(0, 4);
-            for (let i = 0; i < parts.length; i++) {
-                if (i > 0) await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
-                result = await sendWhatsAppMessage(draft.phone, parts[i]);
+            result = await sendCustomerMessage({
+                to: draft.phone, body: parts[0] ?? draft.body, context: `draft:${draft.source}`,
+            });
+            if (result.ok && result.channel === 'whatsapp') {
+                for (let i = 1; i < parts.length; i++) {
+                    await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
+                    const next = await sendCustomerMessage({
+                        to: draft.phone, body: parts[i], context: `draft:${draft.source}`,
+                        allowSmsFallback: false,   // see above: no split-brain threads
+                    });
+                    if (!next.ok) break;           // already alerted; the first burst did land
+                    result = next;
+                }
+            } else if (result.ok && result.channel === 'sms' && parts.length > 1) {
+                // The whole reply belongs in that one SMS, so send the remainder as one more.
+                await sendCustomerMessage({
+                    to: draft.phone, body: parts.slice(1).join('\n\n'), channel: 'sms',
+                    context: `draft:${draft.source}`,
+                });
             }
         } else {
-            // Templates are a single fixed message — no splitting.
-            result = await sendWhatsAppMessage(draft.phone, draft.body, {
+            // Templates are a single fixed message — no splitting. The rendered body travels with
+            // it so an SMS fallback has real words to send.
+            result = await sendCustomerMessage({
+                to: draft.phone, body: draft.body,
                 contentSid: draft.contentSid!,
                 contentVariables: (draft.contentVariables as any) ?? undefined,
+                context: `draft:${draft.source}`,
             });
         }
 
+        if (!result.ok) {
+            // sendCustomerMessage has already alerted — nothing reached the customer by any route.
+            await db.update(messageDrafts)
+                .set({ status: 'failed', error: result.error ?? 'send failed on every channel' })
+                .where(eq(messageDrafts.id, draft.id));
+            return { ok: false, code: 'SEND_FAILED', message: result.error ?? 'send failed on every channel' };
+        }
+
         const [sent] = await db.update(messageDrafts)
-            .set({ status: 'sent', sentAt: new Date(), sentMessageId: result?.sid ?? null })
+            .set({
+                status: 'sent', sentAt: new Date(), sentMessageId: result.sid ?? null,
+                // Record the channel that ACTUALLY carried it, not the one we intended, so the
+                // thread and the draft agree about what the customer received.
+                channel: result.channel ?? draft.channel,
+            })
             .where(eq(messageDrafts.id, draft.id))
             .returning();
 
@@ -215,12 +273,29 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             }
         }
 
-        return { ok: true, draft: sent, mode: windowOpen ? 'freeform' : 'template' };
+        return {
+            ok: true,
+            draft: sent,
+            mode: result.channel === 'sms' ? 'sms' : windowOpen ? 'freeform' : 'template',
+            channel: result.channel ?? 'whatsapp',
+            fellBack: result.fellBack,
+        };
     } catch (sendError: any) {
-        // Record the failure rather than leaving it stuck as 'approved' with nothing sent.
+        // sendCustomerMessage returns rather than throws for delivery problems, so reaching here
+        // means something unexpected broke (a bad phone number, a DB error mid-send). Record the
+        // failure rather than leaving it stuck as 'approved' with nothing sent — and alert, because
+        // a 'failed' row nobody reads is the exact silence this work exists to remove.
         await db.update(messageDrafts)
             .set({ status: 'failed', error: sendError?.message ?? 'send failed' })
             .where(eq(messageDrafts.id, draft.id));
+        const { notifyOutboundSendFailure } = await import('./pushover');
+        await notifyOutboundSendFailure({
+            phone: draft.phone,
+            context: `draft:${draft.source}`,
+            attempts: [{ channel: draft.channel, ok: false, error: sendError?.message }],
+            recovered: false,
+            body: draft.body,
+        }).catch(() => { });
         return { ok: false, code: 'SEND_FAILED', message: sendError?.message ?? 'send failed' };
     }
 }
