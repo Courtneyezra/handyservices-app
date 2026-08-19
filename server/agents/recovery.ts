@@ -72,8 +72,14 @@ const tools: AgentTool[] = [
                 SELECT start_time, direction, left(COALESCE(transcription, '(no transcript)'), 400) AS transcript
                 FROM calls WHERE ${DIGITS10('phone_number')} = '${digits}'
                 ORDER BY start_time DESC LIMIT 3`));
+            // A quarantined row is prefixed rather than dropped: this agent's whole job is to judge
+            // whether the customer has heard from us, and "we wrote this and it reached nobody" is
+            // information it needs, not noise. See server/message-quarantine.ts.
             const msgs = await db.execute(sql.raw(`
-                SELECT m.created_at, m.direction, m.type, left(COALESCE(m.content, '(' || m.type || ')'), 280) AS content
+                SELECT m.created_at, m.direction, m.type,
+                       CASE WHEN m.quarantined_at IS NOT NULL THEN '[NEVER SENT, customer did not receive this] ' ELSE '' END
+                         || left(COALESCE(m.content, '(' || m.type || ')'), 280) AS content,
+                       (m.quarantined_at IS NOT NULL) AS never_sent
                 FROM messages m JOIN conversations c ON c.id = m.conversation_id
                 WHERE ${DIGITS10('c.phone_number')} = '${digits}'
                 ORDER BY m.created_at DESC LIMIT 25`));

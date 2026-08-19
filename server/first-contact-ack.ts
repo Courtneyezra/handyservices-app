@@ -49,6 +49,7 @@ import { canSendFreeform } from './meta-whatsapp';
 import { findApprovedTemplate } from './whatsapp-templates';
 import { isNonMobileUkNumber } from './phone-utils';
 import { isSmsSenderConfigured } from './whatsapp-sender';
+import { notQuarantined } from './message-quarantine';
 
 // ---------------------------------------------------------------- config shape
 
@@ -268,6 +269,10 @@ export interface ContactHistory {
  *
  * Errors set `unknown`, and every caller treats that as "assume we have talked to them", so the
  * approval gate stays on when we cannot prove otherwise.
+ *
+ * Quarantined messages do not count as outbound at all — see server/message-quarantine.ts. They
+ * were written, but nobody received them, and "we sent you something you never got" is not prior
+ * contact.
  */
 export async function readContactHistory(input: { conversationId?: string | null; phone: string }): Promise<ContactHistory> {
     try {
@@ -285,8 +290,16 @@ export async function readContactHistory(input: { conversationId?: string | null
         let lastOutboundAt: Date | null = null;
 
         if (conversationIds.length) {
+            // Quarantined rows are excluded: 58,216 outbound rows written Feb-Aug 2026 never
+            // reached anyone (server/message-quarantine.ts). 144 threads carry NOTHING but those,
+            // and counting them here is what made a genuinely-never-contacted person look like
+            // someone we had already spoken to — the exact judgement this function exists to make.
             const [outbound] = await db.select({ at: messages.createdAt }).from(messages)
-                .where(and(inArray(messages.conversationId, conversationIds), eq(messages.direction, 'outbound')))
+                .where(and(
+                    inArray(messages.conversationId, conversationIds),
+                    eq(messages.direction, 'outbound'),
+                    notQuarantined,
+                ))
                 .orderBy(desc(messages.createdAt))
                 .limit(1);
             if (outbound?.at) lastOutboundAt = new Date(outbound.at);

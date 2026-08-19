@@ -31,6 +31,7 @@ import { askBen, markQuestionResolved } from '../agent-questions';
 import { canSendFreeform } from '../meta-whatsapp';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS } from '../comms-sla';
 import { loadActivity } from '../inbox-board';
+import { neverSentMeta } from '../message-quarantine';
 import {
     isFirstContact, FIRST_CONTACT_ACK_INTENTS, DEFAULT_FIRST_CONTACT_ACK,
     type FirstContactAckConfig, type FirstContactChannel,
@@ -161,7 +162,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     const tools: AgentTool[] = [
         {
             name: 'get_thread',
-            description: 'Read the merged timeline for this conversation: WhatsApp/SMS/webform messages AND phone calls (with transcripts), newest last — including the customer\'s actual photos and video keyframes, which are part of the conversation and often say more than the text. Also returns board state, the 24h WhatsApp window, SLA wait state, and any answered ask-Ben questions you should act on. Call this FIRST, always.',
+            description: 'Read the merged timeline for this conversation: WhatsApp/SMS/webform messages AND phone calls (with transcripts), newest last — including the customer\'s actual photos and video keyframes, which are part of the conversation and often say more than the text. Also returns board state, the 24h WhatsApp window, SLA wait state, and any answered ask-Ben questions you should act on. Call this FIRST, always. A message marked neverSent was written but NEVER reached the customer (a dead sender or a runaway loop), so it is not a reply and they have not been answered.',
             input_schema: { type: 'object' as const, properties: {}, required: [] },
             run: async () => {
                 const recent = await db.select().from(messages)
@@ -176,10 +177,14 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     // Calls are on this thread twice by design: a summary row in `messages` (so the
                     // board can see them) and the full record below. Drop the summary and keep the
                     // record, which carries the transcript.
+                    // `neverSent` rows stay in the timeline (they explain what the customer's
+                    // silence is a response to) but are flagged, because an agent that reads a
+                    // phantom outbound as "we already answered" will decide to do nothing.
                     ...recent.filter((m) => m.channel !== 'call').map((m) => ({
                         kind: 'message', at: m.createdAt?.toISOString(), direction: m.direction,
                         channel: m.channel, content: (m.content ?? '').slice(0, 400),
-                        hasMedia: !!m.mediaUrl, status: m.status,
+                        hasMedia: !!m.mediaUrl, status: m.quarantinedAt ? 'never_sent' : m.status,
+                        ...neverSentMeta(m),
                     })),
                     ...callRows.map((c) => ({
                         kind: 'call', at: c.startTime?.toISOString(), direction: c.direction,

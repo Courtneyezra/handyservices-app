@@ -14,6 +14,7 @@ import { leads, conversations, messages, LeadStage } from "@shared/schema";
 import { eq, and, lt, isNull, isNotNull, or, desc, gte } from "drizzle-orm";
 import { sendWhatsAppMessage, canSendFreeform } from "../meta-whatsapp";
 import { updateLeadStage } from "../lead-stage-engine";
+import { notQuarantined } from "../message-quarantine";
 
 // Timing configuration
 export const WEBFORM_CHASE_TIMING = {
@@ -354,13 +355,20 @@ async function checkFollowupSent(phone: string, leadCreatedAt: Date | null): Pro
 
         if (!conversation) return false;
 
-        // Check for outbound messages after lead creation
+        // Check for outbound messages after lead creation.
+        //
+        // Quarantined rows do not count: a follow-up the customer never received is not a follow-up
+        // (server/message-quarantine.ts). In practice this changes nothing today — this path only
+        // looks at leads between 2 and 24 hours old, and every quarantined row predates 15 Aug 2026
+        // — but the rule has to be the same one everywhere or the next quarantine reintroduces the
+        // bug here.
         const outboundMessages = await db.select()
             .from(messages)
             .where(and(
                 eq(messages.conversationId, conversation.id),
                 eq(messages.direction, 'outbound'),
-                gte(messages.createdAt, leadCreatedAt)
+                gte(messages.createdAt, leadCreatedAt),
+                notQuarantined,
             ))
             .orderBy(desc(messages.createdAt))
             .limit(5);
