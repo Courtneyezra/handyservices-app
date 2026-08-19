@@ -110,6 +110,14 @@ function lineTotalPence(l: any): number | null {
 /**
  * Loads the customer's quotes with everything a post-quote reply needs. Newest first, capped at
  * three — beyond that it is archaeology, not context.
+ *
+ * UNSENT DRAFTS ARE EXCLUDED. `is_draft` is a quote saved from the in-chat card that Ben has not
+ * sent; shared/schema.ts is explicit that it "must never reach the customer: customer-facing
+ * automations skip it", and server/agents/recovery.ts already honours that. This loader is as
+ * customer-facing as it gets: whatever it returns becomes the agent's `liveQuote`, and its figures
+ * are exactly the set `allowedFigurePence` authorises the money guard to write to a person. Left in,
+ * the newest draft outranks the real quote on createdAt, so a £999 quote nobody has ever seen
+ * silently becomes the one the agent answers a price objection about.
  */
 export async function loadQuoteContexts(opts: {
     digits: string;
@@ -119,7 +127,10 @@ export async function loadQuoteContexts(opts: {
     const limit = opts.limit ?? 3;
 
     const rows = await db.select().from(personalizedQuotes)
-        .where(sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${opts.digits}`)
+        .where(and(
+            sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${opts.digits}`,
+            sql`${personalizedQuotes.isDraft} IS NOT TRUE`,
+        ))
         .orderBy(desc(personalizedQuotes.createdAt))
         .limit(8);
 
@@ -269,7 +280,11 @@ export async function loadQuoteContexts(opts: {
             selectedDate: iso(q.selectedDate),
             deferredLines,
             allowedFigurePence: Array.from(allowed).sort((a, b) => a - b),
+            // A revoked quote stays VISIBLE — the customer has seen it and may well be asking about
+            // it — but it is never the live one. Ben withdrew that price, so nothing may be shaped
+            // around it or quoted back as current. server/quote-followup-alerts.ts draws the same line.
             isLive: !q.depositPaidAt
+                && !q.revokedAt
                 && createdMs != null
                 && now - createdMs < LIVE_WINDOW_DAYS * 86_400_000,
         };
