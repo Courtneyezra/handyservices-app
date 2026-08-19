@@ -56,3 +56,6 @@ server/storage/media/
 brand-voice/sources/*
 !brand-voice/sources/.gitkeep
 agent-runs/
+
+# scratch cache for scripts/_wa-corpus-analyse.ts
+.wa-corpus-cache.json
