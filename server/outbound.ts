@@ -30,6 +30,7 @@ import { sendWhatsAppMessage } from './meta-whatsapp';
 import { sendSmsMessage, toE164Recipient, TwilioSendError } from './sms';
 import { isNonMobileUkNumber } from './phone-utils';
 import { notifyOutboundSendFailure } from './pushover';
+import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 
 export type OutboundChannel = 'whatsapp' | 'sms';
 
@@ -79,8 +80,10 @@ export interface SendCustomerMessageResult {
     /** True when WhatsApp was tried, failed, and SMS carried it instead. */
     fellBack: boolean;
     /** Why WhatsApp was skipped or abandoned, in machine-readable form. */
-    reason?: 'UK_LANDLINE' | 'NOT_ON_WHATSAPP' | 'SENDER_MISCONFIGURED' | 'WINDOW_SHUT' | 'EXPLICIT_CHANNEL';
+    reason?: 'UK_LANDLINE' | 'NOT_ON_WHATSAPP' | 'SENDER_MISCONFIGURED' | 'WINDOW_SHUT' | 'EXPLICIT_CHANNEL' | 'OPTED_OUT';
     error?: string;
+    /** Present only on an OPTED_OUT refusal: when they opted out and how far it reaches. */
+    optedOut?: { scope: 'marketing' | 'all'; at: string; source: string };
 }
 
 export interface SendCustomerMessageInput {
@@ -109,6 +112,21 @@ export interface SendCustomerMessageInput {
     context?: string;
     /** Shown in the alert so the human knows who was dropped. */
     contactName?: string | null;
+    /**
+     * Why this is being sent, which decides whether an opt-out blocks it.
+     *
+     * OMITTED MEANS 'marketing' — the suppressible kind. That default is the whole design: a new
+     * call site that never thought about opt-outs fails closed rather than quietly messaging
+     * someone who asked us to stop.
+     *
+     * 'service_reply' is the deliberate exception and is meant to be hard to trigger by accident.
+     * It has to be typed here, it is greppable, it NEVER gets past a 'do not contact' suppression,
+     * and every use of it against a suppressed number is logged loudly. Use it for exactly two
+     * things: a human's own typed reply from the comms composer, and a message the job requires
+     * (booking confirmation, contractor on the way, invoice for work done). Never for a campaign,
+     * a revival, a nudge or anything the system decided to start on its own.
+     */
+    purpose?: OutboundPurpose;
 }
 
 function codeOf(error: any): number | null {
@@ -139,6 +157,48 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
         e164 = toE164Recipient(input.to);
     } catch (error: any) {
         return { ok: false, attempts, fellBack: false, error: error?.message ?? 'unusable phone number' };
+    }
+
+    // Rule 0, ahead of every other rule: has this person told us to stop?
+    //
+    // This is the choke point precisely so the answer only has to be enforced once. It runs before
+    // the channel decision, before any Twilio call and before a penny is spent, because the correct
+    // handling of a suppressed recipient is that nothing leaves the building at all.
+    //
+    // A failure to READ the list is not a licence to send. If the query throws we refuse, because
+    // "the database was slow" is not a defence for a message someone asked not to receive.
+    const purpose: OutboundPurpose = input.purpose ?? 'marketing';
+    let suppression;
+    try {
+        suppression = await blockedByOptOut(e164, purpose);
+    } catch (error: any) {
+        console.error(`[Outbound] Opt-out lookup failed for ${e164} — refusing the send:`, error?.message);
+        return {
+            ok: false, attempts, fellBack: false, reason: 'OPTED_OUT',
+            error: 'Could not verify the opt-out list, so the send was refused. Retry once the database is reachable.',
+        };
+    }
+    if (suppression) {
+        console.warn(
+            `[Outbound] REFUSED ${purpose} send to ${e164} (${input.context ?? 'no context'}): ` +
+            `opted out ${suppression.scope} on ${suppression.at.toISOString()} via "${suppression.matchedKeyword ?? 'manual'}"`,
+        );
+        return {
+            ok: false, attempts, fellBack: false, reason: 'OPTED_OUT',
+            error: optOutRefusalMessage(suppression),
+            optedOut: { scope: suppression.scope, at: suppression.at.toISOString(), source: suppression.source },
+        };
+    }
+    if (purpose === 'service_reply') {
+        // Not a refusal, but worth a line: the exception was exercised. If this appears against a
+        // number that later complains, the log says which call site claimed the exemption.
+        const record = await getOptOutQuietly(e164);
+        if (record) {
+            console.warn(
+                `[Outbound] SERVICE REPLY allowed to ${e164} despite a ${record.scope} opt-out ` +
+                `(${input.context ?? 'no context'}). Marketing to this number remains blocked.`,
+            );
+        }
     }
 
     const requested: OutboundChannel = input.channel ?? 'whatsapp';
@@ -208,6 +268,16 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
 
         await raiseDroppedMessageAlert(e164, input, attempts);
         return { ok: false, attempts, fellBack: false, reason, error: sms.error ?? error?.message };
+    }
+}
+
+/** Logging only — a lookup failure here must never turn an allowed service reply into a failure. */
+async function getOptOutQuietly(e164: string) {
+    try {
+        const { getOptOut } = await import('./opt-out');
+        return await getOptOut(e164);
+    } catch {
+        return null;
     }
 }
 

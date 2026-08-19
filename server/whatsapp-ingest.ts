@@ -240,6 +240,7 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
                 contactName: contactName || conv!.contactName,
                 hasMedia: !!mediaUrl,
                 text: content || null,
+                messageId: newMessage.id,
             });
         }
 

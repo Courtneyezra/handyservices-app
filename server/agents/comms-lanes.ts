@@ -3,7 +3,11 @@
  * minutes later. Debounced per conversation, because people send bursts ("hi" / photo / "can
  * you quote this?") — one run after the burst, not three during it.
  *
- * Two things happen on an inbound, and they are deliberately on different clocks:
+ * Three things happen on an inbound, and they are deliberately on different clocks:
+ *
+ *   GATE 0 — the opt-out check, awaited before anything else can compose a word. If the customer
+ *     said STOP, the suppression is recorded, the thread is closed, and every lane below is
+ *     skipped. See server/opt-out.ts.
  *
  *   IMMEDIATE — two deterministic passes, no model, no cost:
  *     · if this is a genuine FIRST contact (a number we have never messaged), or a customer
@@ -43,9 +47,54 @@ export function scheduleInboundTriage(conversationId: string, phone: string, opt
     channel?: FirstContactChannel;
     contactName?: string | null;
     hasMedia?: boolean;
-    /** The message body — used by the spam screen and by the ack-reply classifier. */
+    /** The message body — used by the opt-out detector, the spam screen and the ack-reply classifier. */
     text?: string | null;
+    /** The stored message's id, so a recorded opt-out points at the exact words that caused it. */
+    messageId?: string | null;
 } = {}): void {
+    void runInboundLanes(conversationId, phone, opts).catch((e) =>
+        console.error('[CommsLanes] scheduleInboundTriage error:', e?.message ?? e));
+}
+
+async function runInboundLanes(conversationId: string, phone: string, opts: {
+    channel?: FirstContactChannel;
+    contactName?: string | null;
+    hasMedia?: boolean;
+    text?: string | null;
+    messageId?: string | null;
+}): Promise<void> {
+    // GATE 0 — did they just ask us to stop?
+    //
+    // This runs FIRST and is awaited, because every other lane below can produce a message. The
+    // first-contact acknowledger in particular would happily reply to a STOP that happened to be
+    // someone's first message to us, which is the single worst outcome available here: an automated
+    // message to a person who has just, in writing, asked for no more automated messages.
+    //
+    // On a match the suppression is recorded, the thread is tagged and closed, and this returns.
+    // Nothing is drafted, nothing is acknowledged, nothing is sent back. Twilio and Meta already
+    // handle the STOP acknowledgement on the paths that have one, and a second message from us
+    // would be exactly wrong.
+    //
+    // A thrown error here must not swallow the inbound, but it must also not let the lanes run as
+    // if nothing was said, so it is caught and treated as "no match" only after being logged loudly.
+    try {
+        const { applyInboundOptOut } = await import('../opt-out');
+        const optOut = await applyInboundOptOut({
+            conversationId,
+            phone,
+            text: opts.text,
+            channel: opts.channel ?? 'whatsapp',
+            messageId: opts.messageId,
+            contactName: opts.contactName,
+        });
+        if (optOut.matched) {
+            console.log(`[CommsLanes] ${phone} opted out (${optOut.scope}) — no ack, no draft, no triage.`);
+            return;
+        }
+    } catch (error: any) {
+        console.error('[CommsLanes] OPT-OUT CHECK FAILED — lanes continuing:', error?.message ?? error);
+    }
+
     // Instant lane, before the debounce: only ever fires on a thread with no outbound history, or
     // one that has been silent longer than the returning threshold. Runs for test numbers too — it
     // costs no agent run, and the smoke conversation is how this path is exercised without
@@ -57,8 +106,7 @@ export function scheduleInboundTriage(conversationId: string, phone: string, opt
     tagAckReply(conversationId, phone, opts).catch((e) =>
         console.error('[CommsLanes] ack-reply triage error:', e?.message ?? e));
 
-    arm(conversationId, phone).catch((e) =>
-        console.error('[CommsLanes] scheduleInboundTriage error:', e?.message ?? e));
+    await arm(conversationId, phone);
 }
 
 async function ackFirstContact(conversationId: string, phone: string, opts: {

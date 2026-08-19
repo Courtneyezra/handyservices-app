@@ -53,6 +53,15 @@ voiceNotesRouter.post('/voice-note', upload.single('audio'), async (req, res) =>
         if (!req.file || !tmpPath) return res.status(400).json({ error: "Missing 'audio' file" });
         if (!phone) return res.status(400).json({ error: `Unparseable phone: ${to}` });
 
+        // A voice note is a human speaking to this person, so it is a service reply and a plain
+        // STOP does not block it. "Do not contact me" does. This path calls sendWhatsAppMessage
+        // directly rather than the choke point in outbound.ts, so the check lives here.
+        const { blockedByOptOut, optOutRefusalMessage } = await import('./opt-out');
+        const suppression = await blockedByOptOut(phone, 'service_reply');
+        if (suppression) {
+            return res.status(409).json({ error: 'OPTED_OUT', message: optOutRefusalMessage(suppression) });
+        }
+
         // Voice is freeform-only — no template can carry it, so the window is a hard gate.
         const windowOpen = await canSendFreeform(phone).catch(() => false);
         if (!windowOpen) {

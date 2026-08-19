@@ -74,6 +74,43 @@ export function isNonMobileUkNumber(e164: string): boolean {
 }
 
 /**
+ * THE identity key for "is this the same human?" across the comms surfaces.
+ *
+ * The phone column on `conversations`, `messages`, `message_drafts`, `personalized_quotes` and every
+ * bulk tool is a museum of formats: E.164 (+447938658185), national (07938 658185), WhatsApp keys
+ * (447938658185@c.us), and several wrapped in invisible Unicode direction marks (U+202A…U+202E) that
+ * arrived with copied contact cards. All of those are one person, and any list keyed on the raw
+ * string will treat them as three.
+ *
+ * That matters most for opt-outs: someone who replies STOP from 447938658185@c.us must be
+ * suppressed when a campaign later reads their number as "07938 658185". Suppression that only
+ * holds for the exact format the STOP arrived in is not an opt-out mechanism, it is the appearance
+ * of one.
+ *
+ * Written originally inside scripts/comms-board-clearout.ts (as `phoneKey`) and lifted here
+ * verbatim so the clear-out and the suppression store cannot drift apart. UK numbers collapse to
+ * the 10-digit national form; everything else keeps its full international digits.
+ */
+export function commsPhoneKey(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const stripped = raw.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim().split('@')[0];
+    let d = stripped.replace(/[^\d]/g, '');
+    if (!d) return null;
+    if (d.startsWith('0044')) d = d.slice(4);
+    else if (d.startsWith('44') && d.length >= 12) d = d.slice(2);
+    else if (d.startsWith('0') && d.length === 11) d = d.slice(1);
+    return d || null;
+}
+
+/**
+ * The inverse, for display and for handing a stored key back to a sender. UK national keys (10
+ * digits starting 1, 2, 3 or 7) regain their +44; anything else is already international.
+ */
+export function e164FromCommsKey(key: string): string {
+    return key.length === 10 && /^[1237]/.test(key) ? `+44${key}` : `+${key}`;
+}
+
+/**
  * Format a normalized phone number for display
  * +442012345678 → "020 1234 5678"
  * +447700900123 → "07700 900123"

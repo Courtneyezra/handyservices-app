@@ -99,6 +99,20 @@ whatsappRouter.post('/send', requireAdmin, async (req, res) => {
             return res.status(400).json({ error: "Missing 'to' or 'body'" });
         }
 
+        // Opt-out gate. This endpoint is the comms composer: a human typed these words at a
+        // specific person, which is the sanctioned 'service_reply' exception, so a plain STOP does
+        // not block it. An explicit "do not contact me" does, and there is no override here — if
+        // someone needs to reach that person, they pick up the phone outside this system.
+        const { blockedByOptOut, optOutRefusalMessage } = await import('./opt-out');
+        const suppression = await blockedByOptOut(to, 'service_reply');
+        if (suppression) {
+            return res.status(409).json({
+                error: 'OPTED_OUT',
+                message: optOutRefusalMessage(suppression),
+                optedOut: { scope: suppression.scope, at: suppression.at.toISOString() },
+            });
+        }
+
         // The Meta coexistence transport has its own template plumbing and no SMS equivalent, so it
         // keeps the direct path; everything else goes through the router.
         if (via === 'meta' || templateName) {
@@ -116,6 +130,7 @@ whatsappRouter.post('/send', requireAdmin, async (req, res) => {
             body,
             channel: channel === 'sms' ? 'sms' : 'whatsapp',
             context: 'composer',
+            purpose: 'service_reply',   // a human's own typed reply, see the gate above
         });
 
         if (!result.ok) {

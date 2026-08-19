@@ -66,6 +66,8 @@ import { sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { sendCustomerMessage } from '../server/outbound';
 import { findApprovedTemplate } from '../server/whatsapp-templates';
+import { commsPhoneKey } from '../server/phone-utils';
+import { loadOptOutIndex } from '../server/opt-out';
 
 const CAMPAIGN = process.env.CLEAROUT_CAMPAIGN || 'board_clearout_2026_08';
 const QUOTE_BASE = process.env.BASE_URL || 'https://handyservices.app';
@@ -85,16 +87,10 @@ const TEST_SAFE = [/^7700900\d{3}$/, /^84357691573$/];
 
 type PhoneClass = 'uk_mobile' | 'uk_landline' | 'non_uk' | 'unusable';
 
-function phoneKey(raw: string | null | undefined): string | null {
-    if (!raw) return null;
-    const stripped = raw.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim().split('@')[0];
-    let d = stripped.replace(/[^\d]/g, '');
-    if (!d) return null;
-    if (d.startsWith('0044')) d = d.slice(4);
-    else if (d.startsWith('44') && d.length >= 12) d = d.slice(2);
-    else if (d.startsWith('0') && d.length === 11) d = d.slice(1);
-    return d || null;
-}
+// Lifted verbatim into server/phone-utils.ts as commsPhoneKey and imported back, so the suppression
+// list and this tool key on EXACTLY the same identity. If they ever disagreed, someone who replied
+// STOP from one number format would be messaged again under another.
+const phoneKey = commsPhoneKey;
 
 function classify(key: string | null): PhoneClass {
     if (!key) return 'unusable';
@@ -300,14 +296,28 @@ async function loadBoard(): Promise<Person[]> {
     const convs: any = await db.execute(sql`
         SELECT c.id, c.phone_number, c.contact_name, c.tags, c.stage, c.last_inbound_at,
                c.last_customer_contact_at,
-               (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) msgs,
-               (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id AND m.channel = 'call') calls
+               -- Quarantined rows are excluded from both counts. They were written but never
+               -- reached anyone (server/message-quarantine.ts), and this tool uses the counts to
+               -- decide whether anything ever happened on a card ('no messages or calls') and
+               -- whether the only thing that ever happened was a phone call ('call_only'). Counting
+               -- 380 undelivered automation notices as conversation gets both answers wrong.
+               (SELECT count(*) FROM messages m
+                 WHERE m.conversation_id = c.id AND m.quarantined_at IS NULL) msgs,
+               (SELECT count(*) FROM messages m
+                 WHERE m.conversation_id = c.id AND m.channel = 'call' AND m.quarantined_at IS NULL) calls
         FROM conversations c
         WHERE c.archived_at IS NULL
     `);
 
-    // Opt-outs. There is no suppression table in this codebase yet (see the report), so the only
-    // honest source is the message history itself. If someone ever typed STOP, they are excluded.
+    // Opt-outs. The authoritative source is now the suppression table (server/opt-out.ts), which
+    // the inbound lane writes to the moment somebody says STOP and which the backfill populated
+    // from history. The raw message scan below is kept as a second belt: if a keyword ever slips
+    // past the detector, or the backfill has not been re-run since a new phrase was added, a bulk
+    // campaign is the worst possible place to discover it. The two are unioned, never intersected.
+    const optedOut = new Set<string>();
+    for (const key of (await loadOptOutIndex()).keys()) optedOut.add(key);
+    const suppressedFromTable = optedOut.size;
+
     const stops: any = await db.execute(sql`
         SELECT DISTINCT c.phone_number
         FROM messages m JOIN conversations c ON c.id = m.conversation_id
@@ -318,8 +328,11 @@ async function loadBoard(): Promise<Person[]> {
                OR upper(m.content) LIKE '%DO NOT CONTACT%' OR upper(m.content) LIKE '%TAKE ME OFF%'
                OR upper(m.content) LIKE '%STOP MESSAGING%' OR upper(m.content) LIKE '%STOP TEXTING%')
     `);
-    const optedOut = new Set<string>();
     for (const r of stops.rows) { const k = phoneKey(r.phone_number); if (k) optedOut.add(k); }
+    if (optedOut.size) {
+        console.log(`[Clearout] ${optedOut.size} people excluded as opted out ` +
+            `(${suppressedFromTable} from comms_opt_outs, ${optedOut.size - suppressedFromTable} from a raw message scan)`);
+    }
 
     const quotes: any = await db.execute(sql`
         SELECT phone, customer_name, deposit_paid_at, viewed_at, short_slug, job_top_line,
@@ -536,6 +549,10 @@ async function main() {
             contentSid, contentVariables,
             context: `board_clearout:${plan.segment}`,
             contactName: p.name,
+            // Every message this tool sends is outreach we chose to start, including the warm ones
+            // to past customers. Declaring it explicitly means the choke point refuses anyone who
+            // has opted out even if the segmenting above somehow let them through.
+            purpose: 'marketing',
         });
 
         const outcome = result.ok ? 'sent' : 'failed';

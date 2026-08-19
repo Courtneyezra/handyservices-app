@@ -11,6 +11,7 @@ import { conversations, messages, calls, messageDrafts, agentQuestions } from '@
 import { eq, desc, ne, and, asc, inArray, sql } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
 import { callMessageId } from './call-thread';
+import { neverSentMeta } from './message-quarantine';
 
 export const inboxBoardRouter = Router();
 
@@ -92,11 +93,18 @@ export async function loadActivity(conversationIds: string[]): Promise<Map<strin
 
     // One grouped pass rather than a query per card — the board renders hundreds of rows.
     // Ids are parameterized via inArray rather than interpolated into the SQL text.
+    //
+    // lastOutbound SKIPS QUARANTINED ROWS. 58,216 outbound rows written Feb-Aug 2026 never reached
+    // anyone (server/message-quarantine.ts), and counting them here is what made 71 threads read as
+    // ANSWERED when the customer had never been replied to. A message nobody received is not a
+    // reply, so as far as this clock is concerned it does not exist. The thread view still shows
+    // every one of them — see the /thread handler below.
     const rows = await db
         .select({
             conversationId: messages.conversationId,
             lastInbound: sql<string | null>`max(${messages.createdAt}) FILTER (WHERE ${messages.direction} = 'inbound')`,
-            lastOutbound: sql<string | null>`max(${messages.createdAt}) FILTER (WHERE ${messages.direction} = 'outbound')`,
+            lastOutbound: sql<string | null>`max(${messages.createdAt})
+                FILTER (WHERE ${messages.direction} = 'outbound' AND ${messages.quarantinedAt} IS NULL)`,
             channels: sql<string[]>`array_agg(DISTINCT ${messages.channel})`,
             // The channel attached to the newest inbound row. Same grouped pass — no extra query.
             lastInboundChannel: sql<string | null>`(array_agg(${messages.channel} ORDER BY ${messages.createdAt} DESC)
@@ -423,6 +431,10 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             ))
             .orderBy(desc(agentQuestions.createdAt));
 
+        // Quarantined rows are DELIBERATELY still here. They are what the machine did in Ben's
+        // name, and hiding them would leave him staring at a thread that makes no sense. They just
+        // arrive labelled `neverSent` so the UI can show them as what they were: an attempt that
+        // reached nobody. Only the SLA clock in loadActivity ignores them.
         const messageEvents = recent.reverse().map((m) => ({
             kind: 'message' as const,
             id: m.id,
@@ -436,6 +448,7 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             mediaType: m.mediaType,
             senderName: m.senderName,
             createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
+            ...neverSentMeta(m),
         }));
 
         // Every call is on this thread twice on purpose: once as a `messages` row with
@@ -455,8 +468,24 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             (a, b) => new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime()
         );
 
+        // Has this person told us to stop? Surfaced on the thread itself rather than only in a
+        // table, because the moment that matters is the one where Ben is about to type a reply.
+        const { getOptOut } = await import('./opt-out');
+        const suppression = await getOptOut(conv.phoneNumber).catch((e) => {
+            console.warn('[InboxBoard] Opt-out lookup failed for thread:', e?.message);
+            return null;
+        });
+
         res.json({
             card: toCard(conv, activity.get(conv.id)),
+            optOut: suppression && {
+                scope: suppression.scope,
+                at: suppression.at.toISOString(),
+                source: suppression.source,
+                channel: suppression.channel,
+                keyword: suppression.matchedKeyword,
+                text: suppression.triggerText,
+            },
             totalMessages: total,
             totalCalls: callEvents.length,
             truncated: total > recent.length,

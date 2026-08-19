@@ -153,6 +153,16 @@ quickRepliesRouter.get('/preview/:id', async (req, res) => {
         const [reply] = await db.select().from(quickReplies).where(eq(quickReplies.id, req.params.id));
         if (!reply) return res.status(404).json({ error: 'Quick reply not found' });
 
+        // A quick reply is a human picking a canned answer for this person, so it is a service
+        // reply and a plain STOP does not block it. "Do not contact me" does, and the WhatsApp
+        // branch below calls sendWhatsAppMessage directly, bypassing the choke point in
+        // outbound.ts — which is exactly why the check has to be here rather than assumed.
+        const { blockedByOptOut, optOutRefusalMessage } = await import('./opt-out');
+        const suppression = await blockedByOptOut(phone, 'service_reply');
+        if (suppression) {
+            return res.status(409).json({ error: 'OPTED_OUT', message: optOutRefusalMessage(suppression) });
+        }
+
         let contactName: string | null = null;
         let windowOpen = false;
         if (phone) {
@@ -199,6 +209,7 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
         if (channel === 'sms') {
             const smsResult = await sendCustomerMessage({
                 to: phone, body: rendered, channel: 'sms', contactName, context: `quick_reply:${reply.id}`,
+                purpose: 'service_reply',
             });
             if (!smsResult.ok) return res.status(500).json({ error: smsResult.error || 'SMS send failed', rendered });
             db.update(quickReplies)

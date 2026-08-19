@@ -303,6 +303,7 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
             contactName: profileName || conv!.contactName,
             hasMedia: !!mediaUrl,
             text: content || null,
+            messageId: newMessage.id,
         });
 
         // 3. Broadcast to clients

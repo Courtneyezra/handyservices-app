@@ -340,6 +340,7 @@ export class ConversationEngine {
                 contactName: ProfileName || conv!.contactName,
                 hasMedia,
                 text: Body || null,
+                messageId: newMessage.id,
             });
 
             // 4. Broadcast to all connected clients

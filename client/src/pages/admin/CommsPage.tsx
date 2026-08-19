@@ -20,7 +20,7 @@ import {
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText,
-    ShieldCheck,
+    ShieldCheck, Ban, EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
@@ -85,6 +85,29 @@ interface ThreadMessage {
     mediaType: string | null;
     senderName: string | null;
     createdAt: string;
+    /**
+     * Written, but it never reached the customer — the Feb-Aug 2026 phantom outbound
+     * (server/message-quarantine.ts). Shown rather than hidden: Ben needs to see what the machine
+     * did in his name. It just must not read as a reply.
+     */
+    neverSent?: boolean;
+    neverSentReason?: string | null;
+}
+
+/**
+ * A live suppression on this person. Present when they have told us to stop.
+ *
+ * 'marketing' is a plain STOP: campaigns and bulk outreach are blocked, but Ben answering their own
+ * question is still allowed and still right. 'all' is an explicit "do not contact me": the composer
+ * refuses outright, because there is no message this system should be sending them.
+ */
+interface ThreadOptOut {
+    scope: 'marketing' | 'all';
+    at: string;
+    source: string;
+    channel: string | null;
+    keyword: string | null;
+    text: string | null;
 }
 
 /** A phone call, shown inline in the thread. Read-only — calls are context, not conversation. */
@@ -743,6 +766,46 @@ function TemplatePicker({ conversationId, transport, onSent, onError }: {
     );
 }
 
+/**
+ * The opt-out banner. Bold and unmissable, sitting directly under the thread header so it is read
+ * before anything is typed rather than discovered as a 409 afterwards.
+ *
+ * Two states, because the two suppressions mean genuinely different things and blurring them would
+ * either leak marketing or abandon a live customer:
+ *   marketing  amber. Ben may still answer them. Campaigns may not.
+ *   all        red. Nothing goes out from here at all, and the composer is closed.
+ *
+ * Their exact words are shown when we have them: "they said STOP" is an assertion, the quote is
+ * evidence, and it is what settles an argument about whether a match was correct.
+ */
+function OptOutBanner({ optOut }: { optOut: ThreadOptOut }) {
+    const hard = optOut.scope === 'all';
+    const when = new Date(optOut.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return (
+        <div className={cn(
+            'flex items-start gap-2 border-b px-4 py-3 text-xs',
+            hard ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-900',
+        )}>
+            <Ban className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold uppercase tracking-wide">
+                    {hard ? 'Do not contact' : 'Opted out of marketing'}
+                </p>
+                <p className="mt-0.5">
+                    {hard
+                        ? `This person asked us not to contact them at all on ${when}. Nothing can be sent from here.`
+                        : `This person opted out of marketing on ${when}. Campaigns and bulk outreach are blocked. Replying to their own question is still fine.`}
+                </p>
+                {optOut.text && (
+                    <p className="mt-1 truncate italic opacity-80">
+                        They said: “{optOut.text.slice(0, 140)}”
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }) {
     const queryClient = useQueryClient();
     const [input, setInput] = useState('');
@@ -758,6 +821,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const { data, isLoading } = useQuery<{
         messages: ThreadMessage[]; timeline?: TimelineItem[]; totalMessages: number; totalCalls?: number;
         truncated: boolean; drafts?: PendingDraft[]; questions?: AgentQuestion[];
+        optOut?: ThreadOptOut | null;
     }>({
         queryKey: ['comms-thread', card.id],
         queryFn: async () => {
@@ -885,9 +949,17 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         onError: (e: Error) => setError(e.message),
     });
 
+    // Has this person asked us to stop? An 'all' suppression closes the composer completely — there
+    // is no message this system should be putting in front of them, and a disabled input is a
+    // clearer instruction than an error after the fact. A plain STOP leaves the composer open,
+    // because answering a customer's own question is service, not marketing; the banner above makes
+    // sure Ben knows before he types.
+    const optOut = data?.optOut ?? null;
+    const doNotContact = optOut?.scope === 'all';
+
     // Can a freeform reply be delivered right now? On SMS: always. On WhatsApp: only inside the
-    // 24-hour window.
-    const canWriteFreely = channel === 'sms' || card.windowOpen;
+    // 24-hour window. And never to someone who asked not to be contacted at all.
+    const canWriteFreely = !doNotContact && (channel === 'sms' || card.windowOpen);
 
     // With the WhatsApp window shut only template-backed replies can be delivered. On SMS every
     // quick reply is usable, template or not.
@@ -993,6 +1065,8 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 </div>
             </header>
 
+            {optOut && <OptOutBanner optOut={optOut} />}
+
             <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
                 {isLoading ? (
                     <div className="flex h-full items-center justify-center text-slate-400">
@@ -1015,14 +1089,31 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                             const meta = CHANNEL_META[m.channel];
                             const Icon = meta?.icon;
                             const failed = m.status === 'failed' || m.status === 'undelivered';
+                            // A never-sent row is drained of colour and dashed, so the thread reads
+                            // truthfully at a glance: these words exist in the database and were
+                            // never read by anybody. Kept visible on purpose.
+                            const neverSent = !!m.neverSent;
                             return (
                                 <div key={m.id} className={cn('flex', m.direction === 'outbound' ? 'justify-end' : 'justify-start')}>
                                     <div className={cn(
                                         'max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm',
                                         m.direction === 'outbound'
-                                            ? failed ? 'bg-red-600 text-white rounded-br-sm' : 'bg-emerald-600 text-white rounded-br-sm'
+                                            ? neverSent
+                                                ? 'border border-dashed border-slate-300 bg-slate-100 text-slate-500 rounded-br-sm shadow-none'
+                                                : failed ? 'bg-red-600 text-white rounded-br-sm' : 'bg-emerald-600 text-white rounded-br-sm'
                                             : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'
                                     )}>
+                                        {neverSent && (
+                                            <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                                <EyeOff className="h-2.5 w-2.5" />
+                                                Never sent
+                                                {m.neverSentReason && (
+                                                    <span className="font-normal normal-case tracking-normal text-slate-400">
+                                                        · {m.neverSentReason}
+                                                    </span>
+                                                )}
+                                            </p>
+                                        )}
                                         {m.mediaUrl && (
                                             (m.mediaType ?? '').startsWith('video/') || m.type === 'video' ? (
                                                 <video src={m.mediaUrl} controls preload="metadata" className="mb-1.5 max-h-72 max-w-full rounded-lg" />
@@ -1038,13 +1129,13 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                                         {!!m.content?.trim() && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
                                         <div className={cn(
                                             'mt-1 flex items-center justify-end gap-1 text-[10px]',
-                                            m.direction === 'outbound' ? 'opacity-80' : 'text-slate-400'
+                                            m.direction === 'outbound' ? (neverSent ? 'text-slate-400' : 'opacity-80') : 'text-slate-400'
                                         )}>
                                             {/* Channel on every bubble — in a merged thread you must be able to
                                                 tell at a glance whether something went by WhatsApp or SMS. */}
                                             {Icon && <Icon className="h-2.5 w-2.5" aria-label={meta.label} />}
                                             <span>{timeLabel(m.createdAt)}</span>
-                                            {m.direction === 'outbound' && <DeliveryTick status={m.status} />}
+                                            {m.direction === 'outbound' && !neverSent && <DeliveryTick status={m.status} />}
                                         </div>
                                     </div>
                                 </div>
@@ -1156,7 +1247,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     </span>
                 </div>
 
-                {!card.windowOpen && channel === 'whatsapp' && (
+                {!card.windowOpen && channel === 'whatsapp' && !doNotContact && (
                     <>
                         <div className="mb-2 flex flex-wrap items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
                             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -1219,7 +1310,8 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 <div className="flex gap-2">
                     <button
                         onClick={() => setShowQuick((v) => !v)}
-                        title="Quick replies (type / to filter)"
+                        disabled={doNotContact}
+                        title={doNotContact ? 'This person asked not to be contacted' : 'Quick replies (type / to filter)'}
                         className={cn('rounded-lg border px-2.5 transition-colors',
                             showQuick ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-500 hover:text-slate-800')}
                     >
@@ -1230,7 +1322,8 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                         onChange={(e) => { setInput(e.target.value); if (e.target.value.startsWith('/')) setShowQuick(true); }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && input.trim() && canWriteFreely) sendFreeform.mutate(input.trim()); }}
                         disabled={sending || !canWriteFreely}
-                        placeholder={recording ? `Recording… ${recordSeconds}s — tap ■ to send`
+                        placeholder={doNotContact ? 'This person asked not to be contacted'
+                            : recording ? `Recording… ${recordSeconds}s — tap ■ to send`
                             : channel === 'sms' ? 'Reply by SMS, or / for quick replies…'
                                 : card.windowOpen ? 'Reply, or / for quick replies…'
                                     : 'Window closed — switch to SMS or use a template'}
@@ -1240,7 +1333,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                         onClick={() => (recording ? stopRecording() : startRecording())}
                         // Voice notes are WhatsApp-only: SMS carries no audio, and no template can
                         // carry one either, so this stays gated on a live WhatsApp window.
-                        disabled={(sending && !recording) || !card.windowOpen || channel === 'sms'}
+                        disabled={(sending && !recording) || !card.windowOpen || channel === 'sms' || doNotContact}
                         title={channel === 'sms' ? 'Voice notes are WhatsApp only'
                             : card.windowOpen ? (recording ? 'Stop and send' : 'Record a voice note')
                                 : 'Window closed — voice notes need an open window'}

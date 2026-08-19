@@ -1665,6 +1665,21 @@ export const messages = pgTable("messages", {
     senderName: varchar("sender_name"), // Display name of sender (e.g., 'John Doe' or 'System')
     twilioSid: varchar("twilio_sid").unique(), // Store external ID
 
+    // QUARANTINE — "this row is on the record, but it never reached the customer."
+    //
+    // 58,216 outbound rows written between 18 Feb and 14 Aug 2026 were never delivered: the Feb-Mar
+    // runaway loop, then months of automation firing through a sender that could not send. Left as
+    // ordinary outbound they make computeWaitState read those threads as ANSWERED, which hides real
+    // customers from the board. Deleting them is not an option — customer comms are a business
+    // record — so they are MARKED instead, and every "did we reply?" read skips a marked row while
+    // every "what happened here?" read still shows it.
+    //
+    // Set only by scripts/migrate-quarantine-phantom-messages.ts, which is date-bounded to that
+    // historical window. Nothing at runtime writes these, and no runtime rule infers quarantine from
+    // a missing twilio_sid — a Meta Cloud API send legitimately has none.
+    quarantinedAt: timestamp("quarantined_at"),
+    quarantineReason: varchar("quarantine_reason", { length: 40 }), // runaway_loop|dead_sender|tenant_sandbox
+
     createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
     index("idx_messages_conversation").on(table.conversationId),
@@ -1872,6 +1887,79 @@ export const firstContactAckLog = pgTable("first_contact_ack_log", {
 ]);
 
 export type FirstContactAckLogRow = typeof firstContactAckLog.$inferSelect;
+
+/**
+ * THE SUPPRESSION LIST. Every "stop messaging me" this business has ever been told.
+ *
+ * The approved WhatsApp templates say "Reply STOP to opt out". Until this table existed nothing in
+ * the codebase listened, so that sentence was a promise with no machinery behind it. Under UK PECR
+ * an opt-out mechanism has to actually work, and advertising one that does not is worse than not
+ * offering one at all: it converts a compliant contact into a documented breach.
+ *
+ * SHAPE — append-only log, not a mutable flag. Each row is one thing a person said, with the words
+ * that triggered it kept verbatim. If a regulator or a customer ever asks "when did I opt out and
+ * what did I say?", the answer is a row, not a reconstruction. Escalations (a plain STOP later
+ * followed by "do not contact me") are two rows and the strongest one wins; `revoked_at` is how an
+ * opt-out is lifted, so even un-suppressing leaves a trace.
+ *
+ * KEYED ON `phone_key` — the normalised identity from commsPhoneKey(), NOT the raw string. The same
+ * human appears as "+44 7938 658185", "07938 658185" and "447938658185@c.us" across this database,
+ * and suppression that only holds for the format the STOP arrived in is not suppression.
+ *
+ * SCOPE is the judgement call this table exists to encode:
+ *
+ *   'marketing'  A plain STOP. Blocks campaigns, bulk outreach, revival, promotional templates —
+ *                everything we chose to start. It deliberately does NOT block a service reply: a
+ *                customer mid-job who texts STOP after a marketing blast still deserves an answer
+ *                to their own question and their booking confirmation. Silencing those would be
+ *                using compliance as an excuse to abandon a live obligation, and PECR governs
+ *                direct marketing, not the performance of a contract.
+ *   'all'        An explicit "do not contact me" / "stop all" / "delete my number" / "leave me
+ *                alone". This person has asked to be left alone entirely, so nothing automated
+ *                reaches them, service replies included. Only a human can decide to break that,
+ *                and they have to do it outside this system.
+ *
+ * The default for an ambiguous-but-clear opt-out is 'marketing', because that is what the advertised
+ * keyword actually promises ("reply STOP to opt out" sits under a marketing message) and because
+ * over-suppressing a live customer causes its own harm.
+ */
+export const commsOptOuts = pgTable("comms_opt_outs", {
+    id: varchar("id").primaryKey().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+
+    /** Normalised identity from commsPhoneKey(). UK numbers are the 10-digit national form. */
+    phoneKey: varchar("phone_key").notNull(),
+    /** Best-effort E.164 for humans reading the row. Never the lookup key. */
+    e164: varchar("e164"),
+
+    /** 'marketing' | 'all' — see the note above. */
+    scope: varchar("scope", { length: 12 }).notNull().default('marketing'),
+    /** 'inbound_keyword' | 'backfill' | 'manual' */
+    source: varchar("source", { length: 24 }).notNull(),
+    /** Which pipe carried the opt-out: whatsapp | sms | call | webform | email | note */
+    channel: varchar("channel", { length: 16 }),
+
+    conversationId: varchar("conversation_id"),
+    /** The inbound message that triggered it. Unique when present, so a backfill is idempotent. */
+    messageId: varchar("message_id"),
+    contactName: varchar("contact_name"),
+
+    /** Which keyword fired, and whether it was a whole-message match or a phrase inside a short one. */
+    matchedKeyword: varchar("matched_keyword"),
+    matchRule: varchar("match_rule", { length: 12 }),
+    /** The customer's words, verbatim. The evidence. */
+    triggerText: text("trigger_text"),
+
+    /** Set when someone opts back in. A live suppression is one with revoked_at IS NULL. */
+    revokedAt: timestamp("revoked_at"),
+    revokedBy: varchar("revoked_by"),
+    note: text("note"),
+}, (table) => [
+    index("idx_comms_opt_outs_key").on(table.phoneKey),
+    index("idx_comms_opt_outs_created").on(table.createdAt),
+]);
+
+export type CommsOptOut = typeof commsOptOuts.$inferSelect;
 
 // ==========================================
 // LANDING PAGE & BANNER OPTIMIZATION

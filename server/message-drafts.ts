@@ -16,10 +16,35 @@ import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { sendCustomerMessage, type OutboundChannel } from './outbound';
+import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 
 export const messageDraftsRouter = Router();
 
 export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack';
+
+/**
+ * Which draft sources count as a service reply for opt-out purposes, and which are outreach.
+ *
+ * One table rather than a flag on every caller, so the decision is visible in one place and cannot
+ * drift call site by call site. Anything not listed here is treated as MARKETING and blocked by a
+ * plain STOP — the default is refuse.
+ *
+ *   webform_ack        the customer just filled in our form. Answering them is service.
+ *   first_contact_ack  the customer just wrote to us. Same.
+ *   comms_agent        a reply drafted onto a live inbound thread. Service.
+ *   manual             a human composed it about a specific job. Service.
+ *
+ * NOT listed, therefore blocked by a plain STOP:
+ *   post_call_video    we decided to ask for something after a call. Outreach.
+ *   recovery           chasing a quote that went quiet. Outreach — this is the one PECR is about.
+ *
+ * None of this gets past an 'all' ("do not contact") suppression; that blocks every source.
+ */
+const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual']);
+
+export function purposeForDraftSource(source: DraftSource): OutboundPurpose {
+    return SERVICE_DRAFT_SOURCES.has(source) ? 'service_reply' : 'marketing';
+}
 
 /**
  * Queues a message for approval. Returns the draft id, or null if it was suppressed.
@@ -42,10 +67,30 @@ export async function queueDraft(input: {
     channel?: OutboundChannel;
     /** Skip if an unsent draft from the same source already exists for this number. */
     dedupe?: boolean;
+    /**
+     * Override the source's default purpose. Rarely needed — the source table above is the right
+     * place for a standing decision. Present so a caller with genuine context (a booking
+     * confirmation queued as 'manual', say) can be explicit.
+     */
+    purpose?: OutboundPurpose;
 }): Promise<string | null> {
     const phone = normalizePhoneNumber(input.phone);
     if (!phone) {
         console.warn('[Drafts] Refusing to queue for unparseable phone:', input.phone);
+        return null;
+    }
+
+    // Refuse at the door. A suppressed contact must not even reach the approval queue: a pending
+    // draft is a send waiting for one distracted click, and "Ben approved it" is not a defence
+    // against a PECR complaint. Checked again at approve time, because a customer can opt out in
+    // the hours between a draft being written and someone reading it.
+    const purpose = input.purpose ?? purposeForDraftSource(input.source);
+    const suppression = await blockedByOptOut(phone, purpose);
+    if (suppression) {
+        console.warn(
+            `[Drafts] Refusing to queue a ${input.source} draft for ${phone}: ` +
+            `opted out (${suppression.scope}) on ${suppression.at.toISOString()}`,
+        );
         return null;
     }
 
@@ -153,7 +198,7 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
  */
 export async function approveAndSendDraft(draftId: string, approvedBy: string): Promise<
     | { ok: true; draft: typeof messageDrafts.$inferSelect; mode: 'freeform' | 'template' | 'sms'; channel: OutboundChannel; fellBack: boolean }
-    | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED'; message: string }
+    | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED' | 'OPTED_OUT'; message: string }
 > {
     // Claim the row first so a double-click (or a racing auto-send) cannot send twice.
     const [draft] = await db.update(messageDrafts)
@@ -162,6 +207,20 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
         .returning();
 
     if (!draft) return { ok: false, code: 'NOT_PENDING', message: 'Draft not found or already handled' };
+
+    // Re-check the suppression list at send time, not just at queue time. A draft can sit in the
+    // queue for hours, and the customer may have said STOP in the meantime — that is exactly the
+    // window in which a campaign reply arrives. sendCustomerMessage would refuse anyway; catching
+    // it here gives the approver a real reason instead of a generic send failure, and kills the
+    // draft rather than leaving it to be retried.
+    const suppression = await blockedByOptOut(draft.phone, purposeForDraftSource(draft.source as DraftSource));
+    if (suppression) {
+        await db.update(messageDrafts)
+            .set({ status: 'rejected', error: `opted out (${suppression.scope}) on ${suppression.at.toISOString()}` })
+            .where(eq(messageDrafts.id, draft.id));
+        console.warn(`[Drafts] Refused to send draft ${draft.id} to ${draft.phone}: opted out (${suppression.scope})`);
+        return { ok: false, code: 'OPTED_OUT', message: optOutRefusalMessage(suppression) };
+    }
 
     // Which pipe. An SMS draft (explicitly chosen, or a landline) skips the window question
     // entirely: Meta's 24-hour rule governs WhatsApp and nothing else, so an SMS reply is always
@@ -180,6 +239,10 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
         };
     }
 
+    // Every send below carries the draft source's purpose, so the choke point in outbound.ts
+    // reaches the same verdict this function just did rather than second-guessing it.
+    const purpose = purposeForDraftSource(draft.source as DraftSource);
+
     try {
         let result: Awaited<ReturnType<typeof sendCustomerMessage>>;
         if (smsOnly) {
@@ -187,7 +250,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             // because on SMS each burst is a separately billed message.
             result = await sendCustomerMessage({
                 to: draft.phone, body: draft.body, channel: 'sms',
-                context: `draft:${draft.source}`,
+                context: `draft:${draft.source}`, purpose,
             });
         } else if (windowOpen) {
             // A body may contain several messages split by a lone '---' line — sent as separate
@@ -198,13 +261,13 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             // the same pipe, or the customer gets bubble one by SMS and bubble two by WhatsApp.
             const parts = draft.body.split(/\n\s*---\s*\n/).map((p) => p.trim()).filter(Boolean).slice(0, 4);
             result = await sendCustomerMessage({
-                to: draft.phone, body: parts[0] ?? draft.body, context: `draft:${draft.source}`,
+                to: draft.phone, body: parts[0] ?? draft.body, context: `draft:${draft.source}`, purpose,
             });
             if (result.ok && result.channel === 'whatsapp') {
                 for (let i = 1; i < parts.length; i++) {
                     await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
                     const next = await sendCustomerMessage({
-                        to: draft.phone, body: parts[i], context: `draft:${draft.source}`,
+                        to: draft.phone, body: parts[i], context: `draft:${draft.source}`, purpose,
                         allowSmsFallback: false,   // see above: no split-brain threads
                     });
                     if (!next.ok) break;           // already alerted; the first burst did land
@@ -214,7 +277,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
                 // The whole reply belongs in that one SMS, so send the remainder as one more.
                 await sendCustomerMessage({
                     to: draft.phone, body: parts.slice(1).join('\n\n'), channel: 'sms',
-                    context: `draft:${draft.source}`,
+                    context: `draft:${draft.source}`, purpose,
                 });
             }
         } else {
@@ -224,7 +287,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
                 to: draft.phone, body: draft.body,
                 contentSid: draft.contentSid!,
                 contentVariables: (draft.contentVariables as any) ?? undefined,
-                context: `draft:${draft.source}`,
+                context: `draft:${draft.source}`, purpose,
             });
         }
 
@@ -308,6 +371,8 @@ messageDraftsRouter.post('/:id/approve', async (req, res) => {
 
         if (!result.ok) {
             if (result.code === 'SEND_FAILED') return res.status(500).json({ error: result.message });
+            // OPTED_OUT is a 409 like the window refusal: the request was well-formed, the state
+            // says no. The message is the one the approver needs to read.
             return res.status(409).json({ error: result.code === 'NOT_PENDING' ? result.message : result.code, message: result.message });
         }
         res.json({ success: true, draft: result.draft, mode: result.mode });
