@@ -313,7 +313,7 @@ function loadChatVoice(): string {
     try {
         return readFileSync(path.join(process.cwd(), 'brand-voice/whatsapp-comms.md'), 'utf8');
     } catch {
-        return 'Voice: a friendly Nottingham tradesperson texting back. Short messages, plain UK English, no em dashes, no sign-offs, one question max.';
+        return 'Voice: a friendly Nottingham tradesperson texting back. Short messages, plain UK English, no em dashes, one question max. A "Thanks / Ben" sign-off and one light emoji at the end are fine.';
     }
 }
 

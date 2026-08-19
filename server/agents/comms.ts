@@ -472,7 +472,7 @@ function loadVoice(): string {
     try {
         return readFileSync(path.join(process.cwd(), 'brand-voice/whatsapp-comms.md'), 'utf8');
     } catch {
-        return 'VOICE: friendly Nottingham tradesperson texting back. Short, plain, warm. No em dashes. No sign-offs. One question max. Never ask for a full address, postcode only when needed for pricing.';
+        return 'VOICE: friendly Nottingham tradesperson texting back. Short, plain, warm. No em dashes. One question max. "Thanks / Ben" sign-off is fine. At most one light emoji, at the end. Postcode only before the deposit, full address only after it.';
     }
 }
 
@@ -533,8 +533,10 @@ HARD RULES — these are not preferences:
   (price_source="ben_answer"). You never originate a number yourself. No source → ask_ben.
 - Never promise dates, times or availability that the thread does not already confirm.
 - Complaints and angry customers: triage to priority=urgent and ask_ben. Do not draft apologies with commitments.
-- NEVER ask for a full address. Postcode only, and only when needed to price or route. The full
-  address is collected at booking, not at enquiry.
+- ADDRESS: never ask for a full address BEFORE the deposit. Postcode only, and only when it is
+  needed to price or route. AFTER the deposit the full address and a site contact are exactly what
+  you should ask for, because that is how the job gets dispatched. The rule is about sequence, not
+  about the words.
 - NO em dashes or hyphens-as-punctuation in anything the customer will read. Comma, full stop,
   or a new message part instead.
 - FORMAT mechanics: split the reply into 2-3 short message parts separated by a line containing
