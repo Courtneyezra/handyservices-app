@@ -481,6 +481,22 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         : quoteRows.length
                             ? 'No live quote. Older quotes are listed for reference only; do not chase a paid or long-dead one.'
                             : 'No quote for this number. You may not mention any price at all.',
+                    // The quote clerk's unanswered customer questions. Without this the clerk's
+                    // needs_info verdict was invisible to the one agent that talks to the customer,
+                    // so the questions were never asked and the thread stalled — found live on the
+                    // very first real conversation (20 Aug 2026).
+                    clerkGaps: (() => {
+                        if (live) return undefined;
+                        const intake = (conv.metadata as any)?.quotePrepIntake;
+                        if (!intake || intake.readiness !== 'needs_info') return undefined;
+                        const gaps = (intake.gaps ?? [])
+                            .filter((g: any) => g.audience === 'customer')
+                            .map((g: any) => String(g.question ?? g.text ?? '')).filter(Boolean);
+                        return gaps.length ? {
+                            questions: gaps,
+                            note: 'The quote clerk reviewed this thread and cannot price it until the customer answers these. Ask them naturally in your reply — short clerk questions may share one message, the one exception to the one-question rule.',
+                        } : undefined;
+                    })(),
                     timeline,
                 };
 
@@ -907,6 +923,29 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         return null;
     });
 
+    // THE CLERK'S QUESTIONS MUST REACH THE CUSTOMER. A needs_info verdict lands AFTER the reply for
+    // this turn was already drafted, so the holding reply ("I'll get this priced up shortly") knows
+    // nothing about the gaps and the agent is otherwise forbidden from writing over a pending
+    // draft. One bounded follow-up run fixes the sequence: the stale holding reply is superseded if
+    // it has not already left, and the new run sees clerkGaps in get_thread and asks them. The
+    // trigger check makes recursion depth exactly one.
+    if (handoff?.ran && handoff.readiness === 'needs_info' && (handoff.gaps ?? 0) > 0
+        && trigger !== 'quote_prep_gaps') {
+        await db.update(messageDrafts)
+            .set({ status: 'rejected', approvedBy: 'comms_agent:superseded_by_clerk_gaps', approvedAt: new Date() })
+            .where(and(
+                eq(messageDrafts.phone, e164),
+                eq(messageDrafts.source, 'comms_agent'),
+                eq(messageDrafts.status, 'pending'),
+            ));
+        console.log(`[CommsAgent] Clerk needs info on ${conv.id} — follow-up run to ask the customer.`);
+        const followUp = await runCommsAgent(conversationId, 'quote_prep_gaps').catch((error: any) => {
+            console.error(`[CommsAgent] Gap follow-up failed for ${conv.id}:`, error?.message);
+            return null;
+        });
+        if (followUp) return { ...followUp, handoff };
+    }
+
     return { conversationId: conv.id, result, actions, autosent, escalated, handoff };
 }
 
@@ -1245,6 +1284,11 @@ Your trigger tells you why you were called, and it changes the emphasis:
 - backlog_revival: a long-dead thread. Be decisive: obviously dead or spam → stage=closed with a
   tag saying why; genuinely worth reviving → tag revive_candidate and ask_ben how to approach it;
   draft only if the window is somehow open. Do not draft into a shut window.
+- quote_prep_gaps: the quote clerk just reviewed this thread and CANNOT price it until the
+  customer answers the questions in get_thread's clerkGaps. Your whole job this run is one warm
+  reply that asks them naturally. Your earlier holding reply has been withdrawn for this — write
+  the full reply fresh, and do not promise the quote again until the answers are in. Short clerk
+  questions may share one message; this is the one exception to the one-question rule.
 
 DELIVERABILITY FIRST: get_thread tells you whatsappWindowOpen. When it is FALSE a freeform reply
 cannot be delivered at all, so drafting prose is wasted work and queue_draft will refuse it. Do
