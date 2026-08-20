@@ -602,10 +602,11 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
     };
 
     // ── Send flow ──
-    // Send quote = persist (as draft) → agent drafts the delivery burst from the thread →
-    // Ben reviews/edits → Send. Ben's click IS the approval: the server sends directly
-    // (freeform burst, or template when the window is shut, or queues when neither can
-    // deliver) and only then flips the quote out of draft.
+    // Send quote = persist (as draft) → agent drafts the delivery burst → SEND, one motion.
+    // The edit-then-send review step was removed 20 Aug 2026 at the owner's call: the generated
+    // message is the approved builder copy, so a second look was pure friction. The review UI
+    // remains only as the FAILURE fallback — a send that errors drops Ben into the editable
+    // message instead of losing it. On success the sheet closes itself back to comms.
     type SendPhase = 'idle' | 'preparing' | 'review' | 'sending' | 'sent' | 'queued';
     const [sendPhase, setSendPhase] = useState<SendPhase>('idle');
     const [sendMessage, setSendMessage] = useState('');
@@ -616,7 +617,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
 
     /** Fetches the builder-generated message for the saved quote. No style = server auto-picks
      *  from the quote's customerType; an explicit style is the dropdown override. */
-    async function draftMessage(slug: string, style?: string) {
+    async function draftMessage(slug: string, style?: string): Promise<string> {
         const res = await fetch(`/api/agents/quote-prep/${conversation.id}/draft-send-message`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
             body: JSON.stringify({ slug, ...(style ? { messageStyle: style } : {}) }),
@@ -626,6 +627,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
         setSendMessage(detail.body);
         setWindowOpenHint(detail.windowOpen ?? null);
         setSendStyle(detail.styleUsed || '');
+        return detail.body as string;
     }
 
     async function beginSend() {
@@ -633,8 +635,8 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
         setSendPhase('preparing');
         try {
             const q = await persistQuote();
-            await draftMessage(q.slug);
-            setSendPhase('review');
+            const body = await draftMessage(q.slug);
+            await sendNow(q.slug, body);
         } catch (e: any) {
             setCardError(e.message);
             setSendPhase('idle');
@@ -656,14 +658,16 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
         }
     }
 
-    async function confirmSend() {
-        if (!saved) return;
+    /** The actual send. On success the sheet shows the confirmation for a beat and closes itself
+     *  back to comms; on failure it drops into the review UI with the message intact, which is the
+     *  only time Ben sees the edit step at all. */
+    async function sendNow(slug: string, body: string) {
         setCardError(null);
         setSendPhase('sending');
         try {
             const res = await fetch(`/api/agents/quote-prep/${conversation.id}/send-quote`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ slug: saved.slug, body: sendMessage }),
+                body: JSON.stringify({ slug, body }),
             });
             const detail = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(detail.message || detail.error || 'Send failed');
@@ -673,12 +677,19 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
             } else {
                 if (detail.partial) setSendInfo(detail.message ?? null);
                 setSendPhase('sent');
+                setTimeout(() => onOpenChange(false), 1400);
             }
             onRefresh();
         } catch (e: any) {
             setCardError(e.message);
             setSendPhase('review');
         }
+    }
+
+    /** Only reachable from the failure-fallback review UI. */
+    async function confirmSend() {
+        if (!saved) return;
+        await sendNow(saved.slug, sendMessage);
     }
 
     const linkPresent = !!saved && sendMessage.includes(`/quote/${saved.slug}`);
@@ -1233,7 +1244,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                         /* Ben's approval gate: the agent-drafted burst, editable, with Send as the approval. */
                         <div className="rounded-lg border border-slate-300 bg-slate-50 p-2.5">
                             <div className="mb-1.5 flex items-center gap-2 text-[11px] font-bold uppercase text-slate-700">
-                                <Bot className="h-3.5 w-3.5" /> Message to the customer — edit, then send
+                                <Bot className="h-3.5 w-3.5" /> Send hit a problem — check the message and retry
                                 {windowOpenHint === false && (
                                     <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[9px] text-white">window shut — template or queue</span>
                                 )}
