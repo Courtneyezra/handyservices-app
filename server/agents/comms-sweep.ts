@@ -19,8 +19,9 @@ import { and, eq, gte, isNull, notInArray, sql } from 'drizzle-orm';
 
 /** Don't race the on-inbound debounce: only pick up threads quiet at least this long. */
 const MIN_QUIET_MINUTES = 3;
-/** A thread the sweep already ran recently is left alone this long. */
-const MIN_MINUTES_BETWEEN_RUNS = 20;
+/** Loop guard only: a thread the sweep ran this recently is skipped even if the customer has
+ *  spoken again, so a run that decides nothing cannot burn tokens on every pass. */
+const MIN_MINUTES_BETWEEN_RUNS = 5;
 /** Older than this is the backlog's business, not the live pipeline's. */
 const MAX_AGE_HOURS = 48;
 /** Threads per pass — the queue drains across passes, never in one expensive burst. */
@@ -59,8 +60,18 @@ async function sweepOnce(): Promise<void> {
         if (!c.lastCustomerContactAt || c.lastCustomerContactAt > newest) continue;
         if (isTestNumber(c.phoneNumber ?? '')) continue;
 
+        // Skip only when the agent already ran AFTER the customer's latest word — a cooldown that
+        // ignores new inbound silences a live conversation (found within the hour on 20 Aug: the
+        // photo run stamped the thread, the postcode arrived four minutes later, and the flat
+        // 20-minute window blocked every pass while the customer waited). The small floor below is
+        // purely a loop guard for runs that decide nothing and would otherwise retry every pass.
         const lastSweep = (c.metadata as any)?.lastAutoTriageAt;
-        if (lastSweep && now - new Date(lastSweep).getTime() < MIN_MINUTES_BETWEEN_RUNS * 60_000) continue;
+        if (lastSweep) {
+            const sweepMs = new Date(lastSweep).getTime();
+            const custMs = c.lastCustomerContactAt ? new Date(c.lastCustomerContactAt).getTime() : 0;
+            if (sweepMs > custMs) continue;
+            if (now - sweepMs < MIN_MINUTES_BETWEEN_RUNS * 60_000) continue;
+        }
 
         // Only threads where the CUSTOMER had the last word. One indexed lookup per candidate that
         // got this far, which is a handful per pass, not the whole board.
