@@ -734,10 +734,23 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     return { queued: true, draftId: id, autosent: false, note: `Send refused by the delivery layer (${sent.code}); left for Ben to approve.` };
                 }
 
+                // Held ONLY for the hour — guards passed, no money in the body, direct send is on.
+                // That is a delay, not a decision: nobody needs to review it, the customer just
+                // should not be buzzed at 3am. Marked so the morning release in comms-sweep.ts
+                // sends it at 8am by itself (unless the customer wrote again overnight, in which
+                // case the release rejects it as stale and re-runs the agent instead).
+                const hoursOnly = /outside 08-20/.test(decision.reason);
+                if (hoursOnly) {
+                    await db.update(messageDrafts)
+                        .set({ reason: sql`coalesce(${messageDrafts.reason}, '') || ' [morning_release]'` })
+                        .where(eq(messageDrafts.id, id));
+                }
                 console.log(`[CommsAgent] queued for approval for ${e164} [${input.intent}]: ${decision.reason}`);
                 return {
                     queued: true, draftId: id, autosent: false,
-                    note: `Not sent: ${decision.reason}. It is waiting for Ben.`,
+                    note: hoursOnly
+                        ? `Not sent yet: ${decision.reason}. It will send ITSELF at 08:00 UK — do not rewrite it, and tell nobody it is waiting on a person, because it is not.`
+                        : `Not sent: ${decision.reason}. It is waiting for Ben.`,
                     ...(superseded ? { superseded: 'Replaced your earlier draft from this run — this complete version is the one that counts.' } : {}),
                 };
             },

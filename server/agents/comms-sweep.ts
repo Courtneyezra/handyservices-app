@@ -137,6 +137,56 @@ async function tickDueTriage(): Promise<void> {
     }
 }
 
+/**
+ * MORNING RELEASE. A draft held overnight ONLY for the hour (guards passed, no money — tagged
+ * [morning_release] at queue time) is a delayed send, not a review item: nobody chose to hold it,
+ * the clock did. From 08:00 UK this releases them by itself. The one care taken: if the customer
+ * wrote again while it waited, the reply is stale by definition — it is rejected and the agent
+ * re-runs on the fresher thread instead of sending last night's words into this morning's context.
+ */
+async function releaseMorningHolds(): Promise<void> {
+    const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
+    if (ukHour < 8 || ukHour >= 20) return;
+    const { getCommsAgentConfig } = await import('./comms');
+    const config = await getCommsAgentConfig();
+    if (!config.autosend.enabled) return; // kill switch off = everything really does wait for a human
+
+    const held = await db.select().from(messageDrafts)
+        .where(and(
+            eq(messageDrafts.status, 'pending'),
+            eq(messageDrafts.source, 'comms_agent'),
+            sql`${messageDrafts.reason} LIKE '%[morning_release]%'`,
+        )).limit(5);
+
+    for (const d of held) {
+        if (d.conversationId) {
+            const [newer] = await db.select({ id: messages.id }).from(messages)
+                .where(and(
+                    eq(messages.conversationId, d.conversationId),
+                    eq(messages.direction, 'inbound'),
+                    sql`${messages.createdAt} > ${d.createdAt.toISOString()}::timestamptz`,
+                )).limit(1);
+            if (newer) {
+                await db.update(messageDrafts)
+                    .set({ status: 'rejected', approvedBy: 'hours_gate:stale_by_morning', approvedAt: new Date() })
+                    .where(and(eq(messageDrafts.id, d.id), eq(messageDrafts.status, 'pending')));
+                await db.update(conversations).set({
+                    metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('nextTriageAt', ${new Date().toISOString()}::text)`,
+                }).where(eq(conversations.id, d.conversationId));
+                console.log(`[CommsSweep] Morning release: ${d.id} went stale overnight — rejected, agent re-running on the fresh thread.`);
+                continue;
+            }
+        }
+        const { approveAndSendDraft } = await import('../message-drafts');
+        console.log(`[CommsSweep] Morning release: sending ${d.id} (held overnight for the hour, not for a human).`);
+        try {
+            await approveAndSendDraft(d.id, 'hours_gate:morning_release');
+        } catch (error: any) {
+            console.error(`[CommsSweep] Morning release failed for ${d.id}:`, error?.message);
+        }
+    }
+}
+
 const TICK_EVERY_MS = 15_000;
 let started = false;
 
@@ -148,7 +198,10 @@ export function startCommsInboundSweep(): void {
     const tick = () => sweepOnce().catch((e) => console.error('[CommsSweep] pass failed:', e?.message ?? e));
     setTimeout(tick, BOOT_DELAY_MS);
     setInterval(tick, SWEEP_EVERY_MS).unref?.();
-    const fast = () => tickDueTriage().catch((e) => console.error('[CommsSweep] fast tick failed:', e?.message ?? e));
+    const fast = () => Promise.all([
+        tickDueTriage().catch((e) => console.error('[CommsSweep] fast tick failed:', e?.message ?? e)),
+        releaseMorningHolds().catch((e) => console.error('[CommsSweep] morning release failed:', e?.message ?? e)),
+    ]);
     setInterval(fast, TICK_EVERY_MS).unref?.();
     console.log(`[CommsSweep] Started: fast tick every ${TICK_EVERY_MS / 1000}s (DB-scheduled debounce), boot catch-up in ${BOOT_DELAY_MS / 1000}s, slow sweep every ${SWEEP_EVERY_MS / 60_000} min, 24/7.`);
 }
