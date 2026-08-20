@@ -205,7 +205,11 @@ async function generateScorecardJson(userPrompt: string): Promise<string> {
         model: "claude-opus-4-8",
         max_tokens: 4096,
         thinking: { type: "adaptive" },
-        system: SCORING_SYSTEM_PROMPT,
+        // Static scoring rubric, reused verbatim on every scored call — cache
+        // it so backfill sweeps (many calls scored back-to-back) read at ~0.1x.
+        // Borderline vs opus-4-8's 1024-token cache minimum; if under, the
+        // marker is a silent no-op and costs nothing.
+        system: [{ type: "text" as const, text: SCORING_SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } }],
         messages: [{ role: "user", content: userPrompt }],
         output_config: {
             format: { type: "json_schema", schema: SCORECARD_JSON_SCHEMA.schema as any },

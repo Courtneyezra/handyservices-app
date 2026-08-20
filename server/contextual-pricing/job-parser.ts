@@ -326,7 +326,11 @@ async function callParser(
     model: 'claude-sonnet-4-5-20250929',
     max_tokens: 1024,
     temperature: 0.1,
-    system: buildSystemPrompt(),
+    // The system prompt is deterministic (built from static category config,
+    // ~1.5K tokens > sonnet-4-5's 1024-token cache minimum) and identical on
+    // every parse — cache it so repeat parses and the forceMultiLine retry
+    // (which reuses this exact prefix seconds later) bill at ~0.1x.
+    system: [{ type: 'text' as const, text: buildSystemPrompt(), cache_control: { type: 'ephemeral' as const } }],
     messages: [
       {
         role: 'user',

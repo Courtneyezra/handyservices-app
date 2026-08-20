@@ -202,7 +202,13 @@ class AnthropicProvider implements AIProvider {
         const response = await this.client.messages.create({
             model: options?.model || this.defaultModel,
             max_tokens: options?.maxTokens ?? 2048,
-            system: systemMessage?.content,
+            // Cache breakpoint on the system block — tools render before
+            // system, so this caches tools + system together. Multi-turn
+            // tenant-chat conversations reuse the same prefix within the
+            // 5-min TTL, so follow-up turns read at ~0.1x.
+            system: systemMessage
+                ? [{ type: 'text', text: systemMessage.content, cache_control: { type: 'ephemeral' } }]
+                : undefined,
             messages: anthropicMessages,
             tools: anthropicTools
         });
