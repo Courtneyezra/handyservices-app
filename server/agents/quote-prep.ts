@@ -281,7 +281,11 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
         tools,
         model: 'claude-sonnet-5',
         maxTurns: 6,
-        maxTokens: 3000,
+        // Raised from 3,000 on 20 Aug 2026: a five-job verbal list (bath reseal, two wall lights,
+        // extractor, TV mount, shed) truncated the intake mid-write — five titled lines with
+        // evidence and assumptions each simply cost more output than one. Per response, so a small
+        // job still spends only what it needs.
+        maxTokens: 8000,
     });
 
     return { intake, summary: result.finalText, turns: result.turns };
