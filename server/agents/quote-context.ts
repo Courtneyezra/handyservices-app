@@ -51,6 +51,13 @@ export interface QuoteContext {
     lineItemsTruncated: number;
     /** Quote-level materials pot, when one is priced outside the lines. Null means none. */
     materialsTotalGBP: number | null;
+    /**
+     * The first name fronting the customer's quote PAGE — the skin. The customer is looking at
+     * this person's face and name on their own quote, so "who's coming?" must be answered
+     * consistently with it: on 20 Aug the page said Craig while the chat said "let me check
+     * who's free", which reads as the right hand not knowing what the left is doing.
+     */
+    frontedBy: string | null;
     optionalExtras: { label: string; priceGBP: number | null }[];
     /** Band + posture + observed conversion, so the agent routes before it writes. */
     priceBand: Pick<PriceBand, 'id' | 'label' | 'conversion' | 'posture' | 'playbook'>;
@@ -269,6 +276,18 @@ export async function loadQuoteContexts(opts: {
         const expired = !!expiresAt && new Date(expiresAt).getTime() < now;
         const createdMs = q.createdAt ? new Date(q.createdAt).getTime() : null;
 
+        // The face on their quote page, resolved exactly as the page resolves it (dynamic import
+        // dodges a route-file cycle). Null skin = the client's default brand skin, which is Craig
+        // (PersonalizedQuotePage.tsx:631) — the fallback must match or the chat contradicts the page.
+        let frontedBy: string | null = null;
+        try {
+            const { resolveQuoteSkin } = await import('../quotes');
+            const skin = await resolveQuoteSkin(q);
+            frontedBy = skin?.name ?? 'Craig';
+        } catch (error: any) {
+            console.warn('[QuoteContext] skin resolution failed (frontedBy=null):', error?.message);
+        }
+
         return {
             slug: q.shortSlug,
             customerName: q.customerName ?? null,
@@ -280,6 +299,7 @@ export async function loadQuoteContexts(opts: {
             lineItems,
             lineItemsTruncated: Math.max(0, usable.length - lineItems.length),
             materialsTotalGBP: pounds(Number(q.materialsCostWithMarkupPence) > 0 ? Number(q.materialsCostWithMarkupPence) : null),
+            frontedBy,
             optionalExtras,
             priceBand: {
                 id: band.id, label: band.label, conversion: band.conversion,

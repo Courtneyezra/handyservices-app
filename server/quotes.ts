@@ -923,7 +923,7 @@ const STATIC_SKINS: Record<string, { name: string; avatarUrl: string; bannerUrl:
     lena: { name: 'Lena', avatarUrl: '/assets/avatars/lena-avatar-1.webp', bannerUrl: '/assets/quote-images/lena-banner.webp' },
 };
 
-async function resolveQuoteSkin(quote: {
+export async function resolveQuoteSkin(quote: {
     skinTeamId?: string | null;
     skinContractorId?: string | null;
     contractorId?: string | null;
