@@ -137,7 +137,7 @@ async function tickDueTriage(): Promise<void> {
     }
 }
 
-const TICK_EVERY_MS = 30_000;
+const TICK_EVERY_MS = 15_000;
 let started = false;
 
 /** Idempotent; called once from server boot. The first pass runs shortly after start, so a deploy
