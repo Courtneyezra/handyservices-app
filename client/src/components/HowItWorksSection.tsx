@@ -45,7 +45,7 @@ export function HowItWorksSection() {
                 </div>
 
                 <div className="mt-20">
-                    <a href="https://wa.me/447508744402" className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white px-10 py-5 rounded-full font-bold text-xl transition-all hover:scale-105">
+                    <a href="https://wa.me/447449501762" className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white px-10 py-5 rounded-full font-bold text-xl transition-all hover:scale-105">
                         <MessageCircle className="w-6 h-6" />
                         Start Your Quote
                     </a>

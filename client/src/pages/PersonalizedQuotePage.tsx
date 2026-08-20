@@ -433,7 +433,7 @@ function QuoteExpiredPopup() {
         </div>
 
         <a
-          href={`https://wa.me/447508744402?text=${encodeURIComponent("My quote expired! I need a new one 😊")}`}
+          href={`https://wa.me/447449501762?text=${encodeURIComponent("My quote expired! I need a new one 😊")}`}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 w-full bg-green-600 hover:bg-green-700 text-white font-bold text-lg h-14 rounded-lg shadow-lg transition-colors"
@@ -2263,7 +2263,7 @@ function ReissueGate({
     }
   };
 
-  const whatsappHref = `https://wa.me/447508744402?text=${encodeURIComponent(
+  const whatsappHref = `https://wa.me/447449501762?text=${encodeURIComponent(
     `Hi, my quote${quote.shortSlug ? ` (${quote.shortSlug})` : ''} expired — can I get a fresh one?`,
   )}`;
 
@@ -2713,7 +2713,7 @@ function ContextualQuoteLayout({
   const whatsappFallback = (
     <div className="text-center pb-4">
       <a
-        href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote (${quote.shortSlug})`)}`}
+        href={`https://wa.me/447449501762?text=${encodeURIComponent(`Hi, I have a question about my quote (${quote.shortSlug})`)}`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-[#25D366] transition-colors"
@@ -2791,7 +2791,7 @@ function ContextualQuoteLayout({
           <div className="text-center space-y-2 pt-2">
             <p className="text-xs text-zinc-500">Got more jobs? Add them to this visit</p>
             <a
-              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
+              href={`https://wa.me/447449501762?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors"
@@ -2878,7 +2878,7 @@ function ContextualQuoteLayout({
           <div className="text-center space-y-2 pt-2">
             <p className="text-xs text-zinc-500">Got more jobs? Add them to this visit</p>
             <a
-              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
+              href={`https://wa.me/447449501762?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors"
@@ -2990,7 +2990,7 @@ function ContextualQuoteLayout({
           <div className="text-center space-y-2 pt-2">
             <p className="text-xs text-zinc-500">Got more jobs? Add them to this visit</p>
             <a
-              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
+              href={`https://wa.me/447449501762?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors"
@@ -5255,7 +5255,7 @@ export default function PersonalizedQuotePage() {
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <a
-                href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote${quote.shortSlug ? ` (${quote.shortSlug})` : ''}`)}`}
+                href={`https://wa.me/447449501762?text=${encodeURIComponent(`Hi, I have a question about my quote${quote.shortSlug ? ` (${quote.shortSlug})` : ''}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Message Ben on WhatsApp"

@@ -34,7 +34,7 @@ import {
     trackEvent as posthogTrack,
 } from "@/lib/posthog";
 
-const WHATSAPP_NUMBER = "+447508744402";
+const WHATSAPP_NUMBER = "+447449501762";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services - Derby");
 const PHONE_NUMBER = "+447449501762";
 

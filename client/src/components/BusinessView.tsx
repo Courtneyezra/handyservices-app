@@ -16,7 +16,7 @@ import realJobKitchen from "@assets/4cc2f0fa-125e-412b-9929-4e03a055b760_1764687
 import realJobBlinds from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_1764694548068.webp";
 import payIn3Image from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
 
-const WHATSAPP_NUMBER = "+447508744402";
+const WHATSAPP_NUMBER = "+447449501762";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services");
 const PHONE_NUMBER = "+447449501762";
 

@@ -69,7 +69,7 @@ export function PaidBookingHero({
   totalPence,
   invoiceNumber,
   portalToken,
-  whatsappUrl = 'https://wa.me/447508744402',
+  whatsappUrl = 'https://wa.me/447449501762',
   phoneNumber = '+447449501762',
   jobCompleted = false,
   reviewUrl,

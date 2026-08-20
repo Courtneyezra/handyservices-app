@@ -25,7 +25,7 @@ import { LandingHeader } from "@/components/LandingHeader";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { localBusinessSchema, serviceSchema, faqSchema } from "@/lib/seo-schema";
 
-const WHATSAPP_NUMBER = "+447508744402";
+const WHATSAPP_NUMBER = "+447449501762";
 const WHATSAPP_MESSAGE = encodeURIComponent(
   "Hi, I'm interested in your cleaning services"
 );

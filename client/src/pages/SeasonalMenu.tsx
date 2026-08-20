@@ -4,7 +4,7 @@ import { Star, Shield, Wind, Droplets, Thermometer, ArrowRight, CheckCircle, Inf
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp } from "react-icons/si";
 
-const WHATSAPP_NUMBER = "+447508744402";
+const WHATSAPP_NUMBER = "+447449501762";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in the Winter Protection Collection");
 
 export default function SeasonalMenu() {

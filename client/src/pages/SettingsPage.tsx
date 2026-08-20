@@ -58,7 +58,7 @@ const defaultSettings: TwilioSettings = {
     'twilio.forward_number': '',
     'twilio.forward_enabled': false,
     'twilio.fallback_action': 'whatsapp',
-    'twilio.fallback_message': "Sorry we missed your call. We will call you back shortly. In the meantime, you can reach us on WhatsApp here: https://wa.me/447508744402",
+    'twilio.fallback_message': "Sorry we missed your call. We will call you back shortly. In the meantime, you can reach us on WhatsApp here: https://wa.me/447449501762",
     'twilio.reassurance_enabled': true,
     'twilio.reassurance_interval': 15,
     'twilio.reassurance_message': 'Thanks for waiting, just connecting you now.',

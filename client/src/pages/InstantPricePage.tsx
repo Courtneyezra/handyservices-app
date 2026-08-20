@@ -465,7 +465,7 @@ export default function InstantPricePage() {
       }
     }
     const msg = `Hi! I just got an instant quote of £${finalPrice} from your website for:\n\n${description.slice(0, 300)}\n\nPostcode: ${postcode}\n\nI'd like to go ahead — what's the next step?`;
-    window.open(`https://wa.me/447508744402?text=${encodeURIComponent(msg)}`, '_blank');
+    window.open(`https://wa.me/447449501762?text=${encodeURIComponent(msg)}`, '_blank');
   }
 
   // ── restart ──
@@ -1427,7 +1427,7 @@ export default function InstantPricePage() {
                 {/* Or call */}
                 <div className="text-center space-y-2">
                   <p className="text-[10px] text-gray-600 uppercase tracking-widest">Or talk to us now</p>
-                  <a href="tel:+447508744402">
+                  <a href="tel:+447449501762">
                     <Button
                       variant="outline"
                       className="border-white/[0.08] text-gray-300 hover:bg-white/[0.04] hover:text-white rounded-xl gap-2 h-11 px-6"

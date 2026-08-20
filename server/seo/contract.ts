@@ -132,7 +132,7 @@ export const SEO_BRAND = {
     name: 'Handy Services',
     url: 'https://www.handyservices.app',
     telephone: '+447449501762',          // public booking line (matches app StickyCTA)
-    whatsapp: '447508744402',            // Ben's WhatsApp (matches WhatsAppEscape WHATSAPP_NUMBER)
+    whatsapp: '447449501762',            // business WhatsApp — the comms number (matches WhatsAppEscape WHATSAPP_NUMBER)
     reviewsUrl: 'https://g.page/r/CaTBbeu5MahxEBM/review', // real Handy Services Google Business reviews (Nottingham GBP)
     ratingValue: '4.9',
     reviewCount: '130',

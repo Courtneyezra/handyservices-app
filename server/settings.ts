@@ -158,7 +158,7 @@ const DEFAULT_SETTINGS = {
     'twilio.forward_number': { value: '', description: 'Phone number to forward calls to (E.164 format)' },
     'twilio.forward_enabled': { value: false, description: 'Whether call forwarding is enabled' },
     'twilio.fallback_action': { value: 'whatsapp', description: 'Action when no answer: whatsapp, voicemail, none' },
-    'twilio.fallback_message': { value: "Sorry we missed your call. We will call you back shortly. In the meantime, you can reach us on WhatsApp here: https://wa.me/447508744402", description: 'SMS sent to lead if call missed' },
+    'twilio.fallback_message': { value: "Sorry we missed your call. We will call you back shortly. In the meantime, you can reach us on WhatsApp here: https://wa.me/447449501762", description: 'SMS sent to lead if call missed' },
     'twilio.agent_notify_sms': { value: "📞 Incoming call from {lead_number} to {twilio_uk_number}", description: 'SMS sent to agent for new calls' },
     'twilio.agent_missed_sms': { value: "❌ Missed call from {lead_number}. Lead was sent an auto-SMS.", description: 'SMS sent to agent for missed calls' },
     'twilio.whisper_enabled': { value: false, description: 'Whether to play the lead number whisper to the agent' },

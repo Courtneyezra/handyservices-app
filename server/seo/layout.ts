@@ -352,7 +352,7 @@ export function renderLayout(parts: LayoutParts): string {
     const footerReviews = reviewCount != null ? `${reviewCount}+` : escapeHtml(SEO_BRAND.reviewCount);
 
     const bookHref = escapeHtml(ctaHref);
-    const benWa = escapeHtml(waHref || 'https://wa.me/447508744402?text=Hi%2C%20I%20have%20a%20question%20about%20your%20handyman%20service');
+    const benWa = escapeHtml(waHref || 'https://wa.me/447449501762?text=Hi%2C%20I%20have%20a%20question%20about%20your%20handyman%20service');
 
     const robots = noindex
         ? '\n    <meta name="robots" content="noindex,follow">'

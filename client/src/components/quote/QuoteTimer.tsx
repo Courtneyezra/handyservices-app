@@ -13,7 +13,7 @@ interface QuoteTimerProps {
 export function QuoteTimer({
   children,
   phoneNumber = '+447449501762',
-  whatsappUrl = 'https://wa.me/447508744402',
+  whatsappUrl = 'https://wa.me/447449501762',
 }: QuoteTimerProps) {
   const {
     progress,

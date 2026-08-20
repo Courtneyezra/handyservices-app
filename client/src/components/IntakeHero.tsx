@@ -186,7 +186,7 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                   type="button"
                   onClick={() => {
                     onConversion?.('hero_whatsapp');
-                    window.open("https://wa.me/447508744402", "_blank");
+                    window.open("https://wa.me/447449501762", "_blank");
                   }}
                   className="flex-1 py-4 lg:py-6 bg-green-500 hover:bg-green-600 text-white font-bold rounded-full shadow-lg shadow-green-500/20 transition-transform hover:scale-105 flex items-center justify-center gap-2"
                 >

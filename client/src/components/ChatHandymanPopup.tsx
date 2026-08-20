@@ -46,7 +46,7 @@ interface ChatHandymanPopupProps {
 }
 
 export function ChatHandymanPopup({
-    whatsappPhone = "447508744402",
+    whatsappPhone = "447449501762",
     onConversion,
     enabled = true,
 }: ChatHandymanPopupProps) {

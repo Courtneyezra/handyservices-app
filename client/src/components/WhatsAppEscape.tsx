@@ -23,7 +23,7 @@
 import { trackEvent as posthogTrack } from "@/lib/posthog";
 
 /** Same number used by `LandingHeader` and `HandymanLanding` — keep in sync. */
-const WHATSAPP_NUMBER = "447508744402";
+const WHATSAPP_NUMBER = "447449501762";
 
 /** Read variant + city from the in-progress booking record so we can tag the
  *  PostHog event with the same split-test context the rest of the funnel uses. */

@@ -4,7 +4,7 @@ import { SiWhatsapp } from "react-icons/si";
 import { HandLogo, GoogleReviewsBadge } from "./LandingShared";
 import { Link } from "wouter";
 
-const WHATSAPP_NUMBER = "+447508744402";
+const WHATSAPP_NUMBER = "+447449501762";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services");
 const PHONE_NUMBER = "+447449501762";
 

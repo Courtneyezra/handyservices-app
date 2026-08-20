@@ -104,7 +104,7 @@ export function StickyCTA({
                             taps through to WhatsApp so a real person is one tap away. */}
                         {showContactBen && (
                             <a
-                                href={`https://wa.me/447508744402?text=${encodeURIComponent("Hi, I have a question about your handyman service")}`}
+                                href={`https://wa.me/447449501762?text=${encodeURIComponent("Hi, I have a question about your handyman service")}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={() => onConversion?.('sticky_ben_whatsapp')}
@@ -167,7 +167,7 @@ export function StickyCTA({
                                 <Button
                                     onClick={() => {
                                         onConversion?.('sticky_whatsapp');
-                                        window.open("https://wa.me/447508744402", "_blank");
+                                        window.open("https://wa.me/447449501762", "_blank");
                                     }}
                                     className="flex-1 py-3 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2"
                                 >
