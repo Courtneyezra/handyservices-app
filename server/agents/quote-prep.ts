@@ -317,6 +317,16 @@ READINESS, judged for the whole conversation:
 - visit_first — it cannot be priced remotely at all: hidden extent, structural, a leak or damp
   behind fabric, or work only a site visit can scope. Say so early rather than quoting a guess.
 
+ONE ROUND OF QUESTIONS, THEN PRICE IT. If the thread shows we already asked the customer scoping
+questions and they answered, do not open a second round — every round costs a day at customer
+reply speed, and 20 Aug 2026 proved a thread can stall on its own diligence. Whatever is still
+unknown but would not swing the price wildly goes into the line's ASSUMPTIONS instead (that is
+what they exist for — they are printed on the quote): "assumes a standard mono mixer tap",
+"assumes working isolation valves; if seized, isolating the supply is a small extra". Verdict
+quote_ready. Reserve a second needs_info for an answer that genuinely forks the JOB (kitchen vs
+bathroom changes the work; mixer vs pillar taps changes a part number, which is an assumption).
+visit_first remains the honest verdict for the genuinely unpriceable.
+
 GAPS: one question each, in customer-friendly words, ending in a question mark, because a
 customer gap may be sent to them nearly verbatim. audience 'customer' when only they can answer;
 audience 'ben' when it is trade judgement or our own records. lineIndex points at the line it
