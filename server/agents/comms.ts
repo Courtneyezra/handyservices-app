@@ -1114,8 +1114,17 @@ export async function maybeAutoQuotePrep(
     const meta = (conv.metadata ?? {}) as Record<string, any>;
     const state: QuotePrepAutoState = meta.quotePrepAuto ?? {};
     const now = await substantiveSignals(conv.id);
+    // An answer to the clerk's OWN questions is the most substantive thing a customer can send,
+    // and until 20 Aug it did not count: the clerk asked "which tap?", the customer answered, and
+    // the 6-hour cost bound then blocked the re-run that would have turned needs_info into
+    // quote_ready — live thread stalled half a working day from its own success. Bounded per
+    // customer message by the caller's flow, so this cannot loop.
+    const answeredSinceNeedsInfo = state.lastReadiness === 'needs_info' && !!state.lastRunAt
+        && !!conv.lastCustomerContactAt
+        && new Date(conv.lastCustomerContactAt).getTime() > new Date(state.lastRunAt).getTime();
     const newInfo = now.mediaCount > (state.mediaCount ?? 0)
-        || (now.postcodeSeen && !state.postcodeSeen);
+        || (now.postcodeSeen && !state.postcodeSeen)
+        || answeredSinceNeedsInfo;
     const hoursSince = state.lastRunAt
         ? (Date.now() - new Date(state.lastRunAt).getTime()) / 3_600_000
         : Infinity;

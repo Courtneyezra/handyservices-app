@@ -105,6 +105,39 @@ async function sweepOnce(): Promise<void> {
     }
 }
 
+/**
+ * The FAST ticker: acts on the DB-scheduled debounce that comms-lanes.arm() writes. Every 30s it
+ * claims conversations whose nextTriageAt has fallen due and runs the agent on them, so on-inbound
+ * latency is debounce + ≤30s and a deploy costs at most one tick. The claim clears the field
+ * first, matched on its exact value, so a message arriving mid-claim re-arms cleanly and a run
+ * that crashes cannot retry every 30 seconds forever (the slow sweep remains the backstop).
+ */
+async function tickDueTriage(): Promise<void> {
+    const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
+    const config = await getCommsAgentConfig();
+    if (!config.enabled || !config.onInbound) return;
+
+    const due: any = await db.execute(sql`
+        SELECT id, metadata->>'nextTriageAt' AS due_at FROM conversations
+        WHERE archived_at IS NULL AND metadata->>'nextTriageAt' <= ${new Date().toISOString()}
+        LIMIT 3`);
+    for (const row of ((due.rows ?? due) as { id: string; due_at: string }[])) {
+        const claimed: any = await db.execute(sql`
+            UPDATE conversations SET metadata = metadata - 'nextTriageAt'
+            WHERE id = ${row.id} AND metadata->>'nextTriageAt' = ${row.due_at}
+            RETURNING id`);
+        if (!((claimed.rows ?? claimed).length)) continue; // re-armed by a newer message — not due yet
+        console.log(`[CommsSweep] On-inbound triage due for ${row.id} — running.`);
+        try {
+            const outcome = await runCommsAgent(row.id, 'inbound_message');
+            console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
+        } catch (error: any) {
+            console.error(`[CommsSweep] On-inbound run failed for ${row.id}:`, error?.message);
+        }
+    }
+}
+
+const TICK_EVERY_MS = 30_000;
 let started = false;
 
 /** Idempotent; called once from server boot. The first pass runs shortly after start, so a deploy
@@ -115,5 +148,7 @@ export function startCommsInboundSweep(): void {
     const tick = () => sweepOnce().catch((e) => console.error('[CommsSweep] pass failed:', e?.message ?? e));
     setTimeout(tick, BOOT_DELAY_MS);
     setInterval(tick, SWEEP_EVERY_MS).unref?.();
-    console.log(`[CommsSweep] Started: boot catch-up in ${BOOT_DELAY_MS / 1000}s, then every ${SWEEP_EVERY_MS / 60_000} min, 24/7 (the hours gate holds sends, not thinking).`);
+    const fast = () => tickDueTriage().catch((e) => console.error('[CommsSweep] fast tick failed:', e?.message ?? e));
+    setInterval(fast, TICK_EVERY_MS).unref?.();
+    console.log(`[CommsSweep] Started: fast tick every ${TICK_EVERY_MS / 1000}s (DB-scheduled debounce), boot catch-up in ${BOOT_DELAY_MS / 1000}s, slow sweep every ${SWEEP_EVERY_MS / 60_000} min, 24/7.`);
 }
