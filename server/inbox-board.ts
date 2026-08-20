@@ -371,10 +371,15 @@ export function toCard(
     // The "is the agent actually running?" alarm: a fresh enquiry where the customer said
     // something over 15 minutes ago and nothing has gone back since. The agent replies in
     // minutes when healthy, so this firing means check the machine, not the customer.
+    //
+    // An open ask-Ben question is an agent ACTION, not agent silence — the first false alarm
+    // (20 Aug, a furniture-assembly caller whose window was shut) accused the agent of being
+    // down on a thread where it had correctly escalated within minutes and the move was Ben's.
     const agentDown = stage === 'enquiry'
         && !!lastCustomerAt
         && Date.now() - lastCustomerAt.getTime() > 15 * 60_000
-        && !lastMessageOutbound;
+        && !lastMessageOutbound
+        && d.openQuestionCount === 0;
 
     // The clerk's verdict, stored on metadata by maybeAutoQuotePrep (server/agents/comms.ts).
     const rawReadiness = (c.metadata as Record<string, any> | null)?.quotePrepIntake?.readiness;

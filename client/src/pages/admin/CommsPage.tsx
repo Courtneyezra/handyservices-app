@@ -450,7 +450,7 @@ function CardBadges({ card }: { card: BoardCard }) {
     if (card.openQuestionCount > 0) {
         pills.push(
             <span key="question" className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
-                {card.openQuestionOptions > 0 ? `Money question · ${card.openQuestionOptions} taps` : 'Question waiting'}
+                {card.openQuestionOptions > 0 ? `Question for Ben · ${card.openQuestionOptions} taps` : 'Question waiting'}
             </span>
         );
     }
