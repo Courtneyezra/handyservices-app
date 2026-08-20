@@ -2120,6 +2120,17 @@ async function startServer() {
         } catch (e) {
             console.error('[V6 Switchboard] Failed to start quote follow-up sweep:', e);
         }
+
+        // The comms agent's durable trigger: DB-driven, survives deploys, runs 24/7. The
+        // on-inbound debounce timer is in-process and dies with the process; until 20 Aug 2026
+        // nothing existed to catch what it dropped, so a message that landed mid-deploy was
+        // never triaged at all.
+        try {
+            const { startCommsInboundSweep } = await import('./agents/comms-sweep');
+            startCommsInboundSweep();
+        } catch (e) {
+            console.error('[V6 Switchboard] Failed to start comms inbound sweep:', e);
+        }
     });
 }
 
