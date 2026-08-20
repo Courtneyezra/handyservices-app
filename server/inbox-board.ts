@@ -411,7 +411,10 @@ export function toCard(
             DEFAULT_SLA_WORKING_HOURS
         ),
         whoseMove,
-        bensDesk: whoseMove === 'ben',
+        // A closed thread never sits on Ben's desk, whatever signals it carries: the backlog of
+        // dead threads with stale held drafts turned the desk into 39 cards of noise on day one.
+        // The drafts panel is where leftover approvals get cleaned up; the desk is today's work.
+        bensDesk: whoseMove === 'ben' && stage !== 'closed',
         lastMessageOutbound,
         intakeReadiness,
         openQuestionCount: d.openQuestionCount,
