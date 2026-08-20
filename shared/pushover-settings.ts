@@ -16,6 +16,7 @@ export type PushoverEventKey =
     | 'lead'
     | 'voicemail'
     | 'complaint'
+    | 'callback'
     | 'quote_prep_ready'
     | 'quote_viewed'
     | 'quote_followup'
@@ -46,6 +47,10 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // The call classifier heard someone unhappy. A complaint left to automation is how a one-star
     // review gets written, so this is the one call kind that must reach a human immediately.
     { key: 'complaint', label: 'Complaint detected on a call', short: 'Complaints', group: 'Inbound', defaultPriority: 1, defaultSound: 'siren' },
+    // The classifier heard a callback promised — or a call that cut out before it concluded.
+    // Either way the next move is a human ringing them, and this is the nudge that says so
+    // before the sweep's fallback text goes out in their place.
+    { key: 'callback', label: 'Callback due (promised or interrupted call)', short: 'Callbacks', group: 'Inbound', defaultPriority: 1, defaultSound: 'intermission' },
     // The agent has run the conversation on its own, decided the job is priceable, and prepped the
     // intake. Nothing else in the system will tell Ben that a thread is waiting on HIM to price it,
     // and a priced-up intake nobody looks at is a lead going cold in a database.

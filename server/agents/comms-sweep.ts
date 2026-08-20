@@ -198,6 +198,74 @@ async function releaseMorningHolds(): Promise<void> {
     }
 }
 
+/**
+ * CALLBACK FALLBACK. A thread tagged callback_due is parked on Ben's desk because the classifier
+ * heard a promised (or interrupted) call — the human gets first right of the warm move, and an
+ * outbound call clears the tag by itself (server/call-thread.ts). This pass is the guarantee
+ * underneath that courtesy: when the callback never happens within callbackFallbackMinutes, the
+ * consent-mapped video template goes out through the SAME rails as the live post-call send
+ * (mobile only, dedupe, quiet hours, approval queue — sendCallbackFallbackForCall reuses them,
+ * nothing is re-implemented here). Gated on the post_call_video_request master flag, so while
+ * that ships disabled this pass decides nothing and sends nothing.
+ */
+async function fallbackOverdueCallbacks(): Promise<void> {
+    const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
+    if (ukHour < 8 || ukHour >= 20) return;
+
+    const { getOutreachConfig, callbackFallbackEligible, sendCallbackFallbackForCall } = await import('../post-call-outreach');
+    const cfg = await getOutreachConfig();
+    if (!cfg.enabled || !(cfg.callbackFallbackMinutes > 0)) return;
+
+    const tagged = await db.select({
+        id: conversations.id,
+        phoneNumber: conversations.phoneNumber,
+        tags: conversations.tags,
+        metadata: conversations.metadata,
+    }).from(conversations).where(and(
+        isNull(conversations.archivedAt),
+        sql`'callback_due' = ANY(${conversations.tags})`,
+    )).limit(20);
+
+    let acted = 0;
+    for (const c of tagged) {
+        if (acted >= 3) break; // the queue drains across passes, never in one burst
+        const callbackDueAt = (c.metadata as any)?.callbackDueAt as string | undefined;
+        if (!callbackFallbackEligible({ tags: c.tags, callbackDueAt, cfg, ukHour })) continue;
+
+        acted++;
+        try {
+            // Re-read the stored verdict off the call that parked this thread: the newest
+            // classified inbound call for the number. The consent mapping (as-discussed vs
+            // generic) must reflect what was actually said, not a guess made hours later.
+            const digits = (c.phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+            const [call] = await db.execute(sql`
+                SELECT id FROM calls
+                WHERE regexp_replace(phone_number, '[^0-9]', '', 'g') = ${digits}
+                  AND classification IS NOT NULL
+                  AND (direction IS NULL OR direction NOT LIKE 'out%')
+                ORDER BY start_time DESC NULLS LAST
+                LIMIT 1`).then((r: any) => (r.rows ?? r) as { id: string }[]);
+
+            const decision = call
+                ? await sendCallbackFallbackForCall(call.id)
+                : { sent: false, reason: 'NO_CLASSIFIED_CALL' };
+
+            // The debt is settled either way: the fallback fired and the rails had their say.
+            // Leaving the tag on a refusal (a landline, an already-asked number) would retry the
+            // same refusal every 15 seconds forever. A thrown error skips this, so a transient
+            // failure retries next pass instead of silently swallowing the callback.
+            await db.update(conversations).set({
+                tags: (c.tags ?? []).filter((t) => t !== 'callback_due'),
+                metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) - 'callbackDueAt'`,
+                updatedAt: new Date(),
+            }).where(eq(conversations.id, c.id));
+            console.log(`[CommsSweep] Callback fallback on ${c.id} (due ${callbackDueAt}): ${decision.reason} — callback_due cleared.`);
+        } catch (error: any) {
+            console.error(`[CommsSweep] Callback fallback failed for ${c.id} (tag stands, will retry):`, error?.message);
+        }
+    }
+}
+
 const TICK_EVERY_MS = 15_000;
 let started = false;
 
@@ -212,6 +280,7 @@ export function startCommsInboundSweep(): void {
     const fast = () => Promise.all([
         tickDueTriage().catch((e) => console.error('[CommsSweep] fast tick failed:', e?.message ?? e)),
         releaseMorningHolds().catch((e) => console.error('[CommsSweep] morning release failed:', e?.message ?? e)),
+        fallbackOverdueCallbacks().catch((e) => console.error('[CommsSweep] callback fallback failed:', e?.message ?? e)),
     ]);
     setInterval(fast, TICK_EVERY_MS).unref?.();
     console.log(`[CommsSweep] Started: fast tick every ${TICK_EVERY_MS / 1000}s (DB-scheduled debounce), boot catch-up in ${BOOT_DELAY_MS / 1000}s, slow sweep every ${SWEEP_EVERY_MS / 60_000} min, 24/7.`);

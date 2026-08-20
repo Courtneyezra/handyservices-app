@@ -108,6 +108,8 @@ export type BoardCard = {
     agentDown: boolean;
     /** Urgent priority AND Ben's move — rendered angrier than a normal Ben card. */
     complaint: boolean;
+    /** Tag callback_due — a promised (or interrupted) call not yet rung back. Ben's move. */
+    callbackDue: boolean;
 };
 
 /** Per-conversation batch-derived agent signals. All zeros/nulls when not loaded. */
@@ -365,7 +367,11 @@ export function toCard(
     const lastMessageOutbound = activity
         ? !!activity.lastOutbound && (!activity.lastInbound || activity.lastOutbound > activity.lastInbound)
         : !!lastMsg && (!lastCustomerAt || lastMsg.getTime() > lastCustomerAt.getTime() + 1000);
-    const needsBen = tags.includes('needs_ben') || d.openQuestionCount > 0 || d.heldDraftCount > 0;
+    // callback_due is a Ben condition in its own right: the classifier heard a promised (or
+    // interrupted) call, and the only person who can ring someone back is a person. The tag is
+    // cleared by the outbound call itself (server/call-thread.ts) or by the sweep's fallback.
+    const callbackDue = tags.includes('callback_due');
+    const needsBen = tags.includes('needs_ben') || callbackDue || d.openQuestionCount > 0 || d.heldDraftCount > 0;
     const whoseMove: BoardCard['whoseMove'] = needsBen ? 'ben' : lastMessageOutbound ? 'customer' : 'agent';
 
     // The "is the agent actually running?" alarm: a fresh enquiry where the customer said
@@ -430,6 +436,7 @@ export function toCard(
         quoteViewCount: d.quoteViewCount,
         agentDown,
         complaint: (c.priority || 'normal') === 'urgent' && whoseMove === 'ben',
+        callbackDue,
     };
 }
 

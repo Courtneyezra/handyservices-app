@@ -14,8 +14,8 @@
  * read it without re-paying the model. Stored shape contract — do not change
  * without checking consumers:
  *
- *   calls.classification = { kind, whatsappAgreed, messagingObjection,
- *                            jobSummary, urgency, callbackPromised, classifiedAt }
+ *   calls.classification = { kind, whatsappAgreed, messagingObjection, jobSummary,
+ *                            urgency, callbackPromised, callIncomplete, classifiedAt }
  */
 import { db } from './db';
 import { calls } from '@shared/schema';
@@ -47,6 +47,8 @@ export interface CallClassification {
     urgency: 'high' | 'normal';
     /** True when OUR side promised to call the customer back. */
     callbackPromised: boolean;
+    /** True when the call ended abruptly, kept dropping, or clearly did not conclude. */
+    callIncomplete: boolean;
     classifiedAt: string; // ISO timestamp
 }
 
@@ -67,7 +69,8 @@ Return a JSON object with exactly these fields:
 - "messagingObjection": true if the caller objected to being messaged in any way ("just call me", "I don't have WhatsApp", "don't text me"), else false.
 - "jobSummary": what work was discussed, max 200 characters, plain text. Empty string "" if no job was discussed.
 - "urgency": "high" only if the caller expressed time pressure (leak, no heating, safety, "today/tomorrow"), else "normal".
-- "callbackPromised": true if OUR side promised to call the customer back, else false.`;
+- "callbackPromised": true if OUR side promised to call the customer back, else false.
+- "callIncomplete": true if the call ended abruptly, kept dropping, had line problems, or the conversation clearly did not conclude (cut off mid-sentence, "can you hear me?", "I'll have to ring you back, the line's terrible"), else false. A call that reached a natural goodbye is complete even if it was short.`;
 
 /**
  * Defensive parse of a model reply into a CallClassification (minus classifiedAt).
@@ -90,6 +93,10 @@ export function parseClassification(raw: unknown): Omit<CallClassification, 'cla
         jobSummary: r.jobSummary.slice(0, 200),
         urgency: r.urgency,
         callbackPromised: r.callbackPromised,
+        // Additive field (Aug 2026): verdicts stored before it existed simply don't have it, and
+        // a missing answer must read as "the call concluded", not as unparseable — rejecting here
+        // would throw away every historic verdict. Anything non-boolean degrades to false too.
+        callIncomplete: r.callIncomplete === true,
     };
 }
 

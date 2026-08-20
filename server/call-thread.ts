@@ -120,6 +120,8 @@ export type CallClassification = {
     jobSummary: string;
     urgency: 'high' | 'normal';
     callbackPromised: boolean;
+    /** Optional here: verdicts stored before Aug 2026 don't carry it, and this module reads raw jsonb. */
+    callIncomplete?: boolean;
     classifiedAt: string;
 };
 
@@ -544,6 +546,25 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
     }
     // Deliberately absent: lastInboundAt, canSendFreeform, templateRequired. See the file header.
     await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));
+
+    // --- 3b. the loop closes itself ---------------------------------------------------
+    // A thread tagged callback_due is waiting for exactly one thing: us ringing them. This
+    // outbound call IS that ring, so the debt is settled the moment it lands on the thread —
+    // no button, no checkbox. The tag and its clock go together (the sweep's fallback measures
+    // metadata.callbackDueAt, and a cleared tag with a live clock would be a lie in waiting).
+    // Only callback_due is touched; every other tag is someone else's bookkeeping.
+    if (info.direction === 'outbound' && (conv.tags ?? []).includes('callback_due')) {
+        try {
+            await db.update(conversations).set({
+                tags: (conv.tags ?? []).filter((t) => t !== 'callback_due'),
+                metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) - 'callbackDueAt'`,
+                updatedAt: new Date(),
+            }).where(eq(conversations.id, conv.id));
+            console.log(`[CallThread] Callback made — callback_due cleared (${conv.id})`);
+        } catch (error: any) {
+            console.warn('[CallThread] Could not clear callback_due:', error?.message ?? error);
+        }
+    }
 
     const result: CallThreadResult = {
         status: existing ? 'updated' : 'written',

@@ -347,6 +347,35 @@ export async function notifyComplaintCall(alert: ComplaintCallAlert): Promise<vo
     });
 }
 
+interface CallbackDueAlert {
+    callerName?: string | null;
+    phoneNumber?: string | null;
+    /** Classifier's job summary — what the call was about, if the transcript said. */
+    jobSummary?: string | null;
+}
+
+/**
+ * Fire a "ring them back" push alert — the post-call classifier (server/call-classifier.ts)
+ * heard a callback promised, or a call that cut out before it concluded. The warm move is a
+ * human call, not a template, so no message goes out with this: the thread is parked on Ben's
+ * desk and the sweep only falls back to a text if the callback stays unmade
+ * (server/agents/comms-sweep.ts, fallbackOverdueCallbacks).
+ */
+export async function notifyCallbackDue(alert: CallbackDueAlert): Promise<void> {
+    const name = alert.callerName?.trim() || 'Unknown caller';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const lines = [`${name} — ${number}`];
+    if (alert.jobSummary?.trim()) lines.push(truncate(alert.jobSummary.trim(), 200));
+    lines.push('📞 A callback was promised, or the call cut out. Ring them back — the text waits for you.');
+    await dispatch({
+        event: 'callback',
+        title: '📞 Ring them back',
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
 interface QuotePrepReadyAlert {
     conversationId: string;
     customerName?: string | null;

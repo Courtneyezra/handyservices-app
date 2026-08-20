@@ -73,6 +73,8 @@ interface BoardCard {
     quoteViewCount: number | null;
     agentDown: boolean;
     complaint: boolean;
+    /** Tag callback_due — a promised (or interrupted) call not yet rung back. Ben's move. */
+    callbackDue: boolean;
 }
 
 interface BoardResponse {
@@ -431,6 +433,13 @@ function CardBadges({ card }: { card: BoardCard }) {
         pills.push(
             <span key="down" className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
                 <AlertTriangle className="h-2.5 w-2.5" /> Agent has not replied, check it is running
+            </span>
+        );
+    }
+    if (card.callbackDue) {
+        pills.push(
+            <span key="callback" className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">
+                📞 Ring back
             </span>
         );
     }

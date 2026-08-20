@@ -429,7 +429,7 @@ export const calls = pgTable("calls", {
     aiScoredAt: timestamp("ai_scored_at"), // when the scorecard was generated (null = unscored)
 
     // Post-call classification (server/call-classifier.ts). Stored shape contract:
-    // { kind, whatsappAgreed, messagingObjection, jobSummary, urgency, callbackPromised, classifiedAt }
+    // { kind, whatsappAgreed, messagingObjection, jobSummary, urgency, callbackPromised, callIncomplete, classifiedAt }
     // Applied via scripts/migrate-call-classification.ts — NEVER db:push on this schema.
     classification: jsonb("classification"),
 
