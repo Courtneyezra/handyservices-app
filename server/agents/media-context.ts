@@ -116,5 +116,24 @@ export async function buildMediaBlocks(items: ThreadMediaItem[]): Promise<MediaB
         // audio and documents can't be shown; the timeline JSON already flags them
     }
 
+    // The evidence check travels WITH the pixels, because the failure it prevents happened with
+    // the rule sitting in the system prompt: 20 Aug 2026, an under-the-sink photo (tap not in
+    // frame) got the reply "looks like a straightforward tap swap" — same model, same image the
+    // quote clerk described honestly as "the tap itself is not shown". The eyes were fine; the
+    // reply skipped the comparison between what was asked for and what actually arrived.
+    if (blocks.length > 1) {
+        blocks.push({
+            type: 'text',
+            text: 'EVIDENCE CHECK before replying about this media: (1) name to yourself what is '
+                + 'ACTUALLY in frame; (2) compare that against what was asked for; (3) if the thing '
+                + 'you need is not in frame (you asked for the tap, this shows under the sink), the '
+                + 'reply is: thank them, say what the photo DOES show, and ask for the one specific '
+                + 'missing shot. Never name a fix or a scope the pixels do not support — a customer '
+                + 'will quote "you said it was a straightforward swap" back at the quote. "Hard to '
+                + 'say exactly from the photo" is a professional answer, and asking for a second '
+                + 'shot is what a real tradesperson does all day.',
+        });
+    }
+
     return blocks.length > 1 ? blocks : [];
 }
