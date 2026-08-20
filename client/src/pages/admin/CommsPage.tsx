@@ -20,7 +20,7 @@ import {
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText,
-    ShieldCheck, Ban, EyeOff,
+    ShieldCheck, Ban, EyeOff, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
@@ -59,6 +59,20 @@ interface BoardCard {
     windowOpen: boolean;
     windowHoursLeft: number;
     wait: WaitState;
+    // Agent-era derivations (server/inbox-board.ts) — the board renders whose move it is,
+    // not a to-do list for a human who no longer works every card.
+    whoseMove: 'ben' | 'agent' | 'customer';
+    bensDesk: boolean;
+    lastMessageOutbound: boolean;
+    intakeReadiness: 'quote_ready' | 'needs_info' | 'visit_first' | null;
+    openQuestionCount: number;
+    openQuestionOptions: number;
+    heldDraftCount: number;
+    recontactDate: string | null;
+    quoteValueGBP: number | null;
+    quoteViewCount: number | null;
+    agentDown: boolean;
+    complaint: boolean;
 }
 
 interface BoardResponse {
@@ -234,14 +248,6 @@ function renderBody(text: string, contactName?: string | null): string {
         .replace(/\{\{\s*name\s*\}\}/gi, full || 'there');
 }
 
-/** Working hours read oddly as bare numbers once large; days are what Ben thinks in. */
-function formatWait(w: WaitState): string {
-    if (!w.awaitingReply) return '';
-    if (w.waitingWorkingHours < 10) return `${w.waitingWorkingHours}h waiting`;
-    const days = Math.round(w.waitingWorkingHours / 10); // ~10 working hours per day
-    return days <= 1 ? '1 day waiting' : `${days} days waiting`;
-}
-
 function timeLabel(iso: string): string {
     const d = new Date(iso);
     const hrs = (Date.now() - d.getTime()) / 3_600_000;
@@ -251,20 +257,6 @@ function timeLabel(iso: string): string {
 }
 
 // ---------------------------------------------------------------- small components
-
-function WaitBadge({ wait }: { wait: WaitState }) {
-    if (!wait.awaitingReply) return null;
-    const tone =
-        wait.severity === 'breached' ? 'bg-red-600 text-white'
-        : wait.severity === 'due' ? 'bg-amber-500 text-white'
-        : 'bg-slate-200 text-slate-700';
-    return (
-        <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase', tone)}>
-            <Clock className="h-2.5 w-2.5" />
-            {formatWait(wait)}
-        </span>
-    );
-}
 
 function ChannelIcons({ channels }: { channels: string[] }) {
     if (!channels.length) return null;
@@ -370,8 +362,121 @@ function CallEventRow({ call }: { call: CallEvent }) {
     );
 }
 
-function Card({ card, selected, onOpen }: { card: BoardCard; selected: boolean; onOpen: () => void }) {
-    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id });
+/** "5m ago" / "3h ago" / "2d ago" — the footer's time-since-last-message. */
+function agoLabel(iso: string | null): string {
+    if (!iso) return 'no messages';
+    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+}
+
+/** "3 Sep" — the recontact pill's date. */
+function shortDate(iso: string): string {
+    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+/** Whose-move chip, top-right of every card. Loud only when a human is needed. */
+function WhoseMoveChip({ card }: { card: BoardCard }) {
+    if (card.agentDown) {
+        const mins = card.lastCustomerMessageAt
+            ? Math.floor((Date.now() - new Date(card.lastCustomerMessageAt).getTime()) / 60_000)
+            : null;
+        return (
+            <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
+                Unanswered {mins != null ? `${mins} min` : ''}
+            </span>
+        );
+    }
+    if (card.whoseMove === 'ben') {
+        return (
+            <span className={cn(
+                'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase',
+                card.complaint ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-800',
+            )}>
+                Ben to act
+            </span>
+        );
+    }
+    return (
+        <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-400">
+            {card.whoseMove === 'agent' ? 'Agent working' : 'With customer'}
+        </span>
+    );
+}
+
+/** The card's signal pills — capped at three so a card never becomes a dashboard. */
+function CardBadges({ card }: { card: BoardCard }) {
+    const pills: JSX.Element[] = [];
+    if (card.agentDown) {
+        pills.push(
+            <span key="down" className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                <AlertTriangle className="h-2.5 w-2.5" /> Agent has not replied, check it is running
+            </span>
+        );
+    }
+    if (card.intakeReadiness === 'quote_ready') {
+        pills.push(
+            <span key="intake" className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">
+                <ClipboardList className="h-2.5 w-2.5" /> Intake ready to price
+            </span>
+        );
+    } else if (card.intakeReadiness === 'visit_first') {
+        pills.push(
+            <span key="visit" className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-800">
+                Visit first
+            </span>
+        );
+    }
+    if (card.openQuestionCount > 0) {
+        pills.push(
+            <span key="question" className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                {card.openQuestionOptions > 0 ? `Money question · ${card.openQuestionOptions} taps` : 'Question waiting'}
+            </span>
+        );
+    }
+    if (card.heldDraftCount > 0) {
+        pills.push(
+            <span key="held" className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">
+                Reply held
+            </span>
+        );
+    }
+    if (card.recontactDate) {
+        pills.push(
+            <span key="recontact" className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                Recontact {shortDate(card.recontactDate)}
+            </span>
+        );
+    }
+    if ((card.quoteViewCount ?? 0) > 0 && card.stage === 'quote_sent') {
+        pills.push(
+            <span key="opened" className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                Opened {card.quoteViewCount}×
+            </span>
+        );
+    }
+    if (pills.length === 0) return null;
+    return <div className="mt-1.5 flex flex-wrap items-center gap-1">{pills.slice(0, 3)}</div>;
+}
+
+/**
+ * One card, same anatomy everywhere (columns and the Ben's desk strip). Borders encode who acts:
+ * a visible blue border means Ben (amber when it is an urgent complaint), red means the agent
+ * looks down — everything the machine or the customer is handling stays deliberately calm.
+ */
+function Card({ card, selected, onOpen, inStrip }: {
+    card: BoardCard; selected: boolean; onOpen: () => void; inStrip?: boolean;
+}) {
+    // The strip shows the SAME conversations as the columns, so strip copies get their own drag id
+    // (dnd-kit ids must be unique) and never drag — dragging is stage movement, a column concern.
+    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+        id: inStrip ? `desk-${card.id}` : card.id,
+        disabled: inStrip,
+    });
+    const stageLabel = (STAGE_META[card.stage]?.label ?? card.stage).toLowerCase();
     return (
         <div
             ref={setNodeRef}
@@ -379,38 +484,70 @@ function Card({ card, selected, onOpen }: { card: BoardCard; selected: boolean; 
             {...attributes}
             onClick={onOpen}
             className={cn(
-                'rounded-lg border bg-white p-2.5 shadow-sm cursor-pointer hover:border-slate-400 transition-colors',
+                'rounded-lg border bg-white p-2.5 shadow-sm cursor-pointer transition-colors',
+                card.agentDown ? 'border-red-500'
+                    : card.bensDesk ? (card.complaint ? 'border-amber-500' : 'border-blue-500')
+                        : 'border-slate-200 hover:border-slate-400',
+                (card.agentDown || card.bensDesk) && 'border-[1.5px]',
                 isDragging && 'opacity-40',
-                selected && 'ring-2 ring-slate-900 border-slate-900',
-                card.wait.severity === 'breached' && 'border-l-4 border-l-red-600',
-                card.wait.severity === 'due' && 'border-l-4 border-l-amber-500'
+                selected && 'ring-2 ring-slate-900',
             )}
         >
             <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900">{displayName(card)}</div>
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] tabular-nums text-slate-400">{card.displayPhone}</span>
-                        <ChannelIcons channels={card.channels} />
-                    </div>
+                <div className="min-w-0 truncate text-sm font-semibold text-slate-900">
+                    {displayName(card)}
+                    {card.quoteValueGBP != null && (
+                        <span className="font-medium text-slate-500"> · £{card.quoteValueGBP.toLocaleString()}</span>
+                    )}
                 </div>
-                {card.unreadCount > 0 && (
-                    <span className="shrink-0 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
-                        {card.unreadCount}
-                    </span>
-                )}
+                <WhoseMoveChip card={card} />
             </div>
             {card.lastMessagePreview && (
-                <p className="mt-1.5 line-clamp-2 text-xs text-slate-600">{card.lastMessagePreview}</p>
+                <p className="mt-1 truncate text-xs text-slate-600">
+                    {card.lastMessageOutbound && <span className="font-semibold text-slate-400">Agent: </span>}
+                    {card.lastMessagePreview}
+                </p>
             )}
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <WaitBadge wait={card.wait} />
-                {card.windowOpen && (
-                    <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
-                        {card.windowHoursLeft}h window
+            <CardBadges card={card} />
+            <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
+                <span>{stageLabel} · {agoLabel(card.lastMessageAt)}</span>
+                <span className={cn(card.windowOpen && 'text-emerald-600 font-medium')}>
+                    {card.windowOpen ? `window ${card.windowHoursLeft}h` : 'window shut'}
+                </span>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Everything that needs Ben, pinned above the columns regardless of stage. The columns answer
+ * "where is the money"; this strip answers the only question he actually opens the page with —
+ * "what needs ME" — without making him scan five columns for blue borders.
+ */
+function BensDeskStrip({ cards, selectedId, onOpen }: {
+    cards: BoardCard[]; selectedId: string | null; onOpen: (c: BoardCard) => void;
+}) {
+    return (
+        <div className="mb-3 px-5">
+            <div className="mb-1.5 flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-blue-800">Ben's desk</span>
+                {cards.length > 0 && (
+                    <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
+                        {cards.length}
                     </span>
                 )}
             </div>
+            {cards.length === 0 ? (
+                <p className="text-xs text-slate-400">Nothing needs you</p>
+            ) : (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                    {cards.map((c) => (
+                        <div key={c.id} className="w-[264px] shrink-0">
+                            <Card card={c} selected={c.id === selectedId} onOpen={() => onOpen(c)} inStrip />
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
@@ -1462,6 +1599,13 @@ export default function CommsPage() {
         [activeId, data]
     );
 
+    // Ben's desk: every card that is his move, whatever its stage, in the columns' funnel order.
+    // Built from the FILTERED columns so search narrows the strip too.
+    const bensDeskCards = useMemo(() => {
+        if (!filtered || !data) return [];
+        return data.stages.flatMap((s) => (filtered[s] ?? []).filter((c) => c.bensDesk));
+    }, [filtered, data]);
+
     function onDragEnd(e: DragEndEvent) {
         setActiveId(null);
         const id = String(e.active.id);
@@ -1558,16 +1702,23 @@ export default function CommsPage() {
                     onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
                     onDragEnd={onDragEnd}
                 >
-                    <div className="flex min-w-0 flex-1 gap-3 overflow-x-auto px-5 pb-4">
-                        {data.stages.map((stage) => (
-                            <Column
-                                key={stage}
-                                stage={stage}
-                                cards={filtered[stage] ?? []}
-                                selectedId={selected?.id ?? null}
-                                onOpen={openThread}
-                            />
-                        ))}
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                        <BensDeskStrip
+                            cards={bensDeskCards}
+                            selectedId={selected?.id ?? null}
+                            onOpen={openThread}
+                        />
+                        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-5 pb-4">
+                            {data.stages.map((stage) => (
+                                <Column
+                                    key={stage}
+                                    stage={stage}
+                                    cards={filtered[stage] ?? []}
+                                    selectedId={selected?.id ?? null}
+                                    onOpen={openThread}
+                                />
+                            ))}
+                        </div>
                     </div>
                     <DragOverlay>
                         {activeCard && (
