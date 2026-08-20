@@ -52,6 +52,15 @@ export interface AgentRunResult {
     finalText: string;
     transcript: AgentTranscriptEvent[];
     turns: number;
+    /** Exact token spend for the whole run, summed across turns, straight from the API. */
+    usage: AgentRunUsage;
+}
+
+export interface AgentRunUsage {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
 }
 
 export async function runAgent(opts: {
@@ -89,16 +98,53 @@ export async function runAgent(opts: {
     const messages: Anthropic.MessageParam[] = [{ role: 'user', content: opts.goal }];
     let finalText = '';
     let turns = 0;
+    const usage: AgentRunUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+    // PROMPT CACHING — the single biggest cost lever on an agent loop. Without it, every turn
+    // re-bills the full system prompt, tool schemas, thread history and images at full price, so
+    // a 5-turn run pays for its context five times over (19 Aug 2026: ~$20 burned in a day, almost
+    // all of it exactly this). One marker on the system block caches the tools+system prefix; a
+    // moving marker on the latest message makes each turn a cache READ (~10% price) of everything
+    // before it. Markers must move, not accumulate — the API allows at most 4.
+    const stripCacheMarkers = (msgs: Anthropic.MessageParam[]) => {
+        for (const m of msgs) {
+            if (!Array.isArray(m.content)) continue;
+            for (const block of m.content) delete (block as any).cache_control;
+        }
+    };
+    const markLastBlock = (msgs: Anthropic.MessageParam[]) => {
+        const last = msgs[msgs.length - 1];
+        if (!last) return;
+        if (typeof last.content === 'string') {
+            last.content = [{ type: 'text', text: last.content }];
+        }
+        const blocks = last.content as any[];
+        if (blocks.length) blocks[blocks.length - 1].cache_control = { type: 'ephemeral' };
+    };
 
     while (turns < maxTurns) {
         turns++;
+        stripCacheMarkers(messages);
+        markLastBlock(messages);
         const response = await client.messages.create({
             model,
             max_tokens: opts.maxTokens ?? 8000,
-            system: opts.system,
+            system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
             tools: toolSchemas,
             messages,
         });
+
+        // What this turn actually cost, straight from the API — the answer to "what is eating
+        // credits" must be readable off a run's console output, not reconstructed from a bill.
+        usage.inputTokens += response.usage.input_tokens;
+        usage.outputTokens += response.usage.output_tokens;
+        usage.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+        usage.cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
+        console.log(
+            `[agent:${opts.name}] turn ${turns} tokens: in=${response.usage.input_tokens} `
+            + `out=${response.usage.output_tokens} cache_read=${response.usage.cache_read_input_tokens ?? 0} `
+            + `cache_write=${response.usage.cache_creation_input_tokens ?? 0}`,
+        );
 
         // Narrate any text the model wrote this turn (its visible reasoning).
         for (const block of response.content) {
@@ -125,7 +171,7 @@ export async function runAgent(opts: {
 
         if (response.stop_reason !== 'tool_use') {
             log('done', { stop_reason: response.stop_reason });
-            return { finalText, transcript, turns };
+            return { finalText, transcript, turns, usage };
         }
 
         // The model asked for tools: run every requested call (in parallel),
@@ -176,5 +222,5 @@ export async function runAgent(opts: {
     }
 
     log('turn_cap', { maxTurns });
-    return { finalText, transcript, turns };
+    return { finalText, transcript, turns, usage };
 }
