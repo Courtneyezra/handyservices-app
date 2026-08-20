@@ -1,0 +1,160 @@
+/**
+ * Post-call classification — reads the transcript and says what the call WAS,
+ * so downstream automation stops inferring intent from proxies like duration.
+ *
+ * The owner's objection to the old rule ("completed inbound call over 20s ⇒
+ * send the video-request template") was precise: a long call is not consent.
+ * The caller may have declined WhatsApp, may be a supplier, may be complaining.
+ * So before any post-call outreach, the call must be CLASSIFIED, and the
+ * classifier fails closed at every step: no transcript → no verdict → nothing
+ * is authorised. A call we cannot read authorises nothing.
+ *
+ * The verdict is stored on the call row (calls.classification, jsonb) so it is
+ * computed once per call and other surfaces (thread display, dashboards) can
+ * read it without re-paying the model. Stored shape contract — do not change
+ * without checking consumers:
+ *
+ *   calls.classification = { kind, whatsappAgreed, messagingObjection,
+ *                            jobSummary, urgency, callbackPromised, classifiedAt }
+ */
+import { db } from './db';
+import { calls } from '@shared/schema';
+import { eq, or } from 'drizzle-orm';
+import { claudeJson, FAST_MODEL } from './llm';
+
+/** Transcripts at or below this length are hold music, misdials and "hello? hello?" — unreadable. */
+const MIN_TRANSCRIPT_CHARS = 50;
+
+export type CallKind =
+    | 'job_enquiry'
+    | 'existing_customer'
+    | 'supplier'
+    | 'sales_spam'
+    | 'wrong_number'
+    | 'complaint'
+    | 'other';
+
+export type WhatsAppAgreed = 'agreed' | 'declined' | 'not_discussed';
+
+export interface CallClassification {
+    kind: CallKind;
+    /** Did the CUSTOMER assent to a WhatsApp/photo/video follow-up on the call? Stated assent only. */
+    whatsappAgreed: WhatsAppAgreed;
+    /** True when the caller pushed back on messaging in any form ("just ring me", "I don't use WhatsApp"). */
+    messagingObjection: boolean;
+    /** <=200 chars, '' when there is no job. */
+    jobSummary: string;
+    urgency: 'high' | 'normal';
+    /** True when OUR side promised to call the customer back. */
+    callbackPromised: boolean;
+    classifiedAt: string; // ISO timestamp
+}
+
+export type ClassifyResult =
+    | { ok: true; classification: CallClassification }
+    | { ok: false; reason: 'NO_TRANSCRIPT' | 'UNPARSEABLE' | 'NO_CALL_RECORD' | 'ERROR' };
+
+const KINDS: CallKind[] = ['job_enquiry', 'existing_customer', 'supplier', 'sales_spam', 'wrong_number', 'complaint', 'other'];
+const AGREED: WhatsAppAgreed[] = ['agreed', 'declined', 'not_discussed'];
+
+const SYSTEM_PROMPT = `You classify ended phone calls for a UK handyman business. You will be given the transcript of one call.
+
+Judge ONLY from the transcript. Never guess, never fill gaps with what "probably" happened, and NEVER infer consent that was not stated. If the transcript does not show it, it did not happen.
+
+Return a JSON object with exactly these fields:
+- "kind": one of "job_enquiry" (a potential customer describing work they want done), "existing_customer" (about a job already booked/done/invoiced), "supplier" (merchant, trade supplier, materials), "sales_spam" (someone selling TO us, robocall, marketing), "wrong_number", "complaint" (unhappy about our work, billing or conduct), "other".
+- "whatsappAgreed": "agreed" ONLY if the customer explicitly assented on the call to a WhatsApp / photo / video follow-up (e.g. "yes, send me the WhatsApp", "I'll send you a video of it"). "declined" if they refused or resisted it. "not_discussed" if messaging never came up or was left unresolved. Our side merely PROPOSING it is not agreement.
+- "messagingObjection": true if the caller objected to being messaged in any way ("just call me", "I don't have WhatsApp", "don't text me"), else false.
+- "jobSummary": what work was discussed, max 200 characters, plain text. Empty string "" if no job was discussed.
+- "urgency": "high" only if the caller expressed time pressure (leak, no heating, safety, "today/tomorrow"), else "normal".
+- "callbackPromised": true if OUR side promised to call the customer back, else false.`;
+
+/**
+ * Defensive parse of a model reply into a CallClassification (minus classifiedAt).
+ * Returns null on anything malformed — the caller must treat null as UNPARSEABLE.
+ * Exported for the deterministic test harness.
+ */
+export function parseClassification(raw: unknown): Omit<CallClassification, 'classifiedAt'> | null {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const r = raw as Record<string, unknown>;
+    if (typeof r.kind !== 'string' || !KINDS.includes(r.kind as CallKind)) return null;
+    if (typeof r.whatsappAgreed !== 'string' || !AGREED.includes(r.whatsappAgreed as WhatsAppAgreed)) return null;
+    if (typeof r.messagingObjection !== 'boolean') return null;
+    if (typeof r.jobSummary !== 'string') return null;
+    if (r.urgency !== 'high' && r.urgency !== 'normal') return null;
+    if (typeof r.callbackPromised !== 'boolean') return null;
+    return {
+        kind: r.kind as CallKind,
+        whatsappAgreed: r.whatsappAgreed as WhatsAppAgreed,
+        messagingObjection: r.messagingObjection,
+        jobSummary: r.jobSummary.slice(0, 200),
+        urgency: r.urgency,
+        callbackPromised: r.callbackPromised,
+    };
+}
+
+/**
+ * Classify a raw transcript string. This is the test hook — no DB, no storage,
+ * just the transcript gate and one model call. Fails closed on both.
+ */
+export async function classifyTranscript(transcription: string | null | undefined): Promise<ClassifyResult> {
+    const transcript = (transcription || '').trim();
+    if (transcript.length <= MIN_TRANSCRIPT_CHARS) {
+        return { ok: false, reason: 'NO_TRANSCRIPT' };
+    }
+
+    let raw: unknown;
+    try {
+        raw = await claudeJson({
+            model: FAST_MODEL,
+            system: SYSTEM_PROMPT,
+            user: `Call transcript:\n\n${transcript.slice(0, 24_000)}`,
+            maxTokens: 500,
+        });
+    } catch (e) {
+        // Model down / refused / returned non-JSON — all the same thing to us: no verdict.
+        console.warn('[CallClassifier] Model call failed:', e);
+        return { ok: false, reason: 'UNPARSEABLE' };
+    }
+
+    const parsed = parseClassification(raw);
+    if (!parsed) {
+        console.warn('[CallClassifier] Unparseable verdict:', JSON.stringify(raw).slice(0, 300));
+        return { ok: false, reason: 'UNPARSEABLE' };
+    }
+    return { ok: true, classification: { ...parsed, classifiedAt: new Date().toISOString() } };
+}
+
+/**
+ * Classify a call by id (accepts either calls.id or the Twilio CallSid) and
+ * store the verdict on the row. Idempotent: an already-stored verdict is
+ * returned without another model call. Never throws.
+ */
+export async function classifyCall(callId: string): Promise<ClassifyResult> {
+    try {
+        const [call] = await db.select()
+            .from(calls)
+            .where(or(eq(calls.id, callId), eq(calls.callId, callId)));
+        if (!call) return { ok: false, reason: 'NO_CALL_RECORD' };
+
+        // Already classified — the verdict is per-call and the transcript does not change.
+        const existing = parseClassification(call.classification);
+        if (existing && (call.classification as Record<string, unknown>)?.classifiedAt) {
+            return {
+                ok: true,
+                classification: { ...existing, classifiedAt: String((call.classification as Record<string, unknown>).classifiedAt) },
+            };
+        }
+
+        const result = await classifyTranscript(call.transcription);
+        if (!result.ok) return result;
+
+        await db.update(calls)
+            .set({ classification: result.classification })
+            .where(eq(calls.id, call.id));
+        return result;
+    } catch (e) {
+        console.error('[CallClassifier] classifyCall failed:', e);
+        return { ok: false, reason: 'ERROR' };
+    }
+}

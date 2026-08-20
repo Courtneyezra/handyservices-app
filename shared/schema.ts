@@ -428,6 +428,11 @@ export const calls = pgTable("calls", {
     aiScoreJson: jsonb("ai_score_json"), // structured scorecard from the call-scoring rubric
     aiScoredAt: timestamp("ai_scored_at"), // when the scorecard was generated (null = unscored)
 
+    // Post-call classification (server/call-classifier.ts). Stored shape contract:
+    // { kind, whatsappAgreed, messagingObjection, jobSummary, urgency, callbackPromised, classifiedAt }
+    // Applied via scripts/migrate-call-classification.ts — NEVER db:push on this schema.
+    classification: jsonb("classification"),
+
     createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
     index("idx_calls_phone_number").on(table.phoneNumber),

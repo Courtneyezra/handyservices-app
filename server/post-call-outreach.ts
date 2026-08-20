@@ -15,6 +15,12 @@
  *    default and every suppression rule fails closed: if a check cannot be evaluated, no message
  *    is sent.
  *
+ * Since Aug 2026 the decision is no longer duration-as-proxy: the call is CLASSIFIED from its
+ * transcript first (server/call-classifier.ts), and the template only goes to a job enquiry whose
+ * caller actually agreed to a WhatsApp follow-up (or, behind the allowUndiscussed flag, one where
+ * messaging never came up). Declines tag the thread no_auto_messages; complaints page a human and
+ * never get automation. The routing table is decideOutreach() below — pure, total, tested.
+ *
  * Enable with:  npx tsx scripts/_post-call-outreach-toggle.ts on
  *
  * One exception to the approval queue: when the caller is a genuine FIRST contact (a number we
@@ -29,6 +35,7 @@ import { eq, and, gte, desc, sql } from 'drizzle-orm';
 import { sendWhatsAppMessage } from './meta-whatsapp';
 import { isWhatsAppSenderConfigured } from './whatsapp-sender';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
+import { classifyCall, type CallClassification } from './call-classifier';
 
 const SETTING_KEY = 'post_call_video_request';
 
@@ -49,16 +56,32 @@ export type PostCallOutreachConfig = {
     mobileOnly: boolean;
     /** E.164 numbers that must never receive automated outreach (staff, contractors, opt-outs). */
     suppressedNumbers: string[];
+    /**
+     * Classify the call from its transcript before deciding (server/call-classifier.ts).
+     * When on, duration stops being the intent test — the transcript is. A call that cannot
+     * be classified (no transcript, model failure) sends NOTHING: fail closed.
+     */
+    classify: boolean;
+    /**
+     * Send even when WhatsApp was never mentioned on the call ('not_discussed').
+     * Off by default: the owner's rule is that a message the customer did not
+     * hear about is presumed unwelcome until proven otherwise.
+     */
+    allowUndiscussed: boolean;
 };
 
 const DEFAULT_CONFIG: PostCallOutreachConfig = {
     enabled: false, // Opt-in on purpose — see file header.
-    minDurationSeconds: 20,
+    // With classification on, duration is only a sanity floor (sub-5s calls have no usable
+    // transcript anyway) — the transcript verdict is the real gate, not this proxy.
+    minDurationSeconds: 5,
     dedupeDays: 30,
     quietHoursStart: 21,
     quietHoursEnd: 8,
     mobileOnly: true,
     suppressedNumbers: [],
+    classify: true,
+    allowUndiscussed: false,
 };
 
 /**
@@ -121,6 +144,62 @@ export type OutreachDecision = {
     reason: string;
     sid?: string;
 };
+
+/**
+ * What the classification verdict means for outreach. Pure and total — every
+ * verdict shape maps to exactly one row of this matrix, so the whole table is
+ * testable without a database or a model (scripts/_call-classifier-test.ts).
+ */
+export type OutreachRoute = {
+    send: boolean;
+    reason:
+        | 'NO_CLASSIFICATION'
+        | 'COMPLAINT'
+        | `NOT_A_JOB_ENQUIRY:${CallClassification['kind']}`
+        | 'CUSTOMER_DECLINED_MESSAGING'
+        | 'NOT_DISCUSSED_ON_CALL'
+        | 'AGREED_ON_CALL'
+        | 'NOT_DISCUSSED_ALLOWED';
+    /** Caller said no to messaging — mark the thread so nothing automated ever fires at it. */
+    tagNoAutoMessages: boolean;
+    /** Complaint heard — thread goes urgent and a human gets paged. */
+    complaintAlert: boolean;
+};
+
+/**
+ * The decision matrix. `classification` is null when the call could not be
+ * classified (no transcript, model failure, parse failure) — and null sends
+ * nothing, because a call we could not read authorises nothing.
+ */
+export function decideOutreach(
+    classification: CallClassification | null,
+    cfg: Pick<PostCallOutreachConfig, 'allowUndiscussed'>,
+): OutreachRoute {
+    if (!classification) {
+        return { send: false, reason: 'NO_CLASSIFICATION', tagNoAutoMessages: false, complaintAlert: false };
+    }
+
+    // An objection is an objection whatever kind of call it was — even a supplier
+    // who said "don't message me" gets the tag, so no future automation forgets.
+    const declined = classification.messagingObjection || classification.whatsappAgreed === 'declined';
+
+    if (classification.kind === 'complaint') {
+        return { send: false, reason: 'COMPLAINT', tagNoAutoMessages: declined, complaintAlert: true };
+    }
+    if (classification.kind !== 'job_enquiry') {
+        return { send: false, reason: `NOT_A_JOB_ENQUIRY:${classification.kind}`, tagNoAutoMessages: declined, complaintAlert: false };
+    }
+    if (declined) {
+        return { send: false, reason: 'CUSTOMER_DECLINED_MESSAGING', tagNoAutoMessages: true, complaintAlert: false };
+    }
+    if (classification.whatsappAgreed === 'agreed') {
+        return { send: true, reason: 'AGREED_ON_CALL', tagNoAutoMessages: false, complaintAlert: false };
+    }
+    // not_discussed: only the explicit opt-in flag makes this sendable.
+    return cfg.allowUndiscussed
+        ? { send: true, reason: 'NOT_DISCUSSED_ALLOWED', tagNoAutoMessages: false, complaintAlert: false }
+        : { send: false, reason: 'NOT_DISCUSSED_ON_CALL', tagNoAutoMessages: false, complaintAlert: false };
+}
 
 /**
  * Decides whether an ended call earns a video request, and sends it if so.
@@ -213,6 +292,53 @@ export async function maybeSendPostCallVideoRequest(input: {
         // every eligibility rule by holding this one open.
         if (inQuietHours(cfg)) {
             return { sent: false, reason: `QUIET_HOURS:${ukHourNow()}h` };
+        }
+
+        // --- Classification gate: what WAS this call? ---
+        // The cheap rails above say the call is mechanically eligible. None of them can say the
+        // caller wanted a message — a 3-minute call can be a supplier, a complaint, or someone
+        // who said "just ring me". So the transcript is read and judged, and every path where
+        // that judgement is unavailable sends nothing.
+        if (cfg.classify) {
+            const verdict = await classifyCall(call.id);
+            const route = decideOutreach(verdict.ok ? verdict.classification : null, cfg);
+
+            // Side effects fire regardless of the send outcome — an objection or a complaint is
+            // real information about this customer even though no message goes out.
+            if (route.tagNoAutoMessages && conv) {
+                try {
+                    const tags = Array.from(new Set([...(conv.tags || []), 'no_auto_messages']));
+                    await db.update(conversations)
+                        .set({ tags, updatedAt: new Date() })
+                        .where(eq(conversations.id, conv.id));
+                    console.log(`[PostCallOutreach] Tagged conversation ${conv.id} no_auto_messages (call ${input.callSid})`);
+                } catch (e) {
+                    console.warn('[PostCallOutreach] Failed to tag conversation no_auto_messages:', e);
+                }
+            }
+            if (route.complaintAlert) {
+                try {
+                    if (conv) {
+                        await db.update(conversations)
+                            .set({ priority: 'urgent', updatedAt: new Date() })
+                            .where(eq(conversations.id, conv.id));
+                    }
+                    const { notifyComplaintCall } = await import('./pushover');
+                    await notifyComplaintCall({
+                        callerName: call.customerName,
+                        phoneNumber: phone,
+                        summary: verdict.ok ? verdict.classification.jobSummary : null,
+                    });
+                } catch (e) {
+                    console.warn('[PostCallOutreach] Complaint escalation failed:', e);
+                }
+            }
+
+            if (!route.send) {
+                const detail = verdict.ok ? route.reason : `${route.reason}:${verdict.reason}`;
+                console.log(`[PostCallOutreach] Not sending for ${input.callSid}: ${detail}`);
+                return { sent: false, reason: detail };
+            }
         }
 
         // --- All guardrails passed ---

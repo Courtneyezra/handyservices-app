@@ -320,6 +320,33 @@ export async function notifyVoicemail(alert: VoicemailAlert): Promise<void> {
     });
 }
 
+interface ComplaintCallAlert {
+    callerName?: string | null;
+    phoneNumber?: string | null;
+    /** Classifier's job summary — what they were unhappy about, if the transcript said. */
+    summary?: string | null;
+}
+
+/**
+ * Fire a "complaint on a call" push alert — the post-call classifier
+ * (server/call-classifier.ts) heard an unhappy customer. Automation must never
+ * answer a complaint; a human must, and fast.
+ */
+export async function notifyComplaintCall(alert: ComplaintCallAlert): Promise<void> {
+    const name = alert.callerName?.trim() || 'Unknown caller';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const lines = [`${name} — ${number}`];
+    if (alert.summary?.trim()) lines.push(truncate(alert.summary.trim(), 200));
+    lines.push('🚫 All automated messages suppressed. Call them back yourself.');
+    await dispatch({
+        event: 'complaint',
+        title: '😠 Complaint on a call',
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
 interface QuotePrepReadyAlert {
     conversationId: string;
     customerName?: string | null;
