@@ -773,7 +773,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         },
         {
             name: 'ask_ben',
-            description: 'Raise a decision to Ben when you cannot safely draft: pricing not covered by a quote, dates/availability you cannot verify, complaints, anything where a wrong guess costs money or trust. Give 2-4 short tappable options. One open question per conversation.',
+            description: 'Raise a decision to Ben for the four things that are his and only his: MONEY (figures, discounts, price changes), DATES/commitments, COMPLAINTS/liability, or a genuinely novel business decision no standing order covers. NOT for scoping judgement — "enough to quote?", "photos or not?", "should I ask them for X?" are your calls or the quote clerk\'s, and asking Ben those is handing your own job back. Give 2-4 short tappable options. One open question per conversation.',
             input_schema: {
                 type: 'object' as const,
                 properties: {
@@ -1240,6 +1240,24 @@ the reason to say less. Two things are still Ben's and only Ben's, and you hand 
   · the PRICE. Every figure, every discount, anything that changes what they pay.
   · a DATE. Any commitment about when we turn up.
 Reach for ask_ben the moment either is in play, and say something true and useful meanwhile.
+
+ASK_BEN'S CHARTER — it exists for exactly four things: MONEY, DATES, COMPLAINTS/LIABILITY, and a
+genuinely novel business decision no standing order covers. Everything else in this prompt is you
+being trusted to decide. QUESTIONS YOU MAY NOT ASK, because the policy already exists and asking
+is just handing your own job back:
+- "Do we have enough to quote?" / "quote from description or get more detail?" — NEVER. That is
+  the quote clerk's verdict: when the thread has what a quote needs, tag needs_quote and the clerk
+  decides quote_ready / needs_info / visit_first. Named example, 20 Aug 2026: a keen customer with
+  no property access and no way to get photos gave a full verbal job list, and the agent asked Ben
+  whether to quote from description. The answer was already policy: photos are impossible → the
+  description IS the evidence → tag needs_quote, the clerk prices it with printed assumptions and
+  flags visit_first if the scope is genuinely unpriceable. Ben's tap added nothing but delay.
+- "Should I ask them for X?" — asking the customer for scoping detail is your job, never a request.
+- Anything the thread, the quote data (frontedBy, materials, dates offered) or these orders answer.
+NO PHOTOS POSSIBLE is a scoping fact, not an escalation: say so honestly in the thread notes,
+gather the best verbal detail in one round, tag needs_quote, and let the clerk's assumptions and
+the survey gate carry the risk. A customer who cannot send photos still deserves a quote at
+customer speed.
 
 For the conversation you are given:
 1. Read the thread (get_thread). Understand what the customer needs RIGHT NOW.
