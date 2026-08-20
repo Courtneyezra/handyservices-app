@@ -1064,6 +1064,14 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 if (cancelled || !detail?.intake) return;
                 setIntake(detail.intake as QuoteIntake);
                 setIntakeRun((n) => n + 1);
+                // Arrived from the Pushover deep link (&prep=1): Ben came specifically to price
+                // this, so the panel opens itself. The param is stripped so a later refresh or a
+                // second thread does not re-shove the slide-over.
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('prep') === '1' && params.get('conversation') === card.id) {
+                    setPrepOpen(true);
+                    window.history.replaceState(null, '', window.location.pathname);
+                }
             } catch { /* a missing prefill is not an error worth showing anyone */ }
         })();
         return () => { cancelled = true; };
@@ -1574,6 +1582,20 @@ export default function CommsPage() {
         if (!selected || !data) return;
         const fresh = Object.values(data.columns).flat().find((c) => c.id === selected.id);
         if (fresh && JSON.stringify(fresh) !== JSON.stringify(selected)) setSelected(fresh);
+    }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Deep link from a Pushover ping: ?conversation=<id> opens that thread directly (the
+    // notification's whole point is one tap to the work — until 20 Aug 2026 the link landed on
+    // the board and Ben hunted for the card). ThreadPanel separately honours &prep=1. Runs once
+    // per page load, first time the board data arrives.
+    const deepLinked = useRef(false);
+    useEffect(() => {
+        if (deepLinked.current || !data) return;
+        const target = new URLSearchParams(window.location.search).get('conversation');
+        if (!target) { deepLinked.current = true; return; }
+        const card = Object.values(data.columns).flat().find((c) => c.id === target);
+        deepLinked.current = true;
+        if (card) openThread(card);
     }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const move = useMutation({

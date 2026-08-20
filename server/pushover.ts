@@ -89,6 +89,10 @@ interface DispatchOptions {
     /** Raw phone number to build the tappable WhatsApp/tel link from. */
     linkPhone?: string | null;
     linkName?: string;
+    /** Explicit tappable link — beats the phone-derived one. For alerts whose next action is a
+     *  screen (the quote panel), not a call: one tap should land Ben ON the work. */
+    linkUrl?: string;
+    linkUrlTitle?: string;
     /** Override recipient targeting (used by the "send test" button). */
     onlyUserKey?: string;
     /** Force delivery even if the event is toggled off (used by test sends). */
@@ -127,11 +131,14 @@ async function dispatch(opts: DispatchOptions): Promise<{ sent: number; skipped:
     if (opts.onlyUserKey) recipients = config.recipients.filter((r) => r.userKey === opts.onlyUserKey);
     if (!recipients.length) return { sent: 0, skipped: 'no-recipients' };
 
-    // Build the tappable link.
+    // Build the tappable link. An explicit deep link wins over the phone-derived one.
     const wa = toWhatsAppNumber(opts.linkPhone, config.defaultCountryCode);
     let url: string | undefined;
     let urlTitle: string | undefined;
-    if (wa) {
+    if (opts.linkUrl) {
+        url = opts.linkUrl;
+        urlTitle = opts.linkUrlTitle;
+    } else if (wa) {
         const who = opts.linkName || 'contact';
         if (config.linkType === 'tel') {
             url = `tel:+${wa}`;
@@ -411,7 +418,10 @@ export async function notifyQuotePrepReady(alert: QuotePrepReadyAlert): Promise<
         ? '🔍 Cannot be priced from the thread. Survey gate is pre-set in the panel.'
         : '✅ Scoped and ready. Open the thread, check it, price it, send it.');
     if (alert.urgency === 'high') lines.push('🔥 They want this soon.');
-    lines.push(`${baseUrl}/admin/comms?conversation=${alert.conversationId}`);
+    // prep=1 makes CommsPage open the thread AND the prefilled quote panel — one tap from this
+    // notification to pricing, no hunting the board for the card.
+    const deepLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}&prep=1`;
+    lines.push(deepLink);
 
     await dispatch({
         event: 'quote_prep_ready',
@@ -419,6 +429,8 @@ export async function notifyQuotePrepReady(alert: QuotePrepReadyAlert): Promise<
         message: lines.join('\n'),
         linkPhone: alert.phoneNumber,
         linkName: who,
+        linkUrl: deepLink,
+        linkUrlTitle: '📋 Open thread & quote panel',
     });
 }
 
