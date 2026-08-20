@@ -25,6 +25,16 @@ export interface QuoteLineSummary {
     label: string;
     pricePence: number | null;
     priceGBP: number | null;
+    /**
+     * The labour/materials split behind the line total. This is what answers "does that include
+     * the new tap?" — before it was exposed (20 Aug 2026) the agent could only see one flattened
+     * number, so an inclusion question it could have answered from the paperwork went to Ben, and
+     * worse, Ben answering from memory could contradict the quote with nobody able to notice.
+     */
+    labourGBP: number | null;
+    materialsGBP: number | null;
+    /** Present only when the line prices no materials — the fact that settles inclusion questions. */
+    materialsNote?: string;
     /** The caveats this line's price rests on — the honest basis for a re-scope conversation. */
     assumptions?: string[];
 }
@@ -39,6 +49,8 @@ export interface QuoteContext {
     balancePence: number | null;
     lineItems: QuoteLineSummary[];
     lineItemsTruncated: number;
+    /** Quote-level materials pot, when one is priced outside the lines. Null means none. */
+    materialsTotalGBP: number | null;
     optionalExtras: { label: string; priceGBP: number | null }[];
     /** Band + posture + observed conversion, so the agent routes before it writes. */
     priceBand: Pick<PriceBand, 'id' | 'label' | 'conversion' | 'posture' | 'playbook'>;
@@ -174,10 +186,18 @@ export async function loadQuoteContexts(opts: {
         const usable = rawLines.filter((l) => l && (l.description || l.label || lineTotalPence(l) != null));
         const lineItems: QuoteLineSummary[] = usable.slice(0, MAX_LINES).map((l) => {
             const p = lineTotalPence(l);
+            const labour = Number(l?.guardedPricePence);
+            const materials = Number(l?.materialsWithMarginPence);
+            const hasMaterials = Number.isFinite(materials) && materials > 0;
             return {
                 label: String(l.description ?? l.label ?? 'Line item').slice(0, 160),
                 pricePence: p,
                 priceGBP: pounds(p),
+                labourGBP: Number.isFinite(labour) && labour > 0 ? pounds(Math.round(labour)) : null,
+                materialsGBP: hasMaterials ? pounds(Math.round(materials)) : Number.isFinite(materials) ? 0 : null,
+                ...(hasMaterials ? {} : {
+                    materialsNote: 'LABOUR ONLY: this line prices no materials, so no part or item (tap, fittings, paint) is supplied under it.',
+                }),
                 ...(Array.isArray(l.assumptions) && l.assumptions.length
                     ? { assumptions: (l.assumptions as string[]).slice(0, 3).map((a) => String(a).slice(0, 160)) }
                     : {}),
@@ -259,6 +279,7 @@ export async function loadQuoteContexts(opts: {
             balancePence,
             lineItems,
             lineItemsTruncated: Math.max(0, usable.length - lineItems.length),
+            materialsTotalGBP: pounds(Number(q.materialsCostWithMarkupPence) > 0 ? Number(q.materialsCostWithMarkupPence) : null),
             optionalExtras,
             priceBand: {
                 id: band.id, label: band.label, conversion: band.conversion,

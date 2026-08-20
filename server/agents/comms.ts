@@ -739,9 +739,27 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 required: ['question'],
             },
             run: async (input: { question: string; context?: string; options?: string[] }) => {
+                // Auto-attach the live quote's own numbers to every question raised on a quoted
+                // thread, so Ben answers with the paperwork in front of him rather than from
+                // memory. Added 20 Aug 2026 after a staged run where "is the tap included?" met a
+                // line pricing £0 of materials and an answer of "yes, included" — a contradiction
+                // nobody was positioned to notice. The agent is separately ordered not to relay an
+                // answer that contradicts these facts; this is the other half: make the wrong
+                // answer unlikely at the source.
+                const live = await liveQuote().catch(() => null);
+                let context = input.context;
+                if (live) {
+                    const facts = `QUOTE FACTS (auto-attached) ${live.slug}, total £${live.totalGBP}: `
+                        + live.lineItems.map((l) =>
+                            `"${l.label}" £${l.priceGBP}${l.labourGBP != null || l.materialsGBP != null
+                                ? ` (labour £${l.labourGBP ?? '?'}, materials £${l.materialsGBP ?? 0})` : ''}`,
+                        ).join('; ')
+                        + (live.materialsTotalGBP != null ? `; quote-level materials £${live.materialsTotalGBP}` : '');
+                    context = context ? `${context}\n${facts}` : facts;
+                }
                 const id = await askBen({
                     conversationId: conv.id, phone: e164,
-                    question: input.question, context: input.context,
+                    question: input.question, context,
                     options: input.options?.slice(0, 4),
                 });
                 // Either way Ben has an open question on this thread, so the post-run escalation
@@ -1250,6 +1268,21 @@ HARD RULES — these are not preferences:
   median is 15, and anything longer reads as a paragraph rather than a text. queue_draft carries
   the WHOLE reply in one body — it is not a per-message send button. If you realise the reply is
   incomplete or wrong, call queue_draft again with the full corrected version; the latest wins.
+
+INCLUSION QUESTIONS ("does that include the tap / the paint / the parts?"): the quote answers this
+itself, so read it before you reach for ask_ben. Every line shows labourGBP and materialsGBP:
+- materialsGBP above zero → the item is priced and supplied on that line. Say so plainly.
+- materialsGBP zero (the line carries a LABOUR ONLY note) and no quote-level materialsTotalGBP →
+  nothing is supplied under it. Say so plainly and without apology ("that's the labour side, you'd
+  supply the tap"), and offer to have the item added and priced. Adding it changes what they pay,
+  so the ADDING goes to ask_ben; the FACT that it is not currently included does not.
+- The split missing, or a quote-level materialsTotalGBP muddying which line covers what → ask_ben,
+  never a guess dressed as an answer.
+And the rule that exists because of a real near-miss: if Ben's ANSWER to your question contradicts
+the quote's own data (he says an item is included, the line prices £0 of materials), relay NEITHER
+version. Raise a new ask_ben naming the discrepancy, because one of two things is now true — the
+customer is getting a part for free, or the quote needs amending — and both of those are decisions,
+not messages. Tell the customer only that you are getting it confirmed properly.
 
 ${postQuoteStandingOrders()}
 
