@@ -185,6 +185,22 @@ export async function loadQuoteContexts(opts: {
 
     const now = Date.now();
 
+    // The face on each quote page, resolved exactly as the page resolves it (dynamic import dodges
+    // a route-file cycle; resolved up front because the map below is synchronous). Null skin = the
+    // client's default brand skin, which is Craig (PersonalizedQuotePage.tsx:631) — the fallback
+    // must match or the chat contradicts the page.
+    const skinByQuote = new Map<string, string | null>();
+    for (const q of kept) {
+        try {
+            const { resolveQuoteSkin } = await import('../quotes');
+            const skin = await resolveQuoteSkin(q);
+            skinByQuote.set(q.id, skin?.name ?? 'Craig');
+        } catch (error: any) {
+            console.warn('[QuoteContext] skin resolution failed (frontedBy=null):', error?.message);
+            skinByQuote.set(q.id, null);
+        }
+    }
+
     return kept.map((q) => {
         const totalPence = q.selectedTierPricePence ?? q.basePrice ?? null;
         const band = priceBandFor(totalPence);
@@ -276,17 +292,7 @@ export async function loadQuoteContexts(opts: {
         const expired = !!expiresAt && new Date(expiresAt).getTime() < now;
         const createdMs = q.createdAt ? new Date(q.createdAt).getTime() : null;
 
-        // The face on their quote page, resolved exactly as the page resolves it (dynamic import
-        // dodges a route-file cycle). Null skin = the client's default brand skin, which is Craig
-        // (PersonalizedQuotePage.tsx:631) — the fallback must match or the chat contradicts the page.
-        let frontedBy: string | null = null;
-        try {
-            const { resolveQuoteSkin } = await import('../quotes');
-            const skin = await resolveQuoteSkin(q);
-            frontedBy = skin?.name ?? 'Craig';
-        } catch (error: any) {
-            console.warn('[QuoteContext] skin resolution failed (frontedBy=null):', error?.message);
-        }
+        const frontedBy = skinByQuote.get(q.id) ?? null;
 
         return {
             slug: q.shortSlug,
