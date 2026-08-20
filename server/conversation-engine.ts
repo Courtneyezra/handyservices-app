@@ -335,7 +335,12 @@ export class ConversationEngine {
             console.log('[ConversationEngine] Stored message:', MessageSid);
 
             // On-inbound lane: the comms agent triages this thread after the burst settles.
-            scheduleInboundTriage(conv!.id, phone, {
+            // `phone` here was an undeclared identifier that TypeScript resolved to some ambient
+            // global and the runtime did not: every inbound crashed the handler at this exact line
+            // AFTER the message stored, so threads filled up while the fast trigger never armed
+            // and Twilio got a 500 — found 20 Aug 2026 via the Railway logs, the only place the
+            // ReferenceError was visible. The lanes expect E.164 with the plus.
+            scheduleInboundTriage(conv!.id, `+${fromNumber}`, {
                 channel: channel === 'sms' ? 'sms' : 'whatsapp',
                 contactName: ProfileName || conv!.contactName,
                 hasMedia,
