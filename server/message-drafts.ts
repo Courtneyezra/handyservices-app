@@ -360,10 +360,14 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
                 if (flipped && draft.conversationId) {
                     const [conv] = await db.select({ tags: conversations.tags }).from(conversations)
                         .where(eq(conversations.id, draft.conversationId));
+                    // Same tag retirement as finalizeQuoteSent: the send completes Ben's move, so
+                    // the desk tags come off with it.
+                    const { RETIRED_ON_QUOTE_SENT } = await import('./agent-staff');
+                    const kept = (conv?.tags ?? []).filter((t) => !RETIRED_ON_QUOTE_SENT.includes(t));
                     await db.update(conversations)
                         .set({
                             stage: 'quote_sent',
-                            tags: Array.from(new Set([...(conv?.tags ?? []), 'quote_sent'])),
+                            tags: Array.from(new Set([...kept, 'quote_sent'])),
                             updatedAt: new Date(),
                         })
                         .where(eq(conversations.id, draft.conversationId));

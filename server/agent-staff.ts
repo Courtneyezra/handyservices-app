@@ -524,15 +524,21 @@ function stripChatDashes(text: string): string {
 
 const quoteUrlFor = (slug: string) => `${process.env.BASE_URL || 'https://handyservices.app'}/quote/${slug}`;
 
-/** Marks the quote as actually sent: out of draft, thread to funnel stage 'quote_sent', tagged. */
+/** The pre-quote workflow tags a sent quote retires. Left in place they keep the card on Ben's
+ *  desk after his move is done — the desk must empty itself when the work is finished. */
+export const RETIRED_ON_QUOTE_SENT = ['needs_ben', 'quote_ready', 'needs_quote', 'quote_gaps', 'clerk_gap_followup'];
+
+/** Marks the quote as actually sent: out of draft, thread to funnel stage 'quote_sent', tagged,
+ *  and the desk tags cleared — sending IS Ben's move, so nothing needs him afterwards. */
 async function finalizeQuoteSent(quoteId: string, conversationId: string): Promise<void> {
     await db.update(personalizedQuotes).set({ isDraft: false }).where(eq(personalizedQuotes.id, quoteId));
     const [conv] = await db.select({ tags: conversations.tags }).from(conversations)
         .where(eq(conversations.id, conversationId));
+    const kept = (conv?.tags ?? []).filter((t) => !RETIRED_ON_QUOTE_SENT.includes(t));
     await db.update(conversations)
         .set({
             stage: 'quote_sent',
-            tags: Array.from(new Set([...(conv?.tags ?? []), 'quote_sent'])),
+            tags: Array.from(new Set([...kept, 'quote_sent'])),
             updatedAt: new Date(),
         })
         .where(eq(conversations.id, conversationId));
