@@ -106,6 +106,76 @@ function usableSummary(jobSummary: string | null | undefined): string | null {
     return s.split(/\n\s*\n/)[0].trim().slice(0, 300) || null;
 }
 
+// ---------------------------------------------------------------- classification
+
+/**
+ * The AI verdict on an answered inbound call, written to `calls.classification` (jsonb) by
+ * server/call-classifier.ts. Mirrored here rather than imported so this module stands on its own
+ * feet: the classifier can change without dragging the board's rendering with it.
+ */
+export type CallClassification = {
+    kind: 'job_enquiry' | 'existing_customer' | 'supplier' | 'sales_spam' | 'wrong_number' | 'complaint' | 'other';
+    whatsappAgreed: 'agreed' | 'declined' | 'not_discussed';
+    messagingObjection: boolean;
+    jobSummary: string;
+    urgency: 'high' | 'normal';
+    callbackPromised: boolean;
+    classifiedAt: string;
+};
+
+/**
+ * Read the classifier's verdict off a call row, defensively.
+ *
+ * Reads via `any` and treats anything missing or malformed as simply unclassified: most historic
+ * rows are null, the classifier only runs on answered inbound calls, and a caller handing in a
+ * partial row (tests, projections) should degrade to the plain preview rather than throw.
+ */
+export function readCallClassification(call: unknown): CallClassification | null {
+    const c = (call as any)?.classification;
+    if (!c || typeof c !== 'object' || typeof c.kind !== 'string') return null;
+    return c as CallClassification;
+}
+
+/** What each kind is called on a card. `other` earns no label: it would say nothing. */
+const KIND_LABEL: Record<CallClassification['kind'], string | null> = {
+    job_enquiry: 'job enquiry',
+    existing_customer: 'existing customer',
+    supplier: 'supplier',
+    sales_spam: 'sales call',
+    wrong_number: 'wrong number',
+    complaint: 'complaint',
+    other: null,
+};
+
+/** One line at ~`max` chars. The full summary still travels in the message body. */
+function clip(s: string, max: number): string {
+    const t = s.trim();
+    return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
+}
+
+/**
+ * The verdict as one short human line: "job enquiry: fence panels blown down; WhatsApp agreed".
+ *
+ * Order is deliberate: what the call WAS, then what was said, then the flags that change what
+ * happens next. `omitKind` is for previews that already lead with the kind (the complaint head).
+ */
+export function classificationLine(
+    cls: CallClassification,
+    opts: { omitKind?: boolean } = {},
+): string {
+    const label = opts.omitKind ? null : KIND_LABEL[cls.kind];
+    const summary = (cls.jobSummary ?? '').trim();
+    const head = summary
+        ? (label ? `${label}: ${clip(summary, 90)}` : clip(summary, 90))
+        : label;
+    const parts: string[] = head ? [head] : [];
+    if (cls.urgency === 'high') parts.push('urgent');
+    if (cls.whatsappAgreed === 'agreed') parts.push('WhatsApp agreed');
+    else if (cls.whatsappAgreed === 'declined' || cls.messagingObjection) parts.push('WhatsApp declined');
+    if (cls.callbackPromised) parts.push('callback promised');
+    return parts.join('; ');
+}
+
 export type CallDescriptor = {
     /** True when nobody actually spoke to them. Drives both the wording and the ack. */
     missed: boolean;
@@ -141,6 +211,9 @@ function isMissedCall(call: Pick<CallRow, 'status' | 'outcome' | 'handledBy' | '
 /** The line the board shows and the message row stores. Brand voice: plain, no em dashes. */
 export function describeCall(call: Pick<CallRow,
     'direction' | 'status' | 'outcome' | 'handledBy' | 'duration' | 'ringSeconds' | 'jobSummary'>
+    // Optional rather than in the Pick, so partial call shapes (tests, older call sites) still
+    // satisfy the signature; a full CallRow carries the column and matches either way.
+    & { classification?: unknown }
 ): CallDescriptor {
     const direction: 'inbound' | 'outbound' = (call.direction ?? '').startsWith('out') ? 'outbound' : 'inbound';
     const missed = isMissedCall(call);
@@ -162,6 +235,26 @@ export function describeCall(call: Pick<CallRow,
             missed, direction, summary,
             preview: rang ? `Missed call (${formatDuration(rang)})` : 'Missed call',
         };
+    }
+
+    // Answered inbound with a classifier verdict: say what the call WAS, not just how long it ran.
+    // A complaint leads the preview outright — a complaint filed under "Inbound call" is a
+    // complaint nobody scans for.
+    const cls = readCallClassification(call);
+    if (cls) {
+        const complaint = cls.kind === 'complaint';
+        const head = complaint
+            ? `Complaint call (${formatDuration(call.duration)})`
+            : `Inbound call (${formatDuration(call.duration)})`;
+        const line = classificationLine(cls, { omitKind: complaint });
+        if (line || complaint) {
+            return {
+                missed, direction,
+                // The classifier's summary backfills when the raw jobSummary was filler.
+                summary: summary ?? ((cls.jobSummary ?? '').trim() || null),
+                preview: line ? `${head}, ${line}` : head,
+            };
+        }
     }
 
     const head = `Inbound call (${formatDuration(call.duration)})`;

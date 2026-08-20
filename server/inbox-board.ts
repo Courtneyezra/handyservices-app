@@ -10,7 +10,7 @@ import { db } from './db';
 import { conversations, messages, calls, messageDrafts, agentQuestions, nudgeQueue, personalizedQuotes } from '@shared/schema';
 import { eq, desc, ne, and, asc, inArray, isNull, sql, gt } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
-import { callMessageId } from './call-thread';
+import { callMessageId, classificationLine, readCallClassification } from './call-thread';
 import { neverSentMeta } from './message-quarantine';
 import {
     loadAutoAckSends, autoAckSpansByConversation, insideAnyAutoAckSpan, notWrittenByAnyAutoAck,
@@ -609,6 +609,12 @@ export type CallEvent = {
     transcript: string | null;
     recordingUrl: string | null;
     status: string | null;
+    /**
+     * The AI verdict on an answered inbound call (calls.classification, written by
+     * server/call-classifier.ts). `kind` lets the UI flag a complaint; `line` is the
+     * ready-made human sentence. Null until that build lands or for unclassified calls.
+     */
+    classification: { kind: string; line: string } | null;
 };
 
 /**
@@ -626,38 +632,35 @@ async function loadCallsForConversation(conversationPhoneKey: string, limit = 50
     const digits = conversationPhoneKey.replace('@c.us', '').replace(/\D/g, '');
     if (!digits) return [];
 
+    // Full rows rather than a projection, so newly-added columns the mapping below cares about
+    // (classification arrived this way) are picked up by the schema rather than by remembering
+    // to extend a field list here.
     const rows = await db
-        .select({
-            id: calls.id,
-            direction: calls.direction,
-            startTime: calls.startTime,
-            duration: calls.duration,
-            outcome: calls.outcome,
-            jobSummary: calls.jobSummary,
-            transcription: calls.transcription,
-            recordingUrl: calls.recordingUrl,
-            status: calls.status,
-        })
+        .select()
         .from(calls)
         // Compare on digits so '+447...' matches '447...@c.us'.
         .where(sql`regexp_replace(${calls.phoneNumber}, '[^0-9]', '', 'g') = ${digits}`)
         .orderBy(desc(calls.startTime))
         .limit(limit);
 
-    return rows.map((c) => ({
-        kind: 'call' as const,
-        id: c.id,
-        // 'outbound-dial' and similar variants all mean outbound.
-        direction: (c.direction ?? '').startsWith('out') ? 'outbound' : 'inbound',
-        createdAt: (c.startTime ?? new Date()).toISOString(),
-        durationSeconds: c.duration ?? null,
-        outcome: c.outcome ?? null,
-        summary: c.jobSummary ?? null,
-        // Transcripts run to thousands of words; the thread shows an excerpt and links out.
-        transcript: c.transcription ? c.transcription.slice(0, 1500) : null,
-        recordingUrl: c.recordingUrl ?? null,
-        status: c.status ?? null,
-    }));
+    return rows.map((c) => {
+        const cls = readCallClassification(c);
+        return {
+            kind: 'call' as const,
+            id: c.id,
+            // 'outbound-dial' and similar variants all mean outbound.
+            direction: (c.direction ?? '').startsWith('out') ? 'outbound' : 'inbound',
+            createdAt: (c.startTime ?? new Date()).toISOString(),
+            durationSeconds: c.duration ?? null,
+            outcome: c.outcome ?? null,
+            summary: c.jobSummary ?? null,
+            // Transcripts run to thousands of words; the thread shows an excerpt and links out.
+            transcript: c.transcription ? c.transcription.slice(0, 1500) : null,
+            recordingUrl: c.recordingUrl ?? null,
+            status: c.status ?? null,
+            classification: cls ? { kind: cls.kind, line: classificationLine(cls) } : null,
+        };
+    });
 }
 
 // GET /api/inbox/conversations/:id/thread — the unified timeline for one person.

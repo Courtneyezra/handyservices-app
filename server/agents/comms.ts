@@ -46,6 +46,7 @@ import { canSendFreeform } from '../meta-whatsapp';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS } from '../comms-sla';
 import { loadActivity } from '../inbox-board';
 import { neverSentMeta } from '../message-quarantine';
+import { readCallClassification } from '../call-thread';
 import {
     isFirstContact, FIRST_CONTACT_ACK_INTENTS, DEFAULT_FIRST_CONTACT_ACK,
     type FirstContactAckConfig, type FirstContactChannel,
@@ -433,12 +434,27 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         hasMedia: !!m.mediaUrl, status: m.quarantinedAt ? 'never_sent' : m.status,
                         ...neverSentMeta(m),
                     })),
-                    ...callRows.map((c) => ({
-                        kind: 'call', at: c.startTime?.toISOString(), direction: c.direction,
-                        durationSeconds: c.duration, outcome: c.outcome,
-                        summary: c.jobSummary ?? null,
-                        transcriptExcerpt: c.transcription ? c.transcription.slice(0, 800) : null,
-                    })),
+                    ...callRows.map((c) => {
+                        // The classifier's verdict on what the call WAS (server/call-classifier.ts,
+                        // written to calls.classification). Carried into the timeline so that when
+                        // the caller texts later, the agent already knows what was discussed on the
+                        // phone — kind, the job, and whether they agreed to WhatsApp. Unclassified
+                        // calls (all history, and every kind the classifier skips) simply omit it.
+                        const cls = readCallClassification(c);
+                        return {
+                            kind: 'call', at: c.startTime?.toISOString(), direction: c.direction,
+                            durationSeconds: c.duration, outcome: c.outcome,
+                            summary: c.jobSummary ?? null,
+                            classification: cls ? {
+                                kind: cls.kind,
+                                jobSummary: cls.jobSummary ?? null,
+                                whatsappAgreed: cls.whatsappAgreed,
+                                urgency: cls.urgency,
+                                callbackPromised: cls.callbackPromised,
+                            } : undefined,
+                            transcriptExcerpt: c.transcription ? c.transcription.slice(0, 800) : null,
+                        };
+                    }),
                 ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
 
                 const windowOpen = await canSendFreeform(e164).catch(() => false);

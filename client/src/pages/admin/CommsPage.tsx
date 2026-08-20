@@ -136,6 +136,11 @@ interface CallEvent {
     transcript: string | null;
     recordingUrl: string | null;
     status: string | null;
+    /**
+     * The AI verdict on an answered inbound call (server/call-classifier.ts): what the call WAS
+     * ('job_enquiry', 'complaint', ...) plus a ready-made one-line summary. Null when unclassified.
+     */
+    classification?: { kind: string; line: string } | null;
 }
 
 type TimelineItem = ThreadMessage | CallEvent;
@@ -304,17 +309,19 @@ function formatDuration(s: number | null): string {
 function CallEventRow({ call }: { call: CallEvent }) {
     const [open, setOpen] = useState(false);
     const missed = !call.durationSeconds || call.outcome === 'MISSED_CALL';
+    // A complaint on the phone must not hide inside a friendly purple box.
+    const complaint = call.classification?.kind === 'complaint';
 
     return (
         <div className="my-2">
             <div className={cn(
                 'rounded-lg border px-3 py-2 text-xs',
-                missed ? 'border-red-200 bg-red-50' : 'border-purple-200 bg-purple-50'
+                missed || complaint ? 'border-red-200 bg-red-50' : 'border-purple-200 bg-purple-50'
             )}>
                 <div className="flex items-center gap-2">
-                    <Phone className={cn('h-3.5 w-3.5 shrink-0', missed ? 'text-red-600' : 'text-purple-600')} />
-                    <span className={cn('font-semibold', missed ? 'text-red-800' : 'text-purple-900')}>
-                        {call.direction === 'inbound' ? 'Inbound call' : 'Outbound call'}
+                    <Phone className={cn('h-3.5 w-3.5 shrink-0', missed || complaint ? 'text-red-600' : 'text-purple-600')} />
+                    <span className={cn('font-semibold', missed || complaint ? 'text-red-800' : 'text-purple-900')}>
+                        {complaint ? 'Complaint call' : call.direction === 'inbound' ? 'Inbound call' : 'Outbound call'}
                         {' · '}{formatDuration(call.durationSeconds)}
                     </span>
                     {call.outcome && (
@@ -325,7 +332,17 @@ function CallEventRow({ call }: { call: CallEvent }) {
                     <span className="ml-auto text-[10px] text-slate-500">{timeLabel(call.createdAt)}</span>
                 </div>
 
-                {call.summary && (
+                {call.classification?.line && (
+                    <p className={cn(
+                        'mt-1.5 font-medium leading-relaxed',
+                        complaint ? 'text-red-800' : 'text-purple-900'
+                    )}>
+                        {call.classification.line}
+                    </p>
+                )}
+
+                {/* The raw AI summary, unless the classification line above already carries it whole. */}
+                {call.summary && !(call.classification?.line ?? '').includes(call.summary) && (
                     <p className="mt-1.5 leading-relaxed text-slate-700">{call.summary}</p>
                 )}
 
