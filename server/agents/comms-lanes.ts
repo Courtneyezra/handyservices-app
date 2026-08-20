@@ -147,17 +147,26 @@ async function tagAckReply(conversationId: string, phone: string, opts: { text?:
  * which is the same renewal semantics the timer had.
  */
 async function arm(conversationId: string, phone: string): Promise<void> {
-    if (!conversationId || isTestNumber(phone)) return;
+    // Every exit says WHY, at log level. This function silently doing nothing in production while
+    // working perfectly in local repro cost a morning of blind debugging on 20 Aug 2026 — the
+    // fast path was believed live for two hours while every reply actually came from the slow
+    // sweep. A trigger may fail; it may not fail silently.
+    if (!conversationId) { console.warn('[CommsLanes] arm skipped: no conversationId'); return; }
+    if (isTestNumber(phone)) { console.log(`[CommsLanes] arm skipped: test number ${phone}`); return; }
 
     const { getCommsAgentConfig } = await import('./comms');
     const config = await getCommsAgentConfig();
-    if (!config.enabled || !config.onInbound) return;
+    if (!config.enabled || !config.onInbound) {
+        console.log(`[CommsLanes] arm skipped: config enabled=${config.enabled} onInbound=${config.onInbound}`);
+        return;
+    }
 
     const { db } = await import('../db');
     const { conversations } = await import('@shared/schema');
     const { eq, sql } = await import('drizzle-orm');
     const due = new Date(Date.now() + Math.max(0.05, config.inboundDebounceMinutes) * 60_000).toISOString();
-    await db.update(conversations).set({
+    const result = await db.update(conversations).set({
         metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('nextTriageAt', ${due}::text)`,
-    }).where(eq(conversations.id, conversationId));
+    }).where(eq(conversations.id, conversationId)).returning({ id: conversations.id });
+    console.log(`[CommsLanes] armed ${conversationId} for ${due} (matched ${result.length} row)`);
 }
