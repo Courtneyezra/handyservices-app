@@ -122,17 +122,28 @@ async function tickDueTriage(): Promise<void> {
         WHERE archived_at IS NULL AND metadata->>'nextTriageAt' <= ${new Date().toISOString()}
         LIMIT 3`);
     for (const row of ((due.rows ?? due) as { id: string; due_at: string }[])) {
+        // The claim is a LEASE, not a delete. The first version removed the row before running,
+        // so a process death mid-run (a deploy swap, 20 Aug 08:07, first message of the retest)
+        // consumed the claim and orphaned the message with only the slow sweep left to notice.
+        // Pushing the due time out instead means a successful run clears it below, and a dead
+        // run's lease simply expires and the ticker tries again four minutes later.
+        const lease = new Date(Date.now() + 4 * 60_000).toISOString();
         const claimed: any = await db.execute(sql`
-            UPDATE conversations SET metadata = metadata - 'nextTriageAt'
+            UPDATE conversations
+            SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('nextTriageAt', ${lease}::text)
             WHERE id = ${row.id} AND metadata->>'nextTriageAt' = ${row.due_at}
             RETURNING id`);
         if (!((claimed.rows ?? claimed).length)) continue; // re-armed by a newer message — not due yet
-        console.log(`[CommsSweep] On-inbound triage due for ${row.id} — running.`);
+        console.log(`[CommsSweep] On-inbound triage due for ${row.id} — running (lease ${lease}).`);
         try {
             const outcome = await runCommsAgent(row.id, 'inbound_message');
             console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
+            // Success: release the lease, unless a newer inbound re-armed it mid-run.
+            await db.execute(sql`
+                UPDATE conversations SET metadata = metadata - 'nextTriageAt'
+                WHERE id = ${row.id} AND metadata->>'nextTriageAt' = ${lease}`);
         } catch (error: any) {
-            console.error(`[CommsSweep] On-inbound run failed for ${row.id}:`, error?.message);
+            console.error(`[CommsSweep] On-inbound run failed for ${row.id} (lease stands, will retry):`, error?.message);
         }
     }
 }
