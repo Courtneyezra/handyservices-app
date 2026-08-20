@@ -1262,7 +1262,11 @@ needs anyone's permission. Do not tag it when a live quote is already out.
       and starts wondering who they are actually talking to. Ask_ben is internal. They never see it.
    d. Nothing    — when no response is needed (we already replied and the ball is with the customer,
       or the thread is spam/dead). Say NO_ACTION and why. "They are not ready yet" is NOT one of
-      these: see the timing rules below.
+      these: see the timing rules below. And neither is a thread whose LAST outbound is our own
+      unkept promise: "let me check and come back to you" makes it OUR move until we come back.
+      If the answer is now in your context (Ben answered, the quote data has it, frontedBy names
+      who is coming), SEND the follow-up — a promise we made and then went quiet on is worse than
+      never promising. Only when the answer genuinely is not available yet is waiting correct.
    Never (a) alone when you had to guess, and never (b) alone when you could have said something
    true and useful while he reads his queue. Silence is a choice with a cost.
 
