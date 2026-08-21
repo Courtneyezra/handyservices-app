@@ -370,6 +370,8 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                             materialsCostPence: materialsCostPence(l.materials),
                             ...(l.materials.length ? { materials: l.materials } : {}),
                             ...(l.priceOverridePence != null ? { priceOverridePence: l.priceOverridePence } : {}),
+                            // Ben typed the minutes → time is the price input (£ = time × rate).
+                            ...(l.minutesEdited && l.priceOverridePence == null ? { priceFromTime: true } : {}),
                         })),
                         signals: {
                             urgency,
@@ -574,6 +576,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                     materialsCostPence: materialsCostPence(l.materials),
                     ...(l.materials.length ? { materials: l.materials } : {}),
                     ...(l.priceOverridePence != null ? { priceOverridePence: l.priceOverridePence } : {}),
+                    ...(l.minutesEdited && l.priceOverridePence == null ? { priceFromTime: true } : {}),
                     ...(l.assumptions.filter((a) => a.trim()).length
                         ? { assumptions: l.assumptions.map((a) => a.trim()).filter(Boolean) }
                         : {}),

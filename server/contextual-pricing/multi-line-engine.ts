@@ -467,10 +467,20 @@ export async function generateMultiLinePrice(
     }
 
     // ─── Standard time-based path ───────────────────────────────────────
-    // Use LLM price or fallback to reference × 1.3
-    const llmSuggestedPricePence = llmLine
-      ? llmLine.suggestedPricePence
-      : Math.round(ref.referencePricePence * 1.3);
+    // Use LLM price or fallback to reference × 1.3. EXCEPTION: a line flagged
+    // priceFromTime (the operator typed the minutes — quote-prep panel) prices
+    // deterministically from time × category reference rate instead of the
+    // LLM's description-anchored suggestion, so editing the minutes actually
+    // moves the £. All guardrails (minimum charge, urgency, margin) still run.
+    const priceFromTime = !!(line as any).priceFromTime;
+    const llmSuggestedPricePence = priceFromTime
+      ? ref.referencePricePence
+      : llmLine
+        ? llmLine.suggestedPricePence
+        : Math.round(ref.referencePricePence * 1.3);
+    if (priceFromTime) {
+      allGuardrailAdjustments.push(`[${line.id}] priced from time (${line.timeEstimateMinutes}min × reference rate)`);
+    }
 
     const refRate = getReferencePrice(line.category, line.timeEstimateMinutes, settings.referenceContingencyPercent);
     const { guardedPricePence, adjustments } = applyPerLineGuardrails(

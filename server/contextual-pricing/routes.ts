@@ -1688,6 +1688,13 @@ const contextualQuoteInputSchema = z.object({
         priceOverridePence: z.number().min(0).optional(),
         timeOverrideMinutes: z.number().positive().optional(),
         /**
+         * Price this line deterministically from timeEstimateMinutes × the
+         * category reference rate (quote-prep panel: the operator typed the
+         * minutes). MUST be in the schema or zod strips it and the line falls
+         * back to LLM pricing.
+         */
+        priceFromTime: z.boolean().optional(),
+        /**
          * Named materials for this line (what to actually buy, not just the
          * cost). Merged onto the stored line item so dispatch can allocate a
          * real material budget. MUST be in the schema or zod strips it.
@@ -2230,6 +2237,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         // the quote is created with engine pricing instead.
         priceOverridePence: l.priceOverridePence,
         timeOverrideMinutes: l.timeOverrideMinutes,
+        priceFromTime: l.priceFromTime,
       })),
       signals,
       vaContext: input.vaContext,
