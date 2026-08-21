@@ -21,8 +21,9 @@ import {
 } from '@/components/ui/sheet';
 import {
     AlertCircle, Bot, Check, ChevronDown, ChevronRight, Clock, ExternalLink,
-    FileText, Loader2, Send, X, Plus,
+    FileText, Loader2, Send, X, Plus, Sparkles, Pin,
 } from 'lucide-react';
+import { CATEGORY_OPTIONS } from '@/lib/quote-categories';
 import { cn } from '@/lib/utils';
 import { assessScopeRisk } from '@/lib/scope-risk';
 import { type QuoteMaterial, materialsCostPence } from '@shared/materials';
@@ -122,14 +123,6 @@ const TIME_OF_SERVICE_OPTIONS = [
 
 const formatPence = (pence: number) => `£${(pence / 100).toFixed(2).replace(/\.00$/, '')}`;
 
-function formatMinutes(mins: number | null): string {
-    if (!mins || mins <= 0) return '';
-    if (mins < 60) return `${mins}m`;
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m ? `${h}h ${m}m` : `${h}h`;
-}
-
 // ---------------------------------------------------------------- line model
 
 /** One editable job line: the card's model plus the builder's per-line extras. */
@@ -140,6 +133,10 @@ interface PanelLine {
     detail: string;
     category: string | null;
     estimatedMinutes: number | null;
+    /** Ben typed the minutes himself — the parser must stop touching them. */
+    minutesEdited: boolean;
+    /** Hand-typed labour price. Pins the line: the engine applies it verbatim. */
+    priceOverridePence: number | null;
     materials: QuoteMaterial[];
     assumptions: string[];
     scopeSteps: string[];
@@ -161,6 +158,8 @@ function buildInitialLines(intake: QuoteIntake): { lines: PanelLine[]; quoteLeve
             detail: (l.detail ?? '').trim(),
             category: null,
             estimatedMinutes: null,
+            minutesEdited: false,
+            priceOverridePence: null,
             materials: [],
             assumptions: (l.assumptions ?? []).map((a) => a.trim()).filter(Boolean),
             scopeSteps: [],
@@ -343,7 +342,16 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                     if (controller.signal.aborted || run !== priceRunRef.current) return;
                     if (updates.size > 0) {
                         // Merging re-fires this effect; the next pass finds nothing pending and prices.
-                        setLines((prev) => prev.map((l) => (updates.has(l.key) ? { ...l, ...updates.get(l.key)! } : l)));
+                        // Minutes Ben typed himself survive the re-parse — only the category updates.
+                        setLines((prev) => prev.map((l) => {
+                            const u = updates.get(l.key);
+                            if (!u) return l;
+                            return {
+                                ...l,
+                                category: u.category,
+                                estimatedMinutes: l.minutesEdited && l.estimatedMinutes ? l.estimatedMinutes : u.estimatedMinutes,
+                            };
+                        }));
                         return;
                     }
                 }
@@ -361,6 +369,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                             timeEstimateMinutes: l.estimatedMinutes,
                             materialsCostPence: materialsCostPence(l.materials),
                             ...(l.materials.length ? { materials: l.materials } : {}),
+                            ...(l.priceOverridePence != null ? { priceOverridePence: l.priceOverridePence } : {}),
                         })),
                         signals: {
                             urgency,
@@ -427,6 +436,42 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
             setDraftingStepsKeys((prev) => { const n = new Set(prev); n.delete(lineKey); return n; });
         }
     };
+
+    // ── Polish (explicit button, never an auto-rewrite) ──
+    // Rough titles ("swap hinges cab door") become the customer-facing imperative the
+    // quote prints. Result lands back in the input, still editable; category re-classifies
+    // but minutes Ben typed survive (same rule as a manual reword).
+    const [polishingKeys, setPolishingKeys] = useState<Set<string>>(new Set());
+    const polishLine = async (lineKey: string) => {
+        const line = lines.find((l) => l.key === lineKey);
+        const description = line?.description.trim();
+        if (!line || !description) return;
+        setPolishingKeys((prev) => new Set(prev).add(lineKey));
+        try {
+            const res = await fetch('/api/pricing/polish-line', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ description }),
+            });
+            if (!res.ok) return;
+            const { polished } = await res.json();
+            if (typeof polished === 'string' && polished.trim() && polished.trim() !== description) {
+                updateLine(lineKey, { description: polished.trim(), category: null });
+            }
+        } catch {
+            // Non-critical — the title stays as typed.
+        } finally {
+            setPolishingKeys((prev) => { const n = new Set(prev); n.delete(lineKey); return n; });
+        }
+    };
+    const polishAll = () => {
+        for (const l of lines) {
+            if (l.description.trim() && !polishingKeys.has(l.key)) void polishLine(l.key);
+        }
+    };
+
+    // Smooth £ typing: the input's raw text lives here; the parsed pin lives on the line.
+    const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
 
     useEffect(() => {
         for (const line of lines) {
@@ -528,6 +573,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                     estimatedMinutes: l.estimatedMinutes!,
                     materialsCostPence: materialsCostPence(l.materials),
                     ...(l.materials.length ? { materials: l.materials } : {}),
+                    ...(l.priceOverridePence != null ? { priceOverridePence: l.priceOverridePence } : {}),
                     ...(l.assumptions.filter((a) => a.trim()).length
                         ? { assumptions: l.assumptions.map((a) => a.trim()).filter(Boolean) }
                         : {}),
@@ -889,7 +935,17 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
 
                     {/* Job lines, each with materials / assumptions / steps */}
                     <div className="rounded-lg border border-slate-200 bg-white p-3">
-                        {sectionTitle('Job lines')}
+                        <div className="flex items-center justify-between">
+                            {sectionTitle('Job lines')}
+                            <button
+                                onClick={polishAll}
+                                disabled={editingLocked || polishingKeys.size > 0 || !lines.some((l) => l.description.trim())}
+                                title="Rewrite every line title in customer-facing wording (still editable after)"
+                                className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-violet-600 disabled:opacity-40"
+                            >
+                                <Sparkles className="h-3 w-3" /> Polish all
+                            </button>
+                        </div>
                         <div className="mt-2 space-y-2">
                             {lines.map((line, i) => {
                                 const matKey = `${line.key}:materials`;
@@ -911,9 +967,46 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                                 placeholder="Describe the work…"
                                                 className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-1 text-xs text-slate-800 focus:border-slate-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
                                             />
-                                            <span className="w-14 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-600">
-                                                {priced?.perLine.has(line.key) ? formatPence(priced.perLine.get(line.key)!) : '…'}
-                                            </span>
+                                            <button
+                                                onClick={() => void polishLine(line.key)}
+                                                disabled={editingLocked || !line.description.trim() || polishingKeys.has(line.key)}
+                                                title="Polish the wording (customer-facing rewrite — still editable after)"
+                                                className="shrink-0 text-slate-300 hover:text-violet-600 disabled:opacity-30"
+                                            >
+                                                {polishingKeys.has(line.key)
+                                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+                                                    : <Sparkles className="h-3.5 w-3.5" />}
+                                            </button>
+                                            {/* Labour £ for the line. Blank = engine's price (shown as
+                                                placeholder). Typing a figure PINS the line: the engine
+                                                applies it verbatim and stops re-pricing it. Clear to unpin. */}
+                                            <div className="relative w-20 shrink-0">
+                                                {line.priceOverridePence != null && (
+                                                    <Pin className="pointer-events-none absolute left-1 top-1/2 h-3 w-3 -translate-y-1/2 text-amber-500" />
+                                                )}
+                                                <input
+                                                    inputMode="decimal"
+                                                    value={priceDrafts[line.key] ?? (line.priceOverridePence != null ? String(line.priceOverridePence / 100) : '')}
+                                                    placeholder={priced?.perLine.has(line.key) ? formatPence(priced.perLine.get(line.key)!) : '…'}
+                                                    disabled={editingLocked}
+                                                    title="Labour price. Typing pins this line (engine stops touching it); clear to hand it back. Materials margin adds on top."
+                                                    onChange={(e) => {
+                                                        const raw = e.target.value;
+                                                        setPriceDrafts((prev) => ({ ...prev, [line.key]: raw }));
+                                                        const pounds = parseFloat(raw.replace(/[£,\s]/g, ''));
+                                                        updateLine(line.key, {
+                                                            priceOverridePence: Number.isFinite(pounds) && pounds > 0 ? Math.round(pounds * 100) : null,
+                                                        });
+                                                    }}
+                                                    onBlur={() => setPriceDrafts((prev) => { const n = { ...prev }; delete n[line.key]; return n; })}
+                                                    className={cn(
+                                                        'h-6 w-full rounded border px-1 pl-4 text-right text-[11px] font-semibold tabular-nums focus:outline-none disabled:bg-slate-50',
+                                                        line.priceOverridePence != null
+                                                            ? 'border-amber-400 bg-amber-50 text-amber-900 focus:border-amber-500'
+                                                            : 'border-slate-200 text-slate-600 focus:border-slate-500',
+                                                    )}
+                                                />
+                                            </div>
                                             <button
                                                 onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
                                                 disabled={editingLocked || lines.length <= 1}
@@ -924,11 +1017,41 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                             </button>
                                         </div>
 
-                                        {/* Per-line toggles: materials / assumptions / steps */}
+                                        {/* Per-line controls: category / minutes, then the section toggles */}
                                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-5">
-                                            {line.estimatedMinutes ? (
-                                                <span className="text-[10px] tabular-nums text-slate-400">{formatMinutes(line.estimatedMinutes)}</span>
-                                            ) : null}
+                                            {/* Category drives the rate; "Auto" hands it back to the parser. */}
+                                            <select
+                                                value={line.category ?? ''}
+                                                disabled={editingLocked}
+                                                title="Job category — sets the rate this line is priced at"
+                                                onChange={(e) => updateLine(line.key, { category: e.target.value || null })}
+                                                className="h-6 max-w-[130px] rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-600 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+                                            >
+                                                <option value="">{line.description.trim() ? 'Auto…' : 'Category'}</option>
+                                                {CATEGORY_OPTIONS.map((o) => (
+                                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                                ))}
+                                            </select>
+                                            {/* Time is the engine's input: edit it and the £ recomputes. */}
+                                            <div className="flex items-center gap-0.5" title="Estimated labour minutes — the engine prices from this">
+                                                <input
+                                                    type="number"
+                                                    min={5}
+                                                    step={5}
+                                                    value={line.estimatedMinutes ?? ''}
+                                                    placeholder="min"
+                                                    disabled={editingLocked}
+                                                    onChange={(e) => {
+                                                        const n = parseInt(e.target.value, 10);
+                                                        updateLine(line.key, {
+                                                            estimatedMinutes: Number.isFinite(n) && n > 0 ? n : null,
+                                                            minutesEdited: true,
+                                                        });
+                                                    }}
+                                                    className="h-6 w-14 rounded border border-slate-200 px-1 text-right text-[10px] tabular-nums text-slate-600 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+                                                />
+                                                <span className="text-[10px] text-slate-400">m</span>
+                                            </div>
                                             {([
                                                 { key: detKey, label: line.detail.trim() ? 'Detail ✓' : 'Detail' },
                                                 { key: matKey, label: `Materials${line.materials.length ? ` (${line.materials.length} · ${formatPence(matCost)})` : ''}` },
@@ -1047,7 +1170,8 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                             <button
                                 onClick={() => setLines((prev) => [...prev, {
                                     key: `prep_add_${nextLineKeyRef.current++}`, description: '', detail: '', category: null,
-                                    estimatedMinutes: null, materials: [], assumptions: [], scopeSteps: [],
+                                    estimatedMinutes: null, minutesEdited: false, priceOverridePence: null,
+                                    materials: [], assumptions: [], scopeSteps: [],
                                 }])}
                                 disabled={editingLocked}
                                 className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 disabled:opacity-40"

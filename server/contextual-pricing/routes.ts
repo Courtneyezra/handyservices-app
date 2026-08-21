@@ -739,6 +739,39 @@ Return ONLY a JSON array of strings. No quotes around the array, no labels, no p
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/pricing/polish-line
+// Rewrite one rough line title ("swap hinges cab door") into the customer-facing
+// imperative the quote prints. Explicit button in the prep panel / builder — never
+// an auto-rewrite, so the operator always sees and can undo the result.
+router.post('/api/pricing/polish-line', async (req, res) => {
+  try {
+    const { description } = req.body as { description?: string };
+    const trimmed = (description ?? '').trim();
+    if (!trimmed) return res.status(400).json({ error: 'description is required' });
+
+    const claude = getAnthropic();
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 120,
+      temperature: 0.2,
+      system: `You polish a single job-line title for a UK handyman quote.
+
+Rewrite the given rough title as one customer-facing line: imperative mood ("Replace...", "Fit...", "Repair..."), plain UK English, maximum 60 characters. Keep every scope fact (counts, sides, rooms, items); add nothing that is not in the input. No em dashes, no exclamation marks, no hype words, no trailing full stop.
+
+Reply with ONLY the rewritten line, no quotes, no commentary.`,
+      messages: [{ role: 'user', content: trimmed.slice(0, 300) }],
+    });
+    const raw = message.content?.[0]?.type === 'text' ? message.content[0].text : '';
+    const polished = raw.trim().replace(/^["']|["']$/g, '').replace(/!+/g, '').replace(/\s+—\s+/g, ' - ').slice(0, 80).trim();
+    // Fail soft: an empty rewrite returns the original so the field never blanks.
+    return res.json({ polished: polished || trimmed });
+  } catch (error: any) {
+    console.error('[pricing/polish-line] Error:', error?.message || error);
+    return res.json({ polished: (req.body?.description ?? '').trim() });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/pricing/draft-line-assumptions
 // Draft customer-facing ASSUMPTIONS for a single quote line — the caveats the
 // fixed price is based on (e.g. "existing pipework is sound"). Same lightweight

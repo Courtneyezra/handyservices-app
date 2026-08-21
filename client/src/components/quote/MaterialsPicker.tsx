@@ -121,6 +121,10 @@ export function MaterialsPicker({
     }
     onChange([...list, resultToMaterial(r, catalogId)]);
     setAddingKey(null);
+    // The search UI is scaffolding: once the choice is made it gets out of the
+    // way — the picked item shows as a chip below, "search again" to reopen.
+    setQuery('');
+    setResults([]);
   };
 
   const setQty = (index: number, qty: number) => {
