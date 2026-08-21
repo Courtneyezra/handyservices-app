@@ -491,10 +491,35 @@ inboxBoardRouter.get('/board', async (req, res) => {
     try {
         const limit = Math.min(Number(req.query.limit) || 300, 1000);
 
-        const rows = await db.select().from(conversations)
+        // Projection, not select-*: full rows drag every thread's stored quote-prep intake blob
+        // (metadata jsonb, multi-KB each) across the wire × 400 cards, which took the board from
+        // instant to ~20s on a remote link (found 21 Aug: "comms won't load in dev"). The board
+        // needs ONE scalar out of metadata — the clerk's readiness — so that is all it fetches,
+        // reshaped so toCard reads it exactly as before.
+        const rows = (await db.select({
+            id: conversations.id,
+            phoneNumber: conversations.phoneNumber,
+            contactName: conversations.contactName,
+            lastMessagePreview: conversations.lastMessagePreview,
+            lastMessageAt: conversations.lastMessageAt,
+            lastInboundAt: conversations.lastInboundAt,
+            lastCustomerContactAt: conversations.lastCustomerContactAt,
+            unreadCount: conversations.unreadCount,
+            stage: conversations.stage,
+            priority: conversations.priority,
+            assignedTo: conversations.assignedTo,
+            tags: conversations.tags,
+            leadId: conversations.leadId,
+            status: conversations.status,
+            intakeReadiness: sql<string | null>`${conversations.metadata}->'quotePrepIntake'->>'readiness'`,
+        }).from(conversations)
             .where(ne(conversations.status, 'archived'))
             .orderBy(desc(conversations.lastMessageAt))
-            .limit(limit);
+            .limit(limit))
+            .map((r) => ({
+                ...r,
+                metadata: r.intakeReadiness ? { quotePrepIntake: { readiness: r.intakeReadiness } } : null,
+            })) as any[];
 
         const activity = await loadActivity(rows.map((r) => r.id));
         const derived = await loadCardDerived(rows);

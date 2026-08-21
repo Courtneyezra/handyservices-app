@@ -48,16 +48,40 @@ function londonParts(d: Date): { year: number; month: number; day: number; hour:
  * to reason about (and to verify) than interval arithmetic across DST boundaries. Capped so an
  * ancient conversation can't spin the loop.
  */
+/**
+ * Hour-bucket memo for the scan below. londonParts is an Intl timezone conversion — one of the
+ * most expensive calls in JS — and the loop was paying it per hour per card: with a months-old
+ * backlog the board burned ~half a second of pure CPU per breached card and took ~20s to load,
+ * identically in dev and prod (found 21 Aug; the DB queries measured in milliseconds all along).
+ * Every card walks the same absolute hours, so one global memo collapses ~500k Intl calls per
+ * board load into a few thousand, once.
+ */
+const hourPartsMemo = new Map<number, { weekday: string; hour: number }>();
+function londonPartsForHour(cursor: Date): { weekday: string; hour: number } {
+    const bucket = Math.floor(cursor.getTime() / 3600_000);
+    let p = hourPartsMemo.get(bucket);
+    if (!p) {
+        const full = londonParts(cursor);
+        p = { weekday: full.weekday, hour: full.hour };
+        if (hourPartsMemo.size > 20_000) hourPartsMemo.clear(); // bounded, effectively never hit
+        hourPartsMemo.set(bucket, p);
+    }
+    return p;
+}
+
 export function workingHoursBetween(from: Date, to: Date): number {
     if (to <= from) return 0;
 
-    const MAX_HOURS_SCANNED = 24 * 90; // 90 days is far beyond any actionable SLA.
+    // 14 days, down from 90: beyond two weeks a breach is simply breached — the board already
+    // sorts breached cards by recency, not by this number, so precision past the cap bought
+    // nothing but CPU.
+    const MAX_HOURS_SCANNED = 24 * 14;
     let elapsed = 0;
     let scanned = 0;
     const cursor = new Date(from.getTime());
 
     while (cursor < to && scanned < MAX_HOURS_SCANNED) {
-        const p = londonParts(cursor);
+        const p = londonPartsForHour(cursor);
         if (WORKING.days.includes(p.weekday) && p.hour >= WORKING.startHour && p.hour < WORKING.endHour) {
             // Count only the portion of this hour that falls before `to`.
             const hourEnd = new Date(cursor.getTime() + 3600_000);
