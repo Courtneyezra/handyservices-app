@@ -123,6 +123,37 @@ const TIME_OF_SERVICE_OPTIONS = [
 
 const formatPence = (pence: number) => `£${(pence / 100).toFixed(2).replace(/\.00$/, '')}`;
 
+/** Duration steps Ben actually prices in — minutes, then hours, then days (1 day = 8h,
+ *  same as the scheduler's 480-minute day). */
+const DURATION_OPTIONS: Array<{ value: number; label: string }> = [
+    { value: 30, label: '30 min' },
+    { value: 45, label: '45 min' },
+    { value: 60, label: '1 hour' },
+    { value: 90, label: '1.5 hours' },
+    { value: 120, label: '2 hours' },
+    { value: 150, label: '2.5 hours' },
+    { value: 180, label: '3 hours' },
+    { value: 240, label: '4 hours' },
+    { value: 300, label: '5 hours' },
+    { value: 360, label: '6 hours' },
+    { value: 420, label: '7 hours' },
+    { value: 480, label: '1 day' },
+    { value: 720, label: '1.5 days' },
+    { value: 960, label: '2 days' },
+    { value: 1440, label: '3 days' },
+    { value: 1920, label: '4 days' },
+    { value: 2400, label: '5 days' },
+];
+
+/** Label for a parser-estimated duration that isn't one of the standard steps. */
+function durationLabel(mins: number): string {
+    if (mins < 60) return `${mins} min`;
+    const h = mins / 60;
+    if (h < 8) return Number.isInteger(h) ? `${h} hour${h > 1 ? 's' : ''}` : `${h.toFixed(1)} hours`;
+    const d = mins / 480;
+    return Number.isInteger(d) ? `${d} day${d > 1 ? 's' : ''}` : `${d.toFixed(1)} days`;
+}
+
 // ---------------------------------------------------------------- line model
 
 /** One editable job line: the card's model plus the builder's per-line extras. */
@@ -1035,26 +1066,30 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                                     <option key={o.value} value={o.value}>{o.label}</option>
                                                 ))}
                                             </select>
-                                            {/* Time is the engine's input: edit it and the £ recomputes. */}
-                                            <div className="flex items-center gap-0.5" title="Estimated labour minutes — the engine prices from this">
-                                                <input
-                                                    type="number"
-                                                    min={5}
-                                                    step={5}
-                                                    value={line.estimatedMinutes ?? ''}
-                                                    placeholder="min"
-                                                    disabled={editingLocked}
-                                                    onChange={(e) => {
-                                                        const n = parseInt(e.target.value, 10);
-                                                        updateLine(line.key, {
-                                                            estimatedMinutes: Number.isFinite(n) && n > 0 ? n : null,
-                                                            minutesEdited: true,
-                                                        });
-                                                    }}
-                                                    className="h-6 w-14 rounded border border-slate-200 px-1 text-right text-[10px] tabular-nums text-slate-600 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
-                                                />
-                                                <span className="text-[10px] text-slate-400">m</span>
-                                            </div>
+                                            {/* Time is the engine's input: pick a duration and the £ recomputes.
+                                                Steps are how jobs are actually sized — hours and days, not raw
+                                                minutes. A parser estimate off the grid shows as its own option. */}
+                                            <select
+                                                value={line.estimatedMinutes ?? ''}
+                                                disabled={editingLocked}
+                                                title="Estimated labour time — the engine prices from this"
+                                                onChange={(e) => {
+                                                    const n = parseInt(e.target.value, 10);
+                                                    updateLine(line.key, {
+                                                        estimatedMinutes: Number.isFinite(n) && n > 0 ? n : null,
+                                                        minutesEdited: true,
+                                                    });
+                                                }}
+                                                className="h-6 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold tabular-nums text-slate-600 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+                                            >
+                                                {line.estimatedMinutes == null && <option value="">time…</option>}
+                                                {line.estimatedMinutes != null
+                                                    && !DURATION_OPTIONS.some((o) => o.value === line.estimatedMinutes)
+                                                    && <option value={line.estimatedMinutes}>{durationLabel(line.estimatedMinutes)}</option>}
+                                                {DURATION_OPTIONS.map((o) => (
+                                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                                ))}
+                                            </select>
                                             {([
                                                 { key: detKey, label: line.detail.trim() ? 'Detail ✓' : 'Detail' },
                                                 { key: matKey, label: `Materials${line.materials.length ? ` (${line.materials.length} · ${formatPence(matCost)})` : ''}` },
