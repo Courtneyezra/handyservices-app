@@ -1,12 +1,17 @@
 /**
- * Ask-Ben questions — the comms agent's structured escalation channel.
+ * Ask-Ben questions — MOSTLY RETIRED (21 Aug 2026).
  *
- * When the agent cannot safely draft a reply (a date we may not do, money not covered by a quote,
- * a judgement call), it writes a question here with tappable answer options instead of guessing
- * or going silent. Ben answers in the thread; the agent's next run consumes the answer and turns
- * it into a draft — which still goes through the normal approval gate before sending.
+ * The tap-question relay (agent raises a question with options, Ben taps, the agent rephrases his
+ * answer) was replaced by the flag mechanism: escalation now tags the thread needs_ben, pings Ben,
+ * and BEN REPLIES IN THE THREAD HIMSELF (server/agents/comms.ts, flagThreadForBen). The table
+ * lives on with two jobs:
  *
- * Lifecycle: open → answered → resolved. 'dismissed' means Ben will handle it himself.
+ *   1. status 'flagged' — the audit log a flag writes: why Ben was needed, what the customer
+ *      wanted, what the agent had already said. A log, not a queue; nothing consumes it, and the
+ *      live "Ben is needed here" state is the needs_ben tag on the conversation.
+ *   2. the legacy lifecycle open → answered → resolved / dismissed — kept so questions in flight
+ *      when the relay retired still drain: the agent still reads 'answered' rows and resolves
+ *      them, and the answer/dismiss routes below still work.
  */
 import { Router } from 'express';
 import { db } from './db';

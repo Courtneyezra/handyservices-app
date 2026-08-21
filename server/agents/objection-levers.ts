@@ -82,7 +82,7 @@ export const PRICE_BANDS: readonly PriceBand[] = [
         maxPence: null,
         conversion: '15% (5 paid / 34 quoted) — 85% of these die',
         posture: 'Structural, not conversational. A better paragraph does not fix this number.',
-        playbook: 'The answer is a different SHAPE of job: split it across visits, defer lines to a second visit, de-scope to the urgent part, or a paid survey first. ask_ben is MANDATORY here with those options named, and a draft never replaces it. Do not improvise a restructure at the customer.',
+        playbook: 'The answer is a different SHAPE of job: split it across visits, defer lines to a second visit, de-scope to the urgent part, or a paid survey first. flag_for_ben is MANDATORY here with those options named in the note, and a draft never replaces it. Do not improvise a restructure at the customer.',
     },
 ] as const;
 
@@ -199,7 +199,7 @@ export const OBJECTION_LEVERS: readonly ObjectionLever[] = [
             'I will amend the quote to add one more window and take out the other jobs.',
         ],
         evidence: '15% conversion above £1,000 against 59% at £100-200. The size of the number is the objection.',
-        guardrail: 'You MUST call ask_ben, every time, with concrete options drawn from the quote\'s own line items (which line defers, what the urgent half is, whether a paid survey should come first). Naming the options is the work; a question with none is not this lever. You may draft a holding reply alongside it, but never present a restructure to the customer before Ben has picked one, and never let the draft stand in for the question.',
+        guardrail: 'You MUST call flag_for_ben, every time, with concrete options named in your note, drawn from the quote\'s own line items (which line defers, what the urgent half is, whether a paid survey should come first). Naming the options is the work; a flag without them is not this lever. You may draft a holding reply alongside it, but never present a restructure to the customer before Ben has picked one in the thread, and never let the draft stand in for the flag.',
     },
     {
         id: 'volume_discount',
@@ -211,13 +211,13 @@ export const OBJECTION_LEVERS: readonly ObjectionLever[] = [
             // BEN'S HALF. He may say this; you may not, and the discount guard will refuse it.
             'Yeah we can definitely offer some discount if we do it together.',
         ],
-        agentMayAlone: 'Get what a combined quote would NEED. That is a scope question, it carries no figure, and it is the half of his reply that moves the job forward: a photo of the second job, what else is in scope, which one they want doing first. Draft that AND ask Ben for the figure in the same turn.',
+        agentMayAlone: 'Get what a combined quote would NEED. That is a scope question, it carries no figure, and it is the half of his reply that moves the job forward: a photo of the second job, what else is in scope, which one they want doing first. Draft that AND flag_for_ben for the figure in the same turn.',
         agentWords: [
             // His own second message on the same thread, the half with no money in it.
             'If you get me a picture of the other one also I can happily amend the quote for you to include both sheds.',
         ],
         evidence: 'The only discount that appears in the corpus, and it is always customer-initiated. Ben discounts for volume, never for pressure. His winning reply to the £984 shed thread (which PAID) did both halves at once: the discount sentence and the photo ask.',
-        guardrail: 'The FIGURE is Ben\'s, always: no number, no percentage, no word implying a reduction, and never "yes we can discount that". The SCOPE half is yours and you should send it, because an escalation on its own leaves the customer with silence while Ben reads his queue.',
+        guardrail: 'The FIGURE is Ben\'s, always: no number, no percentage, no word implying a reduction, and never "yes we can discount that". The SCOPE half is yours and you should send it, because an escalation on its own leaves the customer with silence while Ben gets to his phone.',
     },
     {
         id: 'deposit_is_policy',
@@ -229,7 +229,7 @@ export const OBJECTION_LEVERS: readonly ObjectionLever[] = [
             'Hi unfortunately we do have to take a deposit up front. And that is our fixed price on a tap swap. Any other questions let us know.',
         ],
         evidence: '58 instances, 43 of them in threads that went on to pay. It is a question, not usually a dealbreaker.',
-        guardrail: 'State the policy, do not argue it, do not offer an exception. Any deposit AMOUNT you quote must be the one on their quote.',
+        guardrail: 'State the policy, do not argue it, do not offer an exception. Never write the deposit AMOUNT — it is on their quote page, so point them there for the number.',
     },
     {
         id: 'timing_is_a_scheduling_state',
@@ -280,7 +280,7 @@ function renderLever(l: ObjectionLever): string {
         ? 'you may use this alone'
         : l.agentMayAlone
             ? 'the FIGURE is BEN\'S — but draft the half below in the same turn'
-            : 'ASK BEN, always';
+            : 'FLAG FOR BEN, always';
     return [
         `  - ${l.name} [${authority}]`,
         `    when: ${l.whenItApplies}`,
@@ -332,32 +332,35 @@ NEVER: ${BANNED_MOVE.why}
 If you find yourself drafting agreement with the customer's decision to stop, you have picked the
 losing move. Use a lever, or ask Ben.
 
-DRAFT *AND* ASK — the escalation that leaves them with silence is its own losing move.
-A lever marked ask_ben means the FIGURE is Ben's. It does not mean the customer hears nothing until
-he gets to his queue. When the only thing you cannot answer is money (or something else only he can
-decide), do BOTH in the same turn: queue_draft the content-free half, and ask_ben the rest.
+DRAFT *AND* FLAG — the escalation that leaves them with silence is its own losing move.
+A lever marked ask_ben means the FIGURE is Ben's: flag_for_ben and he replies in the thread
+himself. It does not mean the customer hears nothing until he gets to his phone. When the only
+thing you cannot answer is money (or something else only he can decide), do BOTH in the same turn:
+queue_draft the content-free half, and flag_for_ben the rest.
   - The £984 shed thread PAID, and his reply was exactly this shape: the discount sentence (his) and
     "if you get me a picture of the other one I can happily amend the quote" (yours). The agent that
     only escalated left a paying customer waiting.
   - The draft must NOT pre-empt his answer. No figure, no percentage, no "yes we can do that", no
     hint of the direction he will land on. If you cannot write the half you own without leaning on
-    the half you do not, then ask alone.
-  - Say in your ask_ben context that a draft is already queued, so he reads them together.
+    the half you do not, then flag alone.
+  - Say in your flag note that a reply has already gone, and what it said, so he lands in a thread
+    he understands.
   - This runs BOTH ways, and the second way matters just as much: a draft never SUBSTITUTES for the
-    question. If the decision is his, ask him, whether or not you also wrote something. Answering
+    flag. If the decision is his, flag him, whether or not you also wrote something. Answering
     around a decision you do not own is worse than escalating without a draft, because now nobody
     knows the decision was ever needed. Above £1,000 in particular the structural call is always
-    his: draft the holding half if you have one, but the ask_ben is not optional.
+    his: draft the holding half if you have one, but the flag is not optional.
 
 MONEY, POST-QUOTE (the guard is absolute and it is enforced in the tool, not on trust):
-  - You may repeat a figure that is ALREADY on their quote, and you must cite quote_slug when you
-    do. The guard checks the figure against the quote's real numbers, so a figure that is not on
-    it will be refused however you label it.
+  - You NEVER write a figure — not even one that is on their quote. The quote page is the numbers
+    channel: every total, deposit and line price is itemised there, so "it's all itemised on your
+    quote" plus the link answers any question about a number. Describing WHAT is included is
+    yours; the digits are the page's.
   - You may OFFER a re-scope: "happy to edit it for you, which bits matter most?" That is a
     question about scope, not a price.
   - You may NEVER invent a figure, offer a discount, offer a percentage off, hint that there is
     room to move, or say what an edited quote would come to. Anything that changes what the
-    customer pays goes to ask_ben with concrete options.
+    customer pays goes to flag_for_ben with concrete options named in the note.
 
 SCHEDULING, POST-QUOTE:
   - "Can you come Tuesday" is not a yes/no you are allowed to give. Use check_date: it tells you
@@ -365,8 +368,8 @@ SCHEDULING, POST-QUOTE:
     books anything.
   - If the date IS on their quote, point them at the quote's date picker; the booking happens
     there, with the deposit. Do not confirm it yourself.
-  - If it is NOT on their quote, ask Ben. Never promise a date the thread or the quote does not
-    already confirm.
+  - If it is NOT on their quote, flag_for_ben. Never promise a date the thread or the quote does
+    not already confirm.
 
 "NOT RIGHT NOW" IS THE ONE THAT COSTS MOST, because doing nothing looks correct:
   - It is a scheduling state, not a rejection. One of these paid £984 and another paid £479 after
@@ -375,5 +378,5 @@ SCHEDULING, POST-QUOTE:
     say you will check back. Then call schedule_recontact with the date, which writes a PROPOSED
     follow-up for Ben to approve later. It sends nothing and it books nothing.
   - NO_ACTION on a timing hold is how a live lead becomes a dead one. If you cannot work out a
-    sensible date, ask them when to check back, or ask Ben. Do not just leave it.`;
+    sensible date, ask them when to check back, or flag_for_ben. Do not just leave it.`;
 }

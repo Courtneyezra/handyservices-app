@@ -17,10 +17,13 @@
  *                          status, amendment history. Without it it cannot answer a real question.
  *   2. price objection   — a £180 objection produces a LEVER, not a capitulation. "No problem." is
  *                          his commonest move and his worst: 8 threads, 1 sale.
- *   3. fabricated money  — a discount the agent invented is refused by the guard, with and without
- *                          a £ sign, and a figure that is not on the cited quote is refused too.
+ *   3. money, ANY money  — since 21 Aug 2026 a draft carrying any figure at all is refused, even
+ *                          the quote's own total, even a figure Ben once typed: the quote page is
+ *                          the numbers channel and the reply points at it instead. Discounts are
+ *                          refused with or without a £ sign, exactly as before.
  *   4. the £1,000 wall   — a £1,200 objection goes to Ben rather than being improvised at the
- *                          customer. 15% of these convert; a warmer paragraph does not fix that.
+ *                          customer: the thread is FLAGGED (needs_ben tag + audit row), because
+ *                          the tap-question relay retired and Ben replies in the thread himself.
  *   5. scheduling        — "can you come Tuesday" never comes back as a promised date.
  *   6. they HAVE seen it — no draft implies the quote went missing. 102 of 104 quiet customers had
  *                          opened theirs, 69 of them three or more times.
@@ -37,7 +40,7 @@ import { getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, type CommsAgen
 import { loadQuoteContexts, checkDateSignal } from '../server/agents/quote-context';
 import {
     checkDraft, detectCapitulation, detectDatePromise, detectUnseenImplication,
-    detectDiscountOffer, extractMoneyFigures,
+    detectDiscountOffer, detectMoneyFigure, extractMoneyFigures,
 } from '../server/agents/draft-guards';
 import { priceBandFor, OBJECTION_LEVERS, PRICE_BANDS } from '../server/agents/objection-levers';
 
@@ -193,6 +196,14 @@ async function openQuestions() {
     return db.select().from(agentQuestions).where(eq(agentQuestions.phone, PHONE));
 }
 
+/** The new escalation shape: an audit row with status 'flagged' plus the needs_ben tag. */
+async function flags() {
+    const rows = await db.select().from(agentQuestions)
+        .where(and(eq(agentQuestions.phone, PHONE), eq(agentQuestions.status, 'flagged')));
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, CONV_ID));
+    return { rows, needsBen: ((conv?.tags as string[]) ?? []).includes('needs_ben'), priority: conv?.priority };
+}
+
 /** Pull the get_thread payload straight out of the run transcript. */
 function threadPayload(outcome: CommsAgentOutcome): any {
     const ev = outcome.result.transcript.find((e) => e.type === 'tool_result' && e.detail?.tool === 'get_thread');
@@ -223,6 +234,9 @@ function voiceProblems(body: string): string[] {
 
 /** Every rule that must hold for ANY draft the agent writes in this suite. */
 function assertDraftIsSafe(label: string, body: string) {
+    pass(detectMoneyFigure(body) === null,
+        `${label}: carries no money figure at all (the quote page is the numbers channel)`,
+        detectMoneyFigure(body) ?? undefined);
     pass(detectUnseenImplication(body) === null,
         `${label}: does not imply the customer has not seen the quote`,
         detectUnseenImplication(body) ?? undefined);
@@ -248,46 +262,57 @@ async function guardCases() {
     // 3a. A fabricated discount with no £ sign at all. The old money guard tested for "£\d" and
     // would have waved this straight through.
     const pctOff = 'No problem, I can do 10% off for you if that helps.';
-    const v1 = checkDraft({ body: pctOff, intent: 'price_objection', allowedFigurePence: ctx.allowedFigurePence, quoteSlug: ctx.slug, quoteSeen: true, quoteViewCount: ctx.viewCount });
+    const v1 = checkDraft({ body: pctOff, intent: 'price_objection', quoteSeen: true, quoteViewCount: ctx.viewCount });
     pass(v1?.code === 'discount_offer', 'a fabricated percentage discount is refused', v1?.message);
 
-    // 3b. A fabricated discount WITH a figure, citing a real quote. Citing a real slug is not the
-    // same as quoting it correctly.
+    // 3b. A fabricated discount WITH a figure. Two rails now stand in front of it.
     const madeUp = `I can knock it down to £150 for you.`;
-    const v2 = checkDraft({ body: madeUp, intent: 'price_objection', allowedFigurePence: ctx.allowedFigurePence, quoteSlug: ctx.slug, quoteSeen: true });
-    pass(v2 !== null && (v2.code === 'discount_offer' || v2.code === 'figure_not_on_quote'),
-        'a fabricated figure is refused even when a real quote is cited', v2?.message);
+    const v2 = checkDraft({ body: madeUp, intent: 'price_objection', quoteSeen: true });
+    pass(v2 !== null && (v2.code === 'discount_offer' || v2.code === 'money_figure'),
+        'a fabricated figure is refused', v2?.message);
 
-    // 3c. A figure that simply is not on the quote, with no discount language.
+    // 3c. A wrong figure with no discount language. Under the old constitution this was refused
+    // for being wrong; now it is refused for being a figure at all.
     const wrongFigure = `The total on that one comes to £222.`;
-    const v3 = checkDraft({ body: wrongFigure, intent: 'quote_question', allowedFigurePence: ctx.allowedFigurePence, quoteSlug: ctx.slug, quoteSeen: true });
-    pass(v3?.code === 'figure_not_on_quote', 'a figure that is not on the cited quote is refused', v3?.message);
+    const v3 = checkDraft({ body: wrongFigure, intent: 'quote_question', quoteSeen: true });
+    pass(v3?.code === 'money_figure', 'a figure that is not on the quote is refused', v3?.message);
 
-    // 3d. The REAL total must still be writable, or the guard is useless.
+    // 3d. THE CONSTITUTION CHANGE (21 Aug 2026): the quote's OWN total is refused too. Money never
+    // transmits in chat — the quote page is the numbers channel — and the refusal must TEACH the
+    // rewrite: drop the number, point at the quote link.
     const realFigure = `That £${(ctx.totalPence ?? 0) / 100} covers both jobs in one visit.\n---\nThanks\nBen`;
-    const v4 = checkDraft({ body: realFigure, intent: 'quote_question', allowedFigurePence: ctx.allowedFigurePence, quoteSlug: ctx.slug, quoteSeen: true });
-    pass(v4 === null, 'the quote\'s OWN total is still allowed through', v4?.message);
-    pass(extractMoneyFigures(realFigure)[0]?.pence === ctx.totalPence, 'money figures parse to the same pence the quote holds');
+    const v4 = checkDraft({ body: realFigure, intent: 'quote_question', quoteSeen: true });
+    pass(v4?.code === 'money_figure', 'the quote\'s OWN total is now refused — no figure ever leaves in chat', v4?.message);
+    pass(!!v4 && /itemised on your quote/i.test(v4.message) && /without the number/i.test(v4.message),
+        'the refusal teaches the rewrite: answer without the number, point at the quote link');
+    pass(extractMoneyFigures(realFigure)[0]?.pence === ctx.totalPence,
+        'money figures still parse to pence — detection stays sharp even though transmission is gone');
+
+    // 3d-bis. The figure-free version of the same answer is the one that must survive, or the
+    // guard has banned answering the question at all.
+    const figureFree = 'That covers both jobs in one visit, it\'s all itemised on your quote.\n---\nThanks\nBen';
+    const v4b = checkDraft({ body: figureFree, intent: 'quote_question', quoteSeen: true });
+    pass(v4b === null, 'the figure-free answer that points at the quote passes untouched', v4b?.message);
 
     // 3e. The losing move.
     const capitulation = 'No problem at all. Thanks anyway.\n---\nThanks\nBen';
-    const v5 = checkDraft({ body: capitulation, intent: 'price_objection', allowedFigurePence: null, quoteSeen: true, quoteTotalPence: ctx.totalPence });
+    const v5 = checkDraft({ body: capitulation, intent: 'price_objection', quoteSeen: true, quoteTotalPence: ctx.totalPence });
     pass(v5?.code === 'capitulation', 'a bare capitulation to a price objection is refused', v5?.message);
 
     // 3f. Ben's BEST line opens the same way and must survive. If the guard eats this, it has
     // banned the single best message in the corpus.
     const bensBestLine = 'No problem at all! Understand it may seem abit high but ensuring the tiles are not broken in the process is paramount to us.\n---\nGet a few more quotes and happy to book you in if you come back.\n---\nThanks\nBen';
-    const v6 = checkDraft({ body: bensBestLine, intent: 'price_objection', allowedFigurePence: null, quoteSeen: true, quoteTotalPence: ctx.totalPence });
+    const v6 = checkDraft({ body: bensBestLine, intent: 'price_objection', quoteSeen: true, quoteTotalPence: ctx.totalPence });
     pass(v6 === null, 'Ben\'s actual best-performing objection reply passes untouched', v6?.message);
 
     // 3g. "Did you get a chance to look?" to someone who has opened it four times.
     const unseen = 'Hi, just checking you got the quote we sent over?';
-    const v7 = checkDraft({ body: unseen, intent: 'quote_followup', allowedFigurePence: null, quoteSeen: true, quoteViewCount: ctx.viewCount });
+    const v7 = checkDraft({ body: unseen, intent: 'quote_followup', quoteSeen: true, quoteViewCount: ctx.viewCount });
     pass(v7?.code === 'implies_unseen', 'a draft implying they have not seen the quote is refused', v7?.message);
 
     // 3h. A promised date.
     const promised = 'Yeah we can come Tuesday, see you then.';
-    const v8 = checkDraft({ body: promised, intent: 'scheduling', allowedFigurePence: null, quoteSeen: true, offeredDates: ctx.offeredDates });
+    const v8 = checkDraft({ body: promised, intent: 'scheduling', quoteSeen: true, offeredDates: ctx.offeredDates });
     pass(v8?.code === 'date_promise', 'a committed date is refused', v8?.message);
 
     // 3i. Refusing a discount is not the same as offering one.
@@ -422,22 +447,26 @@ async function main() {
             'CASE 4 — £1,200 quote, the customer balks. 85% of these die.',
             'Thats way more than I was expecting to be honest. Cant really justify that',
         );
-        const wallQuestions = await openQuestions();
+        const wallFlags = await flags();
         const wallDraft = await latestDraft();
-        pass(wallQuestions.length > 0,
-            'a £1,200 objection is escalated to Ben rather than improvised',
-            wallQuestions.map((q) => `${q.question} | options: ${(q.options as string[] ?? []).join(' / ')}`).join('\n'));
+        // The escalation is a FLAG now, not a tap-question: needs_ben on the card, an audit row
+        // saying why, and Ben replies in the thread himself.
+        pass(wallFlags.needsBen && wallFlags.rows.length > 0,
+            'a £1,200 objection FLAGS the thread for Ben rather than being improvised (needs_ben tag + flag row)',
+            `needs_ben=${wallFlags.needsBen}, flag rows=${wallFlags.rows.length}: ${wallFlags.rows.map((q) => q.question.slice(0, 160)).join(' | ')}`);
+        pass(wallFlags.priority === 'high' || wallFlags.priority === 'urgent',
+            `the flag raised the thread's priority (priority=${wallFlags.priority})`);
         if (wallDraft) {
             console.log(`\ndraft:\n${wallDraft.body}\n`);
             pass(detectCapitulation(wallDraft.body) === null, 'the £1,200 draft is not a capitulation');
             assertDraftIsSafe('£1,200', wallDraft.body);
         }
-        const wallOptions = wallQuestions.flatMap((q) => (q.options as string[] ?? []));
-        pass(wallOptions.some((o) => /split|defer|de-?scope|second visit|survey|phase/i.test(o)),
-            'the options put to Ben are STRUCTURAL, not "shall we drop the price"',
-            wallOptions.join(' / '));
-        pass(!wallOptions.some((o) => /discount|% off|reduce the price|lower the price/i.test(o)),
-            'no option offered to Ben is a discount');
+        const wallNotes = wallFlags.rows.map((q) => q.question).join(' ');
+        pass(/split|defer|de-?scope|second visit|survey|phase|stage|restructur/i.test(wallNotes),
+            'the note put to Ben names STRUCTURAL options, not "shall we drop the price"',
+            wallNotes.slice(0, 300));
+        pass(!/\b(?:offer (?:a |them )?discount|% off|reduce the price|lower the price)\b/i.test(wallNotes),
+            'nothing in the note proposes a discount');
         if (toolErrors(wall).length) console.log(`      tool refusals seen: ${toolErrors(wall).join(' | ')}`);
 
         // ---- 5: scheduling, on a CLEAN thread. The price objection above would otherwise

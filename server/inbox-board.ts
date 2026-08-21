@@ -740,10 +740,13 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
                 ))
                 .orderBy(desc(messageDrafts.createdAt))
             : [];
+        // 'flagged' rows are the new escalation shape (21 Aug 2026): an audit note explaining why
+        // the agent flagged the thread for Ben. 'open'/'answered' are the retired tap-question
+        // relay, still returned so anything in flight stays visible until it drains.
         const openQuestions = await db.select().from(agentQuestions)
             .where(and(
                 eq(agentQuestions.conversationId, conv.id),
-                inArray(agentQuestions.status, ['open', 'answered']),
+                inArray(agentQuestions.status, ['open', 'answered', 'flagged']),
             ))
             .orderBy(desc(agentQuestions.createdAt));
 

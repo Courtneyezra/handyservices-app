@@ -399,6 +399,44 @@ export async function notifyCallbackDue(alert: CallbackDueAlert): Promise<void> 
     });
 }
 
+interface EscalationAlert {
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    /** The agent's note: why Ben is needed, what the customer wants, what it already told them. */
+    note: string;
+    conversationId: string;
+}
+
+/**
+ * Fire an "agent flagged a thread for you" alert.
+ *
+ * This replaced the ask-Ben Q&A relay (21 Aug 2026): the comms agent no longer raises tappable
+ * questions, it tags the thread needs_ben and pings this. There is nothing to tap and nothing to
+ * approve — Ben opens the thread via the deep link and REPLIES IN IT HIMSELF, and the agent treats
+ * his manual message as authoritative and picks the conversation back up from there.
+ */
+export async function notifyEscalation(alert: EscalationAlert): Promise<void> {
+    const who = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const deepLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+
+    const lines = [`${who} — ${number}`];
+    lines.push(truncate(alert.note.trim(), 400));
+    lines.push('🚩 Reply in the thread yourself — the agent holds off and builds on what you say.');
+    lines.push(deepLink);
+
+    await dispatch({
+        event: 'escalation',
+        title: '🚩 Agent flagged a thread for you',
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: who,
+        linkUrl: deepLink,
+        linkUrlTitle: '🚩 Open the thread',
+    });
+}
+
 interface QuotePrepReadyAlert {
     conversationId: string;
     customerName?: string | null;

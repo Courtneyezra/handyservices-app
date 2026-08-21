@@ -17,6 +17,7 @@ export type PushoverEventKey =
     | 'voicemail'
     | 'complaint'
     | 'callback'
+    | 'escalation'
     | 'quote_prep_ready'
     | 'quote_viewed'
     | 'quote_followup'
@@ -51,6 +52,11 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // Either way the next move is a human ringing them, and this is the nudge that says so
     // before the sweep's fallback text goes out in their place.
     { key: 'callback', label: 'Callback due (promised or interrupted call)', short: 'Callbacks', group: 'Inbound', defaultPriority: 1, defaultSound: 'intermission' },
+    // The comms agent hit something only Ben can decide (a money decision, a date, a complaint, a
+    // novelty) and flagged the thread. There is no draft waiting and no question to tap: the deep
+    // link lands him IN the thread, and his own reply there is the answer. Configs saved before
+    // this key existed pick up these defaults via normalize()'s event backfill.
+    { key: 'escalation', label: 'Agent flagged a thread — reply in the thread', short: 'Flags', group: 'Inbound', defaultPriority: 1, defaultSound: 'intermission' },
     // The agent has run the conversation on its own, decided the job is priceable, and prepped the
     // intake. Nothing else in the system will tell Ben that a thread is waiting on HIM to price it,
     // and a priced-up intake nobody looks at is a lead going cold in a database.

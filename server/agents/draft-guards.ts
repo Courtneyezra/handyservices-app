@@ -19,12 +19,11 @@ import { priceBandFor } from './objection-levers';
  *
  * Widened 19 Aug 2026 after an adversarial pass: the original was `£\s*\d` plus "pounds|quid",
  * which meant "I can do it for 150 GBP", "call it 1.5k" and "one hundred and fifty pounds" carried
- * no money as far as the guard was concerned. They therefore needed NO price source and skipped the
- * on-quote check entirely — the exact hole the money guard exists to close, reachable by anyone who
- * can get the model to write a number without a pound sign.
+ * no money as far as the guard was concerned — the exact hole the money guard exists to close,
+ * reachable by anyone who can get the model to write a number without a pound sign.
  *
- * Kept as a regex because comms.ts also runs it over BEN's answers, where the question is only
- * "did a human state a figure here".
+ * Kept as an exported regex because neverSendDirectReason (comms.ts) runs the same test as its own
+ * independent rail.
  */
 export const MONEY_RE = new RegExp([
     String.raw`£\s*\d`,
@@ -41,9 +40,9 @@ export interface MoneyFigure {
     /** As written, e.g. "£1,200" or "180 quid". */
     raw: string;
     /**
-     * Normalised to pence so it can be compared against quote fields. NaN when the figure is
-     * written in a form we cannot pin to a number ("a couple of hundred quid") — deliberately
-     * un-matchable against the allowed set, so an unverifiable figure is always refused.
+     * Normalised to pence so tests and analytics can compare figures. NaN when the figure is
+     * written in a form we cannot pin to a number ("a couple of hundred quid") — still money,
+     * still refused; the pence value just cannot be stated.
      */
     pence: number;
     /** True for the NaN case above, so a caller can say WHY it was refused. */
@@ -83,7 +82,7 @@ export function extractMoneyFigures(body: string): MoneyFigure[] {
     // "do it for 150", "comes to 220" — a bare number in a money-shaped slot, with units excluded.
     const bare = new RegExp(String.raw`\b(?:for|at|of|costs?|cost|totals?|comes to|call it|price of|charged?|(?:total|price|cost|balance|deposit|quote|figure|it|that)\s+(?:is|was|would be|comes to|works out at))\s+([\d,]{2,7}(?:\.\d{1,2})?)\b(?!${NOT_MONEY_UNIT})`, 'gi');
     for (const m of body.matchAll(bare)) push(m[0], m[1], false);
-    // Spelled out. Never valued, always refused: the only safe reply repeats the quote's own digits.
+    // Spelled out. Never valued: money in words is still money, and still refused.
     const spelled = new RegExp(String.raw`\b${WORD_NUMBER}(?:[\s-]+${WORD_NUMBER})*[\s-]+(?:pounds?|quid|grand)\b`, 'gi');
     for (const m of body.matchAll(spelled)) out.push({ raw: m[0].trim(), pence: Number.NaN, unverifiable: true });
 
@@ -98,15 +97,24 @@ export function extractMoneyFigures(body: string): MoneyFigure[] {
 }
 
 /**
- * Which figures in the body are NOT on the quote (or in Ben's own answer).
+ * ANY money figure in a draft, full stop.
  *
- * This is the teeth of the money guard. Citing a quote_slug used to be enough on its own, which
- * meant a fabricated number could ride along beside a real one. Now the number itself has to
- * exist on the customer's quote.
+ * This guard used to be an allowed-set comparison: figures already on the customer's quote (or in
+ * Ben's typed answer) could ride out, and only fabricated ones were refused. The owner's
+ * full-autonomy constitution (21 Aug 2026) retired the transmit path entirely: the quote page is
+ * the numbers channel, and a figure in chat — even a TRUE one, copied correctly off their own live
+ * quote — is how a price gets renegotiated in a medium with no paperwork attached. So the check is
+ * now presence, not provenance, which also deletes a whole class of source-tracking machinery
+ * (allowedFigurePence, quote_slug citing, price_source='ben_answer') that existed only to feed the
+ * comparison. The widened MONEY_RE and extractMoneyFigures stay: detection is still the hard part.
  */
-export function moneyFiguresNotAllowed(body: string, allowedPence: readonly number[]): MoneyFigure[] {
-    const allowed = new Set(allowedPence.map((p) => Math.round(p)));
-    return extractMoneyFigures(body).filter((f) => !allowed.has(f.pence));
+export function detectMoneyFigure(body: string): string | null {
+    const figures = extractMoneyFigures(body);
+    if (figures.length) return figures.map((f) => f.raw).join(', ');
+    // Belt and braces: MONEY_RE is deliberately wider than the extractor. Anything it sees that
+    // the extractor cannot pin down is still money, and unverifiable money refuses hardest of all.
+    const m = body.match(MONEY_RE);
+    return m ? m[0].trim() : null;
 }
 
 /**
@@ -431,14 +439,6 @@ export interface DraftCheckInput {
     body: string;
     /** A DRAFT_INTENTS value. Only 'price_objection' triggers the capitulation check. */
     intent: string;
-    /**
-     * The quote figures the draft is allowed to repeat, in pence. Null means the draft cited no
-     * quote, so the money source was settled elsewhere (Ben's own answer) and there is nothing
-     * here to check against.
-     */
-    allowedFigurePence: readonly number[] | null;
-    /** The cited quote's slug, purely for the error message. */
-    quoteSlug?: string | null;
     /** Have they opened the quote? If so, a draft may not imply otherwise. */
     quoteSeen: boolean;
     quoteViewCount?: number;
@@ -454,7 +454,7 @@ export interface DraftCheckInput {
 }
 
 export type DraftViolation = {
-    code: 'discount_offer' | 'figure_not_on_quote' | 'implies_unseen' | 'capitulation' | 'date_promise'
+    code: 'discount_offer' | 'money_figure' | 'implies_unseen' | 'capitulation' | 'date_promise'
         | 'capability_claim' | 'liability_admission' | 'voice_breach';
     message: string;
 };
@@ -471,27 +471,23 @@ export function checkDraft(input: DraftCheckInput): DraftViolation | null {
     if (discount) {
         return {
             code: 'discount_offer',
-            message: `This draft offers a reduction ("${discount}"). You may never offer a discount, a percentage off, or any hint that there is room to move on price. The only discount this business gives is for volume, it is always Ben's call, and it is always customer-initiated. Re-scope instead ("happy to edit it for you, which bits matter most?"), or use ask_ben.`,
+            message: `This draft offers a reduction ("${discount}"). You may never offer a discount, a percentage off, or any hint that there is room to move on price. The only discount this business gives is for volume, it is always Ben's call, and it is always customer-initiated. Re-scope instead ("happy to edit it for you, which bits matter most?"), or use flag_for_ben.`,
         };
     }
 
-    if (input.allowedFigurePence) {
-        const bad = moneyFiguresNotAllowed(input.body, input.allowedFigurePence);
-        if (bad.length) {
-            const known = input.allowedFigurePence.map((p) => `£${p / 100}`).join(', ') || '(none)';
-            const vague = bad.filter((b) => b.unverifiable);
-            return {
-                code: 'figure_not_on_quote',
-                message: `These figures are not on quote ${input.quoteSlug ?? '(cited)'}: ${bad.map((b) => b.raw).join(', ')}. The only figures on it are: ${known}. You may repeat what is already on their quote and nothing else.${vague.length ? ' Write a price as the digits on the quote (£180), never in words, so it can be checked.' : ''} If the customer needs a different number, use ask_ben.`,
-            };
-        }
+    const money = detectMoneyFigure(input.body);
+    if (money) {
+        return {
+            code: 'money_figure',
+            message: `This draft contains a money figure ("${money}"). You never write a figure to a customer — not even one copied correctly off their own quote. The quote page is the numbers channel: every price, deposit and line total lives there, itemised, and repeating a number in chat is how a price gets renegotiated. Rewrite the reply WITHOUT the number and point at their quote instead ("it's all itemised on your quote" plus the link). Describing WHAT is included is yours; the digits are the page's. If they need a number that is not on their quote, that is a money decision: flag_for_ben.`,
+        };
     }
 
     const liability = detectLiabilityAdmission(input.body);
     if (liability) {
         return {
             code: 'liability_admission',
-            message: `This draft admits liability or promises to pay for damage ("${liability}"). You may never do that: you cannot see the job, the contractor's account is not in this thread, and an admission written here is the one a claim is settled on. Say we are looking into it if you must say anything, set priority=urgent, and use ask_ben.`,
+            message: `This draft admits liability or promises to pay for damage ("${liability}"). You may never do that: you cannot see the job, the contractor's account is not in this thread, and an admission written here is the one a claim is settled on. Say we are looking into it if you must say anything, set priority=urgent, and use flag_for_ben.`,
         };
     }
 
@@ -507,7 +503,7 @@ export function checkDraft(input: DraftCheckInput): DraftViolation | null {
     if (credential) {
         return {
             code: 'capability_claim',
-            message: `This draft claims a credential the business does not hold ("${credential}"). Never say we are Gas Safe, NICEIC, Part P, certified, accredited or qualified. If they asked, the honest answer is that we are not, and that work of that kind needs a registered engineer, which is a question for Ben. Use ask_ben.`,
+            message: `This draft claims a credential the business does not hold ("${credential}"). Never say we are Gas Safe, NICEIC, Part P, certified, accredited or qualified. If they asked, the honest answer is that we are not, and that work of that kind needs a registered engineer, which is a question for Ben. Use flag_for_ben.`,
         };
     }
 
@@ -530,7 +526,7 @@ export function checkDraft(input: DraftCheckInput): DraftViolation | null {
             const band = priceBandFor(input.quoteTotalPence ?? null);
             return {
                 code: 'capitulation',
-                message: `This draft capitulates ("${capitulation}") with no lever in it. A bare agreement to end the conversation converted 1 time in 8 and is the worst performing response we have. This quote is in the ${band.label} band: ${band.playbook} Redraft with a lever, or use ask_ben.`,
+                message: `This draft capitulates ("${capitulation}") with no lever in it. A bare agreement to end the conversation converted 1 time in 8 and is the worst performing response we have. This quote is in the ${band.label} band: ${band.playbook} Redraft with a lever, or use flag_for_ben.`,
             };
         }
     }
@@ -540,7 +536,7 @@ export function checkDraft(input: DraftCheckInput): DraftViolation | null {
         const offered = input.offeredDates ?? [];
         return {
             code: 'date_promise',
-            message: `This draft commits to a date ("${datePromise}"). You cannot confirm a date from here. ${offered.length ? `Their quote already offers ${offered.join(', ')} — point them at the date picker on the quote so it is booked there with the deposit.` : 'Their quote offers no dates.'} If they need a specific day, use ask_ben. Never promise a date the thread or the quote does not already confirm.`,
+            message: `This draft commits to a date ("${datePromise}"). You cannot confirm a date from here. ${offered.length ? `Their quote already offers ${offered.join(', ')} — point them at the date picker on the quote so it is booked there with the deposit.` : 'Their quote offers no dates.'} If they need a specific day, use flag_for_ben. Never promise a date the thread or the quote does not already confirm.`,
         };
     }
 

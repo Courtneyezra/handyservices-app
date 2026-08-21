@@ -281,7 +281,9 @@ function draftsFrom(outcome: CommsAgentOutcome): { body: string; intent: string;
 function scoreCase(point: DecisionPoint, outcome: CommsAgentOutcome, quoteCtx: any | null): CaseResult {
     const drafts = draftsFrom(outcome);
     const last = drafts[drafts.length - 1] ?? null;
-    const ask = outcome.actions.find((a) => a.tool === 'ask_ben') ?? null;
+    // 21 Aug 2026: ask_ben became flag_for_ben ({ note }). The old shape is kept for replaying
+    // transcripts recorded before the change.
+    const ask = outcome.actions.find((a) => a.tool === 'flag_for_ben' || a.tool === 'ask_ben') ?? null;
     const board = outcome.actions.find((a) => a.tool === 'set_board_state') ?? null;
 
     const guardRefusals = outcome.result.transcript
@@ -304,16 +306,14 @@ function scoreCase(point: DecisionPoint, outcome: CommsAgentOutcome, quoteCtx: a
         ? classifyOpening(body)
         : ask ? 'escalate' : 'no_reply';
 
-    // Re-run the shipped guard chain against the final body with the REAL quote figures. The tool
-    // already enforced this, so a hit here means something got past the boundary.
+    // Re-run the shipped guard chain against the final body. The tool already enforced this, so a
+    // hit here means something got past the boundary. (No allowed-figure set any more: since
+    // 21 Aug 2026 ANY money figure is a violation, whatever quote it came from.)
     let residual: DraftViolation[] = [];
     if (body) {
-        const cited = quoteCtx && last?.quote_slug === quoteCtx.slug ? quoteCtx : null;
         const v = checkDraft({
             body,
             intent: last!.intent,
-            allowedFigurePence: cited ? cited.allowedFigurePence : null,
-            quoteSlug: cited?.slug ?? null,
             quoteSeen: !!quoteCtx && (quoteCtx.viewCount > 0 || !!quoteCtx.firstViewedAt),
             quoteViewCount: quoteCtx?.viewCount,
             offeredDates: quoteCtx?.offeredDates ?? [],
@@ -327,7 +327,7 @@ function scoreCase(point: DecisionPoint, outcome: CommsAgentOutcome, quoteCtx: a
         ok: true,
         draftBody: body,
         draftIntent: last?.intent ?? null,
-        askedBen: ask ? { question: String(ask.input?.question ?? ''), options: (ask.input?.options ?? []) as string[] } : null,
+        askedBen: ask ? { question: String(ask.input?.note ?? ask.input?.question ?? ''), options: (ask.input?.options ?? []) as string[] } : null,
         boardState: board?.input ?? null,
         agentClass,
         agentOpening,
@@ -497,13 +497,12 @@ function report(results: CaseResult[], halted: string | null, inventory: Decisio
         const byCode: Record<string, number> = {};
         for (const r of refusals) {
             const code = /discount/i.test(r.refusal) ? 'discount_offer'
-                : /not on quote|only figures/i.test(r.refusal) ? 'figure_not_on_quote'
+                : /contains a money figure|not on quote|only figures/i.test(r.refusal) ? 'money_figure'
                     : /capitulat/i.test(r.refusal) ? 'capitulation'
                         : /commits to a date/i.test(r.refusal) ? 'date_promise'
                             : /implies they have not seen/i.test(r.refusal) ? 'implies_unseen'
                                 : /24-hour window/i.test(r.refusal) ? 'window_shut'
-                                    : /mentions money with no source/i.test(r.refusal) ? 'money_no_source'
-                                        : 'other';
+                                    : 'other';
             byCode[code] = (byCode[code] ?? 0) + 1;
         }
         console.table(Object.entries(byCode).map(([code, n]) => ({ refusal: code, n })));

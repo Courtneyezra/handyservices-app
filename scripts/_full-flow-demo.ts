@@ -114,6 +114,7 @@ async function agentTurn(label: string, liveConfig: CommsAgentConfig): Promise<v
             config: { ...liveConfig, autosend: { ...liveConfig.autosend, enabled: true } },
             intent: 'demo', body: draft.body, ukHour: 12,
             postQuoteThread: /\/q\//.test(draft.body),
+            reactive: true,
             guardsPassed: true,
         });
 

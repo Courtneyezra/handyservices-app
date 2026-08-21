@@ -660,12 +660,11 @@ async function stage6_priceObjection(): Promise<void> {
         check('the reply reaches for a lever (re-scope, resourcing, reason, or invite the comparison)', leverish);
         assertDraftIsSafe('price objection', d.body);
 
-        // Nothing the agent wrote may be a number that is not on that quote.
-        const allowed = new Set(lq?.allowedFigurePence ?? []);
+        // Since 21 Aug 2026 nothing the agent writes may be a number AT ALL — the quote page is
+        // the numbers channel, and the guard refuses even the quote's own total at draft time.
         const figures = extractMoneyFigures(d.body);
-        const invented = figures.filter((f) => !allowed.has(f.pence));
-        check('every £ figure in the reply is one of the quote\'s own numbers', invented.length === 0,
-            invented.length ? `invented: ${invented.map((f) => `£${f.pence / 100}`).join(', ')}` : `${figures.length} figure(s), all on the quote`);
+        check('the reply carries NO money figure at all (money never transmits in chat)', figures.length === 0,
+            figures.length ? `figures found: ${figures.map((f) => f.raw).join(', ')}` : 'figure-free');
 
         // The seam: the intent the post-quote commit invented has to survive into the ledger.
         const stamped = /^\[([a-z_]+)\]/.exec(d.reason ?? '')?.[1] ?? null;
@@ -708,25 +707,23 @@ async function stage7_theWall(): Promise<void> {
     const d = await latestDraft();
     if (d) created.drafts.push(d.id);
 
-    check('a £1,200 objection is escalated to Ben', qs.length > 0,
-        qs.map((q) => `${q.question} | options: ${((q.options as string[]) ?? []).join(' / ')}`).join('\n'));
-    const options = qs.flatMap((q) => (q.options as string[]) ?? []);
-    check('the options put to Ben are STRUCTURAL', options.some((o) => /split|defer|de-?scope|second visit|survey|phase|stage/i.test(o)), options.join(' / '));
-    check('no option offered to Ben is a discount', !options.some((o) => /discount|% off|reduce the price|lower the price|knock/i.test(o)), options.join(' / '));
+    // THE ESCALATION SHAPE CHANGED (21 Aug 2026): the tap-question relay is gone. An escalation is
+    // now a FLAG — needs_ben tag on the conversation, an agent_questions row with status 'flagged'
+    // as the audit note, a Pushover ping (silent here, no token) — and Ben replies in the thread.
+    const flagRows = qs.filter((q) => q.status === 'flagged');
+    const [wallConv] = await db.select().from(conversations).where(eq(conversations.id, CONV_MAIN));
+    const wallTags = (wallConv?.tags as string[]) ?? [];
+    check('a £1,200 objection FLAGS the thread for Ben (flag row written)', flagRows.length > 0,
+        flagRows.map((q) => q.question.slice(0, 200)).join('\n'));
+    check('the thread carries the needs_ben tag', wallTags.includes('needs_ben'), JSON.stringify(wallTags));
+    check('the flag raised the priority', ['high', 'urgent'].includes(String(wallConv?.priority)), String(wallConv?.priority));
+    const notes = flagRows.map((q) => q.question).join(' ');
+    check('the note put to Ben names STRUCTURAL options', /split|defer|de-?scope|second visit|survey|phase|stage|restructur/i.test(notes), notes.slice(0, 300));
+    check('nothing in the note proposes a discount', !/\b(?:offer (?:a |them )?discount|% off|reduce the price|lower the price)\b/i.test(notes), notes.slice(0, 300));
     if (d) {
         console.log(`\ndraft:\n${d.body}\n`);
         check('the £1,200 draft is not a capitulation', detectCapitulation(d.body) === null);
         assertDraftIsSafe('£1,200', d.body);
-    }
-
-    // The second seam question: an ask_ben raised BY a post-quote objection must show up as a
-    // question proposal in the ledger, not vanish because the escalation came from a new code path.
-    for (const q of qs) {
-        const row = await ledgerRow('question', q.id);
-        seam('a post-quote escalation appears in the ledger as a question proposal',
-            !!row && row.kind === 'question' && row.capability === 'ask_ben',
-            row ? `capability=${row.capability} verdict=${row.verdict}` : 'NO LEDGER ROW');
-        seam('the escalation body is frozen as the question that was asked', row?.proposed_body === q.question);
     }
 }
 
@@ -769,7 +766,7 @@ async function stage8_ledger(base: string): Promise<void> {
     // not care what the model called its own draft.
     const cfgOn = { ...(await getCommsAgentConfig()), autosend: { enabled: true, intents: [] } };
     const gate = (body: string, intent: string) => maySendDirect({
-        config: cfgOn, intent, body, ukHour: 12, postQuoteThread: true, guardsPassed: true,
+        config: cfgOn, intent, body, ukHour: 12, postQuoteThread: true, reactive: true, guardsPassed: true,
     }).send;
     for (const intent of postQuote) {
         check(`${intent}: a reply carrying a price is held for Ben, post-quote`,

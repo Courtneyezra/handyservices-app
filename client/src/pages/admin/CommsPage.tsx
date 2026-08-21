@@ -159,7 +159,12 @@ interface PendingDraft {
     createdAt: string;
 }
 
-/** A question the agent is blocked on. Ben's answer feeds the agent's next run. */
+/**
+ * An escalation note from the agent. 'flagged' is the current shape (21 Aug 2026): the agent
+ * tagged the thread needs_ben and this row says why — Ben answers by replying IN the thread, not
+ * here. 'open'/'answered' are the retired tap-question relay, still shown while in-flight rows
+ * drain.
+ */
 interface AgentQuestion {
     id: string;
     conversationId: string;
@@ -167,7 +172,7 @@ interface AgentQuestion {
     context: string | null;
     options: string[] | null;
     answer: string | null;
-    status: 'open' | 'answered';
+    status: 'open' | 'answered' | 'flagged';
     createdAt: string;
 }
 
@@ -720,21 +725,29 @@ function DraftApprovalCard({ draft, windowOpen, onDone }: {
 }
 
 /**
- * The agent asking Ben for a decision it won't make itself. Tapping an option answers it; the
- * agent's next run turns the answer into a draft (which still comes back here for approval).
+ * The agent flagged this thread for Ben. There is nothing to tap and nothing to type here: Ben
+ * answers by REPLYING IN THE THREAD, and the agent builds on his words. This card is just the
+ * agent's note (why he is needed, what the customer wants, what it already said) plus a dismiss
+ * that clears the needs_ben tag once he has dealt with it. It replaced the interactive
+ * question-and-options card when the ask-Ben relay retired (21 Aug 2026); a legacy 'answered' row
+ * still renders as a small info line while in-flight questions drain.
  */
-function AskBenCard({ q, onDone }: { q: AgentQuestion; onDone: () => void }) {
-    const [custom, setCustom] = useState('');
+function FlagNoteCard({ card, q, onDone }: { card: BoardCard; q: AgentQuestion; onDone: () => void }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    async function submit(answer: string, action: 'answer' | 'dismiss' = 'answer') {
+    async function dismiss() {
         setBusy(true); setError(null);
         try {
-            const res = await fetch(`/api/agent-questions/${q.id}/${action}`, {
-                method: 'POST',
+            // A legacy open question is closed via its own route so the sweeps stop treating the
+            // thread as parked; a flag row is a log and stays — the needs_ben tag is the state.
+            if (q.status === 'open') {
+                await fetch(`/api/agent-questions/${q.id}/dismiss`, { method: 'POST', headers: getAuthHeaders() });
+            }
+            const res = await fetch(`/api/inbox/conversations/${card.id}`, {
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: action === 'answer' ? JSON.stringify({ answer }) : undefined,
+                body: JSON.stringify({ tags: card.tags.filter((t) => t !== 'needs_ben') }),
             });
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed');
             onDone();
@@ -755,48 +768,21 @@ function AskBenCard({ q, onDone }: { q: AgentQuestion; onDone: () => void }) {
     }
 
     return (
-        <div className="rounded-lg border-l-4 border-indigo-600 bg-indigo-50 p-3">
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase text-indigo-800">
-                <HelpCircle className="h-3.5 w-3.5" /> Agent needs a decision
+        <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3">
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase text-amber-800">
+                <HelpCircle className="h-3.5 w-3.5" /> Agent flagged this for you
             </div>
-            <p className="mt-1.5 text-sm font-semibold text-slate-900">{q.question}</p>
-            {q.context && <p className="mt-0.5 text-xs text-indigo-700">{q.context}</p>}
+            <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-900">{q.question}</p>
             {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
-            <div className="mt-2 flex flex-wrap gap-1.5">
-                {(q.options ?? []).map((opt) => (
-                    <button
-                        key={opt}
-                        disabled={busy}
-                        onClick={() => submit(opt)}
-                        className="rounded-full border border-indigo-500 bg-white px-3 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-600 hover:text-white disabled:opacity-40"
-                    >
-                        {opt}
-                    </button>
-                ))}
-            </div>
-            <div className="mt-2 flex gap-1.5">
-                <input
-                    value={custom}
-                    onChange={(e) => setCustom(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && custom.trim()) submit(custom.trim()); }}
-                    disabled={busy}
-                    placeholder="Or type your own answer…"
-                    className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
-                />
+            <div className="mt-2 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-amber-700">Reply in the thread below — the agent picks it up from there.</span>
                 <button
-                    onClick={() => custom.trim() && submit(custom.trim())}
-                    disabled={busy || !custom.trim()}
-                    className="rounded bg-indigo-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-40"
-                >
-                    Answer
-                </button>
-                <button
-                    onClick={() => submit('', 'dismiss')}
+                    onClick={dismiss}
                     disabled={busy}
-                    title="I'll handle this thread myself"
+                    title="Clear the flag from this thread"
                     className="rounded px-2 py-1 text-xs text-slate-500 hover:text-red-700 disabled:opacity-40"
                 >
-                    Dismiss
+                    {busy ? 'Dismissing…' : 'Dismiss'}
                 </button>
             </div>
         </div>
@@ -1389,11 +1375,22 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 </div>
             )}
 
-            {/* The agent's pending work on this thread: questions it's blocked on, then drafts
-                awaiting approval. Above the composer so a decision is never below the fold. */}
+            {/* The agent's pending work on this thread: the flag note when it needs Ben, then
+                drafts awaiting approval. Above the composer so a decision is never below the fold.
+                Only the LATEST flag renders, and only while needs_ben stands — older flagged rows
+                are audit history, not work. */}
             {((data?.questions?.length ?? 0) > 0 || (data?.drafts?.length ?? 0) > 0) && (
                 <div className="space-y-2 border-t border-slate-200 bg-slate-50 p-3">
-                    {data!.questions?.map((q) => <AskBenCard key={q.id} q={q} onDone={refresh} />)}
+                    {(() => {
+                        const qs = data!.questions ?? [];
+                        const latestFlag = card.tags.includes('needs_ben')
+                            ? qs.find((q) => q.status === 'flagged') ?? null
+                            : null;
+                        const legacy = qs.filter((q) => q.status !== 'flagged');
+                        return [...(latestFlag ? [latestFlag] : []), ...legacy].map((q) => (
+                            <FlagNoteCard key={q.id} card={card} q={q} onDone={refresh} />
+                        ));
+                    })()}
                     {data!.drafts?.map((d) => (
                         <DraftApprovalCard key={d.id} draft={d} windowOpen={card.windowOpen} onDone={refresh} />
                     ))}
