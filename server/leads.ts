@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "./db";
 import { leads, insertLeadSchema, personalizedQuotes, conversations, LeadStage, LeadStageValues, calls, messages, invoices, contractorJobs } from "@shared/schema";
-import { eq, desc, or, inArray, isNotNull, isNull, gte, and } from "drizzle-orm";
+import { eq, desc, or, inArray, isNotNull, isNull, gte, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { v4 as uuidv4 } from "uuid";
@@ -101,61 +101,95 @@ leadsRouter.post('/api/leads', async (req, res) => {
             }).catch((e) => console.warn('[Leads] notifyWebformLead failed:', e));
         }
 
-        // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
-        // Just like calls, we run the agent on the job description to get a plan
-        if (!isPostPaymentRecord && newLead.jobDescription && newLead.jobDescription.length > 10) {
+        // --- WEBFORM → COMMS: the same front door as every other channel ---
+        //
+        // Found 21 Aug 2026 with a live roller-blind lead standing in the hole: the hero form's
+        // source ('desktop_hero_flow') wasn't in the old chase's list, and the legacy fallback
+        // created a shell conversation — raw local phone, no message rows — that no lane, sweep
+        // or ack could ever act on. 21 web leads in 60 days took that path.
+        //
+        // The correct shape is the one calls and texts already use: normalise the phone, key the
+        // conversation the standard way (so it MERGES with any existing WhatsApp thread for the
+        // same person), store the enquiry as a real INBOUND message, and hand it to the comms
+        // lanes — the instant ack (channel 'webform', approved template since a form opens no
+        // WhatsApp window) and the agent take it from there. The old draft-and-queue chase
+        // (processWebFormLead) is retired for new leads; this path supersedes it.
+        const isWebForm = !isPostPaymentRecord && !!newLead.phone && (
+            ['web_quote', 'webform', 'website'].includes(newLead.source || '')
+            || (newLead.source || '').endsWith('hero_flow')
+        );
+        if (isWebForm) {
             (async () => {
                 try {
-                    const { analyzeLeadActionPlan } = await import("./services/agentic-service");
-                    console.log(`[Agent-Reflexion] Analyzing Web Lead ${newLead.id}...`);
-
-                    const plan = await analyzeLeadActionPlan(newLead.jobDescription || "", newLead.customerName);
-
-                    // 1. Save Plan to Lead metadata (if we had a column, but we use conversation logic mainly)
-                    // 2. IMPORTANT: Update the Conversation Metadata so it shows in Inbox
-
-                    // Find or create the conversation to attach the plan
-                    const { conversations } = await import("@shared/schema");
-                    const [existingConv] = await db.select().from(conversations)
-                        .where(eq(conversations.phoneNumber, newLead.phone))
-                        .limit(1);
-
-                    if (existingConv) {
-                        await db.update(conversations)
-                            .set({ metadata: plan })
-                            .where(eq(conversations.id, existingConv.id));
-                        console.log(`[Agent-Reflexion] Attached plan to existing conversation ${existingConv.id}`);
-                    } else {
-                        // If no conversation exists yet, the Inbox "GetThread" logic might miss it 
-                        // unless we create a phantom one OR relying on the lead item itself.
-                        // Ideally, we create a conversation record for the agent to "live" in.
-                        await db.insert(conversations).values({
+                    const { normalizePhoneNumber } = await import('./phone-utils');
+                    const e164 = normalizePhoneNumber(newLead.phone!);
+                    if (!e164) {
+                        console.warn(`[WebformIngest] Unparseable phone on lead ${newLead.id}: ${newLead.phone}`);
+                        return;
+                    }
+                    const { conversations, messages } = await import('@shared/schema');
+                    const convKey = `${e164.replace('+', '')}@c.us`;
+                    let [conv] = await db.select().from(conversations)
+                        .where(eq(conversations.phoneNumber, convKey)).limit(1);
+                    if (!conv) {
+                        [conv] = await db.insert(conversations).values({
                             id: uuidv4(),
-                            phoneNumber: newLead.phone,
+                            phoneNumber: convKey,
                             contactName: newLead.customerName,
                             status: 'active',
-                            unreadCount: 0,
-                            lastMessageAt: new Date(),
-                            lastMessagePreview: "New Web Inquiry",
-                            metadata: plan
-                        });
-                        console.log(`[Agent-Reflexion] Created new conversation with plan for ${newLead.phone}`);
+                            stage: 'enquiry',
+                            priority: 'normal',
+                            unreadCount: 1,
+                        }).returning();
                     }
+                    const body = (newLead.jobDescription || '').trim() || 'New web enquiry (no details given)';
+                    const msgId = `webform_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+                    const now = new Date();
+                    await db.insert(messages).values({
+                        id: msgId,
+                        conversationId: conv.id,
+                        direction: 'inbound',
+                        channel: 'webform',
+                        content: body,
+                        type: 'text',
+                        status: 'delivered',
+                        senderName: newLead.customerName,
+                        createdAt: now,
+                    });
+                    // A webform does NOT open WhatsApp's 24h window (only an inbound WhatsApp
+                    // message does), so lastInboundAt stays untouched; the customer clock runs.
+                    await db.update(conversations).set({
+                        lastCustomerContactAt: now,
+                        lastMessageAt: now,
+                        lastMessagePreview: body.slice(0, 50),
+                        updatedAt: now,
+                    }).where(eq(conversations.id, conv.id));
 
+                    const { scheduleInboundTriage } = await import('./agents/comms-lanes');
+                    scheduleInboundTriage(conv.id, e164, {
+                        channel: 'webform',
+                        contactName: newLead.customerName,
+                        text: body,
+                        messageId: msgId,
+                    });
+                    console.log(`[WebformIngest] Lead ${newLead.id} → conversation ${conv.id}, lanes armed.`);
+
+                    // The reflexion plan still attaches, to the properly-keyed conversation.
+                    if ((newLead.jobDescription || '').length > 10) {
+                        try {
+                            const { analyzeLeadActionPlan } = await import('./services/agentic-service');
+                            const plan = await analyzeLeadActionPlan(newLead.jobDescription || '', newLead.customerName);
+                            await db.update(conversations).set({
+                                metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || ${JSON.stringify({ leadPlan: plan })}::jsonb`,
+                            }).where(eq(conversations.id, conv.id));
+                        } catch (err) {
+                            console.warn('[WebformIngest] Plan attach failed (ingest already complete):', err);
+                        }
+                    }
                 } catch (err) {
-                    console.error(`[Agent-Reflexion] Failed to analyze web lead:`, err);
+                    console.error(`[WebformIngest] Failed for lead ${newLead.id}:`, err);
                 }
             })();
-        }
-
-        // --- WEB FORM AUTO-CHASE ---
-        // If this is a web form lead, trigger immediate acknowledgment
-        const isWebForm = ['web_quote', 'webform', 'website'].includes(newLead.source || '');
-        if (isWebForm && newLead.phone) {
-            // Run async to not block the response
-            processWebFormLead(newLead.id).catch(err => {
-                console.error(`[WebFormChase] Error processing new lead ${newLead.id}:`, err);
-            });
         }
 
         res.status(201).json({
