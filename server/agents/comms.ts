@@ -150,6 +150,22 @@ const DEFAULT_CONFIG: CommsAgentConfig = {
 };
 
 export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
+    // Test isolation: a suite process sets COMMS_CONFIG_OVERRIDE (JSON) instead of
+    // writing the shared DB row, so parallel test runs can't flip live flags.
+    const override = process.env.COMMS_CONFIG_OVERRIDE;
+    if (override) {
+        try {
+            const o = JSON.parse(override) as Partial<CommsAgentConfig>;
+            return {
+                ...DEFAULT_CONFIG, ...o,
+                autosend: { ...DEFAULT_CONFIG.autosend, ...(o.autosend ?? {}) },
+                firstContactAutoAck: { ...DEFAULT_FIRST_CONTACT_ACK, ...(o.firstContactAutoAck ?? {}) },
+                quotePrep: { ...DEFAULT_CONFIG.quotePrep, ...(o.quotePrep ?? {}) },
+            };
+        } catch {
+            console.error('[CommsAgent] Bad COMMS_CONFIG_OVERRIDE JSON, falling through to DB config');
+        }
+    }
     try {
         const [row] = await db.select().from(appSettings).where(eq(appSettings.key, SETTING_KEY));
         if (!row) return DEFAULT_CONFIG;
@@ -801,7 +817,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     phone: e164,
                     body: input.body,
                     source: 'comms_agent',
-                    reason: `[${input.intent}] ${input.reason}`,
+                    reason: `[${input.intent ?? 'unlabelled'}] ${input.reason}`,
                     // The channel the deliverability guard above resolved: WhatsApp while the
                     // window is open, SMS for an SMS-first thread the window never applies to.
                     channel: sendChannel,
