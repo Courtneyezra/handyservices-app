@@ -21,6 +21,7 @@ import { db } from './db';
 import { calls } from '@shared/schema';
 import { eq, or } from 'drizzle-orm';
 import { claudeJson, FAST_MODEL } from './llm';
+import { logSystemEvent } from './system-events';
 
 /** Transcripts at or below this length are hold music, misdials and "hello? hello?" — unreadable. */
 const MIN_TRANSCRIPT_CHARS = 50;
@@ -190,6 +191,16 @@ export async function classifyCall(callId: string): Promise<ClassifyResult> {
         await db.update(calls)
             .set({ classification: result.classification })
             .where(eq(calls.id, call.id));
+        // Only on a FRESH verdict (the idempotent early return above never reaches here), so the
+        // activity log shows each call classified once, not every time something re-reads it.
+        const c = result.classification;
+        void logSystemEvent({
+            kind: 'classification',
+            phone: call.phoneNumber,
+            summary: `${c.kind}${c.jobSummary ? `: ${c.jobSummary.slice(0, 160)}` : ''}`,
+            detail: { callId: call.id, urgency: c.urgency, callbackPromised: c.callbackPromised, callIncomplete: c.callIncomplete },
+            source: 'call-classifier',
+        });
         return result;
     } catch (e) {
         console.error('[CallClassifier] classifyCall failed:', e);

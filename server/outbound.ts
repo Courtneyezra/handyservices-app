@@ -31,6 +31,7 @@ import { sendSmsMessage, toE164Recipient, TwilioSendError } from './sms';
 import { isNonMobileUkNumber } from './phone-utils';
 import { notifyOutboundSendFailure } from './pushover';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
+import { logSystemEvent } from './system-events';
 
 export type OutboundChannel = 'whatsapp' | 'sms';
 
@@ -263,6 +264,15 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
                     body: input.body,
                 }).catch(() => { });
             }
+            // The customer HAS the message, but not by the pipe we intended — worth a row even
+            // when it is not worth an alert, because a pattern of these is a broken sender.
+            void logSystemEvent({
+                kind: 'other',
+                phone: e164,
+                summary: `WhatsApp failed (code ${code ?? 'none'}), SMS carried it — ${input.context ?? 'no context'}`,
+                detail: { code, reason, attempts },
+                source: 'outbound',
+            });
             return { ok: true, channel: 'sms', sid: sms.sid, attempts, fellBack: true, reason };
         }
 
@@ -315,6 +325,14 @@ async function raiseDroppedMessageAlert(
         `[Outbound] MESSAGE NOT DELIVERED to ${e164} by any channel (${input.context ?? 'no context'}): ` +
         attempts.map((a) => `${a.channel}=${a.ok ? 'ok' : `${a.code ?? 'err'} ${a.error}`}`).join(' | '),
     );
+    void logSystemEvent({
+        kind: 'delivery_fail',
+        phone: e164,
+        summary: `NOT delivered by any channel (${input.context ?? 'no context'}): `
+            + attempts.map((a) => `${a.channel}=${a.ok ? 'ok' : (a.code ?? 'err')}`).join(' | '),
+        detail: { attempts, context: input.context ?? null },
+        source: 'outbound',
+    });
     await notifyOutboundSendFailure({
         phone: e164,
         contactName: input.contactName,

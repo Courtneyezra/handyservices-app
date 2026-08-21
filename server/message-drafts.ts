@@ -18,6 +18,7 @@ import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { sendCustomerMessage, type OutboundChannel } from './outbound';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
+import { logSystemEvent } from './system-events';
 
 export const messageDraftsRouter = Router();
 
@@ -146,6 +147,14 @@ export async function queueDraft(input: {
     }));
 
     console.log(`[Drafts] Queued ${input.source} draft ${id} for ${phone}`);
+    void logSystemEvent({
+        kind: 'hold',
+        phone,
+        conversationId: conv?.id ?? null,
+        summary: input.reason?.trim() || `${input.source} draft held for approval`,
+        detail: { draftId: id, source: input.source },
+        source: 'message-drafts',
+    });
     return id;
 }
 
@@ -323,6 +332,14 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
                 draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
                 finalBody: draft.body, sendStatus: 'failed',
             }));
+            void logSystemEvent({
+                kind: 'delivery_fail',
+                phone: draft.phone,
+                conversationId: draft.conversationId,
+                summary: `Approved draft failed on every channel: ${result.error ?? 'send failed'}`,
+                detail: { by: approvedBy, channel: draft.channel, draftId: draft.id },
+                source: 'message-drafts',
+            });
             return { ok: false, code: 'SEND_FAILED', message: result.error ?? 'send failed on every channel' };
         }
 
@@ -345,6 +362,14 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             finalBody: draft.body, sendStatus: 'sent',
             sentAt: sent?.sentAt ?? new Date(), sentMessageId: result.sid ?? null,
         }));
+        void logSystemEvent({
+            kind: 'send',
+            phone: draft.phone,
+            conversationId: draft.conversationId,
+            summary: draft.body.slice(0, 80),
+            detail: { by: approvedBy, channel: result.channel ?? draft.channel, draftId: draft.id },
+            source: 'message-drafts',
+        });
 
         // A draft carrying a contextual quote link (the shut-window fallback from the in-chat
         // quote card) has just delivered that quote — flip it out of draft and stage the thread,
@@ -396,6 +421,14 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
             finalBody: draft.body, sendStatus: 'failed',
         }));
+        void logSystemEvent({
+            kind: 'delivery_fail',
+            phone: draft.phone,
+            conversationId: draft.conversationId,
+            summary: `Approved draft threw mid-send: ${sendError?.message ?? 'send failed'}`,
+            detail: { by: approvedBy, channel: draft.channel, draftId: draft.id },
+            source: 'message-drafts',
+        });
         const { notifyOutboundSendFailure } = await import('./pushover');
         await notifyOutboundSendFailure({
             phone: draft.phone,

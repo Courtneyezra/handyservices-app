@@ -4236,3 +4236,27 @@ export const nudgeQueue = pgTable("nudge_queue", {
 
 export const insertNudgeQueueSchema = createInsertSchema(nudgeQueue);
 export type NudgeQueueRow = typeof nudgeQueue.$inferSelect;
+
+// ── System event log ─────────────────────────────────────────────────────────
+// Live-beta observability: every side effect the machine takes (a send, a held
+// draft, a delivery failure, a Pushover alert, a call verdict) becomes one row a
+// human can scan on /admin/activity while the system is new and being watched.
+// Append-only, written fire-and-forget via logSystemEvent (server/system-events.ts)
+// — a bookkeeping failure must never break the action it describes.
+// Migration: scripts/migrate-system-events.ts (targeted DDL; never db:push).
+export const systemEvents = pgTable("system_events", {
+    id: varchar("id").primaryKey().notNull(),
+    at: timestamp("at", { withTimezone: true }).defaultNow().notNull(),
+    kind: varchar("kind", { length: 32 }).notNull(),      // send | hold | delivery_fail | pushover | classification | ...
+    phone: varchar("phone", { length: 32 }),              // E.164 when the event concerns a customer
+    conversationId: varchar("conversation_id"),           // links the row to /admin/comms when known
+    summary: text("summary").notNull(),                   // one human-readable line, capped at 300 chars
+    detail: jsonb("detail"),                              // machine payload for drill-down
+    source: varchar("source", { length: 48 }).notNull(),  // which module wrote it, e.g. 'outbound'
+}, (table) => [
+    index("idx_system_events_at").on(table.at.desc()),
+    index("idx_system_events_kind_at").on(table.kind, table.at.desc()),
+]);
+
+export type SystemEvent = typeof systemEvents.$inferSelect;
+export type InsertSystemEvent = typeof systemEvents.$inferInsert;

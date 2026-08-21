@@ -20,6 +20,7 @@ import {
     PushoverPriority,
     PUSHOVER_EVENT_DEFS,
 } from '../shared/pushover-settings';
+import { logSystemEvent } from './system-events';
 
 /** Format pence as £ for alert bodies. */
 function gbp(pence?: number | null): string {
@@ -103,8 +104,23 @@ interface DispatchOptions {
  * Core dispatcher: resolves config, applies quiet hours + per-recipient
  * targeting, builds the link, and POSTs to Pushover for each recipient.
  * Never throws.
+ *
+ * Every attempt — delivered or skipped — lands in the system event log, so the
+ * /admin/activity page answers "did that alert actually fire?" without ssh.
  */
 async function dispatch(opts: DispatchOptions): Promise<{ sent: number; skipped: string | null }> {
+    const result = await dispatchInner(opts);
+    void logSystemEvent({
+        kind: 'pushover',
+        summary: `${opts.event}: ${opts.title}`,
+        phone: opts.linkPhone ?? null,
+        detail: { sent: result.sent, skipped: result.skipped },
+        source: 'pushover',
+    });
+    return result;
+}
+
+async function dispatchInner(opts: DispatchOptions): Promise<{ sent: number; skipped: string | null }> {
     let config: PushoverConfig;
     try {
         config = await getPushoverConfig();

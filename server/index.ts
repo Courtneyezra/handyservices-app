@@ -46,6 +46,7 @@ import { maybeSendPostCallVideoRequest } from "./post-call-outreach";
 import { inboxBoardRouter } from "./inbox-board";
 import { whatsappOnboardingRouter } from "./whatsapp-onboarding";
 import { messageDraftsRouter } from "./message-drafts";
+import { systemEventsRouter } from "./system-events";
 import { agentQuestionsRouter } from "./agent-questions";
 import { agentStaffRouter } from "./agent-staff";
 import { voiceNotesRouter } from "./voice-notes";
@@ -411,6 +412,7 @@ app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messa
 app.use('/api/whatsapp-templates', requireAdmin, whatsappTemplatesRouter); // Meta template approval status + template sends
 app.use('/api/inbox', requireAdmin, inboxBoardRouter); // Kanban board over conversations
 app.use('/api/drafts', requireAdmin, messageDraftsRouter); // Human approval gate for system-authored messages
+app.use('/api/system-events', requireAdmin, systemEventsRouter); // Live-beta activity log (/admin/activity)
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue
 app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
 app.use('/api/whatsapp', requireAdmin, voiceNotesRouter); // Outbound voice notes (admin-only; webhooks stay on the open router)
