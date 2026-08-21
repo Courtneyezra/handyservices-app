@@ -651,7 +651,7 @@ export type CallEvent = {
      * server/call-classifier.ts). `kind` lets the UI flag a complaint; `line` is the
      * ready-made human sentence. Null until that build lands or for unclassified calls.
      */
-    classification: { kind: string; line: string } | null;
+    classification: { kind: string; line: string; bullets?: string[] } | null;
 };
 
 /**
@@ -695,7 +695,9 @@ async function loadCallsForConversation(conversationPhoneKey: string, limit = 50
             transcript: c.transcription ? c.transcription.slice(0, 1500) : null,
             recordingUrl: c.recordingUrl ?? null,
             status: c.status ?? null,
-            classification: cls ? { kind: cls.kind, line: classificationLine(cls) } : null,
+            classification: cls
+                ? { kind: cls.kind, line: classificationLine(cls, { omitKind: cls.kind === 'outbound_call' }), ...(cls.bullets?.length ? { bullets: cls.bullets } : {}) }
+                : null,
         };
     });
 }

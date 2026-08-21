@@ -1590,7 +1590,21 @@ app.post('/api/twilio/recording-status', async (req, res) => {
             console.log(`[Recording] Call ${callRecordId} already has transcript (${call.transcription.length} chars)`);
         }
 
-        // THE TRANSCRIPT RACE, closed: the video-request decision needs the transcript (the
+        // THE TRANSCRIPT JUST LANDED — two things ride on it, in order:
+        //
+        // 1. CLASSIFY/SUMMARISE, always, both directions ("summary and bullets per incoming and
+        //    outbound" — owner, 21 Aug). Costs one haiku call, idempotent, and NOT gated behind
+        //    the outreach flag: the thread deserves to say what a call was even while no template
+        //    ever sends. Inbound gets the consent verdict, outbound gets the summary.
+        try {
+            const { classifyCall } = await import('./call-classifier');
+            const verdict = await classifyCall(CallSid);
+            console.log(`[Recording] Post-transcript classification for ${CallSid}: ${verdict.ok ? verdict.classification.kind : verdict.reason}`);
+        } catch (e: any) {
+            console.warn('[Recording] Post-transcript classification failed:', e?.message ?? e);
+        }
+
+        // 2. THE TRANSCRIPT RACE, closed: the video-request decision needs the transcript (the
         // classifier fails closed without one), but the call-status callback that first attempts
         // it fires BEFORE recordings finish processing — so on most calls the first attempt reads
         // NO_TRANSCRIPT and sends nothing. The transcript has just landed here, so try again.

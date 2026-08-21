@@ -147,6 +147,7 @@ const KIND_LABEL: Record<CallClassification['kind'], string | null> = {
     wrong_number: 'wrong number',
     complaint: 'complaint',
     other: null,
+    outbound_call: null, // the preview already says "Outbound call"; repeating it is noise
 };
 
 /** One line at ~`max` chars. The full summary still travels in the message body. */
@@ -222,11 +223,15 @@ export function describeCall(call: Pick<CallRow,
     const summary = usableSummary(call.jobSummary);
 
     if (direction === 'outbound') {
+        // Outbound calls get the summariser's line too ("summary and bullets per incoming and
+        // outbound" — owner, 21 Aug): why we called and how it ended, not just how long it ran.
+        const outCls = readCallClassification(call);
+        const line = outCls ? classificationLine(outCls, { omitKind: true }) : '';
         return {
             missed, direction, summary,
             preview: missed
                 ? 'Outbound call, no answer'
-                : `Outbound call (${formatDuration(call.duration)})`,
+                : `Outbound call (${formatDuration(call.duration)})${line ? `: ${line}` : ''}`,
         };
     }
 

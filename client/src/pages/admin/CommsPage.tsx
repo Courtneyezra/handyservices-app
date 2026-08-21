@@ -142,7 +142,7 @@ interface CallEvent {
      * The AI verdict on an answered inbound call (server/call-classifier.ts): what the call WAS
      * ('job_enquiry', 'complaint', ...) plus a ready-made one-line summary. Null when unclassified.
      */
-    classification?: { kind: string; line: string } | null;
+    classification?: { kind: string; line: string; bullets?: string[] } | null;
 }
 
 type TimelineItem = ThreadMessage | CallEvent;
@@ -341,6 +341,15 @@ function CallEventRow({ call }: { call: CallEvent }) {
                     )}>
                         {call.classification.line}
                     </p>
+                )}
+
+                {/* Scannable call bullets — purpose, facts, agreements, promised follow-ups. */}
+                {(call.classification?.bullets?.length ?? 0) > 0 && (
+                    <ul className="mt-1 space-y-0.5 pl-4">
+                        {call.classification!.bullets!.map((b, i) => (
+                            <li key={i} className="list-disc text-[12px] leading-snug text-slate-600">{b}</li>
+                        ))}
+                    </ul>
                 )}
 
                 {/* The raw AI summary, unless the classification line above already carries it whole. */}

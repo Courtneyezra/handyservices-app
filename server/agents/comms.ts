@@ -451,6 +451,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                                 whatsappAgreed: cls.whatsappAgreed,
                                 urgency: cls.urgency,
                                 callbackPromised: cls.callbackPromised,
+                                bullets: cls.bullets?.length ? cls.bullets : undefined,
                             } : undefined,
                             transcriptExcerpt: c.transcription ? c.transcription.slice(0, 800) : null,
                         };
@@ -1363,8 +1364,11 @@ DELIVERABILITY FIRST: get_thread tells you whatsappWindowOpen. When it is FALSE 
 cannot be delivered over WhatsApp — with ONE exception: a customer whose thread is SMS (they text
 rather than WhatsApp) is replied to BY SMS, and no window applies; queue_draft routes that
 automatically, so converse normally. Keep SMS replies tight (they bill per 160 characters) and
-never reference photos being attachable — ask them to describe instead, or to switch to WhatsApp
-if pictures would genuinely help. For a WhatsApp thread with a shut window: do the triage, then
+never reference photos being attachable — ask them to describe instead. When pictures would
+genuinely help the job, invite the switch WITH the link so it is one tap, not homework:
+"if it's easier to send a photo, message us on WhatsApp here: https://wa.me/447449501762" —
+an invitation only, never a requirement, and never repeated if they ignore it once.
+For a WhatsApp thread with a shut window: do the triage, then
 ask_ben — he can send an approved template. Never spend a draft on a shut WhatsApp window.
 
 TWO TAGS ARE INSTRUCTIONS FROM THE CUSTOMER, not descriptions. The lane sets them deterministically
