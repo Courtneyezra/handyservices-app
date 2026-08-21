@@ -40,7 +40,7 @@ import { nonCustomerByShape } from '../server/internal-numbers';
 import { composeFirstContactAck } from '../server/first-contact-ack';
 import { loadActivity } from '../server/inbox-board';
 import { computeWaitState } from '../server/comms-sla';
-import { getCommsAgentConfig, setCommsAgentConfig } from '../server/agents/comms';
+import { getCommsAgentConfig } from '../server/agents/comms';
 
 const MISSED_PHONE = '+447700900901';
 const ANSWERED_PHONE = '+447700900902';
@@ -185,7 +185,11 @@ async function main() {
 
         // ------------------------------------------------------------- 1) missed call, no thread
         head('CASE 1  A missed call from a number with no thread anywhere.');
-        await setCommsAgentConfig({ firstContactAutoAck: { ...original.firstContactAutoAck, enabled: false } });
+        // Process-local override: the shared DB row the deployed agent reads is never written.
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+            ...original,
+            firstContactAutoAck: { ...original.firstContactAutoAck, enabled: false },
+        });
         pass((await convFor(MISSED_PHONE)) === null, 'starting state: this caller has no conversation row');
 
         const missedId = await makeCall({ phone: MISSED_PHONE, minutesAgo: 90, missed: true, duration: 18 });
@@ -286,7 +290,10 @@ async function main() {
         pass(!day.body.includes('—') && !night.body.includes('—'), 'no em dashes');
         pass(!/£|\d{1,2}:\d{2}/.test(day.body), 'no price and no promised time');
 
-        await setCommsAgentConfig({ firstContactAutoAck: { enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'] } });
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+            ...original,
+            firstContactAutoAck: { enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'] },
+        });
         const ackCallId = await makeCall({ phone: ACK_PHONE, minutesAgo: 2, missed: true, duration: 6 });
         const r3 = await ingestCallIntoThread(ackCallId, { markUnread: true, ack: true });
         console.log('ingest with ack ON:', JSON.stringify(r3, null, 2));
@@ -463,8 +470,12 @@ async function main() {
         pass((await convFor(OUT_UNKNOWN_DURATION_PHONE))?.stage === 'scoping', 'and it lands in scoping too');
 
     } finally {
-        const restored = await setCommsAgentConfig({ firstContactAutoAck: original.firstContactAutoAck });
-        head(`CONFIG RESTORED: firstContactAutoAck = ${JSON.stringify(restored.firstContactAutoAck)}`);
+        delete process.env.COMMS_CONFIG_OVERRIDE;
+        // With the override gone this reads the LIVE DB row — the proof is it was never touched.
+        const live = await getCommsAgentConfig().catch(() => null);
+        head(`LIVE CONFIG (untouched by this run): firstContactAutoAck = ${JSON.stringify(live?.firstContactAutoAck)}`);
+        pass(!!live && live.firstContactAutoAck.enabled === original.firstContactAutoAck.enabled,
+            'live config untouched by this run');
         if (!process.argv.includes('--keep')) {
             await cleanup();
             console.log('Test rows removed (Ofcom numbers only). Pass --keep to inspect them on the board.');

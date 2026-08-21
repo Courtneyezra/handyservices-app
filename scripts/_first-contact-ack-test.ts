@@ -61,7 +61,7 @@ import { queueDraft, approveAndSendDraft } from '../server/message-drafts';
 import { listWhatsAppTemplates } from '../server/whatsapp-templates';
 import { isPushoverConfigured } from '../server/pushover';
 import { scheduleInboundTriage } from '../server/agents/comms-lanes';
-import { getCommsAgentConfig, setCommsAgentConfig, runCommsAgent } from '../server/agents/comms';
+import { getCommsAgentConfig, runCommsAgent } from '../server/agents/comms';
 
 const OFCOM_CONV = '8118aad4-d8d6-4633-a2a1-79add76e3c32';
 const OFCOM_PHONE = '+447700900999';
@@ -201,15 +201,21 @@ async function main() {
         // Direct send and the quote-prep handoff are forced off for the whole suite. This file is
         // about the DETERMINISTIC ack lane, and since 20 Aug 2026 the LLM agent it is compared
         // against would otherwise send its own reply for real (case b) and fire a paid quote-prep
-        // run with a Pushover alert. Restored with everything else in the finally block.
-        await setCommsAgentConfig({
+        // run with a Pushover alert. All of it lives in this process's COMMS_CONFIG_OVERRIDE env
+        // var only — the shared DB row the deployed agent reads is never written.
+        const baseOverride = {
+            ...original,
             autosend: { enabled: false, intents: [] },
             quotePrep: { ...original.quotePrep, enabled: false },
-        });
+        };
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify(baseOverride);
 
         // ---------------------------------------------------------------- e) flag OFF
         head('CASE (e)  flag OFF — the shipped default. Nothing sends, nothing queues.');
-        await setCommsAgentConfig({ firstContactAutoAck: { enabled: false, channels: ['whatsapp', 'sms', 'webform', 'post_call'] } });
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+            ...baseOverride,
+            firstContactAutoAck: { enabled: false, channels: ['whatsapp', 'sms', 'webform', 'post_call'] },
+        });
         await stageFirstContact({ hoursAgo: 0, text: 'Hi, my kitchen tap is dripping. Can you help?' });
         pass(await isFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE }), 'thread staged as a genuine first contact');
         const off = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'whatsapp', contactName: 'Test Lead (smoke)' });
@@ -219,7 +225,10 @@ async function main() {
 
         // ---------------------------------------------------------------- a) first contact
         head('CASE (a)  flag ON, genuine first contact, window open → auto-ack lands in the thread.');
-        await setCommsAgentConfig({ firstContactAutoAck: { enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'] } });
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+            ...baseOverride,
+            firstContactAutoAck: { enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'] },
+        });
 
         // First through the REAL ingest lane, exactly as a Twilio/Meta webhook calls it, and with
         // the '@c.us' key form the webhooks actually pass. comms_agent.enabled is false here, so
@@ -641,11 +650,7 @@ async function main() {
         pass(/Could not write the audit row/.test(logBroken.log), 'and it says so in the logs rather than failing silently');
 
     } finally {
-        const restored = await setCommsAgentConfig({
-            firstContactAutoAck: original.firstContactAutoAck,
-            autosend: original.autosend,
-            quotePrep: original.quotePrep,
-        });
+        delete process.env.COMMS_CONFIG_OVERRIDE;
         if (originalBoard) {
             await db.update(conversations)
                 .set({ priority: originalBoard.priority, tags: originalBoard.tags, stage: originalBoard.stage })
@@ -661,8 +666,15 @@ async function main() {
         // Same for the landline failure cases, which queue drafts against a reserved number.
         await db.delete(messageDrafts).where(eq(messageDrafts.phone, OFCOM_LANDLINE)).catch(() => { });
 
-        head(`CONFIG RESTORED: firstContactAutoAck = ${JSON.stringify(restored.firstContactAutoAck)}`
-            + ` · autosend(DIRECT SEND) = ${restored.autosend.enabled} · quotePrep = ${restored.quotePrep.enabled}`);
+        // With the override gone this reads the LIVE DB row — the proof is it was never touched.
+        const live = await getCommsAgentConfig().catch(() => null);
+        head(`LIVE CONFIG (untouched by this run): firstContactAutoAck = ${JSON.stringify(live?.firstContactAutoAck)}`
+            + ` · autosend(DIRECT SEND) = ${live?.autosend.enabled} · quotePrep = ${live?.quotePrep.enabled}`);
+        pass(!!live
+            && live.firstContactAutoAck.enabled === original.firstContactAutoAck.enabled
+            && live.autosend.enabled === original.autosend.enabled
+            && live.quotePrep.enabled === original.quotePrep.enabled,
+            'live config untouched by this run');
         console.log(`smoke thread board state restored: ${JSON.stringify(await boardState(OFCOM_CONV))}`);
     }
     process.exit(process.exitCode ?? 0);

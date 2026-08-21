@@ -22,7 +22,7 @@ import { readFileSync } from 'fs';
 import { db } from '../server/db';
 import { conversations, messages, messageDrafts, agentQuestions } from '@shared/schema';
 import { and, desc, eq } from 'drizzle-orm';
-import { getCommsAgentConfig, setCommsAgentConfig, runCommsAgent } from '../server/agents/comms';
+import { getCommsAgentConfig, runCommsAgent } from '../server/agents/comms';
 
 const PHONE = '+447700900960';
 const CONV_KEY = '447700900960@c.us';
@@ -74,12 +74,14 @@ async function stageMessage(direction: 'inbound' | 'outbound', content: string, 
 (async () => {
     const dump: DumpMsg[] = JSON.parse(readFileSync('whatsapp-export/wa-dump-full.json', 'utf8'));
     const saved = await getCommsAgentConfig();
-    await setCommsAgentConfig({
+    // Process-local override only — the shared DB row the deployed agent reads is never written.
+    process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+        ...saved,
         autosend: { enabled: false, intents: [] },
         quotePrep: { ...saved.quotePrep, enabled: false },
         firstContactAutoAck: { ...saved.firstContactAutoAck, enabled: false },
     });
-    console.log('WA REPLAY — config forced OFF (drafts read back, nothing sends)\n');
+    console.log('WA REPLAY — config forced OFF for this process (drafts read back, nothing sends)\n');
 
     try {
         for (const [phone, why] of Object.entries(REPLAY_PHONES)) {
@@ -172,12 +174,14 @@ async function stageMessage(direction: 'inbound' | 'outbound', content: string, 
         }
     } finally {
         await wipe(true).catch(() => {});
-        await setCommsAgentConfig({
-            autosend: saved.autosend, quotePrep: saved.quotePrep,
-            firstContactAutoAck: saved.firstContactAutoAck,
-        }).catch((e) => console.error('config restore failed:', e?.message));
+        delete process.env.COMMS_CONFIG_OVERRIDE;
+        // With the override gone this reads the LIVE DB row — it should be untouched by this run.
         const back = await getCommsAgentConfig();
-        console.log(`CONFIG READ BACK: autosend=${back.autosend.enabled} quotePrep=${back.quotePrep.enabled} ack=${back.firstContactAutoAck.enabled}`);
+        console.log(`LIVE CONFIG (untouched by this run): autosend=${back.autosend.enabled} quotePrep=${back.quotePrep.enabled} ack=${back.firstContactAutoAck.enabled}`);
+        if (back.autosend.enabled !== saved.autosend.enabled || back.quotePrep.enabled !== saved.quotePrep.enabled
+            || back.firstContactAutoAck.enabled !== saved.firstContactAutoAck.enabled) {
+            console.error('*** LIVE CONFIG CHANGED DURING THE RUN — investigate ***');
+        }
     }
     process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

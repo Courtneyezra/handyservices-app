@@ -57,7 +57,7 @@ import { conversations, messages, messageDrafts, agentQuestions, personalizedQuo
 import { eq, sql } from 'drizzle-orm';
 
 import {
-    getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, type CommsAgentOutcome,
+    getCommsAgentConfig, runCommsAgent, type CommsAgentOutcome,
 } from '../server/agents/comms';
 import { loadQuoteContexts } from '../server/agents/quote-context';
 import { checkDraft, type DraftViolation } from '../server/agents/draft-guards';
@@ -626,14 +626,13 @@ async function main(): Promise<void> {
     }
 
     // ---- config: force the dangerous switches off for the duration ----
+    // Process-local env override only — the shared DB row the deployed agent reads is never written.
     const saved = await retry('read config', getCommsAgentConfig);
-    if (saved.firstContactAutoAck.enabled) {
-        console.warn('\n*** firstContactAutoAck was ENABLED before this run. It will be left DISABLED. ***');
-    }
-    await retry('disable autosend', () => setCommsAgentConfig({
+    process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+        ...saved,
         autosend: { ...saved.autosend, enabled: false },
         firstContactAutoAck: { ...saved.firstContactAutoAck, enabled: false },
-    }));
+    });
 
     const results: CaseResult[] = [];
     let halted: string | null = null;
@@ -695,16 +694,13 @@ async function main(): Promise<void> {
         }
         const clean = Object.values(leftovers).every((n) => n === 0);
 
-        // ---- config restore. firstContactAutoAck ends DISABLED whatever it was. ----
+        // ---- config: the force-off only lived in this process's env override; drop it ----
+        delete process.env.COMMS_CONFIG_OVERRIDE;
         let readBack: any = null;
         try {
-            await retry('restore config', () => setCommsAgentConfig({
-                autosend: saved.autosend,
-                firstContactAutoAck: { ...saved.firstContactAutoAck, enabled: false },
-            }));
             readBack = await retry('read back config', getCommsAgentConfig);
         } catch (e: any) {
-            console.error(`\n*** CONFIG RESTORE FAILED: ${e?.message} — CHECK firstContactAutoAck BY HAND ***`);
+            console.error(`\n*** CONFIG READ-BACK FAILED: ${e?.message} — CHECK the live config BY HAND ***`);
         }
 
         report(results, halted, points);
@@ -712,18 +708,19 @@ async function main(): Promise<void> {
         box('THE DATABASE IS AS WE FOUND IT');
         console.table(Object.entries(leftovers).map(([table, n]) => ({ table, rows_left: n })));
         console.log(`  ${clean ? 'clean' : '*** ROWS LEFT BEHIND — clean them by hand ***'}`);
+        const untouched = readBack
+            && readBack.firstContactAutoAck.enabled === saved.firstContactAutoAck.enabled
+            && readBack.autosend.enabled === saved.autosend.enabled;
         if (readBack) {
-            console.log(`\n  CONFIG READ BACK FROM THE DATABASE:`);
+            console.log(`\n  LIVE CONFIG READ BACK FROM THE DATABASE (override cleared):`);
             console.log(`    firstContactAutoAck.enabled = ${readBack.firstContactAutoAck.enabled}`);
             console.log(`    autosend.enabled            = ${readBack.autosend.enabled}`);
-            if (readBack.firstContactAutoAck.enabled) {
-                console.error('\n*** WARNING: firstContactAutoAck IS STILL ENABLED. Disable it before leaving. ***');
-            }
+            console.log(`    ${untouched ? 'live config untouched by this run' : '*** LIVE CONFIG CHANGED DURING THE RUN — investigate ***'}`);
         } else {
-            console.error('\n*** CONFIG NOT READ BACK — verify firstContactAutoAck by hand. ***');
+            console.error('\n*** CONFIG NOT READ BACK — verify the live config by hand. ***');
         }
         console.log('');
-        process.exit(clean && readBack && !readBack.firstContactAutoAck.enabled ? 0 : 1);
+        process.exit(clean && untouched ? 0 : 1);
     }
 }
 

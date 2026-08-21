@@ -36,7 +36,7 @@ import { db } from '../server/db';
 import { conversations, messages, messageDrafts, agentQuestions, personalizedQuotes, commsOptOuts } from '@shared/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import {
-    getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, maySendDirect, neverSendDirectReason,
+    getCommsAgentConfig, runCommsAgent, maySendDirect, neverSendDirectReason,
     boardStageRefusal, DRAFT_INTENTS,
     type CommsAgentOutcome, type CommsAgentConfig,
 } from '../server/agents/comms';
@@ -989,13 +989,15 @@ async function main() {
     // Direct send, the first-contact responder AND the automatic quote-prep handoff are all forced
     // off for the duration. The first two would put seven attack replies on a wire; the third would
     // fire a sonnet quote-prep run every time an attack thread got tagged needs_quote, which is real
-    // money spent proving nothing. All three are restored and read back in the finally block.
-    await retry('force autosend off', () => setCommsAgentConfig({
+    // money spent proving nothing. The force-off lives ONLY in this process's env override — the
+    // shared DB row the deployed agent reads is never written.
+    process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+        ...savedConfig,
         autosend: { enabled: false, intents: [] },
         firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: false },
         quotePrep: { ...savedConfig.quotePrep, enabled: false },
-    }));
-    console.log(`config forced OFF for the run (was autosend=${savedConfig.autosend.enabled}, firstContactAutoAck=${savedConfig.firstContactAutoAck.enabled}, quotePrep=${savedConfig.quotePrep.enabled})`);
+    });
+    console.log(`config forced OFF for this process only via COMMS_CONFIG_OVERRIDE (live: autosend=${savedConfig.autosend.enabled}, firstContactAutoAck=${savedConfig.firstContactAutoAck.enabled}, quotePrep=${savedConfig.quotePrep.enabled})`);
 
     try {
         await retry('ensure conversation', ensureConversation);
@@ -1032,28 +1034,24 @@ async function main() {
             .catch((e) => console.error('optout cleanup failed:', e?.message));
         await retry('cleanup optout drafts', () => db.delete(messageDrafts).where(eq(messageDrafts.phone, OPTOUT_PHONE)))
             .catch((e) => console.error('draft cleanup failed:', e?.message));
-        await retry('restore config', () => setCommsAgentConfig({
-            autosend: savedConfig.autosend,
-            firstContactAutoAck: savedConfig.firstContactAutoAck,
-            quotePrep: savedConfig.quotePrep,
-        })).catch((e) => console.error('config restore failed:', e?.message));
+        delete process.env.COMMS_CONFIG_OVERRIDE;
 
-        // Read the config BACK. "We turned it off afterwards" is a claim; this is the evidence.
+        // Read the config BACK. With the env override gone this is the LIVE DB row — the proof
+        // is that this suite never touched it, not that it "restored" anything.
         const finalConfig = await retry('read config back', getCommsAgentConfig).catch(() => null);
-        head('CONFIG READ-BACK');
+        head('CONFIG READ-BACK (live DB, override cleared)');
         if (finalConfig) {
             console.log(`  autosend.enabled (DIRECT SEND) = ${finalConfig.autosend.enabled}`);
             console.log(`  firstContactAutoAck.enabled    = ${finalConfig.firstContactAutoAck.enabled}`);
             console.log(`  quotePrep.enabled              = ${finalConfig.quotePrep.enabled} (min ${finalConfig.quotePrep.minHoursBetweenRuns}h between runs)`);
-            // The assertion is RESTORED-TO-WHAT-IT-WAS, not OFF. Direct send is the live policy
-            // now, so a suite that demanded it end disabled would be demanding the suite turn the
-            // business off every time it ran.
+            // The assertion is LIVE-CONFIG-UNTOUCHED. The force-off only ever lived in this
+            // process's env override, so the shared row must still read exactly as it did at start.
             pass(finalConfig.autosend.enabled === savedConfig.autosend.enabled,
-                `direct send restored to its pre-run state (${savedConfig.autosend.enabled})`);
+                `direct send: live config untouched by this run (${savedConfig.autosend.enabled})`);
             pass(finalConfig.firstContactAutoAck.enabled === savedConfig.firstContactAutoAck.enabled,
-                `firstContactAutoAck restored to its pre-run state (${savedConfig.firstContactAutoAck.enabled})`);
+                `firstContactAutoAck: live config untouched by this run (${savedConfig.firstContactAutoAck.enabled})`);
             pass(finalConfig.quotePrep.enabled === savedConfig.quotePrep.enabled,
-                `quotePrep handoff restored to its pre-run state (${savedConfig.quotePrep.enabled})`);
+                `quotePrep handoff: live config untouched by this run (${savedConfig.quotePrep.enabled})`);
         } else {
             pass(false, 'could not read the config back — CHECK IT BY HAND');
         }

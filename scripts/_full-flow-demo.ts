@@ -32,7 +32,7 @@ import { db } from '../server/db';
 import { conversations, messages, messageDrafts, agentQuestions, personalizedQuotes } from '@shared/schema';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import {
-    getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, maySendDirect,
+    getCommsAgentConfig, runCommsAgent, maySendDirect,
     type CommsAgentConfig,
 } from '../server/agents/comms';
 
@@ -158,11 +158,13 @@ async function main() {
     console.log(`Ofcom reserved range only: ${PHONE}. Nothing here can reach a person.`);
 
     const saved = await retry('read config', getCommsAgentConfig);
-    await retry('force queue mode', () => setCommsAgentConfig({
+    // Process-local override only — the shared DB row the deployed agent reads is never written.
+    process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+        ...saved,
         autosend: { enabled: false, intents: [] },
         firstContactAutoAck: { ...saved.firstContactAutoAck, enabled: false },
-    }));
-    console.log(`\nDirect send forced OFF for the run (drafts are promoted by hand); quotePrep stays ${saved.quotePrep.enabled ? 'ON' : 'OFF'}.`);
+    });
+    console.log(`\nDirect send forced OFF for this process (drafts are promoted by hand); quotePrep stays ${saved.quotePrep.enabled ? 'ON' : 'OFF'}.`);
 
     try {
         await retry('wipe', () => wipe(true));
@@ -269,12 +271,14 @@ async function main() {
         for (const q of allQ) console.log(`    [${q.status}] ${q.question}`);
     } finally {
         await retry('cleanup', () => wipe(true)).catch((e) => console.error('cleanup failed:', e?.message));
-        await retry('restore config', () => setCommsAgentConfig({
-            autosend: saved.autosend,
-            firstContactAutoAck: saved.firstContactAutoAck,
-        })).catch((e) => console.error('config restore failed:', e?.message));
+        delete process.env.COMMS_CONFIG_OVERRIDE;
+        // With the override gone this reads the LIVE DB row — it should be untouched by this run.
         const back = await retry('read back', getCommsAgentConfig).catch(() => null);
-        console.log(`\nCONFIG READ BACK: autosend=${back?.autosend.enabled} quotePrep=${back?.quotePrep.enabled} ack=${back?.firstContactAutoAck.enabled}`);
+        console.log(`\nLIVE CONFIG (untouched by this run): autosend=${back?.autosend.enabled} quotePrep=${back?.quotePrep.enabled} ack=${back?.firstContactAutoAck.enabled}`);
+        if (back && (back.autosend.enabled !== saved.autosend.enabled
+            || back.firstContactAutoAck.enabled !== saved.firstContactAutoAck.enabled)) {
+            console.error('*** LIVE CONFIG CHANGED DURING THE RUN — investigate ***');
+        }
     }
 }
 

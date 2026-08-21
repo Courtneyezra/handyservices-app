@@ -63,7 +63,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { scheduleInboundTriage } from '../server/agents/comms-lanes';
 import {
-    getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, DRAFT_INTENTS,
+    getCommsAgentConfig, runCommsAgent, DRAFT_INTENTS,
     maySendDirect, neverSendDirectReason, maybeAutoQuotePrep, routeIntakeVerdict,
     READY_TO_PRICE_TAG, QUOTE_READY_TAG, VISIT_FIRST_TAG, NEEDS_BEN_TAG,
     type CommsAgentOutcome,
@@ -971,11 +971,14 @@ async function main(): Promise<void> {
         // costs nothing and reaches nobody. The automatic quote-prep handoff is off too — stage 4
         // drives runQuotePrep directly and a second automatic run would double the model spend.
         // The first-contact ack is switched ON only so stage 1 exercises the real lane.
-        await retry('arm config', () => setCommsAgentConfig({
+        // All of it lives in this process's COMMS_CONFIG_OVERRIDE env var only — the shared DB row
+        // the deployed agent reads is never written.
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+            ...savedConfig,
             autosend: { enabled: false, intents: [] },
             quotePrep: { ...savedConfig.quotePrep, enabled: false },
             firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'] },
-        }));
+        });
 
         // A stage that THROWS is a failure of that stage, not a reason to abandon the journey and
         // lose every stage after it. The model API times out, Neon drops a connection: neither is a
@@ -993,10 +996,14 @@ async function main(): Promise<void> {
         await run(stage2_stopShortCircuit);
 
         // Back off immediately: every stage below drives the agent directly and none of them should
-        // be able to auto-acknowledge anything.
-        await retry('disable ack', () => setCommsAgentConfig({
+        // be able to auto-acknowledge anything. getCommsAgentConfig reads the env var on every
+        // call, so reassigning it here takes effect for the rest of the run.
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+            ...savedConfig,
+            autosend: { enabled: false, intents: [] },
+            quotePrep: { ...savedConfig.quotePrep, enabled: false },
             firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: false },
-        }));
+        });
 
         await run(stage3_triageWithPhoto);
         await run(stage4_quotePrep);
@@ -1035,27 +1042,24 @@ async function main(): Promise<void> {
         }
         for (const f of created.mediaFiles) { try { if (existsSync(f)) unlinkSync(f); } catch { /* ignore */ } }
 
-        // CONFIG RESTORE, then read back from the database and print it. firstContactAutoAck has
-        // been left enabled by testing before; a run must never end without the true state on screen.
+        // CONFIG: the forced flags only ever lived in this process's env override, so dropping it
+        // is the whole restore. The read-back below is the LIVE DB row — a run must never end
+        // without proof on screen that it was untouched.
+        delete process.env.COMMS_CONFIG_OVERRIDE;
         let restoredOk = false;
         try {
-            await retry('restore config', () => setCommsAgentConfig({
-                autosend: savedConfig.autosend,
-                quotePrep: savedConfig.quotePrep,
-                firstContactAutoAck: savedConfig.firstContactAutoAck,
-            }));
             const readBack = await retry('read back config', getCommsAgentConfig);
             restoredOk = readBack.firstContactAutoAck.enabled === savedConfig.firstContactAutoAck.enabled
                 && readBack.autosend.enabled === savedConfig.autosend.enabled
                 && readBack.quotePrep.enabled === savedConfig.quotePrep.enabled;
-            console.log(`\nCONFIG READ BACK: firstContactAutoAck.enabled=${readBack.firstContactAutoAck.enabled}`
+            console.log(`\nLIVE CONFIG READ BACK (override cleared): firstContactAutoAck.enabled=${readBack.firstContactAutoAck.enabled}`
                 + ` autosend.enabled(DIRECT SEND)=${readBack.autosend.enabled}`
                 + ` quotePrep.enabled=${readBack.quotePrep.enabled}`);
-            if (readBack.firstContactAutoAck.enabled) {
-                console.error('\n*** WARNING: firstContactAutoAck IS STILL ENABLED. Disable it before leaving. ***');
-            }
+            console.log(restoredOk
+                ? 'live config untouched by this run'
+                : '*** LIVE CONFIG CHANGED DURING THE RUN — investigate ***');
         } catch (e: any) {
-            console.error(`\n*** CONFIG RESTORE FAILED: ${e?.message} — CHECK firstContactAutoAck BY HAND ***`);
+            console.error(`\n*** CONFIG READ-BACK FAILED: ${e?.message} — CHECK the live config BY HAND ***`);
         }
         server.close();
 

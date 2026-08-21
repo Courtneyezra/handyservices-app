@@ -36,7 +36,7 @@ import 'dotenv/config';
 import { db } from '../server/db';
 import { conversations, messages, messageDrafts, agentQuestions, personalizedQuotes } from '@shared/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, type CommsAgentOutcome } from '../server/agents/comms';
+import { getCommsAgentConfig, runCommsAgent, type CommsAgentOutcome } from '../server/agents/comms';
 import { loadQuoteContexts, checkDateSignal } from '../server/agents/quote-context';
 import {
     checkDraft, detectCapitulation, detectDatePromise, detectUnseenImplication,
@@ -353,11 +353,13 @@ async function main() {
     // Belt and braces: nothing in this suite may reach a phone, even one nobody owns. quotePrep is
     // off too — an agent run here can tag needs_quote, and the handoff would answer that with a
     // paid model run and a Pushover alert at the owner about a thread that does not exist.
-    await retry('disable autosend', () => setCommsAgentConfig({
+    // Forced off via the process-local env override only — the shared DB row is never written.
+    process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+        ...savedConfig,
         autosend: { enabled: false, intents: [] },
         quotePrep: { ...savedConfig.quotePrep, enabled: false },
         firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: false },
-    }));
+    });
 
     try {
         await retry('ensure conversation', ensureConversation);
@@ -504,15 +506,18 @@ async function main() {
             pass(schedQuestions.length > 0, 'no draft, but the date question is with Ben');
         }
     } finally {
-        // Leave nothing behind: the quote, the thread and the config all go back.
+        // Leave nothing behind: the quote and the thread are cleaned; the config override only
+        // ever lived in this process's env, so dropping it is the whole restore.
         await retry('cleanup thread', () => clearThread(CONV_ID)).catch((e) => console.error('cleanup failed:', e?.message));
-        await retry('restore config', () => setCommsAgentConfig({
-            autosend: savedConfig.autosend,
-            quotePrep: savedConfig.quotePrep,
-            firstContactAutoAck: savedConfig.firstContactAutoAck,
-        })).catch((e) => console.error('config restore failed:', e?.message));
+        delete process.env.COMMS_CONFIG_OVERRIDE;
         const back = await retry('read config back', getCommsAgentConfig).catch(() => null);
-        console.log(`\nCONFIG READ BACK: autosend(DIRECT SEND)=${back?.autosend.enabled} quotePrep=${back?.quotePrep.enabled} firstContactAutoAck=${back?.firstContactAutoAck.enabled}`);
+        console.log(`\nLIVE CONFIG (untouched by this run): autosend(DIRECT SEND)=${back?.autosend.enabled} quotePrep=${back?.quotePrep.enabled} firstContactAutoAck=${back?.firstContactAutoAck.enabled}`);
+        if (back) {
+            pass(back.autosend.enabled === savedConfig.autosend.enabled
+                && back.quotePrep.enabled === savedConfig.quotePrep.enabled
+                && back.firstContactAutoAck.enabled === savedConfig.firstContactAutoAck.enabled,
+                'live config untouched by this run');
+        }
         console.log(`\n${failures === 0 ? 'ALL GREEN' : `${failures} FAILURE(S)`}`);
     }
 }
