@@ -283,19 +283,27 @@ interface PlanDepositAlert {
     depositPence: number;
     totalPence: number;
     itemTitles: string[];
+    payNowPence?: number;
+    balancePence?: number;
+    completedPence?: number;
 }
 
-/** Fire a "plan additional-works deposit paid" push alert (customer booked extras). */
+/** Fire a "plan settlement paid" push alert (signed-off balance + completed items + any new deposit). */
 export async function notifyPlanDepositPaid(alert: PlanDepositAlert): Promise<void> {
     const who = alert.customerName?.trim() || 'Customer';
     const gbp = (p: number) => '£' + Math.round(p / 100).toLocaleString('en-GB');
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-    const items = alert.itemTitles.slice(0, 15).map((t) => `• ${t}`).join('\n');
-    const more = alert.itemTitles.length > 15 ? `\n…+${alert.itemTitles.length - 15} more` : '';
+    const breakdown: string[] = [];
+    if (alert.balancePence) breakdown.push(`• Signed-off balance ${gbp(alert.balancePence)}`);
+    if (alert.completedPence) breakdown.push(`• Completed items ${gbp(alert.completedPence)}`);
+    if (alert.depositPence) breakdown.push(`• New-works deposit ${gbp(alert.depositPence)} (of ${gbp(alert.totalPence)})`);
+    const items = alert.itemTitles.slice(0, 12).map((t) => `• ${t}`).join('\n');
+    const more = alert.itemTitles.length > 12 ? `\n…+${alert.itemTitles.length - 12} more` : '';
+    const total = alert.payNowPence ?? alert.depositPence;
     await dispatch({
         event: 'quote_accepted',
-        title: '💷 Extras deposit paid — 30 Sidney Road',
-        message: `${who} booked ${alert.itemTitles.length} extra item(s).\nDeposit ${gbp(alert.depositPence)} of ${gbp(alert.totalPence)} works.\n\n${items}${more}\n\n${baseUrl}/plan/${alert.slug}`,
+        title: `💷 Payment received ${gbp(total)} — 30 Sidney Road`,
+        message: `${who} paid ${gbp(total)}.\n${breakdown.join('\n')}${items ? `\n\nNew works:\n${items}${more}` : ''}\n\n${baseUrl}/plan/${alert.slug}`,
         force: true,
     });
 }

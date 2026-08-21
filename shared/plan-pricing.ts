@@ -16,25 +16,37 @@ export type PlanItem =
 
 export const DEPOSIT_LABOUR_RATE = 0.30; // 30% of labour taken up front
 
+// The original agreed works, now signed off by the customer and ready to settle.
+// Fixed figure — the server charges exactly this alongside any new deposit.
+export const SIGNED_OFF_BALANCE = 2653;
+
+// Already-booked items the customer has now signed off as COMPLETE. Their
+// remaining balance (price minus the deposit already paid on 15 Aug) is
+// collected in the same settle. Ids must exist in PLAN_ITEMS below.
+export const COMPLETED_BOOKED_IDS = ["up-bathroom", "hall-ceiling"];
+
 export const PLAN_ITEMS: PlanItem[] = [
+  // ---- The two rooms she's adding now — shown first in the choices ----
+  { id: "bay-walls", kind: "opt", group: "The two rooms — ready to add", title: "Upstairs bay-window bedroom — re-decorate",
+    desc: "Take down the old mirror + light, make good, and re-paper in thick textured paper. New carpet fully protected throughout.",
+    callout: { kind: "info", text: "The upstairs bedroom you held off on — the whole-room option finishes it properly and matches it to the room below." },
+    options: [
+      { label: "Whole room re-papered — the full job", price: 750, labour: 610, materials: 140, days: 1.5 },
+      { label: "One wall only", price: 295, labour: 250, materials: 45, days: 0.5 },
+      { label: "Not now", price: 0, labour: 0, materials: 0, days: 0 },
+    ] },
+  { id: "downstairs-bay-room", kind: "add", group: "The two rooms — ready to add",
+    title: "Downstairs bay-window room — decorate to match",
+    desc: "The room directly below with the bay window, decorated the same as the bedroom. Same size, same works — so same price. Thick textured (paintable) paper over your already-painted walls.",
+    callout: { kind: "info", text: "The room you asked us to quote — priced to match the upstairs bedroom exactly, nothing added." },
+    price: 750, labour: 610, materials: 140, days: 1.5 },
+
   { id: "bathroom-damp", kind: "add", group: "Downstairs",
     title: "Downstairs bathroom — damp repair & redecorate",
     desc: "The rising-damp patch by the toilet, treated at the source (chemical DPC + salt-resistant render) then repainted once dry. You supply the paint; we supply the damp materials.",
     price: 625, labour: 535, materials: 90, days: 2 },
-  { id: "downstairs-bay-room", kind: "add", group: "Downstairs",
-    title: "Downstairs bay-window room — decorate to match",
-    desc: "The same re-papering as the upstairs bedroom, for the room directly below with the bay window. Same size, same works — so same price. Thick textured (paintable) paper over your already-painted walls.",
-    callout: { kind: "info", text: "This is the room you asked us to quote — priced to match the upstairs bedroom exactly, nothing added." },
-    price: 750, labour: 610, materials: 140, days: 1.5 },
 
   // ---- Upstairs ----
-  { id: "bay-walls", kind: "opt", group: "Upstairs", title: "Front bay bedroom — walls",
-    desc: "Take down the old mirror + light, make good, and re-paper in thick textured paper. New carpet fully protected throughout.",
-    options: [
-      { label: "One wall re-papered", price: 295, labour: 250, materials: 45, days: 0.5 },
-      { label: "Whole room re-papered — fixes the mismatch", price: 750, labour: 610, materials: 140, days: 1.5 },
-      { label: "Not now", price: 0, labour: 0, materials: 0, days: 0 },
-    ] },
   { id: "bay-ceiling", kind: "add", group: "Upstairs", title: "Front bay bedroom — ceiling repair",
     desc: "Repair the missing woodchip section where the old strip-light was and fill the hole in the plaster, then strip, re-paper and paint.", price: 320, labour: 265, materials: 55, days: 1 },
   { id: "small-room", kind: "opt", group: "Upstairs", title: "Small front room — one wall",
@@ -116,4 +128,12 @@ export function computePlan(selection: Selection[]) {
   }
   const deposit = Math.round(labour * DEPOSIT_LABOUR_RATE + materials);
   return { total, labour, materials, deposit, days, lines };
+}
+
+// Remaining balance on the booked items now marked complete:
+// their full price minus the deposit already paid. Used both to display the
+// figure and to charge it server-side.
+export function completedBookedRemaining() {
+  const p = computePlan(COMPLETED_BOOKED_IDS.map((id) => ({ id })));
+  return { total: p.total, deposit: p.deposit, remaining: p.total - p.deposit, lines: p.lines };
 }

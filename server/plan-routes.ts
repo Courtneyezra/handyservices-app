@@ -1,10 +1,11 @@
 import { Router } from "express";
 import Stripe from "stripe";
-import { computePlan, type Selection } from "../shared/plan-pricing";
+import { computePlan, completedBookedRemaining, SIGNED_OFF_BALANCE, type Selection } from "../shared/plan-pricing";
 
-// Public customer plan page (/plan/:slug) — additional-works deposit checkout.
-// The deposit is ALWAYS recomputed server-side from the selected item ids
-// (never trust a client-sent amount), then charged via Stripe Checkout.
+// Public customer plan page (/plan/:slug) — settle checkout.
+// Charges (a) the signed-off original-works balance (fixed, server-side) and/or
+// (b) a deposit for any NEW works the customer selected — recomputed server-side
+// from the item ids (never trust a client-sent amount) — in one Stripe session.
 
 function getStripe(): Stripe {
   const key = (process.env.STRIPE_SECRET_KEY || "").replace(/^["']|["']$/g, "").trim();
@@ -22,7 +23,54 @@ router.post("/:slug/deposit-checkout", async (req, res) => {
       : [];
 
     const plan = computePlan(selection);
-    if (plan.deposit <= 0) return res.status(400).json({ error: "No items selected" });
+    // Settle the signed-off works unless the client explicitly opts out.
+    const settle = req.body?.settleBalance !== false;
+    const balance = settle ? SIGNED_OFF_BALANCE : 0;
+    const completed = settle ? completedBookedRemaining().remaining : 0;
+
+    const payNow = balance + completed + plan.deposit;
+    if (payNow <= 0) return res.status(400).json({ error: "Nothing to pay" });
+
+    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    if (balance > 0) {
+      line_items.push({
+        price_data: {
+          currency: "gbp",
+          product_data: {
+            name: "Completed works — final balance (30 Sidney Road)",
+            description: "Signed off by the customer · original agreed works",
+          },
+          unit_amount: balance * 100,
+        },
+        quantity: 1,
+      });
+    }
+    if (completed > 0) {
+      line_items.push({
+        price_data: {
+          currency: "gbp",
+          product_data: {
+            name: "Upstairs bathroom + hallway ceiling — balance (30 Sidney Road)",
+            description: "Now complete · remaining balance after deposit",
+          },
+          unit_amount: completed * 100,
+        },
+        quantity: 1,
+      });
+    }
+    if (plan.deposit > 0) {
+      line_items.push({
+        price_data: {
+          currency: "gbp",
+          product_data: {
+            name: "New works — deposit (30 Sidney Road)",
+            description: `Deposit for ${plan.lines.length} item(s) · new works total £${plan.total.toLocaleString("en-GB")}`,
+          },
+          unit_amount: plan.deposit * 100, // pounds -> pence
+        },
+        quantity: 1,
+      });
+    }
 
     const host = req.get("host") || "handyservices.app";
     const proto = /localhost|127\.0\.0\.1/.test(host) ? "http" : "https"; // Cloudflare terminates TLS; force https in prod
@@ -30,25 +78,18 @@ router.post("/:slug/deposit-checkout", async (req, res) => {
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      line_items: [{
-        price_data: {
-          currency: "gbp",
-          product_data: {
-            name: "Additional works deposit — 30 Sidney Road",
-            description: `Deposit for ${plan.lines.length} item(s) · works total £${plan.total.toLocaleString("en-GB")}`,
-          },
-          unit_amount: plan.deposit * 100, // pounds -> pence
-        },
-        quantity: 1,
-      }],
+      line_items,
       success_url: `${origin}/plan/${slug}?paid=1`,
       cancel_url: `${origin}/plan/${slug}`,
       metadata: {
         slug,
-        kind: "plan_additional_deposit",
+        kind: "plan_settlement",
         items: JSON.stringify(selection).slice(0, 480),
         worksTotalPence: String(plan.total * 100),
         depositPence: String(plan.deposit * 100),
+        balancePence: String(balance * 100),
+        completedPence: String(completed * 100),
+        payNowPence: String(payNow * 100),
       },
     });
 

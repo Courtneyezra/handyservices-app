@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useRoute } from "wouter";
 import handyLogo from "@/assets/handy-logo-transparent.png";
 import aliciaPhoto from "@/assets/alicia.jpg";
-import { PLAN_ITEMS, computePlan, type PlanItem, type PlanOption, type PlanCallout, type Selection } from "@shared/plan-pricing";
+import { PLAN_ITEMS, computePlan, completedBookedRemaining, SIGNED_OFF_BALANCE, COMPLETED_BOOKED_IDS, type PlanItem, type PlanOption, type PlanCallout, type Selection } from "@shared/plan-pricing";
 
 /**
  * Public customer project page — the full story + additional-works choices.
@@ -16,12 +16,12 @@ const STAGES: { n: number; title: string; sub: string; state: StageState; pay?: 
   { n: 2, title: "Deposit paid", sub: "£1,760", state: "done", pay: true },
   { n: 3, title: "Works underway", sub: "Extra repairs £910 + new hard-wired lighting", state: "done" },
   { n: 4, title: "Milestone paid", sub: "£1,500", state: "done", pay: true },
-  { n: 5, title: "Finishing stage", sub: "You are here — back room this week", state: "current" },
-  { n: 6, title: "Completion & final balance", sub: "£2,653 due once it’s finished and you’re happy", state: "upcoming", next: true },
+  { n: 5, title: "Finished & walked through", sub: "You’ve signed the works off — thank you", state: "done" },
+  { n: 6, title: "Settle the final balance", sub: "£2,653 — ready to pay now", state: "current", next: true },
 ];
 
-// Value-weighted completion of the original agreed job (painting all done bar the back room).
-const PROGRESS = 97;
+// Original agreed job is complete and signed off.
+const PROGRESS = 100;
 
 // Per-line progress for every original + additional work item (from the itemised quote).
 type Work = { label: string; amt: string; pct: number };
@@ -33,9 +33,8 @@ const WORKS: { group: string; items: Work[] }[] = [
     { label: "Re-plaster below the bay windows", amt: "£586", pct: 100 },
     { label: "Prepare walls for painting", amt: "£268", pct: 100 },
     { label: "Repaint shed exterior", amt: "£174", pct: 100 },
-    { label: "Repaint 4 fence panels", amt: "£161", pct: 90 },
-    { label: "Repaint full house interior", amt: "£1,786", pct: 98 },
-    { label: "Front repointing", amt: "re-quoting", pct: 10 },
+    { label: "Repaint 4 fence panels", amt: "£161", pct: 100 },
+    { label: "Repaint full house interior", amt: "£1,786", pct: 100 },
   ] },
   { group: "Additional works", items: [
     { label: "Sand & paint fascia to apex", amt: "£365", pct: 100 },
@@ -48,11 +47,6 @@ const WORKS: { group: string; items: Work[] }[] = [
     { label: "Front-bedroom pendant feed", amt: "£235", pct: 100 },
     { label: "Lining paper — last room", amt: "£160", pct: 100 },
   ] },
-];
-
-const TODO: { t: string; ours?: boolean }[] = [
-  { t: "Downstairs back room — final paint, between Wed–Fri next week (better access while you’re out)" },
-  { t: "Front repointing — re-quoted for the larger sections (a proper colour match), priced separately below" },
 ];
 
 // Adaptive rough-effort label: half-day → days → working weeks (5 working days/week).
@@ -94,6 +88,9 @@ export default function PlanPage() {
   // What she's already booked (shown up top), computed from the same table.
   const booked = useMemo(() => computePlan(BOOKED_SELECTION), []);
   const bookedBalance = booked.total - BOOKED_DEPOSIT_PAID;
+  // Two booked items are now complete — their remaining balance settles now.
+  const completed = useMemo(() => completedBookedRemaining(), []);
+  const isComplete = (id: string) => COMPLETED_BOOKED_IDS.includes(id);
 
   // Only the not-yet-booked items are offered as choices below.
   const groups = useMemo(() => {
@@ -114,9 +111,11 @@ export default function PlanPage() {
 
   const { total, deposit, days, lines } = useMemo(() => computePlan(selection), [selection]);
 
+  // One payment now = signed-off original balance + the two completed items + any new-works deposit.
+  const payNowTotal = SIGNED_OFF_BALANCE + completed.remaining + deposit;
 
-  async function payDeposit() {
-    if (!selection.length || booking) return;
+  async function startCheckout() {
+    if (booking) return;
     setBooking(true);
     try {
       const res = await fetch(`/api/plan/${slug}/deposit-checkout`, {
@@ -166,7 +165,10 @@ export default function PlanPage() {
           <ul className="flex flex-col mt-4">
             {booked.lines.map((x) => (
               <li key={x.id} className="flex justify-between items-baseline gap-3 py-2 border-b text-[14.5px] sm:text-[15px]" style={{ borderColor: "#CFE6D4" }}>
-                <span className="flex items-start gap-2"><span className="font-bold mt-[1px]" style={{ color: "#2F7A3D" }}>✓</span><span>{x.title}</span></span>
+                <span className="flex items-start gap-2">
+                  <span className="font-bold mt-[1px]" style={{ color: "#2F7A3D" }}>✓</span>
+                  <span>{x.title}{isComplete(x.id) && <span className="ml-2 inline-block text-[10px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded-full align-middle" style={{ background: "#2F7A3D", color: "#fff" }}>Complete</span>}</span>
+                </span>
                 <span className="font-bold tabular-nums whitespace-nowrap">{gbp(x.price)}</span>
               </li>
             ))}
@@ -174,9 +176,9 @@ export default function PlanPage() {
           <div className="mt-4 rounded-xl bg-white p-4" style={{ border: "1px solid #CFE6D4" }}>
             <div className="flex justify-between items-baseline py-1 text-[15px]"><span>Booked total</span><span className="font-bold tabular-nums">{gbp(booked.total)}</span></div>
             <div className="flex justify-between items-baseline py-1 text-[15px]"><span>Deposit paid · 15 Aug</span><span className="font-bold tabular-nums" style={{ color: "#2F7A3D" }}>−{gbp(BOOKED_DEPOSIT_PAID)}</span></div>
-            <div className="flex justify-between items-baseline mt-1 pt-2 border-t-2 border-[#1B2A4A]"><span className="text-[16px] font-bold">Balance on completion</span><span className="text-[20px] font-bold tabular-nums" style={{ color: "#F5A623" }}>{gbp(bookedBalance)}</span></div>
+            <div className="flex justify-between items-baseline mt-1 pt-2 border-t-2 border-[#1B2A4A]"><span className="text-[16px] font-bold">Balance to complete</span><span className="text-[20px] font-bold tabular-nums" style={{ color: "#F5A623" }}>{gbp(bookedBalance)}</span></div>
           </div>
-          <p className="text-[#5A6474] text-[13px] mt-3">This is the <b>new work</b> — separate from your original project below. The balance is due only when it’s finished and you’re happy.</p>
+          <p className="text-[#5A6474] text-[13px] mt-3"><b>Two items are now finished</b> — the upstairs bathroom and the hallway ceiling. Their balance of <b>{gbp(completed.remaining)}</b> is in your payment below; the rest is due as each remaining item is completed.</p>
         </section>
 
         {/* PROGRESS BAR — original agreed job */}
@@ -188,12 +190,12 @@ export default function PlanPage() {
         <div className="mt-3 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
           <div className="flex items-baseline justify-between mb-2">
             <span className="font-bold text-[16px]">Your original project</span>
-            <span className="font-bold text-[18px] tabular-nums" style={{ color: "#2F7A3D" }}>{PROGRESS}% done</span>
+            <span className="font-bold text-[18px] tabular-nums" style={{ color: "#2F7A3D" }}>Signed off ✓</span>
           </div>
           <div className="h-3.5 rounded-full overflow-hidden" style={{ background: "#EDE8DC" }} role="progressbar" aria-valuenow={PROGRESS} aria-valuemin={0} aria-valuemax={100}>
             <div className="h-full rounded-full transition-all" style={{ width: `${PROGRESS}%`, background: "linear-gradient(90deg,#2F7A3D,#4F9E5B)" }} />
           </div>
-          <p className="text-[#5A6474] text-[14px] mt-2.5">This is the work you originally agreed — nearly there, just the finishing items to wrap up. Any <b>extra work further down is separate</b>, and entirely your choice.</p>
+          <p className="text-[#5A6474] text-[14px] mt-2.5">The work you originally agreed is <b>complete and signed off</b> — thank you. The final balance is ready to settle below. Any <b>extra work further down is separate</b>, and entirely your choice.</p>
         </div>
 
         <SectionLabel>The story so far</SectionLabel>
@@ -229,9 +231,9 @@ export default function PlanPage() {
         <div className="mt-1 rounded-2xl p-5" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
           <div className="font-bold text-[16px] mb-2.5">What happens next</div>
           <ul className="flex flex-col gap-2 text-[15px]">
-            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>1</span><span><b>This week</b> — back room + finishing, while you’re out.</span></li>
-            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>2</span><span><b>Then</b> — we walk the house together, you sign it off happy, and settle the <b>£2,653</b>.</span></li>
-            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>3</span><span><b>Extras below</b> — separate and optional, whenever suits.</span></li>
+            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>1</span><span><b>Settle</b> — the <b>£2,653</b> is signed off and ready to pay, all in one place below.</span></li>
+            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>2</span><span><b>The two rooms</b> you asked about are ready to add — pay their deposit at the same time if you’d like them booked.</span></li>
+            <li className="flex gap-2.5"><span className="font-bold" style={{ color: "#F5A623" }}>3</span><span><b>Anything else below</b> — separate and optional, whenever suits.</span></li>
           </ul>
         </div>
 
@@ -268,20 +270,13 @@ export default function PlanPage() {
           <PayRow label="Milestone · 31 Jul" value="£1,500.00" paid />
           <PayRow label="Paid so far" value="£3,260.00" />
           <div className="flex justify-between items-baseline mt-2 pt-3 border-t-2 border-[#1B2A4A]">
-            <span className="text-[17px] font-bold">Balance on completion</span>
+            <span className="text-[17px] font-bold">Signed off — ready to settle</span>
             <span className="text-[20px] font-bold tabular-nums" style={{ color: "#F5A623" }}>£2,653.00</span>
           </div>
-          <p className="text-[#5A6474] text-[13.5px] mt-3">The balance is due only when the agreed works are finished and you’re happy — not before. Repointing is quoted separately (below).</p>
+          <p className="text-[#5A6474] text-[13.5px] mt-3">You’ve signed these works off — thank you. The balance is ready to settle now, and you can pay it in one go with anything new below. Repointing is quoted separately (below).</p>
         </div>
 
-        <SectionLabel muted>Still to finish — included in the above</SectionLabel>
-        <div className="rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
-          <ul className="flex flex-col gap-2.5">
-            {TODO.map((d) => (<li key={d.t} className="flex gap-3 items-start text-[16px]"><span className="text-[#F5A623] font-bold mt-[2px] text-[10px]">●</span><span>{d.t}</span></li>))}
-          </ul>
-        </div>
-
-        <div className="rounded-2xl p-5 mt-3.5 border-2" style={{ background: "#EAF4EC", borderColor: "#2F7A3D" }}>
+        <div className="rounded-2xl p-5 mt-8 border-2" style={{ background: "#EAF4EC", borderColor: "#2F7A3D" }}>
           <div className="font-extrabold text-[20px] mb-3" style={{ color: "#2F7A3D" }}>Putting it right — on us, no charge</div>
           <ul className="flex flex-col gap-3.5">
             <li className="flex gap-3 items-start text-[18px] font-bold leading-snug"><span style={{ color: "#2F7A3D" }}>✓</span><span>Your <b>curtains</b> — professionally cleaned, and <b>replaced in full</b> if they don’t come back right.</span></li>
@@ -325,85 +320,75 @@ export default function PlanPage() {
         </div>
         <div className="rounded-2xl p-5 mb-3.5 border" style={{ background: "#EAF4EC", borderColor: "#BFE0C6" }}>
           <div className="font-bold text-[17px]" style={{ color: "#2F7A3D" }}>✓ Downstairs back room ceiling — repaired, no charge</div>
-          <p className="text-[#5A6474] text-[15px] mt-1">We’ll repair the back-room ceiling as part of putting things right. On us.</p>
+          <p className="text-[#5A6474] text-[15px] mt-1">We repaired the back-room ceiling as part of putting things right. On us.</p>
         </div>
         <InfoCard title="Repointing — the two bays & above the front door — £2,450" body="Re-quoted as full sections — the whole of both bays plus the panel above the front door, so the new mortar blends and there’s no patchy colour. This replaces the smaller repointing in your original works. Tower access is included (no extra)." note="£2,450 · tower access included · confirmed on final measure · separate from your balance" />
         <InfoCard title="Kitchen damp / mould treatment" body="Priced once we’ve taken the corner unit out and seen the wall — no guesswork." note="Priced after the check above · not in your total yet" />
 
-        <section className="mt-6 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
-          <h2 className="text-[21px] font-bold mb-3">Your chosen extras</h2>
-          {lines.length === 0 ? (
-            <p className="text-[#5A6474] text-[15px]">Nothing chosen yet — tap <b>Add</b> on anything above to start.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {lines.map((x) => (<li key={x.id} className="flex justify-between gap-3 text-[15px] pb-2 border-b border-[#E7E2D6]"><span>{x.title}</span><span className="font-bold tabular-nums whitespace-nowrap">{gbp(x.price)}</span></li>))}
-            </ul>
-          )}
-          <div className="flex justify-between items-baseline mt-3.5 pt-3.5 border-t-2 border-[#1B2A4A]">
-            <span className="text-[17px] font-bold">Extras total</span>
-            <span className="text-[26px] font-bold tabular-nums" style={{ color: "#F5A623" }}>{gbp(total)}</span>
-          </div>
-          {total > 0 && (
-            <div className="mt-3 rounded-xl p-4" style={{ background: "#FFF8EC", border: "1px solid #F3D9A6" }}>
-              <div className="flex justify-between items-baseline">
-                <span className="text-[15px] font-semibold">Deposit to get started</span>
-                <span className="text-[20px] font-bold tabular-nums" style={{ color: "#1B2A4A" }}>{gbp(deposit)}</span>
-              </div>
-              <p className="text-[#5A6474] text-[13px] mt-1">30% of labour + materials up front. The rest is due once the work’s done and you’re happy.</p>
-              <div className="flex justify-between items-baseline mt-3 pt-3 border-t border-[#F3D9A6]">
-                <span className="text-[15px] font-semibold">Rough time on site</span>
-                <span className="text-[16px] font-bold" style={{ color: "#1B2A4A" }}>≈ {fmtDays(days)}</span>
-              </div>
-              <p className="text-[#5A6474] text-[13px] mt-1">A guide to the work involved — we’ll agree exact dates with you, never leave you guessing.</p>
+        <section className="mt-8 rounded-2xl bg-white border border-[#E7E2D6] shadow-sm p-5">
+          <h2 className="text-[21px] font-bold mb-1">Settle up — one payment</h2>
+          <p className="text-[#5A6474] text-[14.5px] mb-4">Your signed-off balance and the finished items, plus a deposit on anything new you add. All in one secure card payment.</p>
+
+          {lines.length > 0 && (
+            <div className="mb-4">
+              <div className="text-[#5A6474] text-[12px] font-bold tracking-[0.12em] uppercase mb-2">New works you’ve added</div>
+              <ul className="flex flex-col gap-2">
+                {lines.map((x) => (<li key={x.id} className="flex justify-between gap-3 text-[15px] pb-2 border-b border-[#E7E2D6]"><span>{x.title}</span><span className="font-bold tabular-nums whitespace-nowrap">{gbp(x.price)}</span></li>))}
+              </ul>
+              <p className="text-[#5A6474] text-[13px] mt-2">New works total {gbp(total)} · deposit {gbp(deposit)} now, the rest as it’s finished · ≈ {fmtDays(days)} on site.</p>
             </div>
           )}
 
-          {/* The two payments, side by side */}
-          <div className="mt-3 rounded-xl overflow-hidden border" style={{ borderColor: "#E7E2D6" }}>
-            <div className="px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide text-[#5A6474]" style={{ background: "#F5F1E9" }}>What’s due — now vs Friday</div>
-            <div className="px-4 py-3 flex justify-between items-start gap-3 border-b border-[#E7E2D6]">
-              <div>
-                <div className="text-[15px] font-semibold">Now — books the new work</div>
-                <div className="text-[#5A6474] text-[13px] mt-0.5">Deposit for the works above{total > 0 ? "" : " (add items to book)"}</div>
-              </div>
-              <span className="text-[17px] font-bold tabular-nums whitespace-nowrap" style={{ color: "#1B2A4A" }}>{gbp(deposit)}</span>
-            </div>
-            <div className="px-4 py-3 flex justify-between items-start gap-3">
-              <div>
-                <div className="text-[15px] font-semibold">Friday — the work already done</div>
-                <div className="text-[#5A6474] text-[13px] mt-0.5">Due once we walk the finished job together and you’re happy. Completely separate from the deposit.</div>
-              </div>
-              <span className="text-[17px] font-bold tabular-nums whitespace-nowrap" style={{ color: "#B4791F" }}>£2,653</span>
+          <div className="rounded-xl overflow-hidden border" style={{ borderColor: "#E7E2D6" }}>
+            <div className="px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide text-[#5A6474]" style={{ background: "#F5F1E9" }}>What you’re paying now</div>
+            <SettleRow title="Original works — signed off" sub="You’ve approved these" amt={gbp(SIGNED_OFF_BALANCE)} />
+            <SettleRow title="Upstairs bathroom + hallway ceiling" sub="Now complete · balance after deposit" amt={gbp(completed.remaining)} />
+            {deposit > 0 && <SettleRow title="Deposit — the new works above" sub={`30% of labour + materials · ≈ ${fmtDays(days)} on site`} amt={gbp(deposit)} />}
+            <div className="px-4 py-3.5 flex justify-between items-baseline" style={{ background: "#1B2A4A" }}>
+              <span className="text-white text-[16px] font-bold">Total to pay now</span>
+              <span className="text-[24px] font-extrabold tabular-nums" style={{ color: "#F5A623" }}>{gbp(payNowTotal)}</span>
             </div>
           </div>
+
+          <p className="text-[#5A6474] text-[13px] mt-3">After this, what’s left is the balance on your other booked items ({gbp(bookedBalance - completed.remaining)}){deposit > 0 ? `, plus the balance on the new works (${gbp(total - deposit)})` : ""} — each due only as the work is finished and you’re happy.</p>
 
           <div className="flex flex-col gap-2.5 mt-4">
-            <button onClick={payDeposit} disabled={total === 0 || booking}
+            <button onClick={startCheckout} disabled={booking}
               className="h-14 rounded-2xl font-bold text-[17px] grid place-items-center disabled:opacity-50"
               style={{ background: "#F5A623", color: "#1B2A4A" }}>
-              {booking ? "Starting secure payment…" : total > 0 ? `Pay ${gbp(deposit)} deposit to book` : "Choose your extras to book"}
+              {booking ? "Starting secure payment…" : `Pay ${gbp(payNowTotal)} now`}
             </button>
             <a href="tel:+447449501762" className="h-12 rounded-2xl font-semibold text-[15px] grid place-items-center text-[#5A6474]">Prefer to talk it through? Call Courtnee</a>
           </div>
-          <p className="text-[#5A6474] text-[13px] mt-4 leading-relaxed">Prices are fixed and include all materials. This is on top of your existing project — not part of the £2,653 balance. Paying the deposit books the work; we’ll then agree a start date together.</p>
+          <p className="text-[#5A6474] text-[13px] mt-4 leading-relaxed">Secure card payment. Prices are fixed and include all materials. Adding a room simply adds its deposit to the total above.</p>
         </section>
       </main>
 
-      {total > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-50">
-          <div className="max-w-2xl mx-auto px-3">
-            <div className="rounded-t-2xl bg-slate-900 text-white shadow-2xl px-4 py-3 flex items-center justify-between gap-3" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Deposit · {gbp(total)} total · ≈ {fmtDays(days)}</div>
-                <div className="text-[22px] font-bold tabular-nums" style={{ color: "#F5A623" }}>{gbp(deposit)}</div>
-              </div>
-              <button onClick={payDeposit} disabled={booking} className="rounded-xl font-bold text-[15px] px-4 py-3 whitespace-nowrap disabled:opacity-60" style={{ background: "#F5A623", color: "#1B2A4A" }}>
-                {booking ? "Starting…" : "Pay & book"}
-              </button>
+      <div className="fixed inset-x-0 bottom-0 z-50">
+        <div className="max-w-2xl mx-auto px-3">
+          <div className="rounded-t-2xl bg-slate-900 text-white shadow-2xl px-4 py-3 flex items-center justify-between gap-3" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-400">Pay now{deposit > 0 ? ` · incl. ${gbp(deposit)} new deposit` : ""}</div>
+              <div className="text-[22px] font-bold tabular-nums" style={{ color: "#F5A623" }}>{gbp(payNowTotal)}</div>
             </div>
+            <button onClick={startCheckout} disabled={booking} className="rounded-xl font-bold text-[15px] px-4 py-3 whitespace-nowrap disabled:opacity-60" style={{ background: "#F5A623", color: "#1B2A4A" }}>
+              {booking ? "Starting…" : "Pay now"}
+            </button>
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
+
+function SettleRow({ title, sub, amt }: { title: string; sub: string; amt: string }) {
+  return (
+    <div className="px-4 py-3 flex justify-between items-start gap-3 border-b border-[#E7E2D6]">
+      <div>
+        <div className="text-[15px] font-semibold">{title}</div>
+        <div className="text-[#5A6474] text-[13px] mt-0.5">{sub}</div>
+      </div>
+      <span className="text-[17px] font-bold tabular-nums whitespace-nowrap" style={{ color: "#1B2A4A" }}>{amt}</span>
     </div>
   );
 }
