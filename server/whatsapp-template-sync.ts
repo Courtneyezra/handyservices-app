@@ -310,7 +310,14 @@ export function buildTemplateVariables(
     const hints = variableHints(template.body, vars);
     const out: Record<string, string> = {};
     for (const [key, hint] of Object.entries(hints)) {
-        if (hint === 'name') out[key] = known.firstName?.trim() || 'there';
+        // Placeholder names ("Website Visitor", "Unknown") degrade to 'there' — "Hi Website,
+        // thanks for getting in touch" reached a real customer on 21 Aug 2026. Regex kept in
+        // sync with isPlaceholderName in first-contact-ack.ts (inlined: import would cycle).
+        if (hint === 'name') {
+            const first = known.firstName?.trim().split(/\s+/)[0] || '';
+            const placeholder = !first || /^\+?\d/.test(first) || /^(unknown|customer|caller|test|website|web$|visitor|lead|enquiry)/i.test(first);
+            out[key] = placeholder ? 'there' : first;
+        }
         else if (hint === 'link') out[key] = known.quoteUrl || String(vars?.[key] ?? '');
         else out[key] = String(vars?.[key] ?? '');
     }

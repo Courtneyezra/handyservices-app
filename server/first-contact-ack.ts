@@ -378,8 +378,17 @@ export function isOutOfHours(hour = ukHourNow()): boolean {
 
 function greetingFor(contactName?: string | null): string {
     const name = (contactName ?? '').trim();
-    if (!name || /^\+?\d/.test(name) || /^(unknown|customer|caller|test)/i.test(name)) return '';
+    // Placeholder names greet nobody: "Hi Website" went to a real customer on 21 Aug because the
+    // hero form has no name field and stamps leads "Website Visitor". Anything system-stamped
+    // reads as no-name and the copy degrades to plain "Hi" / "Hi there" gracefully.
+    if (!name || /^\+?\d/.test(name) || /^(unknown|customer|caller|test|website|web\b|visitor|lead|enquiry)/i.test(name)) return '';
     return ` ${name.split(/\s+/)[0]}`;
+}
+
+/** Shared placeholder test for template-variable name slots (whatsapp-template-sync uses it). */
+export function isPlaceholderName(name?: string | null): boolean {
+    const n = (name ?? '').trim();
+    return !n || /^\+?\d/.test(n) || /^(unknown|customer|caller|test|website|web\b|visitor|lead|enquiry)/i.test(n);
 }
 
 /**
@@ -935,6 +944,31 @@ export async function triageAckReply(input: {
         // instruction: tag it, leave the rank alone, and let nothing chase a call afterwards.
         const priority = intent === CALLBACK_TAG ? 'urgent' : null;
         await raiseThreadPriority(convIds, priority, intent);
+
+        // SOLICITED VOICE BECOMES A DEBT (owner, 21 Aug: "we always want human voice contact").
+        // The ack asked "is it OK if we give you a quick call?" on every text-first channel; a yes
+        // used to become a tag and a hope. Now it opens the same tracked ring-back the missed-call
+        // ladder uses: callback_due + the clock + a ping with the number — and Ben's outbound
+        // Groundwire call clears it by itself (call-thread.ts). Not gated behind the post-call
+        // outreach flag: this debt was opened by the customer's own words, not by a classifier.
+        if (intent === CALLBACK_TAG) {
+            try {
+                const nowIso = new Date().toISOString();
+                await db.update(conversations).set({
+                    tags: sql`(SELECT array_agg(DISTINCT t) FROM unnest(array_append(coalesce(${conversations.tags}, '{}'), 'callback_due')) AS t)`,
+                    metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('callbackDueAt', ${nowIso}::text)`,
+                }).where(inArray(conversations.id, convIds));
+                const { notifyCallbackDue } = await import('./pushover');
+                await notifyCallbackDue({
+                    callerName: null,
+                    phoneNumber: input.phone,
+                    jobSummary: `Said yes to a call: "${body.trim().slice(0, 80)}"`,
+                });
+                console.log(`[FirstContact] ${input.phone}: call consent → callback_due debt opened + ping`);
+            } catch (e: any) {
+                console.warn('[FirstContact] callback debt open failed (tag stands):', e?.message);
+            }
+        }
 
         console.log(`[FirstContact] ${input.phone}: reply tagged '${intent}' (${matched})`);
         return { tagged: intent, reason: 'TAGGED', matched, priority: priority ?? undefined };
