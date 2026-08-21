@@ -1590,6 +1590,22 @@ app.post('/api/twilio/recording-status', async (req, res) => {
             console.log(`[Recording] Call ${callRecordId} already has transcript (${call.transcription.length} chars)`);
         }
 
+        // THE TRANSCRIPT RACE, closed: the video-request decision needs the transcript (the
+        // classifier fails closed without one), but the call-status callback that first attempts
+        // it fires BEFORE recordings finish processing — so on most calls the first attempt reads
+        // NO_TRANSCRIPT and sends nothing. The transcript has just landed here, so try again.
+        // Safe to repeat: the decision is idempotent (already-sent, dedupe, classification cache).
+        try {
+            const { maybeSendPostCallVideoRequest } = await import('./post-call-outreach');
+            const decision = await maybeSendPostCallVideoRequest({
+                callSid: CallSid,
+                callStatus: 'completed',
+            });
+            console.log(`[Recording] Post-transcript outreach retry for ${CallSid}: ${decision.sent ? 'SENT' : decision.reason}`);
+        } catch (e: any) {
+            console.warn('[Recording] Post-transcript outreach retry failed:', e?.message ?? e);
+        }
+
     } catch (error) {
         console.error('[Recording] Error processing recording status:', error);
     }

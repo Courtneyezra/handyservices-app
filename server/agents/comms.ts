@@ -608,10 +608,16 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 required: ['body', 'reason', 'intent'],
             },
             run: async (input: { body: string; reason: string; intent: string; quote_slug?: string; price_source?: string }) => {
-                // Deliverability guard, checked first: freeform only reaches a customer while the
-                // 24h window is open. Drafting prose into a shut window fills the approval queue
-                // with messages nobody can send, so refuse and point at the routes that do work.
-                if (!(await canSendFreeform(e164).catch(() => false))) {
+                // Deliverability guard, checked first — and CHANNEL-AWARE, because the first
+                // version was WhatsApp-centric: "window shut → refuse" meant an SMS-first customer,
+                // whose thread never opens a WhatsApp window at all, could receive the instant
+                // hello and then never be spoken to again — every reply dead-ended into ask_ben
+                // (found 20 Aug answering "what happens when an SMS comes in?"). An SMS thread
+                // replies by SMS; no window applies to SMS.
+                const windowOpen = await canSendFreeform(e164).catch(() => false);
+                let sendChannel: 'whatsapp' | 'sms' | null = windowOpen ? 'whatsapp' : null;
+                if (!sendChannel && (await inboundChannel()) === 'sms') sendChannel = 'sms';
+                if (!sendChannel) {
                     throw new Error('The 24-hour window is shut, so a freeform reply cannot be delivered. Do not draft prose. Use ask_ben to get a decision from Ben, who can send an approved template instead.');
                 }
 
@@ -702,6 +708,9 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     body: input.body,
                     source: 'comms_agent',
                     reason: `[${input.intent}] ${input.reason}${input.quote_slug ? ` (quote ${input.quote_slug})` : ''}`,
+                    // The channel the deliverability guard above resolved: WhatsApp while the
+                    // window is open, SMS for an SMS-first thread the window never applies to.
+                    channel: sendChannel,
                 });
                 if (!id) return { queued: false, note: 'A pending comms_agent draft already exists for this customer.' };
                 const superseded = draftedThisRun;
@@ -1351,8 +1360,12 @@ Your trigger tells you why you were called, and it changes the emphasis:
   questions may share one message; this is the one exception to the one-question rule.
 
 DELIVERABILITY FIRST: get_thread tells you whatsappWindowOpen. When it is FALSE a freeform reply
-cannot be delivered at all, so drafting prose is wasted work and queue_draft will refuse it. Do
-the triage, then ask_ben — he can send an approved template. Never spend a draft on a shut window.
+cannot be delivered over WhatsApp — with ONE exception: a customer whose thread is SMS (they text
+rather than WhatsApp) is replied to BY SMS, and no window applies; queue_draft routes that
+automatically, so converse normally. Keep SMS replies tight (they bill per 160 characters) and
+never reference photos being attachable — ask them to describe instead, or to switch to WhatsApp
+if pictures would genuinely help. For a WhatsApp thread with a shut window: do the triage, then
+ask_ben — he can send an approved template. Never spend a draft on a shut WhatsApp window.
 
 TWO TAGS ARE INSTRUCTIONS FROM THE CUSTOMER, not descriptions. The lane sets them deterministically
 from a reply to our own acknowledgement, so they are the customer's actual words:
