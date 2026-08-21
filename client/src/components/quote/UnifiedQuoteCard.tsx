@@ -1246,9 +1246,11 @@ export function UnifiedQuoteCard({
     const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number; isBlocked: boolean }[] = [];
     for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= maxDaysOut; i++) {
       const date = addDays(ukNow, i);
-      if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0) continue; // Skip Sundays
-
       const dateStr = formatDateStr(date);
+      // Sundays are closed by default, but a Sunday the live pool explicitly
+      // offers (owner-opened override) must render — otherwise unlocked
+      // weekend dates stay invisible to the customer.
+      if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0 && !quoteAvailableDateSet?.has(dateStr)) continue;
       // When using quote-specific availability, a date is blocked if it's NOT in the available set
       // When using fallback, a date is blocked if it IS in the unavailable set
       const isBlocked = quoteAvailableDateSet
