@@ -113,8 +113,7 @@ const HANDYMAN: VerticalConfig = {
     { test: (d) => /tile|tiling|grout|splashback|backsplash/.test(d), imageKey: 'tiling', skinKeyed: true },
     { test: (d) => /flat.?pack|assemble|assembly|wardrobe|furniture|ikea|cabinet|chest of drawers|bookshelf|shelf unit/.test(d), imageKey: 'flatpack', skinKeyed: true },
     { test: (d, c) => /electric|socket|light fitting|light fixture|pendant|downlight|spotlight|consumer unit|fuse|wiring|isolator|switch/.test(d) || c === 'electrical_minor', imageKey: 'light', skinKeyed: true },
-    // plumbing uses a shared brand scene, not a per-skin one
-    { test: (d, c) => /plumb|tap|leak|pipe|drain|toilet|boiler/.test(d) || c === 'plumbing_minor', imageKey: 'plumber-smile', skinKeyed: false },
+    { test: (d, c) => /plumb|tap|leak|pipe|drain|toilet|boiler|washing machine|dishwasher/.test(d) || c === 'plumbing_minor', imageKey: 'plumbing', skinKeyed: true },
     { test: (d) => /silicone|re.?seal|sealant|caulk|re.?grout|shower/.test(d), imageKey: 'bathroom', skinKeyed: true },
     { test: (d, c) => /paint|decor|colour|color/.test(d) || c === 'painting', imageKey: 'painting', skinKeyed: true },
   ],
