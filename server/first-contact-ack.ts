@@ -917,7 +917,10 @@ export async function triageAckReply(input: {
         // Only a thread we actually acked recently. Without this, a "yes" to any other question
         // (a quote, a date) would be read as "yes, call me".
         const since = new Date(Date.now() - ACK_REPLY_WINDOW_DAYS * 86_400_000);
-        const [ack] = await db.select({ id: messageDrafts.id }).from(messageDrafts)
+        const [ack] = await db.select({
+            id: messageDrafts.id,
+            at: sql<Date>`coalesce(${messageDrafts.sentAt}, ${messageDrafts.createdAt})`,
+        }).from(messageDrafts)
             .where(and(
                 sql`regexp_replace(${messageDrafts.phone}, '[^0-9]', '', 'g') = ${digits}`,
                 eq(messageDrafts.source, 'first_contact_ack'),
@@ -934,6 +937,23 @@ export async function triageAckReply(input: {
         const history = await readContactHistory({ conversationId: input.conversationId, phone: input.phone });
         const convIds = history.conversationIds;
         if (!convIds.length) return { tagged: null, reason: 'NO_RECENT_ACK' };
+
+        // A bare "ok"/"yes" answers the ack only if it is the FIRST thing the customer has said
+        // since the ack went out. Once they have replied with anything else, the conversation has
+        // moved on and a later "Ok waiting" is about whatever was said last, not the call offer
+        // (Sam, 21 Aug: "Ok waiting" 44 minutes and six messages after the ack opened a false
+        // ring-back debt). Explicit phrases ("yes call me") still count for the full window.
+        if (matched === 'weak_yes' || matched === 'weak_no') {
+            const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(messages)
+                .where(and(
+                    inArray(messages.conversationId, convIds),
+                    eq(messages.direction, 'inbound'),
+                    sql`${messages.createdAt} > ${ack.at}`,
+                ));
+            // The triggering inbound is normally already stored, so "first reply" means at most
+            // one inbound since the ack.
+            if (Number(n) > 1) return { tagged: null, reason: 'UNCLEAR', matched: `${matched}_stale` };
+        }
 
         const [existing] = await db.select({ tags: conversations.tags }).from(conversations)
             .where(inArray(conversations.id, convIds)).limit(1);
