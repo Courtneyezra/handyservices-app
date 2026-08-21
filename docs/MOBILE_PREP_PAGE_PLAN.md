@@ -64,3 +64,15 @@ on a login screen and Ben loses the context he tapped for.
   at mobile viewport, send with config forced off (draft queued, read back, cleaned up).
 - Real: one end-to-end from a real ping on Ben's phone before repointing the notification link
   for good.
+
+---
+
+# PARKED TOO: Callback bridge (missed-call ladder, rung 1)
+
+Automated ring-back on a missed call: dial BEN first (+2 min, working hours, one retry) with a
+whisper — "missed call from 07777…, about a leak, press 1 to connect" — and only on his accept
+dial the lead and bridge, with answering-machine detection on the lead's leg so Ben never joins a
+voicemail. Bridge fails silently → the live WhatsApp template rung takes over → SMS on bounce →
+ring-back debt tracked by the callback loop. Twilio outbound + <Gather> whisper + AMD, own
+off-flag, Ofcom test rig. ~a day. Build after the master comms flow is nailed and the live rungs
+(template, SMS, loop) have passed their live tests.
