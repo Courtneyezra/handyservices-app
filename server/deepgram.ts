@@ -70,6 +70,49 @@ export async function transcribeAudio(audioBuffer: Buffer): Promise<Transcriptio
 }
 
 /**
+ * Batch-transcribe one raw mu-law 8kHz track (the Monitor's per-track call
+ * recordings). Full-context decoding — cleaner than the live stream's
+ * committed-as-spoken text. Returns timestamped utterances for merging the
+ * caller and agent tracks back into one script; null on any failure.
+ */
+export async function transcribeMulawBuffer(
+    audioBuffer: Buffer,
+): Promise<{ text: string; utterances: { text: string; start: number; end: number }[] } | null> {
+    if (!deepgramApiKey || !deepgram) {
+        console.warn('[Transcribe] DEEPGRAM_API_KEY is missing');
+        return null;
+    }
+    try {
+        const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+            audioBuffer,
+            {
+                model: 'nova-2',
+                encoding: 'mulaw',
+                sample_rate: 8000,
+                channels: 1,
+                smart_format: true,
+                punctuate: true,
+                utterances: true,
+            },
+        );
+        if (error) {
+            console.error('[Transcribe] Deepgram mulaw batch error:', error);
+            return null;
+        }
+        const text = result.results.channels[0]?.alternatives[0]?.transcript || '';
+        const utterances = result.results.utterances?.map((u: any) => ({
+            text: u.transcript as string,
+            start: u.start as number,
+            end: u.end as number,
+        })) ?? [];
+        return { text, utterances };
+    } catch (error) {
+        console.error('[Transcribe] Deepgram mulaw batch failed:', error);
+        return null;
+    }
+}
+
+/**
  * Transcribe audio from a Twilio recording URL
  * Used as fallback when live transcription fails
  */

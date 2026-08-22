@@ -1041,6 +1041,44 @@ export class MediaStreamTranscriber {
             } catch (e) {
                 console.error("[CallLogger] Failed to finalize call:", e);
             }
+
+            // THE CALL JUST ENDED AND THE TRANSCRIPT IS ON THE ROW. This — not the
+            // Twilio recording-status callback — is where post-call intelligence must
+            // hang: live calls record through this stream, so Twilio never sends a
+            // recording callback (verified 22 Aug: 18 inbound calls since the 19th,
+            // zero classified; the only recording-callback rows ever are one test
+            // session on 6 Jan). Same two steps as the callback hook, same order,
+            // both idempotent so the callback firing too would be harmless.
+            //
+            // 1. Classify/summarise, always, both directions — one haiku call, and
+            //    the thread deserves to say what the call was even with outreach off.
+            // 2. Outreach decision (flag-gated inside): AGREED_ON_CALL → template.
+            if (finalText.length > 5) {
+                try {
+                    const { classifyCall } = await import('./call-classifier');
+                    const verdict = await classifyCall(this.callSid);
+                    console.log(`[CallLogger] Post-call classification for ${this.callSid}: ${verdict.ok ? verdict.classification.kind : verdict.reason}`);
+                } catch (e: any) {
+                    console.warn('[CallLogger] Post-call classification failed:', e?.message ?? e);
+                }
+                try {
+                    const { maybeSendPostCallVideoRequest } = await import('./post-call-outreach');
+                    const decision = await maybeSendPostCallVideoRequest({
+                        callSid: this.callSid,
+                        callStatus: 'completed',
+                    });
+                    console.log(`[CallLogger] Post-call outreach for ${this.callSid}: ${decision.sent ? 'SENT' : decision.reason}`);
+                } catch (e: any) {
+                    console.warn('[CallLogger] Post-call outreach failed:', e?.message ?? e);
+                }
+
+                // 3. Quality pass, fire-and-forget: batch re-transcribe the saved
+                // per-track recordings into the call's permanent transcript. Runs
+                // AFTER classification/outreach so the fast path never waits on it.
+                import('./call-batch-transcribe')
+                    .then(({ batchRetranscribeCall }) => batchRetranscribeCall(this.callRecordId!))
+                    .catch((e: any) => console.warn('[CallLogger] Batch re-transcription failed:', e?.message ?? e));
+            }
         }
 
         // Close recording stream - (Already closed above)

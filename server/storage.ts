@@ -8,13 +8,23 @@ import { pipeline } from 'stream/promises';
 const STORAGE_PROVIDER = process.env.STORAGE_PROVIDER || 'local'; // 'local' | 's3'
 const STORAGE_PATH = process.env.STORAGE_PATH || 'storage/recordings'; // For local storage
 
-// S3 Configuration
+// S3 Configuration — legacy family (endpoint-style, e.g. R2)
 const S3_ENDPOINT = process.env.S3_ENDPOINT;
 const S3_REGION = process.env.S3_REGION || 'auto';
-const S3_BUCKET = process.env.S3_BUCKET || '';
+let S3_BUCKET = process.env.S3_BUCKET || '';
 const S3_ACCESS_KEY = process.env.S3_ACCESS_KEY || '';
 const S3_SECRET_KEY = process.env.S3_SECRET_KEY || '';
 const S3_PUBLIC_URL_BASE = process.env.S3_PUBLIC_URL_BASE; // Optional: for custom domains
+
+// AWS family — the config that is actually set in prod (same vars s3-media.ts
+// uses; Railway has AWS_S3_BUCKET etc., verified working). Recordings used to
+// require the legacy S3_* family, which prod never had — so every call
+// recording quietly fell back to Railway's ephemeral disk and died on the
+// next deploy. If the legacy family is absent but AWS_* is present, use it.
+const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || '';
+const AWS_REGION = process.env.AWS_REGION || 'eu-west-2';
+const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID || '';
+const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || '';
 
 class StorageService {
     private s3Client: S3Client | null = null;
@@ -39,6 +49,22 @@ class StorageService {
                 });
                 console.log(`[Storage] Initialized S3 provider (Bucket: ${S3_BUCKET})`);
             }
+        }
+
+        // AWS-family fallback: prod sets AWS_* (media uploads prove it) but not
+        // STORAGE_PROVIDER/S3_*. Recordings must survive deploys, so if AWS S3
+        // is available, prefer it over the ephemeral local disk.
+        if (this.provider === 'local' && AWS_S3_BUCKET && AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY) {
+            this.s3Client = new S3Client({
+                region: AWS_REGION,
+                credentials: {
+                    accessKeyId: AWS_ACCESS_KEY_ID,
+                    secretAccessKey: AWS_SECRET_ACCESS_KEY,
+                },
+            });
+            S3_BUCKET = AWS_S3_BUCKET;
+            this.provider = 's3';
+            console.log(`[Storage] Initialized S3 provider from AWS_* config (Bucket: ${AWS_S3_BUCKET}, Region: ${AWS_REGION})`);
         }
 
         if (this.provider === 'local') {
@@ -72,12 +98,14 @@ class StorageService {
 
     private async uploadToS3(localFilePath: string, key: string): Promise<string> {
         try {
+            // Keep recordings under one prefix rather than the bucket root.
+            const s3Key = key.startsWith('recordings/') ? key : `recordings/${key}`;
             const fileStream = fs.createReadStream(localFilePath);
             const contentType = 'audio/x-wav'; // Assuming RAW/WAV for now, adjust as needed
 
             const command = new PutObjectCommand({
                 Bucket: S3_BUCKET,
-                Key: key,
+                Key: s3Key,
                 Body: fileStream,
                 ContentType: contentType
                 // ACL: 'public-read' // Removed to support buckets with ACLs disabled
@@ -87,10 +115,14 @@ class StorageService {
 
             // Construct URL
             if (S3_PUBLIC_URL_BASE) {
-                return `${S3_PUBLIC_URL_BASE}/${key}`;
+                return `${S3_PUBLIC_URL_BASE}/${s3Key}`;
             }
-            // Default S3/R2 URL structure
-            return `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
+            if (S3_ENDPOINT) {
+                // Endpoint-style provider (e.g. R2)
+                return `${S3_ENDPOINT}/${S3_BUCKET}/${s3Key}`;
+            }
+            // Standard AWS S3 virtual-hosted URL (AWS_* config path)
+            return `https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${s3Key}`;
         } catch (error) {
             console.error("[Storage] S3 Upload Failed:", error);
             throw error;
@@ -151,9 +183,9 @@ class StorageService {
                     }
                     console.warn(`[Storage] Local file missing for ${storedPathOrUrl}. Attempting S3 fallback...`);
                     // Fall through to S3 logic
-                    // If local file is missing, try S3. 
-                    // Since local paths include directory but S3 keys are flat (basename), extract basename.
-                    key = path.basename(storedPathOrUrl);
+                    // If local file is missing, try S3. New uploads live under the
+                    // recordings/ prefix; legacy uploads were flat basenames.
+                    key = `recordings/${path.basename(storedPathOrUrl)}`;
                 } else {
                     return storedPathOrUrl;
                 }
@@ -184,6 +216,46 @@ class StorageService {
         } catch (error) {
             console.error("[Storage] Failed to sign URL:", error);
             return storedPathOrUrl; // Fallback to original
+        }
+    }
+
+    /**
+     * Fetch a stored recording as a Buffer, wherever it lives: a local path, an
+     * S3 URL from either config family, or a bare key. Used by the post-call
+     * batch transcription pass. Returns null when nothing is found.
+     */
+    async downloadRecording(storedPathOrUrl: string): Promise<Buffer | null> {
+        try {
+            // Local path that still exists (dev, or pre-deploy-wipe prod)
+            if (!storedPathOrUrl.startsWith('http')) {
+                const localPath = path.resolve(process.cwd(), storedPathOrUrl);
+                if (fs.existsSync(localPath)) return fs.readFileSync(localPath);
+            }
+            if (!this.s3Client) return null;
+
+            // Resolve the S3 key from whatever form we stored
+            let key = storedPathOrUrl;
+            if (storedPathOrUrl.startsWith('http')) {
+                const urlObj = new URL(storedPathOrUrl);
+                const bucketPattern = new RegExp(`^/${S3_BUCKET}/`);
+                key = urlObj.pathname.replace(bucketPattern, '').replace(/^\//, '');
+            } else if (storedPathOrUrl.startsWith('storage/')) {
+                key = `recordings/${path.basename(storedPathOrUrl)}`;
+            }
+
+            const out = await this.s3Client.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }))
+                .catch(async (e: any) => {
+                    // Legacy flat keys (pre-prefix uploads)
+                    if (key.startsWith('recordings/')) {
+                        return this.s3Client!.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key.replace(/^recordings\//, '') }));
+                    }
+                    throw e;
+                });
+            const bytes = await out.Body?.transformToByteArray();
+            return bytes ? Buffer.from(bytes) : null;
+        } catch (error: any) {
+            console.warn(`[Storage] downloadRecording failed for ${storedPathOrUrl}:`, error?.message ?? error);
+            return null;
         }
     }
 
