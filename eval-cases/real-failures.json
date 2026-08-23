@@ -1,0 +1,104 @@
+{
+  "family": "incident",
+  "description": "This week's real live-beta failures, written as cases BEFORE the fixes land — the harness's first job is to show these red, then prove the constitution changes flip them green.",
+  "cases": [
+    {
+      "id": "rf-001-naeem-belief-hygiene",
+      "family": "incident",
+      "kind": "capability",
+      "trigger": "inbound",
+      "provenance": "Naeem thread 22 Aug 2026: agent asserted 'you just want the new frame' from a rhetorical question, then re-pushed the new-frame CTA three times while every customer signal pointed at the repair option.",
+      "reference": "Glad that cleared it up. Both options are on your quote, the repair at the lower price or the full new frame, whichever you prefer. Happy to answer anything else on either.",
+      "fixture": {
+        "phone": "+447700900941",
+        "contactName": "Naeem Eval",
+        "stage": "quote_sent",
+        "quotes": [
+          {
+            "slug": "evrf001x",
+            "totalPence": 62800,
+            "lines": [
+              { "description": "Repair bathroom door frame and latch with timber splice", "pence": 28000 },
+              { "description": "Supply and fit new bathroom door frame", "pence": 32000 }
+            ],
+            "viewCount": 3,
+            "sentMinsAgo": 90
+          }
+        ],
+        "thread": [
+          { "dir": "in", "text": "I see £396 and £280, why did you say it's £560 to £710 ?", "minsAgo": 55 },
+          { "dir": "out", "text": "£396 and £280 is what each job costs booked on its own, as separate visits.", "minsAgo": 50 },
+          { "dir": "in", "text": "Yes but why would I need to repair it if I just want to have a new one build", "minsAgo": 42 },
+          { "dir": "in", "text": "Surely it's one or the other ?", "minsAgo": 42 },
+          { "dir": "out", "text": "Yes, you can remove one or the other on the quote and it will just be the single visit.", "minsAgo": 40 },
+          { "dir": "out", "text": "You just want the new frame fitted, not the repair as well.", "minsAgo": 39 },
+          { "dir": "out", "text": "Let me get the quote adjusted to just cover that and come straight back to you.", "minsAgo": 39 },
+          { "dir": "in", "text": "So when you do repair, is it like just put wood on top of the existing frame or do you take off like maybe one side and just put new wood in full for the side that need repairing ?", "minsAgo": 35 },
+          { "dir": "out", "text": "For the repair, we'd cut out just the damaged section and splice new timber in to match, not just pack it on top. Keeps it solid and looking right.", "minsAgo": 30 },
+          { "dir": "out", "text": "If you know you just want the new frame done, you can pick just that line on your quote page, no need to keep both.", "minsAgo": 30 },
+          { "dir": "in", "text": "Yes that's the only thing I was worried about, I thought it wil just be pack it on top so it doesn't look nice", "minsAgo": 2 }
+        ]
+      },
+      "graders": [
+        { "type": "replied" },
+        { "type": "no-autosend" },
+        { "type": "draft-must-not-match", "patterns": ["you (just|only) want the new frame", "pick (just )?(that|the new frame)", "new frame.{0,30}no need to keep both"] },
+        { "type": "chat-voice" }
+      ]
+    },
+    {
+      "id": "rf-002-sam-question-budget",
+      "family": "incident",
+      "kind": "capability",
+      "trigger": "inbound",
+      "provenance": "Sam thread 21 Aug 2026: customer said 'want something by today', agent replied 'getting your quote sorted now' then immediately asked two more scoping questions — five bubbles in two minutes, promise contradicted by questions.",
+      "reference": "Getting your quote sorted now, over to you as quick as I can today.",
+      "fixture": {
+        "phone": "+447700900942",
+        "contactName": "Sam Eval",
+        "stage": "scoping",
+        "thread": [
+          { "dir": "in", "text": "Hi, I need hinges replacing on a cabinet door", "minsAgo": 60 },
+          { "dir": "out", "text": "Is it OK if we give you a quick call to run through it? Or just reply here with the details and we will price it up.", "minsAgo": 58 },
+          { "dir": "in", "text": "NG2 6PS", "minsAgo": 55 },
+          { "dir": "in", "text": "You have to replace the hinges and fix the door", "minsAgo": 54 },
+          { "dir": "in", "text": "Kindly quote me a price as well as your earliest ETA", "minsAgo": 54 },
+          { "dir": "out", "text": "Thanks Sam, that's everything we need for now. I'll get a quote put together and over to you shortly, with dates you can pick from.", "minsAgo": 40 },
+          { "dir": "in", "text": "We want something by today if possible?", "minsAgo": 2 }
+        ]
+      },
+      "graders": [
+        { "type": "replied" },
+        { "type": "no-autosend" },
+        { "type": "question-count-max", "max": 1 },
+        { "type": "draft-must-not-match", "patterns": ["front door|back door", "which room", "sticking, cracked"] },
+        { "type": "chat-voice" }
+      ]
+    },
+    {
+      "id": "rf-003-ok-waiting-consent",
+      "family": "incident",
+      "kind": "regression",
+      "trigger": "unit",
+      "provenance": "Sam thread 21 Aug 2026: 'Ok waiting' 44 minutes and six messages after the call-offer ack was read as call consent (weak_yes ^ok\\b), opening a false ring-back debt on Ben's desk. Fixed same day: a bare yes only answers the ack when it is the FIRST inbound since.",
+      "fixture": {
+        "phone": "+447700900943",
+        "contactName": "Consent Eval",
+        "stage": "scoping",
+        "sentAckMinsAgo": 44,
+        "thread": [
+          { "dir": "in", "text": "Hi, cabinet door hinge needs replacing", "minsAgo": 46 },
+          { "dir": "out", "text": "Is it OK if we give you a quick call to run through it? Or just reply here with the details and we will price it up.", "minsAgo": 44 },
+          { "dir": "in", "text": "You have to replace the hinges and fix the door", "minsAgo": 40 },
+          { "dir": "in", "text": "Kindly quote me a price please", "minsAgo": 40 },
+          { "dir": "out", "text": "Thanks, getting your quote sorted now.", "minsAgo": 20 },
+          { "dir": "in", "text": "Ok waiting", "minsAgo": 1 }
+        ]
+      },
+      "graders": [
+        { "type": "unit", "name": "ack-reply-consent", "text": "Ok waiting", "expectTagged": null },
+        { "type": "tag", "tag": "callback_due", "expect": false }
+      ]
+    }
+  ]
+}

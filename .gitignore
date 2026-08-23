@@ -62,3 +62,4 @@ agent-runs/
 
 # scratch cache for scripts/_agent-backtest.ts
 .agent-backtest-cache.json
+eval-results/
