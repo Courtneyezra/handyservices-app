@@ -108,6 +108,12 @@ interface ThreadMessage {
      */
     neverSent?: boolean;
     neverSentReason?: string | null;
+    /**
+     * Attribution chip for outbound: who actually wrote and released this message
+     * ("agent · auto", "agent · ok'd by ben", "auto hello"). Null = Ben typed it himself,
+     * which stays chipless — chips mark the machine's hands, not his.
+     */
+    sentVia?: string | null;
 }
 
 /**
@@ -145,7 +151,23 @@ interface CallEvent {
     classification?: { kind: string; line: string; bullets?: string[] } | null;
 }
 
-type TimelineItem = ThreadMessage | CallEvent;
+/**
+ * The machinery behind the thread: a draft that was rejected, superseded or failed. Rendered as a
+ * thin collapsible system line so "why didn't it reply?" is answerable without opening the database.
+ */
+interface DraftEvent {
+    kind: 'draft_event';
+    id: string;
+    status: 'rejected' | 'failed';
+    source: string;
+    decidedBy: string | null;
+    reason: string | null;
+    error: string | null;
+    body: string;
+    createdAt: string;
+}
+
+type TimelineItem = ThreadMessage | CallEvent | DraftEvent;
 
 /** A machine-authored message awaiting Ben's approval — the human gate before anything sends. */
 interface PendingDraft {
@@ -395,6 +417,42 @@ function CallEventRow({ call }: { call: CallEvent }) {
     );
 }
 
+/**
+ * The machinery, visible: a draft that was rejected, superseded or failed, rendered as a thin
+ * grey system line. Collapsed by default — Ben reads the conversation; the line is there for the
+ * "why didn't it reply?" investigation, with the would-have-been text one click away.
+ */
+function DraftEventRow({ event }: { event: DraftEvent }) {
+    const [open, setOpen] = useState(false);
+    const superseded = (event.decidedBy ?? '').startsWith('comms_agent:superseded');
+    const label = event.status === 'failed'
+        ? 'Draft failed to send'
+        : superseded ? 'Draft superseded by a newer one'
+        : (event.decidedBy ?? '').includes('sweep') ? 'Draft went stale, auto-binned'
+        : `Draft rejected${event.decidedBy ? ` by ${event.decidedBy.split('@')[0]}` : ''}`;
+    return (
+        <div className="my-1 flex flex-col items-center">
+            <button
+                onClick={() => setOpen((v) => !v)}
+                className="max-w-[90%] rounded-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1 text-[10px] text-slate-500 hover:bg-slate-100"
+            >
+                <span className="inline-flex items-center gap-1">
+                    <Bot className="h-2.5 w-2.5" />
+                    {label} · {timeLabel(event.createdAt)}
+                </span>
+            </button>
+            {open && (
+                <div className="mt-1 max-w-md rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs">
+                    <p className="whitespace-pre-wrap break-words text-slate-600">{event.body}</p>
+                    {(event.reason || event.error) && (
+                        <p className="mt-1.5 text-[10px] text-slate-400">{event.reason ?? event.error}</p>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 /** "5m ago" / "3h ago" / "2d ago" — the footer's time-since-last-message. */
 function agoLabel(iso: string | null): string {
     if (!iso) return 'no messages';
@@ -457,13 +515,16 @@ function CardBadges({ card }: { card: BoardCard }) {
             </span>
         );
     }
-    if (card.intakeReadiness === 'quote_ready') {
+    // Intake badges are a TO-DO ("this thread is priceable — go build the quote"). Once a
+    // quote exists the to-do is done, so past quote_sent they're stale noise and hidden.
+    const quoteOut = ['quote_sent', 'won', 'closed'].includes(card.stage) || (card.quoteViewCount ?? 0) > 0;
+    if (card.intakeReadiness === 'quote_ready' && !quoteOut) {
         pills.push(
             <span key="intake" className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">
                 <ClipboardList className="h-2.5 w-2.5" /> Intake ready to price
             </span>
         );
-    } else if (card.intakeReadiness === 'visit_first') {
+    } else if (card.intakeReadiness === 'visit_first' && !quoteOut) {
         pills.push(
             <span key="visit" className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-800">
                 Visit first
@@ -1272,6 +1333,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                             // Calls sit inline as full-width events — they are context around the
                             // conversation, not turns in it, so they are never bubbles.
                             if (item.kind === 'call') return <CallEventRow key={item.id} call={item} />;
+                            if (item.kind === 'draft_event') return <DraftEventRow key={item.id} event={item} />;
                             const m = item;
                             const meta = CHANNEL_META[m.channel];
                             const Icon = meta?.icon;
@@ -1321,6 +1383,16 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                                             {/* Channel on every bubble — in a merged thread you must be able to
                                                 tell at a glance whether something went by WhatsApp or SMS.
                                                 Icon + written label: the icons alone proved too subtle. */}
+                                            {/* Attribution chip: which hands wrote this. Absent = Ben typed it. */}
+                                            {m.direction === 'outbound' && m.sentVia && (
+                                                <span className={cn(
+                                                    'inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[9px] font-semibold',
+                                                    neverSent ? 'bg-slate-200 text-slate-500' : 'bg-white/25'
+                                                )}>
+                                                    <Bot className="h-2.5 w-2.5" />
+                                                    {m.sentVia}
+                                                </span>
+                                            )}
                                             {Icon && <Icon className="h-2.5 w-2.5" aria-label={meta.label} />}
                                             {meta && <span className="text-[9px] font-semibold uppercase tracking-wide">{meta.label}</span>}
                                             <span>{timeLabel(m.createdAt)}</span>
