@@ -34,7 +34,7 @@ export function callerTag(): string {
     const frames = stack.split('\n').slice(1)
         .map((l) => /at (?:async )?([A-Za-z_$][\w$.]*)\s+\(/.exec(l)?.[1])
         .filter((n): n is string => !!n
-            && !/^(Object|Proxy|process|callerTag|recordLlmUsage|withUsageLedger|get|then|async|file|Anthropic|APIPromise|Messages)/.test(n)
+            && !/^(Object|Proxy|process|callerTag|recordLlmUsage|withUsageLedger|get|then|async|file|Anthropic|APIPromise|Messages|claudeText|claudeJson|claudeChat)/.test(n)
             && !/\.create$|^client\./.test(n)
             && !n.startsWith('_'));
     return frames.slice(0, 2).join('<') || 'unknown';
