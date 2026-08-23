@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/core';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
-    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText,
+    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText, User, Hourglass,
     ShieldCheck, Ban, EyeOff, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -484,16 +484,26 @@ function WhoseMoveChip({ card }: { card: BoardCard }) {
     if (card.whoseMove === 'ben') {
         return (
             <span className={cn(
-                'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase',
+                'inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase',
                 card.complaint ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-800',
             )}>
-                Ben to act
+                <User className="h-2.5 w-2.5" /> Ben to act
+            </span>
+        );
+    }
+    // Icon badges, not grey text — whose move is a state you should read from colour and
+    // glyph at board-scan speed: violet bot = the agent has it, emerald hourglass = the
+    // ball is with the customer.
+    if (card.whoseMove === 'agent') {
+        return (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-700" title="The agent is handling this thread">
+                <Bot className="h-2.5 w-2.5" /> Agent
             </span>
         );
     }
     return (
-        <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-400">
-            {card.whoseMove === 'agent' ? 'Agent working' : 'With customer'}
+        <span className="inline-flex shrink-0 items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-700" title="Waiting on the customer's reply">
+            <Hourglass className="h-2.5 w-2.5" /> Customer
         </span>
     );
 }
