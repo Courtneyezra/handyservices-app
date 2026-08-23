@@ -1095,6 +1095,29 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         if (followUp) return { ...followUp, handoff };
     }
 
+    // Beta read-along: every completed run pings the humans with what it did and a link into the
+    // thread. Fire-and-forget — observation must never break the run it observes. One toggle
+    // ('comms_beta' in /admin/notifications) silences this when beta ends.
+    void (async () => {
+        const { notifyCommsBeta } = await import('../pushover');
+        const did = actions.length
+            ? actions.map((a) => a.tool.replace(/_/g, ' ')).join(', ')
+            : 'read the thread, took no action';
+        const detail = [
+            `Did: ${did}`,
+            ...(autosent ? ['Sent a reply WITHOUT approval (autosend)'] : []),
+            ...(escalated ? ['Escalated to Ben after a guard refusal'] : []),
+            ...(handoff?.ran ? [`Quote-prep handoff: ${handoff.readiness}`] : []),
+        ];
+        await notifyCommsBeta({
+            conversationId: conv.id,
+            customerName: conv.contactName,
+            phoneNumber: e164,
+            headline: `Agent ran (${trigger})`,
+            detail,
+        });
+    })().catch((e) => console.warn('[CommsAgent] beta ping failed:', e?.message));
+
     return { conversationId: conv.id, result, actions, autosent, escalated, handoff };
 }
 
@@ -1315,9 +1338,56 @@ export async function maybeAutoQuotePrep(
         priority: intake.urgency === 'high' ? 'high' : conv.priority ?? 'normal',
         updatedAt: new Date(),
     }).where(eq(conversations.id, conv.id));
+
+    // ── SHADOW READINESS (23 Aug 2026) ──────────────────────────────────────
+    // The computed confidence gate runs ALONGSIDE the clerk's prose verdict:
+    // slot score + ask-vs-assume dial, and the sceptic verifier when the score
+    // lands in the grey band. Nothing gates on it yet — the verdict above still
+    // routes. Every run logs verdict-vs-score so cutover is a data decision.
+    let shadow: Record<string, any> | null = null;
+    try {
+        const { computeReadiness } = await import('@shared/quote-readiness');
+        const customerAnsweredRound = intake.gaps.length === 0
+            || (state.lastReadiness === 'needs_info' && answeredSinceNeedsInfo);
+        const readiness = computeReadiness(intake, { customerAnsweredRound });
+        let verifier = null;
+        if (readiness.band === 'grey') {
+            const recent = await db.select({ direction: messages.direction, content: messages.content })
+                .from(messages).where(eq(messages.conversationId, conv.id))
+                .orderBy(desc(messages.createdAt)).limit(30);
+            const threadText = recent.reverse()
+                .map((m) => `${m.direction === 'inbound' ? 'CUSTOMER' : 'US'}: ${m.content ?? ''}`)
+                .join('\n');
+            const { verifyIntake } = await import('./quote-verifier');
+            verifier = await verifyIntake(intake, threadText);
+        }
+        shadow = {
+            score: readiness.score,
+            band: readiness.band,
+            wouldAskCount: readiness.wouldAsk.length,
+            wouldAssumeCount: readiness.wouldAssume.length,
+            slots: readiness.slots,
+            verifier,
+            clerkVerdict: intake.readiness,
+            agrees: (readiness.band === 'build') === (intake.readiness === 'quote_ready'),
+            at: new Date().toISOString(),
+        };
+        const { logSystemEvent } = await import('../system-events');
+        void logSystemEvent({
+            kind: 'other',
+            phone: `+${digits}`,
+            conversationId: conv.id,
+            summary: `readiness shadow: score ${readiness.score} (${readiness.band}) vs clerk ${intake.readiness}${shadow.agrees ? '' : ' — DISAGREE'}${verifier ? ` · verifier: ${verifier.priceable ? 'priceable' : `blocked (${(verifier.blocker ?? '').slice(0, 80)})`}` : ''}`,
+            detail: shadow,
+            source: 'quote-readiness',
+        });
+    } catch (e: any) {
+        console.warn('[QuoteReadiness] shadow computation failed (non-blocking):', e?.message ?? e);
+    }
+
     // The intake itself, so opening the thread opens the slide-over already filled in. Ephemeral by
     // design: it is a prefill, and the quote Ben saves from it is the record.
-    await writeState({ lastReadiness: intake.readiness }, { quotePrepIntake: intake });
+    await writeState({ lastReadiness: intake.readiness }, { quotePrepIntake: shadow ? { ...intake, shadow } : intake });
     if (!route.notify) return handoff;
 
     try {

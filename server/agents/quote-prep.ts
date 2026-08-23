@@ -38,6 +38,10 @@ export interface IntakeLine {
 /** Can we price this from the thread, do we need an answer first, or do we need eyes on it? */
 export type IntakeReadiness = 'quote_ready' | 'needs_info' | 'visit_first';
 
+/** How much the answer to a gap could change the WORK (never expressed in money — the clerk
+ *  does not price; code converts these to £ using the engine's own line prices). */
+export type GapImpact = 'none' | 'small' | 'large' | 'forks_job';
+
 /** One unanswered question standing between this thread and a sendable quote. */
 export interface IntakeGap {
     /** Customer-friendly wording — it may be sent to the customer nearly verbatim. */
@@ -46,6 +50,8 @@ export interface IntakeGap {
     audience: 'customer' | 'ben';
     /** 1-based job line the answer belongs to; null when it applies to the whole quote. */
     lineIndex: number | null;
+    /** How much the answer could change the scope of the work. Drives the ask-vs-assume dial. */
+    impact: GapImpact;
 }
 
 export interface QuoteIntake {
@@ -111,6 +117,10 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
                 question: String(g?.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 220),
                 audience: g?.audience === 'customer' ? 'customer' as const : 'ben' as const,
                 lineIndex: Number.isInteger(idx) && idx >= 1 && idx <= lines.length ? idx : null,
+                // Degrade additively: an older-model submission without impact reads as 'large'
+                // (cautious default — an unlabelled gap should count against readiness, not for it).
+                impact: (['none', 'small', 'large', 'forks_job'] as const).includes(g?.impact)
+                    ? g.impact as GapImpact : 'large' as const,
             };
         })
         .filter((g: IntakeGap) => !!g.question);
@@ -254,8 +264,13 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
                                     type: ['integer', 'null'],
                                     description: '1-based index into lines[] this question is about; null when it applies to the whole job.',
                                 },
+                                impact: {
+                                    type: 'string',
+                                    enum: ['none', 'small', 'large', 'forks_job'],
+                                    description: 'How much the ANSWER could change the work. none = curiosity, not price-relevant (should not be a gap at all). small = minor scope tweak (a fitting spec, exact colour). large = meaningful chunk of labour or materials swings on it (how many, how big, what condition). forks_job = the answer changes WHICH job this is (repair vs replace, kitchen vs bathroom). Judge the WORK, never money.',
+                                },
                             },
-                            required: ['question', 'audience', 'lineIndex'],
+                            required: ['question', 'audience', 'lineIndex', 'impact'],
                         },
                     },
                     urgency: { type: 'string', enum: ['low', 'med', 'high'] },
@@ -337,6 +352,17 @@ audience 'ben' when it is trade judgement or our own records. lineIndex points a
 belongs to (1-based) or null for the whole job. Never ask for a full address — postcode only.
 No em dashes in gap questions. Do not pad the list: a gap that would not change the price or the
 scope is not a gap.
+
+IMPACT, on every gap — how much the ANSWER could change the WORK (judge the work, never money):
+- forks_job: the answer decides WHICH job this is. Repair vs replace. Kitchen vs bathroom.
+- large: a real chunk of labour or materials swings on it. How many metres of fence. Whether the
+  carcass behind the hinges is sound.
+- small: a detail that tweaks the spec, not the scope. Exact colour, brand preference, which of
+  two standard fittings.
+- none: does not move price or scope — which means it should not be a gap; drop it instead.
+This label is what decides whether the question is ASKED or the uncertainty rides as a printed
+assumption, so an inflated label costs the customer a question and a deflated one costs us a
+misquote. Be honest, per gap.
 
 Rules: no prices anywhere. Names: real names only, never placeholders. Postcode only if stated
 somewhere; never inferred. UK English, plain trade language (silicone/reseal, trap, architrave).

@@ -61,6 +61,20 @@ export interface IntakeGap {
     lineIndex: number | null;
 }
 
+/** Shadow-mode readiness (server-computed, rides on the intake). Advisory while the
+ *  clerk's verdict still gates — shown so Ben sees both and disagreements get eyes. */
+export interface IntakeShadow {
+    score: number;
+    band: 'build' | 'grey' | 'ask';
+    wouldAskCount: number;
+    wouldAssumeCount: number;
+    slots: { label: string; state: 'confirmed' | 'assumed' | 'missing'; note: string }[];
+    verifier: { priceable: boolean; blocker: string | null; suggestedAsk: string | null } | null;
+    clerkVerdict: IntakeReadiness;
+    agrees: boolean;
+    at: string;
+}
+
 export interface QuoteIntake {
     customerName: string | null;
     phone: string;
@@ -71,6 +85,7 @@ export interface QuoteIntake {
     readiness: IntakeReadiness;
     gaps: IntakeGap[];
     urgency: 'low' | 'med' | 'high';
+    shadow?: IntakeShadow;
 }
 
 /** Minimal thread-media shape (a CommsPage ThreadMessage satisfies it). */
@@ -888,6 +903,66 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                             </span>
                             <p className="text-[11px] font-medium">{readinessUi.blurb}</p>
                         </div>
+
+                        {/* Shadow readiness — the computed confidence gate, advisory while the
+                            clerk's verdict above still decides. Score ring + slot provenance +
+                            the sceptic's verdict when the score landed in the grey band. */}
+                        {intake.shadow && (
+                            <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 p-2.5">
+                                <div className="flex items-center gap-3">
+                                    <div className="relative h-11 w-11 shrink-0">
+                                        <svg viewBox="0 0 44 44" className="h-11 w-11 -rotate-90">
+                                            <circle cx="22" cy="22" r="18" fill="none" strokeWidth="4" className="stroke-slate-200" />
+                                            <circle
+                                                cx="22" cy="22" r="18" fill="none" strokeWidth="4" strokeLinecap="round"
+                                                strokeDasharray={`${(intake.shadow.score / 100) * 113.1} 113.1`}
+                                                className={cn(
+                                                    intake.shadow.band === 'build' ? 'stroke-emerald-500'
+                                                        : intake.shadow.band === 'grey' ? 'stroke-amber-500' : 'stroke-red-400',
+                                                )}
+                                            />
+                                        </svg>
+                                        <span className="absolute inset-0 flex items-center justify-center text-[13px] font-bold tabular-nums text-slate-800">
+                                            {intake.shadow.score}
+                                        </span>
+                                    </div>
+                                    <div className="min-w-0 text-[11px] leading-snug">
+                                        <p className="font-semibold text-slate-700">
+                                            Confidence {intake.shadow.band === 'build' ? 'would build now' : intake.shadow.band === 'grey' ? 'grey zone' : 'would ask first'}
+                                            {!intake.shadow.agrees && (
+                                                <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-800">disagrees with clerk</span>
+                                            )}
+                                        </p>
+                                        <p className="text-slate-500">
+                                            {intake.shadow.wouldAskCount} would ask · {intake.shadow.wouldAssumeCount} would assume · shadow only, verdict above decides
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                    {intake.shadow.slots.slice(0, 8).map((s, i) => (
+                                        <span
+                                            key={i}
+                                            title={s.note}
+                                            className={cn(
+                                                'rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                                                s.state === 'confirmed' ? 'bg-emerald-50 text-emerald-700'
+                                                    : s.state === 'assumed' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-700',
+                                            )}
+                                        >
+                                            {s.label}: {s.state}
+                                        </span>
+                                    ))}
+                                </div>
+                                {intake.shadow.verifier && !intake.shadow.verifier.priceable && (
+                                    <p className="mt-2 rounded bg-blue-50 px-2 py-1.5 text-[11px] text-blue-900">
+                                        <span className="font-bold">Verifier:</span> {intake.shadow.verifier.blocker}
+                                        {intake.shadow.verifier.suggestedAsk && (
+                                            <> — suggested ask: “{intake.shadow.verifier.suggestedAsk}”</>
+                                        )}
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         {readiness === 'visit_first' && (
                             <p className="mt-2 rounded bg-white/70 px-2 py-1.5 text-[11px] font-semibold">
