@@ -65,6 +65,83 @@ function dayOf(iso: string): string | null {
         : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+interface SummaryDay {
+    day: string;
+    [key: string]: string | number;
+}
+
+/** Scoreboard: today's health at a glance + the 7-day shape underneath. */
+function Scoreboard() {
+    const { data } = useQuery<{ days: SummaryDay[]; pendingDrafts: number }>({
+        queryKey: ['system-events-summary'],
+        queryFn: async () => {
+            const res = await fetch('/api/system-events/summary', { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error('summary failed');
+            return res.json();
+        },
+        refetchInterval: 60_000,
+    });
+    if (!data) return null;
+
+    const todayKey = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/London' }); // YYYY-MM-DD
+    const today = data.days.find((d) => d.day === todayKey) ?? { day: todayKey };
+    const n = (row: SummaryDay, k: string) => Number(row[k] ?? 0);
+
+    const tiles = [
+        { label: 'Sent today', value: n(today, 'send'), tone: 'text-emerald-700' },
+        { label: 'Held', value: n(today, 'hold'), tone: 'text-amber-700' },
+        { label: 'Escalations', value: n(today, 'escalation'), tone: n(today, 'escalation') > 0 ? 'text-red-700' : 'text-slate-700' },
+        { label: 'Delivery fails', value: n(today, 'delivery_fail'), tone: n(today, 'delivery_fail') > 0 ? 'text-red-700' : 'text-slate-700' },
+        { label: 'Rejected drafts', value: n(today, 'draft_rejected'), tone: 'text-slate-700' },
+        { label: 'Queue now', value: data.pendingDrafts, tone: data.pendingDrafts > 0 ? 'text-amber-700' : 'text-slate-700' },
+    ];
+
+    const COLS = ['send', 'hold', 'escalation', 'delivery_fail', 'classification', 'draft_rejected'] as const;
+    const COL_LABEL: Record<string, string> = {
+        send: 'sent', hold: 'held', escalation: 'escal.', delivery_fail: 'del.fail',
+        classification: 'calls', draft_rejected: 'rej.drafts',
+    };
+
+    return (
+        <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                {tiles.map((t) => (
+                    <div key={t.label} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                        <div className={cn('text-xl font-black tabular-nums', t.tone)}>{t.value}</div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t.label}</div>
+                    </div>
+                ))}
+            </div>
+            {data.days.length > 1 && (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                    <table className="w-full text-right text-xs tabular-nums">
+                        <thead>
+                            <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400">
+                                <th className="px-3 py-1.5 text-left font-semibold">day</th>
+                                {COLS.map((c) => <th key={c} className="px-3 py-1.5 font-semibold">{COL_LABEL[c]}</th>)}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                            {data.days.slice(0, 7).map((d) => (
+                                <tr key={d.day} className={cn(d.day === todayKey && 'bg-slate-50 font-semibold')}>
+                                    <td className="px-3 py-1 text-left text-slate-600">
+                                        {new Date(`${d.day}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                    </td>
+                                    {COLS.map((c) => (
+                                        <td key={c} className={cn('px-3 py-1', n(d, c) === 0 ? 'text-slate-300' : 'text-slate-700')}>
+                                            {n(d, c)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ActivityPage() {
     const [kind, setKind] = useState<string | null>(null);
     const [limit, setLimit] = useState(PAGE_SIZE);
@@ -104,6 +181,8 @@ export default function ActivityPage() {
                     Refreshes every 10 seconds.
                 </p>
             </div>
+
+            <Scoreboard />
 
             {/* Kind filter chips */}
             <div className="flex flex-wrap gap-1.5">

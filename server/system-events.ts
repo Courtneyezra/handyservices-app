@@ -67,6 +67,52 @@ export async function logSystemEvent(input: LogSystemEventInput): Promise<void> 
 
 export const systemEventsRouter = Router();
 
+// GET /api/system-events/summary — the scoreboard: per-day counts by kind over the last 7 UK
+// days, plus draft-queue outcomes and the current pending depth. This is the "is the machine
+// healthy today" read; the event stream below it is the "what exactly happened" read.
+systemEventsRouter.get('/summary', async (_req, res) => {
+    try {
+        const { sql: rawSql } = await import('drizzle-orm');
+        // Ofcom reserved test ranges (the suites' fixtures) are excluded — a morning of
+        // suite runs must not read as 10 delivery failures on the ops scoreboard.
+        const eventRows: any = await db.execute(rawSql`
+            SELECT to_char(at AT TIME ZONE 'Europe/London', 'YYYY-MM-DD') AS day, kind, count(*)::int AS n
+            FROM system_events
+            WHERE at > now() - interval '7 days'
+              AND (phone IS NULL OR (phone NOT LIKE '%7700900%' AND phone NOT LIKE '%1632960%'))
+            GROUP BY 1, 2
+        `);
+        const draftRows: any = await db.execute(rawSql`
+            SELECT to_char(created_at AT TIME ZONE 'Europe/London', 'YYYY-MM-DD') AS day, status, count(*)::int AS n
+            FROM message_drafts
+            WHERE created_at > now() - interval '7 days'
+              AND phone NOT LIKE '%7700900%' AND phone NOT LIKE '%1632960%'
+            GROUP BY 1, 2
+        `);
+        const pendingNow: any = await db.execute(rawSql`
+            SELECT count(*)::int AS n FROM message_drafts
+            WHERE status = 'pending' AND phone NOT LIKE '%7700900%' AND phone NOT LIKE '%1632960%'
+        `);
+
+        const days: Record<string, Record<string, number>> = {};
+        for (const r of eventRows.rows) {
+            (days[r.day] ??= {})[r.kind] = Number(r.n);
+        }
+        for (const r of draftRows.rows) {
+            (days[r.day] ??= {})[`draft_${r.status}`] = Number(r.n);
+        }
+        res.json({
+            days: Object.entries(days)
+                .map(([day, counts]) => ({ day, ...counts }))
+                .sort((a, b) => (a.day < b.day ? 1 : -1)),
+            pendingDrafts: Number(pendingNow.rows[0]?.n ?? 0),
+        });
+    } catch (error: any) {
+        console.error('[SystemEvents] Summary failed:', error);
+        res.status(500).json({ error: 'Failed to load summary' });
+    }
+});
+
 // GET /api/system-events?kind=&limit=&since= — newest first, for the /admin/activity page.
 // `since` is an ISO timestamp; rows strictly after it. Limit defaults 100, caps at 500.
 systemEventsRouter.get('/', async (req, res) => {
