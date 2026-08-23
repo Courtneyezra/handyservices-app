@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { callerTag, recordLlmUsage } from './llm-usage';
 
 // Initialize Anthropic (lazy initialization to allow testing without API key)
 let _anthropic: Anthropic | null = null;
@@ -13,13 +12,14 @@ let _anthropic: Anthropic | null = null;
 function withUsageLedger(client: Anthropic): Anthropic {
   const realCreate = client.messages.create.bind(client.messages);
   (client.messages as any).create = (body: any, options?: any) => {
-    // Caller tag must be captured NOW, synchronously — once the response promise
-    // resolves, the caller's frames are no longer on any stack.
-    const src = callerTag();
     const result = realCreate(body, options);
     if (!body?.stream && typeof (result as any)?.then === 'function') {
       (result as Promise<any>).then((response) => {
-        if (response?.usage) recordLlmUsage(String(body?.model ?? 'unknown'), response.usage, src);
+        if (response?.usage) {
+          import('./llm-usage')
+            .then(({ recordLlmUsage }) => recordLlmUsage(String(body?.model ?? 'unknown'), response.usage))
+            .catch(() => undefined);
+        }
       }).catch(() => undefined);
     }
     return result;
