@@ -748,7 +748,12 @@ async function runFirstContactAck(input: {
             // boundary — quoting them verbatim is grammar-safe where a spliced sentence isn't.
             const enquiryText = text; // already fetched at the top of this function
             const enquirySnippet = (() => {
-                const raw = (enquiryText ?? '').replace(/\s+/g, ' ').trim();
+                let raw = (enquiryText ?? '').replace(/\s+/g, ' ').trim();
+                // Quoting "Hi, I have rang earlier," back at someone reads odd — strip leading
+                // salutations/filler so the quote starts at the substance. Conservative list.
+                raw = raw.replace(/^(hi|hiya|hello|hey|good (morning|afternoon|evening))[\s,.!-]+/i, '')
+                    .replace(/^(i have rang earlier[\s,.!-]+|i called earlier[\s,.!-]+)/i, '')
+                    .trim();
                 if (!raw) return 'your job';
                 if (raw.length <= 60) return raw;
                 const cut = raw.slice(0, 60);
