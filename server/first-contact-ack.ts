@@ -89,6 +89,11 @@ export type FirstContactAckIntent = (typeof FIRST_CONTACT_ACK_INTENTS)[number];
  * today may be approved tomorrow without a deploy. Anything not currently approved is skipped.
  */
 export const FIRST_CONTACT_TEMPLATE_PREFERENCE = [
+    // Context-aware ack: quotes the customer's own enquiry back ("We got your message: ...")
+    // and times the call offer ("shortly" / "in the morning") to the UK hour. Submitted
+    // 22 Aug 2026 as UTILITY; while Meta has it pending the lookup skips it and the plain
+    // call_request below carries the ack, no deploy needed either way.
+    'web_enquiry_ack_context',
     // The ask itself, out of hours or out of window: "is it OK if we give you a quick call?".
     // Submitted 19 Aug 2026 as UTILITY and PENDING with Meta at the time of writing, which is
     // exactly why it is a NAME here. The moment Meta approves it the hourly sync flips its cached
@@ -107,7 +112,7 @@ export const FIRST_CONTACT_TEMPLATE_PREFERENCE = [
  * shut-window path too, or the promise only holds when the window happens to be open.
  */
 export const PREFERS_TEXT_TEMPLATE_PREFERENCE = FIRST_CONTACT_TEMPLATE_PREFERENCE
-    .filter((name) => name !== 'call_request');
+    .filter((name) => name !== 'call_request' && name !== 'web_enquiry_ack_context');
 
 /**
  * Same idea for a call nobody answered, and it needs its own list because the ordinary one is
@@ -737,9 +742,25 @@ async function runFirstContactAck(input: {
             //      the acknowledgement we actually wrote can go as written. This is new: before
             //      SMS existed as a channel, this branch could only queue and hope.
             //   3. Failing even that (no SMS sender configured), queue it for a human. Never drop.
+            // Variable values are positional and shared across the preference list: {{1}} name,
+            // {{2}} job context, {{3}} call timing. The context template uses all three; older
+            // templates just use fewer. {{2}} is the customer's own words, truncated at a word
+            // boundary — quoting them verbatim is grammar-safe where a spliced sentence isn't.
+            const enquiryText = text; // already fetched at the top of this function
+            const enquirySnippet = (() => {
+                const raw = (enquiryText ?? '').replace(/\s+/g, ' ').trim();
+                if (!raw) return 'your job';
+                if (raw.length <= 60) return raw;
+                const cut = raw.slice(0, 60);
+                return `${cut.slice(0, cut.lastIndexOf(' ') > 30 ? cut.lastIndexOf(' ') : 60)}…`;
+            })();
             const picked = await findApprovedTemplate(
                 templatePreferenceFor(intent, prefersText),
-                [greetingFor(input.contactName).trim() || 'there', 'the job'],
+                [
+                    greetingFor(input.contactName).trim() || 'there',
+                    enquirySnippet,
+                    composed.outOfHours ? 'in the morning' : 'shortly',
+                ],
             );
             if (picked) {
                 body = picked.body;          // the approved wording, so the thread records what they saw
@@ -784,22 +805,31 @@ async function runFirstContactAck(input: {
         });
         if (!draftId) return { sent: false, reason: 'DUPLICATE_DRAFT', intent, contactClass };
 
-        // Same claimed-row send path a human approval uses — so it is logged, deduped against
-        // double-sends, and lands in the thread like any other outbound message. It also carries
-        // the WhatsApp-to-SMS fallback, so a recipient who turns out not to be on WhatsApp still
-        // gets the acknowledgement, and a total failure raises an alert rather than a quiet row.
-        const result = await approveAndSendDraft(draftId, `first_contact_ack:${input.channel}`);
-        if (!result.ok) {
-            console.warn(`[FirstContact] ${e164}: send refused (${result.code}) — draft ${draftId} left for Ben`);
-            return { sent: false, reason: `SEND_REFUSED:${result.code}`, draftId, intent, contactClass, body };
+        // REALISM HOLD (owner, 22 Aug): a reply 4 seconds after the enquiry reads as a bot, and
+        // the whole point of the ack is "someone saw this". The draft is stamped with a due time
+        // 60–150s out and the comms-sweep fast tick releases it — deploy-safe (the hold lives in
+        // the DB, not a timer), and the release path is the same claimed-row send a human
+        // approval uses: logged, deduped, WhatsApp→SMS fallback intact. If the thread gains an
+        // outbound before the hold expires (agent or Ben got there first with real context), the
+        // release rejects the now-redundant ack instead of sending a generic hello late.
+        if (process.env.FIRST_CONTACT_ACK_NO_HOLD === '1') {
+            // Test/emergency escape hatch: send immediately, exactly the old behaviour.
+            const result = await approveAndSendDraft(draftId, `first_contact_ack:${input.channel}`);
+            if (!result.ok) {
+                console.warn(`[FirstContact] ${e164}: send refused (${result.code}) — draft ${draftId} left for Ben`);
+                return { sent: false, reason: `SEND_REFUSED:${result.code}`, draftId, intent, contactClass, body };
+            }
+            return {
+                sent: true, reason: 'SENT', draftId, mode: result.mode,
+                intent, contactClass, outOfHours: composed.outOfHours, body,
+                templateName: result.channel === 'sms' ? undefined : templateName,
+            };
         }
-
-        console.log(`[FirstContact] ${e164}: auto-acked (${intent}, ${result.mode}${result.fellBack ? ' after WhatsApp failed' : ''}${composed.outOfHours ? ', out of hours' : ''}) via draft ${draftId}`);
+        await holdAckDraft(draftId);
+        console.log(`[FirstContact] ${e164}: ack held for realism (${intent}${composed.outOfHours ? ', out of hours' : ''}) via draft ${draftId}`);
         return {
-            sent: true, reason: 'SENT', draftId, mode: result.mode,
-            intent, contactClass, outOfHours: composed.outOfHours, body,
-            // A fallback to SMS did not use the template, so reporting one would be a lie.
-            templateName: result.channel === 'sms' ? undefined : templateName,
+            sent: false, reason: 'HELD', draftId,
+            intent, contactClass, outOfHours: composed.outOfHours, body, templateName,
         };
     } catch (error: any) {
         console.error('[FirstContact] Auto-ack failed:', error?.message);
@@ -1029,15 +1059,40 @@ async function runAutoSendFirstContactDraft(draftId: string, input: {
             return { sent: false, reason: 'NOT_FIRST_CONTACT', draftId };
         }
 
-        const result = await approveAndSendDraft(draftId, `first_contact_ack:${input.channel}`);
-        if (!result.ok) {
-            console.warn(`[FirstContact] ${input.phone}: ${input.channel} send refused (${result.code}) — draft ${draftId} left for Ben`);
-            return { sent: false, reason: `SEND_REFUSED:${result.code}`, draftId };
+        if (process.env.FIRST_CONTACT_ACK_NO_HOLD === '1') {
+            const result = await approveAndSendDraft(draftId, `first_contact_ack:${input.channel}`);
+            if (!result.ok) {
+                console.warn(`[FirstContact] ${input.phone}: ${input.channel} send refused (${result.code}) — draft ${draftId} left for Ben`);
+                return { sent: false, reason: `SEND_REFUSED:${result.code}`, draftId };
+            }
+            return { sent: true, reason: 'SENT', draftId, mode: result.mode };
         }
-        console.log(`[FirstContact] ${input.phone}: ${input.channel} first-touch auto-sent via draft ${draftId} (${result.mode})`);
-        return { sent: true, reason: 'SENT', draftId, mode: result.mode };
+        // Same realism hold as the composed ack path — the sweep releases it.
+        await holdAckDraft(draftId);
+        console.log(`[FirstContact] ${input.phone}: ${input.channel} first-touch ack held for realism via draft ${draftId}`);
+        return { sent: false, reason: 'HELD', draftId };
     } catch (error: any) {
         console.error('[FirstContact] Auto-send of queued draft failed:', error?.message);
         return { sent: false, reason: 'ERROR', draftId };
     }
+}
+
+// ---------------------------------------------------------------- realism hold
+
+/** Marker parsed by the comms-sweep fast tick: `[ack_hold_until:<iso>]` prefix on the reason. */
+export const ACK_HOLD_PREFIX = 'ack_hold_until';
+
+/**
+ * Stamp a pending ack draft with a release time 60–150 seconds out. The delay is
+ * random per send so acks don't land on a metronome; the floor keeps it quick
+ * enough to still feel "they saw it", the ceiling keeps first contact under
+ * three minutes at any hour.
+ */
+async function holdAckDraft(draftId: string): Promise<void> {
+    const seconds = 60 + Math.floor(Math.random() * 90);
+    const until = new Date(Date.now() + seconds * 1000).toISOString();
+    const prefix = `[${ACK_HOLD_PREFIX}:${until}] `;
+    await db.update(messageDrafts)
+        .set({ reason: sql`${prefix} || coalesce(${messageDrafts.reason}, '')` })
+        .where(eq(messageDrafts.id, draftId));
 }

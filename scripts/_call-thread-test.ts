@@ -28,6 +28,7 @@
  *   15) self-healing            → duration not yet known defers, and the re-run creates the card
  */
 import 'dotenv/config';
+process.env.FIRST_CONTACT_ACK_NO_HOLD = '1'; // suite asserts on sends, not the realism delay
 import { db } from '../server/db';
 import {
     calls, contractorJobLinks, contractorSessions, conversations, firstContactAckLog,

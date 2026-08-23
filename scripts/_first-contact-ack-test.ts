@@ -45,6 +45,9 @@
  *     but it is why the phone buzzes a few times during a run.
  */
 import 'dotenv/config';
+// The realism hold (60-150s via the sweep) would make every send assertion time-dependent;
+// the suite tests the ack's DECISIONS, not the delay, so it uses the immediate path.
+process.env.FIRST_CONTACT_ACK_NO_HOLD = '1';
 import { execFileSync } from 'node:child_process';
 import { db } from '../server/db';
 import { conversations, messages, messageDrafts, agentQuestions, firstContactAckLog } from '@shared/schema';
@@ -321,9 +324,11 @@ async function main() {
         // means the template list too — a template is a message we chose to send.
         const preferred = templatePreferenceFor('ack_enquiry', false);
         console.log('template preference (ack_enquiry):', JSON.stringify(preferred));
-        pass(preferred[0] === 'call_request', "'call_request' is first choice by NAME, so it starts working the hour Meta approves it");
-        pass(!templatePreferenceFor('ack_enquiry', true).includes('call_request'),
-            'a prefers_text customer is never offered the call-ask template either');
+        pass(preferred[0] === 'web_enquiry_ack_context' && preferred[1] === 'call_request',
+            "context ack leads, 'call_request' next — both by NAME, so each starts working the hour Meta approves it");
+        pass(!templatePreferenceFor('ack_enquiry', true).includes('call_request')
+            && !templatePreferenceFor('ack_enquiry', true).includes('web_enquiry_ack_context'),
+            'a prefers_text customer is never offered either call-ask template');
         pass(!templatePreferenceFor('ack_missed_call').includes('call_request'),
             'and neither is a missed call');
 

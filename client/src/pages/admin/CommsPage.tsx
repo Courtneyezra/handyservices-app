@@ -1319,8 +1319,10 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                                             m.direction === 'outbound' ? (neverSent ? 'text-slate-400' : 'opacity-80') : 'text-slate-400'
                                         )}>
                                             {/* Channel on every bubble — in a merged thread you must be able to
-                                                tell at a glance whether something went by WhatsApp or SMS. */}
+                                                tell at a glance whether something went by WhatsApp or SMS.
+                                                Icon + written label: the icons alone proved too subtle. */}
                                             {Icon && <Icon className="h-2.5 w-2.5" aria-label={meta.label} />}
+                                            {meta && <span className="text-[9px] font-semibold uppercase tracking-wide">{meta.label}</span>}
                                             <span>{timeLabel(m.createdAt)}</span>
                                             {m.direction === 'outbound' && !neverSent && <DeliveryTick status={m.status} />}
                                         </div>

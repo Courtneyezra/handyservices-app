@@ -47,9 +47,10 @@ export class TwilioSendError extends Error {
     }
 }
 
-/** Public https URL for delivery statuses, or null on a host Twilio cannot reach (local dev). */
+/** Public https URL for delivery statuses. Defaults to the public domain (Cloudflare → this
+ *  app) — Railway sets neither env var, and without the fallback statuses were never tracked. */
 function getStatusCallbackUrl(): string | null {
-    const base = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+    const base = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || 'https://handyservices.app').replace(/\/$/, '');
     if (!base.startsWith('https://')) return null;
     return `${base}/api/whatsapp/status`;
 }

@@ -507,7 +507,11 @@ async function recordOutboundMessage(
  * public origin (local dev). Returning null simply means statuses aren't tracked for that send.
  */
 function getStatusCallbackUrl(): string | null {
-    const base = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+    // Falls back to the public domain (Cloudflare → this app) because Railway doesn't set
+    // PUBLIC_BASE_URL: without the fallback no send ever attached a StatusCallback, and every
+    // outbound row froze at 'queued' — found 22 Aug, 107 of 113 recent rows. Same fallback
+    // contractor-dispatch uses for its public links.
+    const base = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || 'https://handyservices.app').replace(/\/$/, '');
     if (!base.startsWith('https://')) return null;
     return `${base}/api/whatsapp/status`;
 }

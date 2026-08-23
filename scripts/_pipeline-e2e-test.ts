@@ -50,6 +50,7 @@
  * --no-llm, including the whole of stage 8 — which is where the seam between the two commits is.
  */
 import 'dotenv/config';
+process.env.FIRST_CONTACT_ACK_NO_HOLD = '1'; // suite asserts on sends, not the realism delay
 import express from 'express';
 import type { Server } from 'http';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';

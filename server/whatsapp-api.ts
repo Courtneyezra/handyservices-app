@@ -265,23 +265,44 @@ whatsappRouter.post('/status', async (req, res) => {
         const { messages } = await import('@shared/schema');
         const { eq, or } = await import('drizzle-orm');
 
-        const patch: Record<string, unknown> = { status: MessageStatus };
+        const status = String(MessageStatus).toLowerCase();
+        const isFailure = status === 'failed' || status === 'undelivered';
+
+        // Callbacks can arrive out of order — never let a late 'sent' downgrade a 'delivered'.
+        // Failures always apply.
+        const RANK: Record<string, number> = { queued: 0, accepted: 0, sending: 1, sent: 2, delivered: 3, read: 4 };
+        const [row] = await db.select({ id: messages.id, status: messages.status, conversationId: messages.conversationId })
+            .from(messages)
+            .where(or(eq(messages.twilioSid, MessageSid), eq(messages.id, MessageSid)))
+            .limit(1);
+        if (!row) {
+            console.warn(`[WhatsApp Status] No message row for SID ${MessageSid} (status=${status})`);
+            return;
+        }
+        if (!isFailure) {
+            const current = RANK[String(row.status ?? '').toLowerCase()] ?? -1;
+            const incoming = RANK[status];
+            if (incoming === undefined || incoming <= current) return;
+        }
+
+        const patch: Record<string, unknown> = { status };
         if (ErrorCode) patch.errorCode = String(ErrorCode);
         if (ErrorMessage) patch.errorMessage = String(ErrorMessage);
+        await db.update(messages).set(patch).where(eq(messages.id, row.id));
 
-        // Outbound rows are stored with id = Twilio SID, but twilioSid is the canonical column.
-        // Match either so older rows written before twilioSid was populated still resolve.
-        const updated = await db.update(messages)
-            .set(patch)
-            .where(or(eq(messages.twilioSid, MessageSid), eq(messages.id, MessageSid)))
-            .returning({ id: messages.id });
-
-        if (updated.length === 0) {
-            console.warn(`[WhatsApp Status] No message row for SID ${MessageSid} (status=${MessageStatus})`);
-        } else if (ErrorCode) {
-            console.error(`[WhatsApp Status] ${MessageSid} -> ${MessageStatus} (${ErrorCode}: ${ErrorMessage || 'no detail'})`);
+        if (isFailure) {
+            console.error(`[WhatsApp Status] ${MessageSid} -> ${status} (${ErrorCode}: ${ErrorMessage || 'no detail'})`);
+            const { logSystemEvent } = await import('./system-events');
+            void logSystemEvent({
+                kind: 'delivery_fail',
+                phone: req.body?.To ? String(req.body.To).replace('whatsapp:', '') : null,
+                conversationId: row.conversationId,
+                summary: `Delivery ${status}${ErrorCode ? ` (error ${ErrorCode})` : ''}`,
+                detail: { messageId: row.id, sid: MessageSid, errorCode: ErrorCode ?? null },
+                source: 'whatsapp-status',
+            });
         } else {
-            console.log(`[WhatsApp Status] ${MessageSid} -> ${MessageStatus}`);
+            console.log(`[WhatsApp Status] ${MessageSid} -> ${status}`);
         }
     } catch (error) {
         console.error('[WhatsApp Status] Failed to apply status update:', error);

@@ -199,6 +199,54 @@ async function releaseMorningHolds(): Promise<void> {
 }
 
 /**
+ * REALISM-HELD ACKS. The first-contact ack is stamped `[ack_hold_until:<iso>]` instead of
+ * sending 4 seconds after the enquiry (a 4s reply reads as a bot). This releases due acks on
+ * the fast tick — DB-held, so a deploy mid-hold delays it by seconds, never loses it. If the
+ * thread gained ANY outbound while the ack waited (agent triage or Ben got there first with a
+ * real reply), the generic hello is redundant — rejected, not sent late.
+ */
+async function releaseHeldAcks(): Promise<void> {
+    const held = await db.select().from(messageDrafts)
+        .where(and(
+            eq(messageDrafts.status, 'pending'),
+            eq(messageDrafts.source, 'first_contact_ack'),
+            sql`${messageDrafts.reason} LIKE '[ack_hold_until:%'`,
+        )).limit(10);
+
+    for (const d of held) {
+        const m = /^\[ack_hold_until:([^\]]+)\]/.exec(d.reason ?? '');
+        const due = m ? Date.parse(m[1]) : NaN;
+        // Unparseable marker = send now rather than strand a first contact forever.
+        if (Number.isFinite(due) && due > Date.now()) continue;
+
+        if (d.conversationId) {
+            const [already] = await db.select({ id: messages.id }).from(messages)
+                .where(and(
+                    eq(messages.conversationId, d.conversationId),
+                    eq(messages.direction, 'outbound'),
+                    sql`${messages.createdAt} > ${d.createdAt.toISOString()}::timestamptz`,
+                )).limit(1);
+            if (already) {
+                await db.update(messageDrafts)
+                    .set({ status: 'rejected', approvedBy: 'ack_hold:superseded', approvedAt: new Date() })
+                    .where(and(eq(messageDrafts.id, d.id), eq(messageDrafts.status, 'pending')));
+                console.log(`[CommsSweep] Held ack ${d.id} superseded by a real reply — rejected.`);
+                continue;
+            }
+        }
+
+        const { approveAndSendDraft } = await import('../message-drafts');
+        try {
+            const result = await approveAndSendDraft(d.id, 'first_contact_ack:held_release');
+            if (!result.ok) console.warn(`[CommsSweep] Held ack ${d.id} refused (${result.code}) — left for Ben.`);
+            else console.log(`[CommsSweep] Held ack ${d.id} released (${result.mode}).`);
+        } catch (error: any) {
+            console.error(`[CommsSweep] Held ack release failed for ${d.id}:`, error?.message);
+        }
+    }
+}
+
+/**
  * CALLBACK FALLBACK. A thread tagged callback_due is parked on Ben's desk because the classifier
  * heard a promised (or interrupted) call — the human gets first right of the warm move, and an
  * outbound call clears the tag by itself (server/call-thread.ts). This pass is the guarantee
@@ -280,6 +328,7 @@ export function startCommsInboundSweep(): void {
     const fast = () => Promise.all([
         tickDueTriage().catch((e) => console.error('[CommsSweep] fast tick failed:', e?.message ?? e)),
         releaseMorningHolds().catch((e) => console.error('[CommsSweep] morning release failed:', e?.message ?? e)),
+        releaseHeldAcks().catch((e) => console.error('[CommsSweep] held-ack release failed:', e?.message ?? e)),
         fallbackOverdueCallbacks().catch((e) => console.error('[CommsSweep] callback fallback failed:', e?.message ?? e)),
     ]);
     setInterval(fast, TICK_EVERY_MS).unref?.();
