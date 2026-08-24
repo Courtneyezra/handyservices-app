@@ -126,8 +126,12 @@ export const PREFERS_TEXT_TEMPLATE_PREFERENCE = FIRST_CONTACT_TEMPLATE_PREFERENC
  * are live the acknowledgement is queued for Ben rather than dropped.
  */
 export const MISSED_CALL_TEMPLATE_PREFERENCE = [
-    'missed_call_ack',     // not yet submitted; picked up automatically once approved
-    'video_request',       // UTILITY: "thanks for getting in touch, send us a quick video"
+    'missed_call_ack',     // APPROVED (HX0ae187172810e78213fcfecf536ca972): "sorry we missed your
+                           // call. Tell us what needs doing and we will price it up for you, or we
+                           // will try you again shortly." One variable ({{1}} = first name).
+    // 'video_request' removed 24 Aug 2026 (owner decision, Switchboard Atlas step 2): a missed
+    // call gets the honest missed-call template or falls through to SMS — never a video ask the
+    // caller never discussed.
 ];
 
 /**

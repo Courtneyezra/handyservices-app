@@ -27,7 +27,7 @@ import { twilioClient } from "./twilio-client";
 import { createCall, findCallByTwilioSid, updateCall, finalizeCall, type UpdateCallData } from './call-logger';
 import { notifyIncomingCall, notifyVoicemail } from './pushover';
 import { resolveCallerName } from './caller-lookup';
-import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
+import { determineCallRouting, CallRoutingSettings, AgentMode } from "./call-routing-engine";
 import { shutdownPostHog } from "./posthog";
 import { quotesRouter } from "./quotes";
 import v2BookingsRouter from "./v2-bookings";
@@ -851,79 +851,48 @@ app.post('/api/twilio/voice', async (req, res) => {
         agentMode: (settings.agentMode || 'auto') as AgentMode,
         forwardEnabled: settings.forwardEnabled,
         forwardNumber: settings.forwardNumber,
-        fallbackAction: (settings.fallbackAction || 'voicemail') as FallbackAction,
         businessHoursStart: settings.businessHoursStart,
         businessHoursEnd: settings.businessHoursEnd,
         businessDays: settings.businessDays,
-        elevenLabsAgentId: settings.elevenLabsAgentId,
-        elevenLabsBusyAgentId: settings.elevenLabsBusyAgentId,
-        elevenLabsApiKey: settings.elevenLabsApiKey,
     };
 
     // Determine call routing
-    const routing = determineCallRouting(routingSettings, false, getActiveCallCount());
+    const routing = determineCallRouting(routingSettings, false);
     console.log(`[Twilio] Routing decision: ${routing.reason} (mode: ${routing.effectiveMode}, destination: ${routing.destination})`);
 
     // Update call record with routing info
     if (callRecordId) {
-        let initialOutcome = 'UNKNOWN';
-        if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') initialOutcome = 'ELEVEN_LABS';
-        else if (routing.destination === 'va-forward') initialOutcome = 'FORWARDED';
-        else if (routing.destination === 'voicemail') initialOutcome = 'VOICEMAIL';
-
-        // Only update outcome if we have a meaningful one
-        if (initialOutcome !== 'UNKNOWN') {
-            const updateProps: Record<string, any> = { outcome: initialOutcome };
-
-            // Store routing context for differentiation
-            // Flag ALL ElevenLabs-routed calls for Ben's follow-up inbox
-            if (routing.destination === 'busy-agent') {
-                updateProps.handledBy = 'ai_agent';
-                updateProps.missedReason = 'busy_agent';
-                updateProps.actionStatus = 'pending';
-                updateProps.actionUrgency = 2; // High - VA was busy
-                updateProps.tags = ['busy_agent', 'eleven_labs', 'needs_callback'];
-            } else if (routing.destination === 'eleven-labs') {
-                updateProps.handledBy = 'ai_agent';
-                updateProps.actionStatus = 'pending';
-                if (routing.elevenLabsContext === 'out-of-hours') {
-                    updateProps.missedReason = 'out_of_hours';
-                    updateProps.actionUrgency = 2; // High - called outside hours
-                    updateProps.tags = ['out_of_hours', 'eleven_labs', 'needs_callback'];
-                } else {
-                    // In-hours but went to AI (no forward configured)
-                    updateProps.missedReason = 'ai_agent';
-                    updateProps.actionUrgency = 3; // Normal - AI handled in-hours
-                    updateProps.tags = ['in_hours_ai', 'eleven_labs', 'needs_callback'];
-                }
-            } else if (routing.destination === 'voicemail') {
-                updateProps.handledBy = 'voicemail';
-            }
-
+        if (routing.destination === 'va-forward') {
+            await updateCall(callRecordId, { outcome: 'FORWARDED' });
+        } else {
+            // text-ladder: the call is not being connected to anyone. Mark it missed NOW so the
+            // media-stream close → finalizeCall → ingestCallIntoThread → ackForCall chain sees a
+            // missed call and runs the text-back through the first-contact ack machinery.
+            const missedReason = routing.ladderContext === 'out-of-hours' ? 'out_of_hours' : 'no_forward';
+            const updateProps: Record<string, any> = {
+                outcome: 'MISSED_CALL',
+                handledBy: 'missed',
+                missedReason,
+                actionStatus: 'pending',
+                actionUrgency: routing.ladderContext === 'out-of-hours' ? 2 : 1,
+                tags: ['missed_call', missedReason, 'text_ladder'],
+            };
             await updateCall(callRecordId, updateProps);
 
-            // Broadcast to contractor inbox for real-time notification
-            if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
-                broadcastToClients({
-                    type: 'inbox:new_item',
-                    data: {
-                        id: callRecordId,
-                        itemType: 'call',
-                        customerName: req.body.CallerName || 'Unknown Caller',
-                        phone: req.body.From,
-                        source: routing.destination === 'busy-agent' ? 'Busy Agent Call'
-                            : routing.elevenLabsContext === 'out-of-hours' ? 'Out-of-Hours Call'
-                            : 'AI Agent Call',
-                        urgency: updateProps.actionUrgency,
-                        timestamp: new Date().toISOString(),
-                    }
-                });
-            }
+            broadcastToClients({
+                type: 'inbox:new_item',
+                data: {
+                    id: callRecordId,
+                    itemType: 'call',
+                    customerName: req.body.CallerName || 'Unknown Caller',
+                    phone: req.body.From,
+                    source: routing.ladderContext === 'out-of-hours' ? 'Out-of-Hours Call' : 'Missed Call',
+                    urgency: updateProps.actionUrgency,
+                    timestamp: new Date().toISOString(),
+                }
+            });
         }
     }
-
-    const welcomeMessage = (settings.welcomeMessage as string).replace('{business_name}', settings.businessName as string);
-    const holdMusicUrl = `${httpProtocol}://${host}/api/twilio/hold-music`;
 
     // Start TwiML response
     let twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -938,30 +907,13 @@ app.post('/api/twilio/voice', async (req, res) => {
         </Stream>
       </Start>`;
 
-    // Add welcome audio/message based on routing.
-    // NOT for the VA-forward path: the ~8-9s "please wait while we connect you…"
-    // greeting plays BEFORE Ben's phone starts ringing, and call data showed
-    // callers abandoning at 1-6s — i.e. hanging up during the greeting, before
-    // any ringback. Skipping it sends VA-forward callers straight to UK ringback
-    // (ringTone="uk" on the <Dial> below), which reads as a normal ringing phone.
-    // Eleven Labs / other destinations keep their greeting.
-    if (routing.playWelcomeAudio && routing.destination !== 'va-forward') {
-        if (settings.welcomeAudioUrl) {
-            const audioUrl = (settings.welcomeAudioUrl as string).startsWith('http')
-                ? settings.welcomeAudioUrl
-                : `${httpProtocol}://${host}${settings.welcomeAudioUrl}`;
-            twiml += `
-      <Play>${audioUrl}</Play>`;
-        } else {
-            twiml += `
-      <Say voice="${settings.voice}">${welcomeMessage}</Say>`;
-        }
-    }
-
-    // Handle routing destination
+    // Handle routing destination — exactly two since the 24 Aug rewire: ring the VA, or say
+    // the ladder line and hang up (the text-back itself runs off the media-stream close via
+    // the first-contact ack machinery; see call-thread.ts ackForCall).
     if (routing.destination === 'va-forward') {
-        // Forward to VA with hold music
-        const holdMusicUrl = settings.holdMusicUrl || `${httpProtocol}://${host}/assets/hold-music.mp3`;
+        // No greeting on this path: the ~8-9s "please wait…" audio played BEFORE Ben's phone
+        // started ringing, and call data showed callers abandoning at 1-6s — i.e. hanging up
+        // during the greeting. Straight to UK ringback instead.
         const forwardTarget = (settings.forwardNumber || '').trim();
         const isSipTarget = forwardTarget.toLowerCase().startsWith('sip:');
         // SIP endpoints (Groundwire) can be shown the real caller ID; PSTN forwards must present our Twilio number
@@ -970,30 +922,11 @@ app.post('/api/twilio/voice', async (req, res) => {
       <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${dialCallerId}">
         ${isSipTarget ? `<Sip>${forwardTarget}</Sip>` : `<Number>${forwardTarget}</Number>`}
       </Dial>`;
-    } else if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
-        // Redirect to Eleven Labs Register Call endpoint (DIRECT MODE)
-        const context = routing.elevenLabsContext || 'in-hours';
-        // We pass context via query param to the register endpoint
-        const registerUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-register?context=${context}`;
-
-        twiml += `
-      <Redirect>${registerUrl}</Redirect>`;
-    } else if (routing.destination === 'voicemail') {
-        // Go to voicemail
-        twiml += `
-      <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>`;
-    } else if (routing.destination === 'hangup') {
-        // Just hangup
-        twiml += `
-      <Hangup/>`;
     } else {
-        // Fallback: transcription mode
+        // text-ladder: short honest line, hang up, text them.
         twiml += `
-      <Pause length="30" />
-      <Say voice="${settings.voice}">I'm still listening. Go ahead whenever you're ready.</Say>
-      <Pause length="30" />
-      <Say voice="${settings.voice}">Thank you for the details. We are analyzing your request and will be with you shortly.</Say>
-      <Pause length="10" />`;
+      <Say voice="${settings.voice}">You've reached ${settings.businessName}. We're on another job. Check your messages, we've just texted you.</Say>
+      <Hangup/>`;
     }
 
     twiml += `
@@ -1266,28 +1199,10 @@ app.post('/api/twilio/dial-status', async (req, res) => {
 
     // If call was not answered, trigger fallback
     if (DialCallStatus !== 'completed' && DialCallStatus !== 'answered') {
-        console.log(`[Twilio] Call not answered, determining fallback...`);
-
-        // Build routing settings for the engine
-        const routingSettings: CallRoutingSettings = {
-            agentMode: (settings.agentMode || 'auto') as AgentMode,
-            forwardEnabled: settings.forwardEnabled,
-            forwardNumber: settings.forwardNumber,
-            fallbackAction: (settings.fallbackAction || 'voicemail') as FallbackAction,
-            businessHoursStart: settings.businessHoursStart,
-            businessHoursEnd: settings.businessHoursEnd,
-            businessDays: settings.businessDays,
-            elevenLabsAgentId: settings.elevenLabsAgentId,
-            elevenLabsBusyAgentId: settings.elevenLabsBusyAgentId,
-            elevenLabsApiKey: settings.elevenLabsApiKey,
-        };
-
-        // Determine fallback routing (VA missed call scenario)
-        const routing = determineCallRouting(routingSettings, true, getActiveCallCount()); // isVAMissedCall = true, pass active call count
-        console.log(`[Twilio] Fallback routing: ${routing.reason} (destination: ${routing.destination})`);
+        console.log(`[Twilio] Call not answered — text-ladder.`);
 
         // Action Center: Mark as Missed Call (Critical) immediately
-        // We do this BEFORE fallback handling to ensure even if fallback fails, the call is flagged
+        // We do this BEFORE anything else to ensure the call is flagged even if the rest fails
         try {
             // Find call record ID
             const callRecordId = await findCallByTwilioSid(CallSid);
@@ -1307,12 +1222,9 @@ app.post('/api/twilio/dial-status', async (req, res) => {
                     actionStatus: 'pending',
                     actionUrgency: 1, // Critical - immediate callback required
                     missedReason: 'no_answer',
-                    tags: ['missed_call', 'va_no_answer'],
+                    tags: ['missed_call', 'va_no_answer', 'text_ladder'],
                     ringSeconds,
-                    // Attribution: whoever the fallback hands the caller to; plain 'missed' if the call just ends
-                    handledBy: routing.destination === 'voicemail' ? 'voicemail'
-                        : (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') ? 'ai_agent'
-                        : 'missed',
+                    handledBy: 'missed',
                 });
                 console.log(`[ActionCenter] Call ${callRecordId} flagged as MISSED_CALL (Critical, rang ${ringSeconds ?? '?'}s).`);
             }
@@ -1320,84 +1232,15 @@ app.post('/api/twilio/dial-status', async (req, res) => {
             console.warn("[ActionCenter] Failed to flag missed call:", e);
         }
 
-        // Handle Eleven Labs fallback - direct registration (no redirect)
-        if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
-            const context = routing.elevenLabsContext || 'missed-call';
-            console.log(`[Twilio] Connecting to Eleven Labs with context: ${context} (Direct, Dest: ${routing.destination})`);
-
-            // Get context message from settings
-            const contextMessages: Record<string, string> = {
-                'in-hours': settings.agentContextDefault || 'How can I help you today?',
-                'out-of-hours': settings.agentContextOutOfHours || "We're currently closed, but I can help you schedule a service or take a message.",
-                'missed-call': settings.agentContextMissed || "I'm sorry we missed your call. Let me help you with that.",
-                'busy': 'I am currently on another line, but I can help you with your request while you wait.',
-            };
-
-            const contextMessage = contextMessages[context] || contextMessages['in-hours'];
-
-            // Determine correct Agent ID (Normal vs Busy)
-            const agentId = (routing.destination === 'busy-agent' && settings.elevenLabsBusyAgentId)
-                ? settings.elevenLabsBusyAgentId
-                : settings.elevenLabsAgentId;
-
-            try {
-                // Register call with Eleven Labs directly
-                // We append the redirect to call-ended here as well for consistency, although registerElevenLabsCall already does it!
-                // Wait, registerElevenLabsCall was modified to always append the redirect.
-                // So we just call it.
-                const twiml = await registerElevenLabsCall({
-                    agentId: agentId,
-                    apiKey: settings.elevenLabsApiKey,
-                    fromNumber: From,
-                    toNumber: req.body.To || req.body.Called,
-                    context,
-                    contextMessage,
-                });
-
-                res.type('text/xml');
-                return res.send(twiml);
-            } catch (error) {
-                console.error('[Twilio] Eleven Labs direct registration failed:', error);
-                // Fallback to voicemail unique to this failure
-                const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-                <Response>
-                    <Say>We're having trouble connecting you. Please leave a message.</Say>
-                    <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>
-                </Response>`;
-                res.type('text/xml');
-                return res.send(twiml);
-            }
-        }
-
-        // Handle voicemail fallback
-        if (routing.destination === 'voicemail') {
-            console.log(`[Twilio] Redirecting to voicemail`);
-            const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-            <Response>
-              <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>
-            </Response>`;
-
-            res.type('text/xml');
-            return res.send(twiml);
-        }
-
-        // Handle WhatsApp/hangup fallback
-        if (settings.fallbackAction === 'whatsapp' && From) {
-            try {
-                const fallbackMessage = (settings.fallbackMessage as string).replace('{business_name}', settings.businessName as string);
-                // Use conversation engine to send message
-                const { conversationEngine } = await import('./conversation-engine');
-                await conversationEngine.sendMessage(From.replace('+', ''), fallbackMessage);
-                console.log(`[Twilio] WhatsApp fallback sent to ${From}`);
-            } catch (error) {
-                console.error('[Twilio] Failed to send WhatsApp fallback:', error);
-            }
-        }
-
-        // Default: Play apology message and hang up
+        // Text-ladder: say the line, hang up. The text-back itself fires when the media stream
+        // closes (finalizeCall → ingestCallIntoThread → ackForCall → first-contact ack machinery:
+        // approved template → SMS → draft for Ben, gated by firstContactAutoAck.enabled).
+        // The old ElevenLabs / voicemail / freeform-WhatsApp fallbacks are gone: voicemail's
+        // handler never existed (404) and the freeform send could never succeed because a phone
+        // call does not open the WhatsApp 24h window.
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-          <Say voice="${settings.voice}">Sorry we missed your call. We'll be in touch shortly.</Say>
+          <Say voice="${settings.voice}">You've reached ${settings.businessName}. We're on another job. Check your messages, we've just texted you.</Say>
           <Hangup/>
         </Response>`;
 

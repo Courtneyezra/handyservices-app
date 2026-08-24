@@ -1028,7 +1028,10 @@ export class MediaStreamTranscriber {
                 await finalizeCall(this.callRecordId, {
                     duration,
                     endTime: new Date(),
-                    outcome: agentPlan ? (agentPlan.recommendedAction === 'book_visit' ? 'SITE_VISIT' : 'INSTANT_PRICE') : 'UNKNOWN',
+                    // undefined (not 'UNKNOWN') when there's no plan: finalizeCall drops undefined
+                    // keys, so a MISSED_CALL outcome written by the routing/dial-status handlers
+                    // survives the stream close instead of being overwritten to UNKNOWN.
+                    outcome: agentPlan ? (agentPlan.recommendedAction === 'book_visit' ? 'SITE_VISIT' : 'INSTANT_PRICE') : undefined,
                     transcription: finalText || undefined,
                     segments: this.segments,
                     localRecordingPath: finalLocalPath,
