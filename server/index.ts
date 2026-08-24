@@ -39,7 +39,6 @@ import { testRouter } from "./test-routes";
 import { dashboardRouter } from "./dashboard";
 import { whatsappRouter } from "./whatsapp-api";
 import { metaWhatsAppRouter, attachMetaWebSocket } from "./meta-whatsapp";
-import { whatsappExtRouter } from "./whatsapp-ext-routes";
 import { quickRepliesRouter } from "./quick-replies";
 import { whatsappTemplatesRouter } from "./whatsapp-template-sync";
 import { maybeSendPostCallVideoRequest } from "./post-call-outreach";
@@ -405,7 +404,9 @@ app.use('/api/places', placesRouter); // API: Places Search
 app.use('/api', testRouter);
 app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks
 app.use('/api/whatsapp', metaWhatsAppRouter); // Meta Cloud API Webhooks
-app.use('/api/whatsapp', whatsappExtRouter); // Chrome Extension ingest (ext-ingest, ext-ping)
+// Chrome-extension ingest deleted 24 Aug 2026 (Switchboard Atlas step 3): its dedupe,
+// contractor role-forking and lead auto-creation were harvested into server/whatsapp-ingest.ts
+// and now run inside both production webhooks (Twilio + Meta).
 // Both carry customer phone numbers and message content, so they sit behind admin auth
 // (requireAdmin also admits the 'va' role, which is how Ben reaches them).
 app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messages for the inbox

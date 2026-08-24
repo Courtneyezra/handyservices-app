@@ -192,6 +192,24 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
     const now = new Date();
 
     try {
+        // --- DEDUPE GUARD (before ANY state mutation) ---
+        // Meta redelivers webhooks it thinks failed. Without this, a retry re-ran the tenant AI,
+        // bumped unreadCount, advanced the window and then threw on the duplicate insert —
+        // harvested from the (deleted) extension ingest, Switchboard Atlas step 3, 24 Aug 2026.
+        const dup = await db.query.messages.findFirst({
+            where: eq(messages.id, messageId),
+            columns: { id: true },
+        });
+        if (dup) {
+            console.log('[Meta WhatsApp] Duplicate delivery ignored:', messageId);
+            return;
+        }
+
+        // Which lane is this number? A contractor messaging the coexistence number must not
+        // become a customer lead or get the customer agent.
+        const { resolveInboundRole, linkOrCreateLeadForInbound } = await import('./whatsapp-ingest');
+        const role = await resolveInboundRole(from);
+
         // --- TENANT CHAT AI LAYER START ---
         // Check if this is a registered tenant or landlord and route to AI
         let tenantChatHandled = false;
@@ -246,10 +264,12 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
                 id: uuidv4(),
                 phoneNumber,
                 contactName: profileName,
+                roleProfile: role,
                 status: 'active',
                 stage: 'enquiry',
                 lastMessageAt: now,
                 lastInboundAt: now,
+                lastCustomerContactAt: now,
                 canSendFreeform: true,
                 templateRequired: false,
                 lastMessagePreview: content.substring(0, 50),
@@ -258,23 +278,26 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
             };
             await db.insert(conversations).values(newConv);
             conv = newConv as any;
-            console.log('[Meta WhatsApp] Created new conversation:', phoneNumber);
+            console.log(`[Meta WhatsApp] Created new conversation (${role}):`, phoneNumber);
         } else {
             await db.update(conversations)
                 .set({
                     lastMessageAt: now,
                     lastInboundAt: now,
+                    lastCustomerContactAt: now,
                     canSendFreeform: true,
                     templateRequired: false,
                     stage: stageAfterInbound(conv.stage),
                     lastMessagePreview: content.substring(0, 50),
                     unreadCount: (conv.unreadCount || 0) + 1,
                     contactName: profileName || conv.contactName,
+                    // Contractor onboarded since the thread was created moves lanes; never the reverse.
+                    ...(role === 'contractor' && conv.roleProfile !== 'contractor' ? { roleProfile: 'contractor' } : {}),
                     updatedAt: now,
                     metadata: agentPlan ? agentPlan : conv.metadata // Update plan if new one generated
                 })
                 .where(eq(conversations.id, conv.id));
-            console.log('[Meta WhatsApp] Updated conversation:', phoneNumber);
+            console.log(`[Meta WhatsApp] Updated conversation (${role}):`, phoneNumber);
         }
 
         // 2. Store Message
@@ -294,17 +317,43 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
             createdAt: timestamp,
         };
 
-        await db.insert(messages).values(newMessage);
+        try {
+            await db.insert(messages).values(newMessage);
+        } catch (err: any) {
+            // Race-condition duplicate (two Meta deliveries in flight at once) — already stored.
+            if (err?.code === '23505' || /duplicate key/i.test(err?.message || '')) {
+                console.log('[Meta WhatsApp] Race duplicate ignored:', messageId);
+                return;
+            }
+            throw err;
+        }
         console.log('[Meta WhatsApp] Stored message:', messageId);
 
+        // First-time customer inbound → find-or-create the lead and link the thread to it.
+        if (role === 'customer') {
+            await linkOrCreateLeadForInbound({
+                conversationId: conv!.id,
+                currentLeadId: conv!.leadId,
+                rawPhone: from,
+                contactName: profileName || null,
+                content: content || null,
+                source: 'meta',
+            });
+        }
+
         // On-inbound lane: the comms agent triages this thread after the burst settles.
-        scheduleInboundTriage(conv!.id, phoneNumber, {
-            channel: 'whatsapp',
-            contactName: profileName || conv!.contactName,
-            hasMedia: !!mediaUrl,
-            text: content || null,
-            messageId: newMessage.id,
-        });
+        // CUSTOMER LANE ONLY — contractor threads wait for a human in the comms inbox.
+        if (role === 'customer') {
+            scheduleInboundTriage(conv!.id, phoneNumber, {
+                channel: 'whatsapp',
+                contactName: profileName || conv!.contactName,
+                hasMedia: !!mediaUrl,
+                text: content || null,
+                messageId: newMessage.id,
+            });
+        } else {
+            console.log(`[Meta WhatsApp] ${role} inbound on ${phoneNumber} — customer lanes skipped`);
+        }
 
         // 3. Broadcast to clients
         broadcast('inbox:message', {

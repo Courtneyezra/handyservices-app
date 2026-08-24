@@ -249,6 +249,12 @@ export class ConversationEngine {
                 ? { lastInboundAt: now, canSendFreeform: true, templateRequired: false }
                 : {};
 
+            // Which lane is this number? A contractor texting the business line must not become
+            // a customer lead or get the customer agent. Harvested from the (deleted) extension
+            // ingest path — Switchboard Atlas step 3, 24 Aug 2026.
+            const { resolveInboundRole, linkOrCreateLeadForInbound } = await import('./whatsapp-ingest');
+            const role = await resolveInboundRole(fromNumber);
+
             // 1. Get or Create Conversation
             let conv = await db.query.conversations.findFirst({
                 where: eq(conversations.phoneNumber, phoneNumber)
@@ -259,6 +265,7 @@ export class ConversationEngine {
                     id: uuidv4(),
                     phoneNumber,
                     contactName: ProfileName || fromNumber,
+                    roleProfile: role,
                     status: 'active',
                     stage: 'enquiry',
                     lastMessageAt: now,
@@ -269,7 +276,7 @@ export class ConversationEngine {
                 };
                 await db.insert(conversations).values(newConv);
                 conv = newConv as any;
-                console.log(`[ConversationEngine] Created new conversation (${channel}):`, phoneNumber);
+                console.log(`[ConversationEngine] Created new conversation (${channel}, ${role}):`, phoneNumber);
             } else {
                 // Update existing conversation
                 await db.update(conversations)
@@ -281,10 +288,13 @@ export class ConversationEngine {
                         lastMessagePreview: Body || (hasMedia ? 'Media received' : ''),
                         unreadCount: (conv.unreadCount || 0) + 1,
                         contactName: ProfileName || conv.contactName,
+                        // A number onboarded as a contractor since this thread was created moves
+                        // lanes; the reverse (contractor → customer) never happens automatically.
+                        ...(role === 'contractor' && conv.roleProfile !== 'contractor' ? { roleProfile: 'contractor' } : {}),
                         updatedAt: now,
                     })
                     .where(eq(conversations.id, conv.id));
-                console.log(`[ConversationEngine] Updated conversation (${channel}):`, phoneNumber);
+                console.log(`[ConversationEngine] Updated conversation (${channel}, ${role}):`, phoneNumber);
             }
 
             // 2. Process Media (if any)
@@ -334,19 +344,39 @@ export class ConversationEngine {
             await db.insert(messages).values(newMessage);
             console.log('[ConversationEngine] Stored message:', MessageSid);
 
+            // First-time customer inbound → find-or-create the lead and link the thread to it,
+            // so WhatsApp/SMS enquiries stop going missing from the Kanban. Customer lane only.
+            if (role === 'customer') {
+                await linkOrCreateLeadForInbound({
+                    conversationId: conv!.id,
+                    currentLeadId: conv!.leadId,
+                    rawPhone: fromNumber,
+                    contactName: ProfileName || null,
+                    content: Body || null,
+                    source: `twilio-${channel}`,
+                });
+            }
+
             // On-inbound lane: the comms agent triages this thread after the burst settles.
+            // CUSTOMER LANE ONLY — contractor threads get no auto-ack, no customer agent, no
+            // lead machinery; they land in the comms inbox with an unread badge and wait for a
+            // human (the contractor policy pack arrives gated behind the eval harness).
             // `phone` here was an undeclared identifier that TypeScript resolved to some ambient
             // global and the runtime did not: every inbound crashed the handler at this exact line
             // AFTER the message stored, so threads filled up while the fast trigger never armed
             // and Twilio got a 500 — found 20 Aug 2026 via the Railway logs, the only place the
             // ReferenceError was visible. The lanes expect E.164 with the plus.
-            scheduleInboundTriage(conv!.id, `+${fromNumber}`, {
-                channel: channel === 'sms' ? 'sms' : 'whatsapp',
-                contactName: ProfileName || conv!.contactName,
-                hasMedia,
-                text: Body || null,
-                messageId: newMessage.id,
-            });
+            if (role === 'customer') {
+                scheduleInboundTriage(conv!.id, `+${fromNumber}`, {
+                    channel: channel === 'sms' ? 'sms' : 'whatsapp',
+                    contactName: ProfileName || conv!.contactName,
+                    hasMedia,
+                    text: Body || null,
+                    messageId: newMessage.id,
+                });
+            } else {
+                console.log(`[ConversationEngine] ${role} inbound on ${phoneNumber} — customer lanes skipped`);
+            }
 
             // 4. Broadcast to all connected clients
             this.broadcast('inbox:message', {
