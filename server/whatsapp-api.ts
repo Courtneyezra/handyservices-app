@@ -34,46 +34,9 @@ whatsappRouter.post('/incoming', async (req, res) => {
             })().catch((e) => console.warn('[WhatsApp API] notifyIncomingSms failed:', e));
         }
 
-        // --- TENANT CHAT AI LAYER ---
-        try {
-            const { handleTenantChatMessage, getPhoneType } = await import('./tenant-chat');
-            const phoneType = await getPhoneType(phone);
-
-            if (phoneType === 'tenant' || phoneType === 'landlord') {
-                console.log(`[WhatsApp API] Routing to ${phoneType} AI handler...`);
-
-                // Determine message type
-                const hasMedia = parseInt(NumMedia || '0') > 0;
-                let messageType: 'text' | 'image' | 'audio' | 'video' = 'text';
-                if (hasMedia && MediaContentType0) {
-                    if (MediaContentType0.startsWith('image/')) messageType = 'image';
-                    else if (MediaContentType0.startsWith('audio/')) messageType = 'audio';
-                    else if (MediaContentType0.startsWith('video/')) messageType = 'video';
-                }
-
-                const result = await handleTenantChatMessage({
-                    from: phone,
-                    type: messageType,
-                    content: Body || '',
-                    mediaUrl: MediaUrl0,
-                    mimeType: MediaContentType0,
-                    profileName: ProfileName,
-                    messageId: MessageSid || `twilio_${Date.now()}`,
-                    timestamp: new Date()
-                });
-
-                if (result.handled) {
-                    console.log(`[WhatsApp API] Message handled by ${result.workerUsed}`);
-                    // Return empty TwiML - we send responses via API, not TwiML
-                    return res.status(200).type('text/xml').send('<Response></Response>');
-                }
-            }
-        } catch (err) {
-            console.error('[WhatsApp API] Tenant chat error:', err);
-        }
-        // --- END TENANT CHAT AI LAYER ---
-
-        // Fallback to legacy conversation engine for non-tenant messages
+        // Tenant/landlord AI fork removed 24 Aug 2026 (Switchboard Atlas step 4): it auto-replied
+        // with no kill switch, no draft queue, no opt-out check and no window check — the only
+        // ungoverned autonomous sender in the system. All inbound now goes through the one ingest.
         await conversationEngine.handleInboundMessage(req.body);
 
         // Return TwiML empty response

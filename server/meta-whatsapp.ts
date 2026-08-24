@@ -210,39 +210,12 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
         const { resolveInboundRole, linkOrCreateLeadForInbound } = await import('./whatsapp-ingest');
         const role = await resolveInboundRole(from);
 
-        // --- TENANT CHAT AI LAYER START ---
-        // Check if this is a registered tenant or landlord and route to AI
-        let tenantChatHandled = false;
-        try {
-            const { handleTenantChatMessage, getPhoneType } = await import('./tenant-chat');
-            const phoneType = await getPhoneType(from);
+        // Tenant/landlord AI fork removed 24 Aug 2026 (Switchboard Atlas step 4): ungoverned
+        // autonomous sender — no kill switch, no draft queue, no opt-out, no window check.
 
-            if (phoneType === 'tenant' || phoneType === 'landlord') {
-                console.log(`[WhatsApp-AI] Routing to ${phoneType} AI handler...`);
-                const result = await handleTenantChatMessage({
-                    from,
-                    type: type as any,
-                    content,
-                    mediaId: mediaUrl,
-                    mediaUrl: mediaUrl ? await getMediaUrl(mediaUrl) : undefined,
-                    mimeType: mediaType || undefined,
-                    profileName,
-                    messageId,
-                    timestamp
-                });
-                tenantChatHandled = result.handled;
-                if (tenantChatHandled) {
-                    console.log(`[WhatsApp-AI] Message handled by ${result.workerUsed}`);
-                }
-            }
-        } catch (err) {
-            console.error(`[WhatsApp-AI] Tenant chat handling failed:`, err);
-        }
-        // --- TENANT CHAT AI LAYER END ---
-
-        // --- AGENTIC LAYER START (fallback for non-tenant messages) ---
+        // --- AGENTIC LAYER START ---
         let agentPlan = null;
-        if (!tenantChatHandled && type === 'text' && content.length > 10) {
+        if (type === 'text' && content.length > 10) {
             try {
                 const { analyzeLeadActionPlan } = await import('./services/agentic-service');
                 console.log(`[WhatsApp-Agent] Analyzing message from ${from}...`);
