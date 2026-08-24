@@ -1245,33 +1245,10 @@ export class MediaStreamTranscriber {
                     }
                 }
 
-                // === AUTO-VIDEO PROCESSING ===
-                // Fire-and-forget: Analyze transcript for video request agreement
-                // and auto-send WhatsApp if confidence is high enough
-                if (leadId && mergedMetadata.phoneNumber && finalText.length > 100) {
-                    (async () => {
-                        try {
-                            const { processCallForAutoVideo } = await import('./services/auto-video-service');
-                            console.log(`[AutoVideo] Processing call ${this.callRecordId} for lead ${leadId}...`);
-
-                            const result = await processCallForAutoVideo(
-                                this.callRecordId || '',
-                                leadId,
-                                finalText,
-                                mergedMetadata.phoneNumber,
-                                mergedMetadata.customerName || 'there'
-                            );
-
-                            if (result.sent) {
-                                console.log(`[AutoVideo] Video request auto-sent for lead ${leadId}`);
-                            } else {
-                                console.log(`[AutoVideo] Skipped for lead ${leadId}: ${result.reason}`);
-                            }
-                        } catch (err) {
-                            console.error(`[AutoVideo] Error processing:`, err);
-                        }
-                    })();
-                }
+                // Auto-video processing removed 24 Aug 2026 (Switchboard Atlas review):
+                // it bypassed the post-call-outreach rails (classifier, quiet hours, dedupe,
+                // suppression, draft queue) and was enabled by default with no kill switch.
+                // Video requests are owned solely by server/post-call-outreach.ts.
 
                 // === CALL ANALYZER & LEAD SCORING ===
                 // Fire-and-forget: Analyze transcript for lead qualification and segmentation
