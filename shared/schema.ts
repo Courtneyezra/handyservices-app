@@ -372,6 +372,7 @@ export const calls = pgTable("calls", {
     inboundRecordingUrl: varchar("inbound_recording_url"),  // Caller audio
     outboundRecordingUrl: varchar("outbound_recording_url"), // Agent audio
     leadId: varchar("lead_id"),
+    clientId: varchar("client_id").references(() => serviceClients.id, { onDelete: 'set null' }), // FK to service_clients (the account)
 
     // Customer Information
     customerName: varchar("customer_name"),
@@ -439,6 +440,7 @@ export const calls = pgTable("calls", {
     index("idx_calls_start_time").on(table.startTime),
     index("idx_calls_outcome").on(table.outcome),
     index("idx_calls_customer_name").on(table.customerName),
+    index("idx_calls_client").on(table.clientId),
 ]);
 
 // Call SKUs junction table - Many-to-many relationship between calls and SKUs
@@ -1601,6 +1603,10 @@ export const conversations = pgTable("conversations", {
     phoneNumber: varchar("phone_number").unique().notNull(), // Format: "447936816338@c.us"
     contactName: varchar("contact_name"), // Display name from WhatsApp or contact
     leadId: varchar("lead_id"), // Optional: Link to leads table
+    clientId: varchar("client_id").references(() => serviceClients.id, { onDelete: 'set null' }), // FK to service_clients (the account)
+    // Which lane this thread belongs to (server/roles.ts). A contractor texting the business
+    // number must not become a customer lead — ingest forks on this. Default 'customer'.
+    roleProfile: varchar("role_profile", { length: 16 }).notNull().default('customer'),
 
     // Status & Metadata
     status: varchar("status", { length: 20 }).notNull().default('active'), // 'active', 'archived', 'blocked'
@@ -1637,6 +1643,7 @@ export const conversations = pgTable("conversations", {
     index("idx_conversations_last_message").on(table.lastMessageAt),
     index("idx_conversations_assigned").on(table.assignedTo),
     index("idx_conversations_stage").on(table.stage),
+    index("idx_conversations_client").on(table.clientId),
 ]);
 
 export const conversationRelations = relations(conversations, ({ many }) => ({
@@ -1846,6 +1853,48 @@ export const messageDrafts = pgTable("message_drafts", {
 export const insertMessageDraftSchema = createInsertSchema(messageDrafts);
 export type MessageDraft = typeof messageDrafts.$inferSelect;
 export type InsertMessageDraft = z.infer<typeof insertMessageDraftSchema>;
+
+/**
+ * The comms event ledger (COMMS_ARCHITECTURE verdict, 23 Aug 2026).
+ *
+ * One append-only row per communication event — message, call, draft lifecycle — across every
+ * audience (customer, contractor, supplier). The source tables (messages, calls, message_drafts)
+ * stay authoritative for their own machinery; this table exists to answer the four questions the
+ * sources cannot answer alone: response times, outcome-per-job, audit-grade who-said-what, and
+ * agent-vs-human attribution (drafted/edited/sent are three different hands on one message).
+ *
+ * Populated by server/comms-ledger.ts syncing FROM the source tables — deliberately not by hooks
+ * at the nine insert sites, which would drift. (ref_table, ref_id, event_type) is unique, so the
+ * sync is idempotent and re-runnable from zero.
+ */
+export const commsEvents = pgTable("comms_events", {
+    id: varchar("id").primaryKey().notNull(),
+    occurredAt: timestamp("occurred_at").notNull(),
+    eventType: varchar("event_type", { length: 24 }).notNull(), // message_in|message_out|call_in|call_out|draft_created|draft_sent|draft_rejected|draft_failed
+    channel: varchar("channel", { length: 16 }).notNull(),      // whatsapp|sms|call|webform|email|note|system
+    phone: varchar("phone").notNull(),                           // E.164 — number-first threading
+    // One person, two roles, one number: threading is (phone, role_profile), not phone alone.
+    roleProfile: varchar("role_profile", { length: 16 }).notNull().default('customer'), // customer|contractor|supplier|internal|unknown
+    conversationId: varchar("conversation_id"),
+    jobRef: varchar("job_ref"),                                  // quote/job id once the relay lands; outcomes join through this
+    // Who caused the event. 'counterparty' = the person on the other end of the wire.
+    actor: varchar("actor", { length: 60 }).notNull(),           // counterparty | agent:comms | human:<who> | system:<name>
+    draftedBy: varchar("drafted_by", { length: 60 }),
+    editedBy: varchar("edited_by", { length: 60 }),
+    sentBy: varchar("sent_by", { length: 60 }),
+    body: text("body"),
+    refTable: varchar("ref_table", { length: 32 }).notNull(),
+    refId: varchar("ref_id").notNull(),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex("uq_comms_events_ref").on(table.refTable, table.refId, table.eventType),
+    index("idx_comms_events_phone_time").on(table.phone, table.occurredAt),
+    index("idx_comms_events_type_time").on(table.eventType, table.occurredAt),
+]);
+
+export type CommsEvent = typeof commsEvents.$inferSelect;
+export type InsertCommsEvent = typeof commsEvents.$inferInsert;
 
 /**
  * Every decision the first-contact auto-responder makes, sent OR refused.
