@@ -11,6 +11,9 @@
  * Copy uses ONLY claims from brand-voice/vocabulary.md's approved list. Do not add numbers,
  * credentials or availability promises that are not on that list.
  */
+// This script imports nothing from server/, so nothing else pulls in dotenv for it.
+import 'dotenv/config';
+
 const SENDER_SID = 'XEb02bdf0a75e8fba70cabc984fdb91115';
 
 // Field limits enforced by WhatsApp.
@@ -35,11 +38,41 @@ Send a photo of the job and we'll price it up.`,
     // profile invites doubt. Blank beats wrong.
     address: '',
 
-    vertical: 'PROF_SERVICES',
+    // Twilio expects the human-readable label from its supported list, NOT Meta's enum code
+    // (PROF_SERVICES is rejected with error 63100).
+    vertical: 'Professional Services',
     emails: [{ email: 'bookings@handyservices.app', label: 'Email' }],
     websites: [{ website: 'https://www.handyservices.app', label: 'Website' }],
     logo_url: 'https://www.handyservices.app/assets/whatsapp-profile.jpg',
 };
+
+/**
+ * HEAD-style probe returning status + content-type.
+ *
+ * Uses fetch first, but falls back to curl: this site sits behind Cloudflare, which times out
+ * Node/undici's TLS handshake (ETIMEDOUT) while curl to the same host from the same shell
+ * succeeds. Without the fallback the guard reports "unreachable" for a URL that is serving
+ * perfectly well, and blocks a legitimate update.
+ */
+async function probeUrl(url: string): Promise<{ status: number; contentType: string }> {
+    try {
+        const r = await fetch(url, { redirect: 'follow' });
+        return { status: r.status, contentType: r.headers.get('content-type') ?? '' };
+    } catch {
+        try {
+            const { execFileSync } = await import('child_process');
+            const out = execFileSync(
+                'curl',
+                ['-sSL', '-o', '/dev/null', '-w', '%{http_code} %{content_type}', '--max-time', '20', url],
+                { encoding: 'utf8' }
+            ).trim();
+            const [code, ...ct] = out.split(' ');
+            return { status: Number(code) || 0, contentType: ct.join(' ').trim() };
+        } catch {
+            return { status: 0, contentType: '' };
+        }
+    }
+}
 
 async function main() {
     const apply = process.argv.includes('--apply');
@@ -69,11 +102,10 @@ async function main() {
     // Pay verification (see CLAUDE.md). A 200 is therefore NOT proof the image exists; the
     // content-type is. Without this guard we would happily set an HTML page as the logo.
     if (PROFILE.logo_url) {
-        const probe = await fetch(PROFILE.logo_url, { redirect: 'follow' }).catch(() => null);
-        const ct = probe?.headers.get('content-type') ?? '';
-        const ok = !!probe?.ok && ct.startsWith('image/');
+        const { status, contentType } = await probeUrl(PROFILE.logo_url);
+        const ok = status >= 200 && status < 300 && contentType.startsWith('image/');
         console.log(`\nlogo_url check: ${PROFILE.logo_url}`);
-        console.log(`  -> ${probe?.status ?? 'unreachable'} ${ct || '(no content-type)'}  ${ok ? 'OK' : 'NOT AN IMAGE'}`);
+        console.log(`  -> ${status || 'unreachable'} ${contentType || '(no content-type)'}  ${ok ? 'OK' : 'NOT AN IMAGE'}`);
         if (!ok) {
             console.error(
                 '\nRefusing to send: logo_url does not serve an image.\n' +
