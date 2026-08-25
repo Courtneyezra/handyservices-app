@@ -1,5 +1,5 @@
 /**
- * Post-call lead upsert — Switchboard Atlas step 5, 24 Aug 2026.
+ * Post-call lead upsert — Switchboard Atlas step 5+6, 24-25 Aug 2026.
  *
  * Replaces the live pipeline's lead machinery (gpt-4o-mini metadata extraction, gpt-4o lead
  * scoring, fuzzy duplicate detection — all on the dead OpenAI account) with one Claude pass
@@ -12,10 +12,13 @@
  *     looks the thread up by number and repoints conversations.leadId.
  *   - Match an existing lead by E.164 phone before creating, so a repeat caller attaches
  *     to their lead instead of spawning duplicates.
+ *
+ * Atlas step 6 addition: resolve client FIRST, then attach thread, then create/merge lead.
+ * Client = the account. Repeat customer = 1 client, 1 thread, N leads, N properties.
  */
 import { db } from "./db";
-import { calls, leads, conversations } from "../shared/schema";
-import { eq } from "drizzle-orm";
+import { calls, leads, conversations, serviceClients } from "../shared/schema";
+import { eq, sql } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { normalizePhoneNumber } from "./phone-utils";
 import { claudeJson } from "./llm";
@@ -27,6 +30,20 @@ interface CallLeadExtract {
     jobDescription: string | null;
     /** 'Homeowner' | 'Landlord' | 'Business' | 'Property Manager' | 'Unknown' */
     leadType: string | null;
+}
+
+/**
+ * Look up a service_client by phone number (digit-match).
+ * Returns the client id or null if not found.
+ */
+async function resolveClientByPhone(e164: string): Promise<string | null> {
+    const digits = e164.replace(/\D/g, '');
+    if (digits.length < 7) return null;
+    const [client] = await db.select({ id: serviceClients.id })
+        .from(serviceClients)
+        .where(sql`regexp_replace(${serviceClients.primaryPhone}, '[^0-9]', '', 'g') = ${digits}`)
+        .limit(1);
+    return client?.id ?? null;
 }
 
 export async function upsertLeadFromCall(callRecordId: string): Promise<void> {
@@ -48,6 +65,11 @@ export async function upsertLeadFromCall(callRecordId: string): Promise<void> {
         return;
     }
 
+    // Atlas step 6: resolve client FIRST by phone. Client = the account; a repeat caller belongs
+    // to their existing client record. If no client exists, proceed without one — we don't auto-
+    // create clients from calls (that's a manual CRM action).
+    const clientId = call.clientId ?? await resolveClientByPhone(e164);
+
     let extract: CallLeadExtract;
     try {
         extract = await claudeJson<CallLeadExtract>({
@@ -65,6 +87,7 @@ export async function upsertLeadFromCall(callRecordId: string): Promise<void> {
     if (extract.address && !call.address) callPatch.address = extract.address;
     if (extract.postcode && !call.postcode) callPatch.postcode = extract.postcode;
     if (extract.jobDescription && !call.jobSummary) callPatch.jobSummary = extract.jobDescription;
+    if (clientId && !call.clientId) callPatch.clientId = clientId;
 
     // Find-or-create the lead by phone.
     let leadId = call.leadId ?? null;
@@ -102,16 +125,20 @@ export async function upsertLeadFromCall(callRecordId: string): Promise<void> {
     }
 
     // Repoint the thread (never create one here — the call ingest owns thread creation).
-    if (leadId) {
-        const digits = e164.replace("+", "");
-        const [conv] = await db.select({ id: conversations.id, leadId: conversations.leadId })
-            .from(conversations)
-            .where(eq(conversations.phoneNumber, `${digits}@c.us`))
-            .limit(1);
-        if (conv && !conv.leadId) {
-            await db.update(conversations).set({ leadId }).where(eq(conversations.id, conv.id));
+    // Atlas step 6: also attach clientId to the thread.
+    const digits = e164.replace("+", "");
+    const [conv] = await db.select({ id: conversations.id, leadId: conversations.leadId, clientId: conversations.clientId })
+        .from(conversations)
+        .where(eq(conversations.phoneNumber, `${digits}@c.us`))
+        .limit(1);
+    if (conv) {
+        const convPatch: Record<string, any> = {};
+        if (leadId && !conv.leadId) convPatch.leadId = leadId;
+        if (clientId && !conv.clientId) convPatch.clientId = clientId;
+        if (Object.keys(convPatch).length) {
+            await db.update(conversations).set(convPatch).where(eq(conversations.id, conv.id));
         }
     }
 
-    console.log(`[CallLead] ${callRecordId}: done (lead ${leadId ?? "none"}${created ? ", created" : ""})`);
+    console.log(`[CallLead] ${callRecordId}: done (client ${clientId ?? "none"}, lead ${leadId ?? "none"}${created ? ", created" : ""})`);
 }

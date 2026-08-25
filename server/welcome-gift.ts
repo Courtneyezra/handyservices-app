@@ -15,7 +15,7 @@
  */
 import { db } from './db';
 import { personalizedQuotes } from '../shared/schema';
-import { and, eq, isNotNull, ne, or, type SQL } from 'drizzle-orm';
+import { and, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { getPricingSettings } from './pricing-settings';
 import type { AddonMenuItem, PricingSettings } from '../shared/pricing-settings';
 
@@ -56,13 +56,20 @@ function quotedLineCategories(quote: WelcomeGiftQuoteShape): Set<string> {
  * (or email) that has deposit_paid_at set. The current quote is excluded so
  * the check stays true at webhook time (when THIS quote's deposit lands).
  * A quote with neither phone nor email matches no history → first-time.
+ *
+ * Phone match is on the last 9 digits after stripping every non-digit, so
+ * formatting differences between entries of the same number — spaces, unicode
+ * dashes pasted from WhatsApp, +44/+60 country code vs leading 0 — still
+ * resolve to one customer. Email match is case-insensitive.
  */
 export async function isFirstTimeCustomer(quote: WelcomeGiftQuoteShape): Promise<boolean> {
     const identity: SQL[] = [];
-    const phone = (quote.phone || '').trim();
     const email = (quote.email || '').trim();
-    if (phone) identity.push(eq(personalizedQuotes.phone, phone));
-    if (email) identity.push(eq(personalizedQuotes.email, email));
+    const phoneTail = (quote.phone || '').replace(/[^0-9]/g, '').slice(-9);
+    if (phoneTail) {
+        identity.push(sql`RIGHT(regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g'), ${phoneTail.length}) = ${phoneTail}`);
+    }
+    if (email) identity.push(sql`LOWER(${personalizedQuotes.email}) = ${email.toLowerCase()}`);
     if (identity.length === 0) return true;
 
     const [prior] = await db.select({ id: personalizedQuotes.id })

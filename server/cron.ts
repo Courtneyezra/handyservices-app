@@ -3,7 +3,8 @@ import cron from "node-cron";
 import { db } from "./db";
 import { personalizedQuotes, contractorBookingRequests, handymanProfiles, users } from "@shared/schema";
 import { lt, and, eq, isNull, gte, lte, inArray, not, sql } from "drizzle-orm";
-import { sendWhatsAppMessage } from "./meta-whatsapp";
+import { sendCustomerMessage } from "./outbound";
+import { getKillSwitch } from "./settings";
 import {
     runRankTracking, runGmbPull, runGscPull, rankEnabled, gmbEnabled, gscEnabled,
     RANK_SCHEDULE, GMB_SCHEDULE, GSC_SCHEDULE,
@@ -180,6 +181,13 @@ export function setupCronJobs() {
  * reminder message via WhatsApp.
  */
 export async function sendDayBeforeCustomerReminders(): Promise<void> {
+    // Kill switch check — allows disabling without a deploy
+    const killed = await getKillSwitch('day_before_reminders');
+    if (killed) {
+        console.log('[DayBefore] Kill switch active — skipping customer reminders');
+        return;
+    }
+
     try {
         const now = new Date();
         const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
@@ -294,8 +302,21 @@ export async function sendDayBeforeCustomerReminders(): Promise<void> {
                 const firstName = (customerName || "there").split(" ")[0];
                 const message = `Hi ${firstName}! 👋\n\nJust a reminder — ${contractorName} from Handy Services will be with you tomorrow (${formattedDate}), ${timeSlotLabel}.\n\nIf you need to reach us: 07449 501762\n\nSee you tomorrow! 🔧`;
 
-                // Send WhatsApp message
-                await sendWhatsAppMessage(customerPhone, message);
+                // Send WhatsApp message via choke point (with opt-out enforcement)
+                const sendResult = await sendCustomerMessage({
+                    to: customerPhone,
+                    body: message,
+                    purpose: 'service_reply',  // Job-related, not marketing
+                    context: 'day_before_reminder',
+                    contactName: customerName,
+                });
+
+                if (!sendResult.ok) {
+                    console.log(`[DayBefore] Blocked reminder for ${firstName} (${customerPhone}) — ${sendResult.reason || sendResult.error}`);
+                    skippedCount++;
+                    continue;
+                }
+
                 sentCount++;
                 console.log(`[DayBefore] Sent customer reminder to ${firstName} (${customerPhone}) for booking ${job.bookingId}`);
 

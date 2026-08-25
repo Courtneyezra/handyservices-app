@@ -490,6 +490,10 @@ inboxBoardRouter.get('/senders', async (_req, res) => {
 inboxBoardRouter.get('/board', async (req, res) => {
     try {
         const limit = Math.min(Number(req.query.limit) || 300, 1000);
+        // One comms section, two hard-separated lanes. The customer lane is the funnel board;
+        // the contractor lane is a single working list (its own states arrive with the relay —
+        // inventing funnel stages for contractors now would just be wrong twice).
+        const lane = req.query.lane === 'contractor' ? 'contractor' : 'customer';
 
         // Projection, not select-*: full rows drag every thread's stored quote-prep intake blob
         // (metadata jsonb, multi-KB each) across the wire × 400 cards, which took the board from
@@ -512,8 +516,14 @@ inboxBoardRouter.get('/board', async (req, res) => {
             leadId: conversations.leadId,
             status: conversations.status,
             intakeReadiness: sql<string | null>`${conversations.metadata}->'quotePrepIntake'->>'readiness'`,
+            roleProfile: conversations.roleProfile,
         }).from(conversations)
-            .where(ne(conversations.status, 'archived'))
+            .where(and(
+                ne(conversations.status, 'archived'),
+                lane === 'contractor'
+                    ? eq(conversations.roleProfile, 'contractor')
+                    : ne(conversations.roleProfile, 'contractor'),
+            ))
             .orderBy(desc(conversations.lastMessageAt))
             .limit(limit))
             .map((r) => ({
@@ -534,11 +544,22 @@ inboxBoardRouter.get('/board', async (req, res) => {
             ));
 
         // Seed every column so the board renders its full shape even when a stage is empty.
+        //
+        // 'closed' is no longer a rendered column (23 Aug): closing is a drag-to-bin gesture in
+        // the UI, and dead threads don't deserve a fifth of the screen. Closed cards stay in the
+        // database, still reachable via thread deep-links; they just don't ride the board. The
+        // contractor lane is one working list — every non-closed contractor thread in a single
+        // column, whatever funnel stage ingest happened to stamp on it.
+        const visibleStages = lane === 'contractor'
+            ? ['contractor']
+            : BOARD_STAGES.filter((s) => s !== 'closed');
         const columns: Record<string, BoardCard[]> = Object.fromEntries(
-            BOARD_STAGES.map((s) => [s, [] as BoardCard[]])
+            visibleStages.map((s) => [s, [] as BoardCard[]])
         );
         for (const card of cards) {
-            (columns[card.stage] ??= []).push(card);
+            if (card.stage === 'closed') continue;
+            if (lane === 'contractor') columns.contractor.push(card);
+            else (columns[card.stage] ??= []).push(card);
         }
 
         // Ordering within a column, and the reasoning behind it:
@@ -568,7 +589,7 @@ inboxBoardRouter.get('/board', async (req, res) => {
         }
 
         res.json({
-            stages: BOARD_STAGES,
+            stages: visibleStages,
             columns,
             slaWorkingHours: DEFAULT_SLA_WORKING_HOURS,
             totals: {
@@ -621,12 +642,32 @@ inboxBoardRouter.patch('/conversations/:id', async (req, res) => {
             if (status === 'archived') patch.archivedAt = new Date();
         }
 
+        // Read the pre-change stage so the beta ping can say what moved where.
+        const [before] = stage !== undefined
+            ? await db.select({ stage: conversations.stage, contactName: conversations.contactName, phoneNumber: conversations.phoneNumber })
+                .from(conversations).where(eq(conversations.id, req.params.id))
+            : [undefined];
+
         const [updated] = await db.update(conversations)
             .set(patch)
             .where(eq(conversations.id, req.params.id))
             .returning();
 
         if (!updated) return res.status(404).json({ error: 'Conversation not found' });
+
+        // Beta read-along: stage moves are part of the story being watched. Fire-and-forget.
+        if (before && before.stage !== updated.stage) {
+            void (async () => {
+                const { notifyCommsBeta } = await import('./pushover');
+                await notifyCommsBeta({
+                    conversationId: updated.id,
+                    customerName: updated.contactName,
+                    phoneNumber: `+${updated.phoneNumber.replace('@c.us', '').replace(/\D/g, '')}`,
+                    headline: `Stage: ${before.stage} → ${updated.stage}`,
+                });
+            })().catch((e) => console.warn('[InboxBoard] beta ping failed:', e?.message));
+        }
+
         res.json({ card: toCard(updated) });
     } catch (error: any) {
         console.error('[InboxBoard] Update failed:', error);
@@ -740,6 +781,53 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
                 ))
                 .orderBy(desc(messageDrafts.createdAt))
             : [];
+
+        // The full draft history for this number — the machinery behind the thread. Two jobs:
+        // (1) attribution: an outbound message whose content matches a sent/approved draft part
+        //     was written by whoever the draft says (same content-matching convention the agent's
+        //     own get_thread uses — one rule everywhere);
+        // (2) workings: rejected/superseded/failed drafts render as collapsible system events, so
+        //     "why didn't it reply?" is answerable from the thread instead of the database.
+        const settledDrafts = convDigits
+            ? await db.select().from(messageDrafts)
+                .where(and(
+                    inArray(messageDrafts.status, ['sent', 'approved', 'rejected', 'failed']),
+                    sql`regexp_replace(${messageDrafts.phone}, '[^0-9]', '', 'g') = ${convDigits}`,
+                ))
+                .orderBy(desc(messageDrafts.createdAt))
+            : [];
+
+        const attributionByContent = new Map<string, { draftedBy: string; sentBy: string | null }>();
+        for (const d of settledDrafts) {
+            if (!['sent', 'approved'].includes(d.status)) continue;
+            const sentBy = d.approvedBy ?? null;
+            for (const part of d.body.split(/\n?---\n?/).map((p) => p.trim()).filter(Boolean)) {
+                attributionByContent.set(part, { draftedBy: d.source, sentBy });
+            }
+        }
+        // Compact chip labels the UI renders verbatim. Precedence: who drafted, then who released.
+        const chipFor = (draftedBy: string, sentBy: string | null): string => {
+            const agentDrafted = draftedBy === 'comms_agent';
+            if (agentDrafted && sentBy?.startsWith('comms_agent')) return 'agent · auto';
+            if (agentDrafted) return `agent · ok'd by ${sentBy?.split('@')[0] ?? 'human'}`;
+            if (draftedBy === 'first_contact_ack') return 'auto hello';
+            return draftedBy;
+        };
+
+        const machineryEvents = settledDrafts
+            .filter((d) => ['rejected', 'failed'].includes(d.status))
+            .map((d) => ({
+                kind: 'draft_event' as const,
+                id: `draft-${d.id}`,
+                status: d.status,
+                source: d.source,
+                decidedBy: d.approvedBy ?? null,
+                reason: d.reason ?? null,
+                error: d.error ?? null,
+                body: d.body,
+                createdAt: (d.approvedAt ?? d.sentAt ?? d.createdAt)?.toISOString?.()
+                    ?? (d.approvedAt ?? d.sentAt ?? d.createdAt),
+            }));
         // 'flagged' rows are the new escalation shape (21 Aug 2026): an audit note explaining why
         // the agent flagged the thread for Ben. 'open'/'answered' are the retired tap-question
         // relay, still returned so anything in flight stays visible until it drains.
@@ -754,21 +842,30 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
         // name, and hiding them would leave him staring at a thread that makes no sense. They just
         // arrive labelled `neverSent` so the UI can show them as what they were: an attempt that
         // reached nobody. Only the SLA clock in loadActivity ignores them.
-        const messageEvents = recent.reverse().map((m) => ({
-            kind: 'message' as const,
-            id: m.id,
-            direction: m.direction,
-            channel: m.channel,
-            content: m.content,
-            type: m.type,
-            status: m.status,
-            errorCode: m.errorCode,
-            mediaUrl: m.mediaUrl,
-            mediaType: m.mediaType,
-            senderName: m.senderName,
-            createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
-            ...neverSentMeta(m),
-        }));
+        const messageEvents = recent.reverse().map((m) => {
+            const attr = m.direction === 'outbound'
+                ? attributionByContent.get((m.content ?? '').trim()) ?? null
+                : null;
+            return {
+                kind: 'message' as const,
+                id: m.id,
+                direction: m.direction,
+                channel: m.channel,
+                content: m.content,
+                type: m.type,
+                status: m.status,
+                errorCode: m.errorCode,
+                mediaUrl: m.mediaUrl,
+                mediaType: m.mediaType,
+                senderName: m.senderName,
+                createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
+                // Who actually wrote this outbound: chip text for the UI, null for inbound and
+                // for human-typed sends (no chip is the "Ben typed it" default — chips mark the
+                // machine's hands, not his).
+                sentVia: attr ? chipFor(attr.draftedBy, attr.sentBy) : null,
+                ...neverSentMeta(m),
+            };
+        });
 
         // Every call is on this thread twice on purpose: once as a `messages` row with
         // channel='call' (written by server/call-thread.ts, which is what gives a call-only
@@ -783,7 +880,7 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
 
         // Merge into one chronological timeline. Calls sit inline with messages so a customer's
         // history reads as a single sequence — the whole point of pulling them in.
-        const timeline = [...timelineMessages, ...callEvents].sort(
+        const timeline = [...timelineMessages, ...callEvents, ...machineryEvents].sort(
             (a, b) => new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime()
         );
 

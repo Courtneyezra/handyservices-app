@@ -225,6 +225,60 @@ router.get('/', async (req: Request, res: Response) => {
 
 // GET /api/admin/contractors/:id
 // Get single contractor with full details
+// GET /:id/comms — the contractor's communication record: their conversation (if their
+// registered number has ever messaged the business line) plus recent calls, so the detail
+// page shows the relationship without leaving it. Read-only; the full thread lives in
+// /admin/comms?conversation=<id>.
+router.get('/:id/comms', async (req: Request, res: Response) => {
+    try {
+        const contractor = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.id, req.params.id),
+            with: { user: true },
+        });
+        if (!contractor) return res.status(404).json({ error: 'Contractor not found' });
+
+        const digits = (contractor.user?.phone ?? '').replace(/\D/g, '');
+        if (!digits) return res.json({ phone: null, conversationId: null, events: [] });
+
+        const { conversations, messages, calls } = await import('@shared/schema');
+        const [conv] = await db.select().from(conversations)
+            .where(sql`regexp_replace(${conversations.phoneNumber}, '[^0-9]', '', 'g') = ${digits}`)
+            .limit(1);
+
+        const recentMessages = conv ? await db.select().from(messages)
+            .where(eq(messages.conversationId, conv.id))
+            .orderBy(desc(messages.createdAt)).limit(15) : [];
+
+        const recentCalls = await db.select().from(calls)
+            .where(sql`regexp_replace(${calls.phoneNumber}, '[^0-9]', '', 'g') = ${digits}`)
+            .orderBy(desc(calls.startTime)).limit(10);
+
+        const events = [
+            ...recentMessages.map((m) => ({
+                kind: 'message' as const, id: m.id, direction: m.direction,
+                body: m.content, at: m.createdAt,
+            })),
+            ...recentCalls.map((c) => ({
+                kind: 'call' as const, id: c.id,
+                direction: (c.direction ?? '').toLowerCase().includes('out') ? 'outbound' : 'inbound',
+                body: c.jobSummary, at: c.startTime,
+                durationSeconds: c.duration ?? null,
+                recorded: Boolean(c.recordingUrl || c.localRecordingPath),
+            })),
+        ].sort((a, b) => new Date(b.at as any).getTime() - new Date(a.at as any).getTime()).slice(0, 20);
+
+        res.json({
+            phone: contractor.user?.phone ?? null,
+            conversationId: conv?.id ?? null,
+            laneCorrect: conv ? conv.roleProfile === 'contractor' : null,
+            events,
+        });
+    } catch (error: any) {
+        console.error('[AdminContractors] comms lookup failed:', error);
+        res.status(500).json({ error: 'Failed to load contractor comms' });
+    }
+});
+
 router.get('/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
@@ -321,6 +375,12 @@ router.post('/', async (req: Request, res: Response) => {
             role: 'contractor',
             isActive: true,
         });
+
+        // Registering the phone is what flips this number's inbound WhatsApp into the
+        // contractor lane (server/roles.ts) — clear the resolver cache so it takes effect
+        // on the next message, not in a minute.
+        const { invalidateRoleCache } = await import('./roles');
+        invalidateRoleCache();
 
         // Geocode postcode so admin-onboarded contractors can be location-matched
         let latitude: string | null = null;
@@ -437,6 +497,10 @@ router.put('/:id', async (req: Request, res: Response) => {
         if (Object.keys(userUpdates).length > 0) {
             userUpdates.updatedAt = new Date();
             await db.update(users).set(userUpdates).where(eq(users.id, userId));
+            if (userUpdates.phone !== undefined) {
+                const { invalidateRoleCache } = await import('./roles');
+                invalidateRoleCache();
+            }
         }
 
         // Update profile fields if any provided

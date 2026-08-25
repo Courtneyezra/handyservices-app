@@ -21,6 +21,7 @@ import {
     PUSHOVER_EVENT_DEFS,
 } from '../shared/pushover-settings';
 import { logSystemEvent } from './system-events';
+import { fetchWithTimeout, SHORT_TIMEOUT_MS } from './lib/fetch-with-timeout';
 
 /** Format pence as £ for alert bodies. */
 function gbp(pence?: number | null): string {
@@ -185,11 +186,11 @@ async function dispatchInner(opts: DispatchOptions): Promise<{ sent: number; ski
     await Promise.all(
         recipients.map(async (r) => {
             try {
-                const res = await fetch(PUSHOVER_URL, {
+                const res = await fetchWithTimeout(PUSHOVER_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ ...baseBody, user: r.userKey }),
-                });
+                }, SHORT_TIMEOUT_MS);
                 if (res.ok) {
                     sent++;
                     console.log(`[Pushover] "${opts.title}" → ${r.name}`);
@@ -320,10 +321,26 @@ export async function notifyIncomingSms(alert: InboundMessageAlert): Promise<voi
     const number = alert.phoneNumber?.trim() || 'no number';
     const body = alert.body?.trim();
     const lines = [`${name} — ${number}`];
-    if (body) lines.push(`“${truncate(body, 450)}”`);
+    if (body) lines.push(`"${truncate(body, 450)}"`);
     await dispatch({
         event: 'sms',
         title: '💬 New SMS',
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
+/** Fire an "incoming WhatsApp" push alert. Added 25 Aug 2026 (Switchboard Atlas cleanup). */
+export async function notifyIncomingWhatsApp(alert: InboundMessageAlert): Promise<void> {
+    const name = alert.senderName?.trim() || 'Unknown';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const body = alert.body?.trim();
+    const lines = [`${name} — ${number}`];
+    if (body) lines.push(`"${truncate(body, 450)}"`);
+    await dispatch({
+        event: 'whatsapp',
+        title: '📱 New WhatsApp',
         message: lines.join('\n'),
         linkPhone: alert.phoneNumber,
         linkName: name,
@@ -442,6 +459,44 @@ export async function notifyEscalation(alert: EscalationAlert): Promise<void> {
         linkName: who,
         linkUrl: deepLink,
         linkUrlTitle: '🚩 Open the thread',
+    });
+}
+
+interface CommsBetaAlert {
+    conversationId: string;
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    /** One-line headline: what just happened ("Agent ran (inbound)", "Stage: scoping → won"). */
+    headline: string;
+    /** Detail lines under the headline — kept short, the thread has the full story. */
+    detail?: string[];
+}
+
+/**
+ * The beta read-along feed: one ping per comms action, deep-linked into the thread.
+ *
+ * This is deliberately a firehose and deliberately ONE event key ('comms_beta') — while the
+ * agent earns trust, the humans want to read every conversation it touches as it happens; when
+ * beta ends, one toggle in /admin/notifications silences the whole feed without touching code.
+ * Never make individual call sites configurable — that's how a feed becomes a maze.
+ */
+export async function notifyCommsBeta(alert: CommsBetaAlert): Promise<void> {
+    const who = alert.customerName?.trim() || alert.phoneNumber?.trim() || 'Unknown';
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const deepLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+
+    const lines = [`${who}${alert.phoneNumber ? ` — ${alert.phoneNumber}` : ''}`];
+    for (const d of alert.detail ?? []) lines.push(truncate(d, 300));
+    lines.push(deepLink);
+
+    await dispatch({
+        event: 'comms_beta',
+        title: `👁 ${alert.headline}`,
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: who,
+        linkUrl: deepLink,
+        linkUrlTitle: '👁 Read the thread',
     });
 }
 

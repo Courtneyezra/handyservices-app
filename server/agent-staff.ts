@@ -16,7 +16,8 @@ import {
 } from '@shared/schema';
 import { eq, and, gte, desc, isNotNull, sql } from 'drizzle-orm';
 import { queueDraft } from './message-drafts';
-import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
+import { canSendFreeform } from './meta-whatsapp';
+import { sendCustomerMessage } from './outbound';
 import { renderQuickReply } from './quick-replies';
 import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
 import { claudeText } from './llm';
@@ -690,8 +691,17 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             try {
                 for (let i = 0; i < parts.length; i++) {
                     if (i > 0) await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
-                    const result: any = await sendWhatsAppMessage(phone, parts[i]);
-                    sids.push(result?.sid ?? 'unknown');
+                    const sendResult = await sendCustomerMessage({
+                        to: phone,
+                        body: parts[i],
+                        purpose: 'service_reply',  // Human-approved quote send
+                        context: 'quote_prep:freeform',
+                        contactName: quote.customerName,
+                    });
+                    if (!sendResult.ok) {
+                        throw new Error(sendResult.error || sendResult.reason || 'Send blocked');
+                    }
+                    sids.push('sent');
                     if (parts[i].includes(quoteUrl)) linkDelivered = true;
                 }
             } catch (sendError: any) {
@@ -730,13 +740,21 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             // it is not a delivery route — better to queue than to send words with no quote.
             if (rendered.includes(quoteUrl)) {
                 try {
-                    const result: any = await sendWhatsAppMessage(phone, rendered, {
+                    const sendResult = await sendCustomerMessage({
+                        to: phone,
+                        body: rendered,
+                        purpose: 'service_reply',  // Human-approved quote send
+                        context: 'quote_prep:template',
+                        contactName: quote.customerName,
                         contentSid: approved.contentSid,
                         contentVariables: vars,
                     });
+                    if (!sendResult.ok) {
+                        throw new Error(sendResult.error || sendResult.reason || 'Send blocked');
+                    }
                     await finalizeQuoteSent(quote.id, conv.id);
                     return res.json({
-                        sent: true, mode: 'template', sids: [result?.sid ?? 'unknown'],
+                        sent: true, mode: 'template', sids: ['sent'],
                         templateName: approved.name, rendered,
                     });
                 } catch (templateError: any) {
@@ -756,12 +774,20 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                     ? Object.fromEntries(Object.entries(template.contentVariables as Record<string, string>)
                         .map(([k, v]) => [k, renderWithLink(String(v))]))
                     : undefined;
-                const result: any = await sendWhatsAppMessage(phone, renderWithLink(template.body), {
+                const sendResult = await sendCustomerMessage({
+                    to: phone,
+                    body: renderWithLink(template.body),
+                    purpose: 'service_reply',  // Human-approved quote send
+                    context: 'quote_prep:quick_reply_template',
+                    contactName: quote.customerName,
                     contentSid: template.contentSid!,
                     contentVariables: vars,
                 });
+                if (!sendResult.ok) {
+                    throw new Error(sendResult.error || sendResult.reason || 'Send blocked');
+                }
                 await finalizeQuoteSent(quote.id, conv.id);
-                return res.json({ sent: true, mode: 'template', sids: [result?.sid ?? 'unknown'], templateId: template.id });
+                return res.json({ sent: true, mode: 'template', sids: ['sent'], templateId: template.id });
             } catch (templateError: any) {
                 // Template refused — fall through to the queue so the send is never just lost,
                 // and tell the card what happened.

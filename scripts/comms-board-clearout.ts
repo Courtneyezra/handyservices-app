@@ -65,7 +65,7 @@ import { db } from '../server/db';
 import { sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { sendCustomerMessage } from '../server/outbound';
-import { findApprovedTemplate } from '../server/whatsapp-templates';
+import { findApprovedTemplateWithValues } from '../server/whatsapp-template-sync';
 import { commsPhoneKey } from '../server/phone-utils';
 import { loadOptOutIndex } from '../server/opt-out';
 
@@ -252,7 +252,7 @@ async function planFor(p: Person): Promise<Plan> {
             };
         }
         // Outside the window only an approved template may go. Resolved by name at runtime.
-        const t = await findApprovedTemplate(['quote_followup_link'], [firstName(p.name), job, link]);
+        const t = await findApprovedTemplateWithValues(['quote_followup_link'], [firstName(p.name), job, link]);
         if (!t) return { ...base, channel: null, templateName: null, body: null, hold: 'no approved template for quote_followup_link' };
         return { ...base, channel: forceSms ? 'sms' : 'whatsapp', templateName: t.template.name, body: t.body, hold: null };
     }
@@ -274,7 +274,7 @@ async function planFor(p: Person): Promise<Plan> {
             hold: null,
         };
     }
-    const t = await findApprovedTemplate(preferred, [firstName(p.name)]);
+    const t = await findApprovedTemplateWithValues(preferred, [firstName(p.name)]);
     if (!t) return { ...base, channel: null, templateName: null, body: null, hold: `no approved template among ${preferred.join(', ')}` };
     return { ...base, channel: forceSms ? 'sms' : 'whatsapp', templateName: t.template.name, body: t.body, hold: null };
 }
@@ -533,7 +533,7 @@ async function main() {
             const vals = plan.segment === 'quoted_unpaid'
                 ? [firstName(p.name), String(p.openQuote?.job_top_line || p.openQuote?.job_description || 'your job').replace(/\s+/g, ' ').trim().slice(0, 60), `${QUOTE_BASE}/q/${p.openQuote?.short_slug}`]
                 : [firstName(p.name)];
-            const t = await findApprovedTemplate([plan.templateName], vals);
+            const t = await findApprovedTemplateWithValues([plan.templateName], vals);
             if (!t) {
                 console.log(`  [${i + 1}/${sendable.length}] ${p.e164} SKIP template '${plan.templateName}' no longer approved`);
                 await logSend(plan, 'skipped', `template ${plan.templateName} not approved at send time`, null, null);

@@ -35,6 +35,9 @@ import {
   ChevronRight,
   ImageIcon,
   ExternalLink,
+  MessageSquare,
+  Phone,
+  PhoneOutgoing,
 } from 'lucide-react';
 import { CATEGORY_LABELS } from '@shared/categories';
 import { useToast } from '@/hooks/use-toast';
@@ -1059,6 +1062,100 @@ function EarningsSummaryCard({ contractor }: { contractor: ContractorDetail }) {
 }
 
 // ---------------------------------------------------------------------------
+// Comms — the contractor's communication record
+// ---------------------------------------------------------------------------
+
+interface ContractorCommsEvent {
+  kind: 'message' | 'call';
+  id: string;
+  direction: string;
+  body: string | null;
+  at: string;
+  durationSeconds?: number | null;
+  recorded?: boolean;
+}
+
+/**
+ * Recent messages and calls with this contractor's registered number, newest first, with a
+ * jump into the full thread in /admin/comms. Read-only here — this card is the relationship
+ * record, not a composer.
+ */
+function CommsCard({ contractor }: { contractor: ContractorDetail }) {
+  const { data } = useQuery<{
+    phone: string | null; conversationId: string | null; laneCorrect: boolean | null;
+    events: ContractorCommsEvent[];
+  }>({
+    queryKey: ['admin-contractor-comms', contractor.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/contractors/${contractor.id}/comms`, {
+        headers: { Authorization: `Bearer ${getAdminToken()}` },
+      });
+      if (!res.ok) throw new Error('Failed to fetch contractor comms');
+      return res.json();
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageSquare className="h-4 w-4" />
+          Comms
+        </CardTitle>
+        {data?.conversationId && (
+          <Link href={`/admin/comms?conversation=${data.conversationId}`}>
+            <Button variant="outline" size="sm">
+              Open thread
+              <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+            </Button>
+          </Link>
+        )}
+      </CardHeader>
+      <CardContent>
+        {!data ? (
+          <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin" /></div>
+        ) : !data.phone ? (
+          <p className="text-sm text-muted-foreground">
+            No phone registered — add one above so their WhatsApp lands in the contractor lane.
+          </p>
+        ) : data.events.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No messages or calls with {data.phone} yet. When they text the business number, the
+            thread appears here (and never becomes a customer lead).
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {data.laneCorrect === false && (
+              <p className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                This thread predates contractor onboarding and is still marked as a customer
+                thread — it moves lanes on their next message.
+              </p>
+            )}
+            {data.events.map((e) => (
+              <div key={`${e.kind}-${e.id}`} className="flex items-start gap-2 text-sm">
+                {e.kind === 'call'
+                  ? (e.direction === 'outbound'
+                    ? <PhoneOutgoing className="mt-0.5 h-3.5 w-3.5 shrink-0 text-purple-600" />
+                    : <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-purple-600" />)
+                  : <MessageSquare className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${e.direction === 'outbound' ? 'text-emerald-600' : 'text-slate-400'}`} />}
+                <span className="min-w-0 flex-1 truncate text-slate-700">
+                  {e.kind === 'call'
+                    ? `${e.direction === 'outbound' ? 'Outbound' : 'Inbound'} call${e.durationSeconds ? ` · ${Math.round(e.durationSeconds / 60)}m` : ''}${e.recorded ? ' · recorded' : ''}${e.body ? ` — ${e.body}` : ''}`
+                    : (e.body ?? '(media)')}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {new Date(e.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page Component
 // ---------------------------------------------------------------------------
 
@@ -1106,6 +1203,7 @@ export default function ContractorDetailPage() {
       <ProfileDetailsCard contractor={contractor} />
       <DisplayImageSection contractor={contractor} />
       <SkillsRatesCard contractor={contractor} />
+      <CommsCard contractor={contractor} />
       <AvailabilityCalendar contractor={contractor} />
       <BookedJobsCard contractor={contractor} />
       <EarningsSummaryCard contractor={contractor} />

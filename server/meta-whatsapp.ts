@@ -8,6 +8,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { db } from './db';
 import { conversations, messages, type InsertConversation, type InsertMessage } from '../shared/schema';
 import { eq, desc } from 'drizzle-orm';
@@ -17,13 +18,65 @@ import { normalizePhoneNumber } from './phone-utils';
 import { getWhatsAppSender } from './whatsapp-sender';
 import { scheduleInboundTriage } from './agents/comms-lanes';
 import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
+import { fetchWithTimeout, SHORT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS } from './lib/fetch-with-timeout';
+import { notifyIncomingWhatsApp } from './pushover';
+
+/** Timeout for Meta Graph API calls (15 seconds). Most calls are fast. */
+const META_API_TIMEOUT_MS = 15_000;
+
+/** Timeout for Twilio WhatsApp API calls (15 seconds). */
+const TWILIO_TIMEOUT_MS = 15_000;
 
 // Environment variables
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
-const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'handy_services_webhook_2025';
+// WHATSAPP_VERIFY_TOKEN is validated at startup via env-validation.ts in production
+const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+// META_APP_SECRET is the Facebook App Secret, used for X-Hub-Signature-256 verification
+const META_APP_SECRET = process.env.META_APP_SECRET;
 const GRAPH_API_VERSION = 'v18.0';
 const GRAPH_API_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+
+/**
+ * Verify X-Hub-Signature-256 header from Meta webhooks.
+ * @see https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests
+ */
+function verifyWebhookSignature(req: Request): boolean {
+    // If no app secret configured, log warning and allow (graceful degradation during migration)
+    if (!META_APP_SECRET) {
+        console.warn('[Meta WhatsApp] META_APP_SECRET not set — skipping signature verification');
+        return true;
+    }
+
+    const signature = req.headers['x-hub-signature-256'] as string | undefined;
+    if (!signature) {
+        console.error('[Meta WhatsApp] Missing X-Hub-Signature-256 header');
+        return false;
+    }
+
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    if (!rawBody) {
+        console.error('[Meta WhatsApp] Raw body not available for signature verification');
+        return false;
+    }
+
+    // Signature format: "sha256=<hex_digest>"
+    const expectedSignature = 'sha256=' + crypto
+        .createHmac('sha256', META_APP_SECRET)
+        .update(rawBody)
+        .digest('hex');
+
+    // Constant-time comparison to prevent timing attacks
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(signature),
+            Buffer.from(expectedSignature)
+        );
+    } catch {
+        // Lengths don't match
+        return false;
+    }
+}
 
 // Twilio credentials (for sending via Twilio WhatsApp API)
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -65,11 +118,11 @@ async function getMediaUrl(mediaId: string): Promise<string | undefined> {
     try {
         // First, get the media URL from Meta
         const mediaInfoUrl = `${GRAPH_API_URL}/${mediaId}`;
-        const response = await fetch(mediaInfoUrl, {
+        const response = await fetchWithTimeout(mediaInfoUrl, {
             headers: {
                 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`
             }
-        });
+        }, META_API_TIMEOUT_MS);
 
         if (!response.ok) {
             console.error('[Meta WhatsApp] Failed to get media info:', response.status);
@@ -113,6 +166,12 @@ metaWhatsAppRouter.get('/webhook', (req: Request, res: Response) => {
 // ==========================================
 metaWhatsAppRouter.post('/webhook', async (req: Request, res: Response) => {
     try {
+        // Verify X-Hub-Signature-256 to ensure request is from Meta
+        if (!verifyWebhookSignature(req)) {
+            console.error('[Meta WhatsApp] ❌ Webhook signature verification failed');
+            return res.sendStatus(401);
+        }
+
         const body = req.body;
         console.log('[Meta WhatsApp] Incoming webhook:', JSON.stringify(body, null, 2));
 
@@ -209,6 +268,15 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
         // become a customer lead or get the customer agent.
         const { resolveInboundRole, linkOrCreateLeadForInbound } = await import('./whatsapp-ingest');
         const role = await resolveInboundRole(from);
+
+        // Pushover alert for customer messages (added 25 Aug 2026, Switchboard Atlas cleanup)
+        if (role === 'customer') {
+            notifyIncomingWhatsApp({
+                senderName: profileName,
+                phoneNumber: from,
+                body: content,
+            }).catch((e) => console.warn('[Meta WhatsApp] Pushover notification failed:', e));
+        }
 
         // Tenant/landlord AI fork removed 24 Aug 2026 (Switchboard Atlas step 4): ungoverned
         // autonomous sender — no kill switch, no draft queue, no opt-out, no window check.
@@ -422,11 +490,11 @@ export async function sendViaMetaCloudApi(
 
     console.log(`[Meta Cloud API] Sending ${isTemplate ? 'template' : 'freeform'} to +${recipient} via ${phoneNumberId}`);
 
-    const res = await fetch(`${GRAPH_API_URL}/${phoneNumberId}/messages`, {
+    const res = await fetchWithTimeout(`${GRAPH_API_URL}/${phoneNumberId}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-    });
+    }, META_API_TIMEOUT_MS);
     const result: any = await res.json();
 
     if (!res.ok) {
@@ -643,14 +711,14 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
         formData.append('StatusCallback', statusCallbackUrl);
     }
 
-    const response = await fetch(twilioUrl, {
+    const response = await fetchWithTimeout(twilioUrl, {
         method: 'POST',
         headers: {
             'Authorization': `Basic ${auth}`,
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: formData.toString()
-    });
+    }, TWILIO_TIMEOUT_MS);
 
     const result = await response.json();
 
@@ -784,7 +852,7 @@ async function markMessageAsRead(messageId: string, phoneNumberId: string) {
     if (!WHATSAPP_ACCESS_TOKEN) return;
 
     try {
-        await fetch(
+        await fetchWithTimeout(
             `${GRAPH_API_URL}/${phoneNumberId}/messages`,
             {
                 method: 'POST',
@@ -797,7 +865,8 @@ async function markMessageAsRead(messageId: string, phoneNumberId: string) {
                     status: 'read',
                     message_id: messageId
                 })
-            }
+            },
+            SHORT_TIMEOUT_MS,
         );
     } catch (error) {
         console.error('[Meta WhatsApp] Error marking as read:', error);
@@ -808,27 +877,9 @@ async function markMessageAsRead(messageId: string, phoneNumberId: string) {
 // API ENDPOINTS
 // ==========================================
 
-// Send message endpoint
-metaWhatsAppRouter.post('/send', async (req: Request, res: Response) => {
-    try {
-        const { to, body, templateName, templateLanguage, templateComponents } = req.body;
-
-        if (!to || !body) {
-            return res.status(400).json({ error: "Missing 'to' or 'body'" });
-        }
-
-        const result = await sendWhatsAppMessage(to, body, {
-            templateName,
-            templateLanguage,
-            templateComponents
-        });
-
-        res.json({ success: true, result });
-    } catch (error: any) {
-        console.error('[Meta WhatsApp] Send endpoint error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
+// NOTE: Unauthenticated POST /send endpoint deleted 25 Aug 2026 (Switchboard Atlas cleanup).
+// It was shadowed by mount order but remained a security risk. Use sendWhatsAppMessage() directly
+// or go through the draft queue (message-drafts.ts) for proper opt-out enforcement.
 
 // Health check
 metaWhatsAppRouter.get('/health', (req: Request, res: Response) => {

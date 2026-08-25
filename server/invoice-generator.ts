@@ -594,12 +594,17 @@ export async function runDunningSequence(): Promise<{ reminded: number; escalate
     let reminded = 0;
     let escalated = 0;
 
-    // Find all unpaid invoices (status: sent or overdue) with balance > 0
+    // Find all unpaid invoices (status: sent or overdue) with balance > 0.
+    // CRITICAL: sentAt IS NOT NULL — we must never chase invoices that were never actually sent
+    // to customers. All 115 invoices with status='overdue' have sentAt=NULL (the overdue flag was
+    // computed from createdAt, same defect that killed dunning 13 Aug). Gating on sentAt prevents
+    // chasing ghosts.
     const unpaidInvoices = await db.select()
         .from(invoices)
         .where(and(
             sql`${invoices.status} IN ('sent', 'overdue')`,
             sql`${invoices.balanceDue} > 0`,
+            sql`${invoices.sentAt} IS NOT NULL`,
         ));
 
     if (unpaidInvoices.length === 0) return { reminded: 0, escalated: 0 };
@@ -611,8 +616,8 @@ export async function runDunningSequence(): Promise<{ reminded: number; escalate
         // Need at least an email to send reminders (phone-only customers skip)
         if (!invoice.customerEmail && !invoice.customerPhone) continue;
 
-        const sentAt = invoice.sentAt || invoice.createdAt;
-        if (!sentAt) continue;
+        // sentAt is guaranteed non-null by the query filter — no fallback to createdAt
+        const sentAt = invoice.sentAt!;
 
         const daysSinceSent = Math.floor((now.getTime() - new Date(sentAt).getTime()) / (1000 * 60 * 60 * 24));
 
@@ -678,14 +683,20 @@ export async function runDunningSequence(): Promise<{ reminded: number; escalate
             // Optional WhatsApp fallback (non-blocking, expected to fail in production)
             if (invoice.customerPhone) {
                 try {
-                    const { sendWhatsAppMessage } = await import('./meta-whatsapp');
+                    const { sendCustomerMessage } = await import('./outbound');
                     const whatsappMessages: Record<string, string> = {
                         day_7: `Friendly reminder: Invoice ${invoice.invoiceNumber} for ${formatPence(invoice.balanceDue)} is outstanding. Pay here: ${paymentLink}`,
                         day_14: `Overdue: Invoice ${invoice.invoiceNumber} for ${formatPence(invoice.balanceDue)} is past due. Please pay: ${paymentLink}`,
                         day_21: `Final notice: Invoice ${invoice.invoiceNumber} for ${formatPence(invoice.balanceDue)} requires immediate payment: ${paymentLink}`,
                     };
-                    await sendWhatsAppMessage(invoice.customerPhone, whatsappMessages[reminderLevel]);
-                    if (!sent) {
+                    const sendResult = await sendCustomerMessage({
+                        to: invoice.customerPhone,
+                        body: whatsappMessages[reminderLevel],
+                        purpose: 'marketing',  // Dunning reminders are opt-out-able
+                        context: `invoice_dunning:${reminderLevel}`,
+                        contactName: invoice.customerName,
+                    });
+                    if (sendResult.ok && !sent) {
                         sent = true;
                         reminded++;
                     }

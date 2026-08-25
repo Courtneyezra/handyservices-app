@@ -371,6 +371,21 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             source: 'message-drafts',
         });
 
+        // Beta read-along ping for sends released OUTSIDE an agent run (Ben approving, the
+        // first-contact ack, sweeps). Agent autosends are excluded here — the run-completion
+        // ping in comms.ts already reports those, and one action must not buzz twice.
+        if (!approvedBy.startsWith('comms_agent') && draft.conversationId) {
+            void (async () => {
+                const { notifyCommsBeta } = await import('./pushover');
+                await notifyCommsBeta({
+                    conversationId: draft.conversationId!,
+                    phoneNumber: draft.phone,
+                    headline: `Message sent (${approvedBy.split('@')[0]})`,
+                    detail: [draft.body.slice(0, 200)],
+                });
+            })().catch((e) => console.warn('[MessageDrafts] beta ping failed:', e?.message));
+        }
+
         // A draft carrying a contextual quote link (the shut-window fallback from the in-chat
         // quote card) has just delivered that quote — flip it out of draft and stage the thread,
         // exactly as a direct card send would have. Best-effort: the message is already with the

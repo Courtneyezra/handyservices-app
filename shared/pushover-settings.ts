@@ -26,7 +26,8 @@ export type PushoverEventKey =
     | 'site_survey'
     | 'no_contractor'
     | 'template_status'
-    | 'send_failed';
+    | 'send_failed'
+    | 'comms_beta';
 
 export interface PushoverEventDef {
     key: PushoverEventKey;
@@ -73,6 +74,10 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // A message that reached the customer by neither WhatsApp nor SMS. Used to be a 'failed' draft
     // row nobody read, which is how a first contact could be dropped in total silence.
     { key: 'send_failed', label: 'Message not delivered (no channel worked)', short: 'Undelivered', group: 'Dispatch', defaultPriority: 1, defaultSound: 'siren' },
+    // The beta firehose: one ping per comms action — agent runs, human-approved sends, stage
+    // moves — each deep-linking into the thread, so the humans can read along while the agent
+    // earns trust. Deliberately ONE event key: one toggle kills the whole feed when beta ends.
+    { key: 'comms_beta', label: 'Beta: every comms action (read-along firehose)', short: 'Beta feed', group: 'Inbound', defaultPriority: 0, defaultSound: 'magic' },
 ];
 
 export const PUSHOVER_EVENT_KEYS: PushoverEventKey[] = PUSHOVER_EVENT_DEFS.map((e) => e.key);

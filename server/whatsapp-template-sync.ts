@@ -23,7 +23,8 @@ import {
 } from '@shared/schema';
 import { eq, and, desc, asc } from 'drizzle-orm';
 import { notifyTemplateStatus } from './pushover';
-import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
+import { canSendFreeform } from './meta-whatsapp';
+import { sendCustomerMessage } from './outbound';
 import { renderQuickReply } from './quick-replies';
 
 export const whatsappTemplatesRouter = Router();
@@ -269,6 +270,64 @@ export function placeholderIndexes(body: string | null | undefined): string[] {
     return [...found].sort((a, b) => Number(a) - Number(b));
 }
 
+// ---------------------------------------------------------------- array-signature lookup
+// Supports callers that need to try multiple template names in preference order and supply
+// positional values. Returns a shape compatible with the legacy whatsapp-templates.ts API.
+
+export interface ApprovedTemplateResult {
+    template: {
+        sid: string;
+        name: string;
+        status: string;
+        category: string;
+        variableCount: number;
+        body: string;
+    };
+    variables: Record<string, string>;
+    body: string;
+}
+
+/**
+ * The first template from `preferredNames` that is approved and fillable from `values`.
+ *
+ * Preference order is the caller's editorial judgement; approval status is Meta's. Both have to
+ * agree before anything sends. Returns null if no match is approved or fillable.
+ */
+export async function findApprovedTemplateWithValues(
+    preferredNames: string[],
+    values: string[] = [],
+): Promise<ApprovedTemplateResult | null> {
+    for (const name of preferredNames) {
+        const row = await findApprovedTemplate(name);
+        if (!row) continue;
+
+        const indexes = placeholderIndexes(row.body);
+        if (indexes.length > values.length) {
+            console.warn(`[Templates] '${name}' needs ${indexes.length} variables, we have ${values.length} — skipping.`);
+            continue;
+        }
+
+        const variables: Record<string, string> = {};
+        for (let i = 0; i < indexes.length; i++) {
+            variables[String(i + 1)] = values[i];
+        }
+
+        return {
+            template: {
+                sid: row.contentSid,
+                name: row.name,
+                status: row.status,
+                category: row.category || '',
+                variableCount: indexes.length,
+                body: row.body || '',
+            },
+            variables,
+            body: renderTemplateBody(row.body, variables),
+        };
+    }
+    return null;
+}
+
 export type VariableHint = 'name' | 'link' | 'text';
 
 /**
@@ -473,13 +532,22 @@ whatsappTemplatesRouter.post('/send', async (req, res) => {
         // The rendered text is passed as the body so the thread records what the customer will
         // actually read, rather than an opaque template SID.
         const rendered = renderTemplateBody(template.body, vars);
-        const result: any = await sendWhatsAppMessage(phone, rendered, {
+        const sendResult = await sendCustomerMessage({
+            to: phone,
+            body: rendered,
+            purpose: 'marketing',  // Template test sends
+            context: 'template_sync:test_send',
+            contactName,
             contentSid: template.contentSid,
             contentVariables: vars,
             via: via === 'meta' ? 'meta' : 'twilio',
         });
 
-        res.json({ success: true, mode: 'template', rendered, sid: result?.sid, status: result?.status });
+        if (!sendResult.ok) {
+            return res.status(500).json({ error: sendResult.error || sendResult.reason || 'Send blocked', rendered });
+        }
+
+        res.json({ success: true, mode: 'template', rendered });
     } catch (error: any) {
         console.error('[TemplateSync] Template send failed:', error);
         res.status(500).json({ error: error?.message || 'Failed to send template' });

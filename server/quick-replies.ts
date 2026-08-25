@@ -8,7 +8,7 @@ import { Router } from 'express';
 import { db } from './db';
 import { quickReplies, conversations } from '@shared/schema';
 import { eq, and, asc, sql } from 'drizzle-orm';
-import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
+import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
 
 export const quickRepliesRouter = Router();
@@ -154,9 +154,7 @@ quickRepliesRouter.get('/preview/:id', async (req, res) => {
         if (!reply) return res.status(404).json({ error: 'Quick reply not found' });
 
         // A quick reply is a human picking a canned answer for this person, so it is a service
-        // reply and a plain STOP does not block it. "Do not contact me" does, and the WhatsApp
-        // branch below calls sendWhatsAppMessage directly, bypassing the choke point in
-        // outbound.ts — which is exactly why the check has to be here rather than assumed.
+        // reply and a plain STOP does not block it. "Do not contact me" does.
         const { blockedByOptOut, optOutRefusalMessage } = await import('./opt-out');
         const suppression = await blockedByOptOut(phone, 'service_reply');
         if (suppression) {
@@ -234,13 +232,25 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
         }
 
         const transport = via === 'meta' ? 'meta' : 'twilio';
-        const result: any = windowOpen
-            ? await sendWhatsAppMessage(phone, rendered, { via: transport })
-            : await sendWhatsAppMessage(phone, rendered, {
-                  contentSid: reply.contentSid!,
-                  contentVariables: renderVariables(reply.contentVariables as any, contactName),
-                  via: transport,
-              });
+        const sendResult = await sendCustomerMessage({
+            to: phone,
+            body: rendered,
+            purpose: 'service_reply',  // Human-initiated quick reply
+            context: `quick_reply:${reply.id}`,
+            contactName,
+            via: transport,
+            ...(windowOpen ? {} : {
+                contentSid: reply.contentSid!,
+                contentVariables: renderVariables(reply.contentVariables as any, contactName),
+            }),
+        });
+
+        if (!sendResult.ok) {
+            return res.status(500).json({
+                error: sendResult.error || sendResult.reason || 'Send blocked',
+                rendered,
+            });
+        }
 
         // Telemetry is best-effort — a counter must never fail a send that already went out.
         db.update(quickReplies)
@@ -252,8 +262,6 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
             success: true,
             mode: windowOpen ? 'freeform' : 'template',
             rendered,
-            sid: result?.sid,
-            status: result?.status,
         });
     } catch (error: any) {
         console.error('[QuickReplies] Send failed:', error);

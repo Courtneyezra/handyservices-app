@@ -18,8 +18,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePhoneNumber } from './phone-utils';
+import { toE164Recipient } from './sms';
 import { scheduleInboundTriage } from './agents/comms-lanes';
 import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
+import { blockedByOptOut, optOutRefusalMessage } from './opt-out';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -471,7 +473,24 @@ export class ConversationEngine {
                     .where(eq(conversations.id, conv.id));
             }
 
-            // 2. Send via Twilio
+            // 2. Opt-out check before sending
+            // Conversation-engine sends are human-initiated (comms inbox replies, booking confirmations)
+            // so they use 'service_reply' purpose — blocked only by 'do not contact' opt-outs.
+            try {
+                const e164 = toE164Recipient(cleanNumber);
+                const suppression = await blockedByOptOut(e164, 'service_reply');
+                if (suppression) {
+                    console.warn(`[ConversationEngine] REFUSED send to ${cleanNumber}: opted out ${suppression.scope}`);
+                    throw new Error(optOutRefusalMessage(suppression));
+                }
+            } catch (optOutError: any) {
+                if (optOutError?.message?.includes('opted out')) throw optOutError;
+                // Opt-out lookup failed — fail closed (refuse the send)
+                console.error('[ConversationEngine] Opt-out lookup failed, refusing send:', optOutError?.message);
+                throw new Error('Could not verify opt-out status — send refused');
+            }
+
+            // 3. Send via Twilio
             const messageOptions: any = {
                 from: getWhatsAppSender(),
                 to: formattedNumber,
@@ -488,7 +507,7 @@ export class ConversationEngine {
             const result = await twilioClient.messages.create(messageOptions);
             console.log('[ConversationEngine] Message sent:', result.sid);
 
-            // 3. Store Message
+            // 4. Store Message
             const newMessage: InsertMessage = {
                 id: result.sid,
                 conversationId: conv!.id,
@@ -503,7 +522,7 @@ export class ConversationEngine {
 
             await db.insert(messages).values(newMessage);
 
-            // 4. Broadcast to clients
+            // 5. Broadcast to clients
             this.broadcast('inbox:message', {
                 conversationId: phoneNumber,
                 message: {

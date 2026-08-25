@@ -32,9 +32,14 @@ import { normalizePhoneNumber } from './phone-utils';
 import { getSmsSender } from './whatsapp-sender';
 import { stageAfterOutbound } from './conversation-stage';
 import { broadcast } from './meta-whatsapp';
+import { fetchWithTimeout, DEFAULT_TIMEOUT_MS } from './lib/fetch-with-timeout';
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+
+/** Timeout for Twilio SMS API calls (15 seconds). Twilio is generally fast,
+ * but we want to fail reasonably quickly on hung connections. */
+const TWILIO_TIMEOUT_MS = 15_000;
 
 /**
  * An error from Twilio that carries its numeric code, so callers can branch on WHY a send failed
@@ -112,7 +117,7 @@ export async function sendSmsMessage(to: string, body: string, options?: {
     const statusCallbackUrl = getStatusCallbackUrl();
     if (statusCallbackUrl) form.append('StatusCallback', statusCallbackUrl);
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
         `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
         {
             method: 'POST',
@@ -122,6 +127,7 @@ export async function sendSmsMessage(to: string, body: string, options?: {
             },
             body: form.toString(),
         },
+        TWILIO_TIMEOUT_MS,
     );
 
     const result: any = await response.json().catch(() => ({}));

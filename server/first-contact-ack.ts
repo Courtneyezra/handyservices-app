@@ -46,7 +46,7 @@ import { conversations, messages, messageDrafts, firstContactAckLog } from '@sha
 import { eq, and, inArray, sql, desc } from 'drizzle-orm';
 import { queueDraft, approveAndSendDraft, type DraftSource } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
-import { findApprovedTemplate } from './whatsapp-templates';
+import { findApprovedTemplateWithValues } from './whatsapp-template-sync';
 import { isNonMobileUkNumber } from './phone-utils';
 import { isSmsSenderConfigured } from './whatsapp-sender';
 import { notQuarantined } from './message-quarantine';
@@ -763,7 +763,7 @@ async function runFirstContactAck(input: {
                 const cut = raw.slice(0, 60);
                 return `${cut.slice(0, cut.lastIndexOf(' ') > 30 ? cut.lastIndexOf(' ') : 60)}…`;
             })();
-            const picked = await findApprovedTemplate(
+            const picked = await findApprovedTemplateWithValues(
                 templatePreferenceFor(intent, prefersText),
                 [
                     greetingFor(input.contactName).trim() || 'there',

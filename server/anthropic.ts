@@ -27,6 +27,12 @@ function withUsageLedger(client: Anthropic): Anthropic {
   return client;
 }
 
+/** Timeout for Anthropic API calls (2 minutes). Long enough for complex
+ * reasoning tasks, short enough to fail fast on hung connections. The SDK's
+ * default is 10 minutes, which is far too long for a stalled request to
+ * block a user-facing route. */
+const ANTHROPIC_TIMEOUT_MS = 2 * 60 * 1000;
+
 export function getAnthropic(): Anthropic {
   if (!_anthropic) {
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -34,7 +40,10 @@ export function getAnthropic(): Anthropic {
         'ANTHROPIC_API_KEY is not set. AI features require an API key.',
       );
     }
-    _anthropic = withUsageLedger(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
+    _anthropic = withUsageLedger(new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      timeout: ANTHROPIC_TIMEOUT_MS,
+    }));
   }
   return _anthropic;
 }

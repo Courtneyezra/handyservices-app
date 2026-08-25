@@ -8,15 +8,25 @@ import { claudeText, claudeJson } from './llm';
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { normalizePostcode } from "./utils/postcode";
 
 // Initialize OpenAI (lazy initialization to allow testing without API key)
 let _openai: OpenAI | null = null;
+
+/** Timeout for OpenAI API calls (2 minutes). Whisper transcription can take
+ * 30-60s for longer audio files, so we allow generous headroom. The SDK's
+ * default is 10 minutes, which is too long for a stalled request. */
+const OPENAI_TIMEOUT_MS = 2 * 60 * 1000;
+
 export function getOpenAI(): OpenAI {
     if (!_openai) {
         if (!process.env.OPENAI_API_KEY) {
             throw new Error("OPENAI_API_KEY is not set. AI features require an API key.");
         }
-        _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        _openai = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+            timeout: OPENAI_TIMEOUT_MS,
+        });
     }
     return _openai;
 }
@@ -224,27 +234,7 @@ export async function extractPostcodeOnly(transcription: string): Promise<string
     }
 }
 
-/**
- * Normalize UK postcode to standard format
- * "sw1a1aa" -> "SW1A 1AA"
- * "SW1A1AA" -> "SW1A 1AA"
- */
-function normalizePostcode(postcode: string): string {
-    // Remove all spaces and convert to uppercase
-    const cleaned = postcode.replace(/\s/g, '').toUpperCase();
-
-    // UK postcodes are 5-7 characters (without space)
-    // Format: AA9A 9AA, A9A 9AA, A9 9AA, A99 9AA, AA9 9AA, AA99 9AA
-    if (cleaned.length < 5 || cleaned.length > 7) {
-        return postcode; // Return as-is if invalid length
-    }
-
-    // Insert space before last 3 characters
-    const outward = cleaned.slice(0, -3);
-    const inward = cleaned.slice(-3);
-
-    return `${outward} ${inward}`;
-}
+// normalizePostcode is now imported from ./utils/postcode
 
 /**
  * Extract a customer-friendly job summary from a call transcript

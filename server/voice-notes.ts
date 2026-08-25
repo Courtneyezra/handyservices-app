@@ -19,7 +19,8 @@ import multer from 'multer';
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import path from 'path';
-import { sendWhatsAppMessage, canSendFreeform } from './meta-whatsapp';
+import { canSendFreeform } from './meta-whatsapp';
+import { sendCustomerMessage } from './outbound';
 import { normalizePhoneNumber } from './phone-utils';
 
 export const voiceNotesRouter = Router();
@@ -54,8 +55,9 @@ voiceNotesRouter.post('/voice-note', upload.single('audio'), async (req, res) =>
         if (!phone) return res.status(400).json({ error: `Unparseable phone: ${to}` });
 
         // A voice note is a human speaking to this person, so it is a service reply and a plain
-        // STOP does not block it. "Do not contact me" does. This path calls sendWhatsAppMessage
-        // directly rather than the choke point in outbound.ts, so the check lives here.
+        // STOP does not block it. "Do not contact me" does. The sendCustomerMessage choke point
+        // now handles opt-out enforcement, but we keep this early check to return a clean error
+        // before attempting transcoding work.
         const { blockedByOptOut, optOutRefusalMessage } = await import('./opt-out');
         const suppression = await blockedByOptOut(phone, 'service_reply');
         if (suppression) {
@@ -88,12 +90,21 @@ voiceNotesRouter.post('/voice-note', upload.single('audio'), async (req, res) =>
             outPath,
         ], { stdio: 'pipe', timeout: 60_000 });
 
-        const result: any = await sendWhatsAppMessage(phone, '', {
+        const sendResult = await sendCustomerMessage({
+            to: phone,
+            body: '',  // Voice notes have no text body
+            purpose: 'service_reply',  // Human-initiated voice note
+            context: 'voice_note',
+            allowSmsFallback: false,  // Voice notes cannot fall back to SMS
             mediaUrl: `${base}/api/media/${fileName}`,
             mediaType: 'audio/ogg',
         });
 
-        res.json({ success: true, sid: result?.sid ?? null, mediaUrl: `/api/media/${fileName}` });
+        if (!sendResult.ok) {
+            return res.status(500).json({ error: sendResult.error || sendResult.reason || 'Voice note send failed' });
+        }
+
+        res.json({ success: true, mediaUrl: `/api/media/${fileName}` });
     } catch (error: any) {
         console.error('[VoiceNotes] Send failed:', error);
         res.status(500).json({ error: error?.message || 'Voice note failed' });

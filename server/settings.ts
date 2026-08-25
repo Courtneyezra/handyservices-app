@@ -153,14 +153,11 @@ const DEFAULT_SETTINGS = {
     'twilio.business_name': { value: 'Handy Services', description: 'Business name for greetings' },
     'twilio.welcome_message': { value: 'Hello, thank you for calling {business_name}. One of our team will be with you shortly.', description: 'Welcome message played to callers' },
     'twilio.voice': { value: 'Polly.Amy-Neural', description: 'Twilio voice for TTS (UK Female)' },
-    'twilio.hold_music_url': { value: '/assets/hold-music.mp3', description: 'URL to hold music audio file' },
     'twilio.max_wait_seconds': { value: 30, description: 'Maximum seconds to wait before fallback' },
     'twilio.forward_number': { value: '', description: 'Phone number to forward calls to (E.164 format)' },
     'twilio.forward_enabled': { value: false, description: 'Whether call forwarding is enabled' },
     'twilio.fallback_action': { value: 'whatsapp', description: 'Action when no answer: whatsapp, voicemail, none' },
     'twilio.fallback_message': { value: "Sorry we missed your call. We will call you back shortly. In the meantime, you can reach us on WhatsApp here: https://wa.me/447449501762", description: 'SMS sent to lead if call missed' },
-    'twilio.agent_notify_sms': { value: "📞 Incoming call from {lead_number} to {twilio_uk_number}", description: 'SMS sent to agent for new calls' },
-    'twilio.agent_missed_sms': { value: "❌ Missed call from {lead_number}. Lead was sent an auto-SMS.", description: 'SMS sent to agent for missed calls' },
     'twilio.whisper_enabled': { value: false, description: 'Whether to play the lead number whisper to the agent' },
     'twilio.welcome_audio_url': { value: '/assets/handyservices-welcome.mp3', description: 'URL to custom welcome audio (replaces TTS)' },
     'twilio.fallback_agent_url': { value: '', description: 'URL/Number for Eleven Labs or external voice agent (Override)' },
@@ -1080,6 +1077,22 @@ export async function getSetting(key: string): Promise<any> {
     }
 }
 
+/**
+ * Check if a feature is killed (disabled). Kill switches default to OFF (feature enabled).
+ * Returns true if the feature should NOT run.
+ *
+ * Convention: key names like 'kill_switch.day_before_reminders' or 'kill_switch.customer_notifications'
+ */
+export async function getKillSwitch(key: string): Promise<boolean> {
+    try {
+        const value = await getSetting(`kill_switch.${key}`);
+        return value === true;
+    } catch (error) {
+        console.error(`[Settings] Failed to check kill switch ${key}, defaulting to OFF (feature enabled):`, error);
+        return false;
+    }
+}
+
 // ============================================
 // CALL TIMING SETTINGS API
 // ============================================
@@ -1232,7 +1245,6 @@ export async function getTwilioSettings() {
         businessName: (settingsMap.get('twilio.business_name') ?? DEFAULT_SETTINGS['twilio.business_name'].value) as string,
         welcomeMessage: (settingsMap.get('twilio.welcome_message') ?? DEFAULT_SETTINGS['twilio.welcome_message'].value) as string,
         voice: (settingsMap.get('twilio.voice') ?? DEFAULT_SETTINGS['twilio.voice'].value) as string,
-        holdMusicUrl: (settingsMap.get('twilio.hold_music_url') ?? DEFAULT_SETTINGS['twilio.hold_music_url'].value) as string,
         maxWaitSeconds: (settingsMap.get('twilio.max_wait_seconds') ?? DEFAULT_SETTINGS['twilio.max_wait_seconds'].value) as number,
         forwardNumber: (settingsMap.get('twilio.forward_number') ?? DEFAULT_SETTINGS['twilio.forward_number'].value) as string,
         forwardEnabled: (settingsMap.get('twilio.forward_enabled') ?? DEFAULT_SETTINGS['twilio.forward_enabled'].value) as boolean,
@@ -1241,8 +1253,6 @@ export async function getTwilioSettings() {
         reassuranceEnabled: (settingsMap.get('twilio.reassurance_enabled') ?? DEFAULT_SETTINGS['twilio.reassurance_enabled'].value) as boolean,
         reassuranceInterval: (settingsMap.get('twilio.reassurance_interval') ?? DEFAULT_SETTINGS['twilio.reassurance_interval'].value) as number,
         reassuranceMessage: (settingsMap.get('twilio.reassurance_message') ?? DEFAULT_SETTINGS['twilio.reassurance_message'].value) as string,
-        agentNotifySms: (settingsMap.get('twilio.agent_notify_sms') ?? DEFAULT_SETTINGS['twilio.agent_notify_sms'].value) as string,
-        agentMissedSms: (settingsMap.get('twilio.agent_missed_sms') ?? DEFAULT_SETTINGS['twilio.agent_missed_sms'].value) as string,
         whisperEnabled: (settingsMap.get('twilio.whisper_enabled') ?? DEFAULT_SETTINGS['twilio.whisper_enabled'].value) as boolean,
         welcomeAudioUrl: (settingsMap.get('twilio.welcome_audio_url') ?? DEFAULT_SETTINGS['twilio.welcome_audio_url'].value) as string,
         fallbackAgentUrl: (settingsMap.get('twilio.fallback_agent_url') ?? DEFAULT_SETTINGS['twilio.fallback_agent_url'].value) as string,

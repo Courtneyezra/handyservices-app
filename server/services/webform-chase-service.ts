@@ -12,7 +12,8 @@
 import { db } from "../db";
 import { leads, conversations, messages, LeadStage } from "@shared/schema";
 import { eq, and, lt, isNull, isNotNull, or, desc, gte } from "drizzle-orm";
-import { sendWhatsAppMessage, canSendFreeform } from "../meta-whatsapp";
+import { canSendFreeform } from "../meta-whatsapp";
+import { sendCustomerMessage } from "../outbound";
 import { updateLeadStage } from "../lead-stage-engine";
 import { notQuarantined } from "../message-quarantine";
 
@@ -274,7 +275,18 @@ async function processLeadFollowup(
 
         try {
             const message = WEBFORM_TEMPLATES.FIRST_FOLLOWUP(firstName);
-            await sendWhatsAppMessage(lead.phone, message);
+            const sendResult = await sendCustomerMessage({
+                to: lead.phone,
+                body: message,
+                purpose: 'marketing',
+                context: 'webform_chase:2h_followup',
+                contactName: lead.customerName,
+            });
+
+            if (!sendResult.ok) {
+                console.log(`[WebFormChase] Blocked 2h follow-up for ${lead.customerName} — ${sendResult.reason || sendResult.error}`);
+                return null;
+            }
 
             console.log(`[WebFormChase] Sent 2h follow-up to ${lead.customerName}`);
 
@@ -447,7 +459,23 @@ export async function triggerManualFollowup(
         const firstName = lead.customerName.split(' ')[0];
         const message = customMessage || WEBFORM_TEMPLATES.FIRST_FOLLOWUP(firstName);
 
-        await sendWhatsAppMessage(lead.phone, message);
+        const sendResult = await sendCustomerMessage({
+            to: lead.phone,
+            body: message,
+            purpose: 'marketing',
+            context: 'webform_chase:manual_followup',
+            contactName: lead.customerName,
+        });
+
+        if (!sendResult.ok) {
+            return {
+                leadId,
+                customerName: lead.customerName,
+                action: 'blocked',
+                error: sendResult.reason || sendResult.error || 'Send blocked',
+                timestamp: new Date(),
+            };
+        }
 
         // Clear needs_chase status if it was set
         if (lead.status === 'needs_chase') {

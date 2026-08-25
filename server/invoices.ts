@@ -531,7 +531,7 @@ invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
         // Optional WhatsApp fallback (non-blocking, will silently fail if not available)
         if (invoice.customerPhone) {
             try {
-                const { sendWhatsAppMessage } = await import('./meta-whatsapp');
+                const { sendCustomerMessage } = await import('./outbound');
                 const formatPence = (p: number) => `\u00a3${(p / 100).toFixed(2)}`;
                 const message = [
                     `\ud83d\udcc4 *Invoice ${invoice.invoiceNumber}*`,
@@ -545,8 +545,14 @@ invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
                     `Thank you for choosing Handy Services \ud83d\udc4d`,
                 ].filter(Boolean).join('\n');
 
-                await sendWhatsAppMessage(invoice.customerPhone, message);
-                deliveryResults.whatsapp = true;
+                const sendResult = await sendCustomerMessage({
+                    to: invoice.customerPhone,
+                    body: message,
+                    purpose: 'service_reply',  // Invoice delivery is job-related
+                    context: 'invoice_delivery',
+                    contactName: invoice.customerName,
+                });
+                deliveryResults.whatsapp = sendResult.ok;
             } catch {
                 // WhatsApp not available in production — this is expected
                 deliveryResults.whatsapp = false;

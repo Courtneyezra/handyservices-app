@@ -146,20 +146,26 @@ export async function requireContractor(req: Request, res: Response, next: NextF
 }
 
 
-// Environment variables should be checked
-if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    console.warn("Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET. Google Auth will not work.");
+// Google OAuth is optional - only initialize if credentials are provided
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_AUTH_ENABLED = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+
+if (!GOOGLE_AUTH_ENABLED) {
+    console.warn("[Auth] Google OAuth disabled: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set");
 }
 
 const BASE_URL = process.env.BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:5000";
 
-passport.use(
-    new GoogleStrategy(
-        {
-            clientID: process.env.GOOGLE_CLIENT_ID || "placeholder",
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET || "placeholder",
-            callbackURL: `${BASE_URL}/api/auth/google/callback`,
-        },
+// Only register Google strategy if credentials are provided
+if (GOOGLE_AUTH_ENABLED) {
+    passport.use(
+        new GoogleStrategy(
+            {
+                clientID: GOOGLE_CLIENT_ID,
+                clientSecret: GOOGLE_CLIENT_SECRET,
+                callbackURL: `${BASE_URL}/api/auth/google/callback`,
+            },
         async (accessToken, refreshToken, profile, done) => {
             try {
                 const email = profile.emails?.[0]?.value;
@@ -208,8 +214,9 @@ passport.use(
                 return done(err as Error, undefined);
             }
         }
-    )
-);
+        )
+    );
+} // end if (GOOGLE_AUTH_ENABLED)
 
 // We are not using passport.session() with cookies, but we need these to satisfy passport if we used sessions.
 // Since we are manual, we might skip these, but good to have if we switch.

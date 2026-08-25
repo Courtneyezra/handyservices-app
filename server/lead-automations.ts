@@ -20,7 +20,8 @@ import { db } from "./db";
 import { leads, personalizedQuotes, calls, type LeadStage } from "@shared/schema";
 import { eq, desc, and, lt, isNull, isNotNull, or, ne, sql } from "drizzle-orm";
 import { updateLeadStage, STAGE_SLA_HOURS } from "./lead-stage-engine";
-import { sendWhatsAppMessage, canSendFreeform } from "./meta-whatsapp";
+import { canSendFreeform } from "./meta-whatsapp";
+import { sendCustomerMessage } from "./outbound";
 import { checkWebFormFollowups } from "./services/webform-chase-service";
 import { getAutomationSettings } from "./settings";
 
@@ -124,15 +125,26 @@ async function checkNewLeadFollowups(): Promise<AutomationResult[]> {
             // Only send if we have a phone number
             if (lead.phone) {
                 // Use approved Twilio Content Template for video request
-                const VIDEO_REQUEST_TEMPLATE_SID = process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID || 'HX3ecffe34fcde66b5a64a964a306026f2';
+                // Required env var (validated at startup via env-validation.ts)
+                const VIDEO_REQUEST_TEMPLATE_SID = process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID!;
 
-                await sendWhatsAppMessage(lead.phone, '', {
+                const sendResult = await sendCustomerMessage({
+                    to: lead.phone,
+                    body: `Hi ${firstName}, thanks for reaching out! Could you send us a quick video of ${jobSummary}?`,
+                    purpose: 'marketing',
+                    context: 'new_lead_followup:video_request',
+                    contactName: lead.customerName,
                     contentSid: VIDEO_REQUEST_TEMPLATE_SID,
                     contentVariables: {
                         "1": firstName,      // {{1}} = customer name
                         "2": jobSummary      // {{2}} = video subject
-                    }
+                    },
                 });
+
+                if (!sendResult.ok) {
+                    console.log(`[Automation] NEW_LEAD_FOLLOWUP: Blocked for ${lead.customerName} — ${sendResult.reason || sendResult.error}`);
+                    continue;
+                }
 
                 // Update stage to awaiting_video (this is the dedup — won't re-query new_lead)
                 await updateLeadStage(lead.id, 'awaiting_video' as LeadStage, {
@@ -212,7 +224,18 @@ async function checkQuoteSentReminders(): Promise<AutomationResult[]> {
             const link = `https://v6handy.com/quote-link/${quote.shortSlug}`;
             const message = TEMPLATES.QUOTE_SENT_REMINDER(firstName, link);
 
-            await sendWhatsAppMessage(quote.phone, message);
+            const sendResult = await sendCustomerMessage({
+                to: quote.phone,
+                body: message,
+                purpose: 'marketing',
+                context: 'quote_sent_reminder',
+                contactName: quote.customerName,
+            });
+
+            if (!sendResult.ok) {
+                console.log(`[Automation] QUOTE_SENT_REMINDER: Blocked for ${quote.customerName} — ${sendResult.reason || sendResult.error}`);
+                continue;
+            }
 
             // DEDUP: mark as reminded so we don't send again
             await db.update(personalizedQuotes)
@@ -289,7 +312,18 @@ async function checkQuoteViewedFollowups(): Promise<AutomationResult[]> {
             const firstName = quote.customerName.split(' ')[0];
             const message = TEMPLATES.QUOTE_VIEWED_FOLLOWUP(firstName);
 
-            await sendWhatsAppMessage(quote.phone, message);
+            const sendResult = await sendCustomerMessage({
+                to: quote.phone,
+                body: message,
+                purpose: 'marketing',
+                context: 'quote_viewed_followup',
+                contactName: quote.customerName,
+            });
+
+            if (!sendResult.ok) {
+                console.log(`[Automation] QUOTE_VIEWED_FOLLOWUP: Blocked for ${quote.customerName} — ${sendResult.reason || sendResult.error}`);
+                continue;
+            }
 
             // DEDUP: mark as followed up
             await db.update(personalizedQuotes)
@@ -355,7 +389,18 @@ async function checkAwaitingVideoReminders(): Promise<AutomationResult[]> {
             const firstName = lead.customerName.split(' ')[0];
             const message = TEMPLATES.AWAITING_VIDEO_REMINDER(firstName);
 
-            await sendWhatsAppMessage(lead.phone, message);
+            const sendResult = await sendCustomerMessage({
+                to: lead.phone,
+                body: message,
+                purpose: 'marketing',
+                context: 'awaiting_video_reminder',
+                contactName: lead.customerName,
+            });
+
+            if (!sendResult.ok) {
+                console.log(`[Automation] AWAITING_VIDEO_REMINDER: Blocked for ${lead.customerName} — ${sendResult.reason || sendResult.error}`);
+                continue;
+            }
 
             // DEDUP: mark as reminded
             await db.update(leads)
@@ -483,7 +528,18 @@ async function checkLostLeadRecovery(): Promise<AutomationResult[]> {
             const jobType = lead.jobDescription?.split(' ').slice(0, 3).join(' ') || 'repair';
             const message = TEMPLATES.LOST_LEAD_RECOVERY(firstName, jobType);
 
-            await sendWhatsAppMessage(lead.phone, message);
+            const sendResult = await sendCustomerMessage({
+                to: lead.phone,
+                body: message,
+                purpose: 'marketing',
+                context: 'lost_lead_recovery',
+                contactName: lead.customerName,
+            });
+
+            if (!sendResult.ok) {
+                console.log(`[Automation] LOST_LEAD_RECOVERY: Blocked for ${lead.customerName} — ${sendResult.reason || sendResult.error}`);
+                continue;
+            }
 
             // DEDUP: mark as recovery sent
             await db.update(leads)

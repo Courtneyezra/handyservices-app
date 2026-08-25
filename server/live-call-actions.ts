@@ -14,7 +14,7 @@ import { eq, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { optionalAuth } from "./auth";
-import { sendWhatsAppMessage } from "./meta-whatsapp";
+import { sendCustomerMessage } from "./outbound";
 import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
 import { findDuplicateLead } from "./lead-deduplication";
@@ -220,8 +220,18 @@ From ${totalFormatted} - just pick the option that works for you and choose a ti
 Any questions, just give me a shout! 👍`;
 
         try {
-            await sendWhatsAppMessage(normalizedPhone, message);
-            console.log(`[LiveCallAction] Quote WhatsApp sent to ${normalizedPhone}`);
+            const sendResult = await sendCustomerMessage({
+                to: normalizedPhone,
+                body: message,
+                purpose: 'service_reply',  // Quote sent during live call
+                context: 'live_call_action:quote_sent',
+                contactName: customerInfo.name,
+            });
+            if (sendResult.ok) {
+                console.log(`[LiveCallAction] Quote WhatsApp sent to ${normalizedPhone}`);
+            } else {
+                console.warn(`[LiveCallAction] Quote blocked for ${normalizedPhone} — ${sendResult.reason || sendResult.error}`);
+            }
         } catch (whatsappError) {
             console.error('[LiveCallAction] WhatsApp send failed:', whatsappError);
             // Don't fail the whole request if WhatsApp fails

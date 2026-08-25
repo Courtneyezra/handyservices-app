@@ -32,7 +32,6 @@
 import { db } from './db';
 import { calls, leads, appSettings, messages, conversations } from '@shared/schema';
 import { eq, and, gte, desc, sql } from 'drizzle-orm';
-import { sendWhatsAppMessage } from './meta-whatsapp';
 import { isWhatsAppSenderConfigured } from './whatsapp-sender';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { classifyCall, parseClassification, type CallClassification } from './call-classifier';
@@ -41,8 +40,8 @@ import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from
 const SETTING_KEY = 'post_call_video_request';
 
 /** Approved Twilio template: "Hi {{1}}, thanks for getting in touch! ... send us a quick video ..." */
-const VIDEO_REQUEST_CONTENT_SID =
-    process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID || 'HX3ecffe34fcde66b5a64a964a306026f2';
+// Required env var (validated at startup via env-validation.ts)
+const VIDEO_REQUEST_CONTENT_SID = process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID!;
 
 export type PostCallOutreachConfig = {
     enabled: boolean;

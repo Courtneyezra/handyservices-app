@@ -25,6 +25,7 @@ import { computeDateFeesPence } from "./scheduling-fees";
 import { isWelcomeGiftEligible, resolveWelcomeGift } from "./welcome-gift";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
+import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
 
 // Base quote validity window (small jobs / fallback). Larger quotes get a
 // longer window — see quoteValidityMs.
@@ -172,13 +173,13 @@ export const quotesRouter = Router();
 quotesRouter.post('/api/quote-strategy', async (req, res) => {
     try {
         const { jobDescription } = req.body;
-        if (!jobDescription) return res.status(400).json({ error: "Job description required" });
+        if (!jobDescription) return sendBadRequest(res, "Job description required");
 
         const strategy = await determineQuoteStrategy(jobDescription);
-        res.json(strategy);
+        sendSuccess(res, strategy);
     } catch (error) {
         console.error("Strategy determination error:", error);
-        res.status(500).json({ error: "Strategy determination failed" });
+        sendServerError(res, "Strategy determination failed");
     }
 });
 
@@ -186,13 +187,14 @@ quotesRouter.post('/api/quote-strategy', async (req, res) => {
 quotesRouter.post('/api/polish-assessment-reason', async (req, res) => {
     try {
         const { reason } = req.body;
-        if (!reason) return res.status(400).json({ error: "Reason is required" });
+        if (!reason) return sendBadRequest(res, "Reason is required");
 
         const polished = await polishAssessmentReason(reason);
-        res.json({ polished });
+        sendSuccess(res, { polished });
     } catch (error: any) {
         console.error("Polish reason error:", error);
-        res.status(500).json({ error: "Polishing failed", polished: req.body.reason }); // Fallback to raw
+        // Fallback to raw reason on error
+        sendError(res, "Polishing failed", 500, { polished: req.body.reason });
     }
 });
 
@@ -2779,7 +2781,7 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
 // ==========================================
 
 import { twilioClient } from './twilio-client';
-import { sendWhatsAppMessage } from './meta-whatsapp';
+import { sendCustomerMessage } from './outbound';
 import { getWhatsAppValueLines } from '@shared/hassle-comparisons';
 import { verticalConfig } from '@shared/verticals';
 import { calls } from '@shared/schema';
@@ -2922,16 +2924,19 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
             const valuePart = valueLines.length > 0 ? '\n' + valueLines.join('\n') + '\n' : '';
             const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}.${valuePart}\nClick to view and book: ${quoteUrl}`;
 
-            if (input.sendVia === 'sms') {
-                await twilioClient.messages.create({
-                    to: normalizedPhone,
-                    from: process.env.TWILIO_PHONE_NUMBER,
-                    body: message,
-                });
-                console.log(`[InstantQuote] SMS sent to ${normalizedPhone}`);
+            const sendResult = await sendCustomerMessage({
+                to: normalizedPhone,
+                body: message,
+                channel: input.sendVia === 'sms' ? 'sms' : 'whatsapp',
+                purpose: 'service_reply',  // Quote delivery during live call
+                context: 'instant_quote',
+                contactName: input.customerName,
+            });
+
+            if (sendResult.ok) {
+                console.log(`[InstantQuote] ${input.sendVia.toUpperCase()} sent to ${normalizedPhone}`);
             } else {
-                await sendWhatsAppMessage(normalizedPhone, message);
-                console.log(`[InstantQuote] WhatsApp sent to ${normalizedPhone}`);
+                console.warn(`[InstantQuote] ${input.sendVia.toUpperCase()} blocked for ${normalizedPhone} — ${sendResult.reason || sendResult.error}`);
             }
         } else {
             console.log(`[InstantQuote] sendVia omitted — no message sent (likely v2 self-serve booking)`);
@@ -3037,16 +3042,19 @@ quotesRouter.post('/api/site-visits/request', async (req, res) => {
         const firstName = input.customerName.split(' ')[0] || 'there';
         const message = `Hi ${firstName}! We'd like to schedule a site visit to assess your job properly. Book a convenient time: ${bookingUrl}`;
 
-        if (input.sendVia === 'sms') {
-            await twilioClient.messages.create({
-                to: normalizedPhone,
-                from: process.env.TWILIO_PHONE_NUMBER,
-                body: message,
-            });
-            console.log(`[SiteVisit] SMS sent to ${normalizedPhone}`);
+        const sendResult = await sendCustomerMessage({
+            to: normalizedPhone,
+            body: message,
+            channel: input.sendVia === 'sms' ? 'sms' : 'whatsapp',
+            purpose: 'service_reply',  // Site visit scheduling during live call
+            context: 'site_visit_request',
+            contactName: input.customerName,
+        });
+
+        if (sendResult.ok) {
+            console.log(`[SiteVisit] ${input.sendVia.toUpperCase()} sent to ${normalizedPhone}`);
         } else {
-            await sendWhatsAppMessage(normalizedPhone, message);
-            console.log(`[SiteVisit] WhatsApp sent to ${normalizedPhone}`);
+            console.warn(`[SiteVisit] ${input.sendVia.toUpperCase()} blocked for ${normalizedPhone} — ${sendResult.reason || sendResult.error}`);
         }
 
         // Update call record if provided

@@ -27,6 +27,7 @@ import { eq, desc, and, isNull, isNotNull, or, count, sql, gte, lte, ne } from "
 import { z } from "zod";
 import { updateLeadStage, getSLAStatus, getStageDisplayName, getNextAction } from "./lead-stage-engine";
 import { broadcastToClients } from "./index";
+import { relativeTime } from "./utils/datetime";
 
 export const leadTubeMapRouter = Router();
 
@@ -124,31 +125,11 @@ interface TubeMapResponse {
 // ==========================================
 
 /**
- * Format time in stage as human-readable string
+ * Format time in stage as human-readable string.
+ * Uses the shared relativeTime utility from server/utils/datetime.ts
  */
 function formatTimeInStage(stageUpdatedAt: Date | null): string {
-    if (!stageUpdatedAt) return 'Unknown';
-
-    const now = Date.now();
-    const updated = new Date(stageUpdatedAt).getTime();
-    const diffMs = now - updated;
-
-    const minutes = Math.floor(diffMs / (1000 * 60));
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) {
-        return days === 1 ? '1 day' : `${days} days`;
-    } else if (hours > 0) {
-        const remainingMinutes = minutes % 60;
-        if (remainingMinutes > 0) {
-            return `${hours}h ${remainingMinutes}m`;
-        }
-        return `${hours}h`;
-    } else if (minutes > 0) {
-        return `${minutes}m`;
-    }
-    return 'Just now';
+    return relativeTime(stageUpdatedAt);
 }
 
 /**

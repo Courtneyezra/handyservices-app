@@ -18,6 +18,13 @@ if (!process.env.DATABASE_URL) {
 // which covers both failure modes. Verified 3/3 connects ~3s on the previously-dead network.
 dns.setDefaultResultOrder("ipv4first");
 if (net.setDefaultAutoSelectFamily) net.setDefaultAutoSelectFamily(true);
+// Node's happy-eyeballs default gives each address only 250ms to complete the
+// TCP handshake; on this network Neon takes ~2s+, so every attempt "timed out"
+// even though the host was reachable (nc connected fine). Give each attempt a
+// real budget — the overall cap is still pg's connectionTimeoutMillis.
+if ((net as any).setDefaultAutoSelectFamilyAttemptTimeout) {
+    (net as any).setDefaultAutoSelectFamilyAttemptTimeout(5000);
+}
 
 // FIX: Use Direct Endpoint to bypass Pooler SSL issues
 const connectionString = process.env.DATABASE_URL.replace("-pooler", "");

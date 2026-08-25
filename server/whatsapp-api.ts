@@ -2,7 +2,7 @@ import { Router } from "express";
 import { conversationEngine } from "./conversation-engine";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
 import { sendCustomerMessage } from "./outbound";
-import { notifyIncomingSms } from "./pushover";
+import { notifyIncomingSms, notifyIncomingWhatsApp } from "./pushover";
 import { resolveCallerName } from "./caller-lookup";
 import { requireAdmin } from "./auth";
 
@@ -26,13 +26,16 @@ whatsappRouter.post('/incoming', async (req, res) => {
         // Extract phone number (remove whatsapp: prefix)
         const phone = From?.replace('whatsapp:', '') || '';
 
-        // Phone push alert (Pushover) — inbound SMS only (WhatsApp carries the whatsapp: prefix)
-        if (!(From || '').startsWith('whatsapp:')) {
-            (async () => {
-                const senderName = (ProfileName && ProfileName.trim()) || await resolveCallerName(phone);
+        // Phone push alert (Pushover) — both SMS and WhatsApp (added WhatsApp 25 Aug 2026)
+        const isWhatsApp = (From || '').startsWith('whatsapp:');
+        (async () => {
+            const senderName = (ProfileName && ProfileName.trim()) || await resolveCallerName(phone);
+            if (isWhatsApp) {
+                await notifyIncomingWhatsApp({ senderName, phoneNumber: phone, body: Body });
+            } else {
                 await notifyIncomingSms({ senderName, phoneNumber: phone, body: Body });
-            })().catch((e) => console.warn('[WhatsApp API] notifyIncomingSms failed:', e));
-        }
+            }
+        })().catch((e) => console.warn('[WhatsApp API] Pushover notification failed:', e));
 
         // Tenant/landlord AI fork removed 24 Aug 2026 (Switchboard Atlas step 4): it auto-replied
         // with no kill switch, no draft queue, no opt-out check and no window check — the only
@@ -128,7 +131,8 @@ whatsappRouter.post('/send-template', requireAdmin, async (req, res) => {
             case 'request_video':
                 templateBody = `Hi ${name}, as discussed, please send us a video of ${ctx}. This will help us provide an accurate quote.`;
                 // Use approved Twilio Content Template
-                templateSid = contentSid || process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID || 'HX3ecffe34fcde66b5a64a964a306026f2';
+                // Required env var (validated at startup via env-validation.ts)
+                templateSid = contentSid || process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID!;
                 templateVars = { "1": name, "2": ctx };
                 break;
             case 'review_quote':
@@ -138,11 +142,23 @@ whatsappRouter.post('/send-template', requireAdmin, async (req, res) => {
                 return res.status(400).json({ error: "Invalid template ID" });
         }
 
-        // Use sendWhatsAppMessage for consistent from number
-        const result = await sendWhatsAppMessage(number, templateBody, {
+        // Use sendCustomerMessage for opt-out enforcement
+        const sendResult = await sendCustomerMessage({
+            to: number,
+            body: templateBody,
+            purpose: 'marketing',  // Template sends for video requests
+            context: `whatsapp_api:${template}`,
+            contactName: customerName,
             contentSid: templateSid,
-            contentVariables: templateVars
+            contentVariables: templateVars,
         });
+
+        if (!sendResult.ok) {
+            return res.status(sendResult.reason === 'OPTED_OUT' ? 409 : 500).json({
+                error: sendResult.error || sendResult.reason || 'Send failed',
+            });
+        }
+        const result = sendResult;
 
         // Update call record if callId provided (for video request tracking)
         if (callId && template === 'request_video') {

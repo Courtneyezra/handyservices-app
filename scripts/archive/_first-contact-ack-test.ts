@@ -61,7 +61,20 @@ import {
 import { sendSmsMessage } from '../server/sms';
 import { sendCustomerMessage, NOT_A_WHATSAPP_RECIPIENT_CODES, smsBody } from '../server/outbound';
 import { queueDraft, approveAndSendDraft } from '../server/message-drafts';
-import { listWhatsAppTemplates } from '../server/whatsapp-templates';
+import { fetchTwilioTemplates, placeholderIndexes } from '../server/whatsapp-template-sync';
+
+// Adapter: fetchTwilioTemplates returns live Twilio data in a different shape; map to the legacy format
+async function listWhatsAppTemplates(_opts?: { force?: boolean }) {
+    const raw = await fetchTwilioTemplates();
+    return raw.map((t) => ({
+        sid: t.contentSid,
+        name: t.name,
+        status: t.status,
+        category: t.category || '',
+        variableCount: placeholderIndexes(t.body).length,
+        body: t.body || '',
+    }));
+}
 import { isPushoverConfigured } from '../server/pushover';
 import { scheduleInboundTriage } from '../server/agents/comms-lanes';
 import { getCommsAgentConfig, runCommsAgent } from '../server/agents/comms';

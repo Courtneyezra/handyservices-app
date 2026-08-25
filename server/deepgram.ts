@@ -1,5 +1,10 @@
 import { createClient, DeepgramClient } from "@deepgram/sdk";
 import { type PrerecordedSource } from "@deepgram/sdk";
+import { fetchWithTimeout, LONG_TIMEOUT_MS } from './lib/fetch-with-timeout';
+
+/** Timeout for downloading recordings from Twilio (60 seconds). Recordings
+ * can be large audio files, so we allow generous time for the download. */
+const RECORDING_DOWNLOAD_TIMEOUT_MS = LONG_TIMEOUT_MS;
 
 // Initialize Deepgram Client - only if API key is present to avoid crash
 const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
@@ -133,12 +138,12 @@ export async function transcribeFromUrl(recordingUrl: string): Promise<string | 
     try {
         console.log("[Transcribe] Fetching recording from Twilio...");
 
-        // Fetch recording with Twilio auth
-        const response = await fetch(recordingUrl, {
+        // Fetch recording with Twilio auth (with timeout to prevent hung downloads)
+        const response = await fetchWithTimeout(recordingUrl, {
             headers: {
                 Authorization: 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64')
             }
-        });
+        }, RECORDING_DOWNLOAD_TIMEOUT_MS);
 
         if (!response.ok) {
             console.error(`[Transcribe] Failed to fetch recording: ${response.status}`);

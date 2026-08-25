@@ -14,7 +14,7 @@ import { JOB_CATEGORIES } from '../shared/contextual-pricing-types';
 import { eq, and, or, gte, lte, lt, isNotNull, isNull, sql, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendJobAssignmentEmail } from './email-service';
-import { sendWhatsAppMessage } from './meta-whatsapp';
+import { sendCustomerMessage } from './outbound';
 import {
   generateSmartGrouping,
   extractJobCategories,
@@ -911,8 +911,18 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
         `${contractorName} will visit on ${formattedDate}, ${slotLabel[confirmedSlot]}. ` +
         `We'll send a reminder the day before. If you need anything, just reply here.`;
 
-      await sendWhatsAppMessage(quote.phone, whatsappMessage);
-      console.log(`[Daily Planner] WhatsApp sent to ${quote.phone} for job ${jobId}`);
+      const sendResult = await sendCustomerMessage({
+        to: quote.phone,
+        body: whatsappMessage,
+        purpose: 'service_reply',  // Booking confirmation
+        context: 'booking_confirmation',
+        contactName: quote.customerName,
+      });
+      if (sendResult.ok) {
+        console.log(`[Daily Planner] WhatsApp sent to ${quote.phone} for job ${jobId}`);
+      } else {
+        console.warn(`[Daily Planner] WhatsApp blocked for ${quote.phone} — ${sendResult.reason || sendResult.error}`);
+      }
     } catch (whatsappError) {
       console.error('[Daily Planner] WhatsApp notification failed (non-blocking):', whatsappError);
     }
@@ -1581,7 +1591,13 @@ router.post('/dispatch-all', async (req: Request, res: Response) => {
             `Great news, ${quote.customerName}! Your booking is confirmed. ` +
             `${contractorName} will visit on ${formattedDate}, ${slotLabel[slot]}. ` +
             `We'll send a reminder the day before. If you need anything, just reply here.`;
-          await sendWhatsAppMessage(quote.phone, whatsappMessage);
+          await sendCustomerMessage({
+            to: quote.phone,
+            body: whatsappMessage,
+            purpose: 'service_reply',  // Booking confirmation
+            context: 'booking_confirmation:cluster',
+            contactName: quote.customerName,
+          });
         } catch (whatsappError) {
           // Non-blocking
         }
@@ -1774,7 +1790,13 @@ router.post('/confirm-cluster', async (req: Request, res: Response) => {
           `Great news, ${quote.customerName}! Your booking is confirmed. ` +
           `${contractorName} will visit on ${formattedDate}, ${slotLabel[slot]}. ` +
           `We'll send a reminder the day before. If you need anything, just reply here.`;
-        await sendWhatsAppMessage(quote.phone, whatsappMessage);
+        await sendCustomerMessage({
+          to: quote.phone,
+          body: whatsappMessage,
+          purpose: 'service_reply',  // Booking confirmation
+          context: 'booking_confirmation:batch',
+          contactName: quote.customerName,
+        });
       } catch (whatsappError) {
         console.error('[Daily Planner] WhatsApp notification failed (non-blocking):', whatsappError);
       }

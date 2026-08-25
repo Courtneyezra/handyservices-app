@@ -7,6 +7,11 @@
 
 import { S3Client, PutObjectCommand, ObjectCannedACL } from "@aws-sdk/client-s3";
 import { nanoid } from "nanoid";
+import { fetchWithTimeout, LONG_TIMEOUT_MS } from './lib/fetch-with-timeout';
+
+/** Timeout for downloading media from Twilio/WhatsApp (60 seconds). Media
+ * files (images, videos) can be large, so we allow generous download time. */
+const MEDIA_DOWNLOAD_TIMEOUT_MS = LONG_TIMEOUT_MS;
 
 // S3 Configuration
 const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || '';
@@ -91,7 +96,7 @@ async function downloadMedia(mediaUrl: string): Promise<Buffer> {
         console.log('[S3Media] Using WhatsApp Bearer token');
     }
 
-    const response = await fetch(mediaUrl, { headers });
+    const response = await fetchWithTimeout(mediaUrl, { headers }, MEDIA_DOWNLOAD_TIMEOUT_MS);
 
     if (!response.ok) {
         const errorText = await response.text().catch(() => 'No response body');

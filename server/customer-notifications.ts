@@ -2,13 +2,14 @@
  * Customer Notification Service
  *
  * Dispatches WhatsApp notifications to customers at key booking/job lifecycle events.
- * Uses the same Twilio-backed sendWhatsAppMessage from meta-whatsapp.ts.
+ * Uses the sendCustomerMessage choke point for opt-out enforcement.
  */
 
 import { db } from './db';
 import { contractorBookingRequests, handymanProfiles, users, personalizedQuotes } from '../shared/schema';
 import { eq } from 'drizzle-orm';
-import { sendWhatsAppMessage } from './meta-whatsapp';
+import { sendCustomerMessage } from './outbound';
+import { getKillSwitch } from './settings';
 import { getBaseUrlFromEnv } from './url-utils';
 
 type NotificationEvent =
@@ -208,6 +209,13 @@ function buildMessage(
  * builds the templated message, and sends via WhatsApp.
  */
 export async function notifyCustomer(params: NotifyCustomerParams): Promise<void> {
+    // Kill switch check — allows disabling without a deploy
+    const killed = await getKillSwitch('customer_notifications');
+    if (killed) {
+        console.log(`[CustomerNotify] Kill switch active — skipping '${params.event}'`);
+        return;
+    }
+
     try {
         const details = await resolveJobDetails(params);
 
@@ -225,7 +233,18 @@ export async function notifyCustomer(params: NotifyCustomerParams): Promise<void
 
         console.log(`[CustomerNotify] Sending '${params.event}' to ${details.customerPhone}`);
 
-        await sendWhatsAppMessage(details.customerPhone, message);
+        const sendResult = await sendCustomerMessage({
+            to: details.customerPhone,
+            body: message,
+            purpose: 'service_reply',  // Job lifecycle notifications, not marketing
+            context: `customer_notify:${params.event}`,
+            contactName: details.customerName,
+        });
+
+        if (!sendResult.ok) {
+            console.warn(`[CustomerNotify] Blocked '${params.event}' to ${details.customerPhone} — ${sendResult.reason || sendResult.error}`);
+            return;
+        }
 
         console.log(`[CustomerNotify] '${params.event}' sent successfully to ${details.customerPhone}`);
     } catch (error) {

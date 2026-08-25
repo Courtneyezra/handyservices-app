@@ -18,6 +18,8 @@ import {
 import { processWebFormLead } from "./services/webform-chase-service";
 import { resolveOrCreateClient } from "./clients";
 import { notifyWebformLead } from "./pushover";
+import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
+import { relativeTime } from "./utils/datetime";
 
 export const leadsRouter = Router();
 
@@ -248,10 +250,10 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
 leadsRouter.get('/api/leads', async (req, res) => {
     try {
         const allLeads = await db.select().from(leads).orderBy(desc(leads.createdAt));
-        res.json(allLeads);
+        sendSuccess(res, { leads: allLeads });
     } catch (error) {
         console.error('Error fetching leads:', error);
-        res.status(500).json({ error: "Failed to fetch leads" });
+        sendServerError(res, "Failed to fetch leads");
     }
 });
 
@@ -260,31 +262,11 @@ leadsRouter.get('/api/leads', async (req, res) => {
 // ==========================================
 
 /**
- * Helper: Format time in stage as human-readable string
+ * Helper: Format time in stage as human-readable string.
+ * Uses the shared relativeTime utility from server/utils/datetime.ts
  */
 function formatTimeInStage(stageUpdatedAt: Date | null): string {
-    if (!stageUpdatedAt) return 'Unknown';
-
-    const now = Date.now();
-    const updated = new Date(stageUpdatedAt).getTime();
-    const diffMs = now - updated;
-
-    const minutes = Math.floor(diffMs / (1000 * 60));
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) {
-        return days === 1 ? '1 day' : `${days} days`;
-    } else if (hours > 0) {
-        const remainingMinutes = minutes % 60;
-        if (remainingMinutes > 0) {
-            return `${hours}h ${remainingMinutes}m`;
-        }
-        return `${hours}h`;
-    } else if (minutes > 0) {
-        return `${minutes}m`;
-    }
-    return 'Just now';
+    return relativeTime(stageUpdatedAt);
 }
 
 /**
@@ -607,7 +589,7 @@ leadsRouter.get('/api/admin/leads/:id', async (req, res) => {
         const [lead] = await db.select().from(leads).where(eq(leads.id, id));
 
         if (!lead) {
-            return res.status(404).json({ error: 'Lead not found' });
+            return sendNotFound(res, 'Lead');
         }
 
         // Get related quote
@@ -630,7 +612,7 @@ leadsRouter.get('/api/admin/leads/:id', async (req, res) => {
         const stage = (lead.stage as LeadStage) || 'new_lead';
         const slaResult = getSLAStatus(stage, lead.stageUpdatedAt);
 
-        res.json({
+        sendSuccess(res, {
             ...lead,
             enrichment: {
                 quote: quote ? {
@@ -650,7 +632,7 @@ leadsRouter.get('/api/admin/leads/:id', async (req, res) => {
 
     } catch (error) {
         console.error('[LeadFunnel] Error fetching lead:', error);
-        res.status(500).json({ error: 'Failed to fetch lead' });
+        sendServerError(res, 'Failed to fetch lead');
     }
 });
 

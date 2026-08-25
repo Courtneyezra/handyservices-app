@@ -13,9 +13,15 @@
  * so booking-engine reservation math is always able to make a decision.
  */
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
 const GOOGLE_API_KEY = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const SETUP_BUFFER_MIN = 10; // parking, finding the property, talking to customer
+
+/** Timeout for Google Routes API calls (10 seconds). Route calculations are
+ * usually fast, but we want to fail reasonably quickly on hung connections. */
+const GOOGLE_ROUTES_TIMEOUT_MS = 10_000;
 
 interface CacheEntry {
     minutes: number;
@@ -92,7 +98,7 @@ export async function getTravelTimeMinutes(
                 travelMode: 'DRIVE',
                 routingPreference: 'TRAFFIC_AWARE',
             };
-            const res = await fetch(url, {
+            const res = await fetchWithTimeout(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -100,7 +106,7 @@ export async function getTravelTimeMinutes(
                     'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,distanceMeters,condition',
                 },
                 body: JSON.stringify(body),
-            });
+            }, GOOGLE_ROUTES_TIMEOUT_MS);
             if (res.ok) {
                 // Routes API returns one element per origin×destination pair.
                 const json = await res.json() as any;
@@ -175,7 +181,7 @@ export async function getTravelTimesFromOrigin(
                     travelMode: 'DRIVE',
                     routingPreference: 'TRAFFIC_AWARE',
                 };
-                const res = await fetch(url, {
+                const res = await fetchWithTimeout(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -183,7 +189,7 @@ export async function getTravelTimesFromOrigin(
                         'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,distanceMeters,condition',
                     },
                     body: JSON.stringify(body),
-                });
+                }, GOOGLE_ROUTES_TIMEOUT_MS);
                 if (res.ok) {
                     const json = await res.json() as any;
                     const elements = Array.isArray(json) ? json : [];

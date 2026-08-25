@@ -206,10 +206,12 @@ async function releaseMorningHolds(): Promise<void> {
  * real reply), the generic hello is redundant — rejected, not sent late.
  */
 async function releaseHeldAcks(): Promise<void> {
+    // The [ack_hold_until:...] prefix is the authoritative marker, not the source. Multiple lanes
+    // use maybeAutoSendFirstContactDraft() and get the hold stamped: post_call_video, webform, etc.
+    // Filtering by source = 'first_contact_ack' caused drafts from other sources to be stranded.
     const held = await db.select().from(messageDrafts)
         .where(and(
             eq(messageDrafts.status, 'pending'),
-            eq(messageDrafts.source, 'first_contact_ack'),
             sql`${messageDrafts.reason} LIKE '[ack_hold_until:%'`,
         )).limit(10);
 

@@ -8,6 +8,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { storageService } from "./storage";
 import { twilioClient } from "./twilio-client";
+import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
 
 const router = express.Router();
 
@@ -243,18 +244,15 @@ router.get("/", async (req: Request, res: Response) => {
             };
         });
 
-        res.json({
-            calls: formattedCalls,
-            pagination: {
-                page: pageNum,
-                limit: limitNum,
-                total: totalCount,
-                totalPages: Math.ceil(totalCount / limitNum)
-            }
+        sendSuccess(res, { calls: formattedCalls }, {
+            page: pageNum,
+            limit: limitNum,
+            total: totalCount,
+            totalPages: Math.ceil(totalCount / limitNum)
         });
     } catch (error) {
         console.error("Error fetching calls:", error);
-        res.status(500).json({ error: "Failed to fetch calls" });
+        sendServerError(res, "Failed to fetch calls");
     }
 });
 
@@ -549,7 +547,7 @@ router.get("/:id", async (req: Request, res: Response) => {
         const [call] = await db.select().from(calls).where(eq(calls.id, id));
 
         if (!call) {
-            return res.status(404).json({ error: "Call not found" });
+            return sendNotFound(res, "Call");
         }
 
         // Get associated SKUs with full service details
@@ -581,7 +579,7 @@ router.get("/:id", async (req: Request, res: Response) => {
         const detectedSkus = skus.filter(s => s.source === 'detected');
         const manualSkus = skus.filter(s => s.source === 'manual');
 
-        res.json({
+        sendSuccess(res, {
             ...call,
             detectedSkus,
             manualSkus,
@@ -589,7 +587,7 @@ router.get("/:id", async (req: Request, res: Response) => {
         });
     } catch (error) {
         console.error("Error fetching call details:", error);
-        res.status(500).json({ error: "Failed to fetch call details" });
+        sendServerError(res, "Failed to fetch call details");
     }
 });
 
@@ -600,19 +598,19 @@ router.post("/:id/skus", async (req: Request, res: Response) => {
         const { skuId, quantity = 1 } = req.body;
 
         if (!skuId) {
-            return res.status(400).json({ error: "skuId is required" });
+            return sendBadRequest(res, "skuId is required");
         }
 
         // Verify call exists
         const [call] = await db.select().from(calls).where(eq(calls.id, id));
         if (!call) {
-            return res.status(404).json({ error: "Call not found" });
+            return sendNotFound(res, "Call");
         }
 
         // Get SKU details
         const [sku] = await db.select().from(productizedServices).where(eq(productizedServices.id, skuId));
         if (!sku) {
-            return res.status(404).json({ error: "SKU not found" });
+            return sendNotFound(res, "SKU");
         }
 
         // Create call SKU entry
@@ -640,10 +638,10 @@ router.post("/:id/skus", async (req: Request, res: Response) => {
         // Return updated call
         const [updatedCall] = await db.select().from(calls).where(eq(calls.id, id));
 
-        res.json(updatedCall);
+        sendSuccess(res, updatedCall);
     } catch (error) {
         console.error("Error adding SKU to call:", error);
-        res.status(500).json({ error: "Failed to add SKU to call" });
+        sendServerError(res, "Failed to add SKU to call");
     }
 });
 
@@ -741,16 +739,16 @@ router.patch("/:id", async (req: Request, res: Response) => {
         const [updatedCall] = await db.select().from(calls).where(eq(calls.id, id));
 
         if (!updatedCall) {
-            return res.status(404).json({ error: "Call not found" });
+            return sendNotFound(res, "Call");
         }
 
-        res.json(updatedCall);
+        sendSuccess(res, updatedCall);
     } catch (error) {
         if (error instanceof z.ZodError) {
-            return res.status(400).json({ error: "Invalid request data", details: error.errors });
+            return sendBadRequest(res, "Invalid request data", error.errors);
         }
         console.error("Error updating call:", error);
-        res.status(500).json({ error: "Failed to update call" });
+        sendServerError(res, "Failed to update call");
     }
 });
 
