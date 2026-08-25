@@ -558,10 +558,6 @@ app.use(payoutRouter); // Contractor payout & earnings routes
 app.use(disputeRouter); // Dispute resolution routes
 app.use('/api/materials', requireAdmin, materialsRouter); // Quote materials picker (catalog + Screwfix search) — admin/VA
 
-// Global error handlers - MUST be registered after all routes but before static/SPA catch-alls
-app.use(notFoundHandler);
-app.use(globalErrorHandler);
-
 // Serve static assets (for hold music)
 app.use('/assets', express.static(path.join(__dirname, '../public/assets')));
 
@@ -1598,6 +1594,10 @@ app.post('/api/contractor/inbox/bulk-resolve', async (req, res) => {
         res.status(500).json({ error: 'Failed to bulk resolve' });
     }
 });
+
+// Global error handlers - MUST be registered after all API routes but before static/SPA catch-alls
+app.use(notFoundHandler);
+app.use(globalErrorHandler);
 
 // Create Server
 const server = createServer(app);
