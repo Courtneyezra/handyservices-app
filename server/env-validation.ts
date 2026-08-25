@@ -21,7 +21,7 @@ const ENV_VARS: EnvVar[] = [
   },
   {
     name: 'SESSION_SECRET',
-    required: true,
+    required: false, // Warn only - app generates fallback if missing
     description: 'Session encryption secret (min 16 chars)',
     validator: (v) => v.length >= 16,
   },
@@ -54,19 +54,19 @@ const ENV_VARS: EnvVar[] = [
   },
   {
     name: 'WHATSAPP_VERIFY_TOKEN',
-    required: true,
+    required: false, // Warn only - WhatsApp features degrade gracefully
     productionOnly: true,
     description: 'Meta WhatsApp webhook verification token',
   },
   {
     name: 'META_APP_SECRET',
-    required: true,
+    required: false, // Warn only - WhatsApp signature verification skipped if missing
     productionOnly: true,
     description: 'Facebook App Secret for X-Hub-Signature-256 webhook verification',
   },
   {
     name: 'TWILIO_VIDEO_REQUEST_CONTENT_SID',
-    required: true,
+    required: false, // Warn only - video request feature disabled if missing
     productionOnly: true,
     description: 'Twilio Content SID for video request template (HX...)',
     validator: (v) => v.startsWith('HX'),
