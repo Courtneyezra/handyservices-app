@@ -64,7 +64,6 @@ import contractorJobsRouter from './job-routes';
 import contractorDashboardRouter from './contractor-dashboard-routes';
 import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
-import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
 import contextualPricingRouter from './contextual-pricing/routes';
 import { quoteExtrasCatalogRouter } from './quote-extras-catalog';
 import { skuCatalogRouter } from './sku-catalog-routes'; // Phase 25: SKU catalog admin endpoints
@@ -429,7 +428,6 @@ app.use(trainingRouter);
 app.use('/api', devRouter);
 app.use('/api/settings', settingsRouter);
 app.use(stripeRouter); // Stripe payment routes
-app.use('/api', elevenLabsWebhookRouter); // ElevenLabs Webhooks
 app.use('/api', contentRouter); // Landing Pages & Banners
 app.use('/api', uploadRouter);
 app.use(invoiceRouter); // B2: Invoice management
@@ -1056,100 +1054,8 @@ app.post('/api/twilio/sip-outbound-status', async (req, res) => {
     res.send('<?xml version="1.0" encoding="UTF-8"?><Response/>');
 });
 
-// Eleven Labs Register Call - Uses official Eleven Labs API
-import { registerElevenLabsCall } from './eleven-labs/register-call';
-
-app.post('/api/twilio/eleven-labs-register', async (req, res) => {
-    try {
-        const context = (req.query.context as string) || 'in-hours';
-        const fromNumber = req.body.From;
-        const toNumber = req.body.To || req.body.Called;
-
-        console.log(`[ElevenLabs-Register] Incoming request: From=${fromNumber}, To=${toNumber}, Context=${context}`);
-
-        const settings = await getTwilioSettings();
-
-        // Get context message from settings
-        const contextMessages: Record<string, string> = {
-            'in-hours': settings.agentContextDefault || 'How can I help you today?',
-            'out-of-hours': settings.agentContextOutOfHours || "We're currently closed, but I can help you schedule a service or take a message.",
-            'missed-call': settings.agentContextMissed || "I'm sorry we missed your call. Let me help you with that.",
-            'busy': 'I am currently on another line, but I can help you with your request while you wait.',
-        };
-
-        const contextMessage = contextMessages[context] || contextMessages['in-hours'];
-        const agentId = (context === 'busy' && settings.elevenLabsBusyAgentId)
-            ? settings.elevenLabsBusyAgentId
-            : settings.elevenLabsAgentId;
-
-        // Register call with Eleven Labs
-        const twiml = await registerElevenLabsCall({
-            agentId,
-            apiKey: settings.elevenLabsApiKey,
-            fromNumber,
-            toNumber,
-            context,
-            contextMessage,
-        });
-
-        // Return TwiML directly to Twilio
-        res.type('text/xml');
-        res.send(twiml);
-    } catch (error) {
-        console.error('[ElevenLabs-Register] Error:', error);
-
-        const host = req.headers.host;
-        const httpProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-
-        // Fallback to voicemail on error
-        res.type('text/xml');
-        res.send(`<?xml version="1.0" encoding="UTF-8"?>
-            <Response>
-                <Say>We're experiencing technical difficulties. Please leave a message.</Say>
-                <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>
-            </Response>`);
-    }
-});
-
-// Eleven Labs Personal Endpoint - Returns TwiML to connect to our WebSocket stream
-app.all('/api/twilio/eleven-labs-personal', async (req, res) => {
-    const agentId = req.query.agentId || req.body.agentId;
-    const context = req.query.context || req.body.context || 'in-hours';
-    const leadNumber = req.query.leadPhoneNumber || req.body.From;
-    const callSid = req.body.CallSid || '';
-
-    console.log(`[ElevenLabs-Personal] Redirecting to stream: Agent=${agentId}, Context=${context}, Lead=${leadNumber}`);
-
-    const settings = await getTwilioSettings();
-    const host = req.headers.host;
-    const wsProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
-
-    if (!settings.elevenLabsApiKey || !agentId) {
-        console.error('[ElevenLabs-Personal] Missing API key or Agent ID');
-        return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, voice agent is not configured.</Say><Hangup/></Response>');
-    }
-
-    try {
-        // Return TwiML with Connect to our WebSocket stream
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect>
-    <Stream url="${wsProtocol}://${host}/api/twilio/eleven-labs-stream?agentId=${agentId}&amp;context=${context}&amp;leadPhoneNumber=${encodeURIComponent(leadNumber)}&amp;callSid=${callSid}">
-      <Parameter name="agentId" value="${agentId}" />
-      <Parameter name="context" value="${context}" />
-      <Parameter name="leadPhoneNumber" value="${leadNumber}" />
-    </Stream>
-  </Connect>
-</Response>`;
-
-        console.log(`[ElevenLabs-Personal] Returning Stream TwiML for ${callSid}`);
-        return res.type('text/xml').send(twiml);
-
-    } catch (error) {
-        console.error('[ElevenLabs-Personal] Error:', error);
-        return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, an error occurred.</Say><Hangup/></Response>');
-    }
-});
+// ElevenLabs endpoints deleted 24 Aug 2026 (Switchboard Atlas step 5) — the text-ladder
+// replaced the AI receptionist in step 2; these routes were unreachable since then.
 
 // Resolve the active VA user for call attribution, cached per-process.
 // There is exactly one active VA today (Ben) — a multi-VA setup would need a
@@ -1352,28 +1258,6 @@ app.post('/api/twilio/status-callback', async (req, res) => {
 });
 
 // Explicit Call Ended Endpoint - For TwiML Redirects (Eleven Labs fallback)
-app.all('/api/twilio/call-ended', async (req, res) => {
-    const { CallSid, CallStatus } = req.body;
-    console.log(`[Twilio] Call ended redirect for ${CallSid}: ${CallStatus}`);
-
-    try {
-        const callRecordId = await findCallByTwilioSid(CallSid);
-
-        if (callRecordId) {
-            await finalizeCall(callRecordId, {
-                endTime: new Date(),
-                // If we hit this, it means the flow finished (e.g. AI hung up)
-                outcome: 'COMPLETED'
-            });
-            console.log(`[Twilio] Finalized call ${callRecordId} via CallEnded redirect`);
-        }
-    } catch (e) {
-        console.error(`[Twilio] Error processing call ended redirect:`, e);
-    }
-
-    res.type('text/xml');
-    res.send('<Response><Hangup/></Response>');
-});
 
 // Twilio Recording Status Callback - Fallback transcription for calls with missing transcripts
 import { transcribeFromUrl } from './deepgram';
@@ -1701,7 +1585,6 @@ const server = createServer(app);
 // Setup WebSockets
 const wssTwilio = new WebSocketServer({ noServer: true });
 const wssClient = new WebSocketServer({ noServer: true });
-const wssElevenLabs = new WebSocketServer({ noServer: true });
 
 // Track alive clients for heartbeat mechanism
 const aliveClients = new WeakMap<import('ws').WebSocket, boolean>();
@@ -1827,41 +1710,7 @@ conversationEngine.attachWebSocket(wssClient);
 initializeRealtimeHandler(broadcastToClients);
 setSimulateBroadcast(broadcastToClients);
 
-// Setup Eleven Labs WebSocket handler
-import { ElevenLabsStreamHandler } from './eleven-labs/stream-handler';
-import { StreamConfig } from './eleven-labs/types';
-
-wssElevenLabs.on('connection', async (ws, req) => {
-    console.log('[ElevenLabs-WS] New WebSocket connection');
-
-    try {
-        // Extract parameters from URL
-        const url = new URL(req.url || '', `http://${req.headers.host}`);
-        console.log(`[ElevenLabs-WS] Full URL: ${req.url}`);
-        console.log(`[ElevenLabs-WS] Query params:`, Object.fromEntries(url.searchParams));
-
-        const agentId = url.searchParams.get('agentId') || '';
-        const context = (url.searchParams.get('context') || 'in-hours') as 'in-hours' | 'out-of-hours' | 'missed-call';
-        const leadNumber = url.searchParams.get('leadPhoneNumber') || '';
-        const callSid = url.searchParams.get('callSid') || '';
-        const streamSid = url.searchParams.get('streamSid') || '';
-
-        const config: StreamConfig = {
-            agentId,
-            context,
-            leadNumber,
-            callSid,
-            streamSid,
-        };
-
-        // Create and initialize stream handler
-        const handler = new ElevenLabsStreamHandler(ws, config);
-        await handler.initialize();
-    } catch (error) {
-        console.error('[ElevenLabs-WS] Failed to initialize stream handler:', error);
-        ws.close();
-    }
-});
+// ElevenLabs WebSocket handler deleted 24 Aug 2026 (atlas step 5).
 
 server.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
@@ -1876,11 +1725,6 @@ server.on('upgrade', (request, socket, head) => {
         process.stdout.write('[Server] Upgrading to WhatsApp Client WS\n');
         wssClient.handleUpgrade(request, socket, head, (ws) => {
             wssClient.emit('connection', ws, request);
-        });
-    } else if (pathname === '/api/twilio/eleven-labs-stream') {
-        process.stdout.write('[Server] Upgrading to Eleven Labs Stream\n');
-        wssElevenLabs.handleUpgrade(request, socket, head, (ws) => {
-            wssElevenLabs.emit('connection', ws, request);
         });
     } else {
         // Don't destroy! Let other listeners (like Vite HMR) handle it.

@@ -1,248 +1,109 @@
-import WebSocket, { WebSocketServer } from 'ws';
-import { db } from './db';
-import { leads } from '../shared/schema';
-import { detectWithContext, detectSku, detectMultipleTasks } from './skuDetector';
-import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
-import crypto from 'crypto';
-import { extractCallMetadata, extractPostcodeOnly } from './openai'; // B7: Metadata extraction
-import { validateExtractedAddress, AddressValidation } from './address-validation'; // Address validation
-import { findDuplicateLead, updateExistingLead } from './lead-deduplication'; // B9: Duplicate detection
-import { normalizePhoneNumber } from './phone-utils'; // B1: Phone normalization
-import { createCall, updateCall, addDetectedSkus, finalizeCall, findCallByTwilioSid } from './call-logger'; // Call logging integration
-import { analyzeCallTranscript } from './services/call-analyzer'; // Call analysis for lead scoring
-import {
-    classifyJobComplexitySync,
-    classifyMultipleJobs,
-    getOverallRouteRecommendation,
-    type JobComplexityResult,
-    type DetectedJobInput,
-} from './services/job-complexity-classifier'; // Tiered job complexity classification
-import {
-    initializeCallScriptForCall,
-    handleTranscriptChunk as handleCallScriptTranscript,
-    endCallScriptSession,
-    getActiveSession,
-} from './call-script'; // Call Script Tube Map integration
-import { eq } from 'drizzle-orm';
-import fs from 'fs';
-import path from 'path';
-import { storageService } from './storage';
-import { getCallTimingSettings, CallTimingSettings } from './settings';
+/**
+ * Twilio Media Stream recorder + post-call intelligence trigger.
+ *
+ * Rewritten 24 Aug 2026 (Switchboard Atlas step 5). The old MediaStreamTranscriber ran a live
+ * pipeline on every call — streaming transcription (WisprFlow/Deepgram live), the SKU detector,
+ * the call-script coach, live metadata extraction, lead scoring and a scorecard — all condemned
+ * in the owner review: nobody watches a HUD during a call, half of it ran on a dead OpenAI
+ * account, and streaming-fragment transcripts garbled the record.
+ *
+ * What this file does now:
+ *   1. Record both tracks of the call to disk (caller and agent separately — speaker labels are
+ *      exact, no diarisation guessing) and upload to storage on hangup.
+ *   2. Track the active-call count (used by the capacity gate in the voice webhook).
+ *   3. On hangup: finalize the call row (which ingests the call into the comms thread and runs
+ *      the missed-call ack), then — for calls over MIN_TRANSCRIBE_SECONDS — run the post-call
+ *      chain: batch transcription (Deepgram prerecorded, the SOLE transcript source) →
+ *      classification (inside the batch pass) → outreach decision → lead upsert (Claude).
+ *
+ * The stream stays open on every call because its close event is the one reliable "call ended"
+ * signal (Twilio's recording callbacks were never registered and never fire), and the raw tracks
+ * it captures are the batch-transcription source.
+ */
+import WebSocket, { WebSocketServer } from "ws";
+import fs from "fs";
+import path from "path";
+import { storageService } from "./storage";
+import { createCall, updateCall, finalizeCall, findCallByTwilioSid } from "./call-logger";
 
-// WisprFlow imports
-import { createWisprFlowClient, WisprFlowClient, TranscriptEvent } from './wisprflow';
-import { convertTwilioToWisprFlow } from './audio-converter';
+/** Calls shorter than this get no transcription/classification/outreach — there is nothing in
+ *  4 seconds of audio worth a Deepgram pass, and missed-call handling (thread card + ack) runs
+ *  from finalizeCall regardless. Owner decision, 24 Aug 2026. */
+const MIN_TRANSCRIBE_SECONDS = 10;
 
-// Determine which transcription service to use
-const WISPRFLOW_API_KEY = process.env.WISPRFLOW_API_KEY || "";
-const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || "";
-const USE_WISPRFLOW = !!WISPRFLOW_API_KEY;
-
-if (USE_WISPRFLOW) {
-    console.log(`[Transcription] Using WisprFlow (Key length: ${WISPRFLOW_API_KEY.length}, starts with: ${WISPRFLOW_API_KEY.substring(0, 4)}...)`);
-} else if (DEEPGRAM_API_KEY) {
-    console.log(`[Transcription] Using Deepgram fallback (Key length: ${DEEPGRAM_API_KEY.length}, starts with: ${DEEPGRAM_API_KEY.substring(0, 4)}...)`);
-} else {
-    console.warn("[Transcription] Warning: Neither WISPRFLOW_API_KEY nor DEEPGRAM_API_KEY is set");
-}
-
-// Initialize Deepgram (fallback)
-const deepgram = DEEPGRAM_API_KEY ? createClient(DEEPGRAM_API_KEY) : null;
-
-// Active Call Tracking
 let activeCallCount = 0;
 
 export function getActiveCallCount() {
     return activeCallCount;
 }
 
-/**
- * Tiered traffic light classification using job-complexity-classifier
- *
- * Tier 1: Instant keyword matching (<50ms) - used for real-time UI
- * Tier 2: LLM classification (<400ms) - used for refined recommendations
- *
- * GREEN = SKU matched (instant price available)
- * AMBER = Needs video/visit for assessment
- * RED = Specialist work, refer out
- */
-function getTrafficLightSync(matched: boolean, description: string): {
-    trafficLight: 'green' | 'amber' | 'red';
-    result: JobComplexityResult;
-} {
-    const { result } = classifyJobComplexitySync(description, matched);
-    return {
-        trafficLight: result.trafficLight,
-        result,
-    };
-}
-
-export class MediaStreamTranscriber {
+export class MediaStreamRecorder {
     private callSid: string;
-    private streamSid: string;
-    private ws: WebSocket;
-    private dgLiveInbound: any;  // Deepgram stream for caller audio (fallback)
-    private dgLiveOutbound: any; // Deepgram stream for agent audio (fallback)
-    // WisprFlow clients for dual-track transcription
-    private wisprInbound: WisprFlowClient | null = null;
-    private wisprOutbound: WisprFlowClient | null = null;
-    private wisprInboundConnected: boolean = false;
-    private wisprOutboundConnected: boolean = false;
-    private fullTranscript: string = "";
-    private isClosed = false;
-    private broadcast: (message: any) => void;
-    private history: string[] = []; // Live session history
-
-    // B4: Debouncing - configurable via admin settings
-    private debounceTimer: NodeJS.Timeout | null = null;
-    private debounceMs: number = 300; // Default, will be overridden by settings
-    private metadataChunkInterval: number = 3; // Extract metadata every N chunks (was 5 - too slow for name pickup)
-    private metadataCharThreshold: number = 80; // Extract metadata when transcript > N chars (was 150)
-
-    private metadata: any = {
-        customerName: null,
-        address: null,
-        postcode: null,
-        urgency: "Standard",
-        leadType: "Unknown",
-        addressValidation: null as AddressValidation | null  // Validation result
-    };
-    private lastMetadataExtraction: number = 0;
-    private segmentCount: number = 0;
-    private postcodeDetected: boolean = false;
-
     private phoneNumber: string;
-    private callRecordId: string | null = null; // Track database call record ID
-
-    // Segment tracking for lead creation
-    private detectedSegment: string | null = null;
-    private segmentConfidence: number = 0;
-    private segmentSignals: string[] = [];
-    private vaWasPresent: boolean = false; // Did VA interact with HUD during call?
+    private broadcast: (message: any) => void;
+    private isClosed = false;
     private callStartTime: Date;
-    private segments: any[] = []; // Store transcript segments
-    private recordingPath: string | null = null;
-    private recordingStream: fs.WriteStream | null = null;
-    // Dual-channel recording: separate streams for inbound (caller) and outbound (agent)
-    private inboundRecordingPath: string | null = null;
-    private outboundRecordingPath: string | null = null;
-    private inboundRecordingStream: fs.WriteStream | null = null;
-    private outboundRecordingStream: fs.WriteStream | null = null;
-    private skipTranscription: boolean = false; // Flag to skip transcription for Eleven Labs calls
+    private callRecordId: string | null = null;
+
     /**
      * True when BEN dialled out (Groundwire → /api/twilio/sip-outbound), false for a normal
      * inbound call. Twilio's `inbound` track is always audio FROM whoever originated the leg,
-     * so on an outbound call that is Ben and not the customer. Everything speaker-shaped keys
-     * off this — get it wrong and every outbound transcript is inverted.
+     * so on an outbound call that is Ben and not the customer. The batch transcriber maps
+     * track → speaker off the recording filenames, which follow this flag.
      */
-    private agentOriginated: boolean = false;
+    private agentOriginated: boolean;
 
-    // Tier 2 job complexity classification debounce
-    private tier2DebounceTimer: NodeJS.Timeout | null = null;
-    private lastJobClassifications: Map<string, JobComplexityResult> = new Map();
+    // Dual-channel recording: separate streams for inbound (originator) and outbound audio,
+    // plus the legacy combined file some older read paths still expect.
+    private recordingPath: string;
+    private inboundRecordingPath: string;
+    private outboundRecordingPath: string;
+    private recordingStream: fs.WriteStream | null;
+    private inboundRecordingStream: fs.WriteStream | null;
+    private outboundRecordingStream: fs.WriteStream | null;
 
-    constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipTranscription: boolean = false, agentOriginated: boolean = false) {
-        this.ws = ws;
+    constructor(
+        _ws: WebSocket,
+        callSid: string,
+        _streamSid: string,
+        phoneNumber: string,
+        broadcast: (message: any) => void,
+        agentOriginated: boolean = false,
+    ) {
         this.callSid = callSid;
-        this.streamSid = streamSid;
         this.phoneNumber = phoneNumber;
         this.broadcast = broadcast;
         this.callStartTime = new Date();
-        this.skipTranscription = skipTranscription;
         this.agentOriginated = agentOriginated;
 
-        // Setup local recording with dual-channel support
-        const recordingDir = path.join(process.cwd(), 'storage/recordings');
+        const recordingDir = path.join(process.cwd(), "storage/recordings");
         if (!fs.existsSync(recordingDir)) {
             fs.mkdirSync(recordingDir, { recursive: true });
         }
-        // Legacy single-channel path (for backwards compatibility)
         this.recordingPath = path.join(recordingDir, `call_${callSid}.raw`);
-        this.recordingStream = fs.createWriteStream(this.recordingPath, { flags: 'a' });
-        // Dual-channel paths: inbound (caller) and outbound (agent)
         this.inboundRecordingPath = path.join(recordingDir, `call_${callSid}_inbound.raw`);
         this.outboundRecordingPath = path.join(recordingDir, `call_${callSid}_outbound.raw`);
-        this.inboundRecordingStream = fs.createWriteStream(this.inboundRecordingPath, { flags: 'a' });
-        this.outboundRecordingStream = fs.createWriteStream(this.outboundRecordingPath, { flags: 'a' });
+        this.recordingStream = fs.createWriteStream(this.recordingPath, { flags: "a" });
+        this.inboundRecordingStream = fs.createWriteStream(this.inboundRecordingPath, { flags: "a" });
+        this.outboundRecordingStream = fs.createWriteStream(this.outboundRecordingPath, { flags: "a" });
 
         activeCallCount++;
 
-        // Load configurable timing settings
-        this.loadTimingSettings();
-
-        // Create call record immediately
         this.createCallRecord();
 
-        // Look up existing lead by phone number to pre-populate customer name
-        this.lookupExistingLead();
-
-        // Initialize transcription if not skipped (e.g., for Eleven Labs calls)
-        //
-        // Speaker labels follow WHO ORIGINATED the leg, not the track name. Twilio's `inbound`
-        // track carries audio from the originator: the customer on a normal inbound call, but
-        // BEN on a call he dialled out from Groundwire. Labelling by track alone would name Ben
-        // "Caller" and the customer "Agent" on every outbound call, and every downstream reader
-        // (metadata extraction, segment detection, scoring, future intake agents) would have the
-        // two speakers the wrong way round.
-        const inboundTrackSpeaker = this.agentOriginated ? 'Agent' : 'Caller';
-        const outboundTrackSpeaker = this.agentOriginated ? 'Caller' : 'Agent';
-
-        if (!this.skipTranscription) {
-            if (USE_WISPRFLOW) {
-                // Use WisprFlow for transcription
-                this.initializeWisprFlow('inbound', inboundTrackSpeaker);
-                this.initializeWisprFlow('outbound', outboundTrackSpeaker);
-            } else if (deepgram) {
-                // Fallback to Deepgram
-                this.initializeDeepgram('inbound', inboundTrackSpeaker);
-                this.initializeDeepgram('outbound', outboundTrackSpeaker);
-            } else {
-                console.warn(`[Transcription] No transcription service available for ${this.callSid}`);
-            }
-        } else {
-            console.log(`[Transcription] Skipping initialization for ${this.callSid} (Eleven Labs call)`);
-        }
-
-        // Call Script Tube Map coaches the VA through answering an incoming enquiry. It has no
-        // meaning on a call Ben placed himself, so outbound legs skip it.
-        if (!this.agentOriginated) {
-            this.initializeCallScript();
-        }
-    }
-
-    private async initializeCallScript() {
-        try {
-            await initializeCallScriptForCall(this.callSid, this.phoneNumber);
-            console.log(`[CallScript] Initialized session for call ${this.callSid}`);
-        } catch (error) {
-            console.error(`[CallScript] Failed to initialize session for ${this.callSid}:`, error);
-            // Non-fatal - call can still proceed without call script
-        }
-    }
-
-    private async loadTimingSettings() {
-        try {
-            const settings = await getCallTimingSettings();
-            this.debounceMs = settings.skuDebounceMs;
-            this.metadataChunkInterval = settings.metadataChunkInterval;
-            this.metadataCharThreshold = settings.metadataCharThreshold;
-            console.log(`[Timing] Loaded settings for ${this.callSid}: debounce=${this.debounceMs}ms, chunkInterval=${this.metadataChunkInterval}, charThreshold=${this.metadataCharThreshold}`);
-        } catch (error) {
-            console.error(`[Timing] Failed to load settings for ${this.callSid}, using defaults:`, error);
-            // Keep defaults already set in class properties
-        }
+        this.broadcast({
+            type: "voice:call_started",
+            data: { callSid: this.callSid, phoneNumber: this.phoneNumber },
+        });
     }
 
     private async createCallRecord() {
         try {
-            // Check if call was already created by the webhook
+            // The voice webhook usually created the row already; attach to it.
             const existingCallId = await findCallByTwilioSid(this.callSid);
-
             if (existingCallId) {
                 this.callRecordId = existingCallId;
-                await updateCall(this.callRecordId, {
-                    status: "in-progress"
-                });
+                await updateCall(this.callRecordId, { status: "in-progress" });
                 console.log(`[CallLogger] Attached to existing call ${this.callRecordId} for ${this.callSid}`);
             } else {
                 this.callRecordId = await createCall({
@@ -260,1073 +121,156 @@ export class MediaStreamTranscriber {
         }
     }
 
-    private async lookupExistingLead() {
-        try {
-            const normalized = normalizePhoneNumber(this.phoneNumber);
-            if (!normalized) return;
-
-            const existingLead = await db.select({
-                customerName: leads.customerName,
-                address: leads.address,
-                postcode: leads.postcode,
-            })
-                .from(leads)
-                .where(eq(leads.phone, normalized))
-                .limit(1);
-
-            if (existingLead.length > 0 && existingLead[0].customerName) {
-                const lead = existingLead[0];
-                this.metadata.customerName = lead.customerName;
-                if (lead.address) this.metadata.address = lead.address;
-                if (lead.postcode) this.metadata.postcode = lead.postcode;
-
-                console.log(`[LeadLookup] Found existing lead for ${normalized}: ${lead.customerName}`);
-
-                // Broadcast immediately so HUD gets the name before any transcription
-                this.broadcast({
-                    type: 'voice:analysis_update',
-                    data: {
-                        callSid: this.callSid,
-                        analysis: {
-                            matched: false,
-                            sku: null,
-                            confidence: 0,
-                            method: 'realtime',
-                            rationale: 'Returning caller identified',
-                            nextRoute: 'UNKNOWN',
-                        },
-                        metadata: this.metadata,
-                    },
-                });
-            } else {
-                console.log(`[LeadLookup] No existing lead for ${normalized}`);
-            }
-        } catch (e) {
-            console.error('[LeadLookup] Failed to lookup existing lead:', e);
-        }
-    }
-
-    private initializeWisprFlow(track: 'inbound' | 'outbound', speakerLabel: string) {
-        console.log(`[WisprFlow] Initializing ${track} stream (${speakerLabel}) for ${this.callSid}`);
-
-        const client = createWisprFlowClient({
-            apiKey: WISPRFLOW_API_KEY,
-            language: 'en-GB', // Default to UK English
-            contextNames: [], // Could add customer name when detected
-        });
-
-        // Store reference to the appropriate stream
-        if (track === 'inbound') {
-            this.wisprInbound = client;
-        } else {
-            this.wisprOutbound = client;
-        }
-
-        // Handle connection events
-        client.on('connected', () => {
-            console.log(`[WisprFlow] ${track} (${speakerLabel}) connected for ${this.callSid}`);
-            if (track === 'inbound') {
-                this.wisprInboundConnected = true;
-                // Broadcast call_started once (from inbound)
-                this.broadcast({
-                    type: 'voice:call_started',
-                    data: { callSid: this.callSid, phoneNumber: this.phoneNumber }
-                });
-            } else {
-                this.wisprOutboundConnected = true;
-            }
-        });
-
-        // Handle transcript events - map to existing broadcast format
-        client.on('transcript', (event: TranscriptEvent) => {
-            if (event.isFinal && event.text) {
-                // Store segment with numeric speaker ID for OpenAI metadata extraction
-                // 0 = Caller (inbound), 1 = Agent (outbound)
-                const speakerNum = track === 'inbound' ? 0 : 1;
-                this.segments.push({
-                    text: event.text,
-                    speaker: speakerNum,
-                    track: track,
-                    timestamp: new Date()
-                });
-
-                // Add speaker label to full transcript
-                this.fullTranscript += `[${speakerLabel}]: ${event.text}\n`;
-                console.log(`\n[WisprFlow] ${speakerLabel}: ${event.text}`);
-
-                // Broadcast final transcript to UI
-                this.broadcast({
-                    type: 'voice:live_segment',
-                    data: {
-                        callSid: this.callSid,
-                        transcript: event.text,
-                        speaker: speakerLabel,
-                        track: track,
-                        isFinal: true
-                    }
-                });
-
-                // Feed transcript to Call Script system for segment classification
-                handleCallScriptTranscript(this.callSid, event.text, speakerLabel);
-
-                // Debounce the analysis (not the display)
-                if (this.debounceTimer) {
-                    clearTimeout(this.debounceTimer);
-                }
-
-                this.debounceTimer = setTimeout(() => {
-                    console.log('[SKU Detector] Debounce timer fired - analyzing transcript');
-                    this.analyzeSegment(this.fullTranscript);
-                }, this.debounceMs);
-            } else if (event.text) {
-                // Interim result
-                process.stdout.write(`\r[WisprFlow] ${speakerLabel} Interim: ${event.text} `);
-                this.broadcast({
-                    type: 'voice:live_segment',
-                    data: {
-                        callSid: this.callSid,
-                        transcript: event.text,
-                        speaker: speakerLabel,
-                        track: track,
-                        isFinal: false
-                    }
-                });
-            }
-        });
-
-        client.on('error', (err: Error) => {
-            console.error(`[WisprFlow] ${speakerLabel} Error:`, err.message);
-        });
-
-        client.on('closed', () => {
-            console.log(`[WisprFlow] ${speakerLabel} connection closed for ${this.callSid}`);
-            if (track === 'inbound') {
-                this.wisprInboundConnected = false;
-            } else {
-                this.wisprOutboundConnected = false;
-            }
-        });
-
-        // Connect to WisprFlow
-        client.connect().catch((err) => {
-            console.error(`[WisprFlow] Failed to connect ${track} stream for ${this.callSid}:`, err);
-            // Fallback to Deepgram if WisprFlow fails
-            if (deepgram) {
-                console.log(`[WisprFlow] Falling back to Deepgram for ${track}`);
-                this.initializeDeepgram(track, speakerLabel);
-            }
-        });
-    }
-
-    private initializeDeepgram(track: 'inbound' | 'outbound', speakerLabel: string) {
-        if (!deepgram) {
-            console.warn(`[Deepgram] Cannot initialize - client not available`);
-            return;
-        }
-        console.log(`[Deepgram] Initializing ${track} stream (${speakerLabel}) for ${this.callSid}`);
-
-        const dgLive = deepgram.listen.live({
-            model: "nova-2",
-            language: "en-GB", // Default to UK English since localized
-            smart_format: true,
-            interim_results: true,
-
-            // VAD and utterance settings
-            vad_events: true,
-            utterance_end_ms: 1000, // Explicitly set to 1s (default is often too short/varied)
-            endpointing: 300,       // Help with endpointing silence
-
-            encoding: "mulaw",
-            sample_rate: 8000,
-            // No diarize needed - we know the speaker from the track
-            keywords: [
-                "plumbing", "electrician", "handyman",
-                "socket", "tap", "leak", "boiler",
-                "sink", "switch", "fuse", "quote",
-                "price", "call out", "emergency"
-            ],
-        });
-
-        // Store reference to the appropriate stream
-        if (track === 'inbound') {
-            this.dgLiveInbound = dgLive;
-        } else {
-            this.dgLiveOutbound = dgLive;
-        }
-
-        dgLive.on(LiveTranscriptionEvents.Open, () => {
-            console.log(`[Deepgram] ${track} (${speakerLabel}) connection opened for ${this.callSid}`);
-            // Only broadcast call_started once (from inbound)
-            if (track === 'inbound') {
-                this.broadcast({
-                    type: 'voice:call_started',
-                    data: { callSid: this.callSid, phoneNumber: this.phoneNumber }
-                });
-            }
-        });
-
-        dgLive.on(LiveTranscriptionEvents.Transcript, (data: any) => {
-            const transcript = data.channel.alternatives[0].transcript;
-            if (transcript && data.is_final) {
-                // Store segment with numeric speaker ID for OpenAI metadata extraction
-                // 0 = Caller (inbound), 1 = Agent (outbound)
-                const speakerNum = track === 'inbound' ? 0 : 1;
-                this.segments.push({
-                    text: transcript,
-                    speaker: speakerNum,
-                    track: track,
-                    timestamp: new Date()
-                });
-
-                // Add speaker label to full transcript
-                this.fullTranscript += `[${speakerLabel}]: ${transcript}\n`;
-                console.log(`\n[Deepgram] ${speakerLabel}: ${transcript}`);
-
-                // IMMEDIATELY broadcast transcript to UI (no debounce for display)
-                this.broadcast({
-                    type: 'voice:live_segment',
-                    data: {
-                        callSid: this.callSid,
-                        transcript: transcript,
-                        speaker: speakerLabel,
-                        track: track,
-                        isFinal: true
-                    }
-                });
-
-                // Feed transcript to Call Script system for segment classification and info extraction
-                handleCallScriptTranscript(this.callSid, transcript, speakerLabel);
-
-                // B4: Debounce ONLY the analysis (not the display)
-                // This keeps UI responsive while reducing API calls
-                if (this.debounceTimer) {
-                    clearTimeout(this.debounceTimer);
-                }
-
-                this.debounceTimer = setTimeout(() => {
-                    console.log('[SKU Detector] Debounce timer fired - analyzing transcript');
-                    this.analyzeSegment(this.fullTranscript);
-                }, this.debounceMs);
-            } else if (transcript) {
-                // Interim result
-                process.stdout.write(`\r[Deepgram] ${speakerLabel} Interim: ${transcript} `);
-                this.broadcast({
-                    type: 'voice:live_segment',
-                    data: {
-                        callSid: this.callSid,
-                        transcript: transcript,
-                        speaker: speakerLabel,
-                        track: track,
-                        isFinal: false
-                    }
-                });
-            }
-        });
-
-        dgLive.on(LiveTranscriptionEvents.Error, (err: any) => {
-            console.error(`[Deepgram] ${speakerLabel} Error: `, err);
-        });
-
-        dgLive.on(LiveTranscriptionEvents.Close, () => {
-            console.log(`[Deepgram] ${speakerLabel} connection closed for ${this.callSid}`);
-        });
-    }
-
-    private async analyzeSegment(text: string) {
-        try {
-            // Update history (keep last 3 turns)
-            this.history.push(text);
-            if (this.history.length > 3) this.history.shift();
-
-            this.segmentCount++;
-
-            // B7: Extract postcode every 2 segments OR if transcript length > 100 chars
-            if (!this.postcodeDetected && (this.segmentCount % 2 === 0 || this.fullTranscript.length > 100)) {
-                const postcode = await extractPostcodeOnly(this.fullTranscript);
-                if (postcode && !this.metadata.postcode) {
-                    this.metadata.postcode = postcode;
-                    this.postcodeDetected = true;
-
-                    console.log(`[Postcode] Detected: ${postcode}`);
-
-                    // B7: Broadcast postcode detection to frontend
-                    this.broadcast({
-                        type: 'voice:postcode_detected',
-                        data: {
-                            callSid: this.callSid,
-                            postcode: postcode
-                        }
-                    });
-                }
-            }
-
-            // Extract name and address periodically (every N segments OR if transcript > N chars)
-            // But not more frequently than every 5 seconds to avoid excessive API calls
-            // Settings are configurable via admin panel
-            const now = Date.now();
-            const shouldExtractMetadata = (this.segmentCount % this.metadataChunkInterval === 0 || this.fullTranscript.length > this.metadataCharThreshold)
-                && (now - this.lastMetadataExtraction > 5000);
-
-            if (shouldExtractMetadata) {
-                this.lastMetadataExtraction = now;
-
-                try {
-                    // S-005: Parallelize metadata extraction and postcode extraction for faster population
-                    const [liveMetadata, postcodeResult] = await Promise.all([
-                        extractCallMetadata(this.fullTranscript, this.segments),
-                        // Only extract postcode if we don't have one yet
-                        !this.metadata.postcode ? extractPostcodeOnly(this.fullTranscript) : Promise.resolve(null)
-                    ]);
-
-                    // Update postcode if found from parallel extraction
-                    if (postcodeResult && !this.metadata.postcode) {
-                        this.metadata.postcode = postcodeResult;
-                        this.postcodeDetected = true;
-                        console.log(`[Postcode] Detected (parallel): ${postcodeResult}`);
-                        this.broadcast({
-                            type: 'voice:postcode_detected',
-                            data: {
-                                callSid: this.callSid,
-                                postcode: postcodeResult
-                            }
-                        });
-                    }
-
-                    // Update metadata if new information is found
-                    // Allow AI to update the name as more transcript context becomes available
-                    if (liveMetadata.customerName) {
-                        if (!this.metadata.customerName) {
-                            console.log(`[Metadata] Customer name detected: ${liveMetadata.customerName}`);
-                        } else if (this.metadata.customerName !== liveMetadata.customerName) {
-                            console.log(`[Metadata] Customer name refined: ${this.metadata.customerName} → ${liveMetadata.customerName}`);
-                        }
-                        this.metadata.customerName = liveMetadata.customerName;
-                    }
-
-                    if (liveMetadata.address && !this.metadata.address) {
-                        this.metadata.address = liveMetadata.address;
-                        console.log(`[Metadata] Address detected: ${liveMetadata.address}`);
-
-                        // Validate the extracted address (this can run after we have address)
-                        const validation = await validateExtractedAddress(
-                            liveMetadata.address,
-                            this.metadata.postcode || liveMetadata.postcode
-                        );
-
-                        this.metadata.addressValidation = validation;
-
-                        console.log(`[Address Validation] Confidence: ${validation.confidence}%, Validated: ${validation.validated}`);
-
-                        // Broadcast validation result to frontend
-                        this.broadcast({
-                            type: 'voice:address_validated',
-                            data: {
-                                callSid: this.callSid,
-                                address: liveMetadata.address,
-                                validation: validation
-                            }
-                        });
-                    }
-
-                    // Update urgency and lead type (these can change during the call)
-                    if (liveMetadata.urgency) {
-                        this.metadata.urgency = liveMetadata.urgency;
-                    }
-
-                    if (liveMetadata.leadType && liveMetadata.leadType !== 'Unknown') {
-                        this.metadata.leadType = liveMetadata.leadType;
-                    }
-                } catch (e) {
-                    console.error('[Metadata] Extraction error during live call:', e);
-                }
-            }
-
-
-            // Use multi-task detection for live analysis with FULL transcript to accumulate SKUs
-            const multiTaskResult = await detectMultipleTasks(this.fullTranscript);
-
-            // Map to backward-compatible format
-            const result = {
-                matched: multiTaskResult.hasMatches,
-                sku: multiTaskResult.matchedServices[0]?.sku || null,
-                confidence: multiTaskResult.matchedServices[0]?.confidence || 0,
-                method: 'realtime',
-                rationale: multiTaskResult.matchedServices.length > 0
-                    ? `Detected ${multiTaskResult.matchedServices.length} service(s)`
-                    : "Listening...",
-                nextRoute: multiTaskResult.nextRoute,
-                suggestedScript: `I can help with ${multiTaskResult.matchedServices.map(s => s.sku.name).join(' and ')}.`,
-
-                // Multi-SKU data for live display
-                matchedServices: multiTaskResult.matchedServices,
-                unmatchedTasks: multiTaskResult.unmatchedTasks,
-                totalMatchedPrice: multiTaskResult.totalMatchedPrice,
-                hasMultiple: multiTaskResult.matchedServices.length > 1
-            };
-
-            // Always broadcast metadata so customer name/address reach the UI immediately
-            // Previously this was gated behind job detection, meaning names extracted
-            // before any job was mentioned would never reach the client
-            const hasAnyTasks = multiTaskResult.matchedServices.length > 0 || multiTaskResult.unmatchedTasks.length > 0;
-
-            console.log(`\n[Switchboard] Real-time detection: ${result.matchedServices?.length || 0} matched, ${result.unmatchedTasks?.length || 0} unmatched - ${result.sku?.name || result.nextRoute} (${result.confidence}%)`);
-            this.broadcast({
-                type: 'voice:analysis_update',
-                data: {
-                    callSid: this.callSid,
-                    analysis: result,
-                    metadata: this.metadata
-                }
-            });
-
-            if (hasAnyTasks || result.matched || result.nextRoute !== 'VIDEO_QUOTE') {
-
-                // Broadcast jobs update for CallHUD with tiered traffic light scoring
-                // Tier 1: Instant sync classification (<50ms) for real-time UI
-                // S-004: Use content-based hash for stable job IDs (prevents flickering)
-                const jobs = [
-                    ...multiTaskResult.matchedServices.map((s) => {
-                        // Content-based hash: SKU ID + task description for stable ID
-                        const jobHash = crypto.createHash('md5')
-                            .update(s.sku.id + (s.task?.description || ''))
-                            .digest('hex')
-                            .substring(0, 8);
-                        const jobId = `matched-${jobHash}`;
-                        const { trafficLight, result } = getTrafficLightSync(true, s.task.description || s.sku.name);
-                        this.lastJobClassifications.set(jobId, result);
-                        return {
-                            id: jobId,
-                            description: s.task.description || s.sku.name,
-                            matched: true,
-                            sku: { pricePence: s.sku.pricePence, id: s.sku.id, name: s.sku.name },
-                            trafficLight,
-                            complexityScore: result.complexityScore,
-                            recommendedRoute: result.recommendedRoute,
-                        };
-                    }),
-                    ...multiTaskResult.unmatchedTasks.map((t) => {
-                        // Content-based hash: task description for stable ID
-                        const jobHash = crypto.createHash('md5')
-                            .update(t.description)
-                            .digest('hex')
-                            .substring(0, 8);
-                        const jobId = `unmatched-${jobHash}`;
-                        const { trafficLight, result } = getTrafficLightSync(false, t.description);
-                        this.lastJobClassifications.set(jobId, result);
-                        return {
-                            id: jobId,
-                            description: t.description,
-                            matched: false,
-                            trafficLight,
-                            complexityScore: result.complexityScore,
-                            recommendedRoute: result.recommendedRoute,
-                        };
-                    }),
-                ];
-
-                if (jobs.length > 0) {
-                    // Get overall route recommendation
-                    const routeRecommendation = getOverallRouteRecommendation(this.lastJobClassifications);
-
-                    this.broadcast({
-                        type: 'callscript:jobs_update',
-                        data: {
-                            callId: this.callSid,
-                            jobs,
-                            routeRecommendation,
-                        }
-                    });
-
-                    // Broadcast SKU match status for action button state
-                    this.broadcast({
-                        type: 'callscript:sku_match_update',
-                        data: {
-                            callId: this.callSid,
-                            matched: multiTaskResult.hasMatches,
-                            hasUnmatched: multiTaskResult.unmatchedTasks.length > 0,
-                        }
-                    });
-
-                    // Tier 2: Debounced LLM classification for unmatched jobs (refinement)
-                    const unmatchedJobs = jobs.filter(j => !j.matched);
-                    if (unmatchedJobs.length > 0) {
-                        if (this.tier2DebounceTimer) {
-                            clearTimeout(this.tier2DebounceTimer);
-                        }
-                        this.tier2DebounceTimer = setTimeout(async () => {
-                            try {
-                                const jobInputs: DetectedJobInput[] = jobs.map(j => ({
-                                    id: j.id,
-                                    description: j.description,
-                                    matched: j.matched,
-                                    skuId: j.sku?.id,
-                                    skuName: j.sku?.name,
-                                    pricePence: j.sku?.pricePence,
-                                }));
-
-                                const tier2Results = await classifyMultipleJobs(jobInputs, { useTier2: true });
-
-                                // Update classifications and re-broadcast
-                                tier2Results.forEach((result, jobId) => {
-                                    this.lastJobClassifications.set(jobId, result);
-                                });
-
-                                // Re-broadcast with Tier 2 results
-                                const updatedJobs = jobs.map(j => ({
-                                    ...j,
-                                    trafficLight: this.lastJobClassifications.get(j.id)?.trafficLight || j.trafficLight,
-                                    complexityScore: this.lastJobClassifications.get(j.id)?.complexityScore,
-                                    recommendedRoute: this.lastJobClassifications.get(j.id)?.recommendedRoute,
-                                    needsSpecialist: this.lastJobClassifications.get(j.id)?.needsSpecialist,
-                                    reasoning: this.lastJobClassifications.get(j.id)?.reasoning,
-                                    tier: this.lastJobClassifications.get(j.id)?.tier,
-                                }));
-
-                                const updatedRouteRecommendation = getOverallRouteRecommendation(this.lastJobClassifications);
-
-                                this.broadcast({
-                                    type: 'callscript:jobs_update',
-                                    data: {
-                                        callId: this.callSid,
-                                        jobs: updatedJobs,
-                                        routeRecommendation: updatedRouteRecommendation,
-                                        tier: 2, // Indicate this is refined Tier 2 classification
-                                    }
-                                });
-
-                                console.log(`[JobComplexity] Tier 2 refinement complete for ${tier2Results.size} jobs`);
-                            } catch (err) {
-                                console.error('[JobComplexity] Tier 2 classification error:', err);
-                            }
-                        }, 800); // 800ms debounce for Tier 2 LLM
-                    }
-                }
-
-                // Persist live analysis to DB for reconnecting clients
-                if (this.callRecordId) {
-                    updateCall(this.callRecordId, {
-                        liveAnalysisJson: result,
-                        metadataJson: this.metadata,
-                        transcription: this.fullTranscript.trim()
-                    }).catch(e => console.error('[CallLogger] Failed to persist live analysis:', e));
-                }
-            }
-        } catch (e) {
-            console.error("[Switchboard] Segment analysis error:", e);
-        }
-    }
-
     handleAudio(payload: string, track?: string) {
         if (this.isClosed) return;
-
         try {
-            const buffer = Buffer.from(payload, 'base64');
-
-            // Send to appropriate transcription service based on track
-            if (USE_WISPRFLOW) {
-                // WisprFlow: Convert mu-law to PCM before sending
-                const pcmBase64 = convertTwilioToWisprFlow(payload);
-
-                if (track === 'inbound' && this.wisprInbound && this.wisprInboundConnected) {
-                    this.wisprInbound.sendAudio(pcmBase64);
-                } else if (track === 'outbound' && this.wisprOutbound && this.wisprOutboundConnected) {
-                    this.wisprOutbound.sendAudio(pcmBase64);
-                } else if (!track && this.wisprInbound && this.wisprInboundConnected) {
-                    // Fallback for legacy single-track mode
-                    this.wisprInbound.sendAudio(pcmBase64);
-                }
+            const buffer = Buffer.from(payload, "base64");
+            if (track === "outbound") {
+                this.outboundRecordingStream?.write(buffer);
             } else {
-                // Deepgram fallback: Send mu-law directly
-                if (track === 'inbound' && this.dgLiveInbound) {
-                    this.dgLiveInbound.send(buffer);
-                } else if (track === 'outbound' && this.dgLiveOutbound) {
-                    this.dgLiveOutbound.send(buffer);
-                } else if (!track && this.dgLiveInbound) {
-                    // Fallback for legacy single-track mode
-                    this.dgLiveInbound.send(buffer);
-                }
-            }
-
-            // Write to legacy single-channel recording (inbound only for backwards compat)
-            if (this.recordingStream && (!track || track === 'inbound')) {
-                this.recordingStream.write(buffer);
-            }
-
-            // Write to dual-channel recordings based on track
-            if (track === 'inbound' && this.inboundRecordingStream) {
-                this.inboundRecordingStream.write(buffer);
-            } else if (track === 'outbound' && this.outboundRecordingStream) {
-                this.outboundRecordingStream.write(buffer);
+                // 'inbound' or legacy single-track mode
+                this.inboundRecordingStream?.write(buffer);
+                this.recordingStream?.write(buffer);
             }
         } catch (e) {
-            console.error("[Transcription] Send error:", e);
+            console.error(`[Recording] Failed to buffer audio for ${this.callSid}:`, e);
         }
     }
 
     async close() {
         if (this.isClosed) return;
         this.isClosed = true;
+        activeCallCount = Math.max(0, activeCallCount - 1);
 
-        // Clear Tier 2 debounce timer
-        if (this.tier2DebounceTimer) {
-            clearTimeout(this.tier2DebounceTimer);
-            this.tier2DebounceTimer = null;
-        }
-        this.lastJobClassifications.clear();
-
-        activeCallCount--;
-
-        console.log(`[Twilio] Broadcasting call_ended for ${this.callSid}`);
-
-        // IMMEDIATELY broadcast call ended to UI (before any async processing)
-        // This ensures the LIVE badge turns off right away
         this.broadcast({
-            type: 'voice:call_ended',
-            data: {
-                callSid: this.callSid,
-                phoneNumber: this.phoneNumber,
-                finalTranscript: this.fullTranscript.trim(),
-                analysis: {
-                    matched: false,
-                    sku: null,
-                    confidence: 0,
-                    method: 'realtime',
-                    rationale: 'Call ended - processing...',
-                    nextRoute: 'UNKNOWN' as const,
-                    matchedServices: [],
-                    unmatchedTasks: [],
-                    totalMatchedPrice: 0,
-                    hasMultiple: false
-                },
-                metadata: this.metadata
-            }
+            type: "voice:call_ended",
+            data: { callSid: this.callSid, phoneNumber: this.phoneNumber },
         });
 
-        const finalText = this.fullTranscript.trim();
+        // Flush recordings to disk.
+        this.recordingStream?.end();
+        this.inboundRecordingStream?.end();
+        this.outboundRecordingStream?.end();
+        this.recordingStream = this.inboundRecordingStream = this.outboundRecordingStream = null;
+        await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // End Call Script session (persists state and cleans up)
-        endCallScriptSession(this.callSid).catch((err) => {
-            console.error(`[CallScript] Error ending session for ${this.callSid}:`, err);
-        });
+        // Persist recordings to storage (disk survives nothing on Railway — see media-persistence).
+        let finalRecordingUrl: string | undefined;
+        let finalLocalPath: string | undefined = this.recordingPath;
+        let inboundRecordingUrl: string | undefined;
+        let outboundRecordingUrl: string | undefined;
 
-        // Close WisprFlow connections
-        if (this.wisprInbound) {
+        const upload = async (p: string, filename: string): Promise<string | undefined> => {
+            if (!fs.existsSync(p)) return undefined;
             try {
-                this.wisprInbound.commit(); // Send final commit
-                this.wisprInbound.close();
-                console.log(`[WisprFlow] Closed inbound (Caller) stream`);
-            } catch (e) {
-                console.error(`[WisprFlow] Error closing inbound stream:`, e);
-            }
-        }
-        if (this.wisprOutbound) {
-            try {
-                this.wisprOutbound.commit(); // Send final commit
-                this.wisprOutbound.close();
-                console.log(`[WisprFlow] Closed outbound (Agent) stream`);
-            } catch (e) {
-                console.error(`[WisprFlow] Error closing outbound stream:`, e);
-            }
-        }
-
-        // Close Deepgram streams (fallback)
-        if (this.dgLiveInbound) {
-            try {
-                this.dgLiveInbound.finish();
-                console.log(`[Deepgram] Closed inbound (Caller) stream`);
-            } catch (e) {
-                console.error(`[Deepgram] Error closing inbound stream:`, e);
-            }
-        }
-        if (this.dgLiveOutbound) {
-            try {
-                this.dgLiveOutbound.finish();
-                console.log(`[Deepgram] Closed outbound (Agent) stream`);
-            } catch (e) {
-                console.error(`[Deepgram] Error closing outbound stream:`, e);
-            }
-        }
-
-        // Close all recording streams to ensure flush
-        if (this.recordingStream) {
-            this.recordingStream.end();
-            console.log(`[Recording] Saved raw audio to ${this.recordingPath}`);
-        }
-        if (this.inboundRecordingStream) {
-            this.inboundRecordingStream.end();
-            console.log(`[Recording] Saved inbound (caller) audio to ${this.inboundRecordingPath}`);
-        }
-        if (this.outboundRecordingStream) {
-            this.outboundRecordingStream.end();
-            console.log(`[Recording] Saved outbound (agent) audio to ${this.outboundRecordingPath}`);
-        }
-        await new Promise(resolve => setTimeout(resolve, 100)); // Small buffer to ensure flush
-
-        let finalRecordingUrl: string | undefined = undefined;
-        let finalLocalPath: string | undefined = this.recordingPath || undefined;
-        let inboundRecordingUrl: string | undefined = undefined;
-        let outboundRecordingUrl: string | undefined = undefined;
-
-        // Upload/Persist Legacy Recording (for backwards compatibility)
-        if (this.recordingPath && fs.existsSync(this.recordingPath)) {
-            try {
-                const filename = `call_${this.callSid}.raw`;
-                finalRecordingUrl = await storageService.uploadRecording(this.recordingPath, filename);
-                console.log(`[Recording] Persisted legacy to: ${finalRecordingUrl}`);
-                if (finalRecordingUrl.startsWith('http')) {
-                    finalLocalPath = undefined;
-                } else {
-                    finalLocalPath = finalRecordingUrl;
-                }
+                return await storageService.uploadRecording(p, filename);
             } catch (error) {
-                console.error("[Recording] Failed to persist legacy recording:", error);
+                console.error(`[Recording] Failed to persist ${filename}:`, error);
+                return undefined;
             }
+        };
+
+        finalRecordingUrl = await upload(this.recordingPath, `call_${this.callSid}.raw`);
+        if (finalRecordingUrl?.startsWith("http")) finalLocalPath = undefined;
+        else if (finalRecordingUrl) finalLocalPath = finalRecordingUrl;
+        inboundRecordingUrl = await upload(this.inboundRecordingPath, `call_${this.callSid}_inbound.raw`);
+        outboundRecordingUrl = await upload(this.outboundRecordingPath, `call_${this.callSid}_outbound.raw`);
+
+        if (!this.callRecordId) return;
+        const callRecordId = this.callRecordId;
+        const duration = Math.floor((Date.now() - this.callStartTime.getTime()) / 1000);
+
+        // ALWAYS finalize, even for a 2-second hangup: finalizeCall ingests the call into the
+        // comms thread (card, preview, SLA clock) and runs the missed-call ack lane. It never
+        // touches `outcome` here (undefined keys are dropped), so MISSED_CALL flags written by
+        // the routing/dial-status handlers survive.
+        try {
+            await finalizeCall(callRecordId, {
+                duration,
+                endTime: new Date(),
+                recordingUrl: finalRecordingUrl,
+                localRecordingPath: finalLocalPath,
+                inboundRecordingUrl,
+                outboundRecordingUrl,
+            });
+            console.log(`[CallLogger] Finalized call ${callRecordId} (${duration}s)`);
+        } catch (e) {
+            console.error("[CallLogger] Failed to finalize call:", e);
         }
 
-        // Upload/Persist Inbound (caller) Recording
-        if (this.inboundRecordingPath && fs.existsSync(this.inboundRecordingPath)) {
-            try {
-                const filename = `call_${this.callSid}_inbound.raw`;
-                inboundRecordingUrl = await storageService.uploadRecording(this.inboundRecordingPath, filename);
-                console.log(`[Recording] Persisted inbound to: ${inboundRecordingUrl}`);
-            } catch (error) {
-                console.error("[Recording] Failed to persist inbound recording:", error);
-            }
+        // The post-call chain. Recording-over-threshold only: transcribe → classify → outreach →
+        // lead upsert. Fire-and-forget — the socket teardown must not wait on Deepgram or Claude.
+        if (duration < MIN_TRANSCRIBE_SECONDS) {
+            console.log(`[PostCall] ${callRecordId}: ${duration}s < ${MIN_TRANSCRIBE_SECONDS}s threshold — no transcription`);
+            return;
         }
 
-        // Upload/Persist Outbound (agent) Recording
-        if (this.outboundRecordingPath && fs.existsSync(this.outboundRecordingPath)) {
+        (async () => {
+            // 1. Batch transcription — the sole transcript source (dual-track Deepgram
+            //    prerecorded with exact speaker labels). Also classifies/backfills the verdict.
             try {
-                const filename = `call_${this.callSid}_outbound.raw`;
-                outboundRecordingUrl = await storageService.uploadRecording(this.outboundRecordingPath, filename);
-                console.log(`[Recording] Persisted outbound to: ${outboundRecordingUrl}`);
-            } catch (error) {
-                console.error("[Recording] Failed to persist outbound recording:", error);
+                const { batchRetranscribeCall } = await import("./call-batch-transcribe");
+                await batchRetranscribeCall(callRecordId);
+            } catch (e: any) {
+                console.warn(`[PostCall] batch transcription failed for ${callRecordId}:`, e?.message ?? e);
             }
-        }
 
-        // ALWAYS finalize the call record, even if transcript is short/empty
-        // This prevents calls from getting stuck as "in-progress" forever
-        if (this.callRecordId) {
-            const duration = Math.floor((new Date().getTime() - this.callStartTime.getTime()) / 1000);
-
-            // --- AGENTIC LAYER START ---
-            let agentPlan = null;
-            if (finalText.length > 5) { // Only analyze if there's content
-                try {
-                    const { analyzeLeadActionPlan } = await import('./services/agentic-service');
-                    console.log(`[Twilio-Agent] Analyzing call ${this.callRecordId}...`);
-                    agentPlan = await analyzeLeadActionPlan(finalText);
-                    console.log(`[Twilio-Agent] Plan generated:`, JSON.stringify(agentPlan, null, 2));
-                } catch (err) {
-                    console.error(`[Twilio-Agent] Analysis failed:`, err);
-                }
-            }
-            // --- AGENTIC LAYER END ---
-
+            // 2. Outreach decision (flag-gated inside; fails closed without a classification).
             try {
-                await finalizeCall(this.callRecordId, {
-                    duration,
-                    endTime: new Date(),
-                    // undefined (not 'UNKNOWN') when there's no plan: finalizeCall drops undefined
-                    // keys, so a MISSED_CALL outcome written by the routing/dial-status handlers
-                    // survives the stream close instead of being overwritten to UNKNOWN.
-                    outcome: agentPlan ? (agentPlan.recommendedAction === 'book_visit' ? 'SITE_VISIT' : 'INSTANT_PRICE') : undefined,
-                    transcription: finalText || undefined,
-                    segments: this.segments,
-                    localRecordingPath: finalLocalPath,
-                    recordingUrl: finalRecordingUrl || undefined,
-                    inboundRecordingUrl: inboundRecordingUrl || undefined,
-                    outboundRecordingUrl: outboundRecordingUrl || undefined,
-                    detectedSkusJson: agentPlan ? agentPlan : undefined // Store the Brain Dump
+                const { maybeSendPostCallVideoRequest } = await import("./post-call-outreach");
+                const decision = await maybeSendPostCallVideoRequest({
+                    callSid: this.callSid,
+                    callStatus: "completed",
                 });
-                console.log(`[CallLogger] Finalized call ${this.callRecordId} with duration ${duration}s`);
-            } catch (e) {
-                console.error("[CallLogger] Failed to finalize call:", e);
+                console.log(`[PostCall] outreach for ${callRecordId}: ${decision.sent ? "SENT" : decision.reason}`);
+            } catch (e: any) {
+                console.warn(`[PostCall] outreach failed for ${callRecordId}:`, e?.message ?? e);
             }
 
-            // THE CALL JUST ENDED AND THE TRANSCRIPT IS ON THE ROW. This — not the
-            // Twilio recording-status callback — is where post-call intelligence must
-            // hang: live calls record through this stream, so Twilio never sends a
-            // recording callback (verified 22 Aug: 18 inbound calls since the 19th,
-            // zero classified; the only recording-callback rows ever are one test
-            // session on 6 Jan). Same two steps as the callback hook, same order,
-            // both idempotent so the callback firing too would be harmless.
-            //
-            // 1. Classify/summarise, always, both directions — one haiku call, and
-            //    the thread deserves to say what the call was even with outreach off.
-            // 2. Outreach decision (flag-gated inside): AGREED_ON_CALL → template.
-            if (finalText.length > 5) {
-                try {
-                    const { classifyCall } = await import('./call-classifier');
-                    const verdict = await classifyCall(this.callSid);
-                    console.log(`[CallLogger] Post-call classification for ${this.callSid}: ${verdict.ok ? verdict.classification.kind : verdict.reason}`);
-                } catch (e: any) {
-                    console.warn('[CallLogger] Post-call classification failed:', e?.message ?? e);
-                }
-                try {
-                    const { maybeSendPostCallVideoRequest } = await import('./post-call-outreach');
-                    const decision = await maybeSendPostCallVideoRequest({
-                        callSid: this.callSid,
-                        callStatus: 'completed',
-                    });
-                    console.log(`[CallLogger] Post-call outreach for ${this.callSid}: ${decision.sent ? 'SENT' : decision.reason}`);
-                } catch (e: any) {
-                    console.warn('[CallLogger] Post-call outreach failed:', e?.message ?? e);
-                }
-
-                // 3. Quality pass, fire-and-forget: batch re-transcribe the saved
-                // per-track recordings into the call's permanent transcript. Runs
-                // AFTER classification/outreach so the fast path never waits on it.
-                import('./call-batch-transcribe')
-                    .then(({ batchRetranscribeCall }) => batchRetranscribeCall(this.callRecordId!))
-                    .catch((e: any) => console.warn('[CallLogger] Batch re-transcription failed:', e?.message ?? e));
-            }
-        }
-
-        // Close recording stream - (Already closed above)
-        /* 
-        if (this.recordingStream) {
-            this.recordingStream.end();
-             console.log(`[Recording] Saved raw audio to ${this.recordingPath}`);
-        } 
-        */
-
-        if (finalText.length > 5) {
+            // 3. Lead upsert from the clean transcript (Claude; replaces the dead-OpenAI
+            //    extraction + duplicate-lead heuristics of the live pipeline).
             try {
-                // Use multi-task detection
-                const multiTaskResult = await detectMultipleTasks(finalText);
-
-                // B9: Final metadata extraction
-                const finalMetadata = await extractCallMetadata(finalText);
-
-                // Merge with live metadata (prefer final extraction if available)
-                const mergedMetadata = {
-                    customerName: finalMetadata.customerName || this.metadata.customerName || "Voice Caller",
-                    address: finalMetadata.address || this.metadata.address || null,
-                    addressRaw: finalMetadata.address || this.metadata.address || null,
-                    postcode: finalMetadata.postcode || this.metadata.postcode || null,
-                    urgency: finalMetadata.urgency || this.metadata.urgency,
-                    leadType: finalMetadata.leadType || this.metadata.leadType,
-                    phoneNumber: normalizePhoneNumber(this.phoneNumber) || this.phoneNumber,
-                    // addressValidation might be present in this.metadata if real-time validation succeeded
-                    addressValidation: this.metadata.addressValidation
-                };
-
-                // Map multi-task result to backward-compatible format
-                const routing = {
-                    matched: multiTaskResult.hasMatches,
-                    sku: multiTaskResult.matchedServices[0]?.sku || null,
-                    confidence: multiTaskResult.matchedServices[0]?.confidence || 0,
-                    nextRoute: multiTaskResult.nextRoute,
-                    rationale: multiTaskResult.matchedServices.length > 0
-                        ? `Detected ${multiTaskResult.matchedServices.length} service(s)`
-                        : "No specific services detected",
-
-                    // Multi-SKU data
-                    matchedServices: multiTaskResult.matchedServices,
-                    unmatchedTasks: multiTaskResult.unmatchedTasks,
-                    totalMatchedPrice: multiTaskResult.totalMatchedPrice,
-                    hasMultiple: multiTaskResult.matchedServices.length > 1
-                };
-
-                // Get segment data from call-script session
-                const callScriptSession = getActiveSession(this.callSid);
-                const sessionState = callScriptSession?.toJSON();
-                const detectedSegment = sessionState?.detectedSegment || null;
-                const segmentConfidence = sessionState?.segmentConfidence || 0;
-                const segmentSignals = sessionState?.segmentSignals || [];
-
-                // Determine if VA was present (confirmed a segment or took an action)
-                const segmentWasConfirmed = sessionState?.confirmedSegment !== null;
-                const needsSegmentApproval = detectedSegment && !segmentWasConfirmed;
-
-                // B9: Check for duplicate lead before creating
-                // Remove company info from name for cleaner match (e.g. "John (Acme)" -> "John")
-                const cleanNameForCheck = mergedMetadata.customerName
-                    ? mergedMetadata.customerName.replace(/\s*\(.*?\)/, '').trim()
-                    : null;
-
-                const duplicateCheck = await findDuplicateLead(this.phoneNumber, {
-                    customerName: cleanNameForCheck,
-                    placeId: mergedMetadata.addressValidation?.placeId || null,
-                    postcode: mergedMetadata.postcode
-                });
-
-                let leadId: string;
-
-                if (duplicateCheck.isDuplicate && duplicateCheck.confidence >= 80) {
-                    // Update existing lead instead of creating new one
-                    leadId = duplicateCheck.existingLead!.id;
-
-                    console.log(`[Duplicate] Found existing lead ${leadId} (${duplicateCheck.confidence}% confidence: ${duplicateCheck.matchReason})`);
-
-                    await updateExistingLead(leadId, {
-                        transcription: finalText,
-                        jobDescription: finalText,
-                        metadata: mergedMetadata,
-                        // Update segment if we have a detection
-                        ...(detectedSegment && {
-                            segment: detectedSegment,
-                            segmentConfidence: segmentConfidence,
-                            segmentSignals: segmentSignals,
-                        }),
-                    });
-
-                    /* 
-                    // B9: Don't broadcast duplicate detection for auto-merges to reduce manual input
-                    // The system successfully merged it, so we don't need to bother the user
-                    this.broadcast({
-                        type: 'voice:duplicate_detected',
-                        data: {
-                            callSid: this.callSid,
-                            existingLeadId: leadId,
-                            confidence: duplicateCheck.confidence,
-                            matchReason: duplicateCheck.matchReason
-                        }
-                    });
-                    */
-
-                    // Update call with leadId
-                    if (this.callRecordId) {
-                        await updateCall(this.callRecordId, {
-                            leadId: leadId
-                        });
-                    }
-                } else {
-                    // Create new lead
-                    leadId = `lead_voice_${Date.now()}`;
-
-                    await db.insert(leads).values({
-                        id: leadId,
-                        customerName: mergedMetadata.customerName,
-                        phone: mergedMetadata.phoneNumber,
-                        source: "voice_monitor",
-                        jobDescription: finalText,
-                        transcriptJson: routing as any,
-                        status: needsSegmentApproval ? "needs_review" : (routing.matched ? "ready" : "review"),
-                        // B5: Enhanced address fields
-                        addressRaw: mergedMetadata.addressRaw,
-                        addressCanonical: mergedMetadata.addressValidation?.canonicalAddress || null,
-                        placeId: mergedMetadata.addressValidation?.placeId || null,
-                        postcode: mergedMetadata.postcode, // Normalized
-                        coordinates: mergedMetadata.addressValidation?.coordinates || null,
-                        // Segment detection data
-                        segment: detectedSegment as any,
-                        segmentConfidence: segmentConfidence,
-                        segmentSignals: segmentSignals as any,
-                    });
-
-                    console.log(`[Switchboard] Voice lead created: ${leadId} -> ${routing.nextRoute} | Segment: ${detectedSegment || 'UNKNOWN'} (${segmentConfidence}%) | Needs approval: ${needsSegmentApproval}`);
-                }
-
-                // Update call record with analysis results (outcome will be updated from UNKNOWN)
-                if (this.callRecordId) {
-                    // Update call with customer metadata and proper outcome
-                    await updateCall(this.callRecordId, {
-                        customerName: mergedMetadata.customerName,
-                        address: mergedMetadata.address,
-                        postcode: mergedMetadata.postcode,
-                        urgency: mergedMetadata.urgency,
-                        leadType: mergedMetadata.leadType,
-                        outcome: routing.nextRoute,
-                        metadataJson: mergedMetadata,
-                        leadId: leadId
-                    });
-
-                    // Add detected SKUs to call record
-                    if (multiTaskResult.matchedServices.length > 0) {
-                        const skuData = multiTaskResult.matchedServices.map(service => ({
-                            skuId: service.sku.id,
-                            quantity: service.task.quantity,
-                            pricePence: service.sku.pricePence,
-                            confidence: service.confidence,
-                            detectionMethod: 'gpt',
-                        }));
-
-                        await addDetectedSkus(this.callRecordId, skuData);
-                    }
-                }
-
-                // Auto-video processing removed 24 Aug 2026 (Switchboard Atlas review):
-                // it bypassed the post-call-outreach rails (classifier, quiet hours, dedupe,
-                // suppression, draft queue) and was enabled by default with no kill switch.
-                // Video requests are owned solely by server/post-call-outreach.ts.
-
-                // === CALL ANALYZER & LEAD SCORING ===
-                // Fire-and-forget: Analyze transcript for lead qualification and segmentation
-                if (leadId && finalText.length > 50) {
-                    (async () => {
-                        try {
-                            console.log(`[CallAnalyzer] Analyzing call for lead ${leadId}...`);
-                            const analysis = await analyzeCallTranscript(finalText);
-
-                            // Update lead with analysis results
-                            await db.update(leads)
-                                .set({
-                                    qualificationScore: analysis.qualificationScore,
-                                    qualificationGrade: analysis.qualificationGrade,
-                                    segment: analysis.segment as any, // Cast to match enum type
-                                    segmentConfidence: analysis.segmentConfidence,
-                                    segmentSignals: analysis.segmentSignals,
-                                    redFlags: analysis.redFlags
-                                })
-                                .where(eq(leads.id, leadId));
-
-                            console.log(`[CallAnalyzer] Lead ${leadId} scored: ${analysis.qualificationGrade} (${analysis.qualificationScore}), segment: ${analysis.segment}`);
-                        } catch (err) {
-                            console.error('[CallAnalyzer] Error analyzing call:', err);
-                        }
-                    })();
-                }
-
-                // Broadcast final analysis update (call_ended was already sent immediately)
-                this.broadcast({
-                    type: 'voice:analysis_update',
-                    data: {
-                        callSid: this.callSid,
-                        analysis: routing,
-                        metadata: mergedMetadata,
-                        isFinal: true
-                    }
-                });
-            } catch (e) {
-                console.error("[Switchboard] Final processing error:", e);
+                const { upsertLeadFromCall } = await import("./call-lead");
+                await upsertLeadFromCall(callRecordId);
+            } catch (e: any) {
+                console.warn(`[PostCall] lead upsert failed for ${callRecordId}:`, e?.message ?? e);
             }
-        }
+
+            // 4. Refresh the thread card now the transcript, verdict and lead exist.
+            try {
+                const { ingestCallIntoThread } = await import("./call-thread");
+                await ingestCallIntoThread(callRecordId, { markUnread: false, ack: false });
+            } catch (e: any) {
+                console.warn(`[PostCall] thread refresh failed for ${callRecordId}:`, e?.message ?? e);
+            }
+        })();
     }
 }
 
 export function setupTwilioSocket(wss: WebSocketServer, broadcast: (message: any) => void) {
-    wss.on('connection', (ws: WebSocket) => {
-        let transcriber: MediaStreamTranscriber | null = null;
+    wss.on("connection", (ws: WebSocket) => {
+        let recorder: MediaStreamRecorder | null = null;
 
-        ws.on('message', (message: WebSocket.Data) => {
+        ws.on("message", (message: WebSocket.Data) => {
             try {
                 const msg = JSON.parse(message.toString());
                 switch (msg.event) {
-                    case 'start':
-                        console.log(`[Twilio] Stream started: ${msg.start.streamSid} `);
+                    case "start": {
+                        console.log(`[Twilio] Stream started: ${msg.start.streamSid}`);
                         const phoneNumber = msg.start.customParameters?.phoneNumber || "Unknown";
-                        // Support both old and new parameter names for backwards compatibility
-                        const skipTranscription = msg.start.customParameters?.skipTranscription === 'true' ||
-                                                  msg.start.customParameters?.skipDeepgram === 'true';
                         // Set by /api/twilio/sip-outbound only: Ben dialled this leg, so the
                         // track→speaker mapping is reversed. Absent = a normal inbound call.
-                        const agentOriginated = msg.start.customParameters?.legRole === 'agent_originated';
-                        transcriber = new MediaStreamTranscriber(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast, skipTranscription, agentOriginated);
+                        const agentOriginated = msg.start.customParameters?.legRole === "agent_originated";
+                        recorder = new MediaStreamRecorder(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast, agentOriginated);
                         break;
-                    case 'media':
-                        if (transcriber) {
-                            // Pass track info for dual-channel recording ('inbound' = caller, 'outbound' = agent)
-                            transcriber.handleAudio(msg.media.payload, msg.media.track);
-                        }
+                    }
+                    case "media":
+                        // track: 'inbound' = leg originator, 'outbound' = the other side
+                        recorder?.handleAudio(msg.media.payload, msg.media.track);
                         break;
-                    case 'stop':
+                    case "stop":
                         console.log(`[Twilio] Stream stopped`);
-                        if (transcriber) {
-                            transcriber.close();
-                        }
+                        recorder?.close();
                         break;
                 }
             } catch (e) {
@@ -1334,10 +278,13 @@ export function setupTwilioSocket(wss: WebSocketServer, broadcast: (message: any
             }
         });
 
-        ws.on('close', () => {
-            if (transcriber) {
-                transcriber.close();
-            }
+        ws.on("close", () => {
+            recorder?.close();
+        });
+
+        ws.on("error", (e) => {
+            console.error("[Twilio] WebSocket error:", e);
+            recorder?.close();
         });
     });
 }

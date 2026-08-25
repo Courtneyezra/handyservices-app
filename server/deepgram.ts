@@ -30,7 +30,7 @@ export async function transcribeAudio(audioBuffer: Buffer): Promise<Transcriptio
         const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
             audioBuffer,
             {
-                model: "nova-2",
+                model: "nova-3",
                 smart_format: true,
                 detect_language: true,
                 diarize: true,
@@ -86,7 +86,7 @@ export async function transcribeMulawBuffer(
         const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
             audioBuffer,
             {
-                model: 'nova-2',
+                model: 'nova-3',
                 encoding: 'mulaw',
                 sample_rate: 8000,
                 channels: 1,
@@ -160,7 +160,7 @@ export async function transcribeFromUrl(recordingUrl: string): Promise<string | 
             buffer,
             {
                 mimetype: response.headers.get('content-type') || "audio/mpeg",
-                model: "nova-2",
+                model: "nova-3",
                 language: "en-GB",
                 smart_format: true,
                 punctuate: true,
