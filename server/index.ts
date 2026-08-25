@@ -10,6 +10,11 @@ process.on('unhandledRejection', (reason) => {
 
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
+
+// Validate environment variables before any other imports that might use them
+import { requireValidEnvironment, getSessionSecret } from './env-validation';
+requireValidEnvironment();
+
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -45,6 +50,7 @@ import { maybeSendPostCallVideoRequest } from "./post-call-outreach";
 import { inboxBoardRouter } from "./inbox-board";
 import { whatsappOnboardingRouter } from "./whatsapp-onboarding";
 import { messageDraftsRouter } from "./message-drafts";
+import { commsActivityRouter } from "./comms-activity-routes";
 import { systemEventsRouter } from "./system-events";
 import { agentQuestionsRouter } from "./agent-questions";
 import { agentStaffRouter } from "./agent-staff";
@@ -122,6 +128,7 @@ import { processPayouts, retryFailedPayouts } from './payout-engine'; // Payout 
 import session from "express-session";
 import passport from "passport";
 import authRouter, { requireAdmin } from "./auth";
+import { asyncHandler, ApiError, notFoundHandler, globalErrorHandler } from './error-handler';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -131,6 +138,14 @@ const app = express();
 // IMPORTANT: Raw body middleware for Stripe webhook MUST come BEFORE express.json()
 // Stripe webhook signature verification requires the raw request body
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+
+// Meta WhatsApp webhook needs raw body for X-Hub-Signature-256 verification
+// The verify callback captures raw bytes before JSON parsing
+app.use('/api/whatsapp/webhook', express.json({
+    verify: (req, _res, buf) => {
+        (req as any).rawBody = buf;
+    }
+}));
 
 // Path-specific high-limit JSON parser for media uploads (videos can hit 100MB+
 // after base64 inflation). Must come BEFORE the global json parser so the route
@@ -144,7 +159,7 @@ app.use(express.json({ limit: '10mb' })); // Increased limit for large transcrip
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use(session({
-    secret: process.env.SESSION_SECRET || "dev_secret_key_123",
+    secret: getSessionSecret(),
     resave: false,
     saveUninitialized: false,
     cookie: { secure: process.env.NODE_ENV === "production" }
@@ -412,6 +427,7 @@ app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messa
 app.use('/api/whatsapp-templates', requireAdmin, whatsappTemplatesRouter); // Meta template approval status + template sends
 app.use('/api/inbox', requireAdmin, inboxBoardRouter); // Kanban board over conversations
 app.use('/api/drafts', requireAdmin, messageDraftsRouter); // Human approval gate for system-authored messages
+app.use('/api/comms', requireAdmin, commsActivityRouter); // Comms ledger activity feed (/api/comms/activity)
 app.use('/api/system-events', requireAdmin, systemEventsRouter); // Live-beta activity log (/admin/activity)
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue
 app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
@@ -541,6 +557,10 @@ app.use(wtbpRateCardRouter); // WTBP Rate Card (contractor pay rates)
 app.use(payoutRouter); // Contractor payout & earnings routes
 app.use(disputeRouter); // Dispute resolution routes
 app.use('/api/materials', requireAdmin, materialsRouter); // Quote materials picker (catalog + Screwfix search) — admin/VA
+
+// Global error handlers - MUST be registered after all routes but before static/SPA catch-alls
+app.use(notFoundHandler);
+app.use(globalErrorHandler);
 
 // Serve static assets (for hold music)
 app.use('/assets', express.static(path.join(__dirname, '../public/assets')));

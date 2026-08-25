@@ -20,8 +20,9 @@ import {
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText, User, Hourglass,
-    ShieldCheck, Ban, EyeOff, ClipboardList,
+    ShieldCheck, Ban, EyeOff, ClipboardList, Trash2, HardHat, RefreshCw,
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
 import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
@@ -237,7 +238,10 @@ const STAGE_META: Record<string, { label: string; hint: string; accent: string }
     scoping: { label: 'Scoping', hint: 'Getting what a quote needs', accent: 'bg-violet-600' },
     quote_sent: { label: 'Quote Sent', hint: 'Live quote out — chase it', accent: 'bg-amber-500' },
     won: { label: 'Won', hint: 'Deposit paid', accent: 'bg-emerald-600' },
+    // 'closed' has no column any more — closing is the drag-to-bin gesture. The meta entry
+    // stays because card footers still print the stage label on closed threads.
     closed: { label: 'Closed', hint: 'Dead, spam or done', accent: 'bg-slate-500' },
+    contractor: { label: 'Contractors', hint: 'Our tradespeople — separate rules, no agent', accent: 'bg-amber-600' },
 };
 
 const CHANNEL_META: Record<string, { icon: typeof Phone; label: string; tint: string }> = {
@@ -659,6 +663,28 @@ function BensDeskStrip({ cards, selectedId, onOpen }: {
                     ))}
                 </div>
             )}
+        </div>
+    );
+}
+
+/**
+ * The bin that replaced the Closed column. Appears only mid-drag, bottom-centre; dropping a
+ * card on it closes the thread (with an undo snackbar). Dead threads don't deserve a fifth
+ * of the board's width.
+ */
+function BinDropZone() {
+    const { setNodeRef, isOver } = useDroppable({ id: '__bin' });
+    return (
+        <div
+            ref={setNodeRef}
+            className={cn(
+                'fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-full border-2 border-dashed px-6 py-3 shadow-lg transition-all',
+                isOver ? 'scale-110 border-red-600 bg-red-600 text-white' : 'border-red-300 bg-white text-red-600'
+            )}
+        >
+            <span className="flex items-center gap-2 text-sm font-semibold">
+                <Trash2 className="h-4 w-4" /> Drop to close
+            </span>
         </div>
     );
 }
@@ -1650,17 +1676,29 @@ export default function CommsPage() {
     const [selected, setSelected] = useState<BoardCard | null>(null);
     const [search, setSearch] = useState('');
     const [onlyUnanswered, setOnlyUnanswered] = useState(false);
+    // One comms section, two hard-separated lanes. Same threads, same machinery — different
+    // board shape and different rules. Contractor traffic never mixes into the customer funnel.
+    const [lane, setLane] = useState<'customer' | 'contractor'>('customer');
+    const boardKey = ['comms-board', lane];
+    // Drag-to-bin close, with a grace period: the bin replaces the Closed column, and an
+    // accidental drop must be one click to take back.
+    const [justClosed, setJustClosed] = useState<{ id: string; name: string; prevStage: string } | null>(null);
     // The first-contact auto-responder's control panel. It lives here rather than on /admin/staff
     // because the question it answers ("did this enquiry get a reply, and why not?") is asked while
     // looking at this board, not while reading an agent's dossier.
     const [autoReplyOpen, setAutoReplyOpen] = useState(false);
 
+    // Activity tracking: detect when new messages arrive and show visual cues
+    const { toast } = useToast();
+    const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+    const prevTotalsRef = useRef<{ awaitingReply: number; conversations: number } | null>(null);
+
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-    const { data, isLoading, error } = useQuery<BoardResponse>({
-        queryKey: ['comms-board'],
+    const { data, isLoading, error, isFetching } = useQuery<BoardResponse>({
+        queryKey: boardKey,
         queryFn: async () => {
-            const res = await fetch('/api/inbox/board?limit=400', { headers: getAuthHeaders() });
+            const res = await fetch(`/api/inbox/board?limit=400&lane=${lane}`, { headers: getAuthHeaders() });
             if (!res.ok) throw new Error('Failed to load board');
             return res.json();
         },
@@ -1674,19 +1712,58 @@ export default function CommsPage() {
         if (fresh && JSON.stringify(fresh) !== JSON.stringify(selected)) setSelected(fresh);
     }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Activity change detection: notify when new activity arrives
+    useEffect(() => {
+        if (!data) return;
+        setLastUpdated(new Date());
+        const current = { awaitingReply: data.totals.awaitingReply, conversations: data.totals.conversations };
+        const prev = prevTotalsRef.current;
+        if (prev) {
+            const newUnanswered = current.awaitingReply - prev.awaitingReply;
+            const newConversations = current.conversations - prev.conversations;
+            if (newUnanswered > 0) {
+                toast({
+                    title: `${newUnanswered} new message${newUnanswered > 1 ? 's' : ''} waiting`,
+                    description: 'Someone needs a reply.',
+                    variant: 'destructive',
+                });
+            } else if (newConversations > 0) {
+                toast({
+                    title: 'New conversation',
+                    description: `${newConversations} new thread${newConversations > 1 ? 's' : ''} appeared.`,
+                });
+            }
+        }
+        prevTotalsRef.current = current;
+    }, [data, toast]);
+
     // Deep link from a Pushover ping: ?conversation=<id> opens that thread directly (the
     // notification's whole point is one tap to the work — until 20 Aug 2026 the link landed on
     // the board and Ben hunted for the card). ThreadPanel separately honours &prep=1. Runs once
-    // per page load, first time the board data arrives.
+    // per page load, first time the board data arrives — and if the target isn't in the customer
+    // lane, tries the contractor lane once before giving up (contractor profile pages link here).
     const deepLinked = useRef(false);
+    const triedContractorLane = useRef(false);
     useEffect(() => {
         if (deepLinked.current || !data) return;
         const target = new URLSearchParams(window.location.search).get('conversation');
         if (!target) { deepLinked.current = true; return; }
         const card = Object.values(data.columns).flat().find((c) => c.id === target);
+        if (!card && lane === 'customer' && !triedContractorLane.current) {
+            triedContractorLane.current = true;
+            setLane('contractor');
+            return;
+        }
         deepLinked.current = true;
         if (card) openThread(card);
     }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // The undo window after a bin-drop: long enough to react, short enough to not linger.
+    useEffect(() => {
+        if (!justClosed) return;
+        const t = setTimeout(() => setJustClosed(null), 8000);
+        return () => clearTimeout(t);
+    }, [justClosed]);
 
     const move = useMutation({
         mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
@@ -1699,20 +1776,21 @@ export default function CommsPage() {
             return res.json();
         },
         onMutate: async ({ id, stage }) => {
-            await queryClient.cancelQueries({ queryKey: ['comms-board'] });
-            const previous = queryClient.getQueryData<BoardResponse>(['comms-board']);
+            await queryClient.cancelQueries({ queryKey: boardKey });
+            const previous = queryClient.getQueryData<BoardResponse>(boardKey);
             if (previous) {
                 const columns: Record<string, BoardCard[]> = {};
                 let moved: BoardCard | undefined;
                 for (const [s, cards] of Object.entries(previous.columns)) {
                     columns[s] = cards.filter((c) => (c.id === id ? ((moved = c), false) : true));
                 }
-                if (moved) columns[stage] = [{ ...moved, stage }, ...(columns[stage] ?? [])];
-                queryClient.setQueryData(['comms-board'], { ...previous, columns });
+                // A card moved to 'closed' has no column to land in — it just leaves the board.
+                if (moved && columns[stage] !== undefined) columns[stage] = [{ ...moved, stage }, ...columns[stage]];
+                queryClient.setQueryData(boardKey, { ...previous, columns });
             }
             return { previous };
         },
-        onError: (_e, _v, ctx) => { if (ctx?.previous) queryClient.setQueryData(['comms-board'], ctx.previous); },
+        onError: (_e, _v, ctx) => { if (ctx?.previous) queryClient.setQueryData(boardKey, ctx.previous); },
         onSettled: () => queryClient.invalidateQueries({ queryKey: ['comms-board'] }),
     });
 
@@ -1747,11 +1825,18 @@ export default function CommsPage() {
     function onDragEnd(e: DragEndEvent) {
         setActiveId(null);
         const id = String(e.active.id);
-        const stage = e.over ? String(e.over.id) : null;
-        if (!stage || !data) return;
+        const target = e.over ? String(e.over.id) : null;
+        if (!target || !data) return;
         const current = Object.values(data.columns).flat().find((c) => c.id === id);
-        if (!current || current.stage === stage) return;
-        move.mutate({ id, stage });
+        if (!current) return;
+        // The bin replaces the Closed column: drop = close, with a one-click undo.
+        if (target === '__bin') {
+            setJustClosed({ id, name: displayName(current), prevStage: current.stage });
+            move.mutate({ id, stage: 'closed' });
+            return;
+        }
+        if (current.stage === target) return;
+        move.mutate({ id, stage: target });
     }
 
     async function openThread(card: BoardCard) {
@@ -1783,9 +1868,20 @@ export default function CommsPage() {
                     </h1>
                     <p className="text-xs text-slate-500">
                         WhatsApp, SMS and web enquiries in one thread per person. SLA is {data.slaWorkingHours} working hours.
+                        <span className="ml-2 text-slate-400">
+                            Updated {lastUpdated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                     </p>
                 </div>
                 <div className="flex items-center gap-5">
+                    <button
+                        onClick={() => queryClient.invalidateQueries({ queryKey: boardKey })}
+                        disabled={isFetching}
+                        className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400 disabled:opacity-50"
+                        title="Refresh board now"
+                    >
+                        <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
+                    </button>
                     <button
                         onClick={() => setAutoReplyOpen(true)}
                         className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400"
@@ -1816,6 +1912,23 @@ export default function CommsPage() {
             )}
 
             <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
+                {/* The lane switch: one comms section, two rooms. Amber = contractor territory. */}
+                <div className="flex overflow-hidden rounded-md border border-slate-300">
+                    <button
+                        onClick={() => setLane('customer')}
+                        className={cn('px-3 py-1.5 text-sm font-medium transition-colors',
+                            lane === 'customer' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50')}
+                    >
+                        Customers
+                    </button>
+                    <button
+                        onClick={() => setLane('contractor')}
+                        className={cn('flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors',
+                            lane === 'contractor' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 hover:bg-amber-50')}
+                    >
+                        <HardHat className="h-4 w-4" /> Contractors
+                    </button>
+                </div>
                 <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input
@@ -1858,6 +1971,7 @@ export default function CommsPage() {
                             ))}
                         </div>
                     </div>
+                    {activeId && <BinDropZone />}
                     <DragOverlay>
                         {activeCard && (
                             <div className="w-[264px] rotate-2">
@@ -1869,6 +1983,21 @@ export default function CommsPage() {
 
                 {selected && <ThreadPanel card={selected} onClose={() => setSelected(null)} />}
             </div>
+
+            {justClosed && (
+                <div className="fixed bottom-8 right-8 z-50 flex items-center gap-3 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-xl">
+                    <span>Closed {justClosed.name}</span>
+                    <button
+                        onClick={() => {
+                            move.mutate({ id: justClosed.id, stage: justClosed.prevStage });
+                            setJustClosed(null);
+                        }}
+                        className="font-semibold text-amber-400 hover:text-amber-300"
+                    >
+                        Undo
+                    </button>
+                </div>
+            )}
 
             <FirstContactPanel open={autoReplyOpen} onClose={() => setAutoReplyOpen(false)} />
         </div>
