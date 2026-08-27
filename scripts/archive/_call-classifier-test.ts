@@ -22,14 +22,14 @@ import {
     classifyTranscript,
     parseClassification,
     type CallClassification,
-} from '../server/call-classifier';
+} from '../../server/call-classifier';
 import {
     decideOutreach,
     pickVideoTemplate,
     callbackFallbackEligible,
     AGREED_VIDEO_TEMPLATE,
     GENERIC_VIDEO_TEMPLATE,
-} from '../server/post-call-outreach';
+} from '../../server/post-call-outreach';
 
 let passed = 0;
 let failed = 0;
@@ -45,9 +45,11 @@ function verdict(over: Partial<CallClassification> = {}): CallClassification {
         whatsappAgreed: 'not_discussed',
         messagingObjection: false,
         jobSummary: 'Fix a dripping kitchen tap',
+        jobPhrase: '',
         urgency: 'normal',
         callbackPromised: false,
         callIncomplete: false,
+        bullets: [],
         classifiedAt: new Date().toISOString(),
         ...over,
     };
@@ -73,6 +75,16 @@ async function main() {
     check('valid verdict parses', parseClassification(verdict()) !== null);
     const long = parseClassification({ ...verdict(), jobSummary: 'x'.repeat(500) });
     check('oversize jobSummary truncated to 200', long !== null && long.jobSummary.length === 200);
+
+    // jobPhrase is additive (Aug 2026): pre-existing verdicts don't carry it and must still
+    // parse — a missing phrase reads as '' (downstream falls back to a generic line).
+    const { jobPhrase: _dropPhrase, ...noPhrase } = verdict();
+    const parsedNoPhrase = parseClassification(noPhrase);
+    check('missing jobPhrase parses, defaults to ""', parsedNoPhrase !== null && parsedNoPhrase.jobPhrase === '');
+    const nonStringPhrase = parseClassification({ ...verdict(), jobPhrase: 42 });
+    check('non-string jobPhrase degrades to "", not null', nonStringPhrase !== null && nonStringPhrase.jobPhrase === '');
+    const longPhrase = parseClassification({ ...verdict(), jobPhrase: 'z'.repeat(500) });
+    check('oversize jobPhrase truncated to 80', longPhrase !== null && longPhrase.jobPhrase.length === 80);
 
     // callIncomplete is additive: pre-Aug-2026 verdicts don't carry it and must still parse.
     const { callIncomplete: _drop, ...legacy } = verdict();
@@ -164,15 +176,24 @@ async function main() {
     // ---------- 3. pickVideoTemplate: consent → template name ----------
     console.log('\n3. pickVideoTemplate mapping');
     {
-        const agreed = pickVideoTemplate(verdict({ whatsappAgreed: 'agreed', jobSummary: 'Rehang two internal doors' }));
-        check(`agreed → ${AGREED_VIDEO_TEMPLATE} with the job as {{2}}`,
-            agreed.name === AGREED_VIDEO_TEMPLATE && agreed.variables['2'] === 'Rehang two internal doors');
-        const longJob = pickVideoTemplate(verdict({ whatsappAgreed: 'agreed', jobSummary: 'y'.repeat(200) }));
-        check('agreed with oversize summary → {{2}} truncated to prose length',
+        const agreed = pickVideoTemplate(verdict({ whatsappAgreed: 'agreed', jobPhrase: 'the two internal doors' }));
+        check(`agreed → ${AGREED_VIDEO_TEMPLATE} with the customer-facing phrase as {{2}}`,
+            agreed.name === AGREED_VIDEO_TEMPLATE && agreed.variables['2'] === 'the two internal doors');
+        const longJob = pickVideoTemplate(verdict({ whatsappAgreed: 'agreed', jobPhrase: 'y'.repeat(200) }));
+        check('agreed with oversize phrase → {{2}} truncated to prose length',
             longJob.variables['2'].length <= 120 && longJob.variables['2'].endsWith('…'));
-        const emptyJob = pickVideoTemplate(verdict({ whatsappAgreed: 'agreed', jobSummary: '' }));
-        check('agreed with empty summary → {{2}} falls back to "the job we discussed"',
+        const emptyJob = pickVideoTemplate(verdict({ whatsappAgreed: 'agreed', jobPhrase: '' }));
+        check('agreed with empty phrase → {{2}} falls back to "the job we discussed"',
             emptyJob.variables['2'] === 'the job we discussed');
+        // Regression for the Aug 2026 leak: the INTERNAL jobSummary must never reach {{2}} —
+        // a verdict with only an internal summary (no jobPhrase) gets the generic fallback.
+        const internalOnly = pickVideoTemplate(verdict({
+            whatsappAgreed: 'agreed',
+            jobSummary: 'UPVC door repair - remote inch issue, customer to send pictures via WhatsApp',
+            jobPhrase: '',
+        }));
+        check('agreed with internal-only summary → {{2}} never carries jobSummary',
+            internalOnly.variables['2'] === 'the job we discussed');
         const notDiscussed = pickVideoTemplate(verdict({ whatsappAgreed: 'not_discussed' }));
         check(`not_discussed → ${GENERIC_VIDEO_TEMPLATE}, no as-discussed claim`,
             notDiscussed.name === GENERIC_VIDEO_TEMPLATE && Object.keys(notDiscussed.variables).length === 0);
@@ -230,6 +251,9 @@ Caller: Thanks, bye.`.trim();
         check('whatsappAgreed = agreed (caller said "that\'s fine")', c.whatsappAgreed === 'agreed', c.whatsappAgreed);
         check('no messaging objection', c.messagingObjection === false);
         check('jobSummary non-empty and <=200 chars', c.jobSummary.length > 0 && c.jobSummary.length <= 200, c.jobSummary);
+        check('jobPhrase non-empty and <=80 chars', c.jobPhrase.length > 0 && c.jobPhrase.length <= 80, c.jobPhrase);
+        check('jobPhrase carries no third-person/process leakage',
+            !/\b(customer|caller|whatsapp|photos?|pictures?|callback|quote)\b/i.test(c.jobPhrase), c.jobPhrase);
         check('classifiedAt is a valid ISO timestamp', !isNaN(Date.parse(c.classifiedAt)));
 
         // And the routing of that live verdict — decision object only, nothing sent.
@@ -250,10 +274,10 @@ Caller: Thanks, bye.`.trim();
  */
 async function tagClearRoundTrip(): Promise<void> {
     const SMOKE_KEY = '447700900999@c.us';
-    const { db } = await import('../server/db');
-    const { conversations, messages } = await import('../shared/schema');
+    const { db } = await import('../../server/db');
+    const { conversations, messages } = await import('../../shared/schema');
     const { eq, sql } = await import('drizzle-orm');
-    const { ingestCallRow, callMessageId } = await import('../server/call-thread');
+    const { ingestCallRow, callMessageId } = await import('../../server/call-thread');
 
     let [conv] = await db.select().from(conversations).where(eq(conversations.phoneNumber, SMOKE_KEY));
     let createdConv = false;

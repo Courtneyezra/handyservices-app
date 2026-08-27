@@ -14,7 +14,7 @@
  * read it without re-paying the model. Stored shape contract — do not change
  * without checking consumers:
  *
- *   calls.classification = { kind, whatsappAgreed, messagingObjection, jobSummary,
+ *   calls.classification = { kind, whatsappAgreed, messagingObjection, jobSummary, jobPhrase,
  *                            urgency, callbackPromised, callIncomplete, classifiedAt }
  */
 import { db } from './db';
@@ -46,8 +46,15 @@ export interface CallClassification {
     whatsappAgreed: WhatsAppAgreed;
     /** True when the caller pushed back on messaging in any form ("just ring me", "I don't use WhatsApp"). */
     messagingObjection: boolean;
-    /** <=200 chars, '' when there is no job. */
+    /** <=200 chars, '' when there is no job. INTERNAL ops summary — never show to the customer. */
     jobSummary: string;
+    /**
+     * Customer-facing noun phrase for message templates ("the UPVC door"), written as it would
+     * read in a message TO the caller. '' when no job was discussed or no natural phrase exists.
+     * Added Aug 2026 after jobSummary (internal third-person notes) leaked verbatim into the
+     * "please send us a video of {{2}}" template — the two audiences now have separate fields.
+     */
+    jobPhrase: string;
     urgency: 'high' | 'normal';
     /** True when OUR side promised to call the customer back. */
     callbackPromised: boolean;
@@ -74,7 +81,8 @@ Return a JSON object with exactly these fields:
 - "kind": one of "job_enquiry" (a potential customer describing work they want done), "existing_customer" (about a job already booked/done/invoiced), "supplier" (merchant, trade supplier, materials), "sales_spam" (someone selling TO us, robocall, marketing), "wrong_number", "complaint" (unhappy about our work, billing or conduct), "other".
 - "whatsappAgreed": "agreed" ONLY if the customer explicitly assented on the call to a WhatsApp / photo / video follow-up (e.g. "yes, send me the WhatsApp", "I'll send you a video of it"). "declined" if they refused or resisted it. "not_discussed" if messaging never came up or was left unresolved. Our side merely PROPOSING it is not agreement.
 - "messagingObjection": true if the caller objected to being messaged in any way ("just call me", "I don't have WhatsApp", "don't text me"), else false.
-- "jobSummary": what work was discussed, max 200 characters, plain text. Empty string "" if no job was discussed.
+- "jobSummary": what work was discussed, max 200 characters, plain text. Empty string "" if no job was discussed. This is an INTERNAL note for staff — the customer never sees it.
+- "jobPhrase": a short noun phrase (max 60 characters) naming the thing to be worked on, written exactly as it would read in a WhatsApp message sent TO the caller — it will be inserted into "please send us a video of ___". Examples: "the UPVC door", "the leaking kitchen tap", "the bathroom sealant". Rules: no third-person references ("customer", "caller", a name), no process notes (nothing about photos, WhatsApp, callbacks, pricing), no internal shorthand, and never copy garbled transcription verbatim — if the transcript is too garbled to name the item confidently, use a simpler safe phrase (e.g. "the door") or "". Empty string "" if no job was discussed or no natural phrase exists.
 - "urgency": "high" only if the caller expressed time pressure (leak, no heating, safety, "today/tomorrow"), else "normal".
 - "callbackPromised": true if OUR side promised to call the customer back, else false.
 - "callIncomplete": true if the call ended abruptly, kept dropping, had line problems, or the conversation clearly did not conclude (cut off mid-sentence, "can you hear me?", "I'll have to ring you back, the line's terrible"), else false. A call that reached a natural goodbye is complete even if it was short.
@@ -91,6 +99,7 @@ Return a JSON object with exactly these fields:
 - "whatsappAgreed": always "not_discussed".
 - "messagingObjection": always false.
 - "jobSummary": one line, max 200 characters: why we called and how it ended (e.g. "Confirmed Thursday visit, discussed adding an extra socket"). "" if the transcript is unreadable.
+- "jobPhrase": always "".
 - "urgency": "high" only if something urgent for the business emerged (customer cancelling, complaint brewing, safety issue), else "normal".
 - "callbackPromised": true if OUR side promised further contact (a call, a quote, a text), else false.
 - "callIncomplete": true if the call dropped or clearly did not conclude, else false.
@@ -115,6 +124,10 @@ export function parseClassification(raw: unknown): Omit<CallClassification, 'cla
         whatsappAgreed: r.whatsappAgreed as WhatsAppAgreed,
         messagingObjection: r.messagingObjection,
         jobSummary: r.jobSummary.slice(0, 200),
+        // Additive field (Aug 2026): historic verdicts don't have it, and a missing phrase must
+        // read as "no safe customer-facing phrase" (downstream falls back to a generic line),
+        // never as unparseable. Anything non-string degrades to '' the same way.
+        jobPhrase: typeof r.jobPhrase === 'string' ? r.jobPhrase.slice(0, 80) : '',
         urgency: r.urgency,
         callbackPromised: r.callbackPromised,
         // Additive field (Aug 2026): verdicts stored before it existed simply don't have it, and

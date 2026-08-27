@@ -236,16 +236,22 @@ export type VideoTemplateChoice = {
  * only be made when the customer actually agreed on the call. Everything else — not discussed
  * (behind the allowUndiscussed flag), an unclassified call with classify off, the callback
  * fallback where consent was never captured — gets the generic ask that promises nothing.
+ *
+ * {{2}} is filled from jobPhrase, the classifier's CUSTOMER-FACING field — never jobSummary.
+ * jobSummary is internal third-person ops notes, and interpolating it here once sent a customer
+ * "…a video of UPVC door repair - remote inch issue, customer to send pictures via WhatsApp"
+ * (Aug 2026). Verdicts stored before jobPhrase existed parse it as '', so they fall back to the
+ * generic "the job we discussed" rather than ever leaking the internal summary.
  */
 export function pickVideoTemplate(
-    classification: Pick<CallClassification, 'whatsappAgreed' | 'jobSummary'> | null,
+    classification: Pick<CallClassification, 'whatsappAgreed' | 'jobPhrase'> | null,
 ): VideoTemplateChoice {
     if (classification?.whatsappAgreed === 'agreed') {
-        const job = (classification.jobSummary || '').trim() || 'the job we discussed';
+        const job = (classification.jobPhrase || '').trim() || 'the job we discussed';
         return {
             name: AGREED_VIDEO_TEMPLATE,
             // {{2}} lands mid-sentence ("…a video of {{2}}"), so it must stay short enough to read
-            // as a phrase. The classifier caps jobSummary at 200 chars; the cut here is for prose.
+            // as a phrase. The classifier caps jobPhrase at 80 chars; the cut here is a backstop.
             variables: { '2': job.length > 120 ? `${job.slice(0, 119).trimEnd()}…` : job },
         };
     }
