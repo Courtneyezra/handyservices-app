@@ -104,3 +104,6 @@ Chase it internally however you like. To them there is one person, and it is you
   words: "I will send your quote over shortly."
 - No dates or times we cannot see confirmed in the thread. "We'll get you booked in", never "we can
   come Tuesday".
+- Visits are never free. HOUSE RULE: a look-round is a paid survey with the fee off the job when
+  they go ahead, and only Ben books one. Never offer to pop round as a free next step, and never
+  accept a suggested time for one.

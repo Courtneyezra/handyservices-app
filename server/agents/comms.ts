@@ -1164,7 +1164,13 @@ async function routeRefusalsToBen(opts: {
 export const READY_TO_PRICE_TAG = 'needs_quote';
 /** Set once quote-prep agrees. This is the tag Ben's board filters on. */
 export const QUOTE_READY_TAG = 'quote_ready';
-/** Set when quote-prep says it cannot be priced remotely at all. */
+/**
+ * Set when quote-prep says it cannot be priced remotely at all. The customer-facing consequence is
+ * a PAID survey visit (fee credited to the job — see surveyRequired/surveyFeePence on
+ * personalized_quotes and the VISITS ARE NEVER FREE standing order in SYSTEM). The agent has no
+ * booking tool yet; a book_visit tool that creates a paid visit link is planned. Until then the
+ * prompt forbids arranging visits in chat.
+ */
 export const VISIT_FIRST_TAG = 'visit_first';
 /** Whatever the verdict, this is the "a human is needed here" flag on the card. */
 export const NEEDS_BEN_TAG = 'needs_ben';
@@ -1228,14 +1234,21 @@ export function routeIntakeVerdict(readiness: IntakeReadiness, currentTags: read
  * whether anything substantive has changed since the last automatic run, and to record the new
  * high-water mark afterwards.
  */
-async function substantiveSignals(conversationId: string): Promise<{ mediaCount: number; postcodeSeen: boolean }> {
-    const rows = await db.select({ mediaUrl: messages.mediaUrl, content: messages.content })
+async function substantiveSignals(conversationId: string): Promise<{
+    mediaCount: number;
+    postcodeSeen: boolean;
+    /** When the most recent inbound media arrived — null when the customer never sent any. */
+    latestMediaAt: Date | null;
+}> {
+    const rows = await db.select({ mediaUrl: messages.mediaUrl, content: messages.content, createdAt: messages.createdAt })
         .from(messages)
         .where(and(eq(messages.conversationId, conversationId), eq(messages.direction, 'inbound')))
         .limit(200);
+    const mediaTimes = rows.filter((r) => !!r.mediaUrl && r.createdAt).map((r) => new Date(r.createdAt!).getTime());
     return {
         mediaCount: rows.filter((r) => !!r.mediaUrl).length,
         postcodeSeen: rows.some((r) => UK_POSTCODE_RE.test(r.content ?? '')),
+        latestMediaAt: mediaTimes.length ? new Date(Math.max(...mediaTimes)) : null,
     };
 }
 
@@ -1277,15 +1290,39 @@ export async function maybeAutoQuotePrep(
 
     // A live quote is already out. Prepping another intake behind a customer's back is how a second
     // price appears for the same job, which is the one thing a quoted thread must never produce.
+    //
+    // Refined 27 Aug 2026 after +447452983308: a customer who was quoted for one blind came back
+    // five days later with three blinds and a dripping shower, triage re-tagged needs_quote, and
+    // this guard silently blocked the re-prep for what would have been 90 days — the old quote
+    // was even EXPIRED, but isLive ignores expiry by design (an expired quote is still the price
+    // the customer is talking about). So the guard now only blocks on a quote that is genuinely
+    // current: live, unexpired, AND with no new inbound media since it was created. New photos
+    // after the quote went out are the customer re-scoping — the re-prep still lands on Ben's
+    // desk, never in the customer's chat, so the second-price risk stays behind his click. The
+    // superseded quote is revoked when Ben sends the replacement (finalizeQuoteSent).
     const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
     const existing = await loadQuoteContexts({ digits, conversationId: conv.id }).catch(() => [] as QuoteContext[]);
-    if (existing.some((q) => q.isLive)) {
-        return { ran: false, skipped: 'a live quote is already out for this number' };
+    const now = await substantiveSignals(conv.id);
+    const mediaAfter = (q: QuoteContext) => !!now.latestMediaAt && !!q.createdAt
+        && now.latestMediaAt.getTime() > new Date(q.createdAt).getTime();
+    const blocking = existing.find((q) => q.isLive && !q.expired && !mediaAfter(q));
+    if (blocking) {
+        // A skip while the thread is tagged ready-to-price must not be silent: the tag stays set,
+        // every later run skips the same way, and the customer waits on a promise nothing is
+        // working on. Flag Ben instead — flagThreadForBen dedupes on needs_ben, so this cannot
+        // buzz twice while the first flag is unresolved.
+        const skipped = `a live quote (${blocking.slug}) is already out for this number`;
+        console.log(`[CommsAgent] Auto quote-prep blocked for ${conv.id}: ${skipped} — flagging Ben.`);
+        await flagThreadForBen({
+            conversationId: conv.id,
+            phone: `+${digits}`,
+            note: `Thread is tagged ${READY_TO_PRICE_TAG} but quote ${blocking.slug} is still live, so the clerk will not prep a second price by itself. Re-quote or revoke ${blocking.slug} manually.`,
+        }).catch((e: any) => console.warn('[CommsAgent] blocked-prep flag failed:', e?.message ?? e));
+        return { ran: false, skipped };
     }
 
     const meta = (conv.metadata ?? {}) as Record<string, any>;
     const state: QuotePrepAutoState = meta.quotePrepAuto ?? {};
-    const now = await substantiveSignals(conv.id);
     // An answer to the clerk's OWN questions is the most substantive thing a customer can send,
     // and until 20 Aug it did not count: the clerk asked "which tap?", the customer answered, and
     // the 6-hour cost bound then blocked the re-run that would have turned needs_info into
@@ -1469,6 +1506,33 @@ NO PHOTOS POSSIBLE is a scoping fact, not an escalation: say so honestly in the 
 gather the best verbal detail in one round, tag needs_quote, and let the clerk's assumptions and
 the survey gate carry the risk. A customer who cannot send photos still deserves a quote at
 customer speed.
+
+VISITS ARE NEVER FREE — written after a real thread went wrong (Carolyne, 27 Aug 2026): the clerk
+said visit_first and the agent promised "we'll get a time sorted for someone to pop round and take
+a proper look" — a FREE visit invented on the spot — then accepted "5 ish works well" and sent five
+holding messages over 22 hours while nothing was actually being arranged. Every one of those deepened
+a promise nobody had made. The policy:
+- The only visit this business sells is a PAID SURVEY: the customer pays a survey fee and it is
+  credited off the job when they go ahead. That is the only framing a customer ever hears for a
+  visit — in words, never a figure (the fee is a number, and numbers live on the page).
+- You CANNOT arrange, book, or promise a visit. No tool books one (a book_visit tool creating a
+  paid visit link is planned; until it exists, visits are set up by Ben alone). visit_first is the
+  clerk telling BEN a visit is needed, not telling you to offer one.
+- When the job cannot be priced from photos or video, say so honestly, frame the next step as the
+  paid survey it is, then flag_for_ben and STOP. One reply. Never say a visit is "being arranged",
+  because it is not until Ben arranges it.
+- A suggested time ("5pm works for me") is a DATE, and dates are Ben's. Never accept, echo, or
+  soften into one — "5 ish works well" was the failure. Acknowledge without agreeing: noted for
+  the booking, promised never.
+- One holding reply per wait, maximum. If Ben has not moved, a second "just getting that sorted"
+  is the same unkept promise told twice; the standing flag plus silence is correct.
+DO: "This one needs eyes on it to price properly. We do a survey visit for that, and the fee
+comes off the job if you go ahead. I'll come back to you with the details."
+DON'T: "We'll get a time sorted for someone to pop round and take a proper look." (a free visit
+and a booking promise, neither of which exists)
+DON'T: "5 ish works well." (accepting a time is a date commitment)
+DON'T: "Sorry for the delay, still getting that visit sorted for you." (a repeat holding message
+promising an arrangement that is not happening)
 
 BEN IN THE THREAD — the standing order that makes flags work: a manual message from US in the
 timeline that you did not write (an outbound with sentByAgent: false) is BEN SPEAKING. It is
