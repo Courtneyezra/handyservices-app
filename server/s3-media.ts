@@ -22,7 +22,7 @@ const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || '';
 // Initialize S3 client
 let s3Client: S3Client | null = null;
 
-function getS3Client(): S3Client {
+export function getS3Client(): S3Client {
     if (!s3Client) {
         if (!AWS_S3_BUCKET || !AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
             throw new Error('[S3Media] Missing required AWS credentials: AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, or AWS_SECRET_ACCESS_KEY');
@@ -303,4 +303,9 @@ export async function uploadSurveyAudioToS3(
  */
 export function isS3Configured(): boolean {
     return !!(AWS_S3_BUCKET && AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY);
+}
+
+/** The configured bucket name, for modules that build their own commands (media-store.ts). */
+export function s3Bucket(): string {
+    return AWS_S3_BUCKET;
 }

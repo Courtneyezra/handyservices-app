@@ -17,11 +17,12 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, readFileSync } from 'fs';
 import path from 'path';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
 import { normalizePhoneNumber } from './phone-utils';
+import { mirrorMediaToS3 } from './media-store';
 
 export const voiceNotesRouter = Router();
 
@@ -89,6 +90,10 @@ voiceNotesRouter.post('/voice-note', upload.single('audio'), async (req, res) =>
             '-vn', '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1',
             outPath,
         ], { stdio: 'pipe', timeout: 60_000 });
+
+        // Local disk is ephemeral on Railway — mirror to S3 so the voice note survives
+        // redeploys. Must complete before the send: Twilio fetches the URL asynchronously.
+        await mirrorMediaToS3(fileName, readFileSync(outPath), 'audio/ogg');
 
         const sendResult = await sendCustomerMessage({
             to: phone,

@@ -193,12 +193,25 @@ app.get('/.well-known/apple-developer-merchantid-domain-association', (_req, res
 // Serve static files from attached_assets directory if needed
 // app.use('/attached_assets', express.static('attached_assets'));
 
-// Serve WhatsApp Media
+// Serve WhatsApp Media. Local disk is only a cache on Railway (wiped every deploy), so a
+// static miss falls through to media-store.ts, which restores the file from S3 and serves
+// it — without this, images older than the last deploy 404 (see media-store.ts header).
 const MEDIA_DIR = path.join(process.cwd(), 'server/storage/media');
 if (!fs.existsSync(MEDIA_DIR)) {
     fs.mkdirSync(MEDIA_DIR, { recursive: true });
 }
 app.use('/api/media', express.static(MEDIA_DIR));
+app.get('/api/media/:file', async (req, res) => {
+    try {
+        const { ensureLocalMedia } = await import('./media-store');
+        const filePath = await ensureLocalMedia(req.params.file);
+        if (!filePath) return res.status(404).json({ error: 'Media not found' });
+        res.sendFile(filePath);
+    } catch (e) {
+        console.error('[Media] S3 fallback failed:', e);
+        res.status(404).json({ error: 'Media not found' });
+    }
+});
 
 
 // Logging Middleware

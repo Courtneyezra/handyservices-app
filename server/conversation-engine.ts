@@ -22,6 +22,7 @@ import { toE164Recipient } from './sms';
 import { scheduleInboundTriage } from './agents/comms-lanes';
 import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
 import { blockedByOptOut, optOutRefusalMessage } from './opt-out';
+import { mirrorMediaToS3 } from './media-store';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -321,6 +322,9 @@ export class ConversationEngine {
                         const filePath = path.join(STORAGE_DIR, fileName);
                         fs.writeFileSync(filePath, Buffer.from(buffer));
                         mediaUrlLocal = `/api/media/${fileName}`;
+                        // Local disk is ephemeral on Railway — mirror to S3 so the file
+                        // survives redeploys. Never throws; a failure just logs.
+                        await mirrorMediaToS3(fileName, Buffer.from(buffer), MediaContentType0);
                     }
                 } catch (e) {
                     console.error('[ConversationEngine] Media download failed:', e);

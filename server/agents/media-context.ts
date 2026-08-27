@@ -13,6 +13,7 @@ import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync } from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import { ensureLocalMedia } from '../media-store';
 
 const MEDIA_DIR = path.join(process.cwd(), 'server/storage/media');
 const FRAMES_DIR = path.join(MEDIA_DIR, '.frames');
@@ -93,8 +94,9 @@ export async function buildMediaBlocks(items: ThreadMediaItem[]): Promise<MediaB
     }];
 
     for (const m of usable) {
-        const filePath = path.join(MEDIA_DIR, path.basename(m.mediaUrl));
-        if (!existsSync(filePath)) continue;
+        // Restores from S3 when the local copy was wiped by a redeploy.
+        const filePath = await ensureLocalMedia(path.basename(m.mediaUrl));
+        if (!filePath) continue;
         const when = m.createdAt ? new Date(m.createdAt).toISOString().slice(0, 16).replace('T', ' ') : 'unknown time';
         const who = m.direction === 'inbound' ? 'customer' : 'us';
         const mime = m.mediaType ?? '';
