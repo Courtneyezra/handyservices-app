@@ -272,6 +272,45 @@ export function leversForBand(band: PriceBandId): ObjectionLever[] {
     return OBJECTION_LEVERS.filter((l) => l.bands.includes(band));
 }
 
+// ---------------------------------------------------------------- content rails
+
+/**
+ * 27 Aug 2026, +447950552830 ("James", £992 bathroom floor quote): two content failures in one
+ * conversation, and no guard covered either.
+ *
+ *   1. 11:16 — asked "is the toilet going to be out of use for two days?", the agent auto-sent
+ *      "It's all done in one visit James, so the toilet's only out of action while we're actually
+ *      on site that day." His quote said it is a TWO DAY job, and he caught the contradiction
+ *      himself: "It says on the quote it's a two day job though?" Chat contradicting the quote
+ *      page destroys trust in the numbers channel.
+ *   2. 11:38 — the agent auto-sent "that'd be a paid survey visit rather than a free look, the
+ *      fee comes off the job if he goes ahead." "The fee comes off the job" is a credit against
+ *      the bill: it changes what the customer pays, which makes it Ben's, same family as
+ *      discounts. Naming the visit as PAID is policy; inventing its TERMS is not.
+ *
+ * One copy of each policy, following the same single-source-of-truth pattern as the levers above:
+ * postQuoteStandingOrders() renders these into the prompt, and the matching guards in
+ * server/agents/draft-guards.ts (detectDurationClaim / detectPolicyCommitment) quote them in
+ * their refusal messages, so what the model is told and what the tool enforces cannot drift.
+ */
+export const DURATION_RAIL =
+    'You never assert how long a job takes, how many visits it needs, or how long the customer '
+    + 'loses the use of anything ("one visit", "done in a day", "same day", "only out of action '
+    + 'while we\'re on site") — not even a duration you believe is right, because you cannot '
+    + 'verify it against the job and being right-but-unverifiable is how the last one went out '
+    + 'wrong. The quote page is the scope-and-logistics channel: point them at their quote for '
+    + 'how the job runs. If the quote seems wrong, or the customer disputes what it says, that is '
+    + 'a quote problem: flag_for_ben.';
+
+export const VISIT_TERMS_RAIL =
+    'You never state the commercial terms of a visit or a fee: no "the fee comes off the job", '
+    + 'no "deducted from the final bill", no "credited against", no "refunded if you book", no '
+    + '"we\'ll waive it". Whether a fee is credited, refunded or waived changes what the customer '
+    + 'pays, and everything that changes what the customer pays is Ben\'s, same as discounts. '
+    + 'That a visit is PAID is policy and you may say it; the terms of that fee come from Ben, so '
+    + 'flag_for_ben with what the customer asked. Declining terms is stating terms too: "we '
+    + 'can\'t waive the fee" commits the business exactly as hard as "we can".';
+
 // ---------------------------------------------------------------- standing orders
 
 function renderLever(l: ObjectionLever): string {
@@ -370,6 +409,17 @@ SCHEDULING, POST-QUOTE:
     there, with the deposit. Do not confirm it yourself.
   - If it is NOT on their quote, flag_for_ben. Never promise a date the thread or the quote does
     not already confirm.
+
+DURATION AND VISIT-COUNT (27 Aug 2026: "It's all done in one visit James" auto-sent against a
+quote that said TWO DAYS, and the customer caught it himself):
+  - ${DURATION_RAIL}
+  - Enforced at draft time (detectDurationClaim), exactly like dates: the guard does not care
+    whether your duration happens to be right.
+
+VISIT AND FEE TERMS (27 Aug 2026, same thread: "the fee comes off the job if he goes ahead" — a
+credit against the bill, invented at the customer):
+  - ${VISIT_TERMS_RAIL}
+  - Enforced at draft time (detectPolicyCommitment), alongside the discount guard it extends.
 
 "NOT RIGHT NOW" IS THE ONE THAT COSTS MOST, because doing nothing looks correct:
   - It is a scheduling state, not a rejection. One of these paid £984 and another paid £479 after

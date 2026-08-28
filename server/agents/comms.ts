@@ -74,11 +74,12 @@ import {
 } from '../first-contact-ack';
 import { loadQuoteContexts, checkDateSignal, type QuoteContext } from './quote-context';
 import type { IntakeReadiness } from './quote-prep';
-import { postQuoteStandingOrders } from './objection-levers';
+import { postQuoteStandingOrders, VISIT_TERMS_RAIL } from './objection-levers';
 import {
     MONEY_RE, checkDraft, detectDiscountOffer, detectDatePromise,
-    detectLiabilityAdmission, type DraftViolation,
+    detectLiabilityAdmission, detectDurationClaim, detectPolicyCommitment, type DraftViolation,
 } from './draft-guards';
+import { detectHoldingReply, assessRepeatHolding, recordOutboundCommitment } from './promise-tracker';
 
 // ---------------------------------------------------------------- config
 
@@ -267,6 +268,15 @@ export function neverSendDirectReason(body: string): string | null {
     if (date) return `it commits to a date or an arrival time ("${date}")`;
     const liability = detectLiabilityAdmission(body);
     if (liability) return `it admits liability ("${liability}")`;
+    // 27 Aug 2026 (James): two more Ben-only families joined the rail. A duration assertion
+    // contradicted the customer's own quote ("all done in one visit" against a two-day job), and
+    // an invented fee credit ("the fee comes off the job") changed what he would pay. Both are
+    // refused by checkDraft first; they are repeated here for the same reason as the other four —
+    // a rail that depends on a different function still being wired up is not a rail.
+    const duration = detectDurationClaim(body);
+    if (duration) return `it asserts job duration or visit count ("${duration}")`;
+    const policy = detectPolicyCommitment(body);
+    if (policy) return `it states commercial terms for a visit or a fee ("${policy}")`;
     return null;
 }
 
@@ -289,6 +299,7 @@ export interface DirectSendDecision {
  *   1. is the kill switch on                    (config, a human's decision)
  *   2. did the FULL guard chain pass            (checkDraft, deterministic, adversarially tested)
  *   3. is this Ben's alone                      (neverSendDirectReason, reads the body)
+ *   3b. has the customer signalled distrust     (the trust_concern tag — see below)
  *   4. is it a civilised hour to text somebody  (UK 8-20 — but ONLY for a proactive send. A
  *      customer whose last message is minutes old is holding their phone: replying instantly at
  *      2am is a conversation, not a cold buzz, so a REACTIVE reply goes 24/7 and only the
@@ -313,8 +324,21 @@ export function maySendDirect(opts: {
     reactive: boolean;
     /** True only when checkDraft returned null for this exact body. Never assume it. */
     guardsPassed: boolean;
+    /**
+     * True when the conversation carries the trust_concern tag — FRESH-READ at decision time,
+     * never from the run-start snapshot, because the agent can add_tags mid-run and the tag it
+     * just wrote must bind the very same run (see threadHasTrustConcern).
+     *
+     * 27 Aug 2026, James (+447950552830): his uncle "doesn't understand AI and phones and
+     * WhatsApp and stuff he thinks he's being taken advantage of". The thread got the
+     * trust_concern tag at 11:34 — and the agent KEPT AUTO-SENDING, including a policy claim
+     * about paid survey terms. A customer who has said they distrust the automated channel is
+     * told, by every further instant reply, that nobody listened. While the tag stands, every
+     * outbound queues for a human to read first.
+     */
+    trustConcern: boolean;
 }): DirectSendDecision {
-    const { config, intent, body, ukHour, postQuoteThread, reactive, guardsPassed } = opts;
+    const { config, intent, body, ukHour, postQuoteThread, reactive, guardsPassed, trustConcern } = opts;
     const where = postQuoteThread ? 'post-quote' : 'pre-quote';
 
     if (!config.autosend.enabled) {
@@ -327,6 +351,9 @@ export function maySendDirect(opts: {
     if (never) {
         return { send: false, reason: `held for Ben because ${never} — that decision is his, not yours` };
     }
+    if (trustConcern) {
+        return { send: false, reason: 'held for human review because the thread is tagged trust_concern — the customer has signalled distrust of the automated channel, so a person reads every outbound until the tag is cleared' };
+    }
     if (!reactive && (ukHour < 8 || ukHour >= 20)) {
         return { send: false, reason: `it is ${ukHour}:00 UK, outside 08-20, and their last message is not fresh, so this proactive send waits rather than buzzing a phone at night` };
     }
@@ -338,6 +365,26 @@ export function maySendDirect(opts: {
 
 /** An inbound younger than this means the customer is mid-conversation: replies go 24/7. */
 export const REACTIVE_WINDOW_MINUTES = 45;
+
+/**
+ * The tag that downgrades autonomy to human review (see maySendDirect's trustConcern). Set by the
+ * agent itself (add_tags) the moment a customer signals distrust of the automated channel; cleared
+ * by a human when trust is re-established.
+ */
+export const TRUST_CONCERN_TAG = 'trust_concern';
+
+/**
+ * Is the thread tagged trust_concern RIGHT NOW? A fresh read, deliberately — the same CAS habit as
+ * set_board_state's tag merge: the run-start snapshot of `conv.tags` predates any add_tags the
+ * model made THIS run, and the 27 Aug 2026 order of operations was exactly that — tag written at
+ * 11:34, auto-sends continuing after it. The gate must see the tag the moment it exists, whichever
+ * writer put it there.
+ */
+export async function threadHasTrustConcern(conversationId: string): Promise<boolean> {
+    const [row] = await db.select({ tags: conversations.tags })
+        .from(conversations).where(eq(conversations.id, conversationId));
+    return (((row?.tags as string[] | null) ?? []).includes(TRUST_CONCERN_TAG));
+}
 
 // ---------------------------------------------------------------- tool-boundary refusals
 
@@ -492,6 +539,11 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     const escalations: { violation: DraftViolation; attemptedBody: string }[] = [];
     const ESCALATE_CODES: readonly DraftViolation['code'][] = [
         'money_figure', 'discount_offer', 'date_promise', 'liability_admission',
+        // 27 Aug 2026 (James): duration and fee-terms joined the Ben-only families — a duration
+        // assertion contradicted his own quote, and "the fee comes off the job" invented a credit.
+        // Without these here, a run refused for either and then going silent leaves the customer
+        // with a live question and Ben with nothing on his desk.
+        'duration_claim', 'policy_commitment',
     ];
     let flaggedThisRun = false;
 
@@ -841,10 +893,44 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // guardsPassed is true here BECAUSE checkDraft returned null a few lines up and
                 // threw otherwise. It is passed explicitly rather than assumed inside the gate so
                 // the adversarial suite can attack the false branch, which is unreachable from here.
-                const decision = maySendDirect({
+                // Fresh-read, never conv.tags: the model add_tags trust_concern mid-run and the
+                // tag must bind THIS run's sends (the 27 Aug order-of-operations failure).
+                const trustConcern = await threadHasTrustConcern(conv.id);
+                let decision = maySendDirect({
                     config, intent: input.intent, body: input.body, ukHour, postQuoteThread,
-                    reactive, guardsPassed: true,
+                    reactive, guardsPassed: true, trustConcern,
                 });
+
+                // THE STALL-LOOP LIMITER (27 Aug 2026, James). 26 Aug 17:11 the agent auto-sent
+                // "I'll get this priced up properly and sent over to you as soon as it's ready";
+                // ~18h later the CUSTOMER chased, and the agent answered its own SLA breach with
+                // the SAME holding reply again. One holding reply per wait is the policy; the
+                // second is the moment the machine must hand over rather than re-stall. So: if
+                // this draft is itself a holding reply AND the last thing the customer heard from
+                // us was already one (nothing material — no quote, no human message — since),
+                // it queues pending and Ben is flagged with the breached expectation. The flag
+                // dedupes on needs_ben inside flagThreadForBen, so one per conversation while set.
+                if (detectHoldingReply(input.body)) {
+                    const repeat = await assessRepeatHolding({ conversationId: conv.id, phone: e164, digits })
+                        .catch((e: any) => {
+                            console.error('[CommsAgent] repeat-holding assessment failed (treating as first):', e?.message);
+                            return { repeat: false as const, since: null, waitingOn: null };
+                        });
+                    if (repeat.repeat) {
+                        const sinceStr = repeat.since
+                            ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }).format(repeat.since)
+                            : 'earlier';
+                        decision = {
+                            send: false,
+                            reason: 'this would be the second consecutive holding reply — the customer is still waiting on the first promise and re-promising is the stall loop, so it queues for a human and Ben has been flagged',
+                        };
+                        await flagThreadForBen({
+                            conversationId: conv.id, phone: e164,
+                            note: `Second holding reply attempted; the customer is still waiting on "${(repeat.waitingOn ?? 'the promised follow-up').slice(0, 160)}" since ${sinceStr}. The agent was stopped from re-stalling them — its draft is queued unsent. Reply in the thread or send what was promised.`,
+                        }).catch((e: any) => console.error('[CommsAgent] stall-loop flag failed (hold stands):', e?.message));
+                        flaggedThisRun = true;
+                    }
+                }
 
                 // The first-contact responder keeps its own 24/7 lane: a number we have never
                 // messaged is acknowledged whatever the hour, because an acknowledgement is only
@@ -855,6 +941,9 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // mid-thread).
                 const firstContactOk = !decision.send
                     && config.firstContactAutoAck.enabled
+                    // A trust_concern thread gets NO unsupervised lane, this one included — a
+                    // first contact almost never carries the tag, but "almost" is not a gate.
+                    && !trustConcern
                     && (FIRST_CONTACT_ACK_INTENTS as readonly string[]).includes(input.intent)
                     && !neverSendDirectReason(input.body)
                     && config.firstContactAutoAck.channels.includes(await inboundChannel())
@@ -865,6 +954,13 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     const sent = await approveAndSendDraft(id, by);
                     if (sent.ok) {
                         autosent = true;
+                        // A SENT promise is a debt with a timer (27 Aug 2026: "I'll get a patch
+                        // only version sorted", "I'll come straight back to you with both" — two
+                        // open commitments, no timer, and failure repeated). Recorded AFTER the
+                        // send succeeded, never before: a promise that never reached the customer
+                        // is not a debt. Never allowed to break the send it records.
+                        await recordOutboundCommitment({ conversationId: conv.id, body: input.body })
+                            .catch((e: any) => console.warn('[CommsAgent] commitment recording failed (send stands):', e?.message));
                         console.log(`[CommsAgent] SENT DIRECTLY to ${e164} [${input.intent}]: ${decision.reason}`);
                         return {
                             queued: true, draftId: id, autosent: true,
@@ -1512,9 +1608,9 @@ said visit_first and the agent promised "we'll get a time sorted for someone to 
 a proper look" — a FREE visit invented on the spot — then accepted "5 ish works well" and sent five
 holding messages over 22 hours while nothing was actually being arranged. Every one of those deepened
 a promise nobody had made. The policy:
-- The only visit this business sells is a PAID SURVEY: the customer pays a survey fee and it is
-  credited off the job when they go ahead. That is the only framing a customer ever hears for a
-  visit — in words, never a figure (the fee is a number, and numbers live on the page).
+- The only visit this business sells is a PAID SURVEY, and "it's a paid survey visit" is the
+  WHOLE of what you may say about it. Never a figure (the fee is a number, and numbers live on
+  the page) — and never its TERMS. ${VISIT_TERMS_RAIL}
 - You CANNOT arrange, book, or promise a visit. No tool books one (a book_visit tool creating a
   paid visit link is planned; until it exists, visits are set up by Ben alone). visit_first is the
   clerk telling BEN a visit is needed, not telling you to offer one.
@@ -1526,10 +1622,13 @@ a promise nobody had made. The policy:
   the booking, promised never.
 - One holding reply per wait, maximum. If Ben has not moved, a second "just getting that sorted"
   is the same unkept promise told twice; the standing flag plus silence is correct.
-DO: "This one needs eyes on it to price properly. We do a survey visit for that, and the fee
-comes off the job if you go ahead. I'll come back to you with the details."
+DO: "This one needs eyes on it to price properly. It'd be a paid survey visit. I'll come back to
+you with the details."
 DON'T: "We'll get a time sorted for someone to pop round and take a proper look." (a free visit
 and a booking promise, neither of which exists)
+DON'T: "The fee comes off the job if you go ahead." (invented commercial terms — whether the fee
+is credited, refunded or waived changes what the customer pays, and that is Ben's. This exact
+sentence auto-sent on 27 Aug 2026 and the guard now refuses it.)
 DON'T: "5 ish works well." (accepting a time is a date commitment)
 DON'T: "Sorry for the delay, still getting that visit sorted for you." (a repeat holding message
 promising an arrangement that is not happening)
@@ -1659,6 +1758,14 @@ from a reply to our own acknowledgement, so they are the customer's actual words
   is already priority=urgent, so flag_for_ben (or leave it) rather than drafting a message that asks them
   again when a good time would be.
 
+ONE TAG YOU SET YOURSELF CHANGES YOUR OWN AUTONOMY: "trust_concern". Add it the moment a customer
+signals distrust of the automated channel ("he thinks he's being taken advantage of", "is this a
+bot", "am I talking to a real person") — 27 Aug 2026, a customer said exactly the first of those
+and the replies kept arriving instantly, which told him nobody had listened. While the tag is set,
+every reply you write queues for a human to read before it sends. Keep writing them — they are
+still your replies — but know they wait for a person, and never pretend otherwise to the customer.
+A human clears the tag when trust is re-established; you do not remove it yourself.
+
 HARD RULES — these are not preferences:
 - What you write REACHES THEM. There is no approval step and no second reader. Write one reply, the
   whole reply, and mean it.
@@ -1757,6 +1864,8 @@ export const STAFF = {
         approval: [
             'Proactive sends outside 08-20 UK — queued overnight, released at 08:00 by the morning sweep',
             'Anything the guard chain refuses — the refusal flags the thread for Ben automatically',
+            'Every reply on a thread tagged trust_concern — the customer signalled distrust of the automated channel, so a human reads each outbound until the tag is cleared',
+            'A second consecutive holding reply — re-promising while the first promise is unfulfilled queues unsent and flags Ben with what the customer is still waiting on',
             'Everything, whenever the direct-send kill switch is off: the same replies queue as before',
         ],
         never: [

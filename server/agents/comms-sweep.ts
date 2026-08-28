@@ -33,6 +33,61 @@ function isTestNumber(phone: string): boolean {
     return phone.replace(/\D/g, '').includes('7700900');
 }
 
+/** One agent run per conversation per this many minutes, enforced atomically across every trigger
+ *  path and every process. Matches MIN_MINUTES_BETWEEN_RUNS: the floor that was always intended,
+ *  now actually enforced. */
+const TRIAGE_TURN_MINUTES = 5;
+
+/**
+ * THE atomic run claim — win this or do not run the agent.
+ *
+ * ROOT CAUSE, 27 Aug 2026 triple-send (conv b57b6790401ff28a3db04d58ff1e366f, +447950552830,
+ * "James"): the customer asked one question at 11:05:09 and three agent runs auto-sent replies at
+ * 11:05:40, 11:05:52 and 11:06:17 — two of them opening with the identical sentence. Each trigger
+ * path guarded itself on its OWN metadata key and nothing excluded one from another:
+ *
+ *   - sweepOnce checked lastAutoTriageAt and then stamped it in a SECOND statement — a classic
+ *     check-then-act race that two concurrent passes both win;
+ *   - tickDueTriage leased nextTriageAt with a real CAS, but that lease is invisible to sweepOnce
+ *     and to every other runCommsAgent entry point;
+ *   - and the guards were per-process in effect only by luck: this file runs wherever the server
+ *     boots, including dev checkouts pointed at the production database. The production
+ *     deployment's logs for the incident window show its ticker starting only the THIRD run —
+ *     the first two arrived through paths/processes its lease never saw.
+ *
+ * So: one shared claim, one atomic UPDATE whose WHERE re-checks the hold under the row lock —
+ * the same CAS shape as approveAndSendDraft's `WHERE status = 'pending'` claim
+ * (server/message-drafts.ts). Concurrent claimers serialize on the row; the losers match zero
+ * rows and skip. The hold expires by itself, so a run that dies mid-flight costs
+ * TRIAGE_TURN_MINUTES, never a wedge — and the hold standing after a SUCCESSFUL run is the
+ * point, not a leak: it is the between-runs floor that 40 seconds of triple-send did not have.
+ *
+ * Returns the written hold value (the release token) on a win, null when someone else holds it.
+ */
+export async function claimTriageTurn(conversationId: string): Promise<string | null> {
+    const now = new Date();
+    const heldUntil = new Date(now.getTime() + TRIAGE_TURN_MINUTES * 60_000).toISOString();
+    const res: any = await db.execute(sql`
+        UPDATE conversations
+        SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('triageHeldUntil', ${heldUntil}::text)
+        WHERE id = ${conversationId}
+          AND (metadata->>'triageHeldUntil' IS NULL OR metadata->>'triageHeldUntil' <= ${now.toISOString()})
+        RETURNING id`);
+    return ((res.rows ?? res) as unknown[]).length ? heldUntil : null;
+}
+
+/**
+ * Give a won turn back WITHOUT having run — only for a claimer that then discovered it has
+ * nothing to do (e.g. the debounce was re-armed by a newer message mid-claim). CAS on our own
+ * token, so a later claimer's hold is never clobbered. Never called after an actual run: a run
+ * that happened must pay the full floor.
+ */
+export async function releaseTriageTurn(conversationId: string, token: string): Promise<void> {
+    await db.execute(sql`
+        UPDATE conversations SET metadata = metadata - 'triageHeldUntil'
+        WHERE id = ${conversationId} AND metadata->>'triageHeldUntil' = ${token}`);
+}
+
 async function sweepOnce(): Promise<void> {
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
     const config = await getCommsAgentConfig();
@@ -89,7 +144,14 @@ async function sweepOnce(): Promise<void> {
             .limit(1);
         if (pending) continue;
 
+        // 27 Aug 2026: the shared atomic claim comes FIRST. Every check above is advisory — read
+        // in one statement, acted on in another — and the triple-send proved that two passes (or
+        // two processes) sail through them together. This single CAS is what actually excludes a
+        // concurrent run, on any trigger path, in any process. See claimTriageTurn's root cause.
+        if (!(await claimTriageTurn(c.id))) continue;
+
         // Stamp BEFORE running: a run that crashes must not become a run that retries forever.
+        // (Kept alongside the claim — this key still powers the ran-after-customer check above.)
         await db.update(conversations).set({
             metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('lastAutoTriageAt', ${new Date().toISOString()}::text)`,
         }).where(eq(conversations.id, c.id));
@@ -122,6 +184,13 @@ async function tickDueTriage(): Promise<void> {
         WHERE archived_at IS NULL AND metadata->>'nextTriageAt' <= ${new Date().toISOString()}
         LIMIT 3`);
     for (const row of ((due.rows ?? due) as { id: string; due_at: string }[])) {
+        // 27 Aug 2026: win the SHARED run claim before touching the debounce lease — the lease
+        // below only serializes tickDueTriage against itself; it never excluded sweepOnce or any
+        // other runCommsAgent path (see claimTriageTurn's root cause). Losing the turn means
+        // another path/process ran this thread inside the floor: leave nextTriageAt due and let
+        // the 15s tick retry once the hold expires, so the debounced run is delayed, never lost.
+        const turn = await claimTriageTurn(row.id);
+        if (!turn) continue;
         // The claim is a LEASE, not a delete. The first version removed the row before running,
         // so a process death mid-run (a deploy swap, 20 Aug 08:07, first message of the retest)
         // consumed the claim and orphaned the message with only the slow sweep left to notice.
@@ -133,7 +202,12 @@ async function tickDueTriage(): Promise<void> {
             SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('nextTriageAt', ${lease}::text)
             WHERE id = ${row.id} AND metadata->>'nextTriageAt' = ${row.due_at}
             RETURNING id`);
-        if (!((claimed.rows ?? claimed).length)) continue; // re-armed by a newer message — not due yet
+        if (!((claimed.rows ?? claimed).length)) {
+            // Re-armed by a newer message mid-claim — no run happened, so hand the turn back
+            // rather than make the fresher message pay a floor for a run that never was.
+            await releaseTriageTurn(row.id, turn);
+            continue;
+        }
         console.log(`[CommsSweep] On-inbound triage due for ${row.id} — running (lease ${lease}).`);
         try {
             const outcome = await runCommsAgent(row.id, 'inbound_message');
@@ -167,6 +241,10 @@ async function releaseMorningHolds(): Promise<void> {
             eq(messageDrafts.status, 'pending'),
             eq(messageDrafts.source, 'comms_agent'),
             sql`${messageDrafts.reason} LIKE '%[morning_release]%'`,
+            // 27 Aug 2026: a draft the send-path guards reverted to pending is a REVIEW item, not
+            // a delayed send — re-approving it here every 15s would fight the guard forever.
+            sql`${messageDrafts.reason} NOT LIKE '%[near_duplicate_hold]%'`,
+            sql`${messageDrafts.reason} NOT LIKE '%[malformed_reason_hold]%'`,
         )).limit(5);
 
     for (const d of held) {
@@ -213,6 +291,9 @@ async function releaseHeldAcks(): Promise<void> {
         .where(and(
             eq(messageDrafts.status, 'pending'),
             sql`${messageDrafts.reason} LIKE '[ack_hold_until:%'`,
+            // 27 Aug 2026: guard-held drafts wait for a human, not for this loop (see above).
+            sql`${messageDrafts.reason} NOT LIKE '%[near_duplicate_hold]%'`,
+            sql`${messageDrafts.reason} NOT LIKE '%[malformed_reason_hold]%'`,
         )).limit(10);
 
     for (const d of held) {
@@ -332,6 +413,8 @@ export function startCommsInboundSweep(): void {
         releaseMorningHolds().catch((e) => console.error('[CommsSweep] morning release failed:', e?.message ?? e)),
         releaseHeldAcks().catch((e) => console.error('[CommsSweep] held-ack release failed:', e?.message ?? e)),
         fallbackOverdueCallbacks().catch((e) => console.error('[CommsSweep] callback fallback failed:', e?.message ?? e)),
+        // 27 Aug 2026 (James): sent promises get a 4-working-hour timer; overdue ones flag Ben once.
+        import('./promise-tracker').then((m) => m.flagOverdueCommitments()).catch((e) => console.error('[CommsSweep] overdue-commitment sweep failed:', e?.message ?? e)),
     ]);
     setInterval(fast, TICK_EVERY_MS).unref?.();
     console.log(`[CommsSweep] Started: fast tick every ${TICK_EVERY_MS / 1000}s (DB-scheduled debounce), boot catch-up in ${BOOT_DELAY_MS / 1000}s, slow sweep every ${SWEEP_EVERY_MS / 60_000} min, 24/7.`);

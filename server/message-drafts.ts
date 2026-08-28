@@ -11,8 +11,8 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { messageDrafts, conversations, personalizedQuotes } from '@shared/schema';
-import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { messageDrafts, conversations, personalizedQuotes, messages } from '@shared/schema';
+import { eq, and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { sendCustomerMessage, type OutboundChannel } from './outbound';
@@ -214,6 +214,66 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
     }
 });
 
+// ------------------------------------------------------------------ 27 Aug 2026 autosend guards
+//
+// On 27 Aug 2026 (conv b57b6790401ff28a3db04d58ff1e366f, +447950552830, "James") three agent runs
+// fired within 40 seconds and each auto-sent: the customer received "sorry for the wait on this
+// one" twice in 15 seconds and a third redundant variant a minute later, all approved_by
+// comms_agent:autosend. The run-claim race is fixed at its source in comms-sweep.ts, but this is
+// the queue exit — EVERY automated send passes through here, so this is where "never say the same
+// thing twice in ten minutes" and "never auto-send a malformed run's draft" are enforced,
+// whichever trigger path produced the draft.
+
+/** Approvers that are code, not people. A block here reverts to pending for a human; a human
+ *  approver is looking at the thread and may deliberately repeat themselves. */
+const AUTOMATED_APPROVER = /^(comms_agent|hours_gate|first_contact_ack):/;
+
+/** Stable markers appended to `reason` when an autosend is held. The timed releases in
+ *  comms-sweep.ts skip drafts carrying these, so a held draft cannot re-enter the 15s release
+ *  loop — it waits for a person. */
+export const NEAR_DUPLICATE_HOLD_MARKER = '[near_duplicate_hold]';
+export const MALFORMED_REASON_HOLD_MARKER = '[malformed_reason_hold]';
+
+/**
+ * A reason that reads as a broken agent run. Draft 1 of the 27 Aug incident carried
+ * "[answer_question] placeholder" and draft 3 "[unlabelled] undefined" — both templates' failure
+ * modes, not judgements, and neither should ever have licensed an automatic send.
+ */
+export function isMalformedAgentReason(reason: string | null | undefined): boolean {
+    const raw = (reason ?? '').trim();
+    if (!raw) return true;
+    if (/\[unlabelled\]/i.test(raw)) return true;
+    // Strip the leading "[intent]" tag; what remains must be a real sentence, not a stub.
+    const rest = raw.replace(/^\[[^\]]*\]\s*/, '').trim();
+    if (!rest) return true;
+    return /\b(placeholder|undefined|null)\b/i.test(rest);
+}
+
+/** Lowercase, punctuation and whitespace collapsed — the comparison a customer's eyes make. */
+function normalizeForDupCheck(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Exact normalized match, or token overlap >= 0.9 against the LARGER of the two sets — strict
+ * enough that "sorry for the wait" vs "thanks for your patience" stays distinct, loose enough
+ * that a re-worded copy of the same sentence is still caught. No dependencies on purpose.
+ */
+export function isNearDuplicateText(a: string, b: string): boolean {
+    const na = normalizeForDupCheck(a);
+    const nb = normalizeForDupCheck(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    const ta = new Set(na.split(' '));
+    const tb = new Set(nb.split(' '));
+    let common = 0;
+    for (const t of ta) if (tb.has(t)) common++;
+    return common / Math.max(ta.size, tb.size) >= 0.9;
+}
+
+/** How far back an outbound message still makes a repeat of itself redundant. */
+const NEAR_DUPLICATE_WINDOW_MINUTES = 10;
+
 /**
  * Approves a pending draft and sends it. The single code path behind the approve button AND the
  * agent's whitelist auto-send — both routes claim the row first so nothing can send twice.
@@ -223,7 +283,7 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
  */
 export async function approveAndSendDraft(draftId: string, approvedBy: string): Promise<
     | { ok: true; draft: typeof messageDrafts.$inferSelect; mode: 'freeform' | 'template' | 'sms'; channel: OutboundChannel; fellBack: boolean }
-    | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED' | 'OPTED_OUT'; message: string }
+    | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED' | 'OPTED_OUT' | 'NEAR_DUPLICATE' | 'MALFORMED_REASON'; message: string }
 > {
     // Claim the row first so a double-click (or a racing auto-send) cannot send twice.
     const [draft] = await db.update(messageDrafts)
@@ -249,6 +309,74 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             draftId: draft.id, outcome: 'blocked', decidedBy: approvedBy,
         }));
         return { ok: false, code: 'OPTED_OUT', message: optOutRefusalMessage(suppression) };
+    }
+
+    // -------------------------------------------------------- 27 Aug 2026 autosend-only guards
+    //
+    // Both guards below revert to PENDING rather than reject (the OUTSIDE_WINDOW pattern): the
+    // system refused to send this by itself, but the words may still be right — a human can read
+    // the thread and decide. The ledger records the refusal as 'blocked' (the same shape as the
+    // opt-out refusal above); if a human later approves, their verdict overwrites it.
+    const automatedApprover = AUTOMATED_APPROVER.test(approvedBy);
+    const holdForHuman = async (marker: string, note: string) => {
+        // The note is appended once — a draft that keeps tripping the guard must not grow its
+        // reason on every pass.
+        const alreadyMarked = (draft.reason ?? '').includes(marker);
+        await db.update(messageDrafts)
+            .set({
+                status: 'pending', approvedAt: null, approvedBy: null,
+                ...(alreadyMarked ? {} : { reason: `${draft.reason ?? ''} ${marker} ${note}`.trim() }),
+            })
+            .where(eq(messageDrafts.id, draft.id));
+        safely('recordDraftVerdict:blocked', () => recordDraftVerdict({
+            draftId: draft.id, outcome: 'blocked', decidedBy: approvedBy,
+        }));
+        void logSystemEvent({
+            kind: 'hold',
+            phone: draft.phone,
+            conversationId: draft.conversationId,
+            summary: `Autosend blocked: ${note}`,
+            detail: { draftId: draft.id, by: approvedBy, marker },
+            source: 'message-drafts',
+        });
+    };
+
+    // A malformed reason means a malformed RUN — the agent that wrote this draft did not know why
+    // it was writing it, and "why" is exactly what an automatic approval is trusting. Draft 1 and
+    // draft 3 of the triple-send both carried stub reasons; either being held here would have
+    // turned three sends into one.
+    if (automatedApprover && isMalformedAgentReason(draft.reason)) {
+        console.warn(`[Drafts] Refused autosend of ${draft.id}: malformed reason ${JSON.stringify(draft.reason)}`);
+        await holdForHuman(MALFORMED_REASON_HOLD_MARKER, 'the agent run gave no usable reason for this draft — held for human review');
+        return { ok: false, code: 'MALFORMED_REASON', message: 'Draft reason is malformed (empty/placeholder), so it cannot auto-send. Held pending for human review.' };
+    }
+
+    // Near-duplicate of something we JUST said. Compared per burst part, because draft 2 of the
+    // triple-send was a 3-part burst whose first bubble repeated draft 1's send verbatim — the
+    // whole-body comparison would have missed it.
+    if (draft.conversationId) {
+        const windowStart = new Date(Date.now() - NEAR_DUPLICATE_WINDOW_MINUTES * 60_000);
+        const recentOutbound = await db.select({ content: messages.content, createdAt: messages.createdAt })
+            .from(messages)
+            .where(and(
+                eq(messages.conversationId, draft.conversationId),
+                eq(messages.direction, 'outbound'),
+                gte(messages.createdAt, windowStart),
+            ))
+            .limit(50);
+        const parts = draft.body.split(/\n\s*---\s*\n/).map((p) => p.trim()).filter(Boolean);
+        const dupPart = parts.find((p) =>
+            recentOutbound.some((m) => !!m.content && isNearDuplicateText(p, m.content)));
+        if (dupPart) {
+            if (automatedApprover) {
+                console.warn(`[Drafts] Refused autosend of ${draft.id}: near-duplicate of an outbound sent within ${NEAR_DUPLICATE_WINDOW_MINUTES} min ("${dupPart.slice(0, 60)}")`);
+                await holdForHuman(NEAR_DUPLICATE_HOLD_MARKER, `repeats an outbound message from the last ${NEAR_DUPLICATE_WINDOW_MINUTES} min — held for human review`);
+                return { ok: false, code: 'NEAR_DUPLICATE', message: 'Draft repeats a message the customer already received minutes ago, so it cannot auto-send. Held pending for human review.' };
+            }
+            // A human clicked approve with the thread in front of them — repeating yourself on
+            // purpose is a thing people legitimately do. Logged so the choice is visible.
+            console.log(`[Drafts] ${approvedBy} approved ${draft.id} despite a near-duplicate outbound in the last ${NEAR_DUPLICATE_WINDOW_MINUTES} min — human override allowed.`);
+        }
     }
 
     // Which pipe. An SMS draft (explicitly chosen, or a landline) skips the window question
@@ -386,6 +514,17 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             })().catch((e) => console.warn('[MessageDrafts] beta ping failed:', e?.message));
         }
 
+        // A SENT promise is a debt with a timer, whoever released it (27 Aug 2026, James: held
+        // drafts carrying "I'll come back to you" started no timer when a person approved them,
+        // so the promise-tracker only saw agent autosends). comms_agent approvers are excluded
+        // here for the same reason as the ping above — comms.ts records those itself, and one
+        // promise must not be booked twice. Best-effort: never breaks a completed send.
+        if (!approvedBy.startsWith('comms_agent') && draft.conversationId) {
+            void import('./agents/promise-tracker')
+                .then((m) => m.recordOutboundCommitment({ conversationId: draft.conversationId!, body: draft.body }))
+                .catch((e) => console.warn('[MessageDrafts] commitment recording failed (send stands):', e?.message));
+        }
+
         // A draft carrying a contextual quote link (the shut-window fallback from the in-chat
         // quote card) has just delivered that quote — flip it out of draft and stage the thread,
         // exactly as a direct card send would have. Best-effort: the message is already with the
@@ -397,6 +536,12 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
                     .set({ isDraft: false })
                     .where(and(eq(personalizedQuotes.shortSlug, quoteSlug), eq(personalizedQuotes.isDraft, true)))
                     .returning({ id: personalizedQuotes.id });
+                if (flipped) {
+                    // Same supersede contract as the direct send: the replacement just reached the
+                    // customer, so the quote it regenerated (if any) is revoked now.
+                    const { revokeSupersededQuote } = await import('./agent-staff');
+                    await revokeSupersededQuote(flipped.id);
+                }
                 if (flipped && draft.conversationId) {
                     const [conv] = await db.select({ tags: conversations.tags }).from(conversations)
                         .where(eq(conversations.id, draft.conversationId));

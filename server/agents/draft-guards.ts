@@ -10,7 +10,7 @@
  * deliberately conservative in one direction only: a false refusal costs a draft and sends the
  * decision to Ben, which is the outcome we already want when anything is uncertain.
  */
-import { priceBandFor } from './objection-levers';
+import { priceBandFor, DURATION_RAIL, VISIT_TERMS_RAIL } from './objection-levers';
 
 // ---------------------------------------------------------------- money
 
@@ -124,6 +124,10 @@ export function detectMoneyFigure(body: string): string | null {
 function stripNegations(body: string): string {
     return body
         .replace(/\b(can|could|would|will|do|does|is|are)n(?:'|’)?t\b/gi, 'NEGATED')
+        // "can't" never matched the line above (the captured "can" swallows the n, leaving n't
+        // nothing to match), so "we can't do a discount" was refused while the proven-fine
+        // "we cannot do a discount" passed. Found 27 Aug 2026 by the content-guard suite.
+        .replace(/\bcan(?:'|’)t\b/gi, 'NEGATED')
         .replace(/\b(cannot|unable to)\b/gi, 'NEGATED');
 }
 
@@ -178,6 +182,63 @@ export function detectDiscountOffer(body: string): string | null {
 
     for (const re of patterns) {
         const m = text.match(re);
+        if (m) return m[0].trim();
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------- invented terms
+
+/**
+ * A commercial mechanism stated at the customer: a fee credited against the bill, deducted from
+ * the job, refunded on booking, or waived.
+ *
+ * 27 Aug 2026 (+447950552830, "James", £992 bathroom floor): the agent auto-sent "that'd be a
+ * paid survey visit rather than a free look, the fee comes off the job if he goes ahead". "The
+ * fee comes off the job" is a credit against the bill — it changes what the customer pays, which
+ * makes it Ben's, same family as discounts. The VISITS ARE NEVER FREE standing order existed and
+ * did not help, because it banned FREE visits, not inventing the TERMS of a paid one.
+ *
+ * This extends detectDiscountOffer rather than duplicating it: the discount guard wants an
+ * offering modal near a reduction word ("we can knock a bit off"), and a stated MECHANISM carries
+ * no modal at all — "the fee comes off the job" is policy narrated as fact, which is worse.
+ * Where a phrase carries both (a modal AND a mechanism), the discount guard fires first in
+ * checkDraft and keeps it; either refusal routes the same place.
+ *
+ * No negation stripping, deliberately: "we can't waive the fee" states the business's terms as
+ * hard as "we can", and both are Ben's to state. A false refusal here costs a redraft and a flag,
+ * which is the outcome we want whenever the agent is narrating commercial policy.
+ */
+/**
+ * The thing the customer owes. 'quote' and 'work' are deliberately NOT in here: "happy to take
+ * that off the quote" is the re-scope lever (removing a LINE, allowed and encouraged), where
+ * "comes off the bill" is a credit (money, Ben's). The towards-pattern below carries 'work'
+ * itself, because "the fee goes towards the work" has no re-scope reading.
+ */
+const BILL_NOUN = String.raw`(?:job|bill|total|price|invoice|cost|balance|final (?:bill|price|invoice|total|cost))`;
+
+const POLICY_COMMITMENT_PATTERNS: RegExp[] = [
+    // "comes off the job", "knock the fee off the total", "taken off your final bill"
+    new RegExp(String.raw`\b(?:comes?|come|coming|came|taken?|taking|took|knock(?:ed|ing|s)?)\b[^.?!\n]{0,20}\boff (?:the|your|his|her|their) ${BILL_NOUN}\b`, 'i'),
+    // "deducted from the job", "deduct it off the final bill"
+    new RegExp(String.raw`\bdeduct(?:ed|ing|s)?\b[^.?!\n]{0,30}\b(?:from|off|against)\b[^.?!\n]{0,20}\b${BILL_NOUN}\b`, 'i'),
+    // "credited against the job", "credit it towards the work", "credited back when you book"
+    /\bcredit(?:ed|ing|s)?\b[^.?!\n]{0,30}\b(?:against|towards?|back|off|to (?:the|your))\b/i,
+    // "the fee goes towards the job", "counts towards the final bill", "put towards the work"
+    new RegExp(String.raw`\b(?:goes?|going|counts?|counting|put|putting)\s+towards?\s+(?:the|your) (?:work|${BILL_NOUN})\b`, 'i'),
+    // "refunded if you go ahead", "money back when you book"
+    /\brefund(?:ed|able)?\b[^.?!\n]{0,40}\b(?:if|when|once|should)\b[^.?!\n]{0,30}\b(?:book|go(?:es)? ahead|proceed|confirm|accept)/i,
+    /\bmoney back\b[^.?!\n]{0,30}\b(?:if|when|once)\b[^.?!\n]{0,30}\b(?:book|go(?:es)? ahead|proceed)/i,
+    // "waive the fee", "the callout charge is waived"
+    /\bwaiv(?:e|ed|ing|er)\b[^.?!\n]{0,30}\b(?:fee|charge|cost|call-?out|survey|deposit)\b/i,
+    /\b(?:fee|charge|cost|call-?out|survey|deposit)s?\b[^.?!\n]{0,30}\bwaived?\b/i,
+    // a survey/callout fee stated WITH a mechanism, whichever way round it is phrased
+    /\b(?:survey|call-?out|visit|inspection|assessment) fees?\b[^.?!\n]{0,50}\b(?:off\b|deduct|credit|refund|waiv|towards?\b|free\b)/i,
+];
+
+export function detectPolicyCommitment(body: string): string | null {
+    for (const re of POLICY_COMMITMENT_PATTERNS) {
+        const m = body.match(re);
         if (m) return m[0].trim();
     }
     return null;
@@ -314,6 +375,71 @@ export function detectDatePromise(body: string): string | null {
 /** Weekday/relative-date words present at all — used to decide whether a date claim needs checking. */
 export function mentionsADate(body: string): boolean {
     return new RegExp(DATE_ISH, 'i').test(body);
+}
+
+// ---------------------------------------------------------------- duration
+
+/**
+ * A claim about how long the job takes, how many visits it needs, or how long the customer loses
+ * the use of anything.
+ *
+ * 27 Aug 2026 (+447950552830, "James", £992 bathroom floor): asked "is the toilet going to be out
+ * of use for two days?", the agent auto-sent "It's all done in one visit James, so the toilet's
+ * only out of action while we're actually on site that day" — while his quote said it is a TWO
+ * DAY job, and he caught the contradiction himself ("It says on the quote it's a two day job
+ * though?"). Chat contradicting the quote page destroys trust in the numbers channel.
+ *
+ * Treated exactly like detectDatePromise: the agent may NEVER assert duration, whether or not the
+ * claim happens to match the quote, because it cannot verify the claim against the job and
+ * right-but-unverifiable is how the last one went out wrong. The quote page is the
+ * scope-and-logistics channel. Deliberately wide in one direction only — a false refusal costs a
+ * redraft that points at the quote, which is the reply we wanted anyway. What must NOT trip it:
+ * "no rush", "take your time", "whenever you get a minute", and the deposit line ("we do have to
+ * take a deposit up front"), all of which are proven in scripts/_test-content-guards.ts.
+ *
+ * NOTE this supersedes one blessed line in the archived suite: scripts/archive/_post-quote-test.ts
+ * case 3d-bis passed "That covers both jobs in one visit" as the model figure-free answer. Since
+ * 27 Aug 2026 that sentence is refused — "one visit" is the incident phrase.
+ */
+const DURATION_NUM = String.raw`(?:a|an|one|two|three|four|five|six|half a|a single|a couple of|a few|\d{1,2})`;
+const DURATION_UNIT = String.raw`(?:days?|mornings?|afternoons?|evenings?|weekends?|weeks?|hours?|hrs?|visits?|trips?|sittings?)`;
+
+const DURATION_CLAIM_PATTERNS: RegExp[] = [
+    // A counted visit: "one visit", "two visits", "a single visit", "separate visits".
+    /\b(?:one|two|three|four|1|2|3|4|a single|single|multiple|separate)\s+visits?\b/i,
+    // A sized job: "a two day job", "one-day job", "2 day thing".
+    new RegExp(String.raw`\b${DURATION_NUM}[\s-]day\b[^.?!\n]{0,15}\b(?:job|thing|work|affair)\b`, 'i'),
+    // "done in a day", "all done in one go", "finished in a morning", "in and out in a morning"
+    new RegExp(String.raw`\b(?:done|finished|sorted|completed|wrapped up|out)\b[^.?!\n]{0,20}\bin ${DURATION_NUM}\s+(?:go\b|${DURATION_UNIT})`, 'i'),
+    /\bin one go\b|\bin a single (?:go|hit|visit)\b|\bin and out\b/i,
+    /\bsame[\s-]day\b/i,
+    // Loss-of-use reassurance: "only out of action while we're on site", "out of use for a day".
+    /\b(?:only|just)\b[^.?!\n]{0,30}\bout of (?:action|use|commission|order)\b/i,
+    new RegExp(String.raw`\bout of (?:action|use|commission|order)\b[^.?!\n]{0,45}\b(?:while|whilst|for ${DURATION_NUM}\s+${DURATION_UNIT}|that day|on the day)\b`, 'i'),
+    /\b(?:back to normal|back in (?:use|action)|up and running|usable again)\b[^.?!\n]{0,30}\b(?:by|before|that (?:same )?(?:day|evening|night)|the same day|tonight|this (?:evening|afternoon))\b/i,
+    // How long it takes: "won't take long on the day", "takes a couple of hours", "took two days".
+    /\b(?:won(?:'|’)?t|wouldn(?:'|’)?t|shouldn(?:'|’)?t|will not|not going to|doesn(?:'|’)?t|does not) take (?:too |that |very )?long\b/i,
+    new RegExp(String.raw`\b(?:takes?|taking|took)\s+(?:about |around |roughly |only |just |no more than |more than |less than |under |over )?${DURATION_NUM}\s+${DURATION_UNIT}\b`, 'i'),
+    /\bwon(?:'|’)?t be (?:there |here )?(?:too |very )?long\b/i,
+    /\b(?:quick|easy|fast|small) (?:job|fix)\b/i,
+    // Time on site: "the lads will only be on site for a couple of hours", "with you for two days".
+    new RegExp(String.raw`\b(?:on[\s-]?site|at yours|in your (?:house|home|property)|there|with you)\s+for\s+(?:only |just |about |around )?${DURATION_NUM}\s+${DURATION_UNIT}\b`, 'i'),
+    // Job shape: "split it over two visits", "spread across three days".
+    new RegExp(String.raw`\b(?:over|across|spread (?:over|across)|split (?:over|across|into))\s+${DURATION_NUM}\s+(?:days?|visits?|mornings?|weekends?|weeks?)\b`, 'i'),
+    // The bare assertion: "it's two days", "it'll be a couple of hours", "should be one day".
+    new RegExp(String.raw`\b(?:it(?:'|’)?s|it is|it(?:'|’)?ll be|it will be|that(?:'|’)?s|that is|should be|will be|going to be|would be)\s+(?:about |around |only |just |roughly )?${DURATION_NUM}\s+${DURATION_UNIT}\b`, 'i'),
+    // "a full day's work", "full day on site". Bare "a full day" is left alone on purpose: it is
+    // a REASON marker in the capitulation guard's lever list and eating it wholesale would refuse
+    // the price-justification levers. The residual gap is noted in the guard test.
+    /\b(?:a |one )?full day(?:'|’)?s?\b[^.?!\n]{0,15}\b(?:work|job|graft|on[\s-]?site)\b/i,
+];
+
+export function detectDurationClaim(body: string): string | null {
+    for (const re of DURATION_CLAIM_PATTERNS) {
+        const m = body.match(re);
+        if (m) return m[0].trim();
+    }
+    return null;
 }
 
 // ---------------------------------------------------------------- credentials we do not hold
@@ -455,7 +581,8 @@ export interface DraftCheckInput {
 
 export type DraftViolation = {
     code: 'discount_offer' | 'money_figure' | 'implies_unseen' | 'capitulation' | 'date_promise'
-        | 'capability_claim' | 'liability_admission' | 'voice_breach';
+        | 'capability_claim' | 'liability_admission' | 'voice_breach' | 'duration_claim'
+        | 'policy_commitment';
     message: string;
 };
 
@@ -472,6 +599,18 @@ export function checkDraft(input: DraftCheckInput): DraftViolation | null {
         return {
             code: 'discount_offer',
             message: `This draft offers a reduction ("${discount}"). You may never offer a discount, a percentage off, or any hint that there is room to move on price. The only discount this business gives is for volume, it is always Ben's call, and it is always customer-initiated. Re-scope instead ("happy to edit it for you, which bits matter most?"), or use flag_for_ben.`,
+        };
+    }
+
+    // 27 Aug 2026: "the fee comes off the job if he goes ahead" — an invented credit against the
+    // bill, auto-sent. Sits directly behind the discount guard because it is the same family
+    // (things that change what the customer pays): a phrase carrying both a modal and a mechanism
+    // is refused above as a discount, and either refusal routes to Ben.
+    const policy = detectPolicyCommitment(input.body);
+    if (policy) {
+        return {
+            code: 'policy_commitment',
+            message: `This draft states commercial terms for a visit or a fee ("${policy}"). ${VISIT_TERMS_RAIL}`,
         };
     }
 
@@ -537,6 +676,17 @@ export function checkDraft(input: DraftCheckInput): DraftViolation | null {
         return {
             code: 'date_promise',
             message: `This draft commits to a date ("${datePromise}"). You cannot confirm a date from here. ${offered.length ? `Their quote already offers ${offered.join(', ')} — point them at the date picker on the quote so it is booked there with the deposit.` : 'Their quote offers no dates.'} If they need a specific day, use flag_for_ben. Never promise a date the thread or the quote does not already confirm.`,
+        };
+    }
+
+    // 27 Aug 2026: "It's all done in one visit James" auto-sent against a quote that said TWO
+    // DAYS, and the customer caught the contradiction himself. Duration is the dates rail's twin:
+    // the agent may never assert it, right or wrong.
+    const duration = detectDurationClaim(input.body);
+    if (duration) {
+        return {
+            code: 'duration_claim',
+            message: `This draft asserts job duration or visit count ("${duration}"). ${DURATION_RAIL}`,
         };
     }
 
