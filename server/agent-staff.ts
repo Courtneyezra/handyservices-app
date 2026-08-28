@@ -14,7 +14,7 @@ import {
     messageDrafts, agentQuestions, appSettings, conversations, messages,
     personalizedQuotes, quickReplies, firstContactAckLog,
 } from '@shared/schema';
-import { eq, and, gte, desc, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, gte, desc, isNotNull, isNull, sql } from 'drizzle-orm';
 import { queueDraft } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
@@ -529,10 +529,40 @@ const quoteUrlFor = (slug: string) => `${process.env.BASE_URL || 'https://handys
  *  desk after his move is done — the desk must empty itself when the work is finished. */
 export const RETIRED_ON_QUOTE_SENT = ['needs_ben', 'quote_ready', 'needs_quote', 'quote_gaps', 'clerk_gap_followup'];
 
+/**
+ * Revoke the quote this one superseded, if any. Called at SEND time (27 Aug 2026): the customer
+ * now holds the replacement, so the old price must stop being the live one — exactly one live
+ * price per customer is the invariant the quote-prep guard in server/agents/comms.ts relies on.
+ * Deposit-paid predecessors are never touched (a booked price never moves), and a predecessor
+ * already revoked stays as it is. Best-effort by contract: the replacement is already with the
+ * customer, so bookkeeping here must never turn a successful send into an error.
+ */
+export async function revokeSupersededQuote(quoteId: string): Promise<void> {
+    try {
+        const [q] = await db.select({ regeneratedFromId: personalizedQuotes.regeneratedFromId })
+            .from(personalizedQuotes).where(eq(personalizedQuotes.id, quoteId)).limit(1);
+        if (!q?.regeneratedFromId) return;
+        const [revoked] = await db.update(personalizedQuotes)
+            .set({ revokedAt: new Date() })
+            .where(and(
+                eq(personalizedQuotes.id, q.regeneratedFromId),
+                isNull(personalizedQuotes.revokedAt),
+                isNull(personalizedQuotes.depositPaidAt),
+            ))
+            .returning({ id: personalizedQuotes.id, shortSlug: personalizedQuotes.shortSlug });
+        if (revoked) {
+            console.log(`[QuoteSend] Revoked superseded quote ${revoked.shortSlug} (${revoked.id}) — replaced by ${quoteId}`);
+        }
+    } catch (error: any) {
+        console.warn('[QuoteSend] supersede revocation failed (non-blocking):', error?.message ?? error);
+    }
+}
+
 /** Marks the quote as actually sent: out of draft, thread to funnel stage 'quote_sent', tagged,
  *  and the desk tags cleared — sending IS Ben's move, so nothing needs him afterwards. */
 async function finalizeQuoteSent(quoteId: string, conversationId: string): Promise<void> {
     await db.update(personalizedQuotes).set({ isDraft: false }).where(eq(personalizedQuotes.id, quoteId));
+    await revokeSupersededQuote(quoteId);
     const [conv] = await db.select({ tags: conversations.tags }).from(conversations)
         .where(eq(conversations.id, conversationId));
     const kept = (conv?.tags ?? []).filter((t) => !RETIRED_ON_QUOTE_SENT.includes(t));

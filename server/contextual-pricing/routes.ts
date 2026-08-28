@@ -2478,6 +2478,46 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       }
     }
 
+    // 6a. Supersede linkage (27 Aug 2026). A NEW quote for a phone that already has a live one
+    // (sent, undeposited, unrevoked, < 90 days old — the same window quote-context calls isLive)
+    // is a replacement, not a sibling: the customer came back and the scope or price moved. Link
+    // it via regeneratedFromId so the chain is auditable and the comms agent's amendment context
+    // stays honest; the predecessor is then revoked at SEND time (finalizeQuoteSent in
+    // agent-staff.ts), not here — a draft that Ben never sends must not kill the quote the
+    // customer is still looking at. Best-effort: linkage must never block quote creation.
+    let regeneratedFromId: string | null = editingQuote?.regeneratedFromId ?? null;
+    let regenerationCount: number = editingQuote?.regenerationCount ?? 0;
+    if (!editingQuote) {
+      try {
+        const digits = (input.phone || '').replace(/\D/g, '');
+        if (digits) {
+          const [predecessor] = await db.select({
+            id: personalizedQuotes.id,
+            shortSlug: personalizedQuotes.shortSlug,
+            regenerationCount: personalizedQuotes.regenerationCount,
+          })
+            .from(personalizedQuotes)
+            .where(and(
+              sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${digits}`,
+              sql`${personalizedQuotes.isDraft} IS NOT TRUE`,
+              sql`${personalizedQuotes.depositPaidAt} IS NULL`,
+              sql`${personalizedQuotes.revokedAt} IS NULL`,
+              gte(personalizedQuotes.createdAt, new Date(Date.now() - 90 * 86_400_000)),
+            ))
+            .orderBy(desc(personalizedQuotes.createdAt))
+            .limit(1);
+          if (predecessor) {
+            regeneratedFromId = predecessor.id;
+            regenerationCount = (predecessor.regenerationCount ?? 0) + 1;
+            console.log(`[ContextualQuote] New quote supersedes ${predecessor.shortSlug} (${predecessor.id}) — linked via regeneratedFromId`);
+          }
+        }
+      } catch (linkError) {
+        console.warn('[ContextualQuote] supersede linkage failed (non-blocking):',
+          linkError instanceof Error ? linkError.message : linkError);
+      }
+    }
+
     // 6. Build quote URL
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
     const quoteUrl = `${baseUrl}/quote/${shortSlug}`;
@@ -2674,6 +2714,10 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       jobDescription: input.jobDescription || input.lines.map((l) => l.description).join('; '),
       quoteMode: 'simple' as const,
       leadId: linkedLeadId,
+
+      // Supersede chain (6a) — on edit these carry the stored values through unchanged.
+      regeneratedFromId,
+      regenerationCount,
 
       // Phase 4b — time-affecting property context (drives scheduling math)
       floorNumber: input.floorNumber ?? null,
