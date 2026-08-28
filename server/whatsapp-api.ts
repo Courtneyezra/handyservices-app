@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { conversationEngine } from "./conversation-engine";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
-import { sendCustomerMessage } from "./outbound";
-import { notifyIncomingSms, notifyIncomingWhatsApp } from "./pushover";
+import { sendCustomerMessage, NOT_A_WHATSAPP_RECIPIENT_CODES } from "./outbound";
+import { notifyIncomingSms, notifyIncomingWhatsApp, notifyOutboundSendFailure } from "./pushover";
 import { resolveCallerName } from "./caller-lookup";
 import { requireAdmin } from "./auth";
 
@@ -224,6 +224,113 @@ whatsappRouter.get('/can-freeform/:phone', requireAdmin, async (req, res) => {
     }
 });
 
+// --- Async-failure SMS recovery ---------------------------------------------------------------
+//
+// sendCustomerMessage's SMS fallback only covers failures Twilio reports synchronously. Some
+// failures — a template missing on the WABA (63027), or the number turning out not to be a
+// WhatsApp user — arrive AFTER Twilio accepted the send, via the status callback below. The
+// rendered words are already stored on the message row, so re-carry them over SMS instead of
+// letting the message die with only a log line.
+const ASYNC_SMS_RECOVERY_CODES = new Set<number>([63027, ...NOT_A_WHATSAPP_RECIPIENT_CODES]);
+// Codes that mean OUR configuration is broken: alert a human even though the SMS rescued it.
+const ALERT_EVEN_WHEN_RECOVERED = new Set<number>([63027]);
+// Twilio retries callbacks and can post the same failure twice; don't double-send in-process.
+const recoveryInFlight = new Set<string>();
+
+async function recoverAsyncWhatsAppFailureBySms(args: {
+    messageId: string;
+    conversationId: string | null;
+    direction: string | null;
+    channel: string | null;
+    content: string | null;
+    createdAt: Date | null;
+    to: string | null;
+    errorCode: number | null;
+}): Promise<void> {
+    const { messageId, conversationId, direction, channel, content, createdAt, to, errorCode } = args;
+
+    // Only outbound WhatsApp is recoverable this way — and because the recovery row is channel
+    // 'sms', a failed recovery can never re-trigger this path (no loop).
+    if (direction !== 'outbound' || channel !== 'whatsapp') return;
+    if (errorCode === null || !ASYNC_SMS_RECOVERY_CODES.has(errorCode)) return;
+
+    const body = (content ?? '').trim();
+    // A '[Template: ...]' placeholder means we never stored the rendered words — nothing to resend.
+    if (!body || body.startsWith('[Template:')) return;
+
+    // Never resurrect stale messages (e.g. a callback replayed long after the fact).
+    if (!createdAt || Date.now() - new Date(createdAt).getTime() > 24 * 60 * 60 * 1000) return;
+
+    if (!to) {
+        console.warn(`[WhatsApp Status] Cannot SMS-recover message ${messageId}: callback carried no To`);
+        return;
+    }
+
+    if (recoveryInFlight.has(messageId)) return;
+    recoveryInFlight.add(messageId);
+    try {
+        // DB dedupe: skip if this exact text already went out as SMS in the same thread — a human
+        // already resent it, or a callback retry landed after a restart emptied the in-memory set.
+        if (conversationId) {
+            const { db } = await import('./db');
+            const { messages } = await import('@shared/schema');
+            const { and, eq } = await import('drizzle-orm');
+            const [existing] = await db.select({ id: messages.id })
+                .from(messages)
+                .where(and(
+                    eq(messages.conversationId, conversationId),
+                    eq(messages.direction, 'outbound'),
+                    eq(messages.channel, 'sms'),
+                    eq(messages.content, body),
+                ))
+                .limit(1);
+            if (existing) {
+                console.log(`[WhatsApp Status] Skipping SMS recovery for ${messageId}: identical SMS already in thread`);
+                return;
+            }
+        }
+
+        // No `purpose` on purpose: it defaults to 'marketing', so opt-outs fail closed.
+        const result = await sendCustomerMessage({
+            to,
+            body,
+            channel: 'sms',
+            context: `async-recovery:${errorCode}`,
+        });
+        if (!result.ok) {
+            // The explicit-SMS path inside sendCustomerMessage already raised the dropped alert.
+            console.error(`[WhatsApp Status] SMS recovery for ${messageId} failed:`, result.error || result.reason);
+            return;
+        }
+        console.log(`[WhatsApp Status] SMS recovery for ${messageId} sent as ${result.sid}`);
+
+        const { logSystemEvent } = await import('./system-events');
+        void logSystemEvent({
+            kind: 'send',
+            phone: to,
+            conversationId,
+            summary: `WhatsApp failed after accept (error ${errorCode}); SMS carried it`,
+            detail: { failedMessageId: messageId, recoverySid: result.sid ?? null, errorCode },
+            source: 'whatsapp-status',
+        });
+
+        if (ALERT_EVEN_WHEN_RECOVERED.has(errorCode)) {
+            void notifyOutboundSendFailure({
+                phone: to,
+                context: `async-recovery:${errorCode}`,
+                attempts: [
+                    { channel: 'whatsapp', ok: false, code: errorCode, error: 'failed after Twilio accepted it' },
+                    { channel: 'sms', ok: true },
+                ],
+                recovered: true,
+                body,
+            }).catch((e) => console.warn('[WhatsApp Status] Recovery alert failed:', e));
+        }
+    } finally {
+        recoveryInFlight.delete(messageId);
+    }
+}
+
 // POST /api/whatsapp/status - Twilio delivery status callback.
 //
 // Without this, messages.status is frozen at whatever we wrote on send ('sent'), so a message that
@@ -250,7 +357,11 @@ whatsappRouter.post('/status', async (req, res) => {
         // Callbacks can arrive out of order — never let a late 'sent' downgrade a 'delivered'.
         // Failures always apply.
         const RANK: Record<string, number> = { queued: 0, accepted: 0, sending: 1, sent: 2, delivered: 3, read: 4 };
-        const [row] = await db.select({ id: messages.id, status: messages.status, conversationId: messages.conversationId })
+        const [row] = await db.select({
+            id: messages.id, status: messages.status, conversationId: messages.conversationId,
+            direction: messages.direction, channel: messages.channel,
+            content: messages.content, createdAt: messages.createdAt,
+        })
             .from(messages)
             .where(or(eq(messages.twilioSid, MessageSid), eq(messages.id, MessageSid)))
             .limit(1);
@@ -280,6 +391,17 @@ whatsappRouter.post('/status', async (req, res) => {
                 detail: { messageId: row.id, sid: MessageSid, errorCode: ErrorCode ?? null },
                 source: 'whatsapp-status',
             });
+
+            void recoverAsyncWhatsAppFailureBySms({
+                messageId: row.id,
+                conversationId: row.conversationId,
+                direction: row.direction,
+                channel: row.channel,
+                content: row.content,
+                createdAt: row.createdAt,
+                to: req.body?.To ? String(req.body.To).replace('whatsapp:', '') : null,
+                errorCode: ErrorCode ? Number(ErrorCode) : null,
+            }).catch((e) => console.error('[WhatsApp Status] SMS recovery crashed:', e));
         } else {
             console.log(`[WhatsApp Status] ${MessageSid} -> ${status}`);
         }
