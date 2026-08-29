@@ -47,7 +47,10 @@ widgetRouter.post('/api/widget/token', optionalAuth, async (req, res) => {
 
 // ── Formatting helpers (server owns ALL formatting — the script renders dumbly) ──
 
-type WidgetLine = { label: string; value: string; detail?: string };
+// tone: optional status indicator the script maps to a color (alert = red,
+// ok = green, absent = default amber). icon: SF Symbol name hint for the cell.
+// Server decides both — the script stays dumb and old script versions ignore them.
+type WidgetLine = { label: string; value: string; detail?: string; tone?: 'alert' | 'ok'; icon?: string };
 
 const LONDON = 'Europe/London';
 
@@ -182,6 +185,7 @@ async function moneyLine(monday: string): Promise<WidgetLine> {
         ));
     return {
         label: 'Money',
+        icon: 'sterlingsign.circle.fill',
         value: `${gbp(outstanding?.pence ?? 0)} due`,
         detail: `${gbp(paid?.pence ?? 0)} paid this wk`,
     };
@@ -208,6 +212,7 @@ async function pipelineLine(): Promise<WidgetLine> {
         ));
     return {
         label: 'Pipeline',
+        icon: 'chart.line.uptrend.xyaxis',
         value: gbp(row?.pence ?? 0),
         detail: plural(row?.n ?? 0, 'open quote'),
     };
@@ -237,10 +242,13 @@ async function attentionLine(): Promise<WidgetLine> {
         q > 0 ? plural(q, 'question') : null,
         f > 0 ? `${plural(f, 'follow-up')} due` : null,
     ].filter(Boolean) as string[];
+    const total = d + q + f;
     return {
         label: 'Attention',
-        value: String(d + q + f),
+        icon: 'bell.badge.fill',
+        value: String(total),
         detail: parts.length ? clip(parts.join(' · ')) : 'all clear',
+        tone: total > 0 ? 'alert' : 'ok',
     };
 }
 
@@ -260,7 +268,7 @@ async function adminLines(today: string, monday: string): Promise<WidgetLine[]> 
     const lines: WidgetLine[] = [];
     await pushLine(lines, 'jobs-today', async () => {
         const jobs = (await loadJobSpans(today)).filter((j) => j.dates.includes(today));
-        return { label: 'Today', value: plural(jobs.length, 'job'), detail: await contractorBreakdown(jobs) };
+        return { label: 'Today', icon: 'hammer.fill', value: plural(jobs.length, 'job'), detail: await contractorBreakdown(jobs) };
     });
     await pushLine(lines, 'money', () => moneyLine(monday));
     await pushLine(lines, 'pipeline', pipelineLine);
@@ -279,6 +287,7 @@ async function vaLines(today: string): Promise<WidgetLine[]> {
             .where(sql`${londonDay(calls.startTime)} = ${today}::date`);
         return {
             label: 'Today',
+            icon: 'person.2.fill',
             value: plural(leadRow?.n ?? 0, 'lead'),
             detail: plural(callRow?.n ?? 0, 'call'),
         };
@@ -304,6 +313,7 @@ async function contractorLines(userId: string, today: string, monday: string): P
             .sort((a, b) => (a.scheduledStartTime ?? '99').localeCompare(b.scheduledStartTime ?? '99'));
         return {
             label: 'Today',
+            icon: 'hammer.fill',
             value: plural(todays.length, 'job'),
             detail: todays.length
                 ? clip(todays.map((j) => [j.scheduledStartTime, j.customerName].filter(Boolean).join(' ')).join(' · '))
@@ -318,6 +328,7 @@ async function contractorLines(userId: string, today: string, monday: string): P
                 || (a.job.scheduledStartTime ?? '99').localeCompare(b.job.scheduledStartTime ?? '99'))[0];
         return {
             label: 'Next',
+            icon: 'arrow.right.circle.fill',
             value: upcoming ? shortDate(upcoming.date) : '—',
             detail: upcoming
                 ? clip([upcoming.job.scheduledStartTime, upcoming.job.customerName].filter(Boolean).join(' '))
@@ -327,7 +338,7 @@ async function contractorLines(userId: string, today: string, monday: string): P
     await pushLine(lines, 'my-week', async () => {
         const weekDates = new Set(Array.from({ length: 7 }, (_, i) => addDays(monday, i)));
         const n = spans.filter((j) => j.dates.some((d) => weekDates.has(d))).length;
-        return { label: 'Week', value: plural(n, 'job'), detail: `w/c ${shortDate(monday)}` };
+        return { label: 'Week', icon: 'calendar', value: plural(n, 'job'), detail: `w/c ${shortDate(monday)}` };
     });
     return lines;
 }
