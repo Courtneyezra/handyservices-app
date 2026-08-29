@@ -192,6 +192,65 @@ describe('deriveTeamFit — availability anchoring', () => {
   });
 });
 
+describe('deriveTeamFit — Craig-default hard anchor (auto-skin removed, Aug 2026)', () => {
+  it('no manual pick → the priority default lead anchors the calendar ALONE, even when others could solo', () => {
+    // Pre-change behaviour: solo union [craig, bezent] → reserveSlot travel-sort
+    // could book Bezent under a Craig skin. The default lead must stop that.
+    const fit = deriveTeamFit(
+      ['joinery', 'decorating'],
+      [craig(['joinery', 'decorating']), bezent(['joinery', 'decorating'])],
+      { forcedLeadId: null, defaultLeadId: 'craig' },
+    );
+    expect(fit.plan.kind).toBe('solo');
+    expect(fit.plan.leadContractorId).toBe('craig');
+    expect(fit.availabilityContractorIds).toEqual(['craig']); // NOT the craig+bezent union
+  });
+
+  it('manual pick still beats the Craig default and anchors alone', () => {
+    const fit = deriveTeamFit(
+      ['joinery', 'decorating'],
+      [craig(['joinery', 'decorating']), joe(['joinery', 'decorating'])],
+      { forcedLeadId: 'joe', defaultLeadId: 'craig' },
+    );
+    expect(fit.plan.kind).toBe('solo');
+    expect(fit.plan.leadContractorId).toBe('joe');
+    expect(fit.availabilityContractorIds).toEqual(['joe']);
+  });
+
+  it('default lead composes multi-trade jobs exactly like a forced lead (anchored on them)', () => {
+    const fit = deriveTeamFit(
+      ['plumbing_minor', 'electrical_part_p'],
+      [craig(['plumbing_minor', 'electrical_part_p']), joe(['electrical_part_p'])],
+      { defaultLeadId: 'craig' },
+    );
+    // quote-fit injects Craig as match-all, so he covers everything → solo on him.
+    expect(fit.plan.kind).toBe('solo');
+    expect(fit.plan.leadContractorId).toBe('craig');
+    expect(fit.availabilityContractorIds).toEqual(['craig']);
+  });
+
+  it('unknown default lead id falls back to the old auto union (safe fallback)', () => {
+    const fit = deriveTeamFit(
+      ['joinery'],
+      [craig(['joinery']), bezent(['joinery'])],
+      { defaultLeadId: 'nobody' },
+    );
+    expect(fit.plan.kind).toBe('solo');
+    expect(fit.plan.leadContractorId).toBe('craig');
+    expect(fit.availabilityContractorIds.sort()).toEqual(['bezent', 'craig']);
+  });
+
+  it('no default lead (vertical without a priority contractor) → behaviour unchanged', () => {
+    const fit = deriveTeamFit(
+      ['joinery'],
+      [craig(['joinery']), bezent(['joinery'])],
+      { forcedLeadId: null, defaultLeadId: null },
+    );
+    expect(fit.plan.kind).toBe('solo');
+    expect(fit.availabilityContractorIds.sort()).toEqual(['bezent', 'craig']);
+  });
+});
+
 describe('planToAssignments — booking-time rows', () => {
   const composed = resolveQuoteTeam(['plumbing_minor', 'electrical_part_p'], [craig(['plumbing_minor']), joe(['electrical_part_p'])]);
   const solo = resolveQuoteTeam(['joinery'], [craig(['joinery'])]);

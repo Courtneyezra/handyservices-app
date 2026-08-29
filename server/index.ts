@@ -51,9 +51,12 @@ import { inboxBoardRouter } from "./inbox-board";
 import { whatsappOnboardingRouter } from "./whatsapp-onboarding";
 import { messageDraftsRouter } from "./message-drafts";
 import { commsActivityRouter } from "./comms-activity-routes";
+import { commsEventsRouter } from "./comms-events-route";
 import { systemEventsRouter } from "./system-events";
 import { agentQuestionsRouter } from "./agent-questions";
 import { agentStaffRouter } from "./agent-staff";
+import { vaCallTasksRouter } from "./va-call-tasks-routes";
+import { portalRouter } from "./portal-routes";
 import { voiceNotesRouter } from "./voice-notes";
 import { trainingRouter } from './training-routes';
 import { pushRouter } from './web-push';
@@ -440,10 +443,15 @@ app.use('/api/quick-replies', requireAdmin, quickRepliesRouter); // Canned messa
 app.use('/api/whatsapp-templates', requireAdmin, whatsappTemplatesRouter); // Meta template approval status + template sends
 app.use('/api/inbox', requireAdmin, inboxBoardRouter); // Kanban board over conversations
 app.use('/api/drafts', requireAdmin, messageDraftsRouter); // Human approval gate for system-authored messages
+// SSE stream over the comms event bus. MUST sit above the '/api/comms' mount: EventSource
+// authenticates via ?token= and the mount-level requireAdmin (header-only) would 401 it first.
+app.use(commsEventsRouter); // GET /api/comms/events (own token shim + requireAdmin inside)
 app.use('/api/comms', requireAdmin, commsActivityRouter); // Comms ledger activity feed (/api/comms/activity)
 app.use('/api/system-events', requireAdmin, systemEventsRouter); // Live-beta activity log (/admin/activity)
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue
 app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
+app.use('/api/va-call-tasks', requireAdmin, vaCallTasksRouter); // Speed-to-lead call tasks (/admin/va-tasks)
+app.use('/api/portal', requireAdmin, portalRouter); // Unified mobile task inbox (/admin/portal) — lane override only
 app.use('/api/whatsapp', requireAdmin, voiceNotesRouter); // Outbound voice notes (admin-only; webhooks stay on the open router)
 // Coexistence onboarding. Auth is applied per-route inside the router (same reason as whatsappRouter).
 app.use('/api/whatsapp', whatsappOnboardingRouter);
@@ -1377,6 +1385,19 @@ app.post('/api/twilio/recording-status', async (req, res) => {
             console.log(`[Recording] Post-transcript outreach retry for ${CallSid}: ${decision.sent ? 'SENT' : decision.reason}`);
         } catch (e: any) {
             console.warn('[Recording] Post-transcript outreach retry failed:', e?.message ?? e);
+        }
+
+        // 3. Same race, same fix, for the post-call CONTINUATION (flag-gated, default off). The
+        // finalization attempt usually reads NO_CLASSIFICATION; the verdict just landed above, so
+        // retry now. Idempotent: one draft per call, ever (deterministic draft id + sent-marker).
+        try {
+            const { maybeSendPostCallContinuation } = await import('./post-call-outreach');
+            const decision = await maybeSendPostCallContinuation(CallSid);
+            if (decision.reason !== 'DISABLED') {
+                console.log(`[Recording] Post-transcript continuation retry for ${CallSid}: ${decision.sent ? 'SENT' : decision.reason}`);
+            }
+        } catch (e: any) {
+            console.warn('[Recording] Post-transcript continuation retry failed:', e?.message ?? e);
         }
 
     } catch (error) {

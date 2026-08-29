@@ -2169,6 +2169,12 @@ router.post('/api/visit/:slug/survey', async (req, res) => {
 
 router.post('/api/pricing/create-contextual-quote', async (req, res) => {
   try {
+    // Speedup item D — per-step wall-clock timings, summarised in ONE log
+    // line before the response so the fast path is verifiable in prod logs.
+    const tStart = Date.now();
+    const timings: Record<string, number> = {};
+    let tStep = tStart;
+
     // 1. Validate input
     const input = contextualQuoteInputSchema.parse(req.body);
 
@@ -2260,6 +2266,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     let contentSelection: Awaited<ReturnType<typeof selectContentForQuote>> | null = null;
     let approvedClaimTexts: string[] | undefined;
 
+    tStep = Date.now();
     try {
       contentSelection = await selectContentForQuote(jobCategories, signals);
       // If we got claims from the library, use them as the approved list for the LLM
@@ -2302,8 +2309,11 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       );
     }
 
+    timings.content = Date.now() - tStep;
+
     // 3b. Fetch historical win rate for similar quotes (last 90 days) — non-blocking
     let historicalWinRate: number | undefined;
+    tStep = Date.now();
     try {
       const winRateResult = await db
         .select({
@@ -2329,17 +2339,21 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       historicalWinRate = undefined;
     }
 
+    timings.winRate = Date.now() - tStep;
+
     // Attach win rate to the request so the LLM can calibrate confidence
     multiLineRequest.historicalWinRate = historicalWinRate;
 
     // 4. Call multi-line pricing engine (with content-library claims if available).
     // `previewDecomposed` flips the structural buckets on for this one quote only
     // (admin eval) — the global live setting is untouched.
+    tStep = Date.now();
     const result = await generateMultiLinePrice(
       multiLineRequest,
       approvedClaimTexts,
       input.previewDecomposed ? { decomposedPricingEnabled: true } : undefined,
     );
+    timings.pricing = Date.now() - tStep;
 
     // 4a-i. Map any admin-provided per-line `details` from the input onto the
     // matching engine output line (by lineId). The engine doesn't know about
@@ -2541,6 +2555,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
     let marginPreviewData: MarginPreview | undefined;
 
+    tStep = Date.now();
     try {
       const costLines = result.lineItems.map((l) => ({
         category: l.category as JobCategory,
@@ -2610,6 +2625,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     } catch (marginError) {
       console.warn('[ContextualQuote] Margin calculation failed (non-blocking):', marginError instanceof Error ? marginError.message : marginError);
     }
+    timings.margin = Date.now() - tStep;
 
     // 6a-geo. Resolve coordinates from postcode when the client didn't supply
     // them. Jobs need lat/lng to be radius-matched to contractors and plotted
@@ -2619,6 +2635,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     // coords feed BOTH the candidate pool below AND the stored row.
     let resolvedCoordinates: { lat: number; lng: number } | null =
       input.coordinates ?? null;
+    tStep = Date.now();
     if (!resolvedCoordinates && input.postcode) {
       try {
         const geo = await geocodePostcode(input.postcode);
@@ -2635,6 +2652,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         );
       }
     }
+    timings.geocode = Date.now() - tStep;
 
     // 6b. Candidate contractor pool (skill + location) — drives the customer's
     // LIVE date picker via /api/public/quote/:id/availability. Same matcher the
@@ -2643,6 +2661,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     let leadContractorId: string | null = null;
     let teamPlan: any = null;
     let leadContractorSource: 'auto' | 'manual' = 'auto';
+    tStep = Date.now();
     try {
       // Steer, then compose: resolve the team plan (solo / composed / no_supply)
       // + the availability-driver ids. Persist the SOFT lead + team plan so the
@@ -2669,6 +2688,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     } catch (e) {
       console.warn('[ContextualQuote] team resolve failed:', e instanceof Error ? e.message : e);
     }
+    timings.fit = Date.now() - tStep;
 
     // 6c. Quote origin — tie the quote back to the call it came from. Loose
     // validation: an unknown sourceCallId is dropped (quote still created)
@@ -2894,6 +2914,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       expiresAt: new Date(Date.now() + quoteValidityMs(result.finalPricePence)),
     };
 
+    tStep = Date.now();
     if (editingQuote) {
       // Edit in place — re-priced through the same engine. Preserve the fields
       // that identify and track the original: id/slug (unchanged), created date,
@@ -2935,6 +2956,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       await db.insert(personalizedQuotes).values(quoteInsertData);
       console.log(`[ContextualQuote] Created quote ${shortSlug} (${id}), price: ${result.finalPricePence}p`);
     }
+    timings.insert = Date.now() - tStep;
 
     // 7a-0. Offer router (OBSERVATION MODE — docs/OFFER_DECISION_PLAYBOOK.md).
     // Decides + logs which offer play this quote SHOULD get. Does NOT change
@@ -3065,6 +3087,17 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       bundleItems: ['Full photo report on completion', 'Tenant coordination (we liaise so you don\'t have to)'],
       individualPricePence: 7500,
     };
+
+    // Speedup item D — single greppable timing summary. `mode=sku-fast` means
+    // every line carried a SKU (the engine skipped the LLM pricing call).
+    const skuFastPath = input.lines.every((l) => !!l.skuCode && l.source !== 'custom');
+    console.log(
+      `[ContextualQuote] timings: mode=${skuFastPath ? 'sku-fast' : 'llm'} ` +
+      `content=${timings.content ?? 0}ms winRate=${timings.winRate ?? 0}ms ` +
+      `pricing=${timings.pricing ?? 0}ms margin=${timings.margin ?? 0}ms ` +
+      `geocode=${timings.geocode ?? 0}ms fit=${timings.fit ?? 0}ms ` +
+      `insert=${timings.insert ?? 0}ms total=${Date.now() - tStart}ms`,
+    );
 
     // 10. Return response
     return res.status(201).json({

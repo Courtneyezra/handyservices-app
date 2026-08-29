@@ -26,6 +26,8 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
 import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
+import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
+import { useCommsEvents } from '@/hooks/useCommsEvents';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -1084,7 +1086,9 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             if (!res.ok) throw new Error('Failed to load thread');
             return res.json();
         },
-        refetchInterval: 15_000,
+        // SSE (useCommsEvents, mounted by CommsPage) invalidates this on every draft_delta;
+        // the interval is only a resilience fallback.
+        refetchInterval: 300_000,
     });
 
     // Which number to send from. Only appears once a second sender exists, so the common
@@ -1443,6 +1447,12 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 )}
             </div>
 
+            {/* Live agent run — streams the comms agent's steps while it works this thread.
+                Renders nothing when no run is active (empty:hidden collapses the wrapper). */}
+            <div className="border-t border-slate-200 px-3 py-2 empty:hidden">
+                <LiveRunPanel conversationId={card.id} />
+            </div>
+
             {/* Quote-prep slide-over — full builder parity over the thread. The panel stays
                 mounted (state intact) while intake exists; the Sheet just shows/hides it. */}
             {intake && (
@@ -1672,6 +1682,9 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
 
 export default function CommsPage() {
     const queryClient = useQueryClient();
+    // Server-push: SSE events invalidate the board/thread queries the moment comms state
+    // changes, which is what let the aggressive polls below relax to a 5-min fallback.
+    useCommsEvents();
     const [activeId, setActiveId] = useState<string | null>(null);
     const [selected, setSelected] = useState<BoardCard | null>(null);
     const [search, setSearch] = useState('');
@@ -1702,7 +1715,9 @@ export default function CommsPage() {
             if (!res.ok) throw new Error('Failed to load board');
             return res.json();
         },
-        refetchInterval: 30_000,
+        // SSE (useCommsEvents) is the primary freshness mechanism; this is only the fallback
+        // for a silently dead stream.
+        refetchInterval: 300_000,
     });
 
     // Keep the open thread's header in sync with board refreshes (window countdown, unread).

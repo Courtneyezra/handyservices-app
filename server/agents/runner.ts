@@ -71,13 +71,22 @@ export async function runAgent(opts: {
     model?: string;
     maxTurns?: number;
     maxTokens?: number;
+    /** Live observer: called with each transcript event as it is appended (assistant text,
+     *  tool calls/results, done, …). Purely additive — a listener error never breaks a run. */
+    onEvent?: (evt: AgentTranscriptEvent) => void;
 }): Promise<AgentRunResult> {
     const client = getAnthropic();
     const model = opts.model || 'claude-opus-5';
     const maxTurns = opts.maxTurns ?? 8;
     const transcript: AgentTranscriptEvent[] = [];
     const log = (type: AgentTranscriptEvent['type'], detail: any) => {
-        transcript.push({ at: new Date().toISOString(), type, detail });
+        const evt: AgentTranscriptEvent = { at: new Date().toISOString(), type, detail };
+        transcript.push(evt);
+        if (opts.onEvent) {
+            try { opts.onEvent(evt); } catch (err) {
+                console.warn(`[agent:${opts.name}] onEvent listener failed (run continues):`, err instanceof Error ? err.message : err);
+            }
+        }
         const label = `[agent:${opts.name}]`;
         if (type === 'tool_call') console.log(`${label} → ${detail.tool}(${JSON.stringify(detail.input).slice(0, 160)})`);
         else if (type === 'tool_result') console.log(`${label} ← ${detail.tool}: ${JSON.stringify(detail.result).slice(0, 160)}…`);

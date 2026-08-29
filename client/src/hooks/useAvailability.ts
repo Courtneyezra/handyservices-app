@@ -169,6 +169,8 @@ export interface QuoteDateAvailability {
   slot: string;
   /** Phase 24d — when present, indicates the date is the START of an N-day span. */
   durationDays?: number;
+  /** Server-computed standalone-visit fee for that date, in pence (0 or 2500). */
+  sparseFeePence?: number;
 }
 
 /**
@@ -242,6 +244,8 @@ export interface SlotReservation {
   contractorId: string;
   contractorName: string;
   expiresAt: string; // ISO string
+  /** Snapshot of the standalone-visit fee stored against the reserved lock, pence. */
+  sparseFeePence?: number;
 }
 
 /**

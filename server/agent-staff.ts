@@ -407,7 +407,7 @@ agentStaffRouter.get('/first-contact/config', async (_req, res) => {
     }
 });
 
-// PATCH /api/agents/first-contact/config — { enabled?, channels?, returningAfterDays? }.
+// PATCH /api/agents/first-contact/config — { enabled?, channels?, returningAfterDays?, askForMedia? }.
 //
 // Validated here rather than trusted from the client: `channels` is the list of surfaces allowed
 // to message a stranger, so an unknown string in it is a silent widening of that permission.
@@ -440,6 +440,15 @@ agentStaffRouter.patch('/first-contact/config', async (req, res) => {
                 return res.status(400).json({ error: "'returningAfterDays' must be a whole number of days between 1 and 3650" });
             }
             patch.returningAfterDays = n;
+        }
+
+        // T1 media ask (29 Aug 2026): flag-gated photo/video ask in the ack. Ships false; this is
+        // the switch the owner flips after inspecting real runs.
+        if (req.body?.askForMedia !== undefined) {
+            if (typeof req.body.askForMedia !== 'boolean') {
+                return res.status(400).json({ error: "'askForMedia' must be true or false" });
+            }
+            patch.askForMedia = req.body.askForMedia;
         }
 
         if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to change' });

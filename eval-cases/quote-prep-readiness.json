@@ -1,0 +1,1914 @@
+{
+  "suite": "quote-prep-readiness",
+  "description": "Readiness-verdict eval for the quote-prep clerk (runQuotePrep). Baseline gate for the T6 readiness/escalation changes — see docs/EVAL_QUOTE_PREP_BRIEF.md. Runs via scripts/eval-quote-prep.ts, NOT eval-comms. Fixtures are self-contained: photo/video evidence rides as bracketed captions plus the agent's own on-thread descriptions of what the media showed, mirroring how the real threads read. Drama block +4477009008xx is exclusive to this suite. NOTE: quote-prep cases live under quotePrepCases (not cases) so scripts/eval-comms.ts, which flat-maps .cases from every JSON in eval-cases/, ignores this file entirely; cases stays [] on purpose.",
+  "cases": [],
+  "quotePrepCases": [
+    {
+      "id": "qp-inc-001-rebecca-combined-requote",
+      "family": "incident",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Rebecca +447452983308, 21-27 Aug 2026: combined re-quote (3 blinds + shower drip) was silently skipped 9 times by the live-quote guard; when the quote finally went out the shower line had been dropped ('the shower head didn't make it onto this one'). This case pins the clerk's half: given the full combined thread with the diverter question answered, the intake must be quote_ready with ALL FOUR lines present.",
+      "reference": "Real intake 27 Aug 2026: quote_ready, 4 lines (twin-recess blind, second blind, third blind, dripping shower head with diverter confirmed), 0 gaps, postcode NG2 3EW.",
+      "fixture": {
+        "phone": "+447700900801",
+        "contactName": "Rebecca",
+        "stage": "quote_sent",
+        "quotes": [
+          {
+            "slug": "evqp801a",
+            "totalPence": 8000,
+            "lines": [
+              {
+                "description": "Cut and fit roller blind in twin window recess",
+                "pence": 8000
+              }
+            ],
+            "viewCount": 2,
+            "sentMinsAgo": 8600
+          }
+        ],
+        "thread": [
+          {
+            "dir": "in",
+            "channel": "webform",
+            "minsAgo": 9000,
+            "text": "We need a roller blind cut to size and fitted with a bracket in the recess of a window."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 8970,
+            "text": "Hi Rebecca, thanks for getting in touch. Is it OK if we give you a quick call to run through what you need? Or just reply here with the details and we will price it up."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 8760,
+            "text": "Thanks for your message! It's for putting up a roller blind in the recess. The roller blind needs to be cut to size. It needs to be attached with a bracket (which comes with the roller blind)."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 8755,
+            "text": "Thanks Rebecca, that's helpful. Could you send a quick photo of the window recess so I can see the size and shape we're working with?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 8750,
+            "text": "I'll send that when I'm home. The roller blind width is 183cm, but it's a few cm too wide to fit in the recess."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 8700,
+            "text": "[photo] The recess. It would go across both windows"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 8699,
+            "text": "There are paper blinds already up which we would remove"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 8698,
+            "text": "[photo] The blackout roller blind, still boxed up"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 8690,
+            "text": "Thanks Rebecca, that's really clear, the recess with the two windows and the blackout blind still boxed up. Just need your postcode and I'll get this priced up for you."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 8680,
+            "text": "NG2 3EW"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 8675,
+            "text": "Perfect, got everything I need now. I'll get this priced up and sent over to you shortly."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 8600,
+            "text": "We'll cut and fit your roller blind to the recess in one quick visit. Here's the full breakdown so you can see exactly what's included, and pick a slot: https://handyservices.app/quote/evqp801a"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 7200,
+            "text": "Thanks so much for this! I've seen that it might be cheaper to install multiple blinds at once, so I've ordered some more and will be back in touch when I've got them to get an updated quote with some added extras. I hope that makes sense?"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 7190,
+            "text": "Good shout, doing them together often works out better value. Once the new blinds are in, send me some photos of those windows and I'll get a combined quote sorted for you."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1560,
+            "text": "Hi again, I've got the new blinds, pictures to follow:"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1558,
+            "text": "[photo] Second window recess with the new blind in its box on the sill"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1556,
+            "text": "[photo] Third window recess with the other new blind"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1555,
+            "text": "Both to be adjusted in width and fitted inside the recess. Paper blinds will be removed beforehand."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1554,
+            "text": "Also our shower drips:"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1553,
+            "text": "[photo] The shower, it has a big rain head and a smaller handheld head. I think the drip always comes from the smaller head"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1550,
+            "text": "Please could you send over a combined quote and possible availability? Thanks!"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 1545,
+            "text": "Morning Rebecca, thanks for these, really clear on both windows. I'm getting a combined quote sorted for all three blinds together now. On the shower, could you send a quick video of where it's dripping from?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 1540,
+            "text": "[video] Here you go, you can see it dripping constantly from the smaller of the two heads"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 1535,
+            "text": "Thanks Rebecca, that's clear, looks like it's coming from the smaller shower head. I've got everything I need now, the three blinds and the shower drip. I'll get a combined quote sorted for the lot and back to you shortly with dates to pick from."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 300,
+            "text": "Quick one on the shower so we can price it right: is it a mixer shower, where one control switches the water between the big head and the small head?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 240,
+            "text": "Yes that's right, you twist the ring on the bar and it switches between the two heads"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 235,
+            "text": "Perfect, that's everything we need on the shower too. Combined quote on its way shortly."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode",
+            "photo",
+            "video"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 4,
+          "lineMustMatch": [
+            "blind",
+            "shower"
+          ],
+          "postcode": "NG2 3EW"
+        }
+      ]
+    },
+    {
+      "id": "qp-inc-002-carolyne-visit-first",
+      "family": "incident",
+      "kind": "regression",
+      "expectedReadiness": "visit_first",
+      "provenance": "Carolyne +447941828889, 25-27 Aug 2026: clerk correctly verdicted visit_first with three Ben-audience gaps (crack extent, gutter vs downpipe, internal damp extent) which then sat unread in metadata while the comms agent promised a free visit. This case pins the clerk's half: hidden-extent water ingress with crack + gutter + mould must be visit_first, with the open questions addressed to Ben, not bounced to the customer.",
+      "reference": "Real intake 25 Aug 2026: visit_first, 3 lines (repoint cracked brickwork above upstairs window / investigate and clear blocked guttering or downpipe / investigate water ingress and black mould inside bedroom), 3 Ben-audience large gaps, postcode NG8 4AN, urgency high.",
+      "fixture": {
+        "phone": "+447700900802",
+        "contactName": "Carolyne",
+        "stage": "scoping",
+        "calls": [
+          {
+            "minsAgo": 3780,
+            "direction": "outbound",
+            "durationSecs": 132,
+            "jobSummary": "Guttering and repointing issue with water leak and black mould. Customer to send video/photos; urgent; callback promised",
+            "transcription": "Agent: Hi Carolyne, it's Handy Services, you asked about brick pointing and guttering?\nCarolyne: Yes hi, it's my dad's house, an ex-council semi. When it rains water pours over a ledge or the gutter at the front and runs straight down the wall, and now it's coming into the house. There's black mould appearing on the bedroom wall inside.\nAgent: OK, so water overflowing at the top somewhere and getting in above the bedroom window?\nCarolyne: I think so. I don't know if the gutter is blocked or if it's the downpipe, or if it's the brickwork itself, there's a crack up there. I'm not great with heights so I haven't been up to look.\nAgent: Understood. Could you send over some photos of the front of the house and that area above the window when you're next there?\nCarolyne: Yes, I'll be over tonight, I'll send pictures then. It needs sorting quickly, my dad lives there and he's not great on his feet.\nAgent: Of course, send those over and we'll get it moving tonight."
+          }
+        ],
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 3900,
+            "text": "Hi do you do brick pointing?? And guttering?? Not sure if its the guttering or a blockage"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 3895,
+            "text": "Hi Carolyne, thanks for getting in touch. Is it OK if we give you a quick call to run through it? Or just reply here with the details."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 3890,
+            "text": "Yes that's ok to call"
+          },
+          {
+            "dir": "out",
+            "channel": "call",
+            "minsAgo": 3780,
+            "text": "Outbound call (2m 12s): Guttering and repointing issue with water leak and black mould. Customer to send video/photos; urgent; callback promised"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 3662,
+            "text": "[photo] Front of the house, you can see the roofline and the downpipe near the bedroom window"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 3661,
+            "text": "[photo] Close up above the upstairs window, there is a crack running along the brickwork line above it"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 3660,
+            "text": "[photo] The concrete band above the window from the side"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 3650,
+            "text": "Its the ridge above the window where I think the water is getting in."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 3645,
+            "text": "Thanks Carolyne, that's really useful, we can see the cracking in the brickwork just above the window there. Looks like it could do with some repointing in that area, we will confirm properly once we have had a proper look. We will check the guttering while we are at it too. Could you pop over your postcode so we can get this priced up?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 3640,
+            "text": "Its NG8 4AN 128, like I said its my dad's house, I could arrange to meet you after work, he's not great on his feet"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 100,
+            "text": "Hi have you sorted a day to assess my dad's property?"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustInclude": [
+            {
+              "pattern": "crack|brick|point",
+              "audience": "ben"
+            }
+          ],
+          "mustNotInclude": [
+            "postcode"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 2,
+          "lineMustMatch": [
+            "brick|point",
+            "gutter|downpipe",
+            "damp|mould|ingress|leak"
+          ],
+          "postcode": "NG8 4AN"
+        }
+      ]
+    },
+    {
+      "id": "qp-qr-001-wardrobe-assembly",
+      "family": "quote-ready",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic: fully-scoped flat-pack assembly, nothing unknown that moves price. Balanced-set anchor for the quote_ready lane.",
+      "reference": "quote_ready, 1 line: assemble 2m IKEA PAX wardrobe (two frames plus doors), boxes on site in the room.",
+      "fixture": {
+        "phone": "+447700900810",
+        "contactName": "Priya Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 120,
+            "text": "Hi, can you assemble an IKEA PAX wardrobe for us? It's the 2 metre wide one, two frames with hinged doors."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 115,
+            "text": "Hi Priya, thanks for getting in touch. Is it OK if we give you a quick call to run through it? Or just reply here with the details and we will price it up."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 100,
+            "text": "Here is easier. All the boxes were delivered yesterday and are already in the bedroom where it's going, ground floor. Nothing needs moving."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 98,
+            "text": "[photo] The stack of PAX boxes in the bedroom next to the clear wall where it will stand"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 95,
+            "text": "Thanks Priya, that's clear, the boxes are all there next to the wall it's going against. Could you pop over your postcode so I can get this priced up?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 90,
+            "text": "NG5 2JU. We'd like it fixed to the wall too if that's normal, it's a solid brick wall."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "wardrobe|pax"
+          ],
+          "postcode": "NG5 2JU"
+        }
+      ]
+    },
+    {
+      "id": "qp-qr-002-extractor-like-for-like",
+      "family": "quote-ready",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic: like-for-like swap with the exact existing unit identified. Minor unknowns (isolator condition) ride as assumptions, not gaps.",
+      "reference": "quote_ready, 1 line: replace bathroom extractor fan like-for-like (Manrose 100mm wall unit), assumption that existing wiring and isolator are sound.",
+      "fixture": {
+        "phone": "+447700900811",
+        "contactName": "Tom Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 200,
+            "text": "Our bathroom extractor fan has died, just hums when the light goes on. Can you replace it?"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 195,
+            "text": "Hi Tom, thanks for getting in touch. Could you send a quick photo of the fan so we can see what's there?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 180,
+            "text": "[photo] The fan on the bathroom wall, it's a Manrose one, says 100mm on the sticker. Wall mounted, vents straight out through the wall behind it."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 178,
+            "text": "Happy with a like for like replacement, nothing fancy. Postcode is NG9 1AB."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode",
+            "photo"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "extractor|fan"
+          ],
+          "postcode": "NG9 1AB"
+        }
+      ]
+    },
+    {
+      "id": "qp-qr-003-hang-three-doors",
+      "family": "quote-ready",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic: multi-line-ready job with quantities and materials stated. Checks the clerk counts the work correctly and stays out of needs_info.",
+      "reference": "quote_ready: hang three standard 762mm internal doors, doors and new hinges on site, frames confirmed square from photos.",
+      "fixture": {
+        "phone": "+447700900812",
+        "contactName": "Marcus Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 300,
+            "text": "Hi, we've bought 3 new internal doors that need hanging, standard 762mm ones. The old doors are already off."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 295,
+            "text": "Hi Marcus, thanks for getting in touch. Could you send a couple of photos of the doorways and the new doors?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 280,
+            "text": "[photo] The three new doors leaning in the hallway, still wrapped, hinges and handles in a bag on top"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 279,
+            "text": "[photo] Two of the empty door frames, both look square and undamaged, old hinge recesses visible"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 278,
+            "text": "All three frames are the same. New hinges and handles came with the doors. NG3 5TU."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "door"
+          ],
+          "postcode": "NG3 5TU"
+        }
+      ]
+    },
+    {
+      "id": "qp-qr-004-bath-reseal",
+      "family": "quote-ready",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic: the canonical small sealed-scope job. Nothing to ask; anything residual is a printed assumption.",
+      "reference": "quote_ready, 1 line: strip and reseal silicone around bath.",
+      "fixture": {
+        "phone": "+447700900813",
+        "contactName": "Fiona Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 90,
+            "text": "The silicone around our bath has gone black and mouldy, needs redoing. Standard straight bath, one wall run and two ends."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 88,
+            "text": "[photo] The bath edge along the tiled wall, the silicone bead is black along most of the run"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 85,
+            "text": "Thanks Fiona, clear from the photo, the bead along the tiles has had it. Could you pop your postcode over?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 80,
+            "text": "NG11 8QT, thanks. Any weekday is fine, we're home all day."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode",
+            "photo"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "seal|silicone"
+          ],
+          "postcode": "NG11 8QT"
+        }
+      ]
+    },
+    {
+      "id": "qp-qr-005-tap-swap-customer-supplied",
+      "family": "quote-ready",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic: customer-supplied part with isolation valves visible in evidence. The valve condition is the classic ride-as-assumption unknown.",
+      "reference": "quote_ready, 1 line: swap kitchen mixer tap for customer-supplied replacement; assumption that the visible isolation valves function.",
+      "fixture": {
+        "phone": "+447700900814",
+        "contactName": "Dan Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 150,
+            "text": "Kitchen mixer tap is seized and dripping, we've bought a new one to replace it."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 148,
+            "text": "[photo] The new tap in its box, a standard single-hole mono mixer"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 147,
+            "text": "[photo] Under the sink, you can see the two flexi hoses and there are isolation valves on both pipes"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 145,
+            "text": "Thanks Dan, that's clear, new mono mixer boxed and isolation valves on both feeds under the sink. Postcode when you get a second?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 140,
+            "text": "NG1 6HJ"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "tap"
+          ],
+          "postcode": "NG1 6HJ"
+        }
+      ]
+    },
+    {
+      "id": "qp-qr-006-landlord-door-handle",
+      "family": "quote-ready",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic: customerType inference check — 'my rental', tenant coordination, invoice to owner. Must come out landlord, quote_ready.",
+      "reference": "quote_ready, 1 line: refit/replace bathroom door handle at rental property, customerType landlord.",
+      "fixture": {
+        "phone": "+447700900815",
+        "contactName": "Sarah Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 240,
+            "text": "Hi, I'm a landlord, my rental is in NG7. My tenant says the bathroom door handle has come off completely, the spindle is spinning loose."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 238,
+            "text": "[photo from tenant] The handle off in their hand, and the door with the square spindle sticking out of the latch"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 236,
+            "text": "Postcode NG7 4FB. Tenant will let you in whenever, just invoice me directly please. If it needs a new handle set just fit a basic one."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 230,
+            "text": "Thanks Sarah, clear from the tenant's photo, the handle and spindle are off but the latch is still in the door. We'll sort access with the tenant and invoice you."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "handle|latch|door"
+          ],
+          "postcode": "NG7 4FB",
+          "customerType": "landlord"
+        }
+      ]
+    },
+    {
+      "id": "qp-ni-001-fence-panel-count",
+      "family": "needs-info",
+      "kind": "regression",
+      "expectedReadiness": "needs_info",
+      "provenance": "Synthetic: quantity nobody stated — the labour swings directly on panel count. Must ask the customer, not guess and not send a surveyor.",
+      "reference": "needs_info, gap to customer: how many fence panels are down, impact large.",
+      "fixture": {
+        "phone": "+447700900820",
+        "contactName": "Gary Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 60,
+            "text": "The wind last night has taken our fence down, can you fix it? Panels are all over the lawn."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 58,
+            "text": "[photo] Two fence panels flat on the grass near the patio, the run of fence carries on down the garden out of frame"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 56,
+            "text": "Posts look ok as far as I can see, it's concrete posts with wooden panels that slot in. NG4 2LP"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "mustInclude": [
+            {
+              "pattern": "how many|number of|other panels|just the (two|2)",
+              "audience": "customer",
+              "impacts": [
+                "large",
+                "forks_job"
+              ]
+            }
+          ],
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-ni-002-bedroom-decorating-scope",
+      "family": "needs-info",
+      "kind": "regression",
+      "expectedReadiness": "needs_info",
+      "provenance": "Synthetic: an either/or the customer has explicitly not decided (woodwork in or out) plus no room size. Undecided scope is needs_info, not an assumption.",
+      "reference": "needs_info, customer gaps: woodwork included or walls only (forks/large), room dimensions (large).",
+      "fixture": {
+        "phone": "+447700900821",
+        "contactName": "Amy Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 400,
+            "text": "Hi, we'd like our bedroom painted before the baby arrives in October."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 398,
+            "text": "[photo] The bedroom, double bed against the far wall, one window, currently magnolia"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 396,
+            "text": "We have the paint already, a soft green for the walls. Not sure yet whether we want the skirting and door frame done too, still deciding. NG6 0DW"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "mustInclude": [
+            {
+              "pattern": "skirting|woodwork|frame",
+              "audience": "customer",
+              "impacts": [
+                "large",
+                "forks_job"
+              ]
+            }
+          ],
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-ni-003-tv-mount-wall-type",
+      "family": "needs-info",
+      "kind": "regression",
+      "expectedReadiness": "needs_info",
+      "provenance": "Synthetic: the load-bearing unknown (solid wall vs plasterboard) that the photo genuinely cannot settle, on a heavy 65 inch TV. Fixing method and labour swing on the answer.",
+      "reference": "needs_info, customer gap: is the wall solid brick or plasterboard/stud (knock test), impact large or forks_job.",
+      "fixture": {
+        "phone": "+447700900822",
+        "contactName": "Leon Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 180,
+            "text": "Can you wall mount our new 65 inch TV in the living room? We've got the bracket, it came with the TV."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 178,
+            "text": "[photo] The living room chimney-side wall where the TV should go, painted plain, nothing on it, can't tell what the wall is made of from the picture"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 176,
+            "text": "Postcode NG10 3GH. Cables can just hang for now, we'll sort trunking later."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "mustInclude": [
+            {
+              "pattern": "wall|brick|plasterboard|stud|hollow",
+              "audience": "customer",
+              "impacts": [
+                "large",
+                "forks_job"
+              ]
+            }
+          ],
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-ni-004-cupboard-repair-vs-replace",
+      "family": "needs-info",
+      "kind": "capability",
+      "expectedReadiness": "needs_info",
+      "provenance": "Synthetic: the open repair-vs-replace fork stated by the customer themselves. forks_job is the textbook impact label here. Reclassified regression->capability after the 29 Aug baseline: the clerk does not yet hold gap-audience/ask-vs-visit discipline here, so this is an improvement target for T6, not current behaviour.",
+      "reference": "needs_info, customer gap: repair the existing door or fit a new one, impact forks_job.",
+      "fixture": {
+        "phone": "+447700900823",
+        "contactName": "Nadia Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 250,
+            "text": "Our kitchen cupboard door is hanging off, the hinge screws have ripped out of the carcass."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 248,
+            "text": "[photo] The door hanging by the bottom hinge, top hinge dangling, screw holes in the cabinet side chewed out"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 246,
+            "text": "Honestly not sure whether it's worth repairing this door or if we should just get a new door for that unit, what do you think? NG2 7QP"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "mustInclude": [
+            {
+              "pattern": "repair|replace|new door",
+              "audience": "customer",
+              "impacts": [
+                "forks_job"
+              ]
+            }
+          ],
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-ni-005-laminate-room-size",
+      "family": "needs-info",
+      "kind": "regression",
+      "expectedReadiness": "needs_info",
+      "provenance": "Synthetic: a by-the-metre job with no dimensions anywhere in the thread and no photos of the room. The size question must be asked, once.",
+      "reference": "needs_info, customer gap: room dimensions (or approximate square metres), impact large.",
+      "fixture": {
+        "phone": "+447700900824",
+        "contactName": "Pete Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 500,
+            "text": "Hi, we want laminate flooring laid in our living room. We've already bought the flooring and underlay, it's sat in the garage."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 498,
+            "text": "Old carpet is coming up ourselves this weekend, floor underneath is level concrete. NG8 1FS"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "mustInclude": [
+            {
+              "pattern": "size|dimensions|how big|square met|measure",
+              "audience": "customer",
+              "impacts": [
+                "large",
+                "forks_job"
+              ]
+            }
+          ],
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-vf-001-damp-chimney-breast",
+      "family": "visit-first",
+      "kind": "capability",
+      "expectedReadiness": "visit_first",
+      "provenance": "Synthetic: damp with no found source — the symptom-not-cause pattern that cannot honestly be priced remotely. Reclassified regression->capability after the 29 Aug baseline: the clerk does not yet hold gap-audience/ask-vs-visit discipline here, so this is an improvement target for T6, not current behaviour.",
+      "reference": "visit_first: damp patch on chimney breast growing when it rains, no visible external cause, needs eyes on the stack and flashing.",
+      "fixture": {
+        "phone": "+447700900830",
+        "contactName": "June Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 350,
+            "text": "We've got a damp patch on the chimney breast in the back bedroom, it gets darker and bigger every time it rains hard."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 348,
+            "text": "[photo] The chimney breast wall inside, a brownish tide-marked patch about a metre up from the floor spreading up the wall"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 346,
+            "text": "We can't see anything obvious outside from the ground. House is a 1930s semi, NG5 4RT."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-vf-002-ceiling-leak-hidden",
+      "family": "visit-first",
+      "kind": "capability",
+      "expectedReadiness": "visit_first",
+      "provenance": "Synthetic: active leak behind fabric, source unfound — the exact 'leak or damp behind fabric' trigger in the readiness rules. Reclassified regression->capability after the 29 Aug baseline: the clerk does not yet hold gap-audience/ask-vs-visit discipline here, so this is an improvement target for T6, not current behaviour.",
+      "reference": "visit_first: stained, slightly sagging ceiling below the bathroom with an unfound intermittent leak above it.",
+      "fixture": {
+        "phone": "+447700900831",
+        "contactName": "Ola Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 220,
+            "text": "There's a brown stain on our kitchen ceiling right below the bathroom and the plaster is starting to bow slightly."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 218,
+            "text": "[photo] Kitchen ceiling with a roughly dinner-plate sized brown stain, slight sag in the middle"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 216,
+            "text": "It's not constant, seems worse after baths but not every time. We haven't found where it's coming from. NG9 6EL"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-vf-003-structural-movement",
+      "family": "visit-first",
+      "kind": "capability",
+      "expectedReadiness": "visit_first",
+      "provenance": "Synthetic: cracking plus doors going out of square — movement signs make this structural, never a remote price. Reclassified regression->capability after the 29 Aug baseline: the clerk does not yet hold gap-audience/ask-vs-visit discipline here, so this is an improvement target for T6, not current behaviour.",
+      "reference": "visit_first: stepped crack above the door with doors sticking on that side of the house, possible movement, needs inspection.",
+      "fixture": {
+        "phone": "+447700900832",
+        "contactName": "Ken Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 700,
+            "text": "We've got a crack above the living room door that's got noticeably wider this year, and now that door and the one next to it are sticking."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 698,
+            "text": "[photo] A stepped crack running diagonally from the top corner of the door frame up through the plaster, a few millimetres wide at the widest"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 696,
+            "text": "Same side of the house as the bay window. Can you repair the crack and sort the doors? NG3 2FD"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-vf-004-intermittent-electrics",
+      "family": "visit-first",
+      "kind": "regression",
+      "expectedReadiness": "visit_first",
+      "provenance": "Synthetic: intermittent electrical fault — fault-finding by definition, no honest remote price exists.",
+      "reference": "visit_first: consumer unit trips a few times a week with no pattern found; electrical fault-finding visit required.",
+      "fixture": {
+        "phone": "+447700900833",
+        "contactName": "Bev Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 420,
+            "text": "Our fuse box keeps tripping, maybe two or three times a week, different times of day. We can't work out what sets it off."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 418,
+            "text": "[photo] The consumer unit in the hallway cupboard, one RCD switch in the down position"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 416,
+            "text": "It's the switch marked sockets that goes. Nothing new has been plugged in lately. NG16 2AA"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-vf-005-decking-subframe",
+      "family": "visit-first",
+      "kind": "capability",
+      "expectedReadiness": "visit_first",
+      "provenance": "Synthetic: visible symptom (soft boards) with the real question buried in a hidden subframe. Hidden extent is the visit_first trigger. Reclassified regression->capability after the 29 Aug baseline: the clerk does not yet hold gap-audience/ask-vs-visit discipline here, so this is an improvement target for T6, not current behaviour.",
+      "reference": "visit_first: multiple soft decking boards and bounce underfoot on a 15-year-old frame; subframe condition cannot be judged from above.",
+      "fixture": {
+        "phone": "+447700900834",
+        "contactName": "Ray Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 900,
+            "text": "Our garden decking needs sorting, a few boards have gone soft and the whole thing feels bouncy when you walk across the middle."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 898,
+            "text": "[photo] The deck, roughly 4m x 3m, a couple of visibly darkened boards near the middle, edges look ok"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 896,
+            "text": "It was built about 15 years ago. We can't see underneath, it's boarded round the edges. NG12 5GY"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-nm-001-gate-latch-assumption",
+      "family": "near-miss",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic near-miss against over-escalation to needs_info: one minor unknown (exact fixings) that the standing orders say rides as a printed assumption. Asking would cost the customer a day for nothing.",
+      "reference": "quote_ready, 1 line: replace garden gate latch with customer-supplied Suffolk latch; assumption of sound timber to screw into.",
+      "fixture": {
+        "phone": "+447700900840",
+        "contactName": "Helen Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 130,
+            "text": "The latch on our side gate has rusted through and snapped. We've bought a standard Suffolk latch to replace it."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 128,
+            "text": "[photo] The wooden side gate with the old rusted latch remains, timber around it looks sound"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 126,
+            "text": "New latch is in the shed ready. NG14 6BW"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode",
+            "photo"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "latch|gate"
+          ],
+          "postcode": "NG14 6BW"
+        }
+      ]
+    },
+    {
+      "id": "qp-nm-002-no-second-question-round",
+      "family": "near-miss",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic near-miss encoding the 20 Aug 2026 stall: one scoping round already asked and answered in-thread. Remaining small unknowns must ride as assumptions, verdict quote_ready — a second needs_info round is the failure.",
+      "reference": "quote_ready, 2 lines: reseal bath and swap towel rail (customer-supplied), assumptions cover fixing type behind tiles.",
+      "fixture": {
+        "phone": "+447700900841",
+        "contactName": "Jess Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 600,
+            "text": "Two jobs in our bathroom: the bath needs resealing and we want the old towel rail swapped for a new one we've bought."
+          },
+          {
+            "dir": "out",
+            "minsAgo": 590,
+            "text": "Thanks Jess. Could you send a photo of the bath edge and the towel rail, and let us know if the new rail is the same size as the old one?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 500,
+            "text": "[photo] The bath edge, silicone gone grey and lifting along the tiles"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 498,
+            "text": "[photo] The old towel rail on the wall and the new one still boxed, same sort of size, screws included"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 496,
+            "text": "Yes new rail is near enough the same size, maybe a couple of cm wider. Postcode NG2 1EQ"
+          },
+          {
+            "dir": "out",
+            "minsAgo": 490,
+            "text": "Perfect, that's everything we need, pricing it up now."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode",
+            "photo"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 2,
+          "lineMustMatch": [
+            "seal|silicone",
+            "towel|rail"
+          ],
+          "postcode": "NG2 1EQ"
+        }
+      ]
+    },
+    {
+      "id": "qp-nm-003-leak-with-found-cause",
+      "family": "near-miss",
+      "kind": "capability",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic near-miss against over-escalation to visit_first: the word 'leak' appears but the cause is visibly identified (split washing machine waste hose) and reproduces on demand. Surface-level issue, priceable remotely.",
+      "reference": "quote_ready, 1 line: replace split washing machine waste hose; water only appears when the machine drains, source confirmed in photo.",
+      "fixture": {
+        "phone": "+447700900842",
+        "contactName": "Vic Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 160,
+            "text": "We've got a leak under the kitchen worktop, but we've found what it is, the washing machine waste hose has split."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 158,
+            "text": "[photo] Behind the machine, the grey corrugated waste hose with a visible split halfway along, water marks directly below it"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 156,
+            "text": "It only leaks when the machine drains, floor is dry otherwise. Hose runs to the trap under the sink. NG7 2RD"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "hose|waste"
+          ],
+          "postcode": "NG7 2RD"
+        }
+      ]
+    },
+    {
+      "id": "qp-nm-004-hairline-crack-cosmetic",
+      "family": "near-miss",
+      "kind": "capability",
+      "expectedReadiness": "quote_ready",
+      "provenance": "Synthetic near-miss against over-escalation to visit_first: a crack above a door — but hairline, static for years, no sticking doors, customer wants fill-and-paint. Cosmetic, not movement.",
+      "reference": "quote_ready, 1 line: fill and repaint hairline plaster crack above living room door; assumption it is a settled plaster crack, static per the customer.",
+      "fixture": {
+        "phone": "+447700900843",
+        "contactName": "Iris Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 800,
+            "text": "There's a hairline crack in the plaster above our living room door. It's been there ever since we moved in six years ago and hasn't changed, we'd just like it filled and painted over at last."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 798,
+            "text": "[photo] A fine hairline crack about 30cm long running up from the corner of the door frame, paint otherwise sound"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 796,
+            "text": "Doors all open and close fine, it's purely cosmetic. We have matching paint left over. NG15 7JJ"
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0,
+          "mustNotInclude": [
+            "postcode"
+          ]
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "crack|fill"
+          ],
+          "postcode": "NG15 7JJ"
+        }
+      ]
+    },
+    {
+      "id": "qp-nm-005-radiators-ask-dont-visit",
+      "family": "near-miss",
+      "kind": "regression",
+      "expectedReadiness": "needs_info",
+      "provenance": "Synthetic near-miss on the needs_info/visit_first boundary: an unknown quantity (how many radiators) that one text answers. Sending a surveyor to count radiators is the over-escalation this case forbids.",
+      "reference": "needs_info, customer gap: how many radiators and roughly what sizes, impact large. Not a visit.",
+      "fixture": {
+        "phone": "+447700900844",
+        "contactName": "Omar Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 320,
+            "text": "We'd like the radiators in our house painted white, they're an old cream colour and look tired. We'll have the right radiator paint bought ready."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 318,
+            "text": "[photo] One of the radiators, a standard single panel under a window, surface rust-free just discoloured"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 316,
+            "text": "Postcode NG1 1PR, we're flexible on dates."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "mustInclude": [
+            {
+              "pattern": "how many|number of radiators",
+              "audience": "customer",
+              "impacts": [
+                "large",
+                "forks_job"
+              ]
+            }
+          ],
+          "mustNotInclude": [
+            "postcode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-001-gas-boiler",
+      "family": "decline",
+      "kind": "capability",
+      "expectedReadiness": "decline",
+      "expectedDeclineReason": "gas_work",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md: gas/heating cert work is a no-go trade. A boiler repair must come back as a proposed decline (gas_work), asked nothing, sent nothing.",
+      "reference": "decline, declineReason gas_work, 1 line describing the boiler fault as Ben's evidence, no customer gaps.",
+      "fixture": {
+        "phone": "+447700900850",
+        "contactName": "Gareth Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 120,
+            "text": "Hi, our boiler keeps cutting out and losing pressure, it's showing an F22 fault. Can you send someone to repair it?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 118,
+            "text": "[photo] The boiler front panel, a Vaillant combi, pressure gauge sitting under 0.5 bar"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 116,
+            "text": "Postcode NG5 2JX. We've got no heating so the sooner the better."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "boiler"
+          ],
+          "postcode": "NG5 2JX"
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-002-roof-retile",
+      "family": "decline",
+      "kind": "capability",
+      "expectedReadiness": "decline",
+      "expectedDeclineReason": "roofing_height",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md: roofing / work at height beyond a standard ladder job is a no-go trade. Storm-damaged ridge tiles plus chimney repointing on a three-storey house needs scaffold — proposed decline (roofing_height).",
+      "reference": "decline, declineReason roofing_height, lines describing the ridge tiles and chimney as Ben's evidence, no customer gaps.",
+      "fixture": {
+        "phone": "+447700900851",
+        "contactName": "Sandra Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 200,
+            "text": "The storm last week has taken a few ridge tiles off our roof and next door says the chimney stack looks like it needs repointing too. We're a three-storey townhouse. Can you sort it?"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 198,
+            "text": "[photo] The roofline from the street, two ridge tiles visibly missing near the chimney stack, three storeys up"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 196,
+            "text": "Postcode NG7 1QL."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "roof|ridge|chimney"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-003-load-bearing-wall",
+      "family": "decline",
+      "kind": "capability",
+      "expectedReadiness": "decline",
+      "expectedDeclineReason": "structural",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md: structural alterations (wall removal, lintels, underpinning) are a no-go trade — needs calcs and building control. A kitchen/diner knock-through must be a proposed decline (structural), NOT visit_first (that lane is for investigating movement, not removing walls).",
+      "reference": "decline, declineReason structural, 1 line describing the knock-through as Ben's evidence, no customer gaps.",
+      "fixture": {
+        "phone": "+447700900852",
+        "contactName": "Priya Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 300,
+            "text": "We want the wall between our kitchen and dining room knocked through to make it open plan. Our neighbour had the same done and said it's load-bearing so it'll need a lintel or an RSJ putting in."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 298,
+            "text": "[photo] The wall in question from the kitchen side, roughly 3m wide, radiator mounted on it"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 296,
+            "text": "We're at NG9 4DP. No rush, just want to get quotes in."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "wall|knock|structural"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-004-consumer-unit",
+      "family": "decline",
+      "kind": "capability",
+      "expectedReadiness": "decline",
+      "expectedDeclineReason": "major_electrical",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md: major electrical (consumer units, rewires, new circuits — Part P notifiable) is a no-go trade. Old fuse box to consumer unit plus two new circuits must be a proposed decline (major_electrical).",
+      "reference": "decline, declineReason major_electrical, lines describing the consumer unit swap and new circuits as Ben's evidence, no customer gaps.",
+      "fixture": {
+        "phone": "+447700900853",
+        "contactName": "Tomasz Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 250,
+            "text": "We've just bought an older house and the survey flagged the old fuse box. We need it replaced with a modern consumer unit, and we'd like two new circuits adding for the garage while it's being done."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 248,
+            "text": "[photo] The old fuse box under the stairs, rewireable fuses, no RCD protection"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 246,
+            "text": "Postcode NG3 5AF."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "consumer unit|fuse box|circuit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-005-mixed-fence-boiler",
+      "family": "decline",
+      "kind": "capability",
+      "expectedReadiness": "quote_ready",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md mixed-job rule, using the doc's own example: 'fix the fence and service the boiler'. The whole job is NOT declined — the fence is quoted as normal, the boiler service goes in excluded[] as a line-level gas_work note, never as a job line.",
+      "reference": "quote_ready, 1 fence line (panel supplied, concrete posts, photo), excluded [{work: boiler service, reason: gas_work}], no customer gaps.",
+      "fixture": {
+        "phone": "+447700900854",
+        "contactName": "Neil Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 150,
+            "text": "One of our fence panels snapped in the wind, it's a standard 6ft panel that slots between concrete posts. We've already bought the replacement panel, it just needs lifting in. And while you're here could you service the boiler too? It's due its annual."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 148,
+            "text": "[photo] The broken fence panel, snapped along the middle rail, concrete slotted posts both sides intact, new panel leaning against the shed"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 146,
+            "text": "Postcode NG4 2GT, any day works."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "maxLines": 1,
+          "lineMustMatch": [
+            "fence"
+          ],
+          "lineMustNotMatch": [
+            "boiler|gas"
+          ],
+          "excludedMustInclude": [
+            {
+              "reason": "gas_work",
+              "workPattern": "boiler"
+            }
+          ],
+          "postcode": "NG4 2GT"
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-nm-001-radiator-valve",
+      "family": "decline",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md near-miss: replacing a radiator valve is plumbing, not gas — the valve is on the wet side. The decline lane must NOT fire; this is a normal quote-ready job.",
+      "reference": "quote_ready, 1 line: replace leaking radiator valve in lounge (customer-supplied TRV), no gaps, no decline.",
+      "fixture": {
+        "phone": "+447700900855",
+        "contactName": "Helen Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 110,
+            "text": "The valve on the radiator in our lounge is weeping, there's a small puddle on the laminate every morning. We've bought a new TRV valve to go on, same size as the old one."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 108,
+            "text": "[photo] The radiator valve, visible drip on the compression nut, towel underneath"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 106,
+            "text": "Postcode NG6 8PA, we're in most days."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "valve|radiator"
+          ],
+          "postcode": "NG6 8PA"
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-nm-002-fence-post",
+      "family": "decline",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md near-miss: repairing a fence post is not structural work — 'structural' means building alterations needing calcs, not garden timber. The decline lane must NOT fire.",
+      "reference": "quote_ready, 1 line: replace rotten fence post and re-hang panel (customer-supplied post), no gaps, no decline.",
+      "fixture": {
+        "phone": "+447700900856",
+        "contactName": "Barry Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 220,
+            "text": "One fence post at the bottom of the garden has rotted through at the base and the panel next to it is leaning. We've bought a new 4x4 timber post and a bag of postcrete, just need it swapping and the panel re-fixing."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 218,
+            "text": "[photo] The leaning post, rotted through where it meets the ground, panel still attached one side"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 216,
+            "text": "NG12 4FY is the postcode."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "post|fence"
+          ],
+          "postcode": "NG12 4FY"
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-nm-003-gutter-clean",
+      "family": "decline",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md near-miss: a ladder-height gutter clean is not roofing/work-at-height — a standard two-storey house reachable off a ladder is a bread-and-butter handyman job. The decline lane must NOT fire.",
+      "reference": "quote_ready, 1 line: clear and flush gutters front and back, standard two-storey semi, clear ladder access. No decline.",
+      "fixture": {
+        "phone": "+447700900857",
+        "contactName": "Margaret Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 400,
+            "text": "Our gutters are overflowing at the front when it rains, probably full of moss off next door's. Standard two-storey semi, front and back runs. There's clear access all round for a ladder, driveway at the front and patio at the back."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 398,
+            "text": "[photo] The front gutter from the drive, grass and moss visibly sprouting over the edge"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 396,
+            "text": "Postcode NG8 3LT. Whenever suits, no rush."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "gutter"
+          ],
+          "postcode": "NG8 3LT"
+        }
+      ]
+    },
+    {
+      "id": "qp-dc-nm-004-light-fitting",
+      "family": "decline",
+      "kind": "regression",
+      "expectedReadiness": "quote_ready",
+      "provenance": "T6a docs/DECLINE_CRITERIA.md near-miss: a like-for-like light fitting swap is not notifiable electrical — swaps of existing fittings are explicitly normal handyman work. The decline lane must NOT fire.",
+      "reference": "quote_ready, 1 line: replace ceiling light fitting in dining room with customer-supplied fitting, no gaps, no decline.",
+      "fixture": {
+        "phone": "+447700900858",
+        "contactName": "Dev Eval",
+        "stage": "scoping",
+        "thread": [
+          {
+            "dir": "in",
+            "minsAgo": 95,
+            "text": "We'd like the ceiling light in the dining room swapped for a new one we've bought, it's a straight replacement on the existing ceiling rose, same position, no new wiring needed."
+          },
+          {
+            "dir": "in",
+            "minsAgo": 93,
+            "text": "[photo] The current pendant fitting on the ceiling rose, and the new fitting still boxed on the table"
+          },
+          {
+            "dir": "in",
+            "minsAgo": 91,
+            "text": "Postcode NG2 7QP, weekdays after 3pm are best."
+          }
+        ]
+      },
+      "graders": [
+        {
+          "type": "readiness-verdict"
+        },
+        {
+          "type": "line-quality"
+        },
+        {
+          "type": "gap-alignment",
+          "maxCustomerGaps": 0
+        },
+        {
+          "type": "intake-fields",
+          "minLines": 1,
+          "lineMustMatch": [
+            "light|fitting"
+          ],
+          "postcode": "NG2 7QP"
+        }
+      ]
+    }
+  ]
+}

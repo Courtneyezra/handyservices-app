@@ -59,6 +59,16 @@ export interface ResolveTeamOptions {
    * (callers detect this via plan.leadContractorId !== forcedLeadId).
    */
   forcedLeadId?: string | null;
+  /**
+   * The vertical's priority contractor (Craig for handyman) as a HARD default
+   * lead when Ben made no manual pick (Aug 2026 — "auto-skin" removed). Behaves
+   * exactly like `forcedLeadId` for ANCHORING — the default lead takes the lead
+   * role and their diary alone drives the customer calendar — but is
+   * subordinate to it: a real `forcedLeadId` always wins. Callers keep storing
+   * `leadContractorSource='auto'` for the default case so a later genuine
+   * manual pick stays distinguishable. Unknown id → auto flow (safe fallback).
+   */
+  defaultLeadId?: string | null;
 }
 
 const TIER_RANK: Record<DeliveryTier, number> = { partner: 0, core: 1, adhoc: 2 };
@@ -100,7 +110,9 @@ export function resolveQuoteTeam(
   options?: ResolveTeamOptions,
 ): QuoteTeamPlan {
   const required = Array.from(new Set(requiredCategories.filter(Boolean)));
-  const forcedLeadId = options?.forcedLeadId ?? null;
+  // Manual pick wins; otherwise the priority default lead (Craig) is treated
+  // as forced — identical anchoring, different provenance (see ResolveTeamOptions).
+  const forcedLeadId = options?.forcedLeadId ?? options?.defaultLeadId ?? null;
 
   // Nothing to route.
   if (required.length === 0) {
@@ -207,9 +219,12 @@ export function deriveTeamFit(
           .filter((c) => required.every((cat) => c.coveredCategories.includes(cat)))
           .map((c) => c.contractorId);
 
-  // A manually forced lead anchors the calendar alone — the whole point of the
-  // override is that THEIR diary sets the promise, even when others could solo it.
-  const forcedWon = !!options?.forcedLeadId && plan.leadContractorId === options.forcedLeadId;
+  // A forced lead anchors the calendar alone — the whole point of the override
+  // is that THEIR diary sets the promise, even when others could solo it. The
+  // priority DEFAULT lead (Craig, no manual pick) anchors identically: the
+  // displayed skin and the booked contractor must never differ (Aug 2026).
+  const anchorLeadId = options?.forcedLeadId ?? options?.defaultLeadId ?? null;
+  const forcedWon = !!anchorLeadId && plan.leadContractorId === anchorLeadId;
 
   let availabilityContractorIds: string[] = [];
   if (forcedWon) {

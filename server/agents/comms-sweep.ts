@@ -415,6 +415,13 @@ export function startCommsInboundSweep(): void {
         fallbackOverdueCallbacks().catch((e) => console.error('[CommsSweep] callback fallback failed:', e?.message ?? e)),
         // 27 Aug 2026 (James): sent promises get a 4-working-hour timer; overdue ones flag Ben once.
         import('./promise-tracker').then((m) => m.flagOverdueCommitments()).catch((e) => console.error('[CommsSweep] overdue-commitment sweep failed:', e?.message ?? e)),
+        // 28 Aug 2026: speed-to-lead call tasks past their 15-working-minute window expire here —
+        // dismissedBy 'system:expired', triage released, ONE overdue ping, nothing sent to the customer.
+        import('./va-call-tasks').then((m) => m.expireOverdueVaCallTasks()).catch((e) => console.error('[CommsSweep] va-call-task expiry failed:', e?.message ?? e)),
+        // 29 Aug 2026 (T6b): per-lane SLA escalation — a readiness verdict or needs_ben flag
+        // sitting past its working-hours SLA re-pings Ben (idempotent, DB-backed episodes;
+        // self-throttled to one pass per 5 min). Nothing rots silently.
+        import('./sla-sweep').then((m) => m.sweepSlaBreaches()).catch((e) => console.error('[CommsSweep] SLA sweep failed:', e?.message ?? e)),
     ]);
     setInterval(fast, TICK_EVERY_MS).unref?.();
     console.log(`[CommsSweep] Started: fast tick every ${TICK_EVERY_MS / 1000}s (DB-scheduled debounce), boot catch-up in ${BOOT_DELAY_MS / 1000}s, slow sweep every ${SWEEP_EVERY_MS / 60_000} min, 24/7.`);

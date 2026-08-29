@@ -27,7 +27,8 @@ export type PushoverEventKey =
     | 'no_contractor'
     | 'template_status'
     | 'send_failed'
-    | 'comms_beta';
+    | 'comms_beta'
+    | 'va_call_task';
 
 export interface PushoverEventDef {
     key: PushoverEventKey;
@@ -78,6 +79,10 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // moves — each deep-linking into the thread, so the humans can read along while the agent
     // earns trust. Deliberately ONE event key: one toggle kills the whole feed when beta ends.
     { key: 'comms_beta', label: 'Beta: every comms action (read-along firehose)', short: 'Beta feed', group: 'Inbound', defaultPriority: 0, defaultSound: 'magic' },
+    // Speed-to-lead (28 Aug 2026): a text-channel enquiry landed and a human should RING them
+    // within 15 working minutes. This is the ping that makes that happen — the tel: link is the
+    // whole point. Existing recipients pick it up automatically (missing key = subscribed).
+    { key: 'va_call_task', label: 'Call task — ring a new enquiry within 15 min', short: 'Call tasks', group: 'Inbound', defaultPriority: 1, defaultSound: 'intermission' },
 ];
 
 export const PUSHOVER_EVENT_KEYS: PushoverEventKey[] = PUSHOVER_EVENT_DEFS.map((e) => e.key);

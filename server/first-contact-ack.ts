@@ -48,7 +48,7 @@ import { queueDraft, approveAndSendDraft, type DraftSource } from './message-dra
 import { canSendFreeform } from './meta-whatsapp';
 import { findApprovedTemplateWithValues } from './whatsapp-template-sync';
 import { isNonMobileUkNumber } from './phone-utils';
-import { isSmsSenderConfigured } from './whatsapp-sender';
+import { isSmsSenderConfigured, getSmsSenderE164, getWhatsAppSenderE164 } from './whatsapp-sender';
 import { notQuarantined } from './message-quarantine';
 
 // ---------------------------------------------------------------- config shape
@@ -67,12 +67,20 @@ export interface FirstContactAckConfig {
      * is cold, short enough that a customer with a seasonal problem still gets an instant answer.
      */
     returningAfterDays: number;
+    /**
+     * T1 (29 Aug 2026): when true, the ack also asks the customer to send a quick photo or video
+     * of the job, folded into the SAME message (a second rapid-fire message reads botty). Canned
+     * copy only — see mediaAskSentence(); there is no code path that lets a model near it. Ships
+     * false, same pattern as `enabled`: the owner flips it after inspecting real runs.
+     */
+    askForMedia: boolean;
 }
 
 export const DEFAULT_FIRST_CONTACT_ACK: FirstContactAckConfig = {
     enabled: false,
     channels: [...FIRST_CONTACT_CHANNELS],
     returningAfterDays: 60,
+    askForMedia: false,
 };
 
 /**
@@ -487,6 +495,74 @@ export function composeFirstContactAck(input: {
     return { body: `${opener}\n---\n${follow}`, outOfHours, intent: input.intent };
 }
 
+// ---------------------------------------------------------------- T1: the media ask
+//
+// "If you can, send a quick photo or video of the job so we're ready when we call" — asked in the
+// SAME message as the ack, never as a follow-up send (brief T1, 29 Aug 2026: two rapid-fire
+// messages reads botty). Gated behind firstContactAutoAck.askForMedia (ships false) and CANNED
+// ONLY: fixed variants below, no LLM anywhere in this path, so the ack stays content-free by
+// construction — no money, no dates, no scope vocabulary, and the ask is a statement, not a
+// question, so the "one question per reply" brand rule holds.
+//
+// Channel decisions (T1 design question 2), investigated 29 Aug 2026:
+//
+//   · WhatsApp — the natural home. Inbound media already lands on the thread (the Twilio webhook
+//     downloads MediaUrl0 and stores mediaUrl on the message row, conversation-engine.ts) and
+//     quote-prep reads the actual pixels via get_thread (agents/media-context.ts). No new intake.
+//
+//   · SMS — ADAPTED, not omitted. A UK long code cannot receive MMS (Twilio MMS is US/Canada
+//     only), so "text us a photo" would ask for something that cannot arrive. Instead: "WhatsApp
+//     a quick photo ... to this number", which is true because the SMS sender and the WhatsApp
+//     sender are the same physical number on this account (whatsapp-sender.ts). That identity is
+//     CHECKED at runtime, not assumed: if the numbers ever split (TWILIO_SMS_NUMBER pointed
+//     elsewhere), the ask is omitted on SMS rather than pointing a customer at a number that has
+//     no WhatsApp on it. A WhatsApp reply from them lands on the same thread (one person = one
+//     conversation key across channels, conversation-engine.ts), so intake still holds.
+//
+//   · Webform — follows whichever pipe carries the ack, which is the brief's rule. A form opens
+//     no WhatsApp window, so a webform ack usually goes out as an APPROVED TEMPLATE whose wording
+//     is Meta's to freeze — a template body is never modified here (the !contentSid gate at the
+//     call site), so on the template path the ask simply does not ride along (web_enquiry_ack_
+//     context / video_request already carry their own approved asks). When the ack falls through
+//     to SMS, the SMS wording above applies.
+//
+//   · Out of hours (design question 3) keeps the overnight framing: media sent NOW makes the
+//     morning call faster. "now ... first thing" rather than "tonight", because out-of-hours
+//     includes 6am, where "tonight" reads wrong.
+//
+// A prefers_text customer gets the ask with no call vocabulary in it — the suppression rule
+// ("never mention a phone to someone who said keep it in writing") holds here like everywhere.
+
+/** The canned photo/video ask, or null when the channel cannot honestly carry one. */
+export function mediaAskSentence(input: {
+    channel: 'whatsapp' | 'sms';
+    outOfHours: boolean;
+    prefersText?: boolean;
+}): string | null {
+    if (input.channel === 'sms') {
+        // The adapted ask is only true while SMS and WhatsApp share one number. Checked, not assumed.
+        const sms = getSmsSenderE164();
+        const wa = getWhatsAppSenderE164();
+        if (!sms || !wa || sms !== wa) return null;
+        if (input.prefersText) {
+            return input.outOfHours
+                ? "If you can, WhatsApp a quick photo or video of the job to this number now and we'll have everything ready first thing."
+                : 'If you can, WhatsApp a quick photo or video of the job to this number so we can get straight to it.';
+        }
+        return input.outOfHours
+            ? "If you can, WhatsApp a quick photo or video of the job to this number now and we'll be ready first thing."
+            : "If you can, WhatsApp a quick photo or video of the job to this number so we're ready when we call.";
+    }
+    if (input.prefersText) {
+        return input.outOfHours
+            ? "If you can, send a quick photo or video of the job now and we'll have everything ready first thing."
+            : 'If you can, send a quick photo or video of the job so we can get straight to it.';
+    }
+    return input.outOfHours
+        ? "If you can, send a quick photo or video of the job now and we'll be ready first thing."
+        : "If you can, send a quick photo or video of the job so we're ready when we call.";
+}
+
 // ---------------------------------------------------------------- thread helpers
 
 /** The newest inbound message text on a thread — what the spam screen reads when no text is passed. */
@@ -802,6 +878,19 @@ async function runFirstContactAck(input: {
         // sender exists). queueDraft records the channel so the approver, the thread and the send
         // path all agree.
         const draftChannel: 'whatsapp' | 'sms' = smsOnly || (!windowOpen && !contentSid) ? 'sms' : 'whatsapp';
+
+        // T1 media prompt (design question 1: ONE message). Folded into the last burst of the same
+        // send, never a second message. Only on the intents where it makes sense:
+        //   ack_photos      — they already sent media; asking again reads blind.
+        //   ack_missed_call — a phone-first contact never described a job in writing, and the
+        //                     post-call lane owns its own video request. Out of T1's scope.
+        // And never on a template send (!contentSid): an approved template's wording is Meta's to
+        // freeze, so the ask rides only on freeform and SMS bodies. Appended AFTER the pipe is
+        // decided so the wording always matches the channel that actually carries it.
+        if (config.askForMedia && !contentSid && (intent === 'ack_enquiry' || intent === 'ack_returning')) {
+            const ask = mediaAskSentence({ channel: draftChannel, outOfHours: composed.outOfHours, prefersText });
+            if (ask) body = `${body} ${ask}`;
+        }
 
         const draftId = await queueDraft({
             phone: e164,

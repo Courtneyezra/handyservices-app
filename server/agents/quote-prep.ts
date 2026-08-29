@@ -35,8 +35,61 @@ export interface IntakeLine {
     assumptions: string[];
 }
 
-/** Can we price this from the thread, do we need an answer first, or do we need eyes on it? */
-export type IntakeReadiness = 'quote_ready' | 'needs_info' | 'visit_first';
+/** Can we price this from the thread, do we need an answer first, do we need eyes on it —
+ *  or is the whole job outside our scope (certified trade), proposing a polite no? */
+export type IntakeReadiness = 'quote_ready' | 'needs_info' | 'visit_first' | 'decline';
+
+/**
+ * The only four grounds for a proposed decline, per docs/DECLINE_CRITERIA.md (29 Aug 2026).
+ * The clerk APPLIES these; it never invents its own. Distance, job size, customer behaviour,
+ * urgency, botched prior work, tenants and big jobs are all explicitly NOT decline grounds.
+ */
+export type DeclineReason = 'gas_work' | 'roofing_height' | 'structural' | 'major_electrical';
+
+/** A no-go piece of work inside an otherwise quotable job (mixed job). Line-level note for
+ *  Ben — the rest of the job still gets quoted; this never declines the whole thread. */
+export interface IntakeExclusion {
+    /** What the excluded work is, in the customer's terms ("service the boiler"). */
+    work: string;
+    reason: DeclineReason;
+}
+
+/** Human-readable labels for the reason codes (portal + alerts). */
+export const DECLINE_LABELS: Record<DeclineReason, string> = {
+    gas_work: 'gas work',
+    roofing_height: 'roofing & work at height',
+    structural: 'structural alterations',
+    major_electrical: 'notifiable electrical',
+};
+
+/**
+ * Fixed polite-no templates per reason code — point them right + invite back. Sent ONLY after
+ * Ben approves the proposal in the portal; never composed per thread, never a named referral.
+ */
+export const DECLINE_TEMPLATES: Record<DeclineReason, string> = {
+    gas_work:
+        'Thanks for sending that over. That one needs a Gas Safe engineer so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
+    roofing_height:
+        'Thanks for sending that over. That one needs a roofing specialist with the right access equipment, so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
+    structural:
+        'Thanks for sending that over. That one is structural work that needs a structural engineer and building control involved, so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
+    major_electrical:
+        'Thanks for sending that over. That one needs a registered electrician as it\'s notifiable electrical work, so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
+};
+
+/**
+ * Evidence patterns per reason code. A proposed decline (or a mixed-job exclusion) is rejected
+ * unless the thread summary the clerk itself extracted actually evidences the trigger — this is
+ * the validator's guard against a hallucinated no.
+ */
+const DECLINE_EVIDENCE: Record<DeclineReason, RegExp> = {
+    gas_work: /\b(gas|boiler|flue|central heating|combi|gas safe|gas hob)\b/i,
+    roofing_height: /\b(roof|roofing|chimney|scaffold|ridge|fascia|soffit)\b/i,
+    structural: /\b(structural|load[ -]bearing|lintel|underpin|knock[ -]?through|wall removal|remove.{0,20}wall|rsj|steel beam)\b/i,
+    major_electrical: /\b(consumer unit|fuse ?(box|board)|rewir|new circuit|part p|notifiable|new ring main)\b/i,
+};
+
+const DECLINE_REASONS = ['gas_work', 'roofing_height', 'structural', 'major_electrical'] as const;
 
 /** How much the answer to a gap could change the WORK (never expressed in money — the clerk
  *  does not price; code converts these to £ using the engine's own line prices). */
@@ -66,6 +119,10 @@ export interface QuoteIntake {
     assumptions: string[];
     /** The conversation-level verdict Ben acts on before he prices anything. */
     readiness: IntakeReadiness;
+    /** Required (and only allowed) when readiness is 'decline': WHY the whole job is a no-go. */
+    declineReason: DeclineReason | null;
+    /** Mixed jobs: no-go work excluded from an otherwise quotable intake. Line-level notes. */
+    excluded: IntakeExclusion[];
     /** What's still unanswered, and who can answer it. Empty when quote_ready. */
     gaps: IntakeGap[];
     urgency: 'low' | 'med' | 'high';
@@ -83,6 +140,12 @@ export interface QuoteIntake {
  *    contradiction that would let a half-scoped quote go out.
  */
 export function normalizeIntake(input: any, ctx: { phone: string; contactName: string | null }): QuoteIntake {
+    // Observed failure mode (29 Aug 2026 eval): the model occasionally serialises lines as a
+    // JSON STRING and, told only "at least one job line", re-sends the same string until the
+    // turn cap. Name the actual mistake so the retry can fix it.
+    if (typeof input?.lines === 'string') {
+        throw new Error('lines arrived as a string. Send lines as a real JSON array of {title, detail, assumptions} objects, not a stringified one.');
+    }
     const rawLines: any[] = Array.isArray(input?.lines) ? input.lines : [];
     if (rawLines.length === 0) throw new Error('lines must contain at least one job line.');
 
@@ -106,8 +169,32 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
         };
     });
 
-    const readiness: IntakeReadiness = (['quote_ready', 'needs_info', 'visit_first'] as const)
+    const readiness: IntakeReadiness = (['quote_ready', 'needs_info', 'visit_first', 'decline'] as const)
         .includes(input?.readiness) ? input.readiness : 'needs_info';
+
+    const declineReason: DeclineReason | null =
+        DECLINE_REASONS.includes(input?.declineReason) ? input.declineReason : null;
+
+    const excluded: IntakeExclusion[] = (Array.isArray(input?.excluded) ? input.excluded : [])
+        .slice(0, 4)
+        .map((x: any, i: number) => {
+            const work = String(x?.work ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+            if (!work) throw new Error(`excluded entry ${i + 1} has no work description. Say what the no-go work is, in the customer's terms.`);
+            if (!DECLINE_REASONS.includes(x?.reason)) {
+                throw new Error(
+                    `excluded entry ${i + 1} needs a valid reason code (${DECLINE_REASONS.join(', ')}). `
+                    + 'If the work does not match one of the four no-go trades, it is not excluded — quote it or gap it.',
+                );
+            }
+            const reason: DeclineReason = x.reason;
+            if (!DECLINE_EVIDENCE[reason].test(work)) {
+                throw new Error(
+                    `excluded entry ${i + 1} ("${work}") does not evidence ${reason}. `
+                    + 'The work description must show the trigger itself (e.g. boiler/gas for gas_work). If the evidence is not there, do not exclude it.',
+                );
+            }
+            return { work, reason };
+        });
 
     const gaps: IntakeGap[] = (Array.isArray(input?.gaps) ? input.gaps : [])
         .slice(0, 8)
@@ -131,6 +218,29 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
     if (readiness === 'needs_info' && gaps.length === 0) {
         throw new Error('readiness needs_info requires at least one gap. Name what is missing, or this is quote_ready.');
     }
+    if (readiness === 'decline') {
+        if (!declineReason) {
+            throw new Error(
+                `readiness decline requires declineReason, one of: ${DECLINE_REASONS.join(', ')}. `
+                + 'If the job does not match one of those four no-go trades, it is not a decline — pick the honest lane instead.',
+            );
+        }
+        const evidenceText = lines.map((l) => `${l.title} ${l.detail}`).join(' ');
+        if (!DECLINE_EVIDENCE[declineReason].test(evidenceText)) {
+            throw new Error(
+                `declineReason ${declineReason} is not evidenced in your job lines. `
+                + 'The line titles/details must show the trigger itself (what the customer actually asked for). If the evidence is not there, this is not a decline.',
+            );
+        }
+        if (gaps.some((g) => g.audience === 'customer')) {
+            throw new Error('readiness decline cannot carry customer-audience gaps. A decline proposal asks the customer nothing — Ben reviews it and the polite no (or a rethink) follows.');
+        }
+        if (excluded.length > 0) {
+            throw new Error('readiness decline means the WHOLE job is a no-go, so excluded[] must be empty. A mixed job is not a decline: pick the honest lane for the in-scope work and put the no-go part in excluded[].');
+        }
+    } else if (declineReason) {
+        throw new Error('declineReason is only valid with readiness decline. For a mixed job, keep the reason on the excluded[] entry instead and pick the honest lane for the in-scope work.');
+    }
 
     return {
         customerName: input?.customerName ?? ctx.contactName ?? null,
@@ -141,6 +251,8 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
         lines,
         assumptions: (input?.assumptions ?? []).slice(0, 8).map((s: any) => String(s).trim().slice(0, 200)).filter(Boolean),
         readiness,
+        declineReason: readiness === 'decline' ? declineReason : null,
+        excluded,
         gaps,
         urgency: ['low', 'med', 'high'].includes(input?.urgency) ? input.urgency : 'med',
     };
@@ -242,8 +354,24 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
                     assumptions: { type: 'array', items: { type: 'string' }, description: 'Caveats that apply to the WHOLE quote rather than one line (access, parking, power). Line-specific ones belong on the line.' },
                     readiness: {
                         type: 'string',
-                        enum: ['quote_ready', 'needs_info', 'visit_first'],
-                        description: 'quote_ready = everything needed to price it is here. needs_info = one or more answers would change the price or the scope. visit_first = it cannot honestly be priced remotely (hidden/unknown extent, structural, suspected damp or leak behind fabric, or the customer wants work we can only scope on site).',
+                        enum: ['quote_ready', 'needs_info', 'visit_first', 'decline'],
+                        description: 'quote_ready = everything needed to price it is here. needs_info = one or more answers would change the price or the scope. visit_first = it cannot honestly be priced remotely (hidden/unknown extent, suspected damp or leak behind fabric, or the customer wants work we can only scope on site). decline = the WHOLE job is one of the four no-go certified trades (see system prompt) — a proposal for Ben, never sent directly.',
+                    },
+                    declineReason: {
+                        type: ['string', 'null'],
+                        description: 'ONLY with readiness decline, one of: gas_work, roofing_height, structural, major_electrical. null for every other readiness.',
+                    },
+                    excluded: {
+                        type: 'array',
+                        description: 'MIXED JOBS ONLY: no-go work excluded from an otherwise quotable job. Each entry is {work, reason}. Do NOT also list the excluded work as a job line. Empty for single-scope jobs and for whole-job declines.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                work: { type: 'string', description: 'The excluded work in the customer\'s terms, e.g. "service the boiler". Must itself show the no-go trigger.' },
+                                reason: { type: 'string', enum: ['gas_work', 'roofing_height', 'structural', 'major_electrical'] },
+                            },
+                            required: ['work', 'reason'],
+                        },
                     },
                     gaps: {
                         type: 'array',
@@ -275,7 +403,7 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
                     },
                     urgency: { type: 'string', enum: ['low', 'med', 'high'] },
                 },
-                required: ['customerName', 'postcode', 'customerType', 'lines', 'assumptions', 'readiness', 'gaps', 'urgency'],
+                required: ['customerName', 'postcode', 'customerType', 'lines', 'assumptions', 'readiness', 'declineReason', 'excluded', 'gaps', 'urgency'],
             },
             run: async (input: any) => {
                 intake = normalizeIntake(input, { phone: e164, contactName: conv.contactName ?? null });
@@ -283,6 +411,8 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
                     accepted: true,
                     lines: intake.lines.length,
                     readiness: intake.readiness,
+                    declineReason: intake.declineReason,
+                    excluded: intake.excluded.length,
                     gaps: intake.gaps.length,
                 };
             },
@@ -333,8 +463,28 @@ THE LINE SPLIT (this is the part that goes wrong):
 READINESS, judged for the whole conversation:
 - quote_ready — everything needed to price it honestly is in the thread. No customer gaps allowed.
 - needs_info — at least one answer would change the price or the scope. List every one as a gap.
-- visit_first — it cannot be priced remotely at all: hidden extent, structural, a leak or damp
-  behind fabric, or work only a site visit can scope. Say so early rather than quoting a guess.
+- visit_first — it cannot be priced remotely at all: hidden extent, suspected movement or
+  subsidence, a leak or damp behind fabric, or work only a site visit can scope. Say so early
+  rather than quoting a guess.
+- decline — the WHOLE job is one of the four no-go trades below. A PROPOSAL for Ben, nothing more.
+
+DECLINE — only these four, ever (they need certification or specialist access we don't have):
+- gas_work: boiler repair/service, gas hob install, flue work — anything Gas Safe.
+- roofing_height: full roof work, chimneys, anything needing scaffold beyond a standard ladder job.
+- structural: alterations — wall removal, lintels, underpinning; needs calcs / building control.
+  (Investigating cracks or suspected movement is NOT this — that is visit_first.)
+- major_electrical: consumer units, rewires, new circuits — Part P notifiable. Swaps of
+  existing fittings, sockets and switches are normal handyman work, NOT this.
+Set readiness decline with declineReason, still write the job lines (they are Ben's evidence),
+and ask the customer nothing. Ben approves before any polite no goes out.
+NEVER decline for: distance (note travel as a ben-audience gap if worth flagging), job size
+(no minimum — small jobs feed reviews), customer behaviour (surface flags to Ben as ben-audience
+gaps with the evidence; the decision is his), urgency we can't meet (that is Ben's diary, not
+your call), another trade's botched work (a normal job), a tenant messaging directly (quote them
+like any customer), or large/multi-trade renovation-scale work (visit_first, never decline).
+MIXED JOBS: if a job mixes no-go and in-scope work ("fix the fence and service the boiler"),
+that is NOT a decline. Quote the in-scope work in lines[] as normal, put the no-go part in
+excluded[] as {work, reason} — not as a job line — and judge readiness on the in-scope work only.
 
 ONE ROUND OF QUESTIONS, THEN PRICE IT. If the thread shows we already asked the customer scoping
 questions and they answered, do not open a second round — every round costs a day at customer
@@ -376,13 +526,13 @@ export const STAFF = {
     id: 'quote-prep',
     name: 'Quote Prep',
     roleTitle: 'Intake & Scoping Clerk',
-    mission: 'Turns a comms thread (messages, calls, photos, video) into a quote-ready intake: customer-facing job lines with the evidence and caveats behind each, plus a readiness verdict (quote ready / needs info / visit first) and the exact questions still open. Prefilled into Ben\'s builder. Ben checks, prices and sends.',
+    mission: 'Turns a comms thread (messages, calls, photos, video) into a quote-ready intake: customer-facing job lines with the evidence and caveats behind each, plus a readiness verdict (quote ready / needs info / visit first / decline proposed for the four no-go trades) and the exact questions still open. Prefilled into Ben\'s builder. Ben checks, prices and sends — including approving any polite no before it goes out.',
     model: 'claude-sonnet-5',
     cadence: 'On demand, from the "Prep quote" button in a comms thread',
     autonomy: {
         freely: ['Read the thread, media, call transcripts and prior quotes', 'Extract job lines, assumptions, the readiness verdict and the open questions'],
         approval: ['Everything — its output only prefills the builder; Ben prices and sends the quote'],
-        never: ['Put a price on anything', 'Message a customer', 'Invent a postcode, name or scope detail not in the thread'],
+        never: ['Put a price on anything', 'Message a customer', 'Invent a postcode, name or scope detail not in the thread', 'Decline for distance, job size, behaviour, urgency or scale — only the four no-go trades, and only as a proposal'],
     },
     tools: [
         { name: 'get_thread', blurb: 'Full conversation incl. photos + video keyframes', kind: 'read' },

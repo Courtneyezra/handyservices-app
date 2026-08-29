@@ -1,7 +1,7 @@
 import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import * as crypto from "crypto";
 import type { SlotOffer } from "./slot-offer";
 
@@ -3678,6 +3678,10 @@ export const bookingSlotLocks = pgTable('booking_slot_locks', {
     durationDays: integer('duration_days').notNull().default(1),
     // Phase 24e — actual span dates (see contractorBookingRequests.scheduledDates).
     scheduledDates: jsonb('scheduled_dates').$type<string[] | null>(),
+    // Sparse-day fee snapshot (pence) computed at reserve time — the charge
+    // authority for /api/create-payment-intent. Null = pre-feature lock
+    // (payment falls back to recomputing).
+    sparseFeePence: integer('sparse_fee_pence'),
     expiresAt: timestamp('expires_at').notNull(), // 5 min TTL
     createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -4309,3 +4313,90 @@ export const systemEvents = pgTable("system_events", {
 
 export type SystemEvent = typeof systemEvents.$inferSelect;
 export type InsertSystemEvent = typeof systemEvents.$inferInsert;
+
+// ── VA call tasks ────────────────────────────────────────────────────────────
+// Speed-to-lead calling on text-channel enquiries (28 Aug 2026). A first-contact
+// (or returning-after-60d) enquiry via whatsapp/sms/webform creates ONE open
+// task: "a human should ring this person within 15 working minutes". The task
+// is a DEBT, not a message — this table never sends anything to a customer.
+//
+// Lifecycle, encoded in the nullable timestamps (deliberately no status column,
+// matching messageDrafts' philosophy that a status you can compute is a status
+// that cannot lie):
+//   open       = completedAt IS NULL AND dismissedAt IS NULL
+//   completed  = completedAt set — a call actually landed on the thread (any
+//                direction; server/call-thread.ts hooks the ingest), or an
+//                admin pressed "Mark called".
+//   dismissed  = dismissedAt set — customer said "text only"
+//                (dismissReason 'customer_prefers_text'), opted out, an admin
+//                dismissed it, or the 15-minute window lapsed
+//                (dismissedBy 'system:expired' — expiry is a dismissal, not a
+//                third state; nothing downstream needs to tell them apart).
+//
+// While a task is open, the conversation's LLM triage is HELD (nextTriageAt
+// pushed to dueAt — see server/agents/va-call-tasks.ts) so the agent does not
+// run a full text intake while a call is imminent. Resolution releases it.
+//
+// Migration: migrations/20260828_va_call_tasks.sql (targeted additive run;
+// never db:push — shared production DB).
+export const vaCallTasks = pgTable("va_call_tasks", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    conversationId: varchar("conversation_id").notNull(),
+    phone: varchar("phone").notNull(),                       // E.164
+    contactName: varchar("contact_name"),
+    channel: varchar("channel", { length: 16 }).notNull(),   // whatsapp | sms | webform (voice is exempt by construction)
+    reason: text("reason"),                                  // why the task exists, human-readable ("first contact via webform")
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    dueAt: timestamp("due_at").notNull(),                    // createdAt + 15 WORKING minutes (08:00–20:00 UK; out-of-hours defers to 08:15)
+    completedAt: timestamp("completed_at"),
+    dismissedAt: timestamp("dismissed_at"),
+    dismissedBy: varchar("dismissed_by", { length: 60 }),    // human:admin | system:expired | system:opt_out | system:prefers_text
+    dismissReason: varchar("dismiss_reason", { length: 80 }),
+    notifiedAt: timestamp("notified_at"),                    // when the creation Pushover ping fired (null = ping failed/disarmed)
+}, (table) => [
+    index("idx_va_call_tasks_conversation").on(table.conversationId),
+    index("idx_va_call_tasks_due").on(table.dueAt),
+    // ONE open task per conversation, enforced by the database, not by a
+    // check-then-act read (the 27 Aug 2026 triple-send taught this codebase
+    // that two concurrent inbounds sail through any advisory SELECT together).
+    // Inserts race → one wins, the loser's onConflictDoNothing returns no row.
+    uniqueIndex("uq_va_call_tasks_open")
+        .on(table.conversationId)
+        .where(sql`completed_at IS NULL AND dismissed_at IS NULL`),
+]);
+
+export type VaCallTask = typeof vaCallTasks.$inferSelect;
+export type InsertVaCallTask = typeof vaCallTasks.$inferInsert;
+
+// SLA breach alerts (per-lane escalation sweep, 29 Aug 2026 — T6b).
+//
+// One row per (conversation, lane) breach EPISODE: the row is the idempotency claim
+// ("Ben was pinged about this lane on this thread"), so the 15-second sweep cannot
+// re-ping every pass. Written and resolved only by server/agents/sla-sweep.ts.
+//
+// Lifecycle: open (resolved_at NULL) → resolved. lane_entered_at pins the episode to a
+// specific lane entry — when the thread re-enters the same lane later (new verdict),
+// the timestamps differ, the old row is resolved and a fresh episode may open.
+// last_alert_at drives the at-most-daily reminder while still breached.
+export const slaAlerts = pgTable("sla_alerts", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    conversationId: varchar("conversation_id").notNull(),
+    // quote_ready | needs_ben | needs_info | visit_first (+ 'decline' reserved for T6a)
+    lane: varchar("lane", { length: 24 }).notNull(),
+    laneEnteredAt: timestamp("lane_entered_at").notNull(), // when the lane verdict/flag was recorded
+    firstAlertAt: timestamp("first_alert_at").defaultNow().notNull(),
+    lastAlertAt: timestamp("last_alert_at").defaultNow().notNull(), // reminder clock (CAS-updated)
+    alertCount: integer("alert_count").default(1).notNull(),
+    resolvedAt: timestamp("resolved_at"),
+    resolveReason: varchar("resolve_reason", { length: 80 }), // lane_changed | lane_reentered | conversation_closed | ...
+}, (table) => [
+    index("idx_sla_alerts_conversation").on(table.conversationId),
+    // ONE open episode per (conversation, lane), enforced by the database — the insert IS
+    // the claim (onConflictDoNothing loses the race quietly), same shape as uq_va_call_tasks_open.
+    uniqueIndex("uq_sla_alerts_open")
+        .on(table.conversationId, table.lane)
+        .where(sql`resolved_at IS NULL`),
+]);
+
+export type SlaAlert = typeof slaAlerts.$inferSelect;
+export type InsertSlaAlert = typeof slaAlerts.$inferInsert;

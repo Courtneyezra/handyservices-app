@@ -364,6 +364,12 @@ export interface IngestCallOptions {
      * down the call that ended it.
      */
     advanceStage?: boolean;
+    /**
+     * Run the post-call continuation lane (server/post-call-outreach.ts). Live path only.
+     * Defaults to FALSE and, like outboundOpensCard, that default is load-bearing: the backfill
+     * inherits it, so replaying history can never message a customer about a call from March.
+     */
+    continuation?: boolean;
     /** Report what would happen and write nothing. */
     dryRun?: boolean;
 }
@@ -571,6 +577,19 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
         }
     }
 
+    // --- 3c. the VA call task closes the same way -------------------------------------
+    // A "ring this enquiry" task (server/agents/va-call-tasks.ts, 28 Aug 2026) is fulfilled by a
+    // call landing on the thread — ANY direction, because them ringing us settles it just as
+    // surely as us ringing them. The module's own predicate handles the fine print (open tasks
+    // only, calls before the task's creation don't count, so the backfill can replay history
+    // without retiring a live task) and releases the triage hold. Never breaks call ingest.
+    try {
+        const { completeVaCallTasksForCall } = await import('./agents/va-call-tasks');
+        await completeVaCallTasksForCall(conv.id, at);
+    } catch (error: any) {
+        console.warn('[CallThread] va-call-task completion check failed:', error?.message ?? error);
+    }
+
     const result: CallThreadResult = {
         status: existing ? 'updated' : 'written',
         reason: existing ? 'UPDATED' : 'WRITTEN',
@@ -584,6 +603,21 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
     // --- 4. the first-contact acknowledgement ----------------------------------------
     if (opts.ack && info.direction === 'inbound' && !existing) {
         result.ack = await ackForCall(conv.id, `+${digits}`, call, info);
+    }
+
+    // --- 5. the post-call continuation (flag-gated, fails closed) ---------------------
+    // Fire-and-forget: the continuation does its own classification wait, idempotency and
+    // guard-rails, and ingest must never block on (or break because of) outreach. NOT gated on
+    // `!existing` — the ring-time ingest already wrote the row, so by finalization this is
+    // always an update.
+    if (opts.continuation && info.direction === 'inbound' && !info.missed) {
+        void (async () => {
+            const { maybeSendPostCallContinuation } = await import('./post-call-outreach');
+            const d = await maybeSendPostCallContinuation(call.id);
+            if (d.reason !== 'DISABLED') {
+                console.log(`[CallThread] Continuation for ${call.id}: ${d.sent ? 'SENT' : d.reason}`);
+            }
+        })().catch((e: any) => console.warn('[CallThread] Continuation trigger failed:', e?.message ?? e));
     }
 
     return result;

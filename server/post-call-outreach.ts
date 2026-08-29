@@ -30,12 +30,13 @@
  * and cannot say "we'll come back to you first thing", so a 2am send would read as a live human.
  */
 import { db } from './db';
-import { calls, leads, appSettings, messages, conversations } from '@shared/schema';
-import { eq, and, gte, desc, sql } from 'drizzle-orm';
+import { calls, leads, appSettings, messages, conversations, messageDrafts } from '@shared/schema';
+import { eq, and, gte, desc, sql, or, ne } from 'drizzle-orm';
 import { isWhatsAppSenderConfigured } from './whatsapp-sender';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { classifyCall, parseClassification, type CallClassification } from './call-classifier';
 import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
+import { checkDraft } from './agents/draft-guards';
 
 const SETTING_KEY = 'post_call_video_request';
 
@@ -405,6 +406,20 @@ export async function maybeSendPostCallVideoRequest(input: {
                 console.log(`[PostCallOutreach] Not sending for ${input.callSid}: ${detail}`);
                 return { sent: false, reason: detail };
             }
+
+            // When the post-call CONTINUATION is live, it owns the caller who AGREED on the call:
+            // its single message already contains the video ask, and two templates for one call is
+            // exactly the double-send this queue exists to prevent. Only the agreed verdict is
+            // ceded — allowUndiscussed sends, unclassified sends (classify off) and the callback
+            // fallback keep the video template, because the continuation's "good to speak just
+            // now" wording is only honest on a fresh, agreed call.
+            if (route.reason === 'AGREED_ON_CALL') {
+                const ccfg = await getContinuationConfig();
+                if (ccfg.enabled) {
+                    console.log(`[PostCallOutreach] Deferring ${input.callSid} to the post-call continuation.`);
+                    return { sent: false, reason: 'CONTINUATION_OWNS_AGREED' };
+                }
+            }
         }
 
         // --- All guardrails passed ---
@@ -658,4 +673,321 @@ async function recordVideoRequest(opts: {
             ...(linkedLeadId ? { leadId: linkedLeadId } : {}),
         })
         .where(eq(calls.id, opts.callRecordId));
+}
+
+// ================================================================ post-call continuation
+//
+// T3 (Aug 2026): when an inbound call ends and the caller AGREED to a WhatsApp follow-up, their
+// first WhatsApp should read like a continuation of the phone call, not a cold template. One
+// fixed wording with exactly ONE slot (a short job reference from the classifier), and the video
+// ask lives INSIDE that same single message — never a second bubble.
+//
+// The 24h window finding, stated plainly: a phone call does NOT open WhatsApp's freeform window
+// (see server/call-thread.ts rule 1), so this message is ALWAYS a template send and its wording
+// is whatever Meta approved. Both template names below must be submitted to Meta and show
+// 'approved' in the whatsapp_templates cache before anything sends; until then this path fails
+// closed with NO_APPROVED_TEMPLATE. There is deliberately no legacy-SID fallback here — an
+// unapproved wording has no lawful route out, and inventing one is how templates get the account
+// flagged.
+//
+// The slot is filled from jobPhrase, NOT jobSummary. The brief says "derived from the
+// classifier's jobSummary", but jobSummary is the internal third-person ops field that leaked to
+// a customer in Aug 2026 (see pickVideoTemplate above) — jobPhrase is the customer-facing field
+// the classifier writes for exactly this insertion, capped at 60 chars. A missing or unusable
+// phrase falls back to the generic no-slot wording; raw transcript text never appears.
+//
+// Ships DISABLED, its own flag, same appSettings pattern as the video request.
+
+const CONTINUATION_SETTING_KEY = 'post_call_continuation';
+
+export type PostCallContinuationConfig = {
+    enabled: boolean;
+    /**
+     * The wording says "good to speak just now", so it is only honest NEAR the call. A call that
+     * ended longer ago than this sends nothing — which also makes a backfill or replayed webhook
+     * inert even if every other guard were somehow passed.
+     */
+    maxAgeMinutes: number;
+};
+
+const CONTINUATION_DEFAULT_CONFIG: PostCallContinuationConfig = {
+    enabled: false, // Opt-in on purpose, like every automated outreach path here.
+    maxAgeMinutes: 60,
+};
+
+export async function getContinuationConfig(): Promise<PostCallContinuationConfig> {
+    try {
+        const [row] = await db.select().from(appSettings).where(eq(appSettings.key, CONTINUATION_SETTING_KEY));
+        if (!row) return CONTINUATION_DEFAULT_CONFIG;
+        return { ...CONTINUATION_DEFAULT_CONFIG, ...(row.value as Partial<PostCallContinuationConfig>) };
+    } catch (error) {
+        console.error('[PostCallContinuation] Could not read config, treating as disabled:', error);
+        return { ...CONTINUATION_DEFAULT_CONFIG, enabled: false }; // Fail closed.
+    }
+}
+
+export async function setContinuationConfig(patch: Partial<PostCallContinuationConfig>): Promise<PostCallContinuationConfig> {
+    const current = await getContinuationConfig();
+    const next = { ...current, ...patch };
+    await db.insert(appSettings)
+        .values({
+            id: CONTINUATION_SETTING_KEY,
+            key: CONTINUATION_SETTING_KEY,
+            value: next,
+            description: 'Automated post-call continuation WhatsApp (see server/post-call-outreach.ts)',
+            updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+            target: appSettings.key,
+            set: { value: next, updatedAt: new Date() },
+        });
+    return next;
+}
+
+/**
+ * Template NAMES, resolved against the approved cache at send time like the video pair.
+ *
+ * Bodies as submitted to Meta (fixed wording, one content slot):
+ *
+ *   post_call_continuation:
+ *     "Hi {{1}}, good to speak just now about {{2}}. This is the number to send over any photos
+ *      or videos of the job, and we'll get your quote moving."
+ *
+ *   post_call_continuation_generic:
+ *     "Hi {{1}}, good to speak just now. This is the number to send over any photos or videos of
+ *      the job, and we'll get your quote moving."
+ *
+ * {{1}} is the greeting name (hint-driven, degrades to "there"); {{2}} is the job reference and
+ * is the ONE slot the brief allows. The wording deliberately clears every draft guard: no dashes,
+ * no figures, no dates, no duration words.
+ */
+export const CONTINUATION_TEMPLATE = 'post_call_continuation';
+export const CONTINUATION_GENERIC_TEMPLATE = 'post_call_continuation_generic';
+
+/** How long the slot may be. Matches the classifier's own jobPhrase cap. */
+const MAX_JOB_REF_CHARS = 60;
+
+/** Deterministic draft id — the "one continuation per call, EVER" guard, keyed on the call. */
+export function continuationDraftId(callRecordId: string): string {
+    return `draft_callcont_${callRecordId}`;
+}
+
+/**
+ * The slot quality gate. Returns the cleaned job reference, or null for "use the generic
+ * wording". Pure, so the whole ladder is testable without a database.
+ *
+ * Null rather than repair on anything doubtful: the slot lands mid-sentence in a customer
+ * message, and a generic line reads better than a mangled one. The rendered body still passes
+ * through checkDraft after this, so a phrase that is clean HERE but toxic in context (digits
+ * that read as money, "quick fix") is caught there and falls back the same way.
+ */
+export function normalizeJobRef(jobPhrase: string | null | undefined): string | null {
+    let s = (jobPhrase ?? '').trim();
+    if (!s) return null;
+    s = s.replace(/[\s.,;:!?]+$/, '').trim();          // trailing punctuation reads as a typo mid-sentence
+    if (!s) return null;
+    if (s.length > MAX_JOB_REF_CHARS) return null;     // over-cap: never truncate into a customer message
+    if (/[\n\r]/.test(s)) return null;                 // multi-line means it is not a noun phrase
+    if (/[—–]/.test(s)) return null;                   // house voice: no em/en dashes anywhere a customer reads
+    if (/\{\{|\}\}/.test(s)) return null;              // a placeholder that survived is a bug, not a job
+    // Filler the classifier or older writers emit instead of a real phrase.
+    if (/^(the job we discussed|unknown|n\/?a|none|unclear)$/i.test(s)) return null;
+    return s;
+}
+
+export type ContinuationTemplateChoice = {
+    name: string;
+    /** Positional overrides beyond the {{1}} greeting name: {{2}} = the job reference. */
+    variables: Record<string, string>;
+};
+
+/** Which wording the verdict earns. Pure, mirror of pickVideoTemplate. */
+export function pickContinuationTemplate(
+    classification: Pick<CallClassification, 'jobPhrase'> | null,
+): ContinuationTemplateChoice {
+    const jobRef = normalizeJobRef(classification?.jobPhrase);
+    return jobRef
+        ? { name: CONTINUATION_TEMPLATE, variables: { '2': jobRef } }
+        : { name: CONTINUATION_GENERIC_TEMPLATE, variables: {} };
+}
+
+/**
+ * Decides whether an ended inbound call earns the continuation message, and queues it if so.
+ *
+ * Accepts either the call record id or the Twilio CallSid, like classifyCall. Safe to call
+ * repeatedly from every trigger site (finalization ingest, the two post-transcript retries):
+ * the deterministic draft id and videoRequestSentAt make replays no-ops. Never throws.
+ */
+export async function maybeSendPostCallContinuation(callId: string): Promise<OutreachDecision> {
+    try {
+        const ccfg = await getContinuationConfig();
+        if (!ccfg.enabled) return { sent: false, reason: 'DISABLED' };
+
+        if (!isWhatsAppSenderConfigured()) {
+            console.warn('[PostCallContinuation] No WhatsApp sender configured — skipping.');
+            return { sent: false, reason: 'NO_SENDER_CONFIGURED' };
+        }
+
+        const [call] = await db.select().from(calls)
+            .where(or(eq(calls.id, callId), eq(calls.callId, callId)))
+            .limit(1);
+        if (!call) return { sent: false, reason: 'NO_CALL_RECORD' };
+
+        if (call.direction !== 'inbound') return { sent: false, reason: `NOT_INBOUND:${call.direction}` };
+        // The ring-time ingest fires while status is still 'ringing'; the continuation waits for
+        // finalization, when duration, outcome and (soon) the classification are real.
+        if (call.status !== 'completed') return { sent: false, reason: `CALL_NOT_COMPLETED:${call.status}` };
+
+        // --- one continuation per call, EVER ---
+        if (call.videoRequestSentAt) return { sent: false, reason: 'ALREADY_SENT_FOR_THIS_CALL' };
+        const [priorDraft] = await db.select({ id: messageDrafts.id })
+            .from(messageDrafts)
+            .where(eq(messageDrafts.id, continuationDraftId(call.id)))
+            .limit(1);
+        if (priorDraft) return { sent: false, reason: 'ALREADY_QUEUED_FOR_THIS_CALL' };
+
+        // --- freshness: "good to speak just now" must be true ---
+        const endedAt = call.endTime ?? call.startTime;
+        if (!endedAt) return { sent: false, reason: 'NO_CALL_TIMESTAMP' };
+        const ageMinutes = (Date.now() - endedAt.getTime()) / 60_000;
+        if (ageMinutes > ccfg.maxAgeMinutes) {
+            return { sent: false, reason: `TOO_OLD:${Math.round(ageMinutes)}m>${ccfg.maxAgeMinutes}m` };
+        }
+
+        // --- the mechanical rails, shared verbatim with the video path ---
+        // (phone parseability, suppression list, mobile-only, cross-call dedupe, an already-live
+        // WhatsApp thread, quiet hours — rail VALUES come from the video config; evaluateSendRails
+        // never reads cfg.enabled, so the video flag being off does not open or close this path.)
+        const cfg = await getOutreachConfig();
+        const rails = await evaluateSendRails(call, cfg);
+        if (!rails.ok) return { sent: false, reason: rails.reason };
+        const { phone, conv } = rails;
+
+        // --- consent: only a job enquiry whose caller AGREED on the call ---
+        // Same matrix as the video path, allowUndiscussed pinned OFF: a continuation claims the
+        // customer expected this message, and only 'agreed' makes that claim true. Complaints,
+        // spam, wrong numbers, declines and promised callbacks all refuse here. Side effects
+        // (no_auto_messages tag, complaint page, callback_due) are NOT run from this path — the
+        // video decision runs on the same call from its own trigger sites and owns them; firing
+        // them twice would double-page a human.
+        const verdict = await classifyCall(call.id);
+        const classification = verdict.ok ? verdict.classification : null;
+        const route = decideOutreach(classification, { allowUndiscussed: false });
+        if (route.reason !== 'AGREED_ON_CALL') {
+            const detail = verdict.ok ? route.reason : `${route.reason}:${verdict.reason}`;
+            return { sent: false, reason: `NOT_AGREED:${detail}` };
+        }
+
+        // --- coordination: has anything else already messaged this thread since the call? ---
+        // The VA call task, the first-contact ack or a human may have moved first. An outbound
+        // non-call message on the thread since the call began means the conversation is already
+        // being worked; a pending/approved draft for this number (ANY source) means a message is
+        // one click away. Either way the continuation stands down — never double up.
+        if (conv) {
+            const [recentOutbound] = await db.select({ id: messages.id })
+                .from(messages)
+                .where(and(
+                    eq(messages.conversationId, conv.id),
+                    eq(messages.direction, 'outbound'),
+                    ne(messages.channel, 'call'),
+                    gte(messages.createdAt, call.startTime ?? endedAt),
+                ))
+                .limit(1);
+            if (recentOutbound) return { sent: false, reason: 'THREAD_ALREADY_MESSAGED' };
+        }
+        const [pendingDraft] = await db.select({ id: messageDrafts.id, source: messageDrafts.source })
+            .from(messageDrafts)
+            .where(and(
+                eq(messageDrafts.phone, phone),
+                inArrayDraftStatuses(),
+            ))
+            .limit(1);
+        if (pendingDraft) return { sent: false, reason: `OTHER_DRAFT_PENDING:${pendingDraft.source}` };
+
+        // --- wording: fixed template, one slot, guard-checked, generic fallback ---
+        const name = (call.customerName || '').trim();
+        const greetName = name && !/^(unknown|customer|caller)/i.test(name) ? name.split(/\s+/)[0] : 'there';
+
+        const resolve = async (choice: ContinuationTemplateChoice) => {
+            const template = await findApprovedTemplate(choice.name);
+            if (!template) return null;
+            const contentVariables = { ...buildTemplateVariables(template, { firstName: greetName }), ...choice.variables };
+            return { template, contentVariables, body: renderTemplateBody(template.body, contentVariables) };
+        };
+
+        let choice = pickContinuationTemplate(classification);
+        let resolved = await resolve(choice);
+
+        // The rendered SLOTTED body must clear the draft guards — a job reference carrying digits
+        // reads as money, "the quick fix" reads as a duration claim. Any violation drops to the
+        // generic wording rather than editing the slot: fixed template, no improvisation.
+        if (resolved && choice.name === CONTINUATION_TEMPLATE) {
+            const violation = checkDraft({ body: resolved.body, intent: 'post_call_continuation', quoteSeen: false, customerText: null });
+            if (violation) {
+                console.log(`[PostCallContinuation] Slot refused by draft guard (${violation.code}) for ${call.id} — using generic wording.`);
+                choice = { name: CONTINUATION_GENERIC_TEMPLATE, variables: {} };
+                resolved = null;
+            }
+        }
+        if (!resolved && choice.name !== CONTINUATION_GENERIC_TEMPLATE) {
+            // Slotted template not approved (or guard-refused above): try the generic one.
+            choice = { name: CONTINUATION_GENERIC_TEMPLATE, variables: {} };
+        }
+        if (!resolved) resolved = await resolve(choice);
+        if (!resolved) {
+            // Neither wording is Meta-approved yet. The window is shut (a call never opens it),
+            // so there is NO lawful way to deliver this — fail closed, per the brief.
+            console.warn('[PostCallContinuation] No approved continuation template in the cache — nothing can send.');
+            return { sent: false, reason: 'NO_APPROVED_TEMPLATE' };
+        }
+        {
+            // Belt and braces: the generic body is fixed and proven guard-clean in the test
+            // suite, but the cache body is editable at Twilio — re-check what will actually send.
+            const violation = checkDraft({ body: resolved.body, intent: 'post_call_continuation', quoteSeen: false, customerText: null });
+            if (violation) {
+                console.warn(`[PostCallContinuation] Cached template body refused by draft guard (${violation.code}) — nothing can send.`);
+                return { sent: false, reason: `GUARD_REFUSED:${violation.code}` };
+            }
+        }
+
+        // --- queue (draft-and-approve), with the first-contact auto-send exception ---
+        const { queueDraft } = await import('./message-drafts');
+        const draftId = await queueDraft({
+            id: continuationDraftId(call.id),
+            phone,
+            body: resolved.body,
+            source: 'post_call_continuation',
+            reason: `Post-call continuation: caller agreed to WhatsApp on inbound call ${call.callId ?? call.id} (${Math.round(ageMinutes)}m ago).`,
+            contentSid: resolved.template.contentSid,
+            contentVariables: resolved.contentVariables,
+        });
+        if (!draftId) return { sent: false, reason: 'DUPLICATE_DRAFT' };
+
+        const { maybeAutoSendFirstContactDraft } = await import('./first-contact-ack');
+        const auto = await maybeAutoSendFirstContactDraft(draftId, {
+            conversationId: conv?.id ?? null,
+            phone,
+            channel: 'post_call',
+        });
+
+        // Same bookkeeping as a video request, because the continuation IS the video ask for this
+        // call: videoRequestSentAt makes both paths' dedupe count it, the lead goes awaiting_video.
+        await recordVideoRequest({ callRecordId: call.id, phone, name: greetName, callSid: call.callId ?? call.id });
+
+        if (auto.sent) {
+            console.log(`[PostCallContinuation] Auto-sent first-contact continuation ${draftId} ("${choice.name}") to ${phone}`);
+            return { sent: true, reason: 'SENT_FIRST_CONTACT', sid: draftId };
+        }
+        console.log(`[PostCallContinuation] Queued continuation draft ${draftId} ("${choice.name}") for ${phone} — ${auto.reason}`);
+        return { sent: false, reason: 'QUEUED_FOR_APPROVAL', sid: draftId };
+    } catch (error) {
+        // Never let outreach break call finalization or thread ingest.
+        console.error('[PostCallContinuation] Failed:', error);
+        return { sent: false, reason: 'ERROR' };
+    }
+}
+
+/** The unsent statuses, in one place. */
+function inArrayDraftStatuses() {
+    return sql`${messageDrafts.status} in ('pending', 'approved')`;
 }

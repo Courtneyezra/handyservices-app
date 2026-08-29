@@ -20,6 +20,14 @@ import { addDays, getDay, startOfDay, startOfMonth, endOfMonth, parseISO, isBefo
 import { ukToday, addDaysStr, ukDayStartUTC } from '../shared/uk-time';
 import { expandSpanDates, computeRequiredDays, collectSpanDates } from '../shared/schedule-composition';
 import { notifyWebformLead } from './pushover';
+import {
+    SPARSE_DAY_FEE_PENCE,
+    classifySparseDay,
+    quoteJobValuePence,
+    quoteCoords,
+    resolveDayRateFloorPence,
+    type BookedDayJob,
+} from './sparse-day-fees';
 
 const UK_TIMEZONE = 'Europe/London';
 
@@ -704,7 +712,7 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
             }
         }
 
-        return await buildAvailabilityResponse(res, availabilityIds, effectiveSlot, monthParam, requiredDays);
+        return await buildAvailabilityResponse(res, availabilityIds, effectiveSlot, monthParam, requiredDays, quote);
 
     } catch (error: any) {
         console.error('[PublicAPI] Quote availability error:', error);
@@ -727,6 +735,10 @@ async function buildAvailabilityResponse(
     slot: SlotParam,
     monthParam?: string,
     requiredDays: number = 1,
+    // Sparse-day fee preview: the personalizedQuotes row for the quote being
+    // booked. Only the /quote/:quoteId/availability caller passes it; when
+    // absent every emitted date carries sparseFeePence: 0 (behaviour-preserving).
+    quote?: any,
 ) {
     const ukNow = toZonedTime(new Date(), UK_TIMEZONE);
     const ukToday = startOfDay(ukNow);
@@ -807,6 +819,41 @@ async function buildAvailabilityResponse(
             )),
     ]);
 
+    // ── Sparse-day fee preview data (quote-aware callers only) ───────────────
+    // Two extra batched queries; all per-date classification below is in-memory.
+    const bookedQuoteById = new Map<string, { id: string; basePrice: number | null; deferredLineItems: unknown; pricingLineItems: unknown; coordinates: unknown }>();
+    const floorByContractor = new Map<string, number>();
+    let incomingValuePence = 0;
+    let incomingCoords: { lat: number; lng: number } | null = null;
+    if (quote) {
+        const conflictQuoteIds = Array.from(new Set(
+            bookingConflicts.map((b) => b.quoteId).filter((id): id is string => !!id),
+        ));
+        const [bookedQuoteRows, profileRows] = await Promise.all([
+            conflictQuoteIds.length > 0
+                ? db.select({
+                    id: personalizedQuotes.id,
+                    basePrice: personalizedQuotes.basePrice,
+                    deferredLineItems: personalizedQuotes.deferredLineItems,
+                    pricingLineItems: personalizedQuotes.pricingLineItems,
+                    coordinates: personalizedQuotes.coordinates,
+                })
+                    .from(personalizedQuotes)
+                    .where(inArray(personalizedQuotes.id, conflictQuoteIds))
+                : Promise.resolve([] as Array<{ id: string; basePrice: number | null; deferredLineItems: unknown; pricingLineItems: unknown; coordinates: unknown }>),
+            db.select({ id: handymanProfiles.id, dayRate: handymanProfiles.dayRate })
+                .from(handymanProfiles)
+                .where(inArray(handymanProfiles.id, contractorIds)),
+        ]);
+        for (const q of bookedQuoteRows) bookedQuoteById.set(q.id, q);
+        const dayRateById = new Map(profileRows.map((p) => [p.id, p.dayRate]));
+        for (const cid of contractorIds) {
+            floorByContractor.set(cid, resolveDayRateFloorPence(dayRateById.get(cid) ?? null));
+        }
+        incomingValuePence = quoteJobValuePence(quote);
+        incomingCoords = quoteCoords(quote);
+    }
+
     // Index master blocked dates for O(1) lookup
     const blockedDateSet = new Set(masterBlocked.map(b => String(b.date)));
 
@@ -827,10 +874,26 @@ async function buildAvailabilityResponse(
     // Phase 24c — a multi-day booking (durationDays>1) occupies every day in
     // the span, so expand each booking row into one map entry per day.
     const bookingMap = new Map<string, Set<string>>();
+    // Sparse-day fee: booked value/coords per contractor-day, built inside the
+    // SAME span expansion as bookingMap so both share one notion of "occupied
+    // day". Multi-day bookings contribute value/durationDays to each day.
+    const dayJobsMap = new Map<string, BookedDayJob[]>();
     for (const b of bookingConflicts) {
         if (!b.scheduledDate || !b.assignedContractorId) continue;
         const dur = (b as any).durationDays ?? 1;
         const bookedSlot = b.scheduledSlot || 'full_day';
+        let bookedJob: BookedDayJob | null = null;
+        if (quote) {
+            const bookedQuote = b.quoteId ? bookedQuoteById.get(b.quoteId) : undefined;
+            const coords = bookedQuote ? quoteCoords(bookedQuote) : null;
+            bookedJob = bookedQuote
+                ? {
+                    valuePence: quoteJobValuePence(bookedQuote) / Math.max(1, dur),
+                    lat: coords?.lat ?? null,
+                    lng: coords?.lng ?? null,
+                }
+                : { valuePence: 0, lat: null, lng: null };
+        }
         for (let i = 0; i < dur; i++) {
             const day = new Date(b.scheduledDate);
             day.setUTCDate(day.getUTCDate() + i);
@@ -838,6 +901,10 @@ async function buildAvailabilityResponse(
             const key = `${b.assignedContractorId}-${dateStr}`;
             if (!bookingMap.has(key)) bookingMap.set(key, new Set());
             bookingMap.get(key)!.add(bookedSlot);
+            if (bookedJob) {
+                if (!dayJobsMap.has(key)) dayJobsMap.set(key, []);
+                dayJobsMap.get(key)!.push(bookedJob);
+            }
         }
     }
 
@@ -911,17 +978,20 @@ async function buildAvailabilityResponse(
     }
 
     // Build results
-    const results: Array<{ date: string; contractorCount: number; slot: string; durationDays?: number }> = [];
+    const results: Array<{ date: string; contractorCount: number; slot: string; durationDays?: number; sparseFeePence: number }> = [];
 
     for (let i = 0; i < totalDays; i++) {
         const checkDate = addDays(rangeStart, i);
         if (isBefore(checkDate, ukToday)) continue;
         const dateStr = formatTz(checkDate, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
 
-        let availableCount = 0;
+        // Collect WHICH contractors are available (not just how many) — the
+        // sparse-day classification below needs the ids. Count semantics
+        // unchanged: availableCount === availableIds.length.
+        const availableIds: string[] = [];
         if (requiredDays === 1) {
             for (const contractorId of contractorIds) {
-                if (freePerContractor.get(contractorId)?.has(dateStr)) availableCount++;
+                if (freePerContractor.get(contractorId)?.has(dateStr)) availableIds.push(contractorId);
             }
         } else {
             // Multi-day: the job occupies the contractor's next N AVAILABLE days
@@ -938,15 +1008,45 @@ async function buildAvailabilityResponse(
                     const ds = formatTz(addDays(checkDate, k), 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
                     if (free.has(ds)) collected++;
                 }
-                if (collected >= requiredDays) availableCount++;
+                if (collected >= requiredDays) availableIds.push(contractorId);
             }
         }
+        const availableCount = availableIds.length;
 
         if (availableCount > 0) {
+            // Sparse-day fee preview: £0 when ANY available contractor
+            // classifies fee-free for this day, else the flat standalone-visit
+            // fee. Multi-day spans classify the START date only (per-day value
+            // split handled inside classifySparseDay via requiredDays).
+            // Price-only steering — a sparse day is never hidden. Failure
+            // posture: classify errors → fee 0 (never overcharge).
+            let sparseFeePence = 0;
+            if (quote) {
+                let anyFeeFree = false;
+                for (const cid of availableIds) {
+                    try {
+                        const cls = classifySparseDay({
+                            incomingValuePence,
+                            incomingLat: incomingCoords?.lat ?? null,
+                            incomingLng: incomingCoords?.lng ?? null,
+                            dayRateFloorPence: floorByContractor.get(cid) ?? resolveDayRateFloorPence(null),
+                            existingJobs: dayJobsMap.get(`${cid}-${dateStr}`) ?? [],
+                            ...(requiredDays > 1 ? { requiredDays } : {}),
+                        });
+                        if (cls.feePence === 0) { anyFeeFree = true; break; }
+                    } catch (e) {
+                        console.warn('[PublicAPI] sparse-day classify failed — treating day as fee-free:', e instanceof Error ? e.message : e);
+                        anyFeeFree = true;
+                        break;
+                    }
+                }
+                sparseFeePence = anyFeeFree ? 0 : SPARSE_DAY_FEE_PENCE;
+            }
             results.push({
                 date: dateStr,
                 contractorCount: availableCount,
                 slot,
+                sparseFeePence,
                 ...(requiredDays > 1 ? { durationDays: requiredDays } : {}),
             });
         }
@@ -1414,17 +1514,23 @@ router.post('/booking/reserve-slot', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'scheduledSlot must be am, pm, or full_day' });
         }
 
-        // If candidateContractorIds not provided, look them up from the quote
+        // Candidate resolution. The quote row is ALWAYS loaded (even when the
+        // client sent candidateContractorIds) because the stored lead anchors
+        // the booking: reserveSlot travel-sorts its candidate set and books the
+        // closest, so any pool wider than the lead lets the booked contractor
+        // silently differ from the skin the customer saw (Aug 2026 — hard
+        // Craig-default lead). Lead-only override > body/stored pools.
         let candidates: (number | string)[] = candidateContractorIds || [];
         let resolvedQuoteId = quoteId; // May be slug or full ID — resolve to full ID
 
-        if (!candidates || !Array.isArray(candidates) || candidates.length === 0) {
+        {
             const { personalizedQuotes } = await import('../shared/schema');
             const [quote] = await db.select({
                 candidateContractorIds: personalizedQuotes.candidateContractorIds,
                 contractorId: personalizedQuotes.contractorId,
                 quoteIdFull: personalizedQuotes.id,
                 quoteMode: personalizedQuotes.quoteMode,
+                leadContractorId: personalizedQuotes.leadContractorId,
             })
                 .from(personalizedQuotes)
                 .where(or(eq(personalizedQuotes.id, quoteId), eq(personalizedQuotes.shortSlug, quoteId)))
@@ -1437,6 +1543,17 @@ router.post('/booking/reserve-slot', async (req: Request, res: Response) => {
             // Always use the full quote ID for the booking engine
             resolvedQuoteId = quote.quoteIdFull;
 
+            if (quote.leadContractorId) {
+                // Lead anchor: the quote's lead (manual pick or Craig-default)
+                // is the ONLY booking candidate. Overrides body-supplied and
+                // stored pools — old quotes still carry the full solo union in
+                // candidateContractorIds, which would reintroduce travel-sort
+                // reassignment.
+                if (candidates.length > 0 && !(candidates.length === 1 && candidates[0] === quote.leadContractorId)) {
+                    console.log(`[PublicAPI] reserve-slot ${resolvedQuoteId}: overriding candidate pool (${candidates.length}) with lead anchor ${quote.leadContractorId}`);
+                }
+                candidates = [quote.leadContractorId];
+            } else if (!candidates || !Array.isArray(candidates) || candidates.length === 0) {
             // Use candidateContractorIds from quote, or fall back to the single matched contractor
             const quoteCandidates = (quote.candidateContractorIds as string[]) || [];
             if (quoteCandidates.length > 0) {
@@ -1485,6 +1602,7 @@ router.post('/booking/reserve-slot', async (req: Request, res: Response) => {
             if (!candidates.length) {
                 return res.status(400).json({ error: 'No candidate contractors available for this quote' });
             }
+            } // end fallback pool resolution (quotes with no stored lead)
         }
 
         // Half-day slot-fit guard — mirror of the availability endpoint's force:
@@ -1543,6 +1661,10 @@ router.post('/booking/reserve-slot', async (req: Request, res: Response) => {
                 contractorId: result.contractorId,
                 contractorName: result.contractorName,
                 expiresAt: result.expiresAt?.toISOString(),
+                // Sparse-day fee AUTHORITY: the snapshot frozen on the lock.
+                // The client must override its availability preview with this
+                // so wallet sheet == PaymentIntent amount.
+                sparseFeePence: result.sparseFeePence ?? 0,
             });
         } else {
             res.status(409).json({

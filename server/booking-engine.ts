@@ -24,6 +24,7 @@ import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as C
 import { findBestContractorForJob } from './auto-assignment-engine';
 import { resolveOrCreateProperty } from './properties';
 import { resolveOrCreateClient } from './clients';
+import { computeSparseFeeForContractorDay } from './sparse-day-fees';
 
 // Combine the property's standing access notes (gate code, parking, key safe —
 // entered once on the Property) with this job's own access notes, so every
@@ -240,6 +241,8 @@ export async function reserveSlot(params: {
     contractorId?: number;
     contractorName?: string;
     expiresAt?: Date;
+    /** Sparse-day "standalone visit" fee snapshotted on the lock (pence). */
+    sparseFeePence?: number;
     error?: string;
 }> {
     const { quoteId, scheduledDate, scheduledSlot, candidateContractorIds, allowSlotSharing } = params;
@@ -274,6 +277,7 @@ export async function reserveSlot(params: {
             id: personalizedQuotes.id,
             coordinates: personalizedQuotes.coordinates,
             postcode: personalizedQuotes.postcode,
+            basePrice: personalizedQuotes.basePrice,
             lines: personalizedQuotes.pricingLineItems,
             deferredLineItems: personalizedQuotes.deferredLineItems,
             floorNumber: personalizedQuotes.floorNumber,
@@ -594,6 +598,30 @@ export async function reserveSlot(params: {
                 // those same dates.
                 const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
 
+                // Sparse-day fee SNAPSHOT — classify the actually-won
+                // contractor-day and freeze the fee on the lock so the client's
+                // wallet sheet and the PaymentIntent charge the SAME figure.
+                // Failure posture: any error → snapshot 0 (never block a
+                // booking, never overcharge on failure).
+                let sparseFeePence = 0;
+                try {
+                    const classification = await computeSparseFeeForContractorDay({
+                        quote: {
+                            basePrice: quoteRow?.basePrice ?? null,
+                            deferredLineItems: (quoteRow as any)?.deferredLineItems,
+                            pricingLineItems: quoteRow?.lines,
+                            coordinates: quoteRow?.coordinates,
+                        },
+                        contractorId: contractorIdStr,
+                        dateStr: startDateStr,
+                        requiredDays: durationDays,
+                    });
+                    sparseFeePence = classification.feePence;
+                    console.log(`[BookingEngine] sparse-day classification for ${contractorIdStr} on ${startDateStr}: fee=${classification.feePence}p reason=${classification.reason}`);
+                } catch (sparseErr) {
+                    console.warn('[BookingEngine] sparse-day fee compute failed — snapshotting 0:', sparseErr instanceof Error ? sparseErr.message : sparseErr);
+                }
+
                 const [inserted] = await tx.insert(bookingSlotLocks)
                     .values({
                         quoteId,
@@ -602,6 +630,7 @@ export async function reserveSlot(params: {
                         scheduledSlot: effectiveSlot,
                         durationDays,
                         scheduledDates: spanDates,
+                        sparseFeePence,
                         expiresAt,
                     })
                     .returning();
@@ -635,6 +664,7 @@ export async function reserveSlot(params: {
                     contractorId,
                     contractorName,
                     expiresAt,
+                    sparseFeePence,
                 };
             }
 

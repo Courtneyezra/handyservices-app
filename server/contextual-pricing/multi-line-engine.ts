@@ -15,8 +15,8 @@
  */
 
 import { getReferencePrice } from './reference-rates';
-import { generateMultiLineLLMPrice } from './multi-line-llm';
-import type { LineReference } from './multi-line-llm';
+import { generateMultiLineLLMPrice, APPROVED_CLAIMS } from './multi-line-llm';
+import type { LineReference, MultiLineLLMResult, MultiLineLLMLineResult } from './multi-line-llm';
 import { getAnthropic } from '../anthropic';
 import {
   getLayoutTier,
@@ -254,6 +254,97 @@ export function applyPerLineGuardrails(
   return { guardedPricePence: price, adjustments };
 }
 
+/** "a, b and c" — natural-language list join for template copy. */
+function joinNaturally(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * All-SKU fast path (quote-gen speedup, Aug 2026 — item A).
+ *
+ * When EVERY line is SKU-resolved the price is fully deterministic (catalog),
+ * so the multi-line LLM call is pure latency: its per-line prices were
+ * overwritten by the SKU path in assembly anyway, and its messaging can be
+ * replaced with template copy fed by the route's content-library claim
+ * selection (`approvedClaims`). This builds the same `MultiLineLLMResult`
+ * shape the LLM would return, so the assembly step below runs unchanged.
+ *
+ * Guardrail: prices here are EXACTLY the catalog prices — identical to the
+ * LLM path's output for SKU lines. Only messaging + discount provenance move.
+ */
+function buildAllSkuLLMResult(
+  request: MultiLineRequest,
+  skuResolutions: Map<string, ResolvedSkuLine>,
+  approvedClaims?: string[],
+): MultiLineLLMResult {
+  const lineCount = request.lines.length;
+  const skuNames = request.lines.map(
+    (l) => skuResolutions.get(l.id)?.skuRow.name || l.description,
+  );
+
+  const lineItems: MultiLineLLMLineResult[] = request.lines.map((line) => ({
+    lineId: line.id,
+    suggestedPricePence: skuResolutions.get(line.id)!.pricePence,
+    reasoning: 'SKU catalog price — all-SKU quote, LLM pricing skipped.',
+    adjustmentFactors: [],
+  }));
+
+  // Deterministic batch discount, inside the LLM's documented guidance bands
+  // (2 jobs: 5-10%, 3+: 8-15%). Edit path unaffected — the stored discount is
+  // pinned via batchDiscountPercentOverride before this value is consulted.
+  const batchDiscountPercent = lineCount >= 3 ? 10 : lineCount === 2 ? 8 : 0;
+
+  // Value bullets: the route's content-library selection (already filtered +
+  // force-injected for context) or the hardcoded approved list; padded to ≥3
+  // with the same defaults validateMessaging uses.
+  const claimsPool: readonly string[] =
+    approvedClaims && approvedClaims.length > 0 ? approvedClaims : APPROVED_CLAIMS;
+  const valueBullets = claimsPool.slice(0, 5);
+  for (const d of ['Fixed price — no surprises', '£2M insured', 'Full cleanup included']) {
+    if (valueBullets.length >= 3) break;
+    if (!valueBullets.includes(d)) valueBullets.push(d);
+  }
+  const whatsappValueLines = valueBullets.slice(0, 2);
+
+  const namesLower = skuNames.map((n) => n.toLowerCase());
+  const contextualHeadline = lineCount === 1 ? 'One Visit, Fixed Price' : `${lineCount} Jobs, One Visit`;
+  const contextualMessage =
+    lineCount === 1
+      ? `We'll take care of your ${namesLower[0]} — fixed price, and you can pick a day that suits in the link.`
+      : `We'll take care of ${joinNaturally(namesLower)} in a single visit — fixed price, and you can pick a day that suits in the link.`;
+  const proposalSummary =
+    lineCount === 1
+      ? `We'll take care of the ${namesLower[0]}. Full cleanup included once we're done.`
+      : `We'll take care of the ${joinNaturally(namesLower)}. Everything done in one visit with full cleanup included.`;
+  const jobTopLine = joinNaturally(skuNames);
+
+  return {
+    lineItems,
+    batchDiscountPercent,
+    batchDiscountReasoning:
+      lineCount > 1
+        ? `${lineCount} jobs in one visit saves travel and setup time (deterministic — all-SKU fast path).`
+        : 'Single job — no batch discount.',
+    confidence: 'high',
+    contextualHeadline,
+    contextualMessage,
+    jobTopLine,
+    messaging: {
+      contextualHeadline,
+      contextualMessage,
+      jobTopLine,
+      proposalSummary,
+      valueBullets,
+      whatsappValueLines,
+      whatsappClosing: "Just tap the link when you're ready and pick your day.",
+      layoutTier: getLayoutTier(lineCount),
+      bookingModes: ['standard_date'], // Placeholder — overridden by deterministic engine
+      requiresHumanReview: false,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Main Export
 // ---------------------------------------------------------------------------
@@ -350,13 +441,29 @@ export async function generateMultiLinePrice(
   });
 
   // Layer 2 — Polish descriptions + Layer 3 LLM pricing (run in parallel).
-  // The LLM call still receives all lines; SKU-resolved lines will simply
-  // have their LLM output overwritten in the assembly step below. We keep
-  // the LLM in the loop so messaging (headline, value bullets, etc.) still
-  // reflects the full job.
+  //
+  // Speedup (Aug 2026):
+  //   • Item B — only CUSTOM (non-SKU) lines are polished. SKU lines keep
+  //     their catalog label as the description, so one Haiku call per SKU
+  //     line is saved.
+  //   • Item A — when EVERY line is SKU-resolved, the LLM pricing call is
+  //     skipped entirely: prices are the catalog prices (the LLM's numbers
+  //     were overwritten in assembly anyway) and messaging is deterministic
+  //     template copy built from the SKU names + approved claims.
+  // Mixed/custom quotes keep the single LLM call, which still receives all
+  // lines so messaging reflects the full job.
+  const customLines = request.lines.filter((l) => !skuResolutions.has(l.id));
+  const allLinesSkuResolved = request.lines.length > 0 && customLines.length === 0;
+  if (allLinesSkuResolved) {
+    console.log(
+      `[multi-line-engine] all ${request.lines.length} line(s) SKU-resolved — skipping LLM pricing call (fast path)`,
+    );
+  }
   const [polishedDescriptions, llmResult] = await Promise.all([
-    polishAllDescriptions(request.lines),
-    generateMultiLineLLMPrice(request, lineReferences, approvedClaims),
+    polishAllDescriptions(customLines),
+    allLinesSkuResolved
+      ? Promise.resolve(buildAllSkuLLMResult(request, skuResolutions, approvedClaims))
+      : generateMultiLineLLMPrice(request, lineReferences, approvedClaims),
   ]);
 
   // Layer 4 — Per-line guardrails (no psychological pricing per line)
@@ -389,7 +496,9 @@ export async function generateMultiLinePrice(
       }
       return {
         lineId: line.id,
-        description: polishedDescriptions.get(line.id) || line.description,
+        // Item B — SKU lines are NOT polished; the catalog label the builder
+        // sent is already customer-ready copy.
+        description: line.description,
         category: line.category,
         // Mirror scheduleMinutes into timeEstimateMinutes so legacy readers
         // (invoice generator, dispatch sheet, analytics) keep working.

@@ -59,7 +59,9 @@ import {
     personalizedQuotes, nudgeQueue,
 } from '@shared/schema';
 import { eq, ne, desc, and, inArray, sql } from 'drizzle-orm';
-import { runAgent, type AgentTool, type AgentRunResult } from './runner';
+import { randomUUID } from 'node:crypto';
+import { runAgent, type AgentTool, type AgentRunResult, type AgentTranscriptEvent } from './runner';
+import { emitCommsEvent } from '../comms-events';
 import { buildMediaBlocks } from './media-context';
 import { queueDraft, approveAndSendDraft } from '../message-drafts';
 import { markQuestionResolved } from '../agent-questions';
@@ -131,6 +133,14 @@ export interface CommsAgentConfig {
          */
         minHoursBetweenRuns: number;
     };
+    /**
+     * Speed-to-lead call tasks (server/agents/va-call-tasks.ts, 28 Aug 2026): on a first-contact
+     * text enquiry, open a "ring this person within 15 working minutes" task and hold deep triage
+     * until it resolves. Sends NOTHING to the customer — it only pings the on-call human.
+     */
+    vaCallTask: {
+        enabled: boolean;
+    };
 }
 
 const SETTING_KEY = 'comms_agent';
@@ -148,6 +158,7 @@ const DEFAULT_CONFIG: CommsAgentConfig = {
     autosend: { enabled: false, intents: [] },
     firstContactAutoAck: DEFAULT_FIRST_CONTACT_ACK,
     quotePrep: { enabled: true, minHoursBetweenRuns: 6 },
+    vaCallTask: { enabled: false }, // Default OFF — owner enables via config, never code.
 };
 
 export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
@@ -162,6 +173,7 @@ export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
                 autosend: { ...DEFAULT_CONFIG.autosend, ...(o.autosend ?? {}) },
                 firstContactAutoAck: { ...DEFAULT_FIRST_CONTACT_ACK, ...(o.firstContactAutoAck ?? {}) },
                 quotePrep: { ...DEFAULT_CONFIG.quotePrep, ...(o.quotePrep ?? {}) },
+                vaCallTask: { ...DEFAULT_CONFIG.vaCallTask, ...(o.vaCallTask ?? {}) },
             };
         } catch {
             console.error('[CommsAgent] Bad COMMS_CONFIG_OVERRIDE JSON, falling through to DB config');
@@ -176,6 +188,7 @@ export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
             autosend: { ...DEFAULT_CONFIG.autosend, ...(stored.autosend ?? {}) },
             firstContactAutoAck: { ...DEFAULT_FIRST_CONTACT_ACK, ...(stored.firstContactAutoAck ?? {}) },
             quotePrep: { ...DEFAULT_CONFIG.quotePrep, ...(stored.quotePrep ?? {}) },
+            vaCallTask: { ...DEFAULT_CONFIG.vaCallTask, ...(stored.vaCallTask ?? {}) },
         };
     } catch (error) {
         console.error('[CommsAgent] Could not read config, treating as disabled:', error);
@@ -191,6 +204,7 @@ export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Pro
         autosend: { ...current.autosend, ...(patch.autosend ?? {}) },
         firstContactAutoAck: { ...current.firstContactAutoAck, ...(patch.firstContactAutoAck ?? {}) },
         quotePrep: { ...current.quotePrep, ...(patch.quotePrep ?? {}) },
+        vaCallTask: { ...current.vaCallTask, ...(patch.vaCallTask ?? {}) },
     };
     // Every flag change lands in the activity log. Three silent reversions in 24 hours (test
     // harnesses racing across sessions) turned "why is this queued?" into detective work twice;
@@ -198,7 +212,7 @@ export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Pro
     try {
         const { logSystemEvent } = await import('../system-events');
         const flags = (c: CommsAgentConfig) =>
-            `autosend=${c.autosend.enabled} quotePrep=${c.quotePrep.enabled} ack=${c.firstContactAutoAck.enabled}`;
+            `autosend=${c.autosend.enabled} quotePrep=${c.quotePrep.enabled} ack=${c.firstContactAutoAck.enabled} ackMedia=${c.firstContactAutoAck.askForMedia}`;
         if (flags(current) !== flags(next)) {
             void logSystemEvent({
                 kind: 'config_change',
@@ -495,6 +509,35 @@ export async function flagThreadForBen(opts: {
 }
 
 // ---------------------------------------------------------------- per-conversation run
+
+/**
+ * Shrink a transcript event for the live SSE stream. Tool inputs/results can carry whole thread
+ * timelines and quote payloads; the UI only needs the tool name and a glimpse of the data, so
+ * every string anywhere in the detail is truncated to 500 chars. The full, untruncated event
+ * still lands in the run transcript — this lean copy exists only for the wire.
+ */
+function leanTranscriptEvent(evt: AgentTranscriptEvent): unknown {
+    const MAX = 500;
+    const seen = new WeakSet<object>();
+    const trunc = (v: unknown, depth: number): unknown => {
+        if (typeof v === 'string') return v.length > MAX ? `${v.slice(0, MAX)}… [truncated]` : v;
+        if (!v || typeof v !== 'object' || depth > 6) return v;
+        if (seen.has(v)) return '[circular]';
+        seen.add(v);
+        if (Array.isArray(v)) return v.slice(0, 20).map((x) => trunc(x, depth + 1));
+        return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, trunc(x, depth + 1)]));
+    };
+    switch (evt.type) {
+        case 'tool_call':
+            return { at: evt.at, type: evt.type, tool: evt.detail?.tool, input: trunc(evt.detail?.input, 0) };
+        case 'tool_result':
+            return { at: evt.at, type: evt.type, tool: evt.detail?.tool, result: trunc(evt.detail?.result, 0) };
+        case 'tool_error':
+            return { at: evt.at, type: evt.type, tool: evt.detail?.tool, error: trunc(evt.detail?.error, 0) };
+        default:
+            return { at: evt.at, type: evt.type, detail: trunc(evt.detail, 0) };
+    }
+}
 
 export interface CommsAgentOutcome {
     conversationId: string;
@@ -799,6 +842,16 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     patch.tags = merged;
                 }
                 await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));
+                // Live-board push (STATE_DELTA over SSE). Dynamic import + catch: a UI stream
+                // must never throw into a triage write, and the lazy load keeps this file's
+                // import block untouched for concurrent edits.
+                try {
+                    const { emitCommsEvent } = await import('../comms-events');
+                    const reason = input.stage ? 'stage' : input.priority ? 'priority' : 'tags';
+                    emitCommsEvent({ type: 'board_delta', conversationId: conv.id, reason, at: new Date().toISOString() });
+                } catch (emitError: any) {
+                    console.warn('[CommsAgent] board_delta emit failed (write stands):', emitError?.message);
+                }
                 return { updated: Object.keys(patch).filter((k) => k !== 'updatedAt') };
             },
         },
@@ -1135,20 +1188,43 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
 
     const system = SYSTEM;
 
-    const result = await runAgent({
-        name: 'comms',
-        system,
-        goal: `Triage conversation ${conv.id} (customer: ${conv.contactName || e164}). Trigger: ${trigger}.`,
-        tools,
-        model: 'claude-sonnet-5',
-        maxTurns: 10,
-        // Raised from 4,000 on 19 Aug 2026. The standing orders grew (draft-and-ask, the first-reply
-        // rule, the re-contact lever) and on a long accumulated thread a turn started running out of
-        // output tokens mid-decision, which the runner used to report as a clean "done" with no
-        // draft and no question. This is per RESPONSE, not per run, so the headroom is cheap: a turn
-        // that finishes early costs nothing, and a turn that truncates costs a customer their reply.
-        maxTokens: 8000,
-    });
+    // LIVE RUN STREAM. Every transcript event is mirrored onto the comms event bus so an operator
+    // watching this thread in /admin/comms sees the run happen ("reading thread… checking date…
+    // drafting reply…") instead of a draft materialising. The stream is observability only: emits
+    // are try/catch-wrapped and can never fail a run.
+    const runId = randomUUID();
+    const emit = (evt: Parameters<typeof emitCommsEvent>[0]) => {
+        try { emitCommsEvent(evt); } catch (error: any) {
+            console.warn('[CommsAgent] comms event emit failed (run continues):', error?.message);
+        }
+    };
+    emit({ type: 'run_started', runId, conversationId: conv.id, at: new Date().toISOString() });
+
+    let result: AgentRunResult;
+    let runOk = false;
+    try {
+        result = await runAgent({
+            name: 'comms',
+            system,
+            goal: `Triage conversation ${conv.id} (customer: ${conv.contactName || e164}). Trigger: ${trigger}.`,
+            tools,
+            model: 'claude-sonnet-5',
+            maxTurns: 10,
+            // Raised from 4,000 on 19 Aug 2026. The standing orders grew (draft-and-ask, the first-reply
+            // rule, the re-contact lever) and on a long accumulated thread a turn started running out of
+            // output tokens mid-decision, which the runner used to report as a clean "done" with no
+            // draft and no question. This is per RESPONSE, not per run, so the headroom is cheap: a turn
+            // that finishes early costs nothing, and a turn that truncates costs a customer their reply.
+            maxTokens: 8000,
+            onEvent: (evt) => emit({
+                type: 'run_event', runId, conversationId: conv.id,
+                event: leanTranscriptEvent(evt), at: new Date().toISOString(),
+            }),
+        });
+        runOk = true;
+    } finally {
+        emit({ type: 'run_finished', runId, conversationId: conv.id, ok: runOk, at: new Date().toISOString() });
+    }
 
     const actions = result.transcript
         .filter((e) => e.type === 'tool_call' && ['set_board_state', 'queue_draft', 'flag_for_ben', 'schedule_recontact', 'resolve_question'].includes(e.detail.tool))
@@ -1270,6 +1346,13 @@ export const QUOTE_READY_TAG = 'quote_ready';
 export const VISIT_FIRST_TAG = 'visit_first';
 /** Whatever the verdict, this is the "a human is needed here" flag on the card. */
 export const NEEDS_BEN_TAG = 'needs_ben';
+/**
+ * Set when quote-prep proposes a polite no (one of the four no-go trades — docs/DECLINE_CRITERIA.md).
+ * A PROPOSAL only: nothing reaches the customer until Ben approves it in the portal, at which
+ * point the fixed reason-code template goes out. The portal stream consumes this tag plus
+ * metadata.quotePrepIntake.declineReason.
+ */
+export const DECLINE_PROPOSED_TAG = 'decline_proposed';
 
 export interface QuotePrepHandoff {
     ran: boolean;
@@ -1314,9 +1397,14 @@ export interface VerdictRouting {
  * send by itself, so putting it on his desk would be handing him a job he must not do.
  */
 export function routeIntakeVerdict(readiness: IntakeReadiness, currentTags: readonly string[]): VerdictRouting {
-    const keep = currentTags.filter((t) => ![READY_TO_PRICE_TAG, QUOTE_READY_TAG, VISIT_FIRST_TAG, 'quote_gaps'].includes(t));
+    const keep = currentTags.filter((t) => ![READY_TO_PRICE_TAG, QUOTE_READY_TAG, VISIT_FIRST_TAG, DECLINE_PROPOSED_TAG, 'quote_gaps'].includes(t));
     if (readiness === 'needs_info') {
         return { stage: null, tags: [...new Set([...keep, 'quote_gaps'])], notify: false };
+    }
+    if (readiness === 'decline') {
+        // A proposed polite no is a Ben decision, so it lands on his desk exactly like a
+        // priceable intake — same stage, its own tag, and a buzz. Approval lives in the portal.
+        return { stage: 'scoping', tags: [...new Set([...keep, NEEDS_BEN_TAG, DECLINE_PROPOSED_TAG])], notify: true };
     }
     return {
         stage: 'scoping',
@@ -1530,6 +1618,7 @@ export async function maybeAutoQuotePrep(
             customerName: intake.customerName ?? conv.contactName,
             phoneNumber: `+${digits}`,
             readiness: intake.readiness,
+            declineReason: intake.declineReason,
             lines: intake.lines.map((l) => l.title),
             postcode: intake.postcode,
             urgency: intake.urgency,

@@ -196,9 +196,11 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
   // multi-trade / miscategorised jobs going unassigned (no_supply) or to a
   // skill-mismatched or wrong-vertical contractor. A forced lead (Ben's manual
   // pick) still wins over this inside resolveQuoteTeam.
+  let priorityContractorId: string | null = null;
   try {
     const priority = await fetchPriorityContractor(input.vertical);
     if (priority) {
+      priorityContractorId = priority.id;
       const idx = teamCandidates.findIndex((c) => c.contractorId === priority.id);
       if (idx >= 0) {
         teamCandidates[idx] = { ...teamCandidates[idx], coveredCategories: [...input.categorySlugs] };
@@ -210,7 +212,18 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
     console.warn('[QuoteFit] priority-contractor injection failed:', e instanceof Error ? e.message : e);
   }
 
-  const fit = deriveTeamFit(input.categorySlugs, teamCandidates, { forcedLeadId });
+  // HARD Craig default (Aug 2026 — "auto-skin" removed): when Ben made no
+  // manual pick, the vertical's priority contractor is the default lead with
+  // the SAME anchoring as a manual force — their diary alone drives the
+  // customer calendar and the booking candidate set, so the displayed skin and
+  // the booked contractor can never differ. `leadContractorSource` stays
+  // 'auto' for this case (the route only writes 'manual' when the operator's
+  // explicit forcedLeadContractorId won) so a later real manual pick remains
+  // distinguishable. No priority contractor for the vertical → old behaviour.
+  const fit = deriveTeamFit(input.categorySlugs, teamCandidates, {
+    forcedLeadId,
+    defaultLeadId: priorityContractorId,
+  });
 
   if (fit.plan.kind === 'composed') {
     console.log(

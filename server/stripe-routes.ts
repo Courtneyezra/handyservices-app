@@ -14,6 +14,7 @@ import { insertInvoiceWithRetry } from './invoices';
 import { extendLock, confirmBooking, autoAssignPaidJob } from './booking-engine';
 import { computeLaneBasePence, parsePricingLane } from './lane-pricing';
 import { computeDateFeesPence } from './scheduling-fees';
+import { computeSparseFeeForContractorDay } from './sparse-day-fees';
 import { bookingSlotLocks } from '../shared/schema';
 import { confirmPaidPick } from './slot-offers';
 import { computeSplitScope } from '../shared/split-scope';
@@ -282,6 +283,9 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // fallback for lock-less flows; the £ comes from the mirrored fee rules
         // (server/scheduling-fees.ts), never from client pence.
         let feeDateStr: string | null = null;
+        // Sparse-day fee snapshot from the reserve lock (authority for the
+        // charge). null = pre-feature lock or lock-less flow → recompute below.
+        let lockSparseFeePence: number | null = null;
         if (lockId && typeof lockId === 'number') {
             try {
                 const [lockRow] = await db.select()
@@ -290,6 +294,7 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                     .limit(1);
                 if (lockRow && lockRow.quoteId === quoteId && lockRow.scheduledDate) {
                     feeDateStr = new Date(lockRow.scheduledDate).toISOString().slice(0, 10);
+                    lockSparseFeePence = typeof lockRow.sparseFeePence === 'number' ? lockRow.sparseFeePence : null;
                 }
             } catch (lockErr) {
                 console.warn('[Stripe] slot-lock lookup for date fees failed (continuing):', lockErr);
@@ -311,9 +316,49 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             });
         }
 
-        // Total job price (addons + date fees ride on top like extras — labour-
-        // only, no materials). The welcome gift deliberately contributes £0 here.
-        const totalJobPrice = baseTierPrice + extrasTotal + addonsTotal + dateFees.feesPence;
+        // ── Sparse-day "standalone visit" fee (server-authoritative) ─────────
+        // Authority chain: the lock snapshot (frozen at reserveSlot, the same
+        // figure the client's wallet sheet shows) wins; lock-less flows
+        // recompute for the named date when a contractor is resolvable; else 0
+        // — never guess a charge. Failure posture: compute errors → 0.
+        let sparseFeePence = 0;
+        if (typeof lockSparseFeePence === 'number') {
+            sparseFeePence = lockSparseFeePence;
+        } else if (feeDateStr) {
+            const sparseContractorId = (quote as any).leadContractorId
+                ? String((quote as any).leadContractorId)
+                : null;
+            if (sparseContractorId) {
+                try {
+                    const classification = await computeSparseFeeForContractorDay({
+                        quote: {
+                            basePrice: quote.basePrice,
+                            deferredLineItems: quote.deferredLineItems,
+                            pricingLineItems: quote.pricingLineItems,
+                            coordinates: quote.coordinates,
+                        },
+                        contractorId: sparseContractorId,
+                        dateStr: feeDateStr,
+                    });
+                    sparseFeePence = classification.feePence;
+                } catch (sparseErr) {
+                    console.warn('[Stripe] sparse-day fee recompute failed — charging 0:', sparseErr instanceof Error ? sparseErr.message : sparseErr);
+                    sparseFeePence = 0;
+                }
+            }
+        }
+        if (sparseFeePence > 0) {
+            console.log('[Stripe] Sparse-day fee applied:', {
+                date: feeDateStr,
+                sparseFeePence,
+                source: typeof lockSparseFeePence === 'number' ? 'lock_snapshot' : 'recompute',
+            });
+        }
+
+        // Total job price (addons + date fees + sparse-day fee ride on top like
+        // extras — labour-only, no materials). The welcome gift deliberately
+        // contributes £0 here.
+        const totalJobPrice = baseTierPrice + extrasTotal + addonsTotal + dateFees.feesPence + sparseFeePence;
 
         // Calculate deposit breakdown (always computed for display purposes)
         const depositBreakdown = calculateDeposit(totalJobPrice, totalMaterialsCost, depositFraction);
@@ -330,6 +375,7 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             console.log('[Stripe] Full payment with discount:', {
                 baseTierPrice,
                 extrasTotal,
+                sparseFeePence,
                 totalJobPrice,
                 discountPercent: settings.payInFullDiscountPercent,
                 chargeAmount,
@@ -340,6 +386,7 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             console.log('[Stripe] Deposit calculation:', {
                 baseTierPrice,
                 extrasTotal,
+                sparseFeePence,
                 totalJobPrice,
                 totalMaterialsCost,
                 deposit: depositBreakdown.total
@@ -387,9 +434,10 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                     console.warn(`[Stripe] Welcome gift dropped on quote ${quoteId} — kept scope ${split.activeJobPricePence}p is below the ${giftFloorPence}p gift floor`);
                     resolvedGift = null;
                 }
-                // Addons + date fees ride on the kept scope like extras —
-                // they're costs of THIS visit, never deferrable line items.
-                const activeTotalJobPrice = split.activeJobPricePence + extrasTotal + addonsTotal + dateFees.feesPence;
+                // Addons + date fees + sparse-day fee ride on the kept scope
+                // like extras — they're costs of THIS visit, never deferrable
+                // line items.
+                const activeTotalJobPrice = split.activeJobPricePence + extrasTotal + addonsTotal + dateFees.feesPence + sparseFeePence;
                 const activeMaterials = split.activeMaterialsPence + extrasMaterials;
                 if (paymentType === 'full') {
                     // Whole-£ rounding mirrors the client's splitPayFullPence.
@@ -457,6 +505,12 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // was actually charged for the date.
         if (dateFees.feesPence > 0) {
             bookingMetadata.dateFeesPence = String(dateFees.feesPence);
+        }
+        // Sparse-day "standalone visit" fee — carry the server-derived figure
+        // so the webhook's invoice/balance total includes what was actually
+        // charged for opening a sparse contractor-day.
+        if (sparseFeePence > 0) {
+            bookingMetadata.sparseFeePence = String(sparseFeePence);
         }
         // Line-item split — carry the deferred lineIds so the webhook records
         // which items were saved for another visit (comma-separated, string metadata).

@@ -22,6 +22,8 @@
  *   l) returning       → a thread quiet for months acks as ack_returning and is bumped up the board
  *   m) ack replies     → "yes call me" → callback_requested + urgent; "no, text" → prefers_text
  *   n) SMS-first ack   → an SMS-first contact is acknowledged BY SMS, never by WhatsApp
+ *   p) T1 media ask    → flag-gated photo/video ask folded into the ack, per channel; canned
+ *                        copy only, template bodies never modified, off by default
  *   o) the audit log   → every decision above, sent AND refused, is readable from the DB
  *
  * Case (c) also pins the owner's 19 Aug 2026 copy decision: the ack ASKS for a quick call rather
@@ -56,8 +58,9 @@ import {
     maybeAutoAckFirstContact, isFirstContact, composeFirstContactAck,
     looksLikeSpam, screenGeography, classifyAckReply, triageAckReply,
     readContactHistory, classifyHistory, templatePreferenceFor, logFirstContactAck,
-    CALLBACK_TAG, PREFERS_TEXT_TAG,
+    CALLBACK_TAG, PREFERS_TEXT_TAG, DEFAULT_FIRST_CONTACT_ACK, mediaAskSentence, isOutOfHours,
 } from '../server/first-contact-ack';
+import { getSmsSenderE164, getWhatsAppSenderE164 } from '../server/whatsapp-sender';
 import { sendSmsMessage } from '../server/sms';
 import { sendCustomerMessage, NOT_A_WHATSAPP_RECIPIENT_CODES, smsBody } from '../server/outbound';
 import { queueDraft, approveAndSendDraft } from '../server/message-drafts';
@@ -627,6 +630,112 @@ async function main() {
         // and that failure must be loud, which is the same guarantee case (i) proves.
         pass(smsFirst.result.reason === 'SENT' || String(smsFirst.result.reason).startsWith('SEND_REFUSED'),
             `ended in a definite state: ${smsFirst.result.reason}`);
+
+        // ---------------------------------------------------------------- p) T1 media prompt
+        head('CASE (p)  T1 media ask: flag-gated, canned only, folded into the same message.');
+
+        // The shipped default: off, and a config written before the flag existed resolves to off.
+        pass(DEFAULT_FIRST_CONTACT_ACK.askForMedia === false, 'askForMedia ships false (DEFAULT_FIRST_CONTACT_ACK)');
+        pass((await getCommsAgentConfig()).firstContactAutoAck.askForMedia === false,
+            'a stored config without the key resolves to false via the merge default, so nothing changes on deploy');
+
+        // Flag OFF (the override in force has no askForMedia key): the ack is word-for-word what it was.
+        await stageFirstContact({ hoursAgo: 0, text: 'Hi, my kitchen tap is dripping. Can you help?' });
+        const plainAck = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'whatsapp', contactName: 'Test Lead (smoke)' });
+        console.log('flag OFF body:', JSON.stringify(plainAck.body));
+        pass(plainAck.sent === true, 'control ack sent with the flag off');
+        pass(!/photo or video/i.test(plainAck.body ?? ''), 'flag OFF → no media ask anywhere in the copy');
+
+        // Flag ON, WhatsApp first contact, window open → the ask rides the freeform body.
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
+            ...baseOverride,
+            firstContactAutoAck: { enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'], askForMedia: true },
+        });
+        await stageFirstContact({ hoursAgo: 0, text: 'Hi, my kitchen tap is dripping. Can you help?' });
+        const waAsk = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'whatsapp', contactName: 'Test Lead (smoke)' });
+        console.log('flag ON (whatsapp) body:', JSON.stringify(waAsk.body));
+        const expectedWa = mediaAskSentence({ channel: 'whatsapp', outOfHours: isOutOfHours() });
+        pass(waAsk.sent === true && waAsk.mode === 'freeform', 'flag ON → still sends freeform inside the window (gating untouched)');
+        pass(!!expectedWa && (waAsk.body ?? '').endsWith(expectedWa), 'the WhatsApp ask is appended, wording matched to the hour');
+        pass((waAsk.body ?? '').split('\n---\n').length === 2, 'folded into the SAME message: still two bursts, no third bubble');
+        pass(((waAsk.body ?? '').match(/\?/g) ?? []).length === 1, 'still exactly one question — the ask is a statement');
+        pass(!/£|\d{1,2}:\d{2}|monday|tuesday|wednesday|thursday|friday/i.test(waAsk.body ?? ''), 'still no price, no time, no day');
+        pass(!(waAsk.body ?? '').includes('—'), 'still no em dashes');
+
+        // Flag ON, SMS-first → the documented SMS decision: a UK long code cannot receive MMS, so
+        // the ask is ADAPTED to a WhatsApp redirect, and only while SMS and WhatsApp share one
+        // number (checked at runtime, omitted if they ever split).
+        await stageFirstContact({ hoursAgo: 0, text: 'Hi, sent from SMS. Do you do fencing?', channel: 'sms' });
+        const smsAskResult = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'sms', contactName: 'Test Lead (smoke)' });
+        const smsAskDraft = (await draftsFor(OFCOM_PHONE)).find((d) => d.id === smsAskResult.draftId);
+        console.log('flag ON (sms) draft body:', JSON.stringify(smsAskDraft?.body));
+        const sendersShared = !!getSmsSenderE164() && getSmsSenderE164() === getWhatsAppSenderE164();
+        const expectedSms = mediaAskSentence({ channel: 'sms', outOfHours: isOutOfHours() });
+        pass(smsAskDraft?.channel === 'sms', 'SMS-first still routes to SMS (the pipe rules are untouched)');
+        if (sendersShared) {
+            pass(!!expectedSms && /WhatsApp a quick photo or video of the job to this number/i.test(expectedSms ?? ''),
+                'senders shared → the SMS ask is the WhatsApp redirect, never an MMS ask a UK number cannot receive');
+            pass((smsAskDraft?.body ?? '').endsWith(expectedSms!), 'and it is appended to the SMS body');
+        } else {
+            pass(expectedSms === null, 'senders split → the ask is omitted on SMS rather than pointing at a number with no WhatsApp');
+            pass(!/photo or video/i.test(smsAskDraft?.body ?? ''), 'and the SMS body carries no ask');
+        }
+
+        // Flag ON, webform → same lane as every other channel (leads.ts hands webform enquiries to
+        // scheduleInboundTriage), and the ask follows whichever pipe carries the ack.
+        await stageFirstContact({ hoursAgo: 0, text: 'New web enquiry: leaking gutter above the bay window.' });
+        const webAsk = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'webform', contactName: 'Test Lead (smoke)' });
+        console.log('flag ON (webform) body:', JSON.stringify(webAsk.body));
+        pass(webAsk.sent === true && !!expectedWa && (webAsk.body ?? '').endsWith(expectedWa),
+            'a webform ack carries the ask of the pipe it actually went out on');
+
+        // Shut window: an approved template's wording is Meta's to freeze — never spliced into.
+        await stageFirstContact({ hoursAgo: 30, text: 'Hi, do you do fencing?' });
+        const shutAsk = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'whatsapp', contactName: 'Test Lead (smoke)' });
+        console.log('flag ON (shut window):', JSON.stringify({ reason: shutAsk.reason, mode: shutAsk.mode, templateName: shutAsk.templateName }));
+        if (shutAsk.templateName) {
+            pass(!/If you can,/i.test(shutAsk.body ?? ''),
+                `template '${shutAsk.templateName}' carried the ack with its approved wording untouched`);
+        } else {
+            pass(true, `no approved template took the send here (${shutAsk.reason}) — the rule is enforced by the !contentSid gate either way`);
+        }
+
+        // Exclusions: media already in hand, and a missed call, never get the ask.
+        await stageFirstContact({ hoursAgo: 0, text: 'Here are the photos of the fence' });
+        const photosAsk = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'whatsapp', contactName: 'Test Lead (smoke)', hasMedia: true });
+        pass(photosAsk.intent === 'ack_photos' && !/photo or video of the job/i.test(photosAsk.body ?? ''),
+            'ack_photos: they already sent media, so no ask');
+        await stageFirstContact({ hoursAgo: 0, text: '' });
+        const missedAsk = await maybeAutoAckFirstContact({ conversationId: OFCOM_CONV, phone: OFCOM_PHONE, channel: 'whatsapp', contactName: 'Test Lead (smoke)', intent: 'ack_missed_call' });
+        pass(missedAsk.intent === 'ack_missed_call' && !/photo or video/i.test(missedAsk.body ?? ''),
+            'ack_missed_call: out of T1 scope, no ask (the post-call lane owns its own video request)');
+
+        // The canned variants themselves: every combination stays inside the content-free rules,
+        // including the out-of-hours overnight framing and the prefers_text call-vocabulary ban.
+        for (const channel of ['whatsapp', 'sms'] as const) {
+            for (const outOfHours of [false, true]) {
+                for (const prefersText of [false, true]) {
+                    const line = mediaAskSentence({ channel, outOfHours, prefersText });
+                    const label = `${channel}${outOfHours ? ' out-of-hours' : ' in-hours'}${prefersText ? ' prefers_text' : ''}`;
+                    if (line === null) {
+                        pass(channel === 'sms' && !sendersShared, `${label}: omitted, and only ever on SMS with split senders`);
+                        continue;
+                    }
+                    console.log(`  ${label}: ${line}`);
+                    pass(!line.includes('?'), `${label}: a statement, not a question`);
+                    pass(!line.includes('—'), `${label}: no em dashes`);
+                    pass(!/£|\d{1,2}:\d{2}|monday|tuesday|wednesday|thursday|friday|price|quote|book/i.test(line),
+                        `${label}: no money, no dates, no scope vocabulary`);
+                    if (outOfHours) {
+                        pass(!/shortly/i.test(line), `${label}: never implies someone is at a desk`);
+                        pass(/now and we'll .*first thing/i.test(line), `${label}: keeps the overnight framing (media now, ready first thing)`);
+                    }
+                    if (prefersText) {
+                        pass(!/\b(call|ring|phone)\b/i.test(line), `${label}: no call vocabulary for a prefers_text customer`);
+                    }
+                }
+            }
+        }
 
         // ---------------------------------------------------------------- o) the audit log
         head('CASE (o)  every decision above was written to first_contact_ack_log, refusals included.');

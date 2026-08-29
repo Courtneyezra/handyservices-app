@@ -236,10 +236,13 @@ export class MediaStreamRecorder {
                 console.warn(`[PostCall] lead upsert failed for ${callRecordId}:`, e?.message ?? e);
             }
 
-            // 4. Refresh the thread card now the transcript, verdict and lead exist.
+            // 4. Refresh the thread card now the transcript, verdict and lead exist. This is also
+            // the post-classification moment for the continuation lane on the batch path: the
+            // verdict is in hand, so `continuation: true` here (not at hangup) is what makes the
+            // message land "shortly after classification".
             try {
                 const { ingestCallIntoThread } = await import("./call-thread");
-                await ingestCallIntoThread(callRecordId, { markUnread: false, ack: false });
+                await ingestCallIntoThread(callRecordId, { markUnread: false, ack: false, continuation: true });
             } catch (e: any) {
                 console.warn(`[PostCall] thread refresh failed for ${callRecordId}:`, e?.message ?? e);
             }

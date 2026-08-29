@@ -19,10 +19,24 @@ import { sendCustomerMessage, type OutboundChannel } from './outbound';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
 import { logSystemEvent } from './system-events';
+import { emitCommsEvent, type CommsEvent } from './comms-events';
+
+/**
+ * Fire-and-forget push to the live SSE stream. A UI notification must never be able to throw
+ * into the business logic that produced it — the stream is a view, the DB is the truth, and a
+ * missed event costs the client nothing but freshness (it refetches on reconnect anyway).
+ */
+function pushCommsEvent(evt: CommsEvent): void {
+    try {
+        emitCommsEvent(evt);
+    } catch (error: any) {
+        console.warn('[Drafts] comms event emit failed (send/queue stands):', error?.message);
+    }
+}
 
 export const messageDraftsRouter = Router();
 
-export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack';
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack';
 
 /**
  * Which draft sources count as a service reply for opt-out purposes, and which are outreach.
@@ -38,6 +52,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'recovery' | 'manu
  *
  * NOT listed, therefore blocked by a plain STOP:
  *   post_call_video    we decided to ask for something after a call. Outreach.
+ *   post_call_continuation  same family: we chose to message after a call ended. Outreach.
  *   recovery           chasing a quote that went quiet. Outreach — this is the one PECR is about.
  *
  * None of this gets past an 'all' ("do not contact") suppression; that blocks every source.
@@ -59,6 +74,13 @@ export async function queueDraft(input: {
     body: string;
     source: DraftSource;
     reason?: string;
+    /**
+     * Caller-supplied draft id, for paths that need a DETERMINISTIC one ("one draft per call,
+     * ever" — the post-call continuation derives it from the call record id, mirroring the
+     * `call_<id>` message-id pattern). The insert's primary-key constraint then makes replays a
+     * hard no-op instead of a race. Leave unset for the normal timestamped id.
+     */
+    id?: string;
     contentSid?: string;
     contentVariables?: Record<string, string>;
     /**
@@ -115,7 +137,18 @@ export async function queueDraft(input: {
     const [conv] = await db.select({ id: conversations.id })
         .from(conversations).where(eq(conversations.phoneNumber, convKey));
 
-    const id = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const id = input.id ?? `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    if (input.id) {
+        // A deterministic id means "this exact draft may only ever exist once" — in ANY status.
+        // The source dedupe above only sees pending/approved; a sent or rejected row must also
+        // block a replay, or a re-ingested call would message the customer twice.
+        const [prior] = await db.select({ id: messageDrafts.id })
+            .from(messageDrafts).where(eq(messageDrafts.id, id)).limit(1);
+        if (prior) {
+            console.log(`[Drafts] Skipping duplicate deterministic draft ${id}`);
+            return null;
+        }
+    }
     await db.insert(messageDrafts).values({
         id,
         conversationId: conv?.id ?? null,
@@ -147,6 +180,7 @@ export async function queueDraft(input: {
     }));
 
     console.log(`[Drafts] Queued ${input.source} draft ${id} for ${phone}`);
+    pushCommsEvent({ type: 'draft_delta', draftId: id, conversationId: conv?.id ?? undefined, status: 'pending', at: new Date().toISOString() });
     void logSystemEvent({
         kind: 'hold',
         phone,
@@ -207,6 +241,7 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
             .returning();
 
         if (!updated) return res.status(404).json({ error: 'Draft not found or no longer pending' });
+        pushCommsEvent({ type: 'draft_delta', draftId: updated.id, conversationId: updated.conversationId ?? undefined, status: 'edited', at: new Date().toISOString() });
         res.json({ draft: updated });
     } catch (error: any) {
         console.error('[Drafts] Edit failed:', error);
@@ -308,6 +343,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
         safely('recordDraftVerdict:blocked', () => recordDraftVerdict({
             draftId: draft.id, outcome: 'blocked', decidedBy: approvedBy,
         }));
+        pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: draft.conversationId ?? undefined, status: 'blocked', at: new Date().toISOString() });
         return { ok: false, code: 'OPTED_OUT', message: optOutRefusalMessage(suppression) };
     }
 
@@ -339,6 +375,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             detail: { draftId: draft.id, by: approvedBy, marker },
             source: 'message-drafts',
         });
+        pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: draft.conversationId ?? undefined, status: 'blocked', at: new Date().toISOString() });
     };
 
     // A malformed reason means a malformed RUN — the agent that wrote this draft did not know why
@@ -498,6 +535,10 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             detail: { by: approvedBy, channel: result.channel ?? draft.channel, draftId: draft.id },
             source: 'message-drafts',
         });
+        pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: draft.conversationId ?? undefined, status: 'sent', at: new Date().toISOString() });
+        if (draft.conversationId) {
+            pushCommsEvent({ type: 'board_delta', conversationId: draft.conversationId, reason: 'outbound', at: new Date().toISOString() });
+        }
 
         // Beta read-along ping for sends released OUTSIDE an agent run (Ben approving, the
         // first-contact ack, sweeps). Agent autosends are excluded here — the run-completion
@@ -635,6 +676,7 @@ messageDraftsRouter.post('/:id/reject', async (req, res) => {
         safely('recordDraftVerdict:rejected', () => recordDraftVerdict({
             draftId: updated.id, outcome: 'rejected', decidedBy: rejectedBy,
         }));
+        pushCommsEvent({ type: 'draft_delta', draftId: updated.id, conversationId: updated.conversationId ?? undefined, status: 'rejected', at: new Date().toISOString() });
         res.json({ success: true, draft: updated });
     } catch (error: any) {
         console.error('[Drafts] Reject failed:', error);

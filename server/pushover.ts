@@ -424,6 +424,77 @@ export async function notifyCallbackDue(alert: CallbackDueAlert): Promise<void> 
     });
 }
 
+interface VaCallTaskAlert {
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    /** whatsapp | sms | webform — where the enquiry arrived, shown so the caller has context. */
+    channel: string;
+    conversationId: string;
+    /** First line of the enquiry, for "what am I ringing about". */
+    enquiryPreview?: string | null;
+    dueAt?: Date | null;
+    /** True for the single sweep re-ping when the 15-minute window lapsed un-actioned. */
+    overdue?: boolean;
+}
+
+/**
+ * Build the va_call_task alert payload. Pure and exported so the test suite asserts on the exact
+ * payload without a token or a send — the brief's "assert on the payload" rule made literal.
+ *
+ * T2 (29 Aug 2026): the tappable link now opens /admin/va-tasks — the call-list portal — instead
+ * of a bare tel:. A raw tel: rang a number the caller had zero context on and threw away the
+ * "Mark called" bookkeeping; the portal is one tap from the push and carries the countdown, the
+ * enquiry in the customer's words, any photos, the one-tap call button AND the settle actions.
+ * The thread deep link rides in the message body (Pushover allows one supplementary URL), and
+ * the number itself stays in the first line for anyone who wants to dial by eye.
+ */
+export function buildVaCallTaskAlert(alert: VaCallTaskAlert): {
+    title: string; message: string; url: string; urlTitle: string;
+} {
+    const who = alert.customerName?.trim() || 'New enquiry';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const threadLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+
+    const lines = [`${who} — ${number} (${alert.channel})`];
+    if (alert.enquiryPreview?.trim()) lines.push(truncate(alert.enquiryPreview.trim(), 200));
+    if (alert.overdue) {
+        lines.push('⚠️ The 15-minute call window has lapsed — ring them now if you still can.');
+    } else if (alert.dueAt) {
+        const due = alert.dueAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+        lines.push(`📞 Ring them by ${due} — a quick call is what wins these.`);
+    } else {
+        lines.push('📞 Ring them within 15 minutes — a quick call is what wins these.');
+    }
+    lines.push(threadLink);
+
+    return {
+        title: alert.overdue ? '⏰ Call task overdue' : '📞 Ring this enquiry',
+        message: lines.join('\n'),
+        url: `${baseUrl}/admin/va-tasks`,
+        urlTitle: '📞 Open the call list',
+    };
+}
+
+/**
+ * Fire a speed-to-lead "ring this enquiry now" alert (server/agents/va-call-tasks.ts, 28 Aug 2026).
+ * Fires at most twice per task: once on creation (or the morning release, for an overnight
+ * enquiry), once if the sweep expires it un-actioned — the CAS claims in va-call-tasks.ts
+ * guarantee neither can repeat. Payload shape and link rationale: buildVaCallTaskAlert above.
+ */
+export async function notifyVaCallTask(alert: VaCallTaskAlert): Promise<void> {
+    const payload = buildVaCallTaskAlert(alert);
+    await dispatch({
+        event: 'va_call_task',
+        title: payload.title,
+        message: payload.message,
+        linkPhone: alert.phoneNumber,
+        linkName: alert.customerName?.trim() || 'New enquiry',
+        linkUrl: payload.url,
+        linkUrlTitle: payload.urlTitle,
+    });
+}
+
 interface EscalationAlert {
     customerName?: string | null;
     phoneNumber?: string | null;
@@ -504,12 +575,23 @@ interface QuotePrepReadyAlert {
     conversationId: string;
     customerName?: string | null;
     phoneNumber?: string | null;
-    readiness: 'quote_ready' | 'needs_info' | 'visit_first';
+    readiness: 'quote_ready' | 'needs_info' | 'visit_first' | 'decline';
     /** The job lines the clerk extracted, customer-facing titles. */
     lines: string[];
     postcode?: string | null;
     urgency?: 'low' | 'med' | 'high';
+    /** Set only with readiness 'decline': why the polite no is proposed. */
+    declineReason?: 'gas_work' | 'roofing_height' | 'structural' | 'major_electrical' | null;
 }
+
+/** Display labels for decline reason codes. Kept local so the alert layer never imports agent
+ *  code — mirror of DECLINE_LABELS in server/agents/quote-prep.ts. */
+const DECLINE_REASON_LABELS: Record<string, string> = {
+    gas_work: 'gas work',
+    roofing_height: 'roofing & work at height',
+    structural: 'structural alterations',
+    major_electrical: 'notifiable electrical',
+};
 
 /**
  * Fire an "a prepped intake is waiting for you to price" alert.
@@ -524,6 +606,8 @@ export async function notifyQuotePrepReady(alert: QuotePrepReadyAlert): Promise<
     const who = alert.customerName?.trim() || 'A customer';
     const number = alert.phoneNumber?.trim() || 'no number';
     const visit = alert.readiness === 'visit_first';
+    const decline = alert.readiness === 'decline';
+    const declineLabel = (alert.declineReason && DECLINE_REASON_LABELS[alert.declineReason]) || 'out-of-scope work';
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
 
     const lines = [`${who} — ${number}${alert.postcode ? ` · ${alert.postcode}` : ''}`];
@@ -531,23 +615,28 @@ export async function notifyQuotePrepReady(alert: QuotePrepReadyAlert): Promise<
         lines.push(alert.lines.slice(0, 5).map((t) => `• ${truncate(t, 60)}`).join('\n'));
         if (alert.lines.length > 5) lines.push(`…+${alert.lines.length - 5} more`);
     }
-    lines.push(visit
-        ? '🔍 Cannot be priced from the thread. Survey gate is pre-set in the panel.'
-        : '✅ Scoped and ready. Open the thread, check it, price it, send it.');
+    lines.push(decline
+        ? `🚫 ${declineLabel[0].toUpperCase()}${declineLabel.slice(1)} — outside our scope. Nothing sent: review and approve (or reject) the polite no in the portal.`
+        : visit
+            ? '🔍 Cannot be priced from the thread. Survey gate is pre-set in the panel.'
+            : '✅ Scoped and ready. Open the thread, check it, price it, send it.');
     if (alert.urgency === 'high') lines.push('🔥 They want this soon.');
-    // prep=1 makes CommsPage open the thread AND the prefilled quote panel — one tap from this
-    // notification to pricing, no hunting the board for the card.
-    const deepLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}&prep=1`;
+    // The portal review view (T5) is the mobile-first triage stop: lane, gaps, media, thread,
+    // lane override — and its "Approve & build quote" button deep-links on into the prefilled
+    // quote panel (/admin/comms?prep=1), so pricing stays one tap beyond review.
+    const deepLink = `${baseUrl}/admin/portal/review/${alert.conversationId}`;
     lines.push(deepLink);
 
     await dispatch({
         event: 'quote_prep_ready',
-        title: visit ? '🔍 Needs a visit before we can price it' : '📋 Intake ready to price',
+        title: decline
+            ? `🚫 Polite no proposed — ${declineLabel}`
+            : visit ? '🔍 Needs a visit before we can price it' : '📋 Intake ready to price',
         message: lines.join('\n'),
         linkPhone: alert.phoneNumber,
         linkName: who,
         linkUrl: deepLink,
-        linkUrlTitle: '📋 Open thread & quote panel',
+        linkUrlTitle: '📋 Review in portal',
     });
 }
 

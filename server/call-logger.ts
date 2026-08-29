@@ -295,6 +295,7 @@ export async function finalizeCall(
             markUnread: true,
             ack: true,
             outboundOpensCard: true,
+            continuation: true,
         });
         if (board.status !== 'skipped') {
             console.log(`[CallLogger] Call ${callRecordId} thread activity: ${board.reason} "${board.preview}"${board.ack ? ` | ack: ${board.ack.reason}` : ''}`);

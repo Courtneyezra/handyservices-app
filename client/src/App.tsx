@@ -71,6 +71,9 @@ const NudgeQueuePage = lazy(() => import("@/pages/admin/NudgeQueuePage"));
 const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
 const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
 const ActivityPage = lazy(() => import("@/pages/admin/ActivityPage"));
+const VaTasksPage = lazy(() => import("@/pages/admin/VaTasksPage"));
+const PortalInboxPage = lazy(() => import("@/pages/admin/PortalInboxPage"));
+const PortalReviewPage = lazy(() => import("@/pages/admin/PortalReviewPage"));
 const WhatsAppOnboardPage = lazy(() => import("@/pages/admin/WhatsAppOnboardPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
@@ -727,6 +730,27 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <ActivityPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/va-tasks">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <VaTasksPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/portal">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PortalInboxPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/portal/review/:conversationId">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PortalReviewPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

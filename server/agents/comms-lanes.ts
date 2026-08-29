@@ -50,6 +50,14 @@ export function scheduleInboundTriage(conversationId: string, phone: string, opt
     /** The stored message's id, so a recorded opt-out points at the exact words that caused it. */
     messageId?: string | null;
 } = {}): void {
+    // Live-board push: an inbound just changed the board, tell any open CommsPage now rather
+    // than at its next poll. Lazy import (this module is on hot webhook paths) and swallowed
+    // errors — a UI stream must never break ingest.
+    if (conversationId) {
+        void import('../comms-events').then(({ emitCommsEvent }) => {
+            emitCommsEvent({ type: 'board_delta', conversationId, reason: 'inbound', at: new Date().toISOString() });
+        }).catch((e) => console.warn('[CommsLanes] board_delta emit failed (ingest stands):', e?.message ?? e));
+    }
     void runInboundLanes(conversationId, phone, opts).catch((e) =>
         console.error('[CommsLanes] scheduleInboundTriage error:', e?.message ?? e));
 }
@@ -87,6 +95,15 @@ async function runInboundLanes(conversationId: string, phone: string, opts: {
         });
         if (optOut.matched) {
             console.log(`[CommsLanes] ${phone} opted out (${optOut.scope}) — no ack, no draft, no triage.`);
+            // A person who just wrote STOP must also come off the call list — an open VA call
+            // task would otherwise have a human ring the number the system just promised to
+            // leave alone (server/agents/va-call-tasks.ts, 28 Aug 2026).
+            try {
+                const { dismissOpenVaCallTasksForPhone } = await import('./va-call-tasks');
+                await dismissOpenVaCallTasksForPhone(phone, 'system:opt_out', 'opted_out');
+            } catch (e: any) {
+                console.error('[CommsLanes] va-call-task opt-out dismiss failed:', e?.message ?? e);
+            }
             return;
         }
     } catch (error: any) {
@@ -105,6 +122,25 @@ async function runInboundLanes(conversationId: string, phone: string, opts: {
         console.error('[CommsLanes] ack-reply triage error:', e?.message ?? e));
 
     await arm(conversationId, phone);
+
+    // The VA call-task lane (server/agents/va-call-tasks.ts, 28 Aug 2026): on a first-contact
+    // text enquiry, open a "ring them within 15 working minutes" task and HOLD the debounced
+    // triage until it resolves. Deliberately AFTER arm() and awaited: both write
+    // metadata.nextTriageAt latest-writer-wins, and the hold must land on top of arm's short
+    // debounce or a second message in the burst would quietly un-hold the thread. Sends nothing
+    // to the customer; a failure here must not break ingest.
+    try {
+        const { runVaCallTaskLane } = await import('./va-call-tasks');
+        await runVaCallTaskLane({
+            conversationId,
+            phone,
+            channel: opts.channel ?? 'whatsapp',
+            contactName: opts.contactName,
+            text: opts.text,
+        });
+    } catch (error: any) {
+        console.error('[CommsLanes] va-call-task lane error:', error?.message ?? error);
+    }
 }
 
 async function ackFirstContact(conversationId: string, phone: string, opts: {
