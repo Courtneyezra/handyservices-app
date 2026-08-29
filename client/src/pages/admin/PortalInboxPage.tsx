@@ -42,7 +42,11 @@ export default function PortalInboxPage() {
         if (!data) return [];
         const cards = Object.values(data.columns).flat();
         return cards
-            .filter((c) => c.bensDesk || c.intakeReadiness)
+            // A readiness verdict alone only counts while the thread is still pre-quote: the
+            // verdict survives in metadata as a historical record after the quote goes out
+            // (finalizeQuoteSent retires the tags but not quotePrepIntake), so without the
+            // stage check every dealt-with thread would sit in this inbox forever.
+            .filter((c) => c.bensDesk || (c.intakeReadiness && (c.stage === 'enquiry' || c.stage === 'scoping')))
             .sort((a, b) => {
                 const rank = urgencyRank(a) - urgencyRank(b);
                 if (rank !== 0) return rank;
