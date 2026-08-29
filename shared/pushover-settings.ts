@@ -13,6 +13,7 @@ export type PushoverPriority = -1 | 0 | 1 | 2;
 export type PushoverEventKey =
     | 'call'
     | 'sms'
+    | 'whatsapp'
     | 'lead'
     | 'voicemail'
     | 'complaint'
@@ -45,6 +46,11 @@ export interface PushoverEventDef {
 export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     { key: 'call', label: 'Incoming call', short: 'Calls', group: 'Inbound', defaultPriority: 2, defaultSound: 'persistent' },
     { key: 'sms', label: 'Incoming SMS', short: 'SMS', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
+    // notifyIncomingWhatsApp has dispatched on this key since 25 Aug 2026, but the key was never
+    // defined here — so config.events.whatsapp was undefined and every inbound WhatsApp push threw
+    // before sending. Defining it (29 Aug 2026) makes normalize()'s backfill give saved configs
+    // sensible defaults, same as any event added after a config was first saved.
+    { key: 'whatsapp', label: 'Incoming WhatsApp message', short: 'WhatsApp', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
     { key: 'lead', label: 'New lead (web form / video / booking)', short: 'Leads', group: 'Inbound', defaultPriority: 1, defaultSound: 'cashregister' },
     { key: 'voicemail', label: 'Voicemail / missed call', short: 'Missed', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
     // The call classifier heard someone unhappy. A complaint left to automation is how a one-star
