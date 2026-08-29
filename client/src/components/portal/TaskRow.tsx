@@ -45,6 +45,15 @@ export function TaskRow({ card }: { card: PortalCard }) {
                         {s.text}
                     </span>
                 ))}
+                {card.quoteSlug && (
+                    <a
+                        href={`/quote/${card.quoteSlug}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700"
+                    >
+                        View quote
+                    </a>
+                )}
             </div>
             {card.lastMessagePreview && (
                 <p className="mt-1.5 truncate text-sm text-slate-600">{card.lastMessagePreview}</p>

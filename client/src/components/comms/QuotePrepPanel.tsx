@@ -13,6 +13,12 @@
  * the WhatsApp burst (builder generator, style dropdown, no greeting) for Ben's approval.
  * Thread is one click back (close the sheet); the panel keeps its state while the thread
  * stays open, so closing to check a message loses nothing.
+ *
+ * Mobile overhaul (29 Aug 2026): full-screen on phones, with sticky tabs — Quote (the
+ * form), Thread (the conversation, self-fetched here so the mounting pages' prop contract
+ * is untouched) and Media (a tappable grid with a full-screen lightbox). All panes stay
+ * mounted across tab hops so nothing is lost. The media ticks are one shared state:
+ * grid, lightbox and the Quote tab's compact summary all flip the same set.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
@@ -21,7 +27,7 @@ import {
 } from '@/components/ui/sheet';
 import {
     AlertCircle, Bot, Check, ChevronDown, ChevronRight, Clock, ExternalLink,
-    FileText, Loader2, Send, X, Plus, Sparkles, Pin,
+    FileText, Image as ImageIcon, Loader2, MessageSquare, Send, X, Plus, Sparkles, Pin,
 } from 'lucide-react';
 import { CATEGORY_OPTIONS } from '@/lib/quote-categories';
 import { cn } from '@/lib/utils';
@@ -34,6 +40,8 @@ import {
     CrewSkinPicker, useSkinContractors, useContractorTeams,
 } from '@/components/quote/CrewSkinPicker';
 import { ExtrasEditor, type OptionalExtra } from '@/components/quote/ExtrasEditor';
+import { PrepThreadTab } from './PrepThreadTab';
+import { PrepMediaGrid, PrepMediaLightbox } from './PrepMediaGrid';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -343,6 +351,28 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
         () => Object.fromEntries(media.filter((m) => m.mediaUrl).map((m) => [m.mediaUrl!, true])),
     );
     const isVideo = (m: PrepThreadMedia) => (m.mediaType ?? '').startsWith('video/') || m.type === 'video';
+    const tickedCount = media.filter((m) => m.mediaUrl && ticked[m.mediaUrl]).length;
+
+    // ── Tabs (mobile overhaul) ──
+    // Quote = the builder form, Thread = the conversation, Media = the grid + lightbox.
+    // All three panes stay mounted (hidden, not unmounted) so form state, scroll
+    // positions and the thread query survive tab hops.
+    const [tab, setTab] = useState<'quote' | 'thread' | 'media'>('quote');
+    // The thread fetch is lazy: it fires the first time the tab is opened, then caches.
+    const [threadVisited, setThreadVisited] = useState(false);
+    const switchTab = (t: 'quote' | 'thread' | 'media') => {
+        if (t === 'thread') setThreadVisited(true);
+        setTab(t);
+    };
+    // Full-screen media viewer; null = shut. Indexes into `media`.
+    const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+    const openMediaByUrl = (url: string) => {
+        const idx = media.findIndex((m) => m.mediaUrl === url);
+        if (idx >= 0) setLightboxIndex(idx);
+        else window.open(url, '_blank', 'noopener'); // audio/doc from the thread — not gridable
+    };
+    // Jump-bar targets: one ref per line card.
+    const lineRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
     const [saved, setSaved] = useState<{ slug: string; quoteId: string; total: string | null } | null>(null);
     const [cardError, setCardError] = useState<string | null>(null);
@@ -806,13 +836,27 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
         <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent
                 side="right"
-                className="flex w-full flex-col gap-0 p-0 sm:max-w-[620px] lg:max-w-[720px]"
+                className="flex w-full max-w-full flex-col gap-0 p-0 sm:max-w-[620px] lg:max-w-[720px]"
                 // Keep the customer thread one click back, not one accidental click away:
                 // clicking the dimmed thread closes the panel (state survives, reopen chip stays).
+                // Esc with the lightbox up shuts the lightbox, not the whole panel.
+                onEscapeKeyDown={(e) => {
+                    if (lightboxIndex != null) { e.preventDefault(); setLightboxIndex(null); }
+                }}
             >
+                {/* 44px close for thumbs — sits over the built-in 16px close on phones. */}
+                <button
+                    type="button"
+                    onClick={() => onOpenChange(false)}
+                    aria-label="Close quote prep"
+                    className="absolute right-1 top-1 z-20 flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 sm:hidden"
+                >
+                    <X className="h-5 w-5" />
+                </button>
+
                 {/* ── Header: who + where + type + waiting chips ── */}
                 <div className="border-b border-slate-200 px-4 py-3">
-                    <div className="flex items-center gap-1.5 pr-8">
+                    <div className="flex flex-wrap items-center gap-1.5 pr-10 sm:pr-8">
                         <FileText className="h-4 w-4 text-slate-700" />
                         <SheetTitle className="text-sm font-bold uppercase tracking-wide text-slate-900">
                             Quote prep — review &amp; send
@@ -829,7 +873,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                         Review the agent's intake, edit every quote detail, then save a draft or send.
                     </SheetDescription>
 
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div className="mt-2 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
                         <div>
                             <p className="text-[10px] font-semibold uppercase text-slate-400">Name</p>
                             <input
@@ -891,8 +935,49 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                     )}
                 </div>
 
-                {/* ── Scrollable body: full builder parity ── */}
-                <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4">
+                {/* ── Sticky tabs: Quote | Thread | Media ── */}
+                <div className="flex flex-none border-b border-slate-200 bg-white">
+                    {([
+                        { id: 'quote' as const, label: 'Quote', icon: FileText },
+                        { id: 'thread' as const, label: 'Thread', icon: MessageSquare },
+                        { id: 'media' as const, label: media.length ? `Media ${tickedCount}/${media.length}` : 'Media', icon: ImageIcon },
+                    ]).map((t) => (
+                        <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => switchTab(t.id)}
+                            className={cn(
+                                'flex min-h-[44px] flex-1 items-center justify-center gap-1.5 border-b-2 px-2 text-[11px] font-bold uppercase tracking-wide transition-colors',
+                                tab === t.id
+                                    ? 'border-slate-900 text-slate-900'
+                                    : 'border-transparent text-slate-400 hover:text-slate-600',
+                            )}
+                        >
+                            <t.icon className="h-3.5 w-3.5" /> {t.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* ── Quote tab — scrollable body, full builder parity ── */}
+                <div className={cn('flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4', tab !== 'quote' && 'hidden')}>
+                    {/* Sticky jump bar — hop straight to a line when there are several. */}
+                    {lines.length >= 2 && (
+                        <div className="sticky top-0 z-20 -mx-4 -mt-4 flex items-center gap-1.5 overflow-x-auto border-b border-slate-200 bg-white/95 px-4 py-1.5 backdrop-blur">
+                            <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-400">Lines</span>
+                            {lines.map((l, i) => (
+                                <button
+                                    key={l.key}
+                                    type="button"
+                                    onClick={() => lineRefs.current[l.key]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                                    title={l.description.trim() || `Line ${i + 1}`}
+                                    className="flex h-9 shrink-0 items-center gap-1 rounded-full border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-600 hover:border-slate-500"
+                                >
+                                    <span className="tabular-nums">{i + 1}</span>
+                                    <span className="max-w-[90px] truncate">{l.description.trim() || 'untitled'}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     {/* The readiness verdict and the questions behind it. Customer questions
                         queue an approval draft; Ben's questions he answers right here, and the
                         answer lands on the line it belongs to. */}
@@ -1063,7 +1148,11 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                 const detKey = `${line.key}:detail`;
                                 const matCost = materialsCostPence(line.materials);
                                 return (
-                                    <div key={line.key} className="rounded-lg border border-slate-200 p-2">
+                                    <div
+                                        key={line.key}
+                                        ref={(el) => { lineRefs.current[line.key] = el; }}
+                                        className="scroll-mt-14 rounded-lg border border-slate-200 p-2"
+                                    >
                                         <div className="flex items-center gap-1.5">
                                             <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-slate-400">{i + 1}.</span>
                                             <input
@@ -1120,7 +1209,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                                 onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
                                                 disabled={editingLocked || lines.length <= 1}
                                                 title="Remove line"
-                                                className="shrink-0 text-slate-300 hover:text-red-600 disabled:opacity-30"
+                                                className="flex h-11 w-11 shrink-0 items-center justify-center text-slate-300 hover:text-red-600 disabled:opacity-30 sm:h-auto sm:w-auto"
                                             >
                                                 <X className="h-3.5 w-3.5" />
                                             </button>
@@ -1181,7 +1270,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                                     onClick={() => toggleSection(t.key)}
                                                     disabled={editingLocked}
                                                     className={cn(
-                                                        'flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors disabled:opacity-40',
+                                                        'flex min-h-[44px] items-center gap-0.5 rounded-full border px-3 py-0.5 text-[10px] font-semibold transition-colors disabled:opacity-40 sm:min-h-0 sm:px-2',
                                                         openSections.has(t.key)
                                                             ? 'border-slate-900 bg-slate-900 text-white'
                                                             : 'border-slate-300 text-slate-600 hover:border-slate-500',
@@ -1258,7 +1347,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                                         />
                                                         <button
                                                             onClick={() => updateLine(line.key, { scopeSteps: line.scopeSteps.filter((_, j) => j !== idx) })}
-                                                            className="shrink-0 text-slate-300 hover:text-red-600"
+                                                            className="flex h-11 w-11 shrink-0 items-center justify-center text-slate-300 hover:text-red-600 sm:h-auto sm:w-auto"
                                                             aria-label="Remove step"
                                                         >
                                                             <X className="h-3.5 w-3.5" />
@@ -1327,7 +1416,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                     <button
                                         onClick={() => setQuoteAssumptions((prev) => prev.filter((_, j) => j !== idx))}
                                         disabled={editingLocked}
-                                        className="shrink-0 text-slate-300 hover:text-red-600 disabled:opacity-30"
+                                        className="flex h-11 w-11 shrink-0 items-center justify-center text-slate-300 hover:text-red-600 disabled:opacity-30 sm:h-auto sm:w-auto"
                                         aria-label="Remove assumption"
                                     >
                                         <X className="h-3.5 w-3.5" />
@@ -1345,18 +1434,28 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                         </div>
                     </div>
 
-                    {/* Thread media — tickable, all ticked by default */}
+                    {/* Media tick summary — the full-size grid and lightbox live on the Media
+                        tab; this keeps include/exclude visible (and tappable) in the form. */}
                     {media.length > 0 && (
                         <div className="rounded-lg border border-slate-200 bg-white p-3">
-                            {sectionTitle('On the quote (tap to untick)')}
-                            <div className="mt-2 flex flex-wrap gap-1.5">
+                            <div className="flex items-center justify-between">
+                                {sectionTitle(`On the quote (${tickedCount}/${media.length} · tap to untick)`)}
+                                <button
+                                    type="button"
+                                    onClick={() => switchTab('media')}
+                                    className="flex min-h-[44px] items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 sm:min-h-0"
+                                >
+                                    <ImageIcon className="h-3.5 w-3.5" /> View full-size
+                                </button>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-1.5">
                                 {media.map((m) => (
                                     <button
                                         key={m.mediaUrl!}
                                         onClick={() => setTicked((t) => ({ ...t, [m.mediaUrl!]: !t[m.mediaUrl!] }))}
                                         disabled={editingLocked}
                                         className={cn(
-                                            'relative h-16 w-16 overflow-hidden rounded-lg border-2',
+                                            'relative h-11 w-11 overflow-hidden rounded-lg border-2',
                                             ticked[m.mediaUrl!] ? 'border-emerald-600' : 'border-slate-200 opacity-40',
                                         )}
                                         title={isVideo(m) ? 'Video' : 'Photo'}
@@ -1381,7 +1480,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <div>
                                 <p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Urgency</p>
-                                <div className="flex gap-1.5">
+                                <div className="flex flex-col gap-1.5 sm:flex-row">
                                     {URGENCY_OPTIONS.map((o) => (
                                         <button
                                             key={o.value}
@@ -1389,7 +1488,7 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                                             disabled={editingLocked}
                                             title={o.helper}
                                             className={cn(
-                                                'flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40',
+                                                'min-h-[44px] w-full flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 sm:min-h-0 sm:w-auto',
                                                 urgency === o.value
                                                     ? 'border-slate-900 bg-slate-900 text-white'
                                                     : 'border-slate-300 bg-white text-slate-600 hover:border-slate-500',
@@ -1402,14 +1501,14 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                             </div>
                             <div>
                                 <p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Time of service</p>
-                                <div className="flex gap-1.5">
+                                <div className="flex flex-col gap-1.5 sm:flex-row">
                                     {TIME_OF_SERVICE_OPTIONS.map((o) => (
                                         <button
                                             key={o.value}
                                             onClick={() => setTimeOfService(o.value)}
                                             disabled={editingLocked}
                                             className={cn(
-                                                'flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40',
+                                                'min-h-[44px] w-full flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 sm:min-h-0 sm:w-auto',
                                                 timeOfService === o.value
                                                     ? 'border-slate-900 bg-slate-900 text-white'
                                                     : 'border-slate-300 bg-white text-slate-600 hover:border-slate-500',
@@ -1468,8 +1567,34 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                     </div>
                 </div>
 
-                {/* ── Footer: errors, saved state, save / send ── */}
-                <div className="border-t border-slate-200 bg-white p-3">
+                {/* ── Thread tab — self-fetched conversation timeline, read-only ── */}
+                <div className={cn('flex-1 overflow-y-auto bg-slate-50', tab !== 'thread' && 'hidden')}>
+                    <PrepThreadTab
+                        conversationId={conversation.id}
+                        enabled={threadVisited}
+                        active={tab === 'thread'}
+                        onOpenMedia={openMediaByUrl}
+                    />
+                </div>
+
+                {/* ── Media tab — tappable grid; ticks shared with the Quote tab summary ── */}
+                <div className={cn('flex-1 overflow-y-auto bg-slate-50 p-3', tab !== 'media' && 'hidden')}>
+                    {media.length > 0 && (
+                        <p className="mb-2 text-[11px] text-slate-500">
+                            Tap a photo or video to view it full-size. The tick decides whether it rides the quote.
+                        </p>
+                    )}
+                    <PrepMediaGrid
+                        media={media}
+                        ticked={ticked}
+                        onToggle={(url) => setTicked((t) => ({ ...t, [url]: !t[url] }))}
+                        onOpen={setLightboxIndex}
+                        disabled={editingLocked}
+                    />
+                </div>
+
+                {/* ── Footer: errors, saved state, save / send (Quote tab only) ── */}
+                <div className={cn('border-t border-slate-200 bg-white p-3', tab !== 'quote' && 'hidden')}>
                     {cardError && (
                         <div className="mb-2 flex items-start gap-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">
                             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -1644,6 +1769,19 @@ export function QuotePrepPanel({ intake, conversation, media, open, onOpenChange
                         </>
                     )}
                 </div>
+
+                {/* ── Full-screen lightbox (image zoom + video playback) ── */}
+                {lightboxIndex != null && (
+                    <PrepMediaLightbox
+                        media={media}
+                        index={lightboxIndex}
+                        ticked={ticked}
+                        onToggle={(url) => setTicked((t) => ({ ...t, [url]: !t[url] }))}
+                        toggleDisabled={editingLocked}
+                        onClose={() => setLightboxIndex(null)}
+                        onNavigate={setLightboxIndex}
+                    />
+                )}
             </SheetContent>
         </Sheet>
     );

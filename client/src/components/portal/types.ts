@@ -34,6 +34,8 @@ export interface PortalCard {
     agentDown: boolean;
     /** Whether the WhatsApp 24-hour reply window is currently open. */
     windowOpen: boolean;
+    /** short_slug of the newest live (not draft, not revoked) quote — links to /quote/{quoteSlug}. */
+    quoteSlug?: string | null;
     wait: { severity: 'breached' | 'due' | 'ok' | 'none'; awaitingReply: boolean };
 }
 

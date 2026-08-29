@@ -17,7 +17,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute, Link } from 'wouter';
-import { ArrowLeft, Loader2, MessageSquare, Phone } from 'lucide-react';
+import { ArrowLeft, FileText, ListTodo, Loader2, MessageSquare, Pencil, Phone } from 'lucide-react';
 import {
     QuotePrepPanel, type PrepThreadMedia, type QuoteIntake,
 } from '@/components/comms/QuotePrepPanel';
@@ -26,6 +26,7 @@ import { GapList } from '@/components/portal/GapList';
 import { ThreadPreview } from '@/components/portal/ThreadPreview';
 import { MediaStrip } from '@/components/portal/MediaStrip';
 import { LaneOverride } from '@/components/portal/LaneOverride';
+import { TaskInboxSheet } from '@/components/portal/TaskInboxSheet';
 import {
     ageLabel, getAuthHeaders,
     type IntakeResponse, type Lane, type ThreadResponse,
@@ -46,6 +47,9 @@ export default function PortalReviewPage() {
     // "dismissed" is the explicit discard from inside the panel.
     const [prepOpen, setPrepOpen] = useState(false);
     const [prepDismissed, setPrepDismissed] = useState(false);
+    // Task-inbox slide-over: the same list /admin/portal shows, mounted here so Ben can
+    // hop between tasks without leaving the review flow.
+    const [tasksOpen, setTasksOpen] = useState(false);
 
     const thread = useQuery<ThreadResponse>({
         queryKey: ['portal-thread', conversationId],
@@ -168,6 +172,27 @@ export default function PortalReviewPage() {
                             {intake?.urgency === 'high' && (
                                 <span className="inline-block rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">urgent</span>
                             )}
+                            {/* The quote already built for this thread (quote_sent and beyond):
+                                view what the customer sees, plus a shortcut into the editor. */}
+                            {card?.quoteSlug && (
+                                <span className="inline-flex items-center gap-1">
+                                    <a
+                                        href={`/quote/${card.quoteSlug}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold text-emerald-800 active:bg-emerald-200"
+                                    >
+                                        <FileText className="h-3 w-3" /> View quote
+                                    </a>
+                                    <Link
+                                        href={`/admin/quotes/${card.quoteSlug}/edit`}
+                                        aria-label="Edit quote"
+                                        className="inline-flex items-center gap-0.5 rounded-full border border-slate-300 px-1.5 py-1 text-[10px] font-semibold text-slate-600 active:bg-slate-100"
+                                    >
+                                        <Pencil className="h-3 w-3" /> Edit
+                                    </Link>
+                                </span>
+                            )}
                         </div>
                     </div>
                     {card && (
@@ -278,6 +303,14 @@ export default function PortalReviewPage() {
                         >
                             <MessageSquare className="h-4 w-4" /> Thread
                         </Link>
+                        <button
+                            type="button"
+                            onClick={() => setTasksOpen(true)}
+                            className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-300 text-slate-700 active:bg-slate-100"
+                            aria-label="Open task inbox"
+                        >
+                            <ListTodo className="h-5 w-5" />
+                        </button>
                         <a
                             href={telHref(card.phoneNumber)}
                             className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-300 text-slate-700 active:bg-slate-100"
@@ -288,6 +321,10 @@ export default function PortalReviewPage() {
                     </div>
                 </div>
             )}
+
+            {/* Task-inbox slide-over — mounts the /admin/portal list in place; tapping a row
+                navigates to that thread's review page. */}
+            <TaskInboxSheet open={tasksOpen} onOpenChange={setTasksOpen} />
 
             {/* Quote-prep slide-over — the same panel the comms thread mounts, with full builder
                 parity. Keyed on preparedAt so a fresh clerk run remounts with the new intake

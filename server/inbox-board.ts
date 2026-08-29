@@ -104,6 +104,8 @@ export type BoardCard = {
     quoteValueGBP: number | null;
     /** view_count on that same quote. */
     quoteViewCount: number | null;
+    /** short_slug of that same quote — the portal links to /quote/{quoteSlug}. */
+    quoteSlug: string | null;
     /** Enquiry with a customer message >15 min old and no reply after it — the agent-health alarm. */
     agentDown: boolean;
     /** Urgent priority AND Ben's move — rendered angrier than a normal Ben card. */
@@ -120,6 +122,7 @@ export type CardDerived = {
     recontactDate: string | null;
     quoteValueGBP: number | null;
     quoteViewCount: number | null;
+    quoteSlug: string | null;
 };
 
 const EMPTY_DERIVED: CardDerived = {
@@ -129,6 +132,7 @@ const EMPTY_DERIVED: CardDerived = {
     recontactDate: null,
     quoteValueGBP: null,
     quoteViewCount: null,
+    quoteSlug: null,
 };
 
 /** Last 10 digits of any phone spelling — the same normalisation the agents use
@@ -201,12 +205,13 @@ export async function loadCardDerived(
     // 4. Newest live quote per number, one batched query for every board phone. Live means the
     //    customer could act on it: never a draft (they have never seen one) and never revoked
     //    (Ben withdrew that price). Paid quotes stay — a won card still wants its value shown.
-    const quoteByPhone = new Map<string, { valueGBP: number | null; viewCount: number | null }>();
+    const quoteByPhone = new Map<string, { valueGBP: number | null; viewCount: number | null; slug: string | null }>();
     const quoteDigits = sql<string>`right(regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g'), 10)`;
     const quoteRows = await db.select({
         digits: quoteDigits,
         valuePence: sql<number | null>`coalesce(${personalizedQuotes.selectedTierPricePence}, ${personalizedQuotes.basePrice})`,
         viewCount: personalizedQuotes.viewCount,
+        shortSlug: personalizedQuotes.shortSlug,
     })
         .from(personalizedQuotes)
         .where(and(
@@ -220,6 +225,7 @@ export async function loadCardDerived(
         quoteByPhone.set(q.digits, {
             valueGBP: q.valuePence != null ? Math.round(Number(q.valuePence) / 100) : null,
             viewCount: q.viewCount ?? null,
+            slug: q.shortSlug ?? null,
         });
     }
 
@@ -234,6 +240,7 @@ export async function loadCardDerived(
             recontactDate: key ? (recontactByPhone.get(key) ?? null) : null,
             quoteValueGBP: quote?.valueGBP ?? null,
             quoteViewCount: quote?.viewCount ?? null,
+            quoteSlug: quote?.slug ?? null,
         });
     }
     return map;
@@ -434,6 +441,7 @@ export function toCard(
         recontactDate: d.recontactDate,
         quoteValueGBP: d.quoteValueGBP,
         quoteViewCount: d.quoteViewCount,
+        quoteSlug: d.quoteSlug,
         agentDown,
         complaint: (c.priority || 'normal') === 'urgent' && whoseMove === 'ben',
         callbackDue,
@@ -767,6 +775,9 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             .where(eq(messages.conversationId, conv.id));
 
         const activity = await loadActivity([conv.id]);
+        // Batch loader over one row — same code path as the board, so the thread card carries
+        // the same derived signals (quoteSlug, quote value, held drafts, ...).
+        const derived = await loadCardDerived([{ id: conv.id, phoneNumber: conv.phoneNumber }]);
         const callEvents = await loadCallsForConversation(conv.phoneNumber);
 
         // The agent's pending work on this thread, shown above the composer: drafts awaiting
@@ -893,7 +904,7 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
         });
 
         res.json({
-            card: toCard(conv, activity.get(conv.id)),
+            card: toCard(conv, activity.get(conv.id), derived.get(conv.id)),
             optOut: suppression && {
                 scope: suppression.scope,
                 at: suppression.at.toISOString(),
