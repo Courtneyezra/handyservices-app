@@ -14,7 +14,7 @@
  * EventSource cannot set headers, so the admin session token travels as ?token= — the server
  * runs the exact same requireAdmin check against it.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 /** Mirror of the server's CommsEvent union (server/comms-events.ts). Extend only additively. */
@@ -30,6 +30,37 @@ type Subscriber = {
     onEvent?: (evt: CommsEvent) => void;
     onOpen?: () => void;
 };
+
+// ------------------------------------------------------------------ recent-change registry
+//
+// Attention cues for the board: every board_delta that arrives over the stream lands here
+// (conversationId → what changed, when) so a Card can flash the change as the refetched data
+// paints. EVENT-driven only, on purpose — the 5-minute fallback refetch and manual refreshes
+// never touch this registry, so a background refetch can't flash 400 cards at once.
+
+/** Reason carried by a board_delta — what changed about the conversation. */
+export type BoardChangeReason = Extract<CommsEvent, { type: 'board_delta' }>['reason'];
+
+const FLASH_WINDOW_MS = 2_500;
+const recentBoardChanges = new Map<string, { at: number; reason: BoardChangeReason }>();
+const recentChangeListeners = new Set<() => void>();
+
+function recordBoardChange(evt: Extract<CommsEvent, { type: 'board_delta' }>): void {
+    const now = Date.now();
+    recentBoardChanges.set(evt.conversationId, { at: now, reason: evt.reason });
+    // Opportunistic sweep: entries expire on read anyway, this just stops a long session's
+    // map growing without bound.
+    for (const [id, rec] of recentBoardChanges) {
+        if (now - rec.at >= FLASH_WINDOW_MS) recentBoardChanges.delete(id);
+    }
+    for (const listener of recentChangeListeners) {
+        try {
+            listener();
+        } catch (error) {
+            console.warn('[useCommsEvents] recent-change listener failed:', error);
+        }
+    }
+}
 
 // ------------------------------------------------------------------ shared connection state
 //
@@ -83,6 +114,7 @@ function connect(): void {
             return; // not ours to crash over — heartbeats arrive as comments and never land here
         }
         if (!evt || typeof evt !== 'object' || !('type' in evt)) return;
+        if (evt.type === 'board_delta') recordBoardChange(evt);
         dispatch((sub) => sub.onEvent?.(evt));
     };
 
@@ -167,4 +199,39 @@ export function useCommsEvents(onEvent?: (evt: CommsEvent) => void): void {
             disconnectIfIdle();
         };
     }, [queryClient]);
+}
+
+/**
+ * Did a board_delta touch this conversation in the last ~2.5s? Returns the delta's reason while
+ * the window is open, null after — re-rendering the caller both when the event arrives and when
+ * it expires, so a CSS flash keyed off the return value starts AND gets cleaned up.
+ *
+ * Registry-backed (see recordBoardChange): only real stream events flash, never refetches.
+ */
+export function useRecentBoardChange(conversationId: string): BoardChangeReason | null {
+    const [reason, setReason] = useState<BoardChangeReason | null>(() => {
+        const rec = recentBoardChanges.get(conversationId);
+        return rec && Date.now() - rec.at < FLASH_WINDOW_MS ? rec.reason : null;
+    });
+
+    useEffect(() => {
+        let expiry: ReturnType<typeof setTimeout> | null = null;
+        const sync = () => {
+            const rec = recentBoardChanges.get(conversationId);
+            const msLeft = rec ? rec.at + FLASH_WINDOW_MS - Date.now() : 0;
+            // setState with an unchanged value is a no-op render-wise, so every mounted card
+            // hearing every event is cheap — only the touched card actually re-renders.
+            setReason(rec && msLeft > 0 ? rec.reason : null);
+            if (expiry) clearTimeout(expiry);
+            expiry = rec && msLeft > 0 ? setTimeout(sync, msLeft) : null;
+        };
+        sync();
+        recentChangeListeners.add(sync);
+        return () => {
+            recentChangeListeners.delete(sync);
+            if (expiry) clearTimeout(expiry);
+        };
+    }, [conversationId]);
+
+    return reason;
 }

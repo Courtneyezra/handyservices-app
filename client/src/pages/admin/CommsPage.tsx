@@ -11,12 +11,13 @@
  *
  * Replaces WhatsAppInbox, AdminInboxPage and InboxBoardPage.
  */
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, createContext, useContext } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
     useDroppable, useDraggable, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText, User, Hourglass,
@@ -27,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
 import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
-import { useCommsEvents } from '@/hooks/useCommsEvents';
+import { useCommsEvents, useRecentBoardChange } from '@/hooks/useCommsEvents';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -580,25 +581,53 @@ function CardBadges({ card }: { card: BoardCard }) {
 }
 
 /**
+ * True while any board drag is in flight. Cards use it to damp framer's layout animation so it
+ * never fights dnd-kit: mid-drag reshuffles (SSE can land while Ben holds a card) and the drop
+ * echo render stay instant instead of gliding under the pointer.
+ */
+const BoardDragContext = createContext(false);
+
+/**
  * One card, same anatomy everywhere (columns and the Ben's desk strip). Borders encode who acts:
  * a visible blue border means Ben (amber when it is an urgent complaint), red means the agent
  * looks down — everything the machine or the customer is handling stays deliberately calm.
  */
-function Card({ card, selected, onOpen, inStrip }: {
-    card: BoardCard; selected: boolean; onOpen: () => void; inStrip?: boolean;
+function Card({ card, selected, onOpen, inStrip, overlay }: {
+    card: BoardCard; selected: boolean; onOpen: () => void; inStrip?: boolean; overlay?: boolean;
 }) {
     // The strip shows the SAME conversations as the columns, so strip copies get their own drag id
     // (dnd-kit ids must be unique) and never drag — dragging is stage movement, a column concern.
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: inStrip ? `desk-${card.id}` : card.id,
-        disabled: inStrip,
+        disabled: inStrip || overlay,
     });
+    const dragActive = useContext(BoardDragContext);
+    // Attention cue: an SSE board_delta touched this conversation moments ago → brief pulse.
+    // Registry-backed, so the 5-min fallback refetch never flashes anything.
+    const recentChange = useRecentBoardChange(card.id);
     const stageLabel = (STAGE_META[card.stage]?.label ?? card.stage).toLowerCase();
     return (
-        <div
+        <motion.div
             ref={setNodeRef}
             {...listeners}
             {...attributes}
+            // FLIP: a stage change glides the card between columns via the shared layoutId.
+            // Strip copies duplicate column cards, so they carry a desk-* layoutId of their own
+            // (framer forbids two live elements sharing one id); the DragOverlay copy carries
+            // none at all. `layout="position"` (not full) keeps 400 cards affordable.
+            layout={overlay || isDragging ? false : 'position'}
+            layoutId={overlay ? undefined : inStrip ? `desk-${card.id}` : card.id}
+            initial={overlay ? false : { opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.12 } }}
+            transition={{
+                duration: 0.2,
+                // Zero-duration layout while a drag is live = layout bookkeeping stays intact
+                // but every move lands instantly, so framer cannot fight the drag.
+                layout: dragActive
+                    ? { duration: 0 }
+                    : { type: 'tween', duration: 0.25, ease: [0.23, 1, 0.32, 1] },
+            }}
             onClick={onOpen}
             className={cn(
                 'rounded-lg border bg-white p-2.5 shadow-sm cursor-pointer transition-colors',
@@ -608,6 +637,7 @@ function Card({ card, selected, onOpen, inStrip }: {
                 (card.agentDown || card.bensDesk) && 'border-[1.5px]',
                 isDragging && 'opacity-40',
                 selected && 'ring-2 ring-slate-900',
+                recentChange && 'animate-board-flash',
             )}
         >
             <div className="flex items-start justify-between gap-2">
@@ -632,7 +662,7 @@ function Card({ card, selected, onOpen, inStrip }: {
                     {card.windowOpen ? `window ${card.windowHoursLeft}h` : 'window shut'}
                 </span>
             </div>
-        </div>
+        </motion.div>
     );
 }
 
@@ -658,11 +688,14 @@ function BensDeskStrip({ cards, selectedId, onOpen }: {
                 <p className="text-xs text-slate-400">Nothing needs you</p>
             ) : (
                 <div className="flex gap-2 overflow-x-auto pb-1">
-                    {cards.map((c) => (
-                        <div key={c.id} className="w-[264px] shrink-0">
-                            <Card card={c} selected={c.id === selectedId} onOpen={() => onOpen(c)} inStrip />
-                        </div>
-                    ))}
+                    {/* initial={false}: the strip renders whole on mount — only later arrivals animate in. */}
+                    <AnimatePresence initial={false}>
+                        {cards.map((c) => (
+                            <div key={c.id} className="w-[264px] shrink-0">
+                                <Card card={c} selected={c.id === selectedId} onOpen={() => onOpen(c)} inStrip />
+                            </div>
+                        ))}
+                    </AnimatePresence>
                 </div>
             )}
         </div>
@@ -717,9 +750,12 @@ function Column({ stage, cards, selectedId, onOpen }: {
                 )}
             >
                 {cards.length === 0 && <p className="px-2 py-6 text-center text-xs text-slate-400">Nothing here</p>}
-                {cards.map((c) => (
-                    <Card key={c.id} card={c} selected={c.id === selectedId} onOpen={() => onOpen(c)} />
-                ))}
+                {/* initial={false}: a full board can hold ~400 cards — mount must not animate. */}
+                <AnimatePresence initial={false}>
+                    {cards.map((c) => (
+                        <Card key={c.id} card={c} selected={c.id === selectedId} onOpen={() => onOpen(c)} />
+                    ))}
+                </AnimatePresence>
             </div>
         </div>
     );
@@ -1116,9 +1152,49 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         staleTime: 5 * 60_000,
     });
 
+    // ---- Live-update entrance + scroll behaviour ----
+    // Ids already rendered for a given card. Keyed by cardId so a thread switch (including a
+    // switch onto cached data, where old ref state would still be in scope during render) can
+    // never mark the whole newly opened thread as "fresh": a mismatched cardId disables the
+    // entrance entirely until the effect below reseeds.
+    const seenIdsRef = useRef<{ cardId: string; ids: Set<string> } | null>(null);
+    const timelineItems = data?.timeline ?? data?.messages;
+    // Ids that arrived via a live refetch and were never rendered in THIS mounted thread —
+    // only these get the entrance animation. Recomputes only when React Query hands back a
+    // new array (structural sharing keeps the reference stable otherwise).
+    const freshIds = useMemo(() => {
+        const fresh = new Set<string>();
+        const seen = seenIdsRef.current;
+        if (seen && seen.cardId === card.id && timelineItems) {
+            for (const it of timelineItems) if (!seen.ids.has(it.id)) fresh.add(it.id);
+        }
+        return fresh;
+    }, [timelineItems, card.id]);
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [data?.timeline?.length ?? data?.messages?.length]);
+        if (!timelineItems) return;
+        seenIdsRef.current = { cardId: card.id, ids: new Set(timelineItems.map((it) => it.id)) };
+    }, [timelineItems, card.id]);
+
+    // Was the operator at/near the bottom BEFORE the latest content change? Tracked via
+    // onScroll on the container rather than measured in the effect — by effect time the new
+    // message has already grown scrollHeight, so a post-render measurement would count the
+    // new bubble's own height (a tall photo alone exceeds any sane threshold).
+    const nearBottomRef = useRef(true);
+    const scrolledCardRef = useRef<string | null>(null);
+    const itemCount = timelineItems?.length ?? 0;
+    useEffect(() => {
+        if (!itemCount) return;
+        if (scrolledCardRef.current !== card.id) {
+            // First paint of this thread: land at the bottom instantly, nothing animates.
+            scrolledCardRef.current = card.id;
+            nearBottomRef.current = true;
+            bottomRef.current?.scrollIntoView();
+            return;
+        }
+        // Live update: follow the conversation only if already reading the latest.
+        // Never move an operator who has scrolled up into history.
+        if (nearBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [itemCount, card.id]);
 
     const refresh = () => {
         queryClient.invalidateQueries({ queryKey: ['comms-thread', card.id] });
@@ -1355,7 +1431,13 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
 
             {optOut && <OptOutBanner optOut={optOut} />}
 
-            <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
+            <div
+                className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3"
+                onScroll={(e) => {
+                    const el = e.currentTarget;
+                    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                }}
+            >
                 {isLoading ? (
                     <div className="flex h-full items-center justify-center text-slate-400">
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
@@ -1370,10 +1452,16 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                             </p>
                         )}
                         {(data.timeline ?? data.messages).map((item) => {
+                            // One entrance decision shared by every row type: only items that
+                            // arrived via a live refetch animate in. Initial load and thread
+                            // switches render statically (freshIds is empty then).
+                            const entrance = freshIds.has(item.id)
+                                ? 'animate-in fade-in slide-in-from-bottom-1 duration-200'
+                                : undefined;
                             // Calls sit inline as full-width events — they are context around the
                             // conversation, not turns in it, so they are never bubbles.
-                            if (item.kind === 'call') return <CallEventRow key={item.id} call={item} />;
-                            if (item.kind === 'draft_event') return <DraftEventRow key={item.id} event={item} />;
+                            if (item.kind === 'call') return <div key={item.id} className={entrance}><CallEventRow call={item} /></div>;
+                            if (item.kind === 'draft_event') return <div key={item.id} className={entrance}><DraftEventRow event={item} /></div>;
                             const m = item;
                             const meta = CHANNEL_META[m.channel];
                             const Icon = meta?.icon;
@@ -1383,7 +1471,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                             // never read by anybody. Kept visible on purpose.
                             const neverSent = !!m.neverSent;
                             return (
-                                <div key={m.id} className={cn('flex', m.direction === 'outbound' ? 'justify-end' : 'justify-start')}>
+                                <div key={m.id} className={cn('flex', entrance, m.direction === 'outbound' ? 'justify-end' : 'justify-start')}>
                                     <div className={cn(
                                         'max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm',
                                         m.direction === 'outbound'
@@ -1968,29 +2056,37 @@ export default function CommsPage() {
                     onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
                     onDragEnd={onDragEnd}
                 >
-                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                        <BensDeskStrip
-                            cards={bensDeskCards}
-                            selectedId={selected?.id ?? null}
-                            onOpen={openThread}
-                        />
-                        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-5 pb-4">
-                            {data.stages.map((stage) => (
-                                <Column
-                                    key={stage}
-                                    stage={stage}
-                                    cards={filtered[stage] ?? []}
+                    {/* One LayoutGroup spans strip + every column so a stage change FLIP-glides
+                        the card from its old column to the new one via shared layoutIds. */}
+                    <BoardDragContext.Provider value={activeId != null}>
+                        <LayoutGroup>
+                            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                                <BensDeskStrip
+                                    cards={bensDeskCards}
                                     selectedId={selected?.id ?? null}
                                     onOpen={openThread}
                                 />
-                            ))}
-                        </div>
-                    </div>
+                                <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-5 pb-4">
+                                    {data.stages.map((stage) => (
+                                        <Column
+                                            key={stage}
+                                            stage={stage}
+                                            cards={filtered[stage] ?? []}
+                                            selectedId={selected?.id ?? null}
+                                            onOpen={openThread}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </LayoutGroup>
+                    </BoardDragContext.Provider>
                     {activeId && <BinDropZone />}
-                    <DragOverlay>
+                    {/* dropAnimation off: the optimistic column move + FLIP settle is the drop
+                        feedback — the default overlay echo gliding back would double it. */}
+                    <DragOverlay dropAnimation={null}>
                         {activeCard && (
                             <div className="w-[264px] rotate-2">
-                                <Card card={activeCard} selected={false} onOpen={() => {}} />
+                                <Card card={activeCard} selected={false} onOpen={() => {}} overlay />
                             </div>
                         )}
                     </DragOverlay>

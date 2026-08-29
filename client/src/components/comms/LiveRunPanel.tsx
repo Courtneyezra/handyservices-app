@@ -59,6 +59,8 @@ function toolLabel(tool: string | undefined): string {
 }
 
 const CLEAR_AFTER_MS = 4000;
+/** Fade duration before the finished panel is removed — keep in sync with the transition class. */
+const FADE_OUT_MS = 500;
 
 // ---------------------------------------------------------------- state transitions
 
@@ -110,18 +112,22 @@ function applyRunStep(prev: LiveRun, step: LeanRunStep, nextKey: () => string): 
 
 export function LiveRunPanel({ conversationId }: { conversationId: string }) {
     const [run, setRun] = useState<LiveRun | null>(null);
+    const [clearing, setClearing] = useState(false);
     const lineSeq = useRef(0);
     const nextKey = () => `l${++lineSeq.current}`;
 
     // Switching threads: whatever run was showing belongs to the old thread's view.
     useEffect(() => {
         setRun(null);
+        setClearing(false);
     }, [conversationId]);
 
     useCommsEvents((evt: CommsEvent) => {
         if (evt.type !== 'run_started' && evt.type !== 'run_event' && evt.type !== 'run_finished') return;
         if (evt.conversationId !== conversationId) return;
 
+        // Activity means the panel should be (or stay) fully visible — cancel any fade-out.
+        if (evt.type !== 'run_finished') setClearing(false);
         setRun((prev) => {
             if (evt.type === 'run_started') {
                 return { runId: evt.runId, lines: [], finished: null };
@@ -139,14 +145,17 @@ export function LiveRunPanel({ conversationId }: { conversationId: string }) {
         });
     });
 
-    // Brief done state, then auto-clear — unless a new run has started meanwhile.
+    // Brief done state, then fade out and clear — unless a new run has started meanwhile.
     useEffect(() => {
         if (!run?.finished) return;
         const finishedRunId = run.runId;
-        const timer = setTimeout(() => {
+        // Stale timers are impossible: this effect cleans up whenever the run changes.
+        const fadeTimer = setTimeout(() => setClearing(true), CLEAR_AFTER_MS);
+        const clearTimer = setTimeout(() => {
             setRun((prev) => (prev && prev.runId === finishedRunId ? null : prev));
-        }, CLEAR_AFTER_MS);
-        return () => clearTimeout(timer);
+            setClearing(false);
+        }, CLEAR_AFTER_MS + FADE_OUT_MS);
+        return () => { clearTimeout(fadeTimer); clearTimeout(clearTimer); };
     }, [run?.finished, run?.runId]);
 
     if (!run) return null;
@@ -154,7 +163,9 @@ export function LiveRunPanel({ conversationId }: { conversationId: string }) {
     return (
         <div
             className={cn(
-                'rounded-lg border px-3 py-2.5 text-sm transition-colors',
+                'rounded-lg border px-3 py-2.5 text-sm transition-[background-color,border-color,opacity] duration-500',
+                'animate-in fade-in slide-in-from-bottom-1',
+                clearing ? 'opacity-0' : 'opacity-100',
                 run.finished
                     ? run.finished.ok
                         ? 'border-emerald-200 bg-emerald-50/60'
@@ -189,7 +200,7 @@ export function LiveRunPanel({ conversationId }: { conversationId: string }) {
                         <li
                             key={line.key}
                             className={cn(
-                                'flex items-center gap-1.5 text-xs',
+                                'flex items-center gap-1.5 text-xs animate-in fade-in slide-in-from-left-1 duration-200',
                                 line.kind === 'error' ? 'text-red-500'
                                     : line.kind === 'text' ? 'italic text-slate-500'
                                         : 'text-slate-600',

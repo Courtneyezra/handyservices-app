@@ -260,6 +260,19 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* Comms board change-flash: an SSE board_delta just touched this card. A quick emerald wash
+ * (house palette) that settles back to the card's white — an attention cue, not an alarm.
+ * Applied by CommsPage's Card via useRecentBoardChange. */
+@keyframes board-card-flash {
+  0% { background-color: rgb(255 255 255); }
+  12% { background-color: rgb(209 250 229); } /* emerald-100 */
+  100% { background-color: rgb(255 255 255); }
+}
+
+.animate-board-flash {
+  animation: board-card-flash 1.8s var(--ease-out) 1;
+}
+
 /* Respect the user's OS-level prefers-reduced-motion setting. Kills the
  * V2 feedback animations (success ring, cart bump, slide-ups) and the
  * generic Tailwind transitions so users with vestibular disorders or
@@ -271,6 +284,7 @@
   .animate-success-ring,
   .animate-gradient-x,
   .animate-wiggle,
+  .animate-board-flash,
   .date-card-shimmer {
     animation: none !important;
   }
