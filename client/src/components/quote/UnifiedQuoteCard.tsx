@@ -809,21 +809,26 @@ export function UnifiedQuoteCard({
   const DEPOSIT_PERCENT = (depositPercentProp ?? 30) / 100;
   const PAY_FULL_DISCOUNT = (payInFullDiscountPercentProp ?? 3) / 100;
 
-  // ── Flex booking — LANDLORD LIAISE ONLY (the homeowner FLEX lane was
-  // deleted, Aug 2026) ─────────────────────────────────────────────────────
-  // `useFlexBooking` survives purely as the landlord "liaise with my tenant"
-  // concierge state (isLandlord + useFlexBooking): no fixed date, +£25, tenant
-  // contact captured, ops arranges access. Non-landlord customers can NEVER
-  // enter this state — they see one price and pick any feasible day on the
-  // calendar (no set-date premium, no lead-day gating, no flex toggle).
+  // ── Flex booking — `useFlexBooking` = ANY no-date booking ────────────────
+  // Two customer-facing modes share this state (the payment machinery is
+  // identical: no fixed date, inline payment, dispatch schedules later):
+  //   • Landlord liaise (isLandlord + useFlexBooking): paid +£25 concierge —
+  //     tenant contact captured, ops arranges access, date grid hidden.
+  //   • Homeowner flex (!isLandlord + useFlexBooking): "Flexible — first day
+  //     we're nearby" — £0, dispatch books within 14 days. Offered only when
+  //     the calendar is cold (sparse-day fees on open dates) so every customer
+  //     always has a fee-free path; the £25 sparse fee is the price of pinning
+  //     a specific quiet day, never a blanket hike.
   const HOMEOWNER_FLEX_DAYS = 14;
-  // Window sent with a liaise booking (`flexBookingWithinDays`) so dispatch
-  // knows the arrange-with-tenant deadline.
+  // Window sent with any no-date booking (`flexBookingWithinDays`) so dispatch
+  // knows the scheduling / arrange-with-tenant deadline.
   const bookingFlexDays = HOMEOWNER_FLEX_DAYS;
   // Flat premium for the landlord tenant-liaison concierge (pence). Liaise
   // COSTS us effort (chasing the tenant, arranging access), so it's a charge.
   const LIAISE_PREMIUM_PENCE = 2500;
   const [useFlexBooking, setUseFlexBooking] = useState(false);
+  const isLiaise = isLandlord && useFlexBooking;
+  const isHomeownerFlex = !isLandlord && useFlexBooking;
   // Landlord promo nudge: the page's "Add tenant liaison" CTA bumps
   // highlightLiaiseSignal; we scroll the toggle into view and pulse a ring once.
   const liaiseToggleRef = useRef<HTMLButtonElement>(null);
@@ -883,9 +888,8 @@ export function UnifiedQuoteCard({
     return skuLines.some(li => (li as any).flexEligible === true);
   }, [pricingLineItems]);
 
-  // FLEX lane deleted (Aug 2026): non-landlords can never enter useFlexBooking,
-  // so there is no per-type flex auto-default any more. Landlords still opt in
-  // to liaise explicitly (it's a paid +£25 premium — no surprise fee).
+  // No per-type flex auto-default: both liaise (+£25) and homeowner flex (£0)
+  // are explicit opt-ins via their own toggles — no surprise mode changes.
 
   // Payment state (for inline payment when using downsell)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -1148,6 +1152,15 @@ export function UnifiedQuoteCard({
     return set;
   }, [quoteAvailabilityData]);
 
+  // Standalone-visit ("sparse day") fee per date — server-computed, display-only.
+  // The client never derives this; it just reads sparseFeePence off the preview.
+  const sparseFeeByDate = useMemo(() => {
+    if (!quoteAvailabilityData) return null;
+    const m = new Map<string, number>();
+    for (const d of quoteAvailabilityData) m.set(d.date, d.sparseFeePence ?? 0);
+    return m;
+  }, [quoteAvailabilityData]);
+
   // Build set of unavailable dates for quick lookup (fallback mode only)
   const unavailableDates = useMemo(() => {
     const set = new Set<string>();
@@ -1243,7 +1256,7 @@ export function UnifiedQuoteCard({
       maxDaysOut = probe;
     }
 
-    const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number; isBlocked: boolean }[] = [];
+    const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number; sparseFee: number; isBlocked: boolean }[] = [];
     for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= maxDaysOut; i++) {
       const date = addDays(ukNow, i);
       const dateStr = formatDateStr(date);
@@ -1274,6 +1287,10 @@ export function UnifiedQuoteCard({
           fee += BASE_SCHEDULING_RULES.weekendFee;
         }
       }
+      // Standalone-visit fee (sparse contractor-day) — server-computed preview,
+      // stacks with next-day/Saturday fees so the pill badge shows the true total.
+      const sparseFee = sparseFeeByDate?.get(dateStr) ?? 0;
+      fee += sparseFee;
 
       dates.push({
         date,
@@ -1281,11 +1298,12 @@ export function UnifiedQuoteCard({
         isWeekend: isSaturday,
         isNextDay,
         fee,
+        sparseFee,
         isBlocked,
       });
     }
     return dates;
-  }, [config, unavailableDates, quoteAvailableDateSet, allowedDates, totalSaturdayPremiumPence]);
+  }, [config, unavailableDates, quoteAvailableDateSet, allowedDates, totalSaturdayPremiumPence, sparseFeeByDate]);
 
   // When urgent_premium mode is disabled, filter out next-day priority dates
   // When allowedDates is set, restrict calendar to only those VA-specified dates
@@ -1339,7 +1357,32 @@ export function UnifiedQuoteCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseFilteredDates, quoteId, quoteAvailableDateSet]);
 
+  // Sparse-fee spread across the FULL bookable window (filteredDates, not the
+  // first-8 visibleDates slice, so "Show more dates" can't flip the flex tile).
+  // Drives the homeowner "Flexible — no fee" option: when the calendar is cold,
+  // every open day can carry the standalone-visit fee, so we must offer a £0
+  // path or the fee reads as a blanket price hike.
+  const sparseFeeSpread = useMemo(() => {
+    const open = filteredDates.filter(d => !d.isBlocked);
+    const withFee = open.filter(d => d.sparseFee > 0);
+    const maxFee = withFee.reduce((m, d) => Math.max(m, d.sparseFee), 0);
+    return { any: withFee.length > 0, all: open.length > 0 && withFee.length === open.length, maxFee };
+  }, [filteredDates]);
+  // Homeowner flex tile visibility. `!isCash` is required: the dispatch pool
+  // only picks up deposit-paid quotes, so a cash flex booking would be
+  // invisible to dispatch and never get scheduled.
+  const showFlexNoFeeOption = !isLandlord && !useDownsell && !isCash && sparseFeeSpread.any;
+
   const visibleDates = showAllDates ? filteredDates : filteredDates.slice(0, 8);
+
+  // Standalone-visit fee on the SELECTED date — display-only helper for the copy
+  // under the date grid. After reserve, the snapshot from the reserve-slot
+  // response wins over the preview. Landlord liaise has no date, so no fee.
+  const selectedSparseFeePence = !(isLandlord && useFlexBooking) && selectedDate
+    ? reservation?.sparseFeePence
+      ?? availableDates.find(d => d.date.toDateString() === selectedDate.toDateString())?.sparseFee
+      ?? 0
+    : 0;
 
   // Combine config add-ons with any quote-specific extras
   const allAddOns: AddOnOption[] = useMemo(() => {
@@ -1355,14 +1398,12 @@ export function UnifiedQuoteCard({
 
   // The pricing lane we report to the SERVER so it can re-derive the charged price
   // from quote.basePrice (server-authoritative; the client never sends the amount).
-  // FLEX lane deleted: homeowners have ONE price with no set-date premium, so
-  // they send NO lane — computeLaneBasePence returns quote.basePrice unchanged
-  // when the lane is absent. The only surviving lane is the landlord liaise
-  // concierge (+£25):
-  //   • landlord + liaise booking: 'liaise'
+  //   • landlord + liaise booking: 'liaise' (+£25 concierge premium)
+  //   • homeowner flex (no-date, £0): 'flex' — charge-neutral (computeLaneBasePence
+  //     returns basePrice unchanged) but stamps a clean audit signal in PI metadata
   //   • everyone else: undefined (flat base — server charges quote.basePrice)
   const pricingLane: 'flex' | 'date_time' | 'liaise' | undefined =
-    isLandlord && useFlexBooking ? 'liaise' : undefined;
+    isLandlord && useFlexBooking ? 'liaise' : useFlexBooking ? 'flex' : undefined;
 
   // Calculate total price
   const { total, breakdown, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied, totalMaterialsPence } = useMemo(() => {
@@ -1431,6 +1472,18 @@ export function UnifiedQuoteCard({
       }
     }
 
+    // Standalone visit fee — server-computed (sparse contractor-day). The
+    // reserve-slot snapshot wins over the per-date preview so the total always
+    // matches the PaymentIntent (wallet sheets hard-fail on a mismatch).
+    // Landlord liaise has no date yet, so no date-driven fee applies there.
+    if (!(isLandlord && useFlexBooking)) {
+      const sparseFee = reservation?.sparseFeePence ?? dateInfo?.sparseFee ?? 0;
+      if (sparseFee > 0) {
+        amount += sparseFee;
+        items.push({ label: 'Standalone visit fee', amount: sparseFee });
+      }
+    }
+
     // Time slot fee
     const timeInfo = BASE_TIME_SLOTS.find(t => t.id === selectedTimeSlot);
     if (timeInfo?.fee) {
@@ -1465,7 +1518,7 @@ export function UnifiedQuoteCard({
     const payFullSaving = adjustedAmount - payFullTotal;
 
     return { total: adjustedAmount, breakdown: items, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied, totalMaterialsPence };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, selectedAddonItems]);
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, selectedAddonItems, reservation]);
 
   // Customer-facing line items show their true totals: pure labour + materials +
   // this line's allocated share of the job-whole structural buckets (call-out ×
@@ -1631,8 +1684,10 @@ export function UnifiedQuoteCard({
   }, [reservation, selectedDate, selectedTimeSlot, useDownsell, useFlexBooking, confirmedDates.length]);
 
   // Determine if we should show inline payment
-  // Show inline Stripe card entry when: downsell, flex booking, single-date with reservation, or all 3 buffer dates picked
-  const showInlinePayment = useDownsell || (isLandlord && useFlexBooking) || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
+  // Show inline Stripe card entry when: downsell, any no-date flex booking
+  // (landlord liaise OR homeowner flex — neither has a date/reservation),
+  // single-date with reservation, or all 3 buffer dates picked
+  const showInlinePayment = useDownsell || useFlexBooking || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
 
   // Reveal-on-commit: if the customer clears their slot (the section collapses),
   // drop the commit so re-picking shows the "Book my slot" gate again rather than
@@ -1715,7 +1770,8 @@ export function UnifiedQuoteCard({
             // The server re-derives the fee £ itself (scheduling-fees.ts) from
             // the slot lock when one exists, falling back to this named date —
             // it must ALWAYS ride along so the PI amount matches the display.
-            scheduledDate: selectedDate && !(isLandlord && useFlexBooking)
+            // Never on a no-date flex/liaise booking (there is no date).
+            scheduledDate: selectedDate && !useFlexBooking
               ? formatDateStr(selectedDate)
               : undefined,
             lockId: reservation?.lockId || undefined,
@@ -1804,12 +1860,15 @@ export function UnifiedQuoteCard({
         const primaryTimePref = confirmedDates[0]?.timePref;
         const backcompatSlot = primaryTimePref === 'pm' ? 'afternoon' : 'morning';
 
-        // First call onBook to set booking details in parent state
+        // First call onBook to set booking details in parent state.
+        // Any no-date flex booking (liaise OR homeowner flex) sends null date,
+        // no dates array, and null timeSlot — a dateless booking must never
+        // carry a phantom 'morning' slot.
         onBook({
-          selectedDate: (isLandlord && useFlexBooking) || useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
-          selectedDates: (isLandlord && useFlexBooking) ? [] : confirmedDates.map(cd => cd.date),
-          dateTimePreferences: !(isLandlord && useFlexBooking) && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
-          timeSlot: (isLandlord && useFlexBooking) || useDownsell ? null : backcompatSlot,
+          selectedDate: useFlexBooking || useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
+          selectedDates: useFlexBooking ? [] : confirmedDates.map(cd => cd.date),
+          dateTimePreferences: !useFlexBooking && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
+          timeSlot: useFlexBooking || useDownsell ? null : backcompatSlot,
           addOns: selectedAddOns,
           totalPrice: effectiveTotalPence,
           chargeNowPence: chargeNow,
@@ -1901,7 +1960,8 @@ export function UnifiedQuoteCard({
           // amount — the display keys the fee on selectedDate, so the server
           // must see the same date (lock first, this as fallback) or the PI
           // amount won't match the sheet and Stripe refuses the confirm.
-          scheduledDate: selectedDate && !(isLandlord && useFlexBooking)
+          // Never on a no-date flex/liaise booking (there is no date).
+          scheduledDate: selectedDate && !useFlexBooking
             ? formatDateStr(selectedDate)
             : undefined,
           ...(isExactDate
@@ -2037,9 +2097,10 @@ export function UnifiedQuoteCard({
     const balance = isCash ? (hasDeferrals ? splitActiveTotalPence : total) : effectiveBalancePence;
     const mode = isCash ? 'cash' as const : payFull ? 'full' as const : 'deposit' as const;
 
-    // If using Phase 25 flex booking, no date/time — dispatcher picks within window.
-    // Landlord liaise mode rides the same branch but carries the tenant contact so
-    // ops arranges access with the tenant rather than auto-routing to a thin day.
+    // No-date flex booking: no date/time — dispatch schedules within the window.
+    // Homeowner flex ("Flexible — first day we're nearby", £0) and landlord
+    // liaise (+£25, carries the tenant contact so ops arranges access) both
+    // ride this branch; landlordTenantPayload is {} for homeowners.
     if (useFlexBooking) {
       onBook({
         selectedDate: null,
@@ -3043,16 +3104,11 @@ export function UnifiedQuoteCard({
             </div>
           )}
 
-          {/* The "I'm flexible" / "I want a date & time" toggle is GONE with the
-              FLEX lane (Aug 2026): non-landlords get one price and pick any
-              feasible day straight off the grid below. Landlords keep the liaise
-              toggle above. */}
-
           {/* Date grid — always shown except in landlord liaise mode (no fixed
-              date yet — we arrange access with the tenant). */}
+              date yet — we arrange access with the tenant). Homeowner flex keeps
+              the grid VISIBLE: tapping a date deselects flex, so the two modes
+              stay naturally mutually exclusive. */}
           <AnimatePresence initial={false}>
-          {/* Always-a-date: flex keeps its base price but still picks a real day.
-            * Only landlord liaise (concierge — we arrange with the tenant) skips the calendar. */}
           {!(isLandlord && useFlexBooking) && (
           <motion.div
             key="date-grid-drop"
@@ -3128,6 +3184,59 @@ export function UnifiedQuoteCard({
               )}
             </div>
           )}
+          {/* Homeowner "Flexible — no fee" option. Rendered only when open dates
+              in the full window carry the sparse-day fee (showFlexNoFeeOption),
+              so every customer always has a £0 path — the £25 becomes the price
+              of pinning a specific quiet day, not a blanket hike. Selecting it
+              books with NO date: dispatch schedules the first day we're already
+              nearby, within 14 days. Tapping a date below flips it back off. */}
+          {showFlexNoFeeOption && (
+            <button
+              type="button"
+              onClick={() => {
+                if (useFlexBooking) {
+                  // Re-tap toggles flex back off — the grid below is the
+                  // pick-a-date fallback, already on screen.
+                  setUseFlexBooking(false);
+                  trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'flex_no_fee', action: 'abandoned', totalPricePence: total, segment });
+                  return;
+                }
+                setUseFlexBooking(true);
+                trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'flex_no_fee', action: 'selected', totalPricePence: total, segment });
+                setSelectedDate(null);
+                setSelectedTimeSlot(null);
+                setPendingDate(null);
+                setConfirmedDates([]);
+                setReserveError(null);
+                if (reservation) {
+                  releaseSlotLock(reservation.lockId).catch(() => {});
+                  setReservation(null);
+                }
+                if (useDownsell) setUseDownsell(false);
+              }}
+              className={`w-full rounded-xl p-3 text-left mb-3 transition-[background-color,border-color,box-shadow,color] duration-300 ease-out active:scale-[0.99] ${
+                isHomeownerFlex
+                  ? 'bg-[#7DB00E]/15 border-2 border-[#7DB00E] ring-2 ring-[#7DB00E] ring-offset-2 ' + (isDarkTheme ? 'ring-offset-slate-900' : 'ring-offset-white')
+                  : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center ${isHomeownerFlex ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                  {isHomeownerFlex && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </span>
+                <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>Flexible — first day we're nearby</span>
+                <span className="ml-auto shrink-0 text-[10px] bg-[#7DB00E] text-white px-1.5 py-0.5 rounded-full font-bold">No fee</span>
+              </div>
+              <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                Within {HOMEOWNER_FLEX_DAYS} days · skip the £{Math.round(sparseFeeSpread.maxFee / 100)} standalone visit fee — we come when we're already in your area
+              </p>
+              {isHomeownerFlex && (
+                <p className={`text-[10.5px] leading-snug mt-1 font-semibold ${isDarkTheme ? 'text-[#a3d04a]' : 'text-[#5a8209]'}`}>
+                  We'll confirm your day at least 24 hours ahead.
+                </p>
+              )}
+            </button>
+          )}
           <div className="grid grid-cols-4 gap-2">
             {visibleDates.map((d) => {
               const isSelected = !!selectedDate && selectedDate.toDateString() === d.date.toDateString();
@@ -3187,6 +3296,9 @@ export function UnifiedQuoteCard({
                 key={d.date.toISOString()}
                 onClick={() => {
                   if (d.isBlocked) return;
+                  // Picking a real date is mutually exclusive with the homeowner
+                  // "Flexible — no fee" mode: tapping any tile flips flex off.
+                  if (useFlexBooking) setUseFlexBooking(false);
                   if (reservation) {
                     releaseSlotLock(reservation.lockId).catch(() => {});
                     setReservation(null);
@@ -3268,6 +3380,26 @@ export function UnifiedQuoteCard({
             <p className={`mt-2 text-[11px] text-center ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
               <span className="font-semibold">+£{Math.round(saturdayPremiumApplied / 100)}</span>{' '}
               {isContextual ? 'for a Saturday visit' : 'Saturday surcharge — peak demand'}
+            </p>
+          )}
+
+          {/* Standalone-visit fee caption — only when the SELECTED date carries the
+              server-computed sparse-day fee. Muted: informative, not alarming.
+              The escape hatch it names must actually exist: when the flex tile is
+              shown, point at it (on a cold calendar EVERY open date carries the
+              fee, so "pick a fee-free date" alone would be false); for landlords
+              (no flex tile — never point fee-avoidance copy at the paid liaise
+              option) state neutrally what the fee covers. */}
+          {selectedSparseFeePence > 0 && (
+            <p className={`mt-2 text-[11px] text-center ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+              £{Math.round(selectedSparseFeePence / 100)} standalone visit fee — we're not otherwise in your area that day.{' '}
+              {showFlexNoFeeOption && sparseFeeSpread.all ? (
+                <>Choose <span className="font-semibold">Flexible</span> above and it drops off.</>
+              ) : showFlexNoFeeOption ? (
+                <>Pick a fee-free date — or choose <span className="font-semibold">Flexible</span> above — and it drops off.</>
+              ) : (
+                <>It covers the extra trip.</>
+              )}
             </p>
           )}
 
@@ -3940,14 +4072,17 @@ export function UnifiedQuoteCard({
                     >
                       <Calendar className="w-3.5 h-3.5 text-[#5a8209] shrink-0" />
                       <span className="truncate">
-                        {/* FLEX lane gone: the only no-date state left is landlord
-                            liaise (we arrange with the tenant). Everyone else
-                            echoes their picked day, or a pick-a-day nudge. */}
-                        {isLandlord && useFlexBooking
+                        {/* No-date states: landlord liaise (we arrange with the
+                            tenant) or homeowner flex (dispatch picks the first
+                            nearby day, no visit fee). Everyone else echoes their
+                            picked day, or a pick-a-day nudge. */}
+                        {isLiaise
                           ? `We'll arrange with your tenant — done within ${Math.round(HOMEOWNER_FLEX_DAYS / 7)} weeks`
-                          : selectedDate
-                            ? `Your day: ${format(selectedDate, 'EEE d MMM')}`
-                            : 'No day picked yet'}
+                          : useFlexBooking
+                            ? `Flexible — within ${HOMEOWNER_FLEX_DAYS} days · no visit fee`
+                            : selectedDate
+                              ? `Your day: ${format(selectedDate, 'EEE d MMM')}`
+                              : 'No day picked yet'}
                       </span>
                       <span className="text-[#5a8209] underline underline-offset-2 shrink-0">Change</span>
                     </button>
