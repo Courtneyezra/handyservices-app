@@ -1,4 +1,5 @@
 // V6 Switchboard home-screen widget for the Scriptable app (iOS).
+// (Keep that first line intact — installed copies verify it before self-updating.)
 // Shows a role-scoped ops summary from GET /api/widget/summary as a grid of
 // stat cards. Setup: paste your values into the two constants below (see
 // install steps at the bottom).
@@ -202,6 +203,40 @@ if (!data) {
 }
 
 Script.setWidget(widget);
+
+// ── Self-update ──────────────────────────────────────────────────────────────
+// Phones keep old copies of this script forever, so once a day we fetch the
+// latest version from GET /api/widget/script and overwrite this file in place
+// (keeping your TOKEN and BASE lines). Runs AFTER the widget is rendered so an
+// update failure can never break the display. Changes apply on the next run.
+const UPDATE_STAMP = CACHE.joinPath(CACHE.documentsDirectory(), "v6-widget-update-check.txt");
+async function selfUpdate() {
+  try {
+    const last = CACHE.fileExists(UPDATE_STAMP) ? parseInt(CACHE.readString(UPDATE_STAMP), 10) || 0 : 0;
+    if (!config.runsInApp && Date.now() - last < 24 * 60 * 60 * 1000) return; // daily (always when run manually)
+    CACHE.writeString(UPDATE_STAMP, String(Date.now()));
+    let remote = await new Request(`${BASE}/api/widget/script`).loadString();
+    // Sanity: only overwrite with something that is unmistakably this script
+    // (a 404/HTML error page must never clobber a working install).
+    if (!remote.startsWith("// V6 Switchboard") || !remote.includes("Script.setWidget")) return;
+    remote = remote.replace(/^const TOKEN = .*$/m, `const TOKEN = "${TOKEN}";`);
+    remote = remote.replace(/^const BASE = .*$/m, `const BASE = "${BASE}";`);
+    let fm = FileManager.local();
+    if (!fm.fileExists(module.filename)) {
+      fm = FileManager.iCloud(); // Scriptable stores scripts in iCloud Drive when enabled
+      await fm.downloadFileFromiCloud(module.filename);
+    }
+    if (fm.readString(module.filename) !== remote) {
+      fm.writeString(module.filename, remote);
+      console.log("self-update: new version installed, applies next run");
+    }
+  } catch (e) {
+    // Never let updating interfere with the widget itself.
+    console.log(`self-update skipped: ${e}`);
+  }
+}
+await selfUpdate();
+
 if (config.runsInApp) await widget.presentMedium();
 Script.complete();
 
@@ -219,3 +254,4 @@ Script.complete();
 //    Script: "Switchboard".
 // iOS refreshes it periodically (we hint every 15 min). If offline, the last
 // good data is shown with an ⚠︎ offline marker.
+// The script self-updates daily from the server — install once, never re-paste.

@@ -10,6 +10,8 @@
  */
 import { Router } from 'express';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { db } from './db';
 import {
     users, handymanProfiles, contractorBookingRequests, invoices, personalizedQuotes,
@@ -42,6 +44,21 @@ widgetRouter.post('/api/widget/token', optionalAuth, async (req, res) => {
     } catch (err) {
         console.error('[Widget] Token issue failed:', err);
         res.status(500).json({ error: 'Failed to issue widget token' });
+    }
+});
+
+// ── GET /api/widget/script ───────────────────────────────────────────────────
+// Serves the current widget script so installed copies can self-update: the
+// script re-fetches this once a day and overwrites itself (preserving the
+// user's TOKEN/BASE lines). No auth — the file ships with PASTE_TOKEN only.
+widgetRouter.get('/api/widget/script', async (_req, res) => {
+    try {
+        const file = path.join(process.cwd(), 'docs', 'scriptable-widget.js');
+        const src = await fs.promises.readFile(file, 'utf8');
+        res.set('Cache-Control', 'no-store').type('text/javascript').send(src);
+    } catch (err) {
+        console.error('[Widget] Script serve failed:', err);
+        res.status(404).json({ error: 'script not found' });
     }
 });
 
