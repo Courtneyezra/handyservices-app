@@ -37,12 +37,20 @@ async function loadSummary() {
 }
 
 const { data, stale, error } = await loadSummary();
+const FAM = config.widgetFamily || "medium"; // null when run inside the app
+const ON_LOCK = FAM.startsWith("accessory"); // lock-screen families (iOS 16+)
 const widget = new ListWidget();
-const bg = new LinearGradient();
-bg.colors = [new Color("#0f172a"), new Color("#1c2740")];
-bg.locations = [0, 1];
-widget.backgroundGradient = bg;
-widget.setPadding(12, 12, 12, 12);
+if (ON_LOCK) {
+  // Lock screen: iOS renders widgets tinted/vibrant — no custom background.
+  widget.addAccessoryWidgetBackground = true;
+  widget.setPadding(4, 6, 4, 6);
+} else {
+  const bg = new LinearGradient();
+  bg.colors = [new Color("#0f172a"), new Color("#1c2740")];
+  bg.locations = [0, 1];
+  widget.backgroundGradient = bg;
+  widget.setPadding(12, 12, 12, 12);
+}
 widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
 
 const accent = new Color("#e8b323");
@@ -90,12 +98,61 @@ function addCell(parent, line) {
 }
 
 if (!data) {
-  const err = widget.addText("Widget error — check token");
+  const err = widget.addText(ON_LOCK ? "⚠︎ widget error" : "Widget error — check token");
   err.textColor = Color.red();
-  err.font = Font.mediumSystemFont(12);
-  const detail = widget.addText(error || "");
-  detail.textColor = Color.gray();
-  detail.font = Font.systemFont(9);
+  err.font = Font.mediumSystemFont(ON_LOCK ? 10 : 12);
+  if (!ON_LOCK) {
+    const detail = widget.addText(error || "");
+    detail.textColor = Color.gray();
+    detail.font = Font.systemFont(9);
+  }
+} else if (FAM === "accessoryInline") {
+  // One line next to the date above the clock: "0 jobs · ⚠︎ 3".
+  const alert = data.lines.find((l) => l.tone === "alert");
+  const bits = [data.lines[0].value];
+  if (alert) bits.push(`⚠︎ ${alert.value}`);
+  const t = widget.addText((stale ? "⚠︎ " : "") + bits.join(" · "));
+  t.font = Font.mediumSystemFont(12);
+} else if (FAM === "accessoryCircular") {
+  // Tiny circle: the number that matters most — the alerting line if any,
+  // otherwise the first line. Big digits + micro label.
+  const line = data.lines.find((l) => l.tone === "alert") || data.lines[0];
+  const num = (line.value.match(/£?[\d,.]+[kK]?/) || [line.value])[0];
+  const mid = widget.addStack();
+  mid.addSpacer();
+  const col = mid.addStack();
+  col.layoutVertically();
+  col.centerAlignContent();
+  const v = col.addText(num);
+  v.font = Font.boldSystemFont(18);
+  v.lineLimit = 1;
+  v.minimumScaleFactor = 0.4;
+  v.centerAlignText();
+  const lab = col.addText(line.label.toUpperCase());
+  lab.font = Font.mediumSystemFont(7);
+  lab.textColor = Color.gray();
+  lab.lineLimit = 1;
+  lab.centerAlignText();
+  mid.addSpacer();
+} else if (FAM === "accessoryRectangular") {
+  // Three compact "LABEL value" rows; ⚠︎ prefix on the first row when stale.
+  const lines = data.lines.slice(0, 3);
+  for (let i = 0; i < lines.length; i++) {
+    const row = widget.addStack();
+    row.centerAlignContent();
+    const lab = row.addText((i === 0 && stale ? "⚠︎ " : "") + lines[i].label.toUpperCase());
+    lab.font = Font.mediumSystemFont(8);
+    lab.textColor = Color.gray();
+    lab.lineLimit = 1;
+    row.addSpacer(4);
+    const val = row.addText(lines[i].value);
+    val.font = Font.semiboldSystemFont(12);
+    val.textColor = TONES[lines[i].tone] || Color.white();
+    val.lineLimit = 1;
+    val.minimumScaleFactor = 0.6;
+    row.addSpacer();
+    if (i < lines.length - 1) widget.addSpacer(2);
+  }
 } else {
   // Slim header: logo · HANDYSERVICES · updated time (amber ⚠︎ when offline).
   const when = new Date(data.generatedAt);
@@ -154,7 +211,11 @@ Script.complete();
 // 2. Install "Scriptable" (free) from the App Store.
 // 3. Open Scriptable → + → paste this whole file → name it e.g. "Switchboard".
 // 4. Replace PASTE_TOKEN above with your token (and BASE if not production).
-// 5. Long-press the home screen → + → Scriptable → small or medium widget →
+// 5. Home screen: long-press → + → Scriptable → small or medium widget →
 //    add, then long-press the widget → Edit Widget → Script: "Switchboard".
+// 6. Lock screen: long-press the lock screen → Customize → Lock Screen →
+//    tap the widget strip under the clock → Scriptable (rectangular, circular
+//    or the inline slot above the clock) → tap the placed widget →
+//    Script: "Switchboard".
 // iOS refreshes it periodically (we hint every 15 min). If offline, the last
 // good data is shown with an ⚠︎ offline marker.
