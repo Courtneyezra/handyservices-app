@@ -42,9 +42,13 @@ const FAM = config.widgetFamily || "medium"; // null when run inside the app
 const ON_LOCK = FAM.startsWith("accessory"); // lock-screen families (iOS 16+)
 const widget = new ListWidget();
 if (ON_LOCK) {
-  // Lock screen: iOS renders widgets tinted/vibrant — no custom background.
+  // Lock screen: iOS renders widgets tinted/vibrant. The system accessory
+  // background is nearly invisible on most wallpapers, so the rectangular
+  // branch draws its own frosted capsule instead (translucent white renders
+  // as a soft grey box in vibrant mode). No outer padding — the capsule
+  // should fill the slot.
   widget.addAccessoryWidgetBackground = true;
-  widget.setPadding(4, 6, 4, 6);
+  widget.setPadding(0, 0, 0, 0);
 } else {
   const bg = new LinearGradient();
   bg.colors = [new Color("#0f172a"), new Color("#1c2740")];
@@ -136,9 +140,16 @@ if (!data) {
   lab.centerAlignText();
   mid.addSpacer();
 } else if (FAM === "accessoryRectangular") {
-  // Brand header (logo + HANDYSERVICES, ⚠︎ when stale) over compact
+  // Frosted capsule (our own — the system one is too faint) containing a
+  // brand header (logo + HANDYSERVICES, ⚠︎ when stale) over compact
   // "LABEL value" rows. iOS desaturates the logo into the vibrant style.
-  const head = widget.addStack();
+  const box = widget.addStack();
+  box.layoutVertically();
+  box.setPadding(4, 7, 4, 7);
+  box.cornerRadius = 12;
+  box.backgroundColor = new Color("#ffffff", 0.18);
+
+  const head = box.addStack();
   head.centerAlignContent();
   const logo = await loadLogo();
   if (logo) {
@@ -151,11 +162,11 @@ if (!data) {
   brand.textColor = Color.gray();
   brand.lineLimit = 1;
   head.addSpacer();
-  widget.addSpacer(2);
+  box.addSpacer(2);
 
   const lines = data.lines.slice(0, 3);
   for (let i = 0; i < lines.length; i++) {
-    const row = widget.addStack();
+    const row = box.addStack();
     row.centerAlignContent();
     const lab = row.addText(lines[i].label.toUpperCase());
     lab.font = Font.mediumSystemFont(8);
@@ -168,7 +179,7 @@ if (!data) {
     val.lineLimit = 1;
     val.minimumScaleFactor = 0.6;
     row.addSpacer();
-    if (i < lines.length - 1) widget.addSpacer(1);
+    if (i < lines.length - 1) box.addSpacer(1);
   }
 } else {
   // Slim header: logo · HANDYSERVICES · updated time (amber ⚠︎ when offline).
