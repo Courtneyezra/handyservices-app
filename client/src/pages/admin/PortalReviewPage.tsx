@@ -5,18 +5,22 @@
  * media, the clerk's lane verdict with the gap breakdown (audience + impact — lanes, never a
  * numeric score), the proposed line titles (the clerk produces no prices), and the actions:
  *
- *   - Approve & build      → deep-links into /admin/comms?prep=1&conversation=… where the
- *                            existing QuotePrepPanel prices and sends. Ben's click there is
- *                            the send trigger; the portal itself never sends a quote.
+ *   - Approve & build      → opens the existing QuotePrepPanel as a slide-over RIGHT HERE
+ *                            (no comms round-trip): it prices via the builder's engine and
+ *                            Ben's click inside the panel is the send trigger — the review
+ *                            page itself still never sends a quote.
  *   - Queue this ask       → POST /api/agents/quote-prep/:id/request-details — queues a draft
  *                            into the human-approval gate; nothing goes to the customer here.
  *   - Lane override        → POST /api/portal/conversations/:id/lane — reassigns the lane
  *                            (covers "mark visit-first" and the VA override), metadata only.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute, Link } from 'wouter';
 import { ArrowLeft, Loader2, MessageSquare, Phone } from 'lucide-react';
+import {
+    QuotePrepPanel, type PrepThreadMedia, type QuoteIntake,
+} from '@/components/comms/QuotePrepPanel';
 import { LaneBadge, LANE_BLURB } from '@/components/portal/LaneBadge';
 import { GapList } from '@/components/portal/GapList';
 import { ThreadPreview } from '@/components/portal/ThreadPreview';
@@ -38,6 +42,10 @@ export default function PortalReviewPage() {
     const queryClient = useQueryClient();
     const [queuedQuestions, setQueuedQuestions] = useState<Set<string>>(new Set());
     const [notice, setNotice] = useState<string | null>(null);
+    // Quote-prep slide-over state. The panel stays mounted (edits intact) while closed;
+    // "dismissed" is the explicit discard from inside the panel.
+    const [prepOpen, setPrepOpen] = useState(false);
+    const [prepDismissed, setPrepDismissed] = useState(false);
 
     const thread = useQuery<ThreadResponse>({
         queryKey: ['portal-thread', conversationId],
@@ -112,6 +120,37 @@ export default function PortalReviewPage() {
     const intake = intakeQuery.data?.intake ?? null;
     const lane = intake?.readiness ?? intakeQuery.data?.readiness ?? null;
     const name = card?.contactName?.trim() || card?.displayPhone || '…';
+
+    // The thread endpoint's card carries the live 24h-window state (server toCard) even though
+    // the portal type doesn't declare it. Default shut: the panel then offers the template/queue
+    // path instead of promising a freeform send it can't deliver.
+    const windowOpen = (card as (typeof card & { windowOpen?: boolean }))?.windowOpen ?? false;
+
+    // The thread's photos/videos for the panel's evidence strip — same rules as the comms
+    // thread: deduped by URL, audio and documents skipped (they can't illustrate a quote).
+    const prepMedia = useMemo<PrepThreadMedia[]>(() => {
+        const seen = new Map<string, PrepThreadMedia>();
+        for (const ev of thread.data?.timeline ?? []) {
+            if (!ev.mediaUrl || seen.has(ev.mediaUrl)) continue;
+            const mime = ev.mediaType ?? '';
+            if (mime.startsWith('audio/') || ev.type === 'audio') continue;
+            if (mime.startsWith('image/') || mime.startsWith('video/') || ev.type === 'image' || ev.type === 'video' || mime === '') {
+                seen.set(ev.mediaUrl, { mediaUrl: ev.mediaUrl, mediaType: ev.mediaType ?? null, type: ev.type ?? '' });
+            }
+        }
+        return [...seen.values()];
+    }, [thread.data?.timeline]);
+
+    const refreshAfterPrep = () => {
+        queryClient.invalidateQueries({ queryKey: ['portal-thread', conversationId] });
+        queryClient.invalidateQueries({ queryKey: ['portal-intake', conversationId] });
+        queryClient.invalidateQueries({ queryKey: ['portal-board'] });
+    };
+
+    // The portal's read-only intake mirrors the same stored object the panel edits
+    // (conversations.metadata.quotePrepIntake), so the widening to plain strings is safe
+    // to narrow back for the panel.
+    const prepIntake = !prepDismissed && intake ? (intake as QuoteIntake) : null;
 
     return (
         <div className="mx-auto max-w-lg space-y-3 p-3 pb-32 sm:p-5">
@@ -218,19 +257,23 @@ export default function PortalReviewPage() {
                 </div>
             ) : null}
 
-            {/* Thumb-reach action bar. Approve deep-links into the existing prep panel — pricing
-                and the actual send stay in /admin/comms, where Ben's click is the trigger. */}
+            {/* Thumb-reach action bar. Approve opens the prep panel right here — pricing runs
+                the builder's engine and the actual send stays behind Ben's click in the panel.
+                Disabled until the clerk has produced an intake (the empty-state card above
+                explains how to run it). */}
             {card && (
                 <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
                     <div className="mx-auto flex max-w-lg items-center gap-2">
-                        <Link
-                            href={`/admin/comms?prep=1&conversation=${conversationId}`}
-                            className="flex h-12 flex-1 items-center justify-center rounded-xl bg-emerald-600 text-base font-bold text-white active:bg-emerald-700"
+                        <button
+                            type="button"
+                            onClick={() => { setPrepDismissed(false); setPrepOpen(true); }}
+                            disabled={!intake}
+                            className="flex h-12 flex-1 items-center justify-center rounded-xl bg-emerald-600 text-base font-bold text-white active:bg-emerald-700 disabled:opacity-40"
                         >
                             Approve &amp; build quote
-                        </Link>
+                        </button>
                         <Link
-                            href={`/admin/comms?conversation=${conversationId}`}
+                            href={`/admin/portal/thread/${conversationId}`}
                             className="flex h-12 items-center justify-center gap-1 rounded-xl border border-slate-300 px-3 text-sm font-bold text-blue-700 active:bg-slate-100"
                         >
                             <MessageSquare className="h-4 w-4" /> Thread
@@ -244,6 +287,22 @@ export default function PortalReviewPage() {
                         </a>
                     </div>
                 </div>
+            )}
+
+            {/* Quote-prep slide-over — the same panel the comms thread mounts, with full builder
+                parity. Keyed on preparedAt so a fresh clerk run remounts with the new intake
+                while ordinary refetches keep Ben's in-panel edits. */}
+            {prepIntake && card && (
+                <QuotePrepPanel
+                    key={intakeQuery.data?.preparedAt ?? 'prep'}
+                    intake={prepIntake}
+                    conversation={{ id: conversationId, phoneNumber: card.phoneNumber, windowOpen }}
+                    media={prepMedia}
+                    open={prepOpen}
+                    onOpenChange={setPrepOpen}
+                    onDismiss={() => { setPrepDismissed(true); setPrepOpen(false); }}
+                    onRefresh={refreshAfterPrep}
+                />
             )}
         </div>
     );

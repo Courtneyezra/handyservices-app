@@ -12,6 +12,7 @@
  */
 import { db } from '../db';
 import { conversations, messages, calls, personalizedQuotes } from '@shared/schema';
+import { realNameOrNull } from '@shared/contact-name';
 import { eq, desc, sql } from 'drizzle-orm';
 import { runAgent, type AgentTool } from './runner';
 import { buildMediaBlocks } from './media-context';
@@ -243,7 +244,11 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
     }
 
     return {
-        customerName: input?.customerName ?? ctx.contactName ?? null,
+        // Both candidates pass the placeholder gate: the stored contactName starts life as the
+        // WhatsApp pushname ("Just Me", an emoji, a business in caps) and the model occasionally
+        // echoes it back despite the "real name only" instruction. Junk never reaches a quote —
+        // a null here is what makes the comms agent ask the customer for their name.
+        customerName: realNameOrNull(input?.customerName) ?? realNameOrNull(ctx.contactName),
         phone: ctx.phone,
         postcode: input?.postcode ?? null,
         customerType: (['homeowner', 'landlord', 'letting_agent', 'business'] as const)
@@ -292,7 +297,9 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
                     })),
                 ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
 
-                const data = { contactName: conv.contactName, phone: e164, timeline };
+                // Pre-gated: a pushname placeholder ("Just Me", an emoji, a business in caps)
+                // reads as null here, so the clerk cannot mistake it for a name the customer gave.
+                const data = { contactName: realNameOrNull(conv.contactName), phone: e164, timeline };
                 const mediaBlocks = await buildMediaBlocks(
                     recent.filter((m) => m.mediaUrl).reverse().map((m) => ({
                         mediaUrl: m.mediaUrl!, mediaType: m.mediaType,
@@ -422,7 +429,7 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
     const result = await runAgent({
         name: 'quote-prep',
         system: SYSTEM,
-        goal: `Prepare the quote intake for conversation ${conv.id} (customer: ${conv.contactName || e164}).`,
+        goal: `Prepare the quote intake for conversation ${conv.id} (customer: ${realNameOrNull(conv.contactName) || e164}).`,
         tools,
         model: 'claude-sonnet-5',
         maxTurns: 6,

@@ -58,6 +58,7 @@ import {
     conversations, messages, calls, quickReplies, appSettings, messageDrafts, agentQuestions,
     personalizedQuotes, nudgeQueue,
 } from '@shared/schema';
+import { isLikelyRealName, realNameOrNull } from '@shared/contact-name';
 import { eq, ne, desc, and, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { runAgent, type AgentTool, type AgentRunResult, type AgentTranscriptEvent } from './runner';
@@ -562,6 +563,9 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
 
     const config = await getCommsAgentConfig();
     let autosent = false;
+    // Run-local view of the stored contact name, so a set_contact_name mid-run is reflected by a
+    // later get_thread instead of the stale placeholder re-prompting another ask.
+    let contactNameNow: string | null = conv.contactName ?? null;
     // The model sometimes queues part 1 and then the full reply. Instead of punishing that with
     // a dedupe error (which strands the fragment), a repeat queue_draft in the SAME run
     // supersedes the earlier one — the final call always wins.
@@ -719,7 +723,12 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 const live = quoteRows.find((q) => q.isLive) ?? null;
 
                 const data = {
-                    contactName: conv.contactName, phone: e164,
+                    contactName: contactNameNow, phone: e164,
+                    // The stored name starts life as the WhatsApp pushname, which is whatever the
+                    // customer typed into their own phone. True here = it failed the real-name
+                    // gate ("Just Me", emoji, business caps, a number) — the NAMES standing order
+                    // says never to address them with it and when to ask for the real one.
+                    contactNameIsPlaceholder: !isLikelyRealName(contactNameNow),
                     stage: conv.stage, priority: conv.priority, tags: conv.tags ?? [],
                     whatsappWindowOpen: windowOpen,
                     slaState: wait,
@@ -853,6 +862,39 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     console.warn('[CommsAgent] board_delta emit failed (write stands):', emitError?.message);
                 }
                 return { updated: Object.keys(patch).filter((k) => k !== 'updatedAt') };
+            },
+        },
+        {
+            name: 'set_contact_name',
+            description: 'Save the customer\'s REAL name to the thread. The stored contact name starts life as their WhatsApp pushname — often junk like "Just Me", an emoji or a business name — and it flows into quotes and greetings, so replacing it with the real one matters. Call this ONLY with a name the customer actually gave in this conversation: stated when you asked, or signed off a message ("Cheers, Sarah"). A first name alone is fine. Never save a guess, and never re-save the pushname.',
+            input_schema: {
+                type: 'object' as const,
+                properties: {
+                    name: { type: 'string', description: 'The name exactly as the customer gave it, e.g. "Sarah" or "Sarah Jones". No titles or notes you added yourself.' },
+                },
+                required: ['name'],
+            },
+            run: async (input: { name: string }) => {
+                const name = String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+                // The same gate that keeps pushname junk off quotes keeps it out of this write:
+                // an agent echoing "Just Me" back into the field would launder the placeholder
+                // into a "customer-given" name.
+                if (!isLikelyRealName(name)) {
+                    throw new Error(
+                        `"${name}" does not pass the real-name check (numbers, emoji, placeholders like "Just Me" and business names are all rejected). `
+                        + 'Save only a personal name the customer actually stated in this thread. If they have not given one, ask for it in your reply instead, and leave the stored name alone.',
+                    );
+                }
+                await db.update(conversations)
+                    .set({ contactName: name, updatedAt: new Date() })
+                    .where(eq(conversations.id, conv.id));
+                contactNameNow = name;
+                try {
+                    emitCommsEvent({ type: 'board_delta', conversationId: conv.id, reason: 'other', at: new Date().toISOString() });
+                } catch (emitError: any) {
+                    console.warn('[CommsAgent] board_delta emit failed (name write stands):', emitError?.message);
+                }
+                return { saved: name, note: 'Stored. Greetings and future quote prep will use this name.' };
             },
         },
         {
@@ -1206,7 +1248,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
         result = await runAgent({
             name: 'comms',
             system,
-            goal: `Triage conversation ${conv.id} (customer: ${conv.contactName || e164}). Trigger: ${trigger}.`,
+            goal: `Triage conversation ${conv.id} (customer: ${realNameOrNull(conv.contactName) || e164}). Trigger: ${trigger}.`,
             tools,
             model: 'claude-sonnet-5',
             maxTurns: 10,
@@ -1227,7 +1269,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     }
 
     const actions = result.transcript
-        .filter((e) => e.type === 'tool_call' && ['set_board_state', 'queue_draft', 'flag_for_ben', 'schedule_recontact', 'resolve_question'].includes(e.detail.tool))
+        .filter((e) => e.type === 'tool_call' && ['set_board_state', 'set_contact_name', 'queue_draft', 'flag_for_ben', 'schedule_recontact', 'resolve_question'].includes(e.detail.tool))
         .map((e) => ({ tool: e.detail.tool, input: e.detail.input }));
 
     // THE RAIL, closed. A refusal in Ben-only territory becomes a flagged thread on his phone
@@ -1615,7 +1657,9 @@ export async function maybeAutoQuotePrep(
         const { notifyQuotePrepReady } = await import('../pushover');
         await notifyQuotePrepReady({
             conversationId: conv.id,
-            customerName: intake.customerName ?? conv.contactName,
+            // intake.customerName is already gated; the fallback must not reintroduce the junk
+            // pushname the gate just removed.
+            customerName: intake.customerName ?? realNameOrNull(conv.contactName),
             phoneNumber: `+${digits}`,
             readiness: intake.readiness,
             declineReason: intake.declineReason,
@@ -1894,6 +1938,22 @@ real silence (say half a day). A reply minutes after the last exchange starts wi
 "Good question, ..." / "Yes, that's included ...". Re-greeting every message is one of the tells
 of a machine answering ticket-by-ticket instead of a person in a conversation.
 
+NAMES — the stored contact name is NOT a fact. It starts life as the customer's WhatsApp
+pushname, which is whatever they once typed into their own phone: "Just Me", an emoji, a business
+name in caps, a bare number. get_thread tells you when it fails the real-name check
+(contactNameIsPlaceholder: true), and while it does:
+- NEVER address the customer by it and never let it near a reply. "Hi" and "Hi there" are always
+  safe, and a placeholder name used as a greeting is the loudest possible tell of a machine.
+- During SCOPING, when you are already asking them something, add one light ask for their name
+  ("And so I know who I'm speaking with, what's your name?"). Not in the first reply — that stays
+  a single photo ask — never as its own standalone message, and ONCE only: if they ignore it,
+  drop it. A name is a nicety, not a gate on the quote.
+- The moment they give one — answering you, or signing off a message ("Cheers, Sarah") — save it
+  with set_contact_name. That is what puts the right name on their quote; the tool rejects
+  anything placeholder-shaped, so only a name they actually stated will stick.
+- A name the customer stated always outranks the pushname, even when the pushname passes the
+  check ("S Jones Lettings" texting as "Mike" is Mike).
+
 BELIEF HYGIENE (a real thread went wrong without this, 22 Aug): the customer's OWN words are the
 only source of their intent. Your previous messages in the thread are things WE said — if the
 customer never confirmed one, it is not a fact, and their newer messages always outrank your older
@@ -1948,6 +2008,7 @@ export const STAFF = {
             'Move cards, set priority, add and remove tags on the board',
             'Read threads, quotes and call transcripts',
             'Answer product/material spec questions from the standing policy (match existing, else standard trade-quality, confirmed at booking)',
+            'Ask for and save the customer\'s real name when the stored one is a pushname placeholder — asked once, during scoping, never as its own message',
             'Fire the quote clerk when a thread has everything needed to price it, and push it to Ben',
         ],
         approval: [
@@ -1975,6 +2036,7 @@ export const STAFF = {
         { name: 'check_date', blurb: 'Read-only: is that date already offered on their quote? Books nothing, confirms nothing', kind: 'read' },
         { name: 'get_quick_replies', blurb: 'House-voice canned replies to adapt', kind: 'read' },
         { name: 'set_board_state', blurb: 'Stage / priority / tags (add and remove) — the autonomous tier, minus "won", which only a payment can set. Tagging "needs_quote" fires the quote clerk; removing "needs_ben" closes a flag once Ben has replied', kind: 'write' },
+        { name: 'set_contact_name', blurb: 'Saves the customer\'s real name once they state it, replacing the WhatsApp pushname ("Just Me", emoji, business caps) that would otherwise leak into greetings and quotes. Placeholder-shaped names are rejected at the write', kind: 'write' },
         { name: 'queue_draft', blurb: 'THE REPLY. Sends on the spot once the full guard chain passes — which refuses any money figure outright; reactive replies go 24/7, proactive ones wait for morning', kind: 'gated' },
         { name: 'flag_for_ben', blurb: 'Escalation: tags needs_ben, pings Ben\'s phone with the note, and Ben replies in the thread himself. One flag per conversation while the tag stands', kind: 'write' },
         { name: 'schedule_recontact', blurb: 'Records an agreed date to come back to a held job — proposed into the nudge queue, sends nothing', kind: 'gated' },

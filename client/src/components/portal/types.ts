@@ -32,6 +32,8 @@ export interface PortalCard {
     callbackDue: boolean;
     complaint: boolean;
     agentDown: boolean;
+    /** Whether the WhatsApp 24-hour reply window is currently open. */
+    windowOpen: boolean;
     wait: { severity: 'breached' | 'due' | 'ok' | 'none'; awaitingReply: boolean };
 }
 
@@ -93,6 +95,42 @@ export interface TimelineEvent {
     durationSeconds?: number | null;
     summary?: string | null;
     outcome?: string | null;
+    // draft_event fields (rejected/failed machinery, rendered as collapsible system lines)
+    status?: string | null;
+    source?: string;
+    reason?: string | null;
+    error?: string | null;
+    body?: string;
+}
+
+/** A pending row from message_drafts — held in the approval gate, not yet sent. */
+export interface PortalHeldDraft {
+    id: string;
+    body: string;
+    channel: string;
+    source: string;
+    reason: string | null;
+    status: string;
+    createdAt: string;
+}
+
+/** An agent_questions row still in flight ('open'/'answered') or a flag for Ben ('flagged'). */
+export interface PortalAgentQuestion {
+    id: string;
+    question: string;
+    context: string | null;
+    status: string;
+    createdAt: string;
+}
+
+/** The thread's suppression record, when this person has told us to stop. */
+export interface PortalOptOut {
+    scope: string;
+    at: string;
+    source: string;
+    channel: string | null;
+    keyword?: string | null;
+    text?: string | null;
 }
 
 export interface ThreadResponse {
@@ -100,6 +138,9 @@ export interface ThreadResponse {
     timeline: TimelineEvent[];
     totalMessages: number;
     truncated: boolean;
+    drafts: PortalHeldDraft[];
+    questions: PortalAgentQuestion[];
+    optOut: PortalOptOut | null;
 }
 
 export function getAuthHeaders(): Record<string, string> {

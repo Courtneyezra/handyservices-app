@@ -74,6 +74,7 @@ const ActivityPage = lazy(() => import("@/pages/admin/ActivityPage"));
 const VaTasksPage = lazy(() => import("@/pages/admin/VaTasksPage"));
 const PortalInboxPage = lazy(() => import("@/pages/admin/PortalInboxPage"));
 const PortalReviewPage = lazy(() => import("@/pages/admin/PortalReviewPage"));
+const PortalThreadPage = lazy(() => import("@/pages/admin/PortalThreadPage"));
 const WhatsAppOnboardPage = lazy(() => import("@/pages/admin/WhatsAppOnboardPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
@@ -751,6 +752,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <PortalReviewPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/portal/thread/:id">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PortalThreadPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

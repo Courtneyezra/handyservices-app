@@ -48,6 +48,7 @@ import { queueDraft, approveAndSendDraft, type DraftSource } from './message-dra
 import { canSendFreeform } from './meta-whatsapp';
 import { findApprovedTemplateWithValues } from './whatsapp-template-sync';
 import { isNonMobileUkNumber } from './phone-utils';
+import { isLikelyRealName } from '@shared/contact-name';
 import { isSmsSenderConfigured, getSmsSenderE164, getWhatsAppSenderE164 } from './whatsapp-sender';
 import { notQuarantined } from './message-quarantine';
 
@@ -393,19 +394,23 @@ export function isOutOfHours(hour = ukHourNow()): boolean {
     return hour < 8 || hour >= 20;
 }
 
+/** System-stamped lead names that are labels, not people ("Website Visitor", "Unknown Caller"). */
+const SYSTEM_STAMPED_NAME_RE = /^(unknown|customer|caller|test|website|web\b|visitor|lead|enquiry)/i;
+
 function greetingFor(contactName?: string | null): string {
     const name = (contactName ?? '').trim();
     // Placeholder names greet nobody: "Hi Website" went to a real customer on 21 Aug because the
-    // hero form has no name field and stamps leads "Website Visitor". Anything system-stamped
-    // reads as no-name and the copy degrades to plain "Hi" / "Hi there" gracefully.
-    if (!name || /^\+?\d/.test(name) || /^(unknown|customer|caller|test|website|web\b|visitor|lead|enquiry)/i.test(name)) return '';
+    // hero form has no name field and stamps leads "Website Visitor". Anything system-stamped —
+    // or failing the shared pushname gate ("Just Me", emoji, business caps: @shared/contact-name)
+    // — reads as no-name and the copy degrades to plain "Hi" / "Hi there" gracefully.
+    if (!name || SYSTEM_STAMPED_NAME_RE.test(name) || !isLikelyRealName(name)) return '';
     return ` ${name.split(/\s+/)[0]}`;
 }
 
 /** Shared placeholder test for template-variable name slots (whatsapp-template-sync uses it). */
 export function isPlaceholderName(name?: string | null): boolean {
     const n = (name ?? '').trim();
-    return !n || /^\+?\d/.test(n) || /^(unknown|customer|caller|test|website|web\b|visitor|lead|enquiry)/i.test(n);
+    return !n || SYSTEM_STAMPED_NAME_RE.test(n) || !isLikelyRealName(n);
 }
 
 /**
