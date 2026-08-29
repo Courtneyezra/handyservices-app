@@ -2,6 +2,7 @@ import { Router } from 'express';
 import Stripe from 'stripe';
 import { db } from './db';
 import { notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
+import { pushEvent } from './web-push';
 import { invoices, contractorBookingRequests, personalizedQuotes, leads, customerRewards } from '../shared/schema';
 import type { Invoice, InsertInvoice } from '../shared/schema';
 import { eq, and, sql, inArray } from 'drizzle-orm';
@@ -462,6 +463,11 @@ invoiceRouter.post('/api/invoices/:id/mark-paid', async (req, res) => {
                     .where(eq(personalizedQuotes.id, updated.quoteId)).limit(1);
                 if (q) schedule = describeSchedule(q);
             }
+            pushEvent('payment_received', {
+                title: '💷 Invoice paid',
+                body: `${updated.customerName} · ${updated.invoiceNumber} — £${((updated.totalAmount || 0) / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} paid`,
+                url: '/admin/invoices',
+            });
             await notifyInvoicePaid({
                 customerName: updated.customerName,
                 phoneNumber: updated.customerPhone,

@@ -1,0 +1,18 @@
+{
+  "name": "Handy Services — Contractor",
+  "short_name": "HS Jobs",
+  "description": "Job alerts and schedule for Handy Services contractors",
+  "start_url": "/contractor/dashboard",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#e8b323",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

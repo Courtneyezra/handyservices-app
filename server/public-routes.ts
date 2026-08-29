@@ -20,6 +20,7 @@ import { addDays, getDay, startOfDay, startOfMonth, endOfMonth, parseISO, isBefo
 import { ukToday, addDaysStr, ukDayStartUTC } from '../shared/uk-time';
 import { expandSpanDates, computeRequiredDays, collectSpanDates } from '../shared/schedule-composition';
 import { notifyWebformLead } from './pushover';
+import { pushEvent } from './web-push';
 import {
     SPARSE_DAY_FEE_PENCE,
     classifySparseDay,
@@ -433,6 +434,11 @@ router.post('/contractor/:slug/book', async (req: Request, res: Response) => {
             details: `Booking request: ${date} ${slot}${description ? ` — ${description}` : ''}`,
             source: 'Booking request',
         }).catch((e) => console.warn('[PublicAPI] notifyWebformLead failed:', e));
+        pushEvent('new_lead', {
+            title: '📝 New lead · Booking request',
+            body: `${name} — ${phone}: ${`Booking request: ${date} ${slot}${description ? ` — ${description}` : ''}`.slice(0, 80)}`,
+            url: '/admin/leads',
+        });
 
         res.json({ success: true });
 

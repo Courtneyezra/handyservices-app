@@ -3,6 +3,7 @@ import { conversationEngine } from "./conversation-engine";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
 import { sendCustomerMessage, NOT_A_WHATSAPP_RECIPIENT_CODES } from "./outbound";
 import { notifyIncomingSms, notifyIncomingWhatsApp, notifyOutboundSendFailure } from "./pushover";
+import { pushEvent } from "./web-push";
 import { resolveCallerName } from "./caller-lookup";
 import { requireAdmin } from "./auth";
 
@@ -31,6 +32,11 @@ whatsappRouter.post('/incoming', async (req, res) => {
         (async () => {
             const senderName = (ProfileName && ProfileName.trim()) || await resolveCallerName(phone);
             if (isWhatsApp) {
+                pushEvent('whatsapp_inbound', {
+                    title: '📱 New WhatsApp',
+                    body: `${senderName} — ${phone}: "${String(Body || '').slice(0, 80)}"`,
+                    url: '/admin/comms',
+                });
                 await notifyIncomingWhatsApp({ senderName, phoneNumber: phone, body: Body });
             } else {
                 await notifyIncomingSms({ senderName, phoneNumber: phone, body: Body });

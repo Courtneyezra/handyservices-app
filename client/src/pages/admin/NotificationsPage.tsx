@@ -19,6 +19,7 @@ import {
     DEFAULT_PUSHOVER_CONFIG, PUSHOVER_SOUNDS, PUSHOVER_PRIORITY_OPTIONS, PUSHOVER_EVENT_DEFS,
     type PushoverConfig, type PushoverEventKey, type PushoverPriority, type PushoverRecipient,
 } from "@shared/pushover-settings";
+import { enablePush, resyncPush, sendTestPush } from "@/lib/push-subscribe";
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem("adminToken");
@@ -69,6 +70,12 @@ export default function NotificationsPage() {
         }
     }, [data, initialized]);
 
+    // Heal legacy subscriptions: re-POST any existing subscription with Bearer
+    // auth so the server can stamp userId/role onto old rows. Fire-and-forget.
+    useEffect(() => {
+        void resyncPush(localStorage.getItem("adminToken"));
+    }, []);
+
     const saveMutation = useMutation({
         mutationFn: async (cfg: PushoverConfig) => {
             const res = await fetch("/api/settings/pushover", {
@@ -107,8 +114,7 @@ export default function NotificationsPage() {
 
     async function testBrowserPush() {
         try {
-            const res = await fetch("/api/push/test", { method: "POST", headers: getAuthHeaders() });
-            if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Failed"); }
+            await sendTestPush(localStorage.getItem("adminToken"));
             toast({ title: "Browser test sent", description: "Sent to all subscribed browsers." });
         } catch (e: any) {
             toast({ title: "Failed", description: e.message, variant: "destructive" });
@@ -117,24 +123,7 @@ export default function NotificationsPage() {
 
     async function enableThisBrowser() {
         try {
-            if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("This browser doesn't support push.");
-            const permission = await Notification.requestPermission();
-            if (permission !== "granted") throw new Error("Permission denied.");
-            const reg = await navigator.serviceWorker.ready;
-            const keyRes = await fetch("/api/push/vapid-public-key");
-            const { publicKey } = await keyRes.json();
-            if (!publicKey) throw new Error("No VAPID key configured on the server.");
-            let sub = await reg.pushManager.getSubscription();
-            if (!sub) {
-                const padding = "=".repeat((4 - publicKey.length % 4) % 4);
-                const b64 = (publicKey + padding).replace(/-/g, "+").replace(/_/g, "/");
-                const raw = window.atob(b64);
-                const appKey = Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
-                sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
-            }
-            await fetch("/api/push/subscribe", {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub.toJSON()),
-            });
+            await enablePush(localStorage.getItem("adminToken"));
             queryClient.invalidateQueries({ queryKey: ["webPushStatus"] });
             toast({ title: "Enabled", description: "Browser notifications enabled on this device." });
         } catch (e: any) {

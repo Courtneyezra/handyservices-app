@@ -59,7 +59,7 @@ import { vaCallTasksRouter } from "./va-call-tasks-routes";
 import { portalRouter } from "./portal-routes";
 import { voiceNotesRouter } from "./voice-notes";
 import { trainingRouter } from './training-routes';
-import { pushRouter } from './web-push';
+import { pushRouter, pushEvent } from './web-push';
 import handymenRouter from './handymen';
 import callsRouter from './calls';
 import callPerformanceRouter from './call-performance-routes';
@@ -862,6 +862,11 @@ app.post('/api/twilio/voice', async (req, res) => {
             // Resolve the caller against our saved records when Twilio has no CallerName.
             (async () => {
                 const callerName = req.body.CallerName?.trim() || await resolveCallerName(req.body.From);
+                pushEvent('incoming_call', {
+                    title: '📞 Incoming call',
+                    body: `${callerName} — ${req.body.From}`,
+                    url: '/admin/live-call',
+                });
                 await notifyIncomingCall({ callerName, phoneNumber: req.body.From });
             })().catch((e) => console.warn('[Twilio] notifyIncomingCall failed:', e));
 
@@ -995,6 +1000,11 @@ app.post('/api/twilio/test-push', async (req, res) => {
             await notifyIncomingCall({
                 callerName: (req.body?.callerName as string) || 'Test caller',
                 phoneNumber: (req.body?.phoneNumber as string) || '+441234567890',
+            });
+            pushEvent('incoming_call', {
+                title: '📞 Incoming call',
+                body: `${(req.body?.callerName as string) || 'Test caller'} — ${(req.body?.phoneNumber as string) || '+441234567890'}`,
+                url: '/admin/live-call',
             });
         }
         res.json({ ok: true, message: 'Test alert sent to all configured recipients.' });
@@ -1277,6 +1287,11 @@ app.post('/api/twilio/status-callback', async (req, res) => {
             if (CallStatus === 'busy' || CallStatus === 'no-answer') {
                 (async () => {
                     const callerName = req.body.CallerName?.trim() || await resolveCallerName(req.body.From);
+                    pushEvent('voicemail', {
+                        title: '📵 Missed call',
+                        body: `${callerName} — ${req.body.From} · ${CallStatus === 'busy' ? 'Line was busy' : 'No answer'}`,
+                        url: '/admin/follow-ups',
+                    });
                     await notifyVoicemail({
                         callerName,
                         phoneNumber: req.body.From,

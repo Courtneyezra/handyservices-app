@@ -20,6 +20,7 @@ import { scheduleInboundTriage } from './agents/comms-lanes';
 import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
 import { fetchWithTimeout, SHORT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS } from './lib/fetch-with-timeout';
 import { notifyIncomingWhatsApp } from './pushover';
+import { pushEvent } from './web-push';
 
 /** Timeout for Meta Graph API calls (15 seconds). Most calls are fast. */
 const META_API_TIMEOUT_MS = 15_000;
@@ -276,6 +277,11 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
                 phoneNumber: from,
                 body: content,
             }).catch((e) => console.warn('[Meta WhatsApp] Pushover notification failed:', e));
+            pushEvent('whatsapp_inbound', {
+                title: '📱 New WhatsApp',
+                body: `${profileName} — ${from}: "${String(content || '').slice(0, 80)}"`,
+                url: '/admin/comms',
+            });
         }
 
         // Tenant/landlord AI fork removed 24 Aug 2026 (Switchboard Atlas step 4): ungoverned

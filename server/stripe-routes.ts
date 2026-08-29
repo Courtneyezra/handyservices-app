@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { db } from './db';
 import { personalizedQuotes, invoices, leads } from '../shared/schema';
 import { notifyQuoteAccepted, notifyNoContractor, notifyInvoicePaid, notifyPlanDepositPaid, describeSchedule, summarizeLineItems } from './pushover';
+import { pushEvent } from './web-push';
 import { computePlan, type Selection as PlanSelection } from '../shared/plan-pricing';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
@@ -916,6 +917,11 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             amountPaidPence: paymentIntent.amount,
                             paymentType: metadataPaymentType === 'full' ? 'full' : 'deposit',
                         }).catch((e) => console.warn('[Stripe Webhook] notifyQuoteAccepted failed:', e));
+                        pushEvent('quote_accepted', {
+                            title: '🎉 Quote accepted',
+                            body: `${quote.customerName} — £${(paymentIntent.amount / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} paid`,
+                            url: '/admin/comms',
+                        });
 
                         // 2. Calculate total job price (single price model)
                         // Re-derive the SAME lane-adjusted base the charge used, from THIS
@@ -1297,6 +1303,11 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     .where(eq(personalizedQuotes.id, paidInvoice.quoteId)).limit(1);
                                 if (q) schedule = describeSchedule(q);
                             }
+                            pushEvent('payment_received', {
+                                title: '💷 Invoice paid',
+                                body: `${paidInvoice.customerName} · ${paidInvoice.invoiceNumber} — £${((paidInvoice.totalAmount || 0) / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} paid`,
+                                url: '/admin/invoices',
+                            });
                             await notifyInvoicePaid({
                                 customerName: paidInvoice.customerName,
                                 phoneNumber: paidInvoice.customerPhone,

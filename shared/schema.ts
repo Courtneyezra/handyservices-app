@@ -2990,8 +2990,13 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
     p256dh: text("p256dh").notNull(),
     auth: text("auth").notNull(),
     userAgent: text("user_agent"),
+    userId: varchar("user_id"), // users.id; null = legacy pre-auth row
+    role: varchar("role", { length: 20 }), // 'admin' | 'va' | 'contractor'
     createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+    index("idx_push_subs_user").on(table.userId),
+    index("idx_push_subs_role").on(table.role),
+]);
 
 // ==========================================
 // RULES ENGINE TYPES

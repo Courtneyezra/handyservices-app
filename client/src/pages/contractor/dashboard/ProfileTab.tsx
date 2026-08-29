@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { Shield, CreditCard, LogOut, ChevronDown, ChevronUp, Check, Loader2 } from 'lucide-react';
+import { Shield, CreditCard, LogOut, ChevronDown, ChevronUp, Check, Loader2, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { enablePush, pushSupported, sendTestPush } from '@/lib/push-subscribe';
 import { RateCardEditor } from '@/components/contractor/RateCardEditor';
 import { StripeConnectStatus } from '@/components/contractor/StripeConnectStatus';
 import {
@@ -97,6 +98,55 @@ export default function ProfileTab() {
 
   // ── Skills / trades state ────────────────────────────────────────────
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
+
+  // ── Job alerts (web push) state ──────────────────────────────────────
+  const pushOk = pushSupported();
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | null>(
+    pushOk ? Notification.permission : null,
+  );
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const handleEnablePush = async () => {
+    setPushBusy(true);
+    try {
+      await enablePush(token ?? null);
+      setPushPermission(Notification.permission);
+      toast({ title: 'Job alerts enabled on this device' });
+    } catch (e) {
+      setPushPermission(pushOk ? Notification.permission : null);
+      toast({
+        title: "Couldn't enable alerts",
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    setPushBusy(true);
+    try {
+      await sendTestPush(token ?? null);
+      toast({ title: 'Test sent', description: 'Check for a notification on this device.' });
+    } catch (e) {
+      toast({
+        title: 'Test failed',
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const pushStatusText = !pushOk
+    ? 'Notifications are not supported in this browser.'
+    : pushPermission === 'granted'
+      ? 'Alerts enabled on this device.'
+      : pushPermission === 'denied'
+        ? 'Notifications are blocked — allow them in your browser settings.'
+        : 'Get a notification when a new job is offered to you.';
 
   // Derive currently-selected categories from the profile's skills
   const selectedCategories = new Set<string>(
@@ -293,7 +343,44 @@ export default function ProfileTab() {
 
       <hr className="border-slate-800 mb-8" />
 
-      {/* ── Section 6: Sign Out ──────────────────────────────────────── */}
+      {/* ── Section 6: Job Alerts (web push) ─────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+          <Bell size={18} className="text-slate-400" /> Job Alerts
+        </h2>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p
+            className={`text-sm mb-3 ${
+              pushPermission === 'granted' ? 'text-emerald-400' : 'text-slate-400'
+            }`}
+          >
+            {pushStatusText}
+          </p>
+          {pushOk && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleEnablePush}
+                disabled={pushBusy || pushPermission === 'denied'}
+                className="flex-1 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-semibold text-slate-300 hover:bg-slate-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {pushBusy && <Loader2 className="w-4 h-4 animate-spin" />}
+                Enable on this device
+              </button>
+              <button
+                onClick={handleTestPush}
+                disabled={pushBusy || pushPermission !== 'granted'}
+                className="py-2.5 px-4 bg-slate-800 border border-slate-700 rounded-lg text-sm font-semibold text-slate-300 hover:bg-slate-700 transition-colors disabled:opacity-50"
+              >
+                Send test
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <hr className="border-slate-800 mb-8" />
+
+      {/* ── Section 7: Sign Out ──────────────────────────────────────── */}
       <button
         onClick={handleLogout}
         className="w-full py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 font-semibold text-sm hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"

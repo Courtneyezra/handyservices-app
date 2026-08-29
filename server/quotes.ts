@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "./db";
 import { notifyQuoteViewed } from "./pushover";
+import { pushEvent } from "./web-push";
 import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users, contractorTeams, contractorTeamMembers, contractorAvailabilityDates } from "@shared/schema";
 import { eq, desc, inArray, or } from "drizzle-orm";
 import crypto from 'crypto';
@@ -1058,6 +1059,12 @@ quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res
                 jobSummary: quote.jobDescription,
                 valuePence: (quote as any).basePrice || null,
             }).catch((e) => console.warn('[Quotes] notifyQuoteViewed failed:', e));
+            const quoteValuePence = (quote as any).basePrice || null;
+            pushEvent('quote_viewed', {
+                title: '👀 Quote viewed',
+                body: `${quote.customerName} opened their quote${quoteValuePence ? ` · £${(quoteValuePence / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : ''}`,
+                url: '/admin/follow-ups',
+            });
         }
 
         // PostHog: Server-side quote view (reliable — immune to ad-blockers)

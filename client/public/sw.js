@@ -1,6 +1,6 @@
 // Service worker for PWA installability + Web Push notifications
 
-const CACHE_NAME = 'switchboard-v2';
+const CACHE_NAME = 'switchboard-v3';
 const PRECACHE_URLS = ['/admin/live-call'];
 
 self.addEventListener('install', (event) => {
@@ -32,29 +32,45 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {};
   const title = data.title || 'V6 Switchboard';
+  const url = data.url || '/';
   const options = {
     body: data.body || 'New notification',
     icon: '/logo.png',
     badge: '/logo.png',
-    tag: 'inbox-notification',
+    // Tag by explicit tag or target url so notifications for distinct
+    // urls/events stack instead of replacing each other.
+    tag: data.tag || url,
     renotify: true,
-    data: { url: data.url || '/admin/follow-ups' },
+    data: { url },
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Tap notification → focus or open the app
+// Tap notification → navigate-or-open by exact target url
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/admin/follow-ups';
+  const url = event.notification.data?.url || '/';
+  const targetUrl = new URL(url, self.location.origin);
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // 1) A window already on the target path → just focus it
       for (const client of windowClients) {
-        if (client.url.includes('/admin') && 'focus' in client) {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.pathname === targetUrl.pathname && 'focus' in client) {
           return client.focus();
         }
       }
-      return clients.openWindow(url);
+      // 2) Any same-origin window we can navigate → send it to the target
+      for (const client of windowClients) {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.origin === self.location.origin && 'navigate' in client) {
+          return client.navigate(targetUrl.href).then((navigated) =>
+            navigated && 'focus' in navigated ? navigated.focus() : navigated
+          );
+        }
+      }
+      // 3) No usable window → open a new one
+      return clients.openWindow(targetUrl.href);
     })
   );
 });

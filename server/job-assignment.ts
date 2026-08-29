@@ -5,6 +5,7 @@ import { eq, and, gte, lte } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendJobAssignmentEmail } from './email-service';
 import { requireContractor } from './auth';
+import { pushToUser } from './web-push';
 
 export const jobAssignmentRouter = Router();
 
@@ -134,6 +135,7 @@ jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {
         (async () => {
             try {
                 const contractorData = await db.select({
+                    userId: users.id,
                     firstName: users.firstName,
                     lastName: users.lastName,
                     email: users.email,
@@ -143,21 +145,30 @@ jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {
                 .where(eq(handymanProfiles.id, contractorId))
                 .limit(1);
 
+                // Fetch address from linked quote if available
+                let address = '';
+                if (updatedJob.quoteId) {
+                    const quoteData = await db.select({ address: personalizedQuotes.address })
+                        .from(personalizedQuotes)
+                        .where(eq(personalizedQuotes.id, updatedJob.quoteId))
+                        .limit(1);
+                    if (quoteData.length > 0 && quoteData[0].address) {
+                        address = quoteData[0].address;
+                    }
+                }
+
+                // Web push to the contractor's device — fire-and-forget, never rejects
+                if (contractorData.length > 0 && contractorData[0].userId) {
+                    void pushToUser(contractorData[0].userId, {
+                        title: '🔨 New job assigned',
+                        body: `${updatedJob.customerName || 'Customer'} — ${newDateStr}${address ? ` · ${address}` : ''}`,
+                        url: `/contractor/dashboard/jobs/${updatedJob.id}`,
+                    });
+                }
+
                 if (contractorData.length > 0 && contractorData[0].email) {
                     const contractor = contractorData[0];
                     const contractorName = [contractor.firstName, contractor.lastName].filter(Boolean).join(' ') || 'Contractor';
-
-                    // Fetch address from linked quote if available
-                    let address = '';
-                    if (updatedJob.quoteId) {
-                        const quoteData = await db.select({ address: personalizedQuotes.address })
-                            .from(personalizedQuotes)
-                            .where(eq(personalizedQuotes.id, updatedJob.quoteId))
-                            .limit(1);
-                        if (quoteData.length > 0 && quoteData[0].address) {
-                            address = quoteData[0].address;
-                        }
-                    }
 
                     await sendJobAssignmentEmail({
                         contractorName,

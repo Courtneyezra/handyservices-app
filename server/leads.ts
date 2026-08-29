@@ -18,6 +18,7 @@ import {
 import { processWebFormLead } from "./services/webform-chase-service";
 import { resolveOrCreateClient } from "./clients";
 import { notifyWebformLead } from "./pushover";
+import { pushEvent } from "./web-push";
 import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
 import { relativeTime } from "./utils/datetime";
 
@@ -101,6 +102,11 @@ leadsRouter.post('/api/leads', async (req, res) => {
                 details: newLead.jobDescription,
                 source: 'Web form',
             }).catch((e) => console.warn('[Leads] notifyWebformLead failed:', e));
+            pushEvent('new_lead', {
+                title: '📝 New lead · Web form',
+                body: `${newLead.customerName} — ${newLead.phone}${newLead.jobDescription ? `: ${String(newLead.jobDescription).slice(0, 80)}` : ''}`,
+                url: '/admin/leads',
+            });
         }
 
         // --- WEBFORM → COMMS: the same front door as every other channel ---
@@ -231,6 +237,11 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
             details: videoAnalysis?.summary || 'Video review lead',
             source: 'Video review',
         }).catch((e) => console.warn('[Leads] notifyWebformLead (quick-capture) failed:', e));
+        pushEvent('new_lead', {
+            title: '📝 New lead · Video review',
+            body: `${name} — ${phone}: ${String(videoAnalysis?.summary || 'Video review lead').slice(0, 80)}`,
+            url: '/admin/leads',
+        });
 
         res.json({ success: true, leadId });
 
