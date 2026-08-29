@@ -60,6 +60,7 @@ import { portalRouter } from "./portal-routes";
 import { voiceNotesRouter } from "./voice-notes";
 import { trainingRouter } from './training-routes';
 import { pushRouter, pushEvent } from './web-push';
+import { widgetRouter } from './widget';
 import handymenRouter from './handymen';
 import callsRouter from './calls';
 import callPerformanceRouter from './call-performance-routes';
@@ -496,6 +497,7 @@ app.use('/api/availability', availabilityRouter); // Availability Slots for Live
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
 app.use(pushRouter); // Web Push subscription routes
+app.use(widgetRouter); // Scriptable iOS widget (token + read-only summary)
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
 
 // Freemium Product Routes

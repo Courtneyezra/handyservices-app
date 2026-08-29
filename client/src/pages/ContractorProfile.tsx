@@ -22,7 +22,8 @@ import {
     MessageCircle,
     Trash2,
     Plus,
-    Star
+    Star,
+    Smartphone
 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { RateCardEditor } from "@/components/contractor/RateCardEditor";
@@ -116,6 +117,37 @@ export default function ContractorProfile() {
         newPassword: '',
         confirmNewPassword: '',
     });
+
+    const [widgetToken, setWidgetToken] = useState<string | null>(null);
+    const [widgetTokenLoading, setWidgetTokenLoading] = useState(false);
+
+    const generateWidgetToken = async () => {
+        setWidgetTokenLoading(true);
+        try {
+            const token = localStorage.getItem('contractorToken');
+            const res = await fetch('/api/widget/token', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(j.error || 'Failed to generate token');
+            setWidgetToken(j.token);
+        } catch (e: any) {
+            toast({ title: 'Widget token failed', description: e.message, variant: 'destructive' });
+        } finally {
+            setWidgetTokenLoading(false);
+        }
+    };
+
+    const copyWidgetToken = async () => {
+        if (!widgetToken) return;
+        try {
+            await navigator.clipboard.writeText(widgetToken);
+            toast({ title: 'Copied', description: 'Widget token copied to clipboard.' });
+        } catch {
+            toast({ title: 'Copy failed', description: 'Select and copy it manually.', variant: 'destructive' });
+        }
+    };
 
     // Update form data when profile loads
     useEffect(() => {
@@ -845,6 +877,58 @@ export default function ContractorProfile() {
                                 <div className="text-center py-8 text-slate-500 border-2 border-dashed border-slate-800 rounded-xl">
                                     No reviews added yet. Add some to build trust!
                                 </div>
+                            )}
+                        </div>
+                    </section>
+
+                    {/* Phone Widget */}
+                    <section className="bg-slate-800/50 border border-white/10 rounded-2xl overflow-hidden">
+                        <div className="p-6 border-b border-white/10 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400">
+                                <Smartphone className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold text-white">Phone Widget</h2>
+                                <p className="text-sm text-slate-400">See today's jobs on your iPhone home screen (via the free Scriptable app)</p>
+                            </div>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            {!widgetToken ? (
+                                <button
+                                    type="button"
+                                    onClick={generateWidgetToken}
+                                    disabled={widgetTokenLoading}
+                                    className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {widgetTokenLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
+                                    Generate widget token
+                                </button>
+                            ) : (
+                                <>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            readOnly
+                                            value={widgetToken}
+                                            onFocus={(e) => e.target.select()}
+                                            className="flex-1 px-4 py-2.5 bg-slate-900/50 border border-white/10 rounded-xl text-white font-mono text-xs"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={copyWidgetToken}
+                                            title="Copy token"
+                                            className="p-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition-colors"
+                                        >
+                                            <Copy className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <ol className="text-sm text-slate-400 list-decimal pl-5 space-y-1">
+                                        <li>Install <span className="text-white">Scriptable</span> from the App Store.</li>
+                                        <li>Create a new script and paste in the widget script (ask the office for <code>scriptable-widget.js</code>).</li>
+                                        <li>Set <code>BASE_URL</code> to <code>{window.location.origin}</code> and <code>TOKEN</code> to the token above.</li>
+                                        <li>Add a Scriptable widget to your home screen and pick the script.</li>
+                                    </ol>
+                                    <p className="text-xs text-slate-500">This token only shows your own job summary. Treat it like a password.</p>
+                                </>
                             )}
                         </div>
                     </section>

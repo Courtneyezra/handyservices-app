@@ -156,9 +156,15 @@ export const users = pgTable("users", {
     emailVerified: boolean("email_verified").default(false),
     lastLogin: timestamp("last_login"),
     isActive: boolean("is_active").notNull().default(true),
+    // Long-lived bearer token for the read-only iOS home-screen widget
+    // (docs/scriptable-widget.js). Deliberately separate from contractorSessions:
+    // iOS holds it for months and it only grants GET /api/widget/summary.
+    widgetToken: varchar("widget_token"),
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+    uniqueIndex("idx_users_widget_token").on(table.widgetToken),
+]);
 
 export const userRelations = relations(users, ({ one }) => ({
     handymanProfile: one(handymanProfiles, {

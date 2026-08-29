@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     Loader2, Save, Plus, Trash2, Send, Bell, Phone, FileText,
-    CheckCircle2, AlertTriangle, Smartphone, Moon,
+    CheckCircle2, AlertTriangle, Smartphone, Moon, Copy, LayoutGrid,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,8 @@ export default function NotificationsPage() {
     const [form, setForm] = useState<PushoverConfig>(DEFAULT_PUSHOVER_CONFIG);
     const [tokenConfigured, setTokenConfigured] = useState(false);
     const [initialized, setInitialized] = useState(false);
+    const [widgetToken, setWidgetToken] = useState<string | null>(null);
+    const [widgetTokenLoading, setWidgetTokenLoading] = useState(false);
 
     const { data, isLoading } = useQuery<PushoverResponse>({
         queryKey: ["pushoverConfig"],
@@ -118,6 +120,32 @@ export default function NotificationsPage() {
             toast({ title: "Browser test sent", description: "Sent to all subscribed browsers." });
         } catch (e: any) {
             toast({ title: "Failed", description: e.message, variant: "destructive" });
+        }
+    }
+
+    async function generateWidgetToken(rotate = false) {
+        setWidgetTokenLoading(true);
+        try {
+            const res = await fetch(`/api/widget/token${rotate ? "?rotate=1" : ""}`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+            });
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(j.error || "Failed to generate token");
+            setWidgetToken(j.token);
+        } catch (e: any) {
+            toast({ title: "Widget token failed", description: e.message, variant: "destructive" });
+        } finally {
+            setWidgetTokenLoading(false);
+        }
+    }
+
+    async function copyText(text: string, what: string) {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast({ title: "Copied", description: `${what} copied to clipboard.` });
+        } catch {
+            toast({ title: "Copy failed", description: "Select and copy it manually.", variant: "destructive" });
         }
     }
 
@@ -367,6 +395,46 @@ export default function NotificationsPage() {
                         <Button variant="outline" size="sm" onClick={enableThisBrowser}>Enable on this device</Button>
                         <Button variant="outline" size="sm" onClick={testBrowserPush}><Send className="h-3 w-3 mr-1" /> Test</Button>
                     </div>
+                </CardContent>
+            </Card>
+
+            {/* iPhone home-screen widget */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><LayoutGrid className="h-5 w-5" /> iPhone widget</CardTitle>
+                    <CardDescription>
+                        A glanceable home-screen summary (jobs today, money, pipeline, attention) via the free Scriptable app.
+                        The token below only grants the read-only summary — treat it like a password.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {!widgetToken ? (
+                        <Button variant="outline" onClick={() => generateWidgetToken()} disabled={widgetTokenLoading}>
+                            {widgetTokenLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Smartphone className="h-4 w-4 mr-2" />}
+                            Generate widget token
+                        </Button>
+                    ) : (
+                        <>
+                            <div className="flex items-center gap-2">
+                                <Input readOnly value={widgetToken} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+                                <Button variant="outline" size="icon" title="Copy token" onClick={() => copyText(widgetToken, "Widget token")}>
+                                    <Copy className="h-4 w-4" />
+                                </Button>
+                            </div>
+                            <ol className="text-sm text-muted-foreground list-decimal pl-5 space-y-1">
+                                <li>Install <strong>Scriptable</strong> from the App Store.</li>
+                                <li>Create a new script and paste in <code>docs/scriptable-widget.js</code> from the repo.</li>
+                                <li>Set <code>BASE_URL</code> to <code>{window.location.origin}</code> and <code>TOKEN</code> to the token above.</li>
+                                <li>Add a Scriptable widget to your home screen and pick the script.</li>
+                            </ol>
+                            <div className="flex gap-2">
+                                <Button variant="outline" size="sm" onClick={() => generateWidgetToken(true)} disabled={widgetTokenLoading}>
+                                    Rotate token
+                                </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Rotating invalidates the previous token — update the script on your phone afterwards.</p>
+                        </>
+                    )}
                 </CardContent>
             </Card>
         </div>
