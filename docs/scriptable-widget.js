@@ -136,23 +136,39 @@ if (!data) {
   lab.centerAlignText();
   mid.addSpacer();
 } else if (FAM === "accessoryRectangular") {
-  // Three compact "LABEL value" rows; ⚠︎ prefix on the first row when stale.
+  // Brand header (logo + HANDYSERVICES, ⚠︎ when stale) over compact
+  // "LABEL value" rows. iOS desaturates the logo into the vibrant style.
+  const head = widget.addStack();
+  head.centerAlignContent();
+  const logo = await loadLogo();
+  if (logo) {
+    const mark = head.addImage(logo);
+    mark.imageSize = new Size(10, 8.4); // logo.png is 940x788
+    head.addSpacer(3);
+  }
+  const brand = head.addText("HANDYSERVICES" + (stale ? " ⚠︎" : ""));
+  brand.font = Font.semiboldSystemFont(7);
+  brand.textColor = Color.gray();
+  brand.lineLimit = 1;
+  head.addSpacer();
+  widget.addSpacer(2);
+
   const lines = data.lines.slice(0, 3);
   for (let i = 0; i < lines.length; i++) {
     const row = widget.addStack();
     row.centerAlignContent();
-    const lab = row.addText((i === 0 && stale ? "⚠︎ " : "") + lines[i].label.toUpperCase());
+    const lab = row.addText(lines[i].label.toUpperCase());
     lab.font = Font.mediumSystemFont(8);
     lab.textColor = Color.gray();
     lab.lineLimit = 1;
     row.addSpacer(4);
     const val = row.addText(lines[i].value);
-    val.font = Font.semiboldSystemFont(12);
+    val.font = Font.semiboldSystemFont(11);
     val.textColor = TONES[lines[i].tone] || Color.white();
     val.lineLimit = 1;
     val.minimumScaleFactor = 0.6;
     row.addSpacer();
-    if (i < lines.length - 1) widget.addSpacer(2);
+    if (i < lines.length - 1) widget.addSpacer(1);
   }
 } else {
   // Slim header: logo · HANDYSERVICES · updated time (amber ⚠︎ when offline).
