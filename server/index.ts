@@ -55,6 +55,8 @@ import { commsEventsRouter } from "./comms-events-route";
 import { systemEventsRouter } from "./system-events";
 import { agentQuestionsRouter } from "./agent-questions";
 import { agentStaffRouter } from "./agent-staff";
+import { opsManagerRouter } from "./ops-manager-routes";
+import { deskRouter } from "./desk-routes";
 import { vaCallTasksRouter } from "./va-call-tasks-routes";
 import { portalRouter } from "./portal-routes";
 import { voiceNotesRouter } from "./voice-notes";
@@ -462,6 +464,8 @@ app.use('/api/comms', requireAdmin, commsActivityRouter); // Comms ledger activi
 app.use('/api/system-events', requireAdmin, systemEventsRouter); // Live-beta activity log (/admin/activity)
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue
 app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
+app.use('/api/ops', requireAdmin, opsManagerRouter); // Track B: Ops Manager sessions + runs (chat dock)
+app.use('/api/desk', requireAdmin, deskRouter); // Track B: Ben's Desk ranked human queue
 app.use('/api/va-call-tasks', requireAdmin, vaCallTasksRouter); // Speed-to-lead call tasks (/admin/va-tasks)
 app.use('/api/portal', requireAdmin, portalRouter); // Unified mobile task inbox (/admin/portal) — lane override only
 app.use('/api/whatsapp', requireAdmin, voiceNotesRouter); // Outbound voice notes (admin-only; webhooks stay on the open router)

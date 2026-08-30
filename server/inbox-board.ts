@@ -498,10 +498,27 @@ inboxBoardRouter.get('/senders', async (_req, res) => {
 inboxBoardRouter.get('/board', async (req, res) => {
     try {
         const limit = Math.min(Number(req.query.limit) || 300, 1000);
+        const lane = req.query.lane === 'contractor' ? 'contractor' : 'customer';
+        res.json(await loadBoardCards({ limit, lane }));
+    } catch (error: any) {
+        console.error('[InboxBoard] Failed to build board:', error);
+        res.status(500).json({ error: 'Failed to load board' });
+    }
+});
+
+/**
+ * Build the full board payload (columns of cards + totals). Track B Phase 0:
+ * extracted from the GET /board route body VERBATIM so the ops manager agent
+ * and Ben's Desk can read the board without going through HTTP. The route
+ * response must stay byte-identical to the pre-extraction behavior.
+ */
+export async function loadBoardCards(opts: { limit?: number; lane?: 'customer' | 'contractor' } = {}) {
+    {
+        const limit = Math.min(opts.limit ?? 300, 1000);
         // One comms section, two hard-separated lanes. The customer lane is the funnel board;
         // the contractor lane is a single working list (its own states arrive with the relay —
         // inventing funnel stages for contractors now would just be wrong twice).
-        const lane = req.query.lane === 'contractor' ? 'contractor' : 'customer';
+        const lane = opts.lane === 'contractor' ? 'contractor' : 'customer';
 
         // Projection, not select-*: full rows drag every thread's stored quote-prep intake blob
         // (metadata jsonb, multi-KB each) across the wire × 400 cards, which took the board from
@@ -596,7 +613,7 @@ inboxBoardRouter.get('/board', async (req, res) => {
             });
         }
 
-        res.json({
+        return {
             stages: visibleStages,
             columns,
             slaWorkingHours: DEFAULT_SLA_WORKING_HOURS,
@@ -617,12 +634,9 @@ inboxBoardRouter.get('/board', async (req, res) => {
                     .from(agentQuestions).where(eq(agentQuestions.status, 'open'))
                     .then((r) => r[0]?.n ?? 0),
             },
-        });
-    } catch (error: any) {
-        console.error('[InboxBoard] Failed to build board:', error);
-        res.status(500).json({ error: 'Failed to load board' });
+        };
     }
-});
+}
 
 // PATCH /api/inbox/conversations/:id — move a card, or change who owns it.
 inboxBoardRouter.patch('/conversations/:id', async (req, res) => {
