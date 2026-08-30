@@ -45,6 +45,12 @@ import { STAGE_SLA_HOURS, getSLAStatus } from '../lead-stage-engine';
 import { findBestContractors, checkNetworkAvailability } from '../availability-engine';
 import { getCapacityForDates, resolveContractorDay } from '../availability-capacity';
 import { generateInvoiceForJob } from '../pipeline/actions';
+import {
+    listTodaysJobs, listUnassignedJobs, getContractorSchedule,
+    listOverdueInvoices, listUnbilledCompletedJobs, getMoneySummary,
+} from '../pipeline/queries';
+import { getCustomerDossier } from '../customer-dossier';
+import { createAssignmentProposal } from '../assignment-proposals';
 
 // ---------------------------------------------------------------- constants
 
@@ -360,6 +366,55 @@ export function buildTools(): AgentTool[] {
                 };
             },
         },
+        {
+            name: 'get_jobs',
+            description: 'Jobs, read-only, three views: "today" (who is working where today — occupancy from the authoritative scheduledDates), "unassigned" (the dispatch pool with age), or "contractor_schedule" (one contractor\'s jobs over a date window; needs contractorId). Dates YYYY-MM-DD, money in pence.',
+            input_schema: {
+                type: 'object' as const,
+                properties: {
+                    view: { type: 'string', enum: ['today', 'unassigned', 'contractor_schedule'] },
+                    contractorId: { type: 'string', description: 'handyman_profiles.id — required for contractor_schedule.' },
+                    fromDate: { type: 'string', description: 'contractor_schedule window start, YYYY-MM-DD. Default today.' },
+                    days: { type: 'number', description: 'contractor_schedule window length. Default 7.' },
+                },
+                required: ['view'],
+            },
+            run: async (input: { view: string; contractorId?: string; fromDate?: string; days?: number }) => {
+                if (input.view === 'today') return { jobs: await listTodaysJobs() };
+                if (input.view === 'unassigned') return { jobs: await listUnassignedJobs() };
+                if (input.view === 'contractor_schedule') {
+                    if (!input.contractorId) throw new Error('contractor_schedule needs a contractorId');
+                    return { jobs: await getContractorSchedule(input.contractorId, input.fromDate, input.days ?? 7) };
+                }
+                throw new Error(`Unknown view "${input.view}" — use today, unassigned, or contractor_schedule.`);
+            },
+        },
+        {
+            name: 'get_money_state',
+            description: 'The money picture, read-only, in one call: summary totals plus overdue invoices (worst first) and completed-but-never-billed jobs. CRITICAL: most "overdue" invoices were never actually sent — check everSent before saying anyone is ignoring an invoice, and never chase a customer over an invoice they never received.',
+            input_schema: { type: 'object' as const, properties: {} },
+            run: async () => {
+                const [summary, overdue, unbilled] = await Promise.all([
+                    getMoneySummary(), listOverdueInvoices(), listUnbilledCompletedJobs(),
+                ]);
+                return {
+                    summary,
+                    overdueInvoices: overdue,
+                    unbilledCompletedJobs: unbilled,
+                    note: 'Amounts in pence. overdueInvoices capped at 40 (summary counts the full set). everSent=false means the customer never received it.',
+                };
+            },
+        },
+        {
+            name: 'get_customer_dossier',
+            description: 'Everything about one customer by phone number, read-only: leads, quotes (with expiry status), jobs, invoices, conversations and calls, each capped at 10 newest, plus a summary head (jobs count, open balance pence, live quotes). Matches +44 / 0-prefix / @c.us storage forms. Unknown numbers return an empty dossier, not an error. Phone-keyed only — email-only customers will not appear.',
+            input_schema: {
+                type: 'object' as const,
+                properties: { phone: { type: 'string', description: 'Any form: +447700900123, 07700 900123, 447700900123@c.us.' } },
+                required: ['phone'],
+            },
+            run: async (input: { phone: string }) => getCustomerDossier(input.phone),
+        },
         // ---------- actions (delegation + the two gated exits) ----------
         {
             name: 'run_comms_agent',
@@ -479,6 +534,38 @@ export function buildTools(): AgentTool[] {
             },
         },
         {
+            name: 'propose_job_assignment',
+            description: 'PROPOSE assigning an unassigned job to a contractor. This NEVER assigns: it writes a pending proposal that lands on Ben\'s Desk with Approve & assign / Reject buttons — the approval runs the real assignment with its own availability checks. One pending proposal per job; a duplicate returns the existing one. Check get_jobs (unassigned) and get_contractor_availability first, and say in the note why this contractor, these dates.',
+            input_schema: {
+                type: 'object' as const,
+                properties: {
+                    jobId: { type: 'string', description: 'The contractor_booking_requests id of an unassigned job.' },
+                    contractorId: { type: 'string', description: 'handyman_profiles.id of the proposed contractor.' },
+                    scheduledDates: { type: 'array', items: { type: 'string' }, description: 'Proposed YYYY-MM-DD dates, first = start day. Optional — omitted means the job\'s own date.' },
+                    note: { type: 'string', description: 'One line for Ben: why this contractor, these dates.' },
+                },
+                required: ['jobId', 'contractorId', 'note'],
+            },
+            run: async (input: { jobId: string; contractorId: string; scheduledDates?: string[]; note: string }) => {
+                const result = await createAssignmentProposal({
+                    jobId: input.jobId,
+                    contractorId: input.contractorId,
+                    scheduledDates: input.scheduledDates ?? null,
+                    note: input.note,
+                    createdBy: 'ops_manager',
+                });
+                if (!result.ok) return { proposed: false, refusal: result.error };
+                return {
+                    proposed: true,
+                    proposalId: result.proposal.id,
+                    alreadyPending: result.alreadyPending,
+                    note: result.alreadyPending
+                        ? 'A pending proposal for this job already exists — returning it; nothing new was created.'
+                        : 'Pending proposal created. Nothing is assigned until Ben approves it on the Desk.',
+                };
+            },
+        },
+        {
             name: 'generate_invoice',
             description: 'Generate the balance invoice for a COMPLETED job (a contractor_booking_requests id). Every figure comes from the job\'s quote record — you never choose, adjust, or state amounts. Refused outright for jobs that are not completed; if the job already has a linked invoice it returns that instead of creating a duplicate. This creates an internal document only: it does NOT message the customer, and telling the customer about it still goes through the normal draft/flag rails.',
             input_schema: {
@@ -592,7 +679,9 @@ export const SYSTEM = `You are the Ops Manager for Handy Services, a Nottingham 
 THE RAILS — absolute, not preferences:
 1. YOU NEVER SEND A MESSAGE TO A CUSTOMER. You have no send tool. queue_draft is a PROPOSAL: it writes a pending draft that a human reviews and approves before anything leaves. Say so if asked to "send" something — you can propose it, a human releases it.
 2. MONEY, DISCOUNTS AND DATES ARE BEN'S ALONE. Anything involving a money amount, a discount or price change, or a commitment to a date or arrival time must NOT be drafted at all — not even as a pending proposal. Use flag_for_ben with a note instead. The guard chain will refuse such drafts anyway; do not retry reworded versions, escalate. ONE carve-out: generate_invoice for a COMPLETED job is allowed, because every figure is computed from the quote record — you never pick or alter an amount, and the customer is not messaged. Announcing or chasing that invoice with the customer still falls under rails 1 and 2.
-3. DELEGATE FIRST. Replies on live customer threads belong to run_comms_agent. Priceable threads go to run_quote_prep. Quiet quotes go to run_recovery_sweep. Pipeline hygiene goes to run_sla_sweep. Phone work goes on the VA call sheet — create_va_call_task puts a human on the call; you never phone anyone. Its trigger gates are strict and a refusal (wrong channel, ongoing customer, call already happened) is an answer, not an obstacle. Do a specialist's job yourself only when no specialist covers it, and say why.
+3. DELEGATE FIRST. Replies on live customer threads belong to run_comms_agent. Priceable threads go to run_quote_prep. Quiet quotes go to run_recovery_sweep. Pipeline hygiene goes to run_sla_sweep. Phone work goes on the VA call sheet — create_va_call_task puts a human on the call; you never phone anyone. Its trigger gates are strict and a refusal (wrong channel, ongoing customer, call already happened) is an answer, not an obstacle. Job assignment is the same shape as drafting: propose_job_assignment only writes a pending proposal that Ben approves or rejects on the Desk — you never assign anyone directly. Do a specialist's job yourself only when no specialist covers it, and say why.
+
+MONEY FACTS: get_money_state and get_customer_dossier give you real figures from the ledger — you may STATE those facts to the operator in the dock (that is reporting, not drafting). The rails bite the moment a figure would reach a customer: no draft may carry an amount, and most "overdue" invoices were never sent (everSent=false) — never chase a customer over an invoice they never received; flag Ben instead.
 
 WORKING STYLE: gather only the context the question needs (the board snapshot is usually enough), act, then report what you did and what is now waiting on a human. Never invent data — every number you state must come from a tool result this turn or earlier in this session. UK English. Be brief.
 
@@ -611,6 +700,7 @@ export const STAFF = {
     autonomy: {
         freely: [
             'Read the board, pipeline, threads (text only), SLA state, availability and the agent roster',
+            'Read jobs and money: today\'s jobs, the dispatch pool, contractor schedules, overdue invoices, unbilled work, and a full per-customer dossier by phone',
             'Fire the specialist agents: comms on a thread, quote prep, the recovery sweep, the SLA sweep',
             'Generate the balance invoice for a COMPLETED job — every figure comes from the quote record, never the model',
             'Work the VA call sheet: list tasks, put a customer on it (strict trigger gates), mark called, dismiss with a reason',
@@ -618,11 +708,12 @@ export const STAFF = {
         ],
         approval: [
             'Every customer-facing message — queue_draft only ever writes a pending draft for human approval',
+            'Every job assignment — propose_job_assignment only ever writes a pending proposal Ben decides on the Desk',
         ],
         never: [
             'Send a message to a customer — there is no send tool and the approve-and-send helper is never imported',
             'Draft anything carrying a money amount, discount, or date commitment — those flag Ben instead',
-            'Book, assign, or promise availability — its availability tools are read-only',
+            'Book, assign, or promise availability directly — assignment is proposal-only and its availability tools are read-only',
         ],
     },
     tools: [
@@ -633,6 +724,9 @@ export const STAFF = {
         { name: 'get_agent_roster', blurb: 'The specialist agents and what to delegate to whom', kind: 'read' },
         { name: 'get_sla_state', blurb: 'SLA thresholds + live breach summary', kind: 'read' },
         { name: 'get_call_tasks', blurb: 'The VA call sheet: open tasks with thread context + recent resolutions', kind: 'read' },
+        { name: 'get_jobs', blurb: 'Today\'s jobs, the dispatch pool, or one contractor\'s schedule', kind: 'read' },
+        { name: 'get_money_state', blurb: 'Overdue invoices (with everSent), unbilled completed jobs, totals', kind: 'read' },
+        { name: 'get_customer_dossier', blurb: 'One customer\'s full history by phone — quotes, jobs, invoices, threads', kind: 'read' },
         { name: 'run_comms_agent', blurb: 'Delegate a thread to the comms specialist', kind: 'write' },
         { name: 'run_quote_prep', blurb: 'Delegate a thread to the quote-prep clerk', kind: 'write' },
         { name: 'run_recovery_sweep', blurb: 'Delegate to recovery — proposes nudges, sends nothing', kind: 'write' },
@@ -640,6 +734,7 @@ export const STAFF = {
         { name: 'create_va_call_task', blurb: 'Put a customer on the VA call sheet — strict trigger gates, refusals explained', kind: 'write' },
         { name: 'complete_call_task', blurb: 'Mark a VA call task as called', kind: 'write' },
         { name: 'dismiss_call_task', blurb: 'Dismiss a VA call task with an audited reason', kind: 'write' },
+        { name: 'propose_job_assignment', blurb: 'PROPOSAL ONLY: a pending assignment Ben approves on the Desk', kind: 'gated' },
         { name: 'generate_invoice', blurb: 'Balance invoice for a completed job — figures from the quote record, duplicates refused', kind: 'gated' },
         { name: 'queue_draft', blurb: 'PROPOSAL ONLY: a pending draft a human approves; guard chain runs first', kind: 'gated' },
         { name: 'flag_for_ben', blurb: 'Escalation: money/discount/date decisions land on Ben\'s phone', kind: 'write' },
