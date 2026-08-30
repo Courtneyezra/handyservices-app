@@ -7,6 +7,8 @@ import { findCandidateContractors } from './contractor-matcher';
 import { v4 as uuidv4 } from 'uuid';
 import { requireContractorAuth } from './contractor-auth';
 import { availabilityDayUTC } from './lib/availability-date';
+import { resolveContractorDays, getConflictingJobsForContractor, type ConflictingJob } from './availability-capacity';
+import { broadcastPipelineAlert } from './pipeline-events';
 
 
 
@@ -34,102 +36,11 @@ router.get('/upcoming', requireContractorAuth, async (req: Request, res: Respons
         const days = parseInt(req.query.days as string) || 28;
         const start = new Date();
         start.setHours(0, 0, 0, 0);
-        const end = new Date(start);
-        end.setDate(end.getDate() + days);
 
-        // 1. Fetch Master Blocked Dates (highest priority)
-        const blockedDates = await db.select()
-            .from(masterBlockedDates)
-            .where(and(
-                gte(masterBlockedDates.date, start.toISOString().split('T')[0]),
-                lte(masterBlockedDates.date, end.toISOString().split('T')[0])
-            ));
-
-        // 2. Fetch Contractor Date Overrides
-        const overrides = await db.select()
-            .from(contractorAvailabilityDates)
-            .where(and(
-                eq(contractorAvailabilityDates.contractorId, contractorId),
-                gte(contractorAvailabilityDates.date, start),
-                lte(contractorAvailabilityDates.date, end)
-            ));
-
-        // 3. Fetch Contractor Weekly Pattern
-        const patterns = await db.select()
-            .from(handymanAvailability)
-            .where(eq(handymanAvailability.handymanId, contractorId));
-
-        // 4. Fetch Master Weekly Pattern (fallback defaults)
-        const masterPatterns = await db.select()
-            .from(masterAvailability)
-            .where(eq(masterAvailability.isActive, true));
-
-        // 5. Merge Logic (Priority: Master Blocked > Contractor Override > Contractor Pattern > Master Pattern)
-        const result = [];
-        for (let i = 0; i < days; i++) {
-            const date = new Date(start);
-            date.setDate(date.getDate() + i);
-            const dateStr = date.toISOString().split('T')[0];
-            const dayOfWeek = date.getDay(); // 0-6
-
-            // Check master blocked dates (highest priority)
-            const blocked = blockedDates.find(b => b.date === dateStr);
-            if (blocked) {
-                result.push({
-                    date: dateStr,
-                    isAvailable: false,
-                    source: 'master_blocked',
-                    reason: blocked.reason
-                });
-                continue;
-            }
-
-            // Check contractor date override
-            const override = overrides.find(o =>
-                new Date(o.date).toISOString().split('T')[0] === dateStr
-            );
-
-            if (override) {
-                result.push({
-                    date: dateStr,
-                    isAvailable: override.isAvailable,
-                    source: 'override',
-                    startTime: override.startTime,
-                    endTime: override.endTime,
-                    notes: override.notes
-                });
-            } else {
-                // Check contractor pattern
-                const pattern = patterns.find(p => p.dayOfWeek === dayOfWeek && p.isActive);
-                if (pattern) {
-                    result.push({
-                        date: dateStr,
-                        isAvailable: true,
-                        source: 'pattern',
-                        startTime: pattern.startTime,
-                        endTime: pattern.endTime
-                    });
-                } else {
-                    // Check master pattern (fallback default)
-                    const masterPattern = masterPatterns.find(p => p.dayOfWeek === dayOfWeek);
-                    if (masterPattern) {
-                        result.push({
-                            date: dateStr,
-                            isAvailable: true,
-                            source: 'master_pattern',
-                            startTime: masterPattern.startTime,
-                            endTime: masterPattern.endTime
-                        });
-                    } else {
-                        result.push({
-                            date: dateStr,
-                            isAvailable: false,
-                            source: 'default_off'
-                        });
-                    }
-                }
-            }
-        }
+        // Merge Logic (Priority: Master Blocked > Contractor Override >
+        // Contractor Pattern > Master Pattern) — extracted to
+        // availability-capacity.ts so capacity math shares the exact resolver.
+        const result = await resolveContractorDays(contractorId, start, days);
 
         res.json(result);
 
@@ -191,6 +102,24 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
 
         const targetDate = availabilityDayUTC(date); // UTC midnight — one instant per calendar day
         const dayEnd = new Date(targetDate.getTime() + 86400000);
+        const targetDateStr = targetDate.toISOString().split('T')[0];
+
+        // Guard: toggling a day OFF while an accepted/in_progress job occupies
+        // it strands a live booking. Refuse with 409 unless the caller sends
+        // force: true — in which case we write the override AND alert ops.
+        let forcedConflicts: ConflictingJob[] = [];
+        if (finalIsAvailable === false) {
+            const conflictingJobs = await getConflictingJobsForContractor(contractorId, targetDateStr);
+            if (conflictingJobs.length > 0) {
+                if (req.body.force !== true) {
+                    return res.status(409).json({
+                        error: 'You have scheduled jobs on this date. Turning it off will strand them.',
+                        conflictingJobs,
+                    });
+                }
+                forcedConflicts = conflictingJobs;
+            }
+        }
 
         // Replace the whole calendar DAY (delete any row for the day, whatever its
         // stored time-of-day, then insert one clean row). Same self-healing pattern
@@ -220,6 +149,21 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
                 .where(eq(handymanProfiles.id, contractorId));
         } catch (refreshErr) {
             console.warn('[Availability] Failed to update freshness timestamp:', refreshErr);
+        }
+
+        // Forced past the conflict guard — the override is written, but the
+        // occupying job(s) now sit on a day the contractor marked OFF. Alert
+        // ops so they reassign before the customer finds out.
+        if (forcedConflicts.length > 0) {
+            broadcastPipelineAlert({
+                id: `availability_conflict_${contractorId}_${targetDateStr}`,
+                type: 'sla_breach',
+                severity: 'high',
+                leadId: '',
+                customerName: forcedConflicts.map(j => j.customerName).join(', '),
+                message: `Contractor forced ${targetDateStr} OFF with ${forcedConflicts.length} scheduled job(s) on that day — reassignment needed`,
+                data: { contractorId, date: targetDateStr, conflictingJobs: forcedConflicts },
+            });
         }
 
         res.json({ success: true, date, isAvailable: finalIsAvailable, mode });

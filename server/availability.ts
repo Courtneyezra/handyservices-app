@@ -8,10 +8,23 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
 import { availabilitySlots, leads } from '../shared/schema';
-import { eq, and, gte, lte, asc, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, asc, sql, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { validateSlotBookable } from './availability-capacity';
 
 const router = Router();
+
+/**
+ * AVAILABILITY_CAPACITY_CHECK — gates the customer slot listing on real
+ * contractor capacity (A-WP1):
+ *   off     (default) legacy behavior, listing untouched
+ *   warn    log zero-capacity slots + stamp capacityCheckedAt, still return them
+ *   enforce exclude zero-capacity slots from the response
+ */
+function capacityCheckMode(): 'off' | 'warn' | 'enforce' {
+    const mode = (process.env.AVAILABILITY_CAPACITY_CHECK || 'off').toLowerCase();
+    return mode === 'warn' || mode === 'enforce' ? mode : 'off';
+}
 
 /**
  * GET /api/availability
@@ -64,10 +77,78 @@ router.get('/', async (req: Request, res: Response) => {
             .where(and(...conditions))
             .orderBy(asc(availabilitySlots.date), asc(availabilitySlots.startTime));
 
-        res.json(slots);
+        const mode = capacityCheckMode();
+        if (mode === 'off') {
+            return res.json(slots);
+        }
+
+        // warn / enforce — check real contractor capacity behind each open slot.
+        // Fail OPEN on any error: capacity checking must never break the listing.
+        let responseSlots = slots;
+        try {
+            const openSlots = slots.filter(s => !s.isBooked);
+            const checks = new Map<string, { bookable: boolean; capacity: number; reason?: string }>();
+            for (const s of openSlots) {
+                const key = `${s.date}|${s.slotType}`;
+                if (!checks.has(key)) {
+                    checks.set(key, await validateSlotBookable(s.date, s.slotType));
+                }
+            }
+            const zeroCapacity = openSlots.filter(s => checks.get(`${s.date}|${s.slotType}`)?.bookable === false);
+
+            if (zeroCapacity.length > 0) {
+                for (const s of zeroCapacity) {
+                    const check = checks.get(`${s.date}|${s.slotType}`);
+                    console.warn(`[Availability] CAPACITY ${mode.toUpperCase()}: slot ${s.id} ${s.date} ${s.slotType} has zero contractor capacity (${check?.reason || 'unknown'})${mode === 'warn' ? ' — still returned' : ' — excluded'}`);
+                }
+                if (mode === 'warn') {
+                    // Stamp the rows so we can audit which listed slots failed a capacity check
+                    await db.update(availabilitySlots)
+                        .set({ capacityCheckedAt: new Date() })
+                        .where(inArray(availabilitySlots.id, zeroCapacity.map(s => s.id)));
+                }
+
+                if (mode === 'enforce') {
+                    const excluded = new Set(zeroCapacity.map(s => s.id));
+                    responseSlots = slots.filter(s => !excluded.has(s.id));
+                }
+            }
+        } catch (capacityError) {
+            console.error('[Availability] Capacity check failed (returning unfiltered slots):', capacityError);
+            responseSlots = slots;
+        }
+
+        res.json(responseSlots);
     } catch (error) {
         console.error('[Availability] Failed to fetch slots:', error);
         res.status(500).json({ error: 'Failed to fetch availability slots' });
+    }
+});
+
+/**
+ * POST /api/availability/validate
+ * Check whether a (date, slotType) is actually staffable by a free contractor.
+ *
+ * Body:
+ * - date: YYYY-MM-DD (required)
+ * - slotType: 'morning' | 'afternoon' | 'full_day' (required)
+ *
+ * Returns: { bookable, capacity, reason? }
+ */
+router.post('/validate', async (req: Request, res: Response) => {
+    try {
+        const { date, slotType } = req.body;
+        if (!date || !slotType) {
+            return res.status(400).json({ error: 'date and slotType are required' });
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+            return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+        }
+        const result = await validateSlotBookable(String(date), String(slotType));
+        res.json(result);
+    } catch (error) {
+        console.error('[Availability] Failed to validate slot:', error);
+        res.status(500).json({ error: 'Failed to validate slot' });
     }
 });
 
