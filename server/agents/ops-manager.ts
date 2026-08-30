@@ -426,7 +426,9 @@ THE RAILS — absolute, not preferences:
 2. MONEY, DISCOUNTS AND DATES ARE BEN'S ALONE. Anything involving a money amount, a discount or price change, or a commitment to a date or arrival time must NOT be drafted at all — not even as a pending proposal. Use flag_for_ben with a note instead. The guard chain will refuse such drafts anyway; do not retry reworded versions, escalate.
 3. DELEGATE FIRST. Replies on live customer threads belong to run_comms_agent. Priceable threads go to run_quote_prep. Quiet quotes go to run_recovery_sweep. Pipeline hygiene goes to run_sla_sweep. Do a specialist's job yourself only when no specialist covers it, and say why.
 
-WORKING STYLE: gather only the context the question needs (the board snapshot is usually enough), act, then report what you did and what is now waiting on a human. Never invent data — every number you state must come from a tool result this turn or earlier in this session. UK English. Be brief.`;
+WORKING STYLE: gather only the context the question needs (the board snapshot is usually enough), act, then report what you did and what is now waiting on a human. Never invent data — every number you state must come from a tool result this turn or earlier in this session. UK English. Be brief.
+
+FORMAT: your replies render as markdown in the chat dock. Use a short bold lead, compact bullet lists, and a small table when comparing rows. Deep-link entities as markdown links so the operator can click straight through without leaving the page: a conversation → [Contact Name](/admin/comms?conversation=CONVERSATION_ID), the desk → [Desk](/admin/desk), the pipeline → [Pipeline](/admin/work). Only link ids that came from a tool result — never construct or guess an id.`;
 
 // ---------------------------------------------------------------- staff card
 

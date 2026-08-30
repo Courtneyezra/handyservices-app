@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import {
     archiveOpsSession, createOpsSession, useOpsSession, useOpsSessions,
 } from '@/hooks/useOpsSession';
+import { OpsMarkdown } from './OpsMarkdown';
 import { OpsRunSteps } from './OpsRunSteps';
 
 const OPEN_KEY = 'ops-dock-open';
@@ -226,13 +227,15 @@ export default function OpsDock() {
                             {messages.map((m) => (
                                 <div key={m.id} className={cn('flex flex-col', m.role === 'user' ? 'items-end' : 'items-start')}>
                                     <div className={cn(
-                                        'max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm',
+                                        'max-w-[85%] rounded-lg px-3 py-2 text-sm',
                                         m.role === 'user'
-                                            ? 'bg-slate-900 text-white'
+                                            ? 'whitespace-pre-wrap bg-slate-900 text-white'
                                             : 'bg-slate-100 text-slate-800',
                                     )}
                                     >
-                                        {m.content}
+                                        {m.role === 'assistant'
+                                            ? <OpsMarkdown content={m.content} />
+                                            : m.content}
                                     </div>
                                     {m.role === 'assistant' && m.transcript && m.transcript.length > 0 && (
                                         <div className="mt-1 w-full max-w-[85%]">
