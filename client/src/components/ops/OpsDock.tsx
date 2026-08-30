@@ -23,6 +23,7 @@ import {
 } from '@/hooks/useOpsSession';
 import { OpsMarkdown } from './OpsMarkdown';
 import { OpsRunSteps } from './OpsRunSteps';
+import { OpsWorkspace } from './OpsWorkspace';
 
 const OPEN_KEY = 'ops-dock-open';
 const SESSION_KEY = 'ops-dock-session';
@@ -151,15 +152,22 @@ export default function OpsDock() {
                 </button>
             )}
 
-            {/* Panel — fixed, no overlay, page behind stays interactive */}
+            {/* Panel — fixed, no overlay, page behind stays interactive.
+                Flex row: [workspace | chat]. The workspace (C-WP1) renders
+                nothing until the session's runs produce renderable tool
+                activity, so the chat is pixel-identical without it. */}
             <div
                 className={cn(
-                    'fixed inset-y-0 right-0 z-40 flex w-[380px] max-w-full flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200',
+                    'fixed inset-y-0 right-0 z-40 flex max-w-full flex-row transition-transform duration-200',
                     open ? 'translate-x-0' : 'pointer-events-none translate-x-full',
                 )}
-                data-testid="ops-dock-panel"
                 aria-hidden={!open}
             >
+                <OpsWorkspace key={sessionId ?? 'none'} messages={messages} liveRun={liveRun} />
+                <div
+                    className="flex w-[380px] min-w-0 max-w-full flex-col border-l border-slate-200 bg-white shadow-2xl"
+                    data-testid="ops-dock-panel"
+                >
                 {/* Header */}
                 <div className="border-b border-slate-100 px-3 pb-2 pt-3">
                     <div className="flex items-center gap-2">
@@ -284,6 +292,7 @@ export default function OpsDock() {
                                 : <Send className="h-4 w-4" />}
                         </button>
                     </div>
+                </div>
                 </div>
             </div>
         </>
