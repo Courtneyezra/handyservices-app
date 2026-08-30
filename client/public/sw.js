@@ -1,6 +1,6 @@
 // Service worker for PWA installability + Web Push notifications
 
-const CACHE_NAME = 'switchboard-v3';
+const CACHE_NAME = 'switchboard-v4';
 const PRECACHE_URLS = ['/admin/live-call'];
 
 self.addEventListener('install', (event) => {
@@ -35,8 +35,12 @@ self.addEventListener('push', (event) => {
   const url = data.url || '/';
   const options = {
     body: data.body || 'New notification',
-    icon: '/logo.png',
-    badge: '/logo.png',
+    // icon-512 is the square brand mark; logo.png is 940x788 and crops badly
+    icon: '/icon-512.png',
+    badge: '/icon-512.png',
+    // Keep the notification on screen until dismissed/clicked (Chrome desktop;
+    // ignored on iOS and on Android where notifications persist anyway).
+    requireInteraction: true,
     // Tag by explicit tag or target url so notifications for distinct
     // urls/events stack instead of replacing each other.
     tag: data.tag || url,
