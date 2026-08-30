@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, ChevronDown, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity, ListTodo } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import InstallPrompt from "@/components/InstallPrompt";
+import OpsDock from "@/components/ops/OpsDock";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,9 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { isLive } = useLiveCall();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [showQuoteMenu, setShowQuoteMenu] = useState(false);
+    // VA desktop nav: the "MORE TOOLS" group ships collapsed — three primary
+    // surfaces (Desk / Comms / Pipeline) up top, everything else grouped below.
+    const [showMoreTools, setShowMoreTools] = useState(false);
 
     // Parse logged-in user info for menu filtering + display
     const adminUser = (() => {
@@ -112,12 +116,22 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 {/* Navigation */}
                 <nav className={cn("flex-1 py-4 space-y-6 overflow-y-auto", isCollapsed ? "px-2" : "px-4")}>
                     {(isVA ? [
-                        // ─── VA Menu: stripped down ───
+                        // ─── VA Menu: three primary surfaces, everything else grouped ───
                         {
                             title: "YOUR TOOLS",
                             items: [
+                                { icon: ListTodo, label: "Desk", href: "/admin/desk", badge: "NEW" },
+                                { icon: Inbox, label: "Comms", href: "/admin/comms", badge: null },
+                                { icon: ClipboardList, label: "Pipeline", href: "/admin/work", badge: null },
+                            ]
+                        },
+                        {
+                            // Everything the VA had before — nothing deleted, just grouped
+                            // behind a collapsed disclosure (Comms/Pipeline moved to primary).
+                            title: "MORE TOOLS",
+                            collapsible: true,
+                            items: [
                                 { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
-                                { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
                                 { icon: ClipboardCheck, label: "Tasks", href: "/admin/va-tasks", badge: "NEW" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
@@ -125,7 +139,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
                                 { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
-                                { icon: ClipboardList, label: "Pipeline", href: "/admin/work" },
                                 { icon: Calendar, label: "Availability", href: "/admin/availability-mobile" },
                                 { icon: BarChart3, label: "My Stats", href: "/admin/va-stats" },
                                 { icon: PhoneCall, label: "Calls", href: "/admin/calls" },
@@ -144,6 +157,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "DISPATCH CONSOLE",
                             items: [
+                                { icon: ListTodo, label: "Desk", href: "/admin/desk", badge: "NEW" },
                                 { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
                                 { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
@@ -213,16 +227,32 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: BookOpen, label: "VA Resources", href: "/admin/resources" },
                             ]
                         }
-                    ]).map((group, idx) => (
+                    ]).map((group, idx) => {
+                        const isCollapsibleGroup = !!(group as { collapsible?: boolean }).collapsible;
+                        // Collapsible group (VA "MORE TOOLS"): header is a disclosure toggle;
+                        // items hide while closed. In icon-mode there is no header to click, so
+                        // the items always show.
+                        const groupOpen = !isCollapsibleGroup || showMoreTools || isCollapsed;
+                        return (
                         <div key={idx}>
                             {!isCollapsed && (
-                                <h3 className="mb-2 px-4 text-[10px] font-black uppercase tracking-wider text-muted-foreground/50 font-mono">
-                                    {group.title}
-                                </h3>
+                                isCollapsibleGroup ? (
+                                    <button
+                                        onClick={() => setShowMoreTools((v) => !v)}
+                                        className="mb-2 px-4 w-full flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-muted-foreground/50 hover:text-muted-foreground font-mono transition-colors"
+                                    >
+                                        {showMoreTools ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                        {group.title}
+                                    </button>
+                                ) : (
+                                    <h3 className="mb-2 px-4 text-[10px] font-black uppercase tracking-wider text-muted-foreground/50 font-mono">
+                                        {group.title}
+                                    </h3>
+                                )
                             )}
                             {isCollapsed && idx > 0 && <div className="border-t border-border/50 my-2" />}
                             <div className="space-y-1">
-                                {group.items.map((item) => (
+                                {groupOpen && group.items.map((item) => (
                                     <Link
                                         key={item.href}
                                         href={item.href}
@@ -255,7 +285,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 ))}
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
 
                     {/* Access to Legacy Comms (Collapsed/Hidden or just less prominent) */}
                     {!isCollapsed && !isVA && (
@@ -380,7 +411,22 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 <>
                     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border lg:hidden">
                         <div className="flex items-stretch justify-around h-16">
-                            {/* Tab 1: Follow-Ups */}
+                            {/* Tab 1: Desk — the ranked "what's waiting on a human" list */}
+                            {(() => {
+                                const isActive = location === "/admin/desk";
+                                return (
+                                    <Link href="/admin/desk" className={cn(
+                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
+                                        isActive ? "text-primary" : "text-muted-foreground"
+                                    )}>
+                                        <ListTodo className={cn("w-5 h-5", isActive && "text-primary")} />
+                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Desk</span>
+                                        {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
+                                    </Link>
+                                );
+                            })()}
+
+                            {/* Tab 2: Follow-Ups */}
                             {(() => {
                                 const isActive = location === "/admin/follow-ups";
                                 return (
@@ -511,6 +557,11 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     <InstallPrompt />
                 </>
             )}
+
+            {/* Ops Manager dock — mounted ONCE at the layout root so it rides on
+                every admin surface for both roles (B-Phase0 stub renders null
+                until B-WP3 lands the real dock). */}
+            <OpsDock />
         </div>
     );
 }

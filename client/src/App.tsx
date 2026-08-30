@@ -69,6 +69,7 @@ const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
 const OfferDecisionsPage = lazy(() => import("@/pages/admin/OfferDecisionsPage"));
 const NudgeQueuePage = lazy(() => import("@/pages/admin/NudgeQueuePage"));
 const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
+const DeskPage = lazy(() => import("@/pages/admin/DeskPage"));
 const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
 const ActivityPage = lazy(() => import("@/pages/admin/ActivityPage"));
 const VaTasksPage = lazy(() => import("@/pages/admin/VaTasksPage"));
@@ -717,6 +718,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <CommsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/desk">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DeskPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
