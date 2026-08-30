@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import { db } from './db';
 import { notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
 import { pushEvent } from './web-push';
-import { invoices, contractorBookingRequests, personalizedQuotes, leads, customerRewards } from '../shared/schema';
+import { invoices, contractorBookingRequests, personalizedQuotes, leads, customerRewards, jobSheets } from '../shared/schema';
 import type { Invoice, InsertInvoice } from '../shared/schema';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
@@ -369,6 +369,77 @@ invoiceRouter.get('/api/invoices/:id/html', async (req, res) => {
     } catch (error: any) {
         console.error('[Invoices] Error generating invoice HTML:', error);
         res.status(500).json({ error: error.message || 'Failed to generate invoice HTML' });
+    }
+});
+
+// Get branded invoice PDF (server-side render — Track A). Same access model as
+// the neighbouring /:id/html route: the unguessable invoice UUID is the token.
+invoiceRouter.get('/api/invoices/:id/pdf', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const results = await db.select()
+            .from(invoices)
+            .where(eq(invoices.id, id))
+            .limit(1);
+
+        if (results.length === 0) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        const invoice = results[0];
+        const { renderInvoiceHtml, htmlToPdfBuffer } = await import('./pdf/document-templates');
+        const pdf = await htmlToPdfBuffer(renderInvoiceHtml(invoice));
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber}.pdf"`);
+        res.send(pdf);
+    } catch (error: any) {
+        console.error('[Invoices] Error generating invoice PDF:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate invoice PDF' });
+    }
+});
+
+// Get branded job-sheet PDF for a job (server-side render — Track A).
+invoiceRouter.get('/api/jobs/:id/job-sheet.pdf', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const jobResults = await db.select()
+            .from(contractorBookingRequests)
+            .where(eq(contractorBookingRequests.id, id))
+            .limit(1);
+
+        if (jobResults.length === 0) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+
+        const job = jobResults[0];
+
+        const sheetResults = await db.select()
+            .from(jobSheets)
+            .where(eq(jobSheets.jobId, id))
+            .limit(1);
+        const sheet = sheetResults[0] || undefined;
+
+        let quote;
+        if (job.quoteId) {
+            const quoteResults = await db.select()
+                .from(personalizedQuotes)
+                .where(eq(personalizedQuotes.id, job.quoteId))
+                .limit(1);
+            quote = quoteResults[0] || undefined;
+        }
+
+        const { renderJobSheetHtml, htmlToPdfBuffer } = await import('./pdf/document-templates');
+        const pdf = await htmlToPdfBuffer(renderJobSheetHtml(job, { sheet, quote }));
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="job-sheet-${id}.pdf"`);
+        res.send(pdf);
+    } catch (error: any) {
+        console.error('[Invoices] Error generating job-sheet PDF:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate job-sheet PDF' });
     }
 });
 

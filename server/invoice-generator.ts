@@ -5,7 +5,7 @@ import {
     personalizedQuotes,
     variationOrders,
 } from '../shared/schema';
-import { eq, and, sql, lt } from 'drizzle-orm';
+import { eq, and, sql, lt, gte, inArray, isNull, isNotNull } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import puppeteer from 'puppeteer';
 import { notifyCustomer } from './customer-notifications';
@@ -527,6 +527,168 @@ function buildInvoiceHtml(invoice: any, lineItems: InvoiceLineItem[]): string {
     </div>
 </body>
 </html>`;
+}
+
+// ==========================================
+// BALANCE INVOICE RETRY + RECONCILIATION (Track A)
+// ==========================================
+
+/**
+ * Emit a pipeline alert without statically importing pipeline-events (which
+ * imports server/index and would boot the whole server when this module is
+ * loaded from a standalone script). Best-effort: never throws.
+ */
+async function emitInvoiceAlert(alert: {
+    id: string;
+    type: 'sla_breach' | 'customer_reply' | 'payment_issue';
+    severity: 'high' | 'medium' | 'low';
+    leadId: string;
+    customerName: string;
+    message: string;
+    data?: Record<string, any>;
+}): Promise<void> {
+    try {
+        const { broadcastPipelineAlert } = await import('./pipeline-events');
+        broadcastPipelineAlert(alert);
+    } catch (err) {
+        console.warn('[Invoice Generator] Could not emit pipeline alert (non-fatal):', err);
+    }
+}
+
+export interface RetryBalanceInvoicesResult {
+    scanned: number;
+    generated: number;
+    skipped: number;
+    failed: number;
+    reconciliationGaps: number;
+}
+
+/**
+ * Retry balance-invoice generation for completed jobs whose invoice never
+ * materialised. Intended to be called from a cron (wired up in server/index.ts).
+ *
+ * Retries jobs where:
+ *  - balanceInvoiceStatus is 'pending' (crashed before invoicing) or 'failed'
+ *  - fewer than 5 attempts so far
+ *  - completed within the last 30 days
+ *
+ * Also runs a reconciliation sweep: completed + deposit-paid jobs with NO
+ * invoice row at all get a high-severity alert (they'd otherwise never be
+ * billed). Excludes rows the retry loop already tracks ('pending'/'failed')
+ * and legitimate 'skipped' rows (fully paid by deposit — nothing to invoice).
+ *
+ * @param opts.emitAlerts set false in tests to avoid pulling in pipeline-events
+ */
+export async function retryPendingBalanceInvoices(
+    opts: { emitAlerts?: boolean } = {},
+): Promise<RetryBalanceInvoicesResult> {
+    const emitAlerts = opts.emitAlerts !== false;
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const candidates = await db.select()
+        .from(contractorBookingRequests)
+        .where(and(
+            inArray(contractorBookingRequests.balanceInvoiceStatus, ['pending', 'failed']),
+            sql`coalesce(${contractorBookingRequests.balanceInvoiceAttempts}, 0) < 5`,
+            isNotNull(contractorBookingRequests.completedAt),
+            gte(contractorBookingRequests.completedAt, cutoff),
+        ));
+
+    let generated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const job of candidates) {
+        try {
+            const result = await generateBalanceInvoice(job.id);
+            await db.update(contractorBookingRequests)
+                .set({
+                    balanceInvoiceStatus: result ? 'generated' : 'skipped',
+                    balanceInvoiceLastError: null,
+                    updatedAt: new Date(),
+                })
+                .where(eq(contractorBookingRequests.id, job.id));
+
+            if (result) {
+                generated++;
+                console.log(`[Invoice Retry] Generated ${result.invoiceNumber} for job ${job.id} (${job.customerName})`);
+            } else {
+                skipped++;
+            }
+        } catch (err: any) {
+            failed++;
+            const attempts = (job.balanceInvoiceAttempts ?? 0) + 1;
+            const errorText = String(err?.message || err).slice(0, 2000);
+            try {
+                await db.update(contractorBookingRequests)
+                    .set({
+                        balanceInvoiceStatus: 'failed',
+                        balanceInvoiceAttempts: attempts,
+                        balanceInvoiceLastError: errorText,
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(contractorBookingRequests.id, job.id));
+            } catch (trackErr) {
+                console.error(`[Invoice Retry] Failed to record failure for job ${job.id}:`, trackErr);
+            }
+            console.error(`[Invoice Retry] Job ${job.id} attempt ${attempts} failed: ${errorText}`);
+
+            if (attempts >= 5 && emitAlerts) {
+                await emitInvoiceAlert({
+                    id: `balance_invoice_exhausted_${job.id}`,
+                    type: 'payment_issue',
+                    severity: 'high',
+                    leadId: '',
+                    customerName: job.customerName || 'Unknown customer',
+                    message: `Balance invoice for job ${job.id} (${job.customerName || 'unknown'}) failed ${attempts} times — retries exhausted, needs manual invoicing.`,
+                    data: { jobId: job.id, quoteId: job.quoteId, error: errorText.slice(0, 300) },
+                });
+            }
+        }
+    }
+
+    // Reconciliation sweep: completed + deposit-paid jobs with no invoice row at all.
+    const gaps = await db.select({
+        jobId: contractorBookingRequests.id,
+        customerName: contractorBookingRequests.customerName,
+        quoteId: contractorBookingRequests.quoteId,
+        completedAt: contractorBookingRequests.completedAt,
+        balanceInvoiceStatus: contractorBookingRequests.balanceInvoiceStatus,
+        depositAmountPence: personalizedQuotes.depositAmountPence,
+    })
+        .from(contractorBookingRequests)
+        .innerJoin(personalizedQuotes, eq(personalizedQuotes.id, contractorBookingRequests.quoteId))
+        .where(and(
+            eq(contractorBookingRequests.status, 'completed'),
+            isNotNull(contractorBookingRequests.completedAt),
+            gte(contractorBookingRequests.completedAt, cutoff),
+            isNotNull(personalizedQuotes.depositPaidAt),
+            sql`coalesce(${personalizedQuotes.depositAmountPence}, 0) > 0`,
+            isNull(contractorBookingRequests.invoiceId),
+            sql`coalesce(${contractorBookingRequests.balanceInvoiceStatus}, '') not in ('pending', 'failed', 'skipped')`,
+            sql`not exists (select 1 from invoices where invoices.quote_id = ${contractorBookingRequests.quoteId})`,
+        ));
+
+    for (const gap of gaps) {
+        console.warn(`[Invoice Reconciliation] Completed + deposit-paid job ${gap.jobId} (${gap.customerName}) has NO invoice row (status: ${gap.balanceInvoiceStatus || 'null'})`);
+        if (emitAlerts) {
+            await emitInvoiceAlert({
+                id: `invoice_reconciliation_${gap.jobId}`,
+                type: 'payment_issue',
+                severity: 'high',
+                leadId: '',
+                customerName: gap.customerName || 'Unknown customer',
+                message: `Reconciliation: completed job ${gap.jobId} (${gap.customerName || 'unknown'}) took a £${((gap.depositAmountPence || 0) / 100).toFixed(2)} deposit but has no invoice at all.`,
+                data: { jobId: gap.jobId, quoteId: gap.quoteId, balanceInvoiceStatus: gap.balanceInvoiceStatus },
+            });
+        }
+    }
+
+    if (candidates.length > 0 || gaps.length > 0) {
+        console.log(`[Invoice Retry] scanned=${candidates.length} generated=${generated} skipped=${skipped} failed=${failed} reconciliationGaps=${gaps.length}`);
+    }
+
+    return { scanned: candidates.length, generated, skipped, failed, reconciliationGaps: gaps.length };
 }
 
 // ==========================================

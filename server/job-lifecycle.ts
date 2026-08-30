@@ -816,6 +816,9 @@ export async function finalizeJobCompletion(
         timerAccumulatedSeconds: finalAccumulated,
         timerPausedAt: job.timerPausedAt || (job.timerStartedAt ? new Date() : null),
         payoutScheduledAt,
+        // Track A: balance-invoice reliability — mark as pending up-front so a
+        // crash between completion and invoicing leaves a retryable breadcrumb.
+        balanceInvoiceStatus: 'pending',
         updatedAt: new Date(),
     };
 
@@ -843,6 +846,7 @@ export async function finalizeJobCompletion(
 
     // Propagate completion back up the spine (quote → lead). Non-fatal:
     // the job IS completed even if this rollup write fails.
+    let linkedLeadId: string | null = null;
     if (job.quoteId) {
         try {
             // 1. Stamp the quote as completed (guard against overwriting an
@@ -861,6 +865,7 @@ export async function finalizeJobCompletion(
                 .limit(1);
 
             if (quoteRow?.leadId) {
+                linkedLeadId = quoteRow.leadId;
                 await db.update(leads)
                     .set({ stage: 'completed', stageUpdatedAt: new Date() })
                     .where(eq(leads.id, quoteRow.leadId));
@@ -984,10 +989,52 @@ export async function finalizeJobCompletion(
 
     console.log(`[Job Lifecycle] Job ${id} completed (${completionType}). Timer: ${finalAccumulated}s. Payout: ${netPayoutPence}p scheduled for ${payoutScheduledAt.toISOString()}`);
 
-    // Generate balance invoice (async, non-blocking — fire and forget with error logging)
-    generateBalanceInvoice(id).catch((err) => {
-        console.error(`[Job Lifecycle] Failed to generate balance invoice for job ${id}:`, err);
-    });
+    // Generate balance invoice — AWAITED so the outcome is tracked on the job row,
+    // but hard-wrapped in try/catch: an invoice failure must NEVER fail the
+    // completion (field contractors on flaky mobile need the completion to land).
+    try {
+        const invoiceResult = await generateBalanceInvoice(id);
+        // null = legitimately nothing to invoice (no quote / no deposit / fully paid)
+        await db.update(contractorBookingRequests)
+            .set({
+                balanceInvoiceStatus: invoiceResult ? 'generated' : 'skipped',
+                balanceInvoiceLastError: null,
+                updatedAt: new Date(),
+            })
+            .where(eq(contractorBookingRequests.id, id));
+        if (invoiceResult) {
+            console.log(`[Job Lifecycle] Balance invoice ${invoiceResult.invoiceNumber} generated for job ${id}`);
+        }
+    } catch (invoiceErr: any) {
+        console.error(`[Job Lifecycle] Failed to generate balance invoice for job ${id}:`, invoiceErr);
+        try {
+            const errorText = String(invoiceErr?.message || invoiceErr).slice(0, 2000);
+            await db.update(contractorBookingRequests)
+                .set({
+                    balanceInvoiceStatus: 'failed',
+                    balanceInvoiceAttempts: (job.balanceInvoiceAttempts ?? 0) + 1,
+                    balanceInvoiceLastError: errorText,
+                    updatedAt: new Date(),
+                })
+                .where(eq(contractorBookingRequests.id, id));
+
+            // High-severity ops alert. Dynamic import keeps job-lifecycle importable
+            // from standalone scripts (pipeline-events → server/index boots the server).
+            const { broadcastPipelineAlert } = await import('./pipeline-events');
+            broadcastPipelineAlert({
+                id: `balance_invoice_failed_${id}`,
+                type: 'payment_issue',
+                severity: 'high',
+                leadId: linkedLeadId || '',
+                customerName: job.customerName || 'Unknown customer',
+                message: `Balance invoice FAILED for completed job ${id} (${job.customerName || 'unknown'}). Retry cron will re-attempt.`,
+                data: { jobId: id, quoteId: job.quoteId || null, error: errorText.slice(0, 300) },
+            });
+        } catch (trackErr) {
+            // Even failure-tracking must not break the completion response.
+            console.error(`[Job Lifecycle] Failed to record balance-invoice failure for job ${id}:`, trackErr);
+        }
+    }
 
     // Notify customer (async, non-blocking)
     notifyCustomer({ jobId: id, event: 'job_completed' }).catch(console.error);
