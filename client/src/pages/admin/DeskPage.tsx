@@ -9,12 +9,12 @@
  * approve/reject card the ops dock uses — it hits POST /api/drafts/:id/…,
  * the only send path, and settles from draft_delta).
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
     AlertTriangle, CheckCircle2, Clock, Inbox, MessageSquare,
-    PhoneCall, ShieldAlert,
+    PhoneCall, ShieldAlert, UserCheck,
 } from 'lucide-react';
 import type { DeskItem } from '@shared/ops-types';
 import { DraftApprovalCard } from '@/components/ops/DraftApprovalCard';
@@ -33,7 +33,79 @@ const KIND_META: Record<DeskItem['kind'], { label: string; icon: typeof Inbox; t
     draft: { label: 'Draft', icon: CheckCircle2, tone: 'text-emerald-500 bg-emerald-500/10' },
     call_task: { label: 'Call', icon: PhoneCall, tone: 'text-violet-500 bg-violet-500/10' },
     sla_breach: { label: 'SLA', icon: ShieldAlert, tone: 'text-red-500 bg-red-500/10' },
+    assignment: { label: 'Assign', icon: UserCheck, tone: 'text-orange-500 bg-orange-500/10' },
 };
+
+/**
+ * D-WP3: inline approve/reject for an assignment proposal. Approve performs
+ * the REAL assignment (POST /api/desk/proposals/:id/approve →
+ * assignJobToContractor). On success the ['desk'] query is invalidated and
+ * the row disappears; on an approve failure (proposal status 'failed') the
+ * returned error text stays visible until the next refetch clears the row.
+ */
+function AssignmentActions({ proposalId }: { proposalId: string }) {
+    const queryClient = useQueryClient();
+    const [inFlight, setInFlight] = useState<'approve' | 'reject' | null>(null);
+    const [decided, setDecided] = useState<'approved' | 'rejected' | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const decide = async (action: 'approve' | 'reject') => {
+        setInFlight(action);
+        setError(null);
+        try {
+            const res = await fetch(`/api/desk/proposals/${proposalId}/${action}`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `${action} failed (${res.status})`);
+            if (data?.proposal?.status === 'failed') {
+                // Human approved but the assignment itself failed — show why.
+                setError(data?.error || data?.proposal?.error || 'Assignment failed');
+                return;
+            }
+            setDecided(action === 'approve' ? 'approved' : 'rejected');
+            queryClient.invalidateQueries({ queryKey: ['desk'] });
+        } catch (e: any) {
+            setError(e?.message || `${action} failed`);
+        } finally {
+            setInFlight(null);
+        }
+    };
+
+    if (decided) {
+        return (
+            <p className={cn('mt-2 text-xs font-semibold', decided === 'approved' ? 'text-emerald-500' : 'text-muted-foreground')}>
+                {decided === 'approved' ? 'Approved — contractor assigned.' : 'Rejected.'}
+            </p>
+        );
+    }
+    return (
+        <div className="mt-2">
+            <div className="flex gap-2">
+                <button
+                    onClick={() => decide('approve')}
+                    disabled={inFlight !== null}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+                >
+                    {inFlight === 'approve' ? 'Assigning…' : 'Approve & assign'}
+                </button>
+                <button
+                    onClick={() => decide('reject')}
+                    disabled={inFlight !== null}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                >
+                    {inFlight === 'reject' ? 'Rejecting…' : 'Reject'}
+                </button>
+            </div>
+            {error && (
+                <p className="mt-2 flex items-center gap-1 text-xs text-red-500">
+                    <AlertTriangle className="h-3 w-3 shrink-0" /> {error}
+                </p>
+            )}
+        </div>
+    );
+}
 
 /** Hours-waited pill: amber past 2 working hours, red past 4. */
 function WaitPill({ hours }: { hours: number }) {
@@ -84,6 +156,16 @@ function DeskRow({ item }: { item: DeskItem }) {
         </>
     );
 
+    if (item.kind === 'assignment' && item.proposalId) {
+        // Assignment proposals keep approve/reject inline — approving here is
+        // the one human gate in front of a real assignment.
+        return (
+            <li className="rounded-xl border border-border bg-card p-3">
+                {body}
+                <AssignmentActions proposalId={item.proposalId} />
+            </li>
+        );
+    }
     if (item.kind === 'draft') {
         // Draft rows keep the approval UI inline — the whole point of the desk.
         // Desk only lists status='pending' drafts, so the card starts pending
@@ -162,7 +244,7 @@ export default function DeskPage() {
             ) : (
                 <ul className="space-y-2">
                     {items.map((item) => (
-                        <DeskRow key={`${item.kind}:${item.conversationId ?? item.draftId ?? item.taskId ?? item.phone}`} item={item} />
+                        <DeskRow key={`${item.kind}:${item.conversationId ?? item.draftId ?? item.taskId ?? item.proposalId ?? item.phone}`} item={item} />
                     ))}
                 </ul>
             )}

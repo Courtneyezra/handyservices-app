@@ -25,6 +25,11 @@ import { conversations, messageDrafts } from '@shared/schema';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DeskItem } from '@shared/ops-types';
 import { workingHoursBetween } from './comms-sla';
+import {
+    approveAssignmentProposal,
+    listPendingAssignmentProposals,
+    rejectAssignmentProposal,
+} from './assignment-proposals';
 import { loadBoardCards } from './inbox-board';
 import { listVaCallTasks } from './agents/va-call-tasks';
 import { detectSlaLane, getSlaSweepConfig } from './agents/sla-sweep';
@@ -54,6 +59,7 @@ function clip(text: string | null | undefined, max = 200): string {
 // collision. Concrete one-click actions outrank states; between the states, a
 // breach outranks a plain "your move".
 const KIND_PRECEDENCE: Record<DeskItem['kind'], number> = {
+    assignment: 5,
     draft: 4,
     call_task: 3,
     sla_breach: 2,
@@ -229,6 +235,33 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
         console.error('[Desk] SLA lane detection failed (serving without breaches):', error?.message);
     }
 
+    // ---- 5) assignment — pending assignment proposals awaiting approve/
+    // reject (D-WP3). Keyed on the proposal id, NOT the customer phone: a
+    // proposal is about a job, and mergeItem doesn't carry proposalId, so a
+    // phone collision with a conversation item would strand the approve
+    // buttons. Riding alongside a reply for the same customer is correct.
+    try {
+        const proposals = await listPendingAssignmentProposals();
+        for (const p of proposals) {
+            mergeItem(byKey, `proposal:${p.id}`, {
+                kind: 'assignment',
+                phone: displayPhone(p.customerPhone),
+                contactName: p.customerName ?? '',
+                title: `Assign ${p.contractorName} → ${p.customerName ?? 'customer'}`,
+                preview: clip(p.note),
+                waitingWorkingHours: workingHoursBetween(new Date(p.createdAt), now),
+                href: '/admin/dispatch',
+                badges: ['PROPOSAL', ...(Array.isArray(p.scheduledDates) && p.scheduledDates.length
+                    ? [(p.scheduledDates as string[])[0]] : [])],
+                proposalId: p.id,
+            });
+        }
+    } catch (error: any) {
+        // Same contract as lane detection: the desk never 500s because one
+        // source hiccuped — the other sources still render.
+        console.error('[Desk] Assignment proposal listing failed (serving without proposals):', error?.message);
+    }
+
     // ---- rank: longest-waiting first; ties broken by signal then name so the
     // order is stable across refetches.
     return Array.from(byKey.values()).sort((a, b) =>
@@ -245,5 +278,38 @@ deskRouter.get('/', async (_req, res) => {
     } catch (error: any) {
         console.error('[Desk] Failed to build desk:', error?.message);
         res.status(500).json({ error: 'desk_failed' });
+    }
+});
+
+// ---- D-WP3: assignment proposal decisions. Mounted behind requireAdmin
+// (same as the whole router) — decidedBy is the authed admin. Approve is the
+// ONLY path from a proposal to a real assignment (assignJobToContractor).
+
+deskRouter.post('/proposals/:id/approve', async (req, res) => {
+    const decidedBy = (req as any).user?.email || (req as any).user?.id || 'admin';
+    try {
+        const result = await approveAssignmentProposal(req.params.id, decidedBy);
+        if (result.ok) return res.json({ proposal: result.proposal });
+        if (result.code === 'not_found') return res.status(404).json({ error: result.error });
+        if (result.code === 'not_pending') return res.status(409).json({ error: result.error, proposal: result.proposal });
+        // assign_failed: the decision landed (status 'failed') but the
+        // assignment didn't — 200 with the error so the desk can show it.
+        return res.json({ proposal: result.proposal, error: result.error });
+    } catch (error: any) {
+        console.error('[Desk] Proposal approve failed:', error?.message);
+        res.status(500).json({ error: 'proposal_approve_failed' });
+    }
+});
+
+deskRouter.post('/proposals/:id/reject', async (req, res) => {
+    const decidedBy = (req as any).user?.email || (req as any).user?.id || 'admin';
+    try {
+        const result = await rejectAssignmentProposal(req.params.id, decidedBy);
+        if (result.ok) return res.json({ proposal: result.proposal });
+        if (result.code === 'not_found') return res.status(404).json({ error: result.error });
+        return res.status(409).json({ error: result.error, proposal: result.proposal });
+    } catch (error: any) {
+        console.error('[Desk] Proposal reject failed:', error?.message);
+        res.status(500).json({ error: 'proposal_reject_failed' });
     }
 });
