@@ -36,6 +36,8 @@ import { runQuotePrep, STAFF as quotePrepStaff } from './quote-prep';
 import { runRecovery, STAFF as recoveryStaff } from './recovery';
 import { STAFF as opsBriefStaff } from './ops-brief';
 import { runPipelineSweep } from '../pipeline-sweeper';
+import { listVaCallTasks, maybeCreateVaCallTask, completeVaCallTask, dismissVaCallTask } from './va-call-tasks';
+import type { FirstContactChannel } from '../first-contact-ack';
 import { loadBoardCards } from '../inbox-board';
 import { checkDraft } from './draft-guards';
 import { queueDraft } from '../message-drafts';
@@ -329,6 +331,35 @@ export function buildTools(): AgentTool[] {
             input_schema: { type: 'object' as const, properties: {} },
             run: async () => slaState(),
         },
+        {
+            name: 'get_call_tasks',
+            description: 'The VA call sheet: open "call this customer" tasks (due soonest first, each with the customer\'s last few inbound messages) plus recently resolved ones. Check here before creating a task — an open one may already cover the customer.',
+            input_schema: { type: 'object' as const, properties: {} },
+            run: async () => {
+                const { open, recent } = await listVaCallTasks();
+                return {
+                    open: open.map((t) => ({
+                        taskId: t.id,
+                        conversationId: t.conversationId,
+                        phone: t.phone,
+                        contactName: t.contactName,
+                        channel: t.channel,
+                        reason: t.reason,
+                        dueAt: t.dueAt,
+                        createdAt: t.createdAt,
+                        context: t.context.map((m) => ({ text: (m.content ?? '').slice(0, 200), hasMedia: !!m.mediaUrl, at: m.createdAt })),
+                    })),
+                    recentlyResolved: recent.slice(0, 10).map((t) => ({
+                        taskId: t.id,
+                        contactName: t.contactName,
+                        phone: t.phone,
+                        outcome: t.completedAt ? 'called' : 'dismissed',
+                        at: t.completedAt ?? t.dismissedAt,
+                        dismissReason: t.dismissReason ?? null,
+                    })),
+                };
+            },
+        },
         // ---------- actions (delegation + the two gated exits) ----------
         {
             name: 'run_comms_agent',
@@ -379,6 +410,72 @@ export function buildTools(): AgentTool[] {
             run: async () => {
                 const summary = await runPipelineSweep('ops_manager');
                 return summary ?? { note: 'A sweep is already in flight; nothing was started.' };
+            },
+        },
+        {
+            name: 'create_va_call_task',
+            description: 'Put a customer on the VA call sheet: a "call within 15 working minutes" task that pings the on-call phone. The trigger gates are STRICT and may refuse — only first-contact or long-returning customers, whatsapp/sms/webform only, no prior call anywhere in their threads, not opted out, no open task already. A refusal comes back with its reason: report it, do not retry or work around it.',
+            input_schema: {
+                type: 'object' as const,
+                properties: {
+                    conversationId: { type: 'string' },
+                    phone: { type: 'string', description: 'E.164 destination, e.g. +447700900123.' },
+                    channel: { type: 'string', enum: ['whatsapp', 'sms', 'webform'], description: 'How the customer got in touch.' },
+                    contactName: { type: 'string' },
+                    text: { type: 'string', description: 'Optional enquiry preview shown in the VA\'s ping.' },
+                },
+                required: ['conversationId', 'phone', 'channel'],
+            },
+            run: async (input: { conversationId: string; phone: string; channel: string; contactName?: string; text?: string }) => {
+                const result = await maybeCreateVaCallTask({
+                    conversationId: input.conversationId,
+                    phone: input.phone,
+                    channel: input.channel as FirstContactChannel,
+                    contactName: input.contactName ?? null,
+                    text: input.text ?? null,
+                });
+                if (result.created && result.task) {
+                    return {
+                        created: true,
+                        taskId: result.task.id,
+                        dueAt: result.task.dueAt,
+                        note: 'On the VA call sheet. In working hours the phone was pinged; out of hours the ping is deferred to the 08:00 release.',
+                    };
+                }
+                return { created: false, reason: result.reason, detail: result.detail ?? null };
+            },
+        },
+        {
+            name: 'complete_call_task',
+            description: 'Mark an open VA call task as called — use when the call has actually happened. Already-resolved tasks come back unchanged.',
+            input_schema: {
+                type: 'object' as const,
+                properties: { taskId: { type: 'string' } },
+                required: ['taskId'],
+            },
+            run: async (input: { taskId: string }) => {
+                const task = await completeVaCallTask(input.taskId);
+                return task
+                    ? { completed: true, taskId: task.id, contactName: task.contactName, phone: task.phone }
+                    : { completed: false, note: 'That task was already resolved (or the id is wrong) — nothing changed.' };
+            },
+        },
+        {
+            name: 'dismiss_call_task',
+            description: 'Dismiss an open VA call task with a short reason (call not needed, handled another way, duplicate). Already-resolved tasks come back unchanged.',
+            input_schema: {
+                type: 'object' as const,
+                properties: {
+                    taskId: { type: 'string' },
+                    reason: { type: 'string', description: 'Why the call is not needed — shows on the audit trail.' },
+                },
+                required: ['taskId', 'reason'],
+            },
+            run: async (input: { taskId: string; reason: string }) => {
+                const task = await dismissVaCallTask(input.taskId, 'ops_manager', input.reason);
+                return task
+                    ? { dismissed: true, taskId: task.id, contactName: task.contactName, phone: task.phone }
+                    : { dismissed: false, note: 'That task was already resolved (or the id is wrong) — nothing changed.' };
             },
         },
         {
@@ -495,7 +592,7 @@ export const SYSTEM = `You are the Ops Manager for Handy Services, a Nottingham 
 THE RAILS — absolute, not preferences:
 1. YOU NEVER SEND A MESSAGE TO A CUSTOMER. You have no send tool. queue_draft is a PROPOSAL: it writes a pending draft that a human reviews and approves before anything leaves. Say so if asked to "send" something — you can propose it, a human releases it.
 2. MONEY, DISCOUNTS AND DATES ARE BEN'S ALONE. Anything involving a money amount, a discount or price change, or a commitment to a date or arrival time must NOT be drafted at all — not even as a pending proposal. Use flag_for_ben with a note instead. The guard chain will refuse such drafts anyway; do not retry reworded versions, escalate. ONE carve-out: generate_invoice for a COMPLETED job is allowed, because every figure is computed from the quote record — you never pick or alter an amount, and the customer is not messaged. Announcing or chasing that invoice with the customer still falls under rails 1 and 2.
-3. DELEGATE FIRST. Replies on live customer threads belong to run_comms_agent. Priceable threads go to run_quote_prep. Quiet quotes go to run_recovery_sweep. Pipeline hygiene goes to run_sla_sweep. Do a specialist's job yourself only when no specialist covers it, and say why.
+3. DELEGATE FIRST. Replies on live customer threads belong to run_comms_agent. Priceable threads go to run_quote_prep. Quiet quotes go to run_recovery_sweep. Pipeline hygiene goes to run_sla_sweep. Phone work goes on the VA call sheet — create_va_call_task puts a human on the call; you never phone anyone. Its trigger gates are strict and a refusal (wrong channel, ongoing customer, call already happened) is an answer, not an obstacle. Do a specialist's job yourself only when no specialist covers it, and say why.
 
 WORKING STYLE: gather only the context the question needs (the board snapshot is usually enough), act, then report what you did and what is now waiting on a human. Never invent data — every number you state must come from a tool result this turn or earlier in this session. UK English. Be brief.
 
@@ -516,6 +613,7 @@ export const STAFF = {
             'Read the board, pipeline, threads (text only), SLA state, availability and the agent roster',
             'Fire the specialist agents: comms on a thread, quote prep, the recovery sweep, the SLA sweep',
             'Generate the balance invoice for a COMPLETED job — every figure comes from the quote record, never the model',
+            'Work the VA call sheet: list tasks, put a customer on it (strict trigger gates), mark called, dismiss with a reason',
             'Flag threads for Ben with a note',
         ],
         approval: [
@@ -534,10 +632,14 @@ export const STAFF = {
         { name: 'get_contractor_availability', blurb: 'Per-date network capacity + per-contractor days, read-only', kind: 'read' },
         { name: 'get_agent_roster', blurb: 'The specialist agents and what to delegate to whom', kind: 'read' },
         { name: 'get_sla_state', blurb: 'SLA thresholds + live breach summary', kind: 'read' },
+        { name: 'get_call_tasks', blurb: 'The VA call sheet: open tasks with thread context + recent resolutions', kind: 'read' },
         { name: 'run_comms_agent', blurb: 'Delegate a thread to the comms specialist', kind: 'write' },
         { name: 'run_quote_prep', blurb: 'Delegate a thread to the quote-prep clerk', kind: 'write' },
         { name: 'run_recovery_sweep', blurb: 'Delegate to recovery — proposes nudges, sends nothing', kind: 'write' },
         { name: 'run_sla_sweep', blurb: 'Run the pipeline sweeper — alerts, never messages', kind: 'write' },
+        { name: 'create_va_call_task', blurb: 'Put a customer on the VA call sheet — strict trigger gates, refusals explained', kind: 'write' },
+        { name: 'complete_call_task', blurb: 'Mark a VA call task as called', kind: 'write' },
+        { name: 'dismiss_call_task', blurb: 'Dismiss a VA call task with an audited reason', kind: 'write' },
         { name: 'generate_invoice', blurb: 'Balance invoice for a completed job — figures from the quote record, duplicates refused', kind: 'gated' },
         { name: 'queue_draft', blurb: 'PROPOSAL ONLY: a pending draft a human approves; guard chain runs first', kind: 'gated' },
         { name: 'flag_for_ben', blurb: 'Escalation: money/discount/date decisions land on Ben\'s phone', kind: 'write' },
