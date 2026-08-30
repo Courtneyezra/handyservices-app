@@ -67,6 +67,36 @@ async function contractorNamesById(): Promise<Map<string, string>> {
 }
 
 /**
+ * The contractor roster: every handyman_profiles row with its display name
+ * (resolution identical to contractorNamesById: "First Last" → businessName →
+ * 'Contractor'). Read-only; the ids are what the agent's contractor-taking
+ * tools (contractor_schedule, availability, assignment proposals) expect.
+ */
+export async function listContractors(): Promise<Array<{ id: string; name: string; businessName: string | null; city: string | null }>> {
+    const rows = await db.select({
+        id: handymanProfiles.id,
+        businessName: handymanProfiles.businessName,
+        city: handymanProfiles.city,
+        firstName: users.firstName,
+        lastName: users.lastName,
+    })
+        .from(handymanProfiles)
+        .leftJoin(users, eq(users.id, handymanProfiles.userId));
+
+    const out = rows.map((r) => {
+        const full = `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim();
+        return {
+            id: r.id,
+            name: full || r.businessName || 'Contractor',
+            businessName: r.businessName ?? null,
+            city: r.city ?? null,
+        };
+    });
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+}
+
+/**
  * Effective contractor for a booking. assignedContractorId wins; the base
  * contractorId only counts once the job has actually been assigned —
  * unassigned pool rows carry a placeholder contractorId (see

@@ -46,7 +46,7 @@ import { findBestContractors, checkNetworkAvailability } from '../availability-e
 import { getCapacityForDates, resolveContractorDay } from '../availability-capacity';
 import { generateInvoiceForJob } from '../pipeline/actions';
 import {
-    listTodaysJobs, listUnassignedJobs, getContractorSchedule,
+    listTodaysJobs, listUnassignedJobs, getContractorSchedule, listContractors,
     listOverdueInvoices, listUnbilledCompletedJobs, getMoneySummary,
 } from '../pipeline/queries';
 import { getCustomerDossier } from '../customer-dossier';
@@ -367,6 +367,15 @@ export function buildTools(): AgentTool[] {
             },
         },
         {
+            name: 'get_contractors',
+            description: 'The contractor roster: every contractor\'s handyman_profiles id and name. Call this FIRST to resolve a name like \'Craig\' to the id the other tools need. Two similar names → ask the operator which one (quick replies).',
+            input_schema: { type: 'object' as const, properties: {} },
+            run: async () => ({
+                contractors: await listContractors(),
+                note: 'These ids are what get_jobs (contractor_schedule), get_contractor_availability (contractorId) and propose_job_assignment (contractorId) expect.',
+            }),
+        },
+        {
             name: 'get_jobs',
             description: 'Jobs, read-only, three views: "today" (who is working where today — occupancy from the authoritative scheduledDates), "unassigned" (the dispatch pool with age), or "contractor_schedule" (one contractor\'s jobs over a date window; needs contractorId). Dates YYYY-MM-DD, money in pence.',
             input_schema: {
@@ -685,7 +694,9 @@ MONEY FACTS: get_money_state and get_customer_dossier give you real figures from
 
 WORKING STYLE: gather only the context the question needs (the board snapshot is usually enough), act, then report what you did and what is now waiting on a human. Never invent data — every number you state must come from a tool result this turn or earlier in this session. UK English. Be brief.
 
-FORMAT: your replies render as markdown in the chat dock. Use a short bold lead, compact bullet lists, and a small table when comparing rows. Deep-link entities as markdown links so the operator can click straight through without leaving the page: a conversation → [Contact Name](/admin/comms?conversation=CONVERSATION_ID), the desk → [Desk](/admin/desk), the pipeline → [Pipeline](/admin/work). Only link ids that came from a tool result — never construct or guess an id.`;
+FORMAT: your replies render as markdown in the chat dock. Use a short bold lead, compact bullet lists, and a small table when comparing rows. Deep-link entities as markdown links so the operator can click straight through without leaving the page: a conversation → [Contact Name](/admin/comms?conversation=CONVERSATION_ID), the desk → [Desk](/admin/desk), the pipeline → [Pipeline](/admin/work). Only link ids that came from a tool result — never construct or guess an id.
+
+When you need the operator to pick from a small set (disambiguation like two contractors named Craig, or a confirm/cancel), end your reply with a fenced block: three backticks + the word options on the opening fence (\`\`\`options), then a JSON array of 2–6 short strings, then a closing fence. It must be the LAST thing in the message. The dock renders these as tappable quick replies that send the string back verbatim — so each option must read as a complete user message ("Craig Smith", "Cancel"), not a fragment.`;
 
 // ---------------------------------------------------------------- staff card
 
@@ -724,6 +735,7 @@ export const STAFF = {
         { name: 'get_agent_roster', blurb: 'The specialist agents and what to delegate to whom', kind: 'read' },
         { name: 'get_sla_state', blurb: 'SLA thresholds + live breach summary', kind: 'read' },
         { name: 'get_call_tasks', blurb: 'The VA call sheet: open tasks with thread context + recent resolutions', kind: 'read' },
+        { name: 'get_contractors', blurb: 'Roster: contractor ids + names for the id-taking tools', kind: 'read' },
         { name: 'get_jobs', blurb: 'Today\'s jobs, the dispatch pool, or one contractor\'s schedule', kind: 'read' },
         { name: 'get_money_state', blurb: 'Overdue invoices (with everSent), unbilled completed jobs, totals', kind: 'read' },
         { name: 'get_customer_dossier', blurb: 'One customer\'s full history by phone — quotes, jobs, invoices, threads', kind: 'read' },
