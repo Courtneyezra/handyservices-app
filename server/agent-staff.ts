@@ -28,6 +28,7 @@ import { STAFF as opsBriefStaff, SYSTEM as opsBriefSystem } from './agents/ops-b
 import { STAFF as recoveryStaff, SYSTEM as recoverySystem } from './agents/recovery';
 import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig, setCommsAgentConfig } from './agents/comms';
 import { STAFF as quotePrepStaff, SYSTEM as quotePrepSystem, runQuotePrep } from './agents/quote-prep';
+import { STAFF as opsManagerStaff, SYSTEM as opsManagerSystem } from './agents/ops-manager';
 import { FIRST_CONTACT_CHANNELS, type FirstContactChannel } from './first-contact-ack';
 import {
     outcomeMetrics, outcomePatterns, recentDecisions, reconcileOutcomes, refreshOutcomes,
@@ -172,6 +173,13 @@ agentStaffRouter.get('/staff', async (_req, res) => {
                     accent: 'sky',
                     stats: [],
                     statusChips: [{ label: 'READ-ONLY', on: true }],
+                },
+                {
+                    ...opsManagerStaff,
+                    system: opsManagerSystem,
+                    accent: 'violet',
+                    stats: [],
+                    statusChips: [{ label: 'PROPOSE-ONLY', on: true }],
                 },
             ],
         });

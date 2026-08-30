@@ -36,7 +36,7 @@ function pushCommsEvent(evt: CommsEvent): void {
 
 export const messageDraftsRouter = Router();
 
-export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack';
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack' | 'ops_manager';
 
 /**
  * Which draft sources count as a service reply for opt-out purposes, and which are outreach.
@@ -57,7 +57,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continu
  *
  * None of this gets past an 'all' ("do not contact") suppression; that blocks every source.
  */
-const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual']);
+const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual', 'ops_manager']);
 
 export function purposeForDraftSource(source: DraftSource): OutboundPurpose {
     return SERVICE_DRAFT_SOURCES.has(source) ? 'service_reply' : 'marketing';

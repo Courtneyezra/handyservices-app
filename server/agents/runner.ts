@@ -74,6 +74,10 @@ export async function runAgent(opts: {
     /** Live observer: called with each transcript event as it is appended (assistant text,
      *  tool calls/results, done, …). Purely additive — a listener error never breaks a run. */
     onEvent?: (evt: AgentTranscriptEvent) => void;
+    /** Prior conversation turns (already role-shaped), injected verbatim BEFORE the current
+     *  goal message — how a chat-session agent (ops manager) carries its history into a run.
+     *  Purely additive: omitted means exactly the old single-goal behaviour. */
+    priorMessages?: Anthropic.MessageParam[];
 }): Promise<AgentRunResult> {
     const client = getAnthropic();
     const model = opts.model || 'claude-opus-5';
@@ -104,7 +108,7 @@ export async function runAgent(opts: {
     }));
     const toolByName = new Map(opts.tools.map((t) => [t.name, t]));
 
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: opts.goal }];
+    const messages: Anthropic.MessageParam[] = [...(opts.priorMessages ?? []), { role: 'user', content: opts.goal }];
     let finalText = '';
     let turns = 0;
     const usage: AgentRunUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
