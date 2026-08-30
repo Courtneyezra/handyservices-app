@@ -87,6 +87,12 @@ async function main() {
     check(isMalformedAgentReason(null), 'null reason is malformed');
     check(isMalformedAgentReason('[answer_question]'), 'tag with nothing after it is malformed');
     check(!isMalformedAgentReason('[answer_question] Customer asked how long pricing takes.'), 'real reason is NOT malformed');
+    // 30 Aug 2026 (+447760498854): a real sentence merely CONTAINING a stub word was held,
+    // stranding a self-correction draft. Substring match was the bug; whole-stub match is the fix.
+    check(!isMalformedAgentReason('[ack_enquiry] Replacing incomplete first draft: full reply asking for photo of window/kit to scope the job, plus a light name ask since contact name is a placeholder.'), 'real sentence containing "placeholder" is NOT malformed');
+    check(!isMalformedAgentReason('[answer_question] Explained why the invoice shows null VAT until registration completes.'), 'real sentence containing "null" is NOT malformed');
+    check(isMalformedAgentReason('[answer_question] undefined undefined'), 'repeated stub words are still malformed');
+    check(isMalformedAgentReason('[answer_question] placeholder.'), 'stub word with punctuation is still malformed');
     check(isNearDuplicateText('Hiya James, sorry for the wait on this one.', 'hiya james sorry for the wait on this one'), 'exact-after-normalize matches');
     check(isNearDuplicateText('Hiya James, sorry for the big wait on this one.', 'Hiya James, sorry for the wait on this one.'), '0.9 token overlap matches');
     check(!isNearDuplicateText('Hiya James, thanks for your patience on this one.', 'Quote is ready, link below.'), 'distinct texts do not match');

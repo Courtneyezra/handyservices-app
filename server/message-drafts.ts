@@ -281,7 +281,13 @@ export function isMalformedAgentReason(reason: string | null | undefined): boole
     // Strip the leading "[intent]" tag; what remains must be a real sentence, not a stub.
     const rest = raw.replace(/^\[[^\]]*\]\s*/, '').trim();
     if (!rest) return true;
-    return /\b(placeholder|undefined|null)\b/i.test(rest);
+    // A stub is a reason that IS nothing but filler words — not a real sentence that merely
+    // mentions one. On 30 Aug 2026 (+447760498854) a legitimate self-correction draft carried
+    // "…a light name ask since contact name is a placeholder" and the old substring test held it,
+    // stranding the customer mid-thread. Remove the stub words and punctuation; if nothing of
+    // substance remains, the run was broken.
+    const withoutStubs = rest.replace(/\b(placeholder|undefined|null)\b/gi, '').replace(/[^a-z0-9]/gi, '');
+    return withoutStubs.length === 0;
 }
 
 /** Lowercase, punctuation and whitespace collapsed — the comparison a customer's eyes make. */
