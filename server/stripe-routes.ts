@@ -162,6 +162,16 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
 
         const quote = quoteResult[0];
 
+        // Track A expiry gate — an expired, unbooked quote cannot take money at
+        // its stale price. Mirrors /track-booking: the customer reissues first
+        // (resets expiresAt, +5%), then this passes. Booked/deposit-paid quotes
+        // are exempt (price locked at payment; balance flows must not 410).
+        const { isQuoteExpiredStrict } = await import('./quotes');
+        if (isQuoteExpiredStrict(quote)) {
+            console.warn(`[Stripe] Blocked payment intent on expired quote ${quoteId}`);
+            return res.status(410).json({ error: 'quote_expired', message: 'This quote has expired. Please request an updated quote.' });
+        }
+
         // Survey gate — this endpoint books & charges the JOB. A survey-required
         // quote must go through a site survey first (paid via the visit intent),
         // so refuse a job deposit here. Defense-in-depth: the customer page never

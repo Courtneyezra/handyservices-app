@@ -27,6 +27,7 @@ import { isWelcomeGiftEligible, resolveWelcomeGift } from "./welcome-gift";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
 import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
+import { bookQuoteAsJob } from "./pipeline/actions";
 
 // Base quote validity window (small jobs / fallback). Larger quotes get a
 // longer window — see quoteValidityMs.
@@ -72,6 +73,51 @@ export function effectiveExpiryMs(quote: { expiresAt?: Date | string | null; cre
     if (quote.expiresAt) return new Date(quote.expiresAt).getTime();
     if (quote.createdAt) return new Date(quote.createdAt).getTime() + QUOTE_VALIDITY_MS;
     return Date.now() + QUOTE_VALIDITY_MS;
+}
+
+// Track A hard-expiry gate. Legacy rows without expiresAt fall back to
+// createdAt + 30 days (deliberately more generous than the 48h price-lock
+// fallback above — the price-lock drives the client's reissue overlay, this
+// gate drives server-side HTTP 410s and must not strand recent legacy quotes).
+export const QUOTE_HARD_EXPIRY_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
+
+type ExpiryGateQuote = {
+    expiresAt?: Date | string | null;
+    createdAt?: Date | string | null;
+    bookedAt?: Date | string | null;
+    depositPaidAt?: Date | string | null;
+};
+
+/**
+ * STRICT expiry gate for booking/money mutation paths (track-booking): a quote
+ * past its expiresAt (fallback createdAt + 30d) that is not already booked may
+ * no longer be booked at the stale price — the customer must reissue first
+ * (which resets expiresAt, so the fresh attempt passes). Booked quotes are
+ * never gated: their price locked at payment.
+ */
+export function isQuoteExpiredStrict(quote: ExpiryGateQuote): boolean {
+    if (quote.bookedAt || quote.depositPaidAt) return false;
+    const thresholdMs = quote.expiresAt
+        ? new Date(quote.expiresAt).getTime()
+        : quote.createdAt
+            ? new Date(quote.createdAt).getTime() + QUOTE_HARD_EXPIRY_FALLBACK_MS
+            : Number.POSITIVE_INFINITY;
+    return Number.isFinite(thresholdMs) && Date.now() > thresholdMs;
+}
+
+/**
+ * LENIENT gone-gate for the public quote GET. The GET must keep serving quotes
+ * that are merely past their price-lock — the client's ReissueGate renders
+ * from this payload and drives the self-serve reissue funnel (POST /reissue →
+ * +5% → new expiresAt). So a quote is only "gone" (HTTP 410) once it is past
+ * BOTH its expiresAt AND the 30-day hard window, and not booked.
+ */
+export function isQuoteGone(quote: ExpiryGateQuote): boolean {
+    if (quote.bookedAt || quote.depositPaidAt) return false;
+    if (!quote.createdAt) return false;
+    const expMs = quote.expiresAt ? new Date(quote.expiresAt).getTime() : 0;
+    const hardMs = new Date(quote.createdAt).getTime() + QUOTE_HARD_EXPIRY_FALLBACK_MS;
+    return Date.now() > Math.max(expMs, hardMs);
 }
 
 /**
@@ -1035,6 +1081,14 @@ quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res
         // check/QA quotes freely without polluting conversion stats.
         const isPreview = req.query.preview === '1';
 
+        // Track A hard-expiry gate — a quote past BOTH its expiresAt and the
+        // 30-day hard window (and never booked) is gone. Preview bypasses so
+        // admins can still inspect dead quotes. Quotes merely past their
+        // price-lock still load — the ReissueGate handles those client-side.
+        if (!isPreview && isQuoteGone(quote)) {
+            return res.status(410).json({ error: 'quote_expired' });
+        }
+
         // Track view statistics
         const now = new Date();
         const isFirstView = !quote.viewedAt && !isPreview;
@@ -1595,6 +1649,15 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             return res.status(404).json({ error: "Quote not found" });
         }
 
+        // Track A expiry gate — an expired, unbooked quote can no longer be
+        // booked at its stale price. The customer reissues first (resets
+        // expiresAt + bumps price 5%), then this passes. Booked quotes are
+        // exempt so late fire-and-forget PUTs from the client never 410.
+        if (isQuoteExpiredStrict(quote)) {
+            console.warn(`[track-booking] Blocked booking on expired quote ${id}`);
+            return res.status(410).json({ error: 'quote_expired' });
+        }
+
         // Survey gate — track-booking records a JOB booking. Survey-required
         // quotes must be surveyed first, so refuse to record a job booking here
         // (mirrors the create-payment-intent block; the visit path uses
@@ -1602,6 +1665,31 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
         if (quote.surveyRequired) {
             console.warn(`[track-booking] Blocked job booking on survey-required quote ${id}`);
             return res.status(409).json({ error: "This job needs a site survey before booking.", code: 'SURVEY_REQUIRED' });
+        }
+
+        // Slot-capacity validation, staged behind AVAILABILITY_CAPACITY_CHECK
+        // like the listing gate in availability.ts: off (default) → skipped,
+        // warn → log only, enforce → 409 on a genuinely full slot. Enforcement
+        // here must never outpace listing enforcement, or customers could pick
+        // a slot we showed them and then be blocked. Advisory failure mode:
+        // internal errors and unknown slot labels log and fall through — only
+        // an explicit zero-capacity verdict can reject.
+        const capacityMode = process.env.AVAILABILITY_CAPACITY_CHECK || 'off';
+        if (selectedDate && typeof timeSlotType === 'string' && (capacityMode === 'warn' || capacityMode === 'enforce')) {
+            try {
+                const { validateSlotBookable } = await import('./availability-capacity');
+                const dateStr = typeof selectedDate === 'string' ? selectedDate.slice(0, 10) : selectedDate;
+                const verdict = await validateSlotBookable(dateStr, timeSlotType);
+                if (!verdict.bookable && !String(verdict.reason || '').startsWith('invalid_slot_type')) {
+                    if (capacityMode === 'enforce') {
+                        console.warn(`[track-booking] Slot capacity check rejected quote ${id} for ${selectedDate}:`, verdict.reason);
+                        return res.status(409).json({ error: 'slot_unavailable', code: 'SLOT_UNAVAILABLE', detail: verdict.reason });
+                    }
+                    console.warn(`[track-booking] CAPACITY WARN: quote ${id} booked ${dateStr} ${timeSlotType} with zero capacity (${verdict.reason}) — allowed (mode=warn)`);
+                }
+            } catch (capErr) {
+                console.warn('[track-booking] Slot capacity check errored (non-blocking):', capErr instanceof Error ? capErr.message : capErr);
+            }
         }
 
         // Single price model — use basePrice (fall back to legacy tier columns),
@@ -1813,18 +1901,33 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                     notes: '[CASH] Customer chose pay-cash-on-the-day (OAP)',
                 });
 
-                const jobId = `job_${nanoid()}`;
-                await db.insert(contractorJobs).values({
-                    id: jobId,
-                    quoteId: id,
-                    customerName: quote.customerName,
-                    customerPhone: quote.phone,
-                    address: quote.address || quote.postcode || '',
-                    postcode: quote.postcode || '',
-                    jobDescription: quote.jobDescription,
-                    status: 'pending',             // enters the dispatch pool
-                    totalPricePence: cashTotal,
+                // Track A: cash jobs now enter the REAL dispatch pool — a
+                // contractor_booking_requests row (status pending / unassigned),
+                // same table the admin dispatch board and assignment flow read.
+                // Previously this wrote the dead contractorJobs table, so cash
+                // bookings never surfaced for dispatch.
+                const cashJob = await bookQuoteAsJob({
+                    quote: {
+                        id,
+                        customerName: quote.customerName,
+                        email: quote.email,
+                        phone: quote.phone,
+                        address: quote.address,
+                        postcode: quote.postcode,
+                        jobDescription: quote.jobDescription,
+                        contractorId: (quote as any).contractorId,
+                    },
+                    propertyId: propertyId ?? undefined,
+                    clientId: clientId ?? undefined,
+                    scheduledDate: selectedDate || quote.selectedDate || null,
+                    requestedSlot: typeof timeSlotType === 'string' ? timeSlotType : null,
+                    isCash: true,
+                    invoiceId,
                 });
+                if (!cashJob.ok) {
+                    throw new Error(`bookQuoteAsJob failed: ${cashJob.error}`);
+                }
+                const jobId = cashJob.bookingId;
 
                 try {
                     const { sendBookingConfirmationWhatsApp } = await import('./email-service');

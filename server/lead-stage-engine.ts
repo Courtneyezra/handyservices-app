@@ -5,13 +5,13 @@
  * - leads table
  * - calls table
  * - personalized_quotes table
- * - contractor_jobs table
+ * - contractor_jobs table (legacy) + contractor_booking_requests (canonical) — dual-read
  * - conversations table (WhatsApp)
  */
 
 import { db } from "./db";
-import { leads, calls, personalizedQuotes, contractorJobs, conversations, LeadStage, LeadStageValues } from "@shared/schema";
-import { eq, desc, and, isNotNull, gte, lte, or } from "drizzle-orm";
+import { leads, calls, personalizedQuotes, contractorJobs, contractorBookingRequests, conversations, LeadStage, LeadStageValues } from "@shared/schema";
+import { eq, desc, and, isNotNull, gte, lte, or, inArray } from "drizzle-orm";
 
 // Lead Route type (imported from schema)
 export type LeadRoute = 'video' | 'instant_quote' | 'site_visit';
@@ -213,6 +213,46 @@ export async function computeLeadStage(leadId: string): Promise<StageComputation
             updateIfHigher('completed', 'Job completed', 'job');
         } else if (job.status === 'pending' || job.status === 'accepted') {
             updateIfHigher('booked', `Job status: ${job.status}`, 'job');
+        }
+    }
+
+    // 4b. Check contractor_booking_requests — the CANONICAL job table (Track A).
+    // contractorJobs above is the legacy table; new jobs (paid card bookings via
+    // booking-engine, cash bookings via bookQuoteAsJob, dispatch-pool jobs) live
+    // here. Dual-read is safe: updateIfHigher's priority-max keeps whichever
+    // source is furthest along. CBRs link via quoteId (no leadId column) or
+    // customer phone.
+    const relatedQuoteIds = relatedQuotes.map((q) => q.id);
+    const bookingFilters = [eq(contractorBookingRequests.customerPhone, lead.phone)];
+    if (relatedQuoteIds.length > 0) {
+        bookingFilters.push(inArray(contractorBookingRequests.quoteId, relatedQuoteIds));
+    }
+    const relatedBookings = await db.select()
+        .from(contractorBookingRequests)
+        .where(or(...bookingFilters))
+        .orderBy(desc(contractorBookingRequests.createdAt))
+        .limit(5);
+
+    for (const booking of relatedBookings) {
+        const isCompleted = booking.status === 'completed'
+            || booking.assignmentStatus === 'completed'
+            || booking.dayOfStatus === 'completed';
+        const isInProgress = booking.assignmentStatus === 'in_progress'
+            || booking.dayOfStatus === 'in_progress'
+            || booking.dayOfStatus === 'en_route'
+            || booking.dayOfStatus === 'arrived';
+        if (isCompleted) {
+            updateIfHigher('completed', 'Booking completed', 'job');
+        } else if (isInProgress) {
+            updateIfHigher('in_progress', 'Booking in progress', 'job');
+        } else if (booking.status === 'accepted' || booking.quoteId) {
+            // 'accepted' = confirmed booking regardless of origin. A pending
+            // row WITH a quoteId is a real quote booking awaiting dispatch
+            // (cash path / return visit). A pending row WITHOUT a quoteId is
+            // just a public booking-form REQUEST — not booked, so skipped.
+            if (booking.status !== 'declined') {
+                updateIfHigher('booked', `Booking status: ${booking.status}`, 'job');
+            }
         }
     }
 

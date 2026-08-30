@@ -1,198 +1,37 @@
 import { Router } from 'express';
 import { db } from './db';
-import { contractorBookingRequests, handymanAvailability, contractorAvailabilityDates, handymanProfiles, users, personalizedQuotes, contractorJobs } from '../shared/schema';
-import { eq, and, gte, lte } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
-import { sendJobAssignmentEmail } from './email-service';
+import { contractorBookingRequests, personalizedQuotes, contractorJobs } from '../shared/schema';
+import { eq } from 'drizzle-orm';
 import { requireContractor } from './auth';
-import { pushToUser } from './web-push';
+import { assignJobToContractor } from './pipeline/actions';
 
 export const jobAssignmentRouter = Router();
 
-// B5: Assign job to contractor with availability check
+// B5: Assign job to contractor with availability check.
+// Logic lives in pipeline/actions.assignJobToContractor (extracted verbatim so
+// it can be called as an agent tool) — this route is a thin HTTP adapter that
+// mirrors the original status codes and payloads exactly.
 jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {
     try {
         const { id } = req.params;
         const { contractorId, scheduledDate, scheduledStartTime, scheduledEndTime } = req.body;
 
-        if (!contractorId || !scheduledDate) {
-            return res.status(400).json({ error: 'contractorId and scheduledDate are required' });
+        const result = await assignJobToContractor({
+            jobId: id,
+            contractorId,
+            scheduledDate,
+            scheduledStartTime,
+            scheduledEndTime,
+        });
+
+        if (!result.ok) {
+            return res.status(result.status).json(result.body);
         }
-
-        // Fetch the job
-        const jobResults = await db.select()
-            .from(contractorBookingRequests)
-            .where(eq(contractorBookingRequests.id, id))
-            .limit(1);
-
-        if (jobResults.length === 0) {
-            return res.status(404).json({ error: 'Job not found' });
-        }
-
-        const job = jobResults[0];
-
-        // Check if job is already assigned
-        if (job.assignmentStatus === 'accepted' || job.assignmentStatus === 'in_progress') {
-            return res.status(400).json({ error: 'Job is already assigned and accepted' });
-        }
-
-        // Validate contractor availability
-        const targetDate = new Date(scheduledDate);
-        targetDate.setHours(0, 0, 0, 0);
-        const dayOfWeek = targetDate.getDay();
-
-        // Check for date-specific override first
-        const overrides = await db.select()
-            .from(contractorAvailabilityDates)
-            .where(and(
-                eq(contractorAvailabilityDates.contractorId, contractorId),
-                eq(contractorAvailabilityDates.date, targetDate)
-            ))
-            .limit(1);
-
-        let isAvailable = false;
-        let availableStartTime = '';
-        let availableEndTime = '';
-
-        if (overrides.length > 0) {
-            // Use override
-            const override = overrides[0];
-            isAvailable = override.isAvailable || false;
-            availableStartTime = override.startTime || '';
-            availableEndTime = override.endTime || '';
-        } else {
-            // Check weekly pattern
-            const patterns = await db.select()
-                .from(handymanAvailability)
-                .where(and(
-                    eq(handymanAvailability.handymanId, contractorId),
-                    eq(handymanAvailability.dayOfWeek, dayOfWeek),
-                    eq(handymanAvailability.isActive, true)
-                ))
-                .limit(1);
-
-            if (patterns.length > 0) {
-                const pattern = patterns[0];
-                isAvailable = true;
-                availableStartTime = pattern.startTime || '';
-                availableEndTime = pattern.endTime || '';
-            }
-        }
-
-        if (!isAvailable) {
-            return res.status(400).json({
-                error: 'Contractor is not available on the selected date',
-                availabilityCheck: {
-                    date: scheduledDate,
-                    isAvailable: false
-                }
-            });
-        }
-
-        // Check for scheduling conflicts (other jobs on same date)
-        const conflicts = await db.select()
-            .from(contractorBookingRequests)
-            .where(and(
-                eq(contractorBookingRequests.assignedContractorId, contractorId),
-                eq(contractorBookingRequests.scheduledDate, targetDate),
-                eq(contractorBookingRequests.assignmentStatus, 'accepted')
-            ));
-
-        if (conflicts.length > 0) {
-            return res.status(400).json({
-                error: 'Contractor has conflicting jobs on this date',
-                conflicts: conflicts.map(c => ({
-                    id: c.id,
-                    customerName: c.customerName,
-                    scheduledTime: `${c.scheduledStartTime} - ${c.scheduledEndTime}`
-                }))
-            });
-        }
-
-        // Assign the job. scheduled_dates MUST track scheduled_date — readers
-        // trust that jsonb array (timezone-immune) over the timestamp; a bare
-        // timestamp write strands the array on the old day and hides the job.
-        const { expandSpanDates } = await import('../shared/schedule-composition');
-        const newDateStr = (typeof scheduledDate === 'string' ? scheduledDate : new Date(scheduledDate).toISOString()).slice(0, 10);
-        const [updatedJob] = await db.update(contractorBookingRequests)
-            .set({
-                assignedContractorId: contractorId,
-                scheduledDate: targetDate,
-                scheduledDates: expandSpanDates(newDateStr, job.durationDays, null),
-                scheduledStartTime: scheduledStartTime || availableStartTime,
-                scheduledEndTime: scheduledEndTime || availableEndTime,
-                assignedAt: new Date(),
-                assignmentStatus: 'assigned',
-                updatedAt: new Date()
-            })
-            .where(eq(contractorBookingRequests.id, id))
-            .returning();
-
-        // Send notification to contractor (async/non-blocking)
-        console.log(`[Job Assignment] Job ${id} assigned to contractor ${contractorId} for ${scheduledDate}`);
-
-        // Fetch contractor details for email notification
-        (async () => {
-            try {
-                const contractorData = await db.select({
-                    userId: users.id,
-                    firstName: users.firstName,
-                    lastName: users.lastName,
-                    email: users.email,
-                })
-                .from(handymanProfiles)
-                .innerJoin(users, eq(handymanProfiles.userId, users.id))
-                .where(eq(handymanProfiles.id, contractorId))
-                .limit(1);
-
-                // Fetch address from linked quote if available
-                let address = '';
-                if (updatedJob.quoteId) {
-                    const quoteData = await db.select({ address: personalizedQuotes.address })
-                        .from(personalizedQuotes)
-                        .where(eq(personalizedQuotes.id, updatedJob.quoteId))
-                        .limit(1);
-                    if (quoteData.length > 0 && quoteData[0].address) {
-                        address = quoteData[0].address;
-                    }
-                }
-
-                // Web push to the contractor's device — fire-and-forget, never rejects
-                if (contractorData.length > 0 && contractorData[0].userId) {
-                    void pushToUser(contractorData[0].userId, {
-                        title: '🔨 New job assigned',
-                        body: `${updatedJob.customerName || 'Customer'} — ${newDateStr}${address ? ` · ${address}` : ''}`,
-                        url: `/contractor/dashboard/jobs/${updatedJob.id}`,
-                    });
-                }
-
-                if (contractorData.length > 0 && contractorData[0].email) {
-                    const contractor = contractorData[0];
-                    const contractorName = [contractor.firstName, contractor.lastName].filter(Boolean).join(' ') || 'Contractor';
-
-                    await sendJobAssignmentEmail({
-                        contractorName,
-                        contractorEmail: contractor.email,
-                        customerName: updatedJob.customerName || 'Customer',
-                        address,
-                        jobDescription: updatedJob.description || '',
-                        scheduledDate: scheduledDate,
-                        scheduledStartTime: updatedJob.scheduledStartTime || undefined,
-                        scheduledEndTime: updatedJob.scheduledEndTime || undefined,
-                        jobId: id,
-                    });
-                } else {
-                    console.log(`[Job Assignment] No email found for contractor ${contractorId}`);
-                }
-            } catch (emailError) {
-                console.error('[Job Assignment] Failed to send assignment email:', emailError);
-            }
-        })();
 
         res.json({
             success: true,
-            job: updatedJob,
-            message: 'Job assigned successfully. Contractor will be notified.'
+            job: result.job,
+            message: result.message
         });
 
     } catch (error: any) {
