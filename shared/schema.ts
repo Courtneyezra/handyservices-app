@@ -344,6 +344,7 @@ export const leads = pgTable("leads", {
     // Automation Dedup Tracking
     automationReminderSentAt: timestamp("automation_reminder_sent_at"), // Last automation reminder sent (video/general)
     automationRecoverySentAt: timestamp("automation_recovery_sent_at"), // Lost lead recovery message sent
+    lastSlaAlertAt: timestamp("last_sla_alert_at"), // Pipeline sweeper SLA alert dedup (24h window)
 
     // Action Center Fields (unified inbox with calls table)
     actionStatus: varchar("action_status").default('pending'), // 'pending', 'resolved', 'dismissed'
@@ -1413,6 +1414,10 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
 
     // Financial
     invoiceId: varchar("invoice_id").references(() => invoices.id), // Link to generated invoice
+    // Track A: balance-invoice reliability. Null = pre-tracking legacy rows.
+    balanceInvoiceStatus: text("balance_invoice_status"), // 'pending' | 'generated' | 'skipped' | 'failed'
+    balanceInvoiceAttempts: integer("balance_invoice_attempts").default(0),
+    balanceInvoiceLastError: text("balance_invoice_last_error"),
 
     // Day-of Operations
     scheduledSlot: scheduledSlotEnum("scheduled_slot"), // AM/PM/FULL_DAY
@@ -2550,6 +2555,7 @@ export const availabilitySlots = pgTable("availability_slots", {
     slotType: text("slot_type").notNull(), // 'morning' | 'afternoon' | 'full_day'
     isBooked: boolean("is_booked").default(false).notNull(),
     bookedByLeadId: text("booked_by_lead_id").references(() => leads.id), // Which lead booked this slot
+    capacityCheckedAt: timestamp("capacity_checked_at"), // Last capacity validation (AVAILABILITY_CAPACITY_CHECK warn/enforce)
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
