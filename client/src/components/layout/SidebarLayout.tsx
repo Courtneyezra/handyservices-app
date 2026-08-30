@@ -78,12 +78,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 />
             )}
 
-            {/* Sidebar — hidden for VA */}
+            {/* Sidebar — for VA: hidden on mobile (bottom tab bar instead), visible on desktop */}
             <aside className={cn(
                 "fixed inset-y-0 left-0 bg-card text-card-foreground flex flex-col z-50 transition-all duration-300 lg:relative lg:translate-x-0 border-r border-border",
                 isCollapsed ? "w-16" : "w-64",
                 isSidebarOpen ? "translate-x-0" : "-translate-x-full",
-                isVA && "!hidden"
+                isVA && "hidden lg:flex"
             )}>
                 {/* Logo Area */}
                 <div className={cn("p-4 flex items-center gap-3", isCollapsed && "justify-center p-3")}>
@@ -117,6 +117,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             title: "YOUR TOOLS",
                             items: [
                                 { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
+                                { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
+                                { icon: ClipboardCheck, label: "Tasks", href: "/admin/va-tasks", badge: "NEW" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                                 { icon: Send, label: "Visit Link", href: "/admin/generate-contextual-quote?visit=1", badge: "NEW" },
@@ -368,15 +370,15 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 </header>
 
                 {/* Content Area */}
-                <div className={cn("flex-1 overflow-auto p-4 lg:p-8", isVA && "pb-20")}>
+                <div className={cn("flex-1 overflow-auto p-4 lg:p-8", isVA && "pb-20 lg:pb-8")}>
                     {children}
                 </div>
             </main>
 
-            {/* VA Bottom Tab Bar — always visible for VA users */}
+            {/* VA Bottom Tab Bar — mobile only; on desktop the sidebar is shown instead */}
             {isVA && (
                 <>
-                    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border">
+                    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border lg:hidden">
                         <div className="flex items-stretch justify-around h-16">
                             {/* Tab 1: Follow-Ups */}
                             {(() => {
