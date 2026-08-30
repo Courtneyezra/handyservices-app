@@ -887,4 +887,51 @@ adminAvailabilityRouter.delete('/blocked-dates/:id', async (req: Request, res: R
     }
 });
 
+// GET /api/admin/availability/capacity?dates=YYYY-MM-DD,YYYY-MM-DD[&contractorId=...]
+// Ops Workspace availability grid (C-WP3): per-date network capacity
+// mirroring the ops-manager agent's get_contractor_availability tool —
+// free = contractors resolved available (merge-priority chain) minus those
+// occupied by an accepted/in_progress booking span. When contractorId is
+// given, also that contractor's resolved day per date. Read-only; max 14 dates.
+adminAvailabilityRouter.get('/capacity', async (req: Request, res: Response) => {
+    try {
+        const raw = ((req.query.dates as string) || '')
+            .split(',').map(d => d.trim()).filter(Boolean);
+        if (raw.length === 0) {
+            return res.status(400).json({ error: 'dates required (comma-separated YYYY-MM-DD)' });
+        }
+        const invalid = raw.filter(d => !/^\d{4}-\d{2}-\d{2}$/.test(d));
+        if (invalid.length > 0) {
+            return res.status(400).json({ error: `invalid dates: ${invalid.join(', ')} (expected YYYY-MM-DD)` });
+        }
+        const dates = raw.slice(0, 14);
+
+        // Dynamic import matches this file's route-local import style
+        // (slot-times, quote-fit) — keeps the shared static import line intact.
+        const { getCapacityForDates, resolveContractorDay } = await import('./availability-capacity');
+        const capacity = await getCapacityForDates(dates);
+        const out: any = {
+            capacity: dates.map((d) => {
+                const c = capacity.get(d);
+                return c
+                    ? { date: d, masterBlocked: c.masterBlocked, available: c.availableContractorIds.length, booked: c.bookedContractorIds.length, free: c.capacity }
+                    : { date: d, masterBlocked: false, available: 0, booked: 0, free: 0 };
+            }),
+        };
+
+        const contractorId = typeof req.query.contractorId === 'string' ? req.query.contractorId.trim() : '';
+        if (contractorId) {
+            out.contractorDays = await Promise.all(dates.map(async (d) => {
+                const day = await resolveContractorDay(contractorId, d);
+                return { date: d, ...day };
+            }));
+        }
+
+        res.json(out);
+    } catch (error) {
+        console.error('[AdminAvailability] capacity error:', error);
+        res.status(500).json({ error: 'Failed to compute capacity' });
+    }
+});
+
 export default router;
