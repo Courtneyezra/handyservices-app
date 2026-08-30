@@ -16,6 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import type { OpsCommsEvent } from '@shared/ops-types';
 
 /** Mirror of the server's CommsEvent union (server/comms-events.ts). Extend only additively. */
 export type CommsEvent =
@@ -23,7 +24,10 @@ export type CommsEvent =
     | { type: 'draft_delta'; draftId: number | string; conversationId?: string; status: 'pending' | 'approved' | 'sent' | 'rejected' | 'blocked' | 'edited'; at: string }
     | { type: 'run_started'; runId: string; conversationId: string; at: string }
     | { type: 'run_event'; runId: string; conversationId: string; event: unknown; at: string }
-    | { type: 'run_finished'; runId: string; conversationId: string; ok: boolean; at: string };
+    | { type: 'run_finished'; runId: string; conversationId: string; ok: boolean; at: string }
+    // Ops Manager chat dock events (shared/ops-types.ts) — session-keyed, filtered
+    // by consumers; they deliberately do NOT participate in owner invalidation.
+    | OpsCommsEvent;
 
 type Subscriber = {
     id: symbol;
