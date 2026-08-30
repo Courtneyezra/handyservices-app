@@ -24,6 +24,7 @@ import {
 import { OpsMarkdown } from './OpsMarkdown';
 import { OpsRunSteps } from './OpsRunSteps';
 import { OpsWorkspace } from './OpsWorkspace';
+import { parseQuickReplies } from './quick-replies';
 
 const OPEN_KEY = 'ops-dock-open';
 const SESSION_KEY = 'ops-dock-session';
@@ -103,6 +104,18 @@ export default function OpsDock() {
         } catch (err) {
             setSendError(err instanceof Error ? err.message : 'send failed');
             setInput(text); // give the operator their words back
+        }
+    };
+
+    // Quick-reply chip tap — same send path/error handling as the composer.
+    // Chips only ever render inside an existing session, so no auto-create.
+    const handleQuickReply = async (option: string) => {
+        if (composerDisabled) return;
+        setSendError(null);
+        try {
+            await sendMessage(option);
+        } catch (err) {
+            setSendError(err instanceof Error ? err.message : 'send failed');
         }
     };
 
@@ -232,26 +245,53 @@ export default function OpsDock() {
                             {messages.length === 0 && !liveRun && (
                                 <p className="py-8 text-center text-sm text-slate-400">No messages yet — say hello.</p>
                             )}
-                            {messages.map((m) => (
-                                <div key={m.id} className={cn('flex flex-col', m.role === 'user' ? 'items-end' : 'items-start')}>
-                                    <div className={cn(
-                                        'max-w-[85%] rounded-lg px-3 py-2 text-sm',
-                                        m.role === 'user'
-                                            ? 'whitespace-pre-wrap bg-slate-900 text-white'
-                                            : 'bg-slate-100 text-slate-800',
-                                    )}
-                                    >
-                                        {m.role === 'assistant'
-                                            ? <OpsMarkdown content={m.content} />
-                                            : m.content}
-                                    </div>
-                                    {m.role === 'assistant' && m.transcript && m.transcript.length > 0 && (
-                                        <div className="mt-1 w-full max-w-[85%]">
-                                            <OpsRunSteps steps={m.transcript} collapsible />
+                            {messages.map((m, i) => {
+                                const quickReplies = m.role === 'assistant' ? parseQuickReplies(m.content) : null;
+                                // Chips only on the very latest assistant message,
+                                // and only while nothing is running — once the
+                                // operator replies or a run starts, older chips
+                                // never show.
+                                const showChips = !!quickReplies
+                                    && quickReplies.options.length > 0
+                                    && i === messages.length - 1
+                                    && !liveRun
+                                    && !activeRunId;
+                                return (
+                                    <div key={m.id} className={cn('flex flex-col', m.role === 'user' ? 'items-end' : 'items-start')}>
+                                        <div className={cn(
+                                            'max-w-[85%] rounded-lg px-3 py-2 text-sm',
+                                            m.role === 'user'
+                                                ? 'whitespace-pre-wrap bg-slate-900 text-white'
+                                                : 'bg-slate-100 text-slate-800',
+                                        )}
+                                        >
+                                            {quickReplies
+                                                ? <OpsMarkdown content={quickReplies.body} />
+                                                : m.content}
                                         </div>
-                                    )}
-                                </div>
-                            ))}
+                                        {showChips && (
+                                            <div className="mt-1.5 flex max-w-[85%] flex-wrap gap-1.5" data-testid="ops-quick-replies">
+                                                {quickReplies.options.map((option) => (
+                                                    <button
+                                                        key={option}
+                                                        type="button"
+                                                        onClick={() => void handleQuickReply(option)}
+                                                        disabled={composerDisabled}
+                                                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-100 disabled:opacity-40"
+                                                    >
+                                                        {option}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {m.role === 'assistant' && m.transcript && m.transcript.length > 0 && (
+                                            <div className="mt-1 w-full max-w-[85%]">
+                                                <OpsRunSteps steps={m.transcript} collapsible />
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                             {liveRun && (
                                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2.5">
                                     <OpsRunSteps steps={liveRun.steps} live finished={liveRun.finished} />
