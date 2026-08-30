@@ -4417,3 +4417,44 @@ export const slaAlerts = pgTable("sla_alerts", {
 
 export type SlaAlert = typeof slaAlerts.$inferSelect;
 export type InsertSlaAlert = typeof slaAlerts.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ops Manager sessions (Track B, B-WP2).
+//
+// A session is one persistent chat thread between an operator and the Ops
+// Manager agent; messages are its turns. Wire DTOs (dates as ISO strings) live
+// in shared/ops-types.ts — these rows are the storage shape behind them.
+//
+// Migration: additive-only via scripts/_ops-apply-tables.ts (CREATE TABLE IF
+// NOT EXISTS). NEVER db:push — the shared Neon DB carries legacy V5 tables
+// absent from this file, and push proposes dropping them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const opsSessions = pgTable("ops_sessions", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    title: varchar("title").notNull(),
+    createdBy: varchar("created_by").notNull(),               // authed user id/email from requireAdmin
+    status: varchar("status", { length: 16 }).default('active').notNull(), // 'active' | 'archived'
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const opsMessages = pgTable("ops_messages", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    sessionId: varchar("session_id").notNull().references(() => opsSessions.id),
+    role: varchar("role", { length: 16 }).notNull(),          // 'user' | 'assistant'
+    content: text("content").notNull(),
+    runId: varchar("run_id"),                                  // assistant rows produced by a run
+    transcript: jsonb("transcript"),                           // LeanRunStep[] (shared/ops-types.ts)
+    usage: jsonb("usage"),                                     // runner usage blob (AgentRunUsage)
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_ops_messages_session").on(table.sessionId),
+]);
+
+export const insertOpsSessionSchema = createInsertSchema(opsSessions);
+export const insertOpsMessageSchema = createInsertSchema(opsMessages);
+export type OpsSession = typeof opsSessions.$inferSelect;
+export type InsertOpsSession = z.infer<typeof insertOpsSessionSchema>;
+export type OpsMessage = typeof opsMessages.$inferSelect;
+export type InsertOpsMessage = z.infer<typeof insertOpsMessageSchema>;
