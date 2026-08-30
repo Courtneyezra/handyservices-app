@@ -1,6 +1,6 @@
 // Service worker for PWA installability + Web Push notifications
 
-const CACHE_NAME = 'switchboard-v4';
+const CACHE_NAME = 'switchboard-v5';
 const PRECACHE_URLS = ['/admin/live-call'];
 
 self.addEventListener('install', (event) => {
@@ -41,9 +41,11 @@ self.addEventListener('push', (event) => {
     // Keep the notification on screen until dismissed/clicked (Chrome desktop;
     // ignored on iOS and on Android where notifications persist anyway).
     requireInteraction: true,
-    // Tag by explicit tag or target url so notifications for distinct
-    // urls/events stack instead of replacing each other.
-    tag: data.tag || url,
+    // Unique tag per push so every notification stacks — same-tag replacement
+    // silently swallows alerts on macOS (verified live: two same-url tests
+    // collapsed and the second never alerted despite renotify). Call sites can
+    // pass an explicit data.tag when they WANT dedup/replacement.
+    tag: data.tag || `${url}#${Date.now()}`,
     renotify: true,
     data: { url },
   };
