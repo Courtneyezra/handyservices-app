@@ -4458,3 +4458,39 @@ export type OpsSession = typeof opsSessions.$inferSelect;
 export type InsertOpsSession = z.infer<typeof insertOpsSessionSchema>;
 export type OpsMessage = typeof opsMessages.$inferSelect;
 export type InsertOpsMessage = z.infer<typeof insertOpsMessageSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Assignment proposals (Track D).
+//
+// The ops manager PROPOSES a job assignment; nothing is assigned until a human
+// approves, at which point the approve path calls assignJobToContractor (the
+// same code the dispatch UI uses). Mirrors the message_drafts pattern: the
+// agent's only exit is a pending row a human decides on.
+//
+// Migration: additive-only via scripts/_apply-assignment-proposals.ts
+// (CREATE TABLE IF NOT EXISTS). NEVER db:push — see ops_sessions note above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const assignmentProposals = pgTable("assignment_proposals", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    jobId: varchar("job_id").notNull(),                        // contractor_booking_requests id
+    contractorId: varchar("contractor_id").notNull(),
+    scheduledDates: jsonb("scheduled_dates"),                  // string[] of YYYY-MM-DD, when the agent proposes dates
+    note: text("note").notNull(),                              // the agent's one-line rationale for the approver
+    status: varchar("status", { length: 16 }).default('pending').notNull(), // 'pending' | 'approved' | 'rejected' | 'failed'
+    createdBy: varchar("created_by").notNull(),                // 'ops_manager'
+    decidedBy: varchar("decided_by"),                          // authed user id/email
+    decidedAt: timestamp("decided_at"),
+    error: text("error"),                                      // approve-path assignJobToContractor failure detail
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_assignment_proposals_job").on(table.jobId),
+    // One live proposal per job — a second propose while one is pending is a bug/noise.
+    uniqueIndex("uq_assignment_proposals_pending")
+        .on(table.jobId)
+        .where(sql`status = 'pending'`),
+]);
+
+export type AssignmentProposal = typeof assignmentProposals.$inferSelect;
+export type InsertAssignmentProposal = typeof assignmentProposals.$inferInsert;

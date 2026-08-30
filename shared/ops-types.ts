@@ -91,7 +91,7 @@ export interface QueueDraftToolResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface DeskItem {
-  kind: 'reply' | 'draft' | 'call_task' | 'sla_breach';
+  kind: 'reply' | 'draft' | 'call_task' | 'sla_breach' | 'assignment';
   conversationId?: string;
   phone: string;
   contactName: string;
@@ -106,6 +106,8 @@ export interface DeskItem {
   draftId?: string;
   /** kind === 'call_task' */
   taskId?: string;
+  /** kind === 'assignment' — a pending assignment_proposals row awaiting approve/reject. */
+  proposalId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
