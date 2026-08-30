@@ -302,6 +302,17 @@ setInterval(async () => {
         // clearing price and feeds the tier dial on /admin/pricing-loop.
         const { escalateStaleDispatches } = await import('./dispatch-escalation');
         await escalateStaleDispatches();
+
+        // 5. Track A: retry balance invoices that failed to generate at job
+        // completion. Guarded dynamic call — safe even before the export ships.
+        try {
+            const mod = await import('./invoice-generator');
+            if (typeof (mod as any).retryPendingBalanceInvoices === 'function') {
+                await (mod as any).retryPendingBalanceInvoices();
+            }
+        } catch (err) {
+            console.error('[Invoice Cron] Balance invoice retry failed (non-fatal):', err);
+        }
     } catch (err) {
         console.error('[Invoice Cron] Error in invoice processing:', err);
     }
@@ -1883,6 +1894,16 @@ async function startServer() {
             startDispatchCron();
         } catch (e) {
             console.error('[V6 Switchboard] Dispatch cron failed to start:', e);
+        }
+
+        // Pipeline stage/SLA sweeper — recomputes lead stages, alerts on SLA
+        // breaches, stuck states and expired quotes. Alert-only; never messages
+        // customers or assigns contractors.
+        try {
+            const { startPipelineSweeper } = await import('./pipeline-sweeper');
+            startPipelineSweeper();
+        } catch (e) {
+            console.error('[V6 Switchboard] Pipeline sweeper failed to start:', e);
         }
 
         // Initialize Job Complexity Classifier (load keywords from database)
