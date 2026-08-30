@@ -11,7 +11,10 @@
  *      helper from message-drafts is deliberately never imported here; grep this file to prove it.
  *   2. Anything involving money amounts, discounts, or date commitments is Ben's alone. The
  *      queue_draft tool runs the full deterministic guard chain (checkDraft) BEFORE any write,
- *      and a violation comes back as a refusal steering the model to flag_for_ben.
+ *      and a violation comes back as a refusal steering the model to flag_for_ben. One carve-out
+ *      (Ben-approved 30 Aug 2026): generate_invoice on a COMPLETED job — amounts are computed
+ *      from the quote record by generateBalanceInvoice, never chosen by the model, and no
+ *      customer is messaged.
  *   3. Prefer delegation. run_comms_agent / run_quote_prep / run_recovery_sweep / run_sla_sweep
  *      exist so the manager coordinates specialists instead of freelancing their work.
  *
@@ -21,7 +24,7 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { db } from '../db';
-import { conversations, messages, leads, type LeadStage } from '@shared/schema';
+import { conversations, messages, leads, contractorBookingRequests, invoices, type LeadStage } from '@shared/schema';
 import { and, desc, eq, notInArray, or, isNull } from 'drizzle-orm';
 import type {
     LeanRunStep, QueueDraftToolResult, RunOpsManagerTurn,
@@ -39,6 +42,7 @@ import { queueDraft } from '../message-drafts';
 import { STAGE_SLA_HOURS, getSLAStatus } from '../lead-stage-engine';
 import { findBestContractors, checkNetworkAvailability } from '../availability-engine';
 import { getCapacityForDates, resolveContractorDay } from '../availability-capacity';
+import { generateInvoiceForJob } from '../pipeline/actions';
 
 // ---------------------------------------------------------------- constants
 
@@ -139,7 +143,7 @@ async function slaState() {
 
 // ---------------------------------------------------------------- tools
 
-function buildTools(): AgentTool[] {
+export function buildTools(): AgentTool[] {
     return [
         // ---------- reads ----------
         {
@@ -378,6 +382,73 @@ function buildTools(): AgentTool[] {
             },
         },
         {
+            name: 'generate_invoice',
+            description: 'Generate the balance invoice for a COMPLETED job (a contractor_booking_requests id). Every figure comes from the job\'s quote record — you never choose, adjust, or state amounts. Refused outright for jobs that are not completed; if the job already has a linked invoice it returns that instead of creating a duplicate. This creates an internal document only: it does NOT message the customer, and telling the customer about it still goes through the normal draft/flag rails.',
+            input_schema: {
+                type: 'object' as const,
+                properties: {
+                    jobId: { type: 'string', description: 'The contractor_booking_requests id of the completed job.' },
+                },
+                required: ['jobId'],
+            },
+            run: async (input: { jobId: string }) => {
+                const [job] = await db.select({
+                    id: contractorBookingRequests.id,
+                    status: contractorBookingRequests.status,
+                    dayOfStatus: contractorBookingRequests.dayOfStatus,
+                    invoiceId: contractorBookingRequests.invoiceId,
+                    customerName: contractorBookingRequests.customerName,
+                }).from(contractorBookingRequests)
+                    .where(eq(contractorBookingRequests.id, input.jobId))
+                    .limit(1);
+                if (!job) throw new Error(`Job ${input.jobId} not found`);
+
+                // Gate 1: completed jobs only — this is the whole deal Ben approved.
+                const completed = job.status === 'completed' || job.dayOfStatus === 'completed';
+                if (!completed) {
+                    return {
+                        generated: false,
+                        refusal: `Job ${job.id} (${job.customerName}) is not completed (status: ${job.status}${job.dayOfStatus ? `, day-of: ${job.dayOfStatus}` : ''}). Invoices are only generated for completed jobs. If Ben needs one anyway, flag_for_ben.`,
+                    };
+                }
+
+                // Gate 2: generateBalanceInvoice does not dedupe — surface the
+                // existing invoice rather than minting a second one.
+                if (job.invoiceId) {
+                    const [existing] = await db.select({
+                        id: invoices.id,
+                        invoiceNumber: invoices.invoiceNumber,
+                        balanceDue: invoices.balanceDue,
+                        status: invoices.status,
+                    }).from(invoices).where(eq(invoices.id, job.invoiceId)).limit(1);
+                    return {
+                        generated: false,
+                        alreadyInvoiced: true,
+                        invoiceId: job.invoiceId,
+                        invoiceNumber: existing?.invoiceNumber ?? null,
+                        balanceDuePence: existing?.balanceDue ?? null,
+                        invoiceStatus: existing?.status ?? null,
+                        note: 'This job already has an invoice — returning it instead of creating a duplicate.',
+                    };
+                }
+
+                const result = await generateInvoiceForJob(input.jobId);
+                if (!result) {
+                    return {
+                        generated: false,
+                        note: 'Nothing to invoice: the job has no linked quote, no deposit was paid, or the balance is already settled (see server logs for which).',
+                    };
+                }
+                return {
+                    generated: true,
+                    invoiceId: result.invoiceId,
+                    invoiceNumber: result.invoiceNumber,
+                    balanceDuePence: result.balanceDuePence,
+                    note: 'Balance invoice created from the quote record. The customer has NOT been notified — that needs a draft or Ben.',
+                };
+            },
+        },
+        {
             name: 'queue_draft',
             description: 'PROPOSE a customer message. This NEVER sends: it writes a pending draft that a human reviews and approves in the drafts queue. The full guard chain runs first — any money figure, discount, date commitment, liability admission or voice breach is refused outright, and the answer to those is flag_for_ben, not a reworded draft. Prefer run_comms_agent for replies on live threads; use this only for a message the specialists cannot produce.',
             input_schema: {
@@ -423,7 +494,7 @@ export const SYSTEM = `You are the Ops Manager for Handy Services, a Nottingham 
 
 THE RAILS — absolute, not preferences:
 1. YOU NEVER SEND A MESSAGE TO A CUSTOMER. You have no send tool. queue_draft is a PROPOSAL: it writes a pending draft that a human reviews and approves before anything leaves. Say so if asked to "send" something — you can propose it, a human releases it.
-2. MONEY, DISCOUNTS AND DATES ARE BEN'S ALONE. Anything involving a money amount, a discount or price change, or a commitment to a date or arrival time must NOT be drafted at all — not even as a pending proposal. Use flag_for_ben with a note instead. The guard chain will refuse such drafts anyway; do not retry reworded versions, escalate.
+2. MONEY, DISCOUNTS AND DATES ARE BEN'S ALONE. Anything involving a money amount, a discount or price change, or a commitment to a date or arrival time must NOT be drafted at all — not even as a pending proposal. Use flag_for_ben with a note instead. The guard chain will refuse such drafts anyway; do not retry reworded versions, escalate. ONE carve-out: generate_invoice for a COMPLETED job is allowed, because every figure is computed from the quote record — you never pick or alter an amount, and the customer is not messaged. Announcing or chasing that invoice with the customer still falls under rails 1 and 2.
 3. DELEGATE FIRST. Replies on live customer threads belong to run_comms_agent. Priceable threads go to run_quote_prep. Quiet quotes go to run_recovery_sweep. Pipeline hygiene goes to run_sla_sweep. Do a specialist's job yourself only when no specialist covers it, and say why.
 
 WORKING STYLE: gather only the context the question needs (the board snapshot is usually enough), act, then report what you did and what is now waiting on a human. Never invent data — every number you state must come from a tool result this turn or earlier in this session. UK English. Be brief.
@@ -444,6 +515,7 @@ export const STAFF = {
         freely: [
             'Read the board, pipeline, threads (text only), SLA state, availability and the agent roster',
             'Fire the specialist agents: comms on a thread, quote prep, the recovery sweep, the SLA sweep',
+            'Generate the balance invoice for a COMPLETED job — every figure comes from the quote record, never the model',
             'Flag threads for Ben with a note',
         ],
         approval: [
@@ -466,6 +538,7 @@ export const STAFF = {
         { name: 'run_quote_prep', blurb: 'Delegate a thread to the quote-prep clerk', kind: 'write' },
         { name: 'run_recovery_sweep', blurb: 'Delegate to recovery — proposes nudges, sends nothing', kind: 'write' },
         { name: 'run_sla_sweep', blurb: 'Run the pipeline sweeper — alerts, never messages', kind: 'write' },
+        { name: 'generate_invoice', blurb: 'Balance invoice for a completed job — figures from the quote record, duplicates refused', kind: 'gated' },
         { name: 'queue_draft', blurb: 'PROPOSAL ONLY: a pending draft a human approves; guard chain runs first', kind: 'gated' },
         { name: 'flag_for_ben', blurb: 'Escalation: money/discount/date decisions land on Ben\'s phone', kind: 'write' },
     ],
