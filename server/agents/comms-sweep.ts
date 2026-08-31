@@ -90,6 +90,7 @@ export async function releaseTriageTurn(conversationId: string, token: string): 
 
 async function sweepOnce(): Promise<void> {
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
+    const { shouldUseV2, runV2Pipeline } = await import('../pipeline/v2');
     const config = await getCommsAgentConfig();
     if (!config.enabled) return;
 
@@ -159,8 +160,13 @@ async function sweepOnce(): Promise<void> {
         ran++;
         console.log(`[CommsSweep] Unanswered inbound on ${c.id} — running the agent (durable trigger).`);
         try {
-            const outcome = await runCommsAgent(c.id, 'sla_sweep');
-            console.log(`[CommsSweep] ${c.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
+            if (shouldUseV2(c.id)) {
+                const outcome = await runV2Pipeline(c.id, 'sla_sweep');
+                console.log(`[CommsSweep:V2] ${c.id}: ${outcome.actions.map((a) => a.tool).join(' → ') || 'no actions'}`);
+            } else {
+                const outcome = await runCommsAgent(c.id, 'sla_sweep');
+                console.log(`[CommsSweep] ${c.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
+            }
         } catch (error: any) {
             console.error(`[CommsSweep] Run failed for ${c.id}:`, error?.message);
         }
@@ -176,6 +182,7 @@ async function sweepOnce(): Promise<void> {
  */
 async function tickDueTriage(): Promise<void> {
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
+    const { shouldUseV2, runV2Pipeline } = await import('../pipeline/v2');
     const config = await getCommsAgentConfig();
     if (!config.enabled || !config.onInbound) return;
 
@@ -210,8 +217,13 @@ async function tickDueTriage(): Promise<void> {
         }
         console.log(`[CommsSweep] On-inbound triage due for ${row.id} — running (lease ${lease}).`);
         try {
-            const outcome = await runCommsAgent(row.id, 'inbound_message');
-            console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
+            if (shouldUseV2(row.id)) {
+                const outcome = await runV2Pipeline(row.id, 'inbound_message');
+                console.log(`[CommsSweep:V2] ${row.id}: ${outcome.actions.map((a) => a.tool).join(' → ') || 'no actions'}`);
+            } else {
+                const outcome = await runCommsAgent(row.id, 'inbound_message');
+                console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
+            }
             // Success: release the lease, unless a newer inbound re-armed it mid-run.
             await db.execute(sql`
                 UPDATE conversations SET metadata = metadata - 'nextTriageAt'
