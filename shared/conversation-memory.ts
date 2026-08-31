@@ -265,6 +265,12 @@ export interface WorkerRun {
   changes: string[];     // Fields modified
   error: string | null;
   tokenUsage: { input: number; output: number } | null;
+  // Detailed trace (optional, for debugging/case studies)
+  trace?: {
+    prompt?: string;      // Full prompt sent to LLM
+    response?: string;    // Raw LLM response
+    reasoning?: string;   // Why this action was taken (reply worker)
+  };
 }
 
 export interface BenEdit {

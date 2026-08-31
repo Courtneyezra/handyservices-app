@@ -357,7 +357,7 @@ export async function runScopingWorker(input: ScopingWorkerInput): Promise<Scopi
     blockers,
   }, memory.version);
 
-  // Log the worker run
+  // Log the worker run with trace
   await appendWorkerRun(input.conversationId, {
     id: runId,
     worker: 'scoping',
@@ -369,6 +369,10 @@ export async function runScopingWorker(input: ScopingWorkerInput): Promise<Scopi
     changes: ['scope', 'readiness'],
     error: null,
     tokenUsage: { input: response.usage.inputTokens, output: response.usage.outputTokens },
+    trace: {
+      prompt: context.slice(0, 2000),  // Truncate for storage
+      response: response.content.slice(0, 2000),
+    },
   });
 
   return {

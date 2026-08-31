@@ -148,7 +148,7 @@ export async function runReplyWorker(input: ReplyWorkerInput): Promise<ReplyWork
     }, memory.version);
   }
 
-  // Log worker run
+  // Log worker run with trace for debugging
   const workerRun: WorkerRun = {
     id: runId,
     worker: 'reply',
@@ -160,6 +160,11 @@ export async function runReplyWorker(input: ReplyWorkerInput): Promise<ReplyWork
     changes: input.gapsToAsk?.length ? ['scope.gaps[].asked'] : [],
     error: null,
     tokenUsage: { input: response.usage.inputTokens, output: response.usage.outputTokens },
+    trace: {
+      prompt: context.slice(0, 2000),  // Truncate for storage
+      response: response.content.slice(0, 1000),
+      reasoning: parsed.reasoning,
+    },
   };
 
   await appendWorkerRun(input.conversationId, workerRun);
