@@ -4494,3 +4494,112 @@ export const assignmentProposals = pgTable("assignment_proposals", {
 
 export type AssignmentProposal = typeof assignmentProposals.$inferSelect;
 export type InsertAssignmentProposal = typeof assignmentProposals.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quote Research (WP1: Quote Builder v2 background research).
+//
+// Pre-computed research for quote building: parsed job lines from intake,
+// materials/time estimates/procedures per job, and a confidence score.
+// Triggered when a conversation reaches quote_ready status.
+//
+// Migration: additive-only via scripts/_apply-quote-research.ts
+// (CREATE TABLE IF NOT EXISTS). NEVER db:push — see ops_sessions note above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const quoteResearchStatusEnum = pgEnum('quote_research_status', [
+    'pending',
+    'running',
+    'completed',
+    'failed',
+]);
+
+export const quoteResearch = pgTable("quote_research", {
+    id: serial("id").primaryKey(),
+    conversationId: varchar("conversation_id").notNull().references(() => conversations.id),
+    status: quoteResearchStatusEnum("status").notNull().default('pending'),
+    /** Parsed job lines from intake (copied from quotePrepIntake.lines). */
+    jobs: jsonb("jobs"),
+    /** Research results: materials[], timeEstimates[], procedures[] per job. */
+    research: jsonb("research"),
+    /** Overall confidence score 0-1. */
+    confidence: doublePrecision("confidence"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+    error: text("error"),
+}, (table) => [
+    index("idx_quote_research_conversation").on(table.conversationId),
+    index("idx_quote_research_status").on(table.status),
+]);
+
+export type QuoteResearch = typeof quoteResearch.$inferSelect;
+export type InsertQuoteResearch = typeof quoteResearch.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversation Memory (Agent Framework V2, WS1).
+//
+// Shared memory object for specialist workers architecture. Workers read/write
+// to this memory, Ben reviews/edits, system learns from edits. The memory
+// holds all context for building a quote: messages, media, scope, research,
+// pricing, and draft state.
+//
+// Migration: additive-only via scripts/_apply-conversation-memory.ts
+// (CREATE TABLE IF NOT EXISTS). NEVER db:push — see ops_sessions note above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const memoryReadinessEnum = pgEnum('memory_readiness', [
+    'new',
+    'extracting_media',
+    'gathering',
+    'scoped',
+    'researching',
+    'researched',
+    'pricing',
+    'priced',
+    'drafting',
+    'ready_for_ben',
+    'sent',
+    'needs_human',
+]);
+
+export const conversationMemory = pgTable("conversation_memory", {
+    id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    conversationId: varchar("conversation_id").notNull().unique(),
+    version: integer("version").notNull().default(1),
+
+    // Raw inputs (synced from conversations/messages tables)
+    messages: jsonb("messages").notNull().default([]),
+    media: jsonb("media").notNull().default([]),
+    calls: jsonb("calls").notNull().default([]),
+
+    // Vision worker extractions
+    mediaExtractions: jsonb("media_extractions").notNull().default([]),
+
+    // Scoping worker output
+    scope: jsonb("scope"),
+
+    // Research worker output
+    research: jsonb("research"),
+
+    // Pricing worker output
+    pricing: jsonb("pricing"),
+
+    // Message draft
+    draft: jsonb("draft"),
+
+    // State machine
+    readiness: memoryReadinessEnum("readiness").notNull().default('new'),
+    blockers: jsonb("blockers").notNull().default([]),
+
+    // Audit trail
+    workerRuns: jsonb("worker_runs").notNull().default([]),
+    benEdits: jsonb("ben_edits").notNull().default([]),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_memory_conversation").on(table.conversationId),
+    index("idx_memory_readiness").on(table.readiness),
+]);
+
+export type ConversationMemoryRow = typeof conversationMemory.$inferSelect;
+export type InsertConversationMemory = typeof conversationMemory.$inferInsert;
