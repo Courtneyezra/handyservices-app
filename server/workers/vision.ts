@@ -389,7 +389,7 @@ export async function runVisionWorker(input: VisionWorkerInput): Promise<VisionW
 
   const { items, defects, textFound } = parseVisionOutput(parsed);
 
-  // Build the extraction result
+  // Build the extraction result (including audio summary for videos)
   const extraction: MediaExtraction = {
     mediaId: input.mediaId,
     model: 'gemini-2.5-flash',
@@ -399,6 +399,8 @@ export async function runVisionWorker(input: VisionWorkerInput): Promise<VisionW
     textFound,
     confidence: calculateConfidence(items),
     raw: response.content,
+    whatIsShown: parsed.whatIsShown,
+    whatIsMissing: parsed.whatIsMissing,
   };
 
   // Update conversation memory

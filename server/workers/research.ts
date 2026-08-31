@@ -176,10 +176,14 @@ function buildResearchContext(memory: ConversationMemory): string {
     }
   });
 
-  // Include photo extractions for material identification
+  // Include media extractions for material identification
   if (memory.mediaExtractions.length > 0) {
-    parts.push('\nFROM PHOTOS (use for material identification):');
+    parts.push('\nFROM MEDIA (use for material identification):');
     memory.mediaExtractions.forEach(ext => {
+      // Include audio/visual summary for videos
+      if (ext.whatIsShown) {
+        parts.push(`- Summary: ${ext.whatIsShown}`);
+      }
       ext.items.forEach(item => {
         const desc = [
           item.type,

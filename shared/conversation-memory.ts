@@ -108,6 +108,10 @@ export interface MediaExtraction {
   textFound: string[];  // OCR results
   confidence: number;   // 0-1
   raw: string;          // Original model output for debugging
+  /** Summary of what the media shows (visual + audio for videos) */
+  whatIsShown?: string;
+  /** Notes on what was requested but not visible in media */
+  whatIsMissing?: string;
 }
 
 export interface ExtractedItem {

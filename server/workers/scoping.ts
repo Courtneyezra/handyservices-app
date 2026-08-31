@@ -139,11 +139,18 @@ function buildScopingContext(memory: ConversationMemory): string {
     parts.push(`[${m.createdAt}] ${direction}: ${m.content}`);
   });
 
-  // Photo extractions from vision worker
+  // Photo/video extractions from vision worker
   if (memory.mediaExtractions.length > 0) {
-    parts.push('\nPHOTO ANALYSIS (from vision model):');
+    parts.push('\nMEDIA ANALYSIS (from vision model):');
     memory.mediaExtractions.forEach((ext, i) => {
-      parts.push(`\nPhoto ${i + 1}:`);
+      parts.push(`\nMedia ${i + 1}:`);
+      // What the media shows (includes audio transcription for videos)
+      if (ext.whatIsShown) {
+        parts.push(`Summary: ${ext.whatIsShown}`);
+      }
+      if (ext.whatIsMissing) {
+        parts.push(`Missing info: ${ext.whatIsMissing}`);
+      }
       parts.push(`Items: ${JSON.stringify(ext.items)}`);
       parts.push(`Defects: ${JSON.stringify(ext.defects)}`);
       if (ext.textFound.length) {

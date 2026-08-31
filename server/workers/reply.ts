@@ -203,10 +203,17 @@ function buildReplyContext(memory: ConversationMemory, input: ReplyWorkerInput):
     });
   }
 
-  // What we know from photos
+  // What we know from photos/videos
   if (memory.mediaExtractions.length > 0) {
-    parts.push('\nFROM PHOTOS:');
+    parts.push('\nFROM MEDIA:');
     memory.mediaExtractions.forEach(ext => {
+      // Include audio/visual summary (critical for videos with spoken requests)
+      if (ext.whatIsShown) {
+        parts.push(`- Summary: ${ext.whatIsShown}`);
+      }
+      if (ext.whatIsMissing) {
+        parts.push(`- Missing: ${ext.whatIsMissing}`);
+      }
       ext.items.forEach(item => {
         const desc = [
           item.type,
