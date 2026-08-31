@@ -52,8 +52,9 @@ export const openrouter = new Proxy({} as OpenAI, {
  * Each role maps to the best model for that task type.
  */
 export const MODELS = {
-  // Vision — best accuracy on photos
-  vision: 'google/gemini-flash-1.5',
+  // Vision — best accuracy on photos AND videos (native video support)
+  // Updated Aug 2026: gemini-flash-1.5 retired, now using 2.5-flash
+  vision: 'google/gemini-2.5-flash',
 
   // Conversation — natural, human-like tone
   conversation: 'openai/gpt-4o',
@@ -175,6 +176,51 @@ export async function callLLMWithImages(
       role: 'user',
       content: [
         ...imageContent,
+        { type: 'text' as const, text: userPrompt },
+      ],
+    },
+  ];
+
+  return callLLM(role, messages, {
+    jsonMode: options?.jsonMode,
+    maxTokens: options?.maxTokens,
+  });
+}
+
+/**
+ * Call an LLM with video input — for native video analysis.
+ *
+ * Gemini 2.5 Flash supports native video processing without keyframe extraction.
+ * The model analyzes motion, audio, and all frames internally for best accuracy.
+ *
+ * @param role - Model role (typically 'vision')
+ * @param systemPrompt - System prompt for the vision task
+ * @param video - Base64-encoded video with media type (video/mp4, video/webm, etc.)
+ * @param userPrompt - User prompt describing what to extract
+ * @param options - JSON mode, etc.
+ * @returns LLM response with extracted content
+ */
+export async function callLLMWithVideo(
+  role: ModelRole,
+  systemPrompt: string,
+  video: { base64: string; mediaType: string },
+  userPrompt: string,
+  options?: { jsonMode?: boolean; maxTokens?: number }
+): Promise<LLMResponse> {
+  // Gemini accepts video as image_url with video mime type
+  const videoContent: OpenAI.ChatCompletionContentPart = {
+    type: 'image_url' as const,
+    image_url: {
+      url: `data:${video.mediaType};base64,${video.base64}`,
+    },
+  };
+
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: [
+        videoContent,
         { type: 'text' as const, text: userPrompt },
       ],
     },

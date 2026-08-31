@@ -1,20 +1,24 @@
 /**
- * Vision Worker — Gemini-powered photo analysis for handyman quotes.
+ * Vision Worker — Gemini-powered photo AND video analysis for handyman quotes.
  *
  * Agent Framework V2, WS3: Vision Worker.
  *
- * Extracts structured information from customer photos:
+ * Extracts structured information from customer media:
  * - Items visible (type, material, condition, location)
  * - Defects identified (type, severity, description)
  * - Text found (brand names, model numbers, OCR)
  *
- * Uses Gemini Flash via OpenRouter for optimal vision quality at reasonable cost.
+ * Uses Gemini 2.5 Flash via OpenRouter for optimal vision quality.
+ * - Images: Resized and converted to JPEG
+ * - Videos: Native processing (no keyframe extraction needed)
+ *
  * Updates the ConversationMemory with extraction results for downstream workers.
  */
 
 import sharp from 'sharp';
 import path from 'path';
-import { callLLMWithImages, type LLMResponse } from '../llm/openrouter';
+import fs from 'fs/promises';
+import { callLLMWithImages, callLLMWithVideo, type LLMResponse } from '../llm/openrouter';
 import { getOrCreateMemory, updateMemory, appendWorkerRun } from '../memory';
 import { ensureLocalMedia } from '../media-store';
 import type { MediaExtraction, ExtractedItem, ExtractedDefect } from '../../shared/conversation-memory';
@@ -33,9 +37,9 @@ const JPEG_QUALITY = 80;
 // VISION PROMPT
 // ==========================================
 
-const VISION_SYSTEM_PROMPT = `You are a trade expert analyzing photos for a handyman quoting system.
+const VISION_SYSTEM_PROMPT = `You are a trade expert analyzing photos and videos for a handyman quoting system.
 
-Extract STRUCTURED information from the image. Be specific and accurate.
+Extract STRUCTURED information from the media. Be specific and accurate.
 
 OUTPUT FORMAT (JSON):
 {
@@ -57,16 +61,20 @@ OUTPUT FORMAT (JSON):
     }
   ],
   "textFound": ["any visible text, brand names, model numbers"],
-  "whatIsShown": "one sentence describing what's actually in the photo",
-  "whatIsMissing": "if customer asked about X but photo shows Y, note what's missing"
+  "whatIsShown": "one sentence describing what's actually in the media",
+  "whatIsMissing": "if customer asked about X but media shows Y, note what's missing"
 }
 
 CRITICAL RULES:
 1. Only describe what you ACTUALLY SEE, not what you assume
-2. If the photo doesn't show what was requested, say so in "whatIsMissing"
+2. If the media doesn't show what was requested, say so in "whatIsMissing"
 3. Brand names and model numbers are valuable — always extract them
 4. Note access issues (tight spaces, heights, obstructions)
-5. Confidence should be "low" if image is blurry or item is partially visible`;
+5. Confidence should be "low" if media is blurry or item is partially visible
+6. For VIDEOS: analyze the full video including motion (e.g. water flow, mechanical issues) and any audio where the customer explains the problem`;
+
+/** Max video file size in bytes (25MB) — OpenRouter/Gemini limit */
+const MAX_VIDEO_SIZE_BYTES = 25 * 1024 * 1024;
 
 // ==========================================
 // TYPES
@@ -90,15 +98,40 @@ export interface VisionWorkerOutput {
   };
 }
 
-/** Result from loading and encoding an image */
-interface ImageData {
+/** Result from loading and encoding media (image or video) */
+interface MediaData {
   base64: string;
   mediaType: string;
+  isVideo: boolean;
 }
 
 // ==========================================
 // IMAGE LOADING
 // ==========================================
+
+/**
+ * Resolve media path to local file path.
+ * Handles '/api/media/<file>' format and absolute paths.
+ */
+async function resolveMediaPath(mediaPath: string): Promise<string | null> {
+  if (mediaPath.startsWith('/api/media/')) {
+    const filename = path.basename(mediaPath);
+    const localPath = await ensureLocalMedia(filename);
+    if (!localPath) {
+      console.warn(`[VisionWorker] Could not load media: ${mediaPath}`);
+      return null;
+    }
+    return localPath;
+  }
+  return mediaPath;
+}
+
+/**
+ * Check if a media type is video.
+ */
+function isVideoMediaType(mediaType: string): boolean {
+  return mediaType.startsWith('video/');
+}
 
 /**
  * Load an image and convert to base64 for vision API.
@@ -112,22 +145,9 @@ interface ImageData {
  * @param mediaPath - Path to the image
  * @returns Base64 encoded image data, or null if loading failed
  */
-export async function loadImageAsBase64(mediaPath: string): Promise<ImageData | null> {
-  let filePath: string;
-
-  // Handle '/api/media/<file>' format
-  if (mediaPath.startsWith('/api/media/')) {
-    const filename = path.basename(mediaPath);
-    const localPath = await ensureLocalMedia(filename);
-    if (!localPath) {
-      console.warn(`[VisionWorker] Could not load media: ${mediaPath}`);
-      return null;
-    }
-    filePath = localPath;
-  } else {
-    // Assume absolute path
-    filePath = mediaPath;
-  }
+export async function loadImageAsBase64(mediaPath: string): Promise<MediaData | null> {
+  const filePath = await resolveMediaPath(mediaPath);
+  if (!filePath) return null;
 
   try {
     const buffer = await sharp(filePath)
@@ -139,11 +159,78 @@ export async function loadImageAsBase64(mediaPath: string): Promise<ImageData | 
     return {
       base64: buffer.toString('base64'),
       mediaType: 'image/jpeg',
+      isVideo: false,
     };
   } catch (error: any) {
     console.warn(`[VisionWorker] Failed to process image ${filePath}: ${error?.message}`);
     return null;
   }
+}
+
+/**
+ * Load a video file as base64 for native video analysis.
+ *
+ * Gemini 2.5 Flash processes video natively — no keyframe extraction needed.
+ * This provides better accuracy as the model sees motion, audio, and full context.
+ *
+ * @param mediaPath - Path to the video file
+ * @param mediaType - MIME type (video/mp4, video/webm, etc.)
+ * @returns Base64 encoded video data, or null if loading failed
+ */
+export async function loadVideoAsBase64(
+  mediaPath: string,
+  mediaType: string
+): Promise<MediaData | null> {
+  const filePath = await resolveMediaPath(mediaPath);
+  if (!filePath) return null;
+
+  try {
+    // Check file size
+    const stats = await fs.stat(filePath);
+    if (stats.size > MAX_VIDEO_SIZE_BYTES) {
+      console.warn(
+        `[VisionWorker] Video too large: ${(stats.size / 1024 / 1024).toFixed(1)}MB > ${MAX_VIDEO_SIZE_BYTES / 1024 / 1024}MB limit`
+      );
+      return null;
+    }
+
+    // Read raw video file
+    const buffer = await fs.readFile(filePath);
+
+    console.log(
+      `[VisionWorker] Loaded video: ${(stats.size / 1024 / 1024).toFixed(1)}MB, type=${mediaType}`
+    );
+
+    return {
+      base64: buffer.toString('base64'),
+      mediaType,
+      isVideo: true,
+    };
+  } catch (error: any) {
+    console.warn(`[VisionWorker] Failed to load video ${filePath}: ${error?.message}`);
+    return null;
+  }
+}
+
+/**
+ * Load media (image or video) as base64 for vision API.
+ *
+ * Automatically detects media type and uses appropriate loading strategy:
+ * - Images: Resized and converted to JPEG
+ * - Videos: Loaded raw for native Gemini processing
+ *
+ * @param mediaPath - Path to the media file
+ * @param mediaType - MIME type of the media
+ * @returns Base64 encoded media data, or null if loading failed
+ */
+export async function loadMediaAsBase64(
+  mediaPath: string,
+  mediaType: string
+): Promise<MediaData | null> {
+  if (isVideoMediaType(mediaType)) {
+    return loadVideoAsBase64(mediaPath, mediaType);
+  }
+  return loadImageAsBase64(mediaPath);
 }
 
 // ==========================================
@@ -220,14 +307,16 @@ function calculateConfidence(items: ExtractedItem[]): number {
 // ==========================================
 
 /**
- * Run the vision worker to extract structured data from an image.
+ * Run the vision worker to extract structured data from an image or video.
  *
  * This worker:
- * 1. Loads the image and converts to base64
- * 2. Sends to Gemini Flash via OpenRouter for analysis
+ * 1. Loads the media (image resized, video native)
+ * 2. Sends to Gemini 2.5 Flash via OpenRouter for analysis
  * 3. Parses the structured JSON output
  * 4. Updates ConversationMemory with the extraction
  * 5. Logs the worker run for audit trail
+ *
+ * For videos, Gemini processes natively (no keyframe extraction) for best accuracy.
  *
  * @param input - Vision worker input with media path and context
  * @returns Extraction results and worker run metadata
@@ -236,34 +325,47 @@ export async function runVisionWorker(input: VisionWorkerInput): Promise<VisionW
   const start = Date.now();
   const runId = crypto.randomUUID();
 
-  // Load and encode the image
-  const imageData = await loadImageAsBase64(input.mediaPath);
-  if (!imageData) {
-    throw new Error(`Failed to load image: ${input.mediaPath}`);
+  // Load and encode the media (handles both images and videos)
+  const mediaData = await loadMediaAsBase64(input.mediaPath, input.mediaType);
+  if (!mediaData) {
+    throw new Error(`Failed to load media: ${input.mediaPath}`);
   }
 
   // Build the user prompt with optional customer context
+  const mediaTypeLabel = mediaData.isVideo ? 'video' : 'photo';
   const userPrompt = input.customerContext
-    ? `Customer said: "${input.customerContext}"\n\nAnalyze this photo and extract structured information.`
-    : 'Analyze this photo and extract structured information for a handyman quote.';
+    ? `Customer said: "${input.customerContext}"\n\nAnalyze this ${mediaTypeLabel} and extract structured information.`
+    : `Analyze this ${mediaTypeLabel} and extract structured information for a handyman quote.`;
 
-  // Call the vision model
+  // Call the vision model (different function for video vs image)
   let response: LLMResponse;
   try {
-    response = await callLLMWithImages(
-      'vision',
-      VISION_SYSTEM_PROMPT,
-      [{ base64: imageData.base64, mediaType: imageData.mediaType }],
-      userPrompt,
-      { jsonMode: true }
-    );
+    if (mediaData.isVideo) {
+      // Native video processing — Gemini analyzes all frames + audio
+      response = await callLLMWithVideo(
+        'vision',
+        VISION_SYSTEM_PROMPT,
+        { base64: mediaData.base64, mediaType: mediaData.mediaType },
+        userPrompt,
+        { jsonMode: true }
+      );
+    } else {
+      // Image processing
+      response = await callLLMWithImages(
+        'vision',
+        VISION_SYSTEM_PROMPT,
+        [{ base64: mediaData.base64, mediaType: mediaData.mediaType }],
+        userPrompt,
+        { jsonMode: true }
+      );
+    }
   } catch (error: any) {
     // Log the failed run
     const memory = await getOrCreateMemory(input.conversationId);
     await appendWorkerRun(input.conversationId, {
       id: runId,
       worker: 'vision',
-      model: 'gemini-flash',
+      model: 'gemini-2.5-flash',
       trigger: 'media_received',
       startedAt: new Date(start).toISOString(),
       completedAt: new Date().toISOString(),
@@ -290,7 +392,7 @@ export async function runVisionWorker(input: VisionWorkerInput): Promise<VisionW
   // Build the extraction result
   const extraction: MediaExtraction = {
     mediaId: input.mediaId,
-    model: 'gemini-flash',
+    model: 'gemini-2.5-flash',
     extractedAt: new Date().toISOString(),
     items,
     defects,
