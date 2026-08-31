@@ -29,9 +29,35 @@ export function normalizePhoneNumber(phone: string | null | undefined): string |
         // UK national format (e.g., 020 1234 5678 or 07700 900123)
         // Remove leading 0 and add +44
         return '+44' + cleaned.substring(1);
-    } else if (cleaned.length >= 10 && cleaned.length <= 11) {
-        // Assume it's a UK number without country code (10-11 digits)
-        return '+44' + cleaned;
+    } else if (cleaned.length >= 10 && cleaned.length <= 13) {
+        // Check if this looks like an international number before assuming UK.
+        // Common non-UK country codes that could produce 10-11 digit strings:
+        //   84 = Vietnam (9-10 digit local → 11-12 total)
+        //   86 = China (11 digit local → 13 total, but could be trimmed)
+        //   91 = India (10 digit local → 12 total)
+        //   1  = US/Canada (10 digit local → 11 total)
+        // If the leading digits match a known country code AND the length fits,
+        // treat it as international rather than UK.
+        const intlPrefixes: Array<{ code: string; minLen: number; maxLen: number }> = [
+            { code: '84', minLen: 11, maxLen: 12 },   // Vietnam: +84 + 9-10 digits
+            { code: '1', minLen: 11, maxLen: 11 },    // US/Canada: +1 + 10 digits
+            { code: '91', minLen: 12, maxLen: 12 },   // India: +91 + 10 digits
+            { code: '86', minLen: 13, maxLen: 13 },   // China: +86 + 11 digits
+            { code: '61', minLen: 11, maxLen: 11 },   // Australia: +61 + 9 digits
+            { code: '49', minLen: 12, maxLen: 13 },   // Germany: +49 + 10-11 digits
+            { code: '33', minLen: 11, maxLen: 11 },   // France: +33 + 9 digits
+        ];
+        for (const { code, minLen, maxLen } of intlPrefixes) {
+            if (cleaned.startsWith(code) && cleaned.length >= minLen && cleaned.length <= maxLen) {
+                return '+' + cleaned;
+            }
+        }
+        // No international match — assume UK only for 10-11 digit numbers
+        if (cleaned.length <= 11) {
+            return '+44' + cleaned;
+        }
+        // Longer numbers without a recognized prefix: return with + prefix
+        return '+' + cleaned;
     }
 
     // If we can't normalize it, return the cleaned version
