@@ -21,6 +21,7 @@ import { ArrowLeft, FileText, ListTodo, Loader2, MessageSquare, Pencil, Phone } 
 import {
     QuotePrepPanel, type PrepThreadMedia, type QuoteIntake,
 } from '@/components/comms/QuotePrepPanel';
+import { QuoteBuilderPanel } from '@/components/quote-builder';
 import { LaneBadge, LANE_BLURB } from '@/components/portal/LaneBadge';
 import { GapList } from '@/components/portal/GapList';
 import { ThreadPreview } from '@/components/portal/ThreadPreview';
@@ -47,6 +48,8 @@ export default function PortalReviewPage() {
     // "dismissed" is the explicit discard from inside the panel.
     const [prepOpen, setPrepOpen] = useState(false);
     const [prepDismissed, setPrepDismissed] = useState(false);
+    // Quote-builder slide-over state (for quote_ready lane with speculative research).
+    const [builderOpen, setBuilderOpen] = useState(false);
     // Task-inbox slide-over: the same list /admin/portal shows, mounted here so Ben can
     // hop between tasks without leaving the review flow.
     const [tasksOpen, setTasksOpen] = useState(false);
@@ -220,7 +223,7 @@ export default function PortalReviewPage() {
                         <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">{LANE_BLURB[lane]}</p>
                     )}
 
-                    {intake.lines.length > 0 && (
+                    {(intake.lines?.length ?? 0) > 0 && (
                         <div>
                             <h2 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-400">Proposed quote lines</h2>
                             <ol className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5">
@@ -234,7 +237,7 @@ export default function PortalReviewPage() {
                         </div>
                     )}
 
-                    {intake.gaps.length > 0 && (
+                    {(intake.gaps?.length ?? 0) > 0 && (
                         <div>
                             <h2 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-400">Gaps &amp; proposed questions</h2>
                             <GapList
@@ -285,18 +288,42 @@ export default function PortalReviewPage() {
             {/* Thumb-reach action bar. Approve opens the prep panel right here — pricing runs
                 the builder's engine and the actual send stays behind Ben's click in the panel.
                 Disabled until the clerk has produced an intake (the empty-state card above
-                explains how to run it). */}
+                explains how to run it).
+
+                Lane-aware behavior:
+                - quote_ready: Opens QuoteBuilderPanel (research complete)
+                - quote_pending: Shows "Researching..." with spinner (research running)
+                - needs_info/visit_first/etc: Opens QuotePrepPanel (fallback manual pricing) */}
             {card && (
                 <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
                     <div className="mx-auto flex max-w-lg items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => { setPrepDismissed(false); setPrepOpen(true); }}
-                            disabled={!intake}
-                            className="flex h-12 flex-1 items-center justify-center rounded-xl bg-emerald-600 text-base font-bold text-white active:bg-emerald-700 disabled:opacity-40"
-                        >
-                            Approve &amp; build quote
-                        </button>
+                        {lane === 'quote_pending' ? (
+                            <button
+                                type="button"
+                                disabled
+                                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 text-base font-bold text-white opacity-80"
+                            >
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Researching...
+                            </button>
+                        ) : lane === 'quote_ready' ? (
+                            <button
+                                type="button"
+                                onClick={() => setBuilderOpen(true)}
+                                className="flex h-12 flex-1 items-center justify-center rounded-xl bg-emerald-600 text-base font-bold text-white active:bg-emerald-700"
+                            >
+                                Build Quote
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => { setPrepDismissed(false); setPrepOpen(true); }}
+                                disabled={!intake}
+                                className="flex h-12 flex-1 items-center justify-center rounded-xl bg-emerald-600 text-base font-bold text-white active:bg-emerald-700 disabled:opacity-40"
+                            >
+                                Approve &amp; build quote
+                            </button>
+                        )}
                         <Link
                             href={`/admin/portal/thread/${conversationId}`}
                             className="flex h-12 items-center justify-center gap-1 rounded-xl border border-slate-300 px-3 text-sm font-bold text-blue-700 active:bg-slate-100"
@@ -328,8 +355,9 @@ export default function PortalReviewPage() {
 
             {/* Quote-prep slide-over — the same panel the comms thread mounts, with full builder
                 parity. Keyed on preparedAt so a fresh clerk run remounts with the new intake
-                while ordinary refetches keep Ben's in-panel edits. */}
-            {prepIntake && card && (
+                while ordinary refetches keep Ben's in-panel edits. Used for needs_info/visit_first
+                lanes where Ben needs to manually price without speculative research. */}
+            {prepIntake && card && lane !== 'quote_ready' && lane !== 'quote_pending' && (
                 <QuotePrepPanel
                     key={intakeQuery.data?.preparedAt ?? 'prep'}
                     intake={prepIntake}
@@ -339,6 +367,17 @@ export default function PortalReviewPage() {
                     onOpenChange={setPrepOpen}
                     onDismiss={() => { setPrepDismissed(true); setPrepOpen(false); }}
                     onRefresh={refreshAfterPrep}
+                />
+            )}
+
+            {/* Quote-builder slide-over — used when lane is quote_ready (speculative research
+                complete). Shows the researched materials, time estimates, and procedures. */}
+            {lane === 'quote_ready' && card && (
+                <QuoteBuilderPanel
+                    conversationId={conversationId}
+                    open={builderOpen}
+                    onOpenChange={setBuilderOpen}
+                    onQuoteSent={refreshAfterPrep}
                 />
             )}
         </div>

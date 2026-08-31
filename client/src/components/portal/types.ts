@@ -9,7 +9,7 @@
  * (docs/AGENT_DECISION_FRAMEWORK.md — "output lanes, not scores").
  */
 
-export type Lane = 'quote_ready' | 'needs_info' | 'visit_first';
+export type Lane = 'quote_ready' | 'quote_pending' | 'needs_info' | 'visit_first';
 
 export interface PortalCard {
     id: string;

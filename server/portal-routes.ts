@@ -11,11 +11,13 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { conversations } from '@shared/schema';
+import { conversations, quoteResearch } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
 export const portalRouter = Router();
 
+// Lanes that can be manually set. quote_pending is NOT here because it's a transient state
+// (research running) that only the system sets — Ben can override FROM it but not TO it.
 const LANES = ['quote_ready', 'needs_info', 'visit_first'] as const;
 type Lane = (typeof LANES)[number];
 
@@ -28,6 +30,9 @@ type Lane = (typeof LANES)[number];
 // moved it, from what, to what, when, and why. Refuses when the clerk has never run — there is no
 // verdict to override, and synthesising a fake intake would feed downstream consumers a shape the
 // clerk never produced.
+//
+// quote_pending is a valid "from" state (research was running), but not a valid "to" — overriding
+// to quote_ready skips the research and goes straight to pricing.
 //
 // The clerk may lawfully re-run when new information arrives on the thread (maybeAutoQuotePrep)
 // and replace the readiness again; the override record survives so the history stays honest.
@@ -67,6 +72,22 @@ portalRouter.post('/conversations/:id/lane', async (req, res) => {
         await db.update(conversations)
             .set({ metadata: updatedMeta, updatedAt: new Date() })
             .where(eq(conversations.id, conv.id));
+
+        // ── QUOTE RESEARCH TRIGGER (WP1: Quote Builder v2) ──────────────────────────
+        // When manually overriding to quote_ready, also trigger the research job.
+        if (lane === 'quote_ready' && from !== 'quote_ready') {
+            try {
+                await db.insert(quoteResearch).values({
+                    conversationId: conv.id,
+                    status: 'pending',
+                    jobs: intake.lines ?? null,
+                });
+                console.log(`[Portal] Quote research triggered for ${conv.id} via lane override`);
+            } catch (err: any) {
+                // Non-blocking: research is an optimization, not a gate
+                console.warn('[Portal] Failed to queue quote research (ignored):', err?.message);
+            }
+        }
 
         res.json({ ok: true, lane, previous: from });
     } catch (error: any) {

@@ -107,6 +107,8 @@ import contractorHubRouter from './contractor-hub-routes';
 import contractorAppRouter from './contractor-app-routes';
 import diaryItemsRouter from './diary-items-routes';
 import materialsRouter from './materials-routes';
+import estimateRouter, { conversationsRouter } from './estimate-routes'; // Quote Estimator agent routes
+import { quoteResearchRouter } from './quote-research-routes'; // Quote Research API (WP1)
 import osRouter from './os-routes';
 import adminDashboardRouter from './admin-dashboard-routes';
 import { vaStatsRouter } from './va-stats';
@@ -433,6 +435,9 @@ app.use(extractCallDataRouter);
 app.use(quotesRouter);
 app.use(v2BookingsRouter);
 app.use(contextualPricingRouter);
+app.use('/api/pricing', requireAdmin, estimateRouter); // Quote Estimator agent
+app.use('/api/conversations', requireAdmin, conversationsRouter); // Conversation fetch for estimator UI
+app.use('/api/quote-research', requireAdmin, quoteResearchRouter); // Quote Research API (WP1)
 app.use(quoteExtrasCatalogRouter);
 app.use(skuCatalogRouter); // Phase 25: GET/POST /api/admin/sku-catalog/*
 app.use(prizeWheelRouter); // prize-wheel odds config (admin-editable)

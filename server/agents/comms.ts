@@ -56,7 +56,7 @@ import path from 'path';
 import { db } from '../db';
 import {
     conversations, messages, calls, quickReplies, appSettings, messageDrafts, agentQuestions,
-    personalizedQuotes, nudgeQueue,
+    personalizedQuotes, nudgeQueue, quoteResearch,
 } from '@shared/schema';
 import { isLikelyRealName, realNameOrNull } from '@shared/contact-name';
 import { eq, ne, desc, and, inArray, sql } from 'drizzle-orm';
@@ -83,6 +83,7 @@ import {
     detectLiabilityAdmission, detectDurationClaim, detectPolicyCommitment, type DraftViolation,
 } from './draft-guards';
 import { detectHoldingReply, assessRepeatHolding, recordOutboundCommitment } from './promise-tracker';
+import { processResearchJob } from '../quote-research';
 
 // ---------------------------------------------------------------- config
 
@@ -1376,8 +1377,10 @@ async function routeRefusalsToBen(opts: {
 
 /** The tag triage sets when it judges the thread has everything needed to price the job. */
 export const READY_TO_PRICE_TAG = 'needs_quote';
-/** Set once quote-prep agrees. This is the tag Ben's board filters on. */
+/** Set once quote-prep agrees AND research completes. This is the tag Ben's board filters on. */
 export const QUOTE_READY_TAG = 'quote_ready';
+/** Set when agent has enough info but background research is still running. */
+export const QUOTE_PENDING_TAG = 'quote_pending';
 /**
  * Set when quote-prep says it cannot be priced remotely at all. The customer-facing consequence is
  * a PAID survey visit (fee credited to the job — see surveyRequired/surveyFeePence on
@@ -1439,7 +1442,7 @@ export interface VerdictRouting {
  * send by itself, so putting it on his desk would be handing him a job he must not do.
  */
 export function routeIntakeVerdict(readiness: IntakeReadiness, currentTags: readonly string[]): VerdictRouting {
-    const keep = currentTags.filter((t) => ![READY_TO_PRICE_TAG, QUOTE_READY_TAG, VISIT_FIRST_TAG, DECLINE_PROPOSED_TAG, 'quote_gaps'].includes(t));
+    const keep = currentTags.filter((t) => ![READY_TO_PRICE_TAG, QUOTE_READY_TAG, QUOTE_PENDING_TAG, VISIT_FIRST_TAG, DECLINE_PROPOSED_TAG, 'quote_gaps'].includes(t));
     if (readiness === 'needs_info') {
         return { stage: null, tags: [...new Set([...keep, 'quote_gaps'])], notify: false };
     }
@@ -1447,6 +1450,11 @@ export function routeIntakeVerdict(readiness: IntakeReadiness, currentTags: read
         // A proposed polite no is a Ben decision, so it lands on his desk exactly like a
         // priceable intake — same stage, its own tag, and a buzz. Approval lives in the portal.
         return { stage: 'scoping', tags: [...new Set([...keep, NEEDS_BEN_TAG, DECLINE_PROPOSED_TAG])], notify: true };
+    }
+    if (readiness === 'quote_pending') {
+        // Agent thinks it has enough info — research is running in background. No notify yet;
+        // research completion will flip to quote_ready and notify then.
+        return { stage: 'scoping', tags: [...new Set([...keep, QUOTE_PENDING_TAG])], notify: false };
     }
     return {
         stage: 'scoping',
@@ -1651,6 +1659,30 @@ export async function maybeAutoQuotePrep(
     // The intake itself, so opening the thread opens the slide-over already filled in. Ephemeral by
     // design: it is a prefill, and the quote Ben saves from it is the record.
     await writeState({ lastReadiness: intake.readiness }, { quotePrepIntake: shadow ? { ...intake, shadow } : intake });
+
+    // ── QUOTE RESEARCH TRIGGER (WP1: Quote Builder v2) ──────────────────────────
+    // When the intake reaches quote_pending, queue a background research job. The
+    // research agent (WP2) will pick this up, populate materials/time/procedures,
+    // and flip intakeReadiness to quote_ready when complete.
+    if (intake.readiness === 'quote_pending') {
+        try {
+            const [job] = await db.insert(quoteResearch).values({
+                conversationId: conv.id,
+                status: 'pending',
+                jobs: intake.lines,
+            }).returning({ id: quoteResearch.id });
+            console.log(`[CommsAgent] Quote research queued for ${conv.id}, job ${job.id}`);
+
+            // Fire-and-forget: run research in background, transition to quote_ready when done
+            processResearchJob(job.id).catch((err) => {
+                console.error(`[CommsAgent] Background research job ${job.id} failed:`, err?.message);
+            });
+        } catch (err: any) {
+            // Non-blocking: research is an optimization, not a gate
+            console.warn('[CommsAgent] Failed to queue quote research (ignored):', err?.message);
+        }
+    }
+
     if (!route.notify) return handoff;
 
     try {

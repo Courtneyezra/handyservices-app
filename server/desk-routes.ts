@@ -81,6 +81,7 @@ function mergeItem(map: Map<string, DeskItem>, key: string, item: DeskItem): voi
     winner.conversationId = winner.conversationId ?? loser.conversationId;
     winner.draftId = winner.draftId ?? loser.draftId;
     winner.taskId = winner.taskId ?? loser.taskId;
+    winner.intakeReadiness = winner.intakeReadiness ?? loser.intakeReadiness;
     if (!winner.contactName && loser.contactName) winner.contactName = loser.contactName;
     if (!winner.preview && loser.preview) winner.preview = loser.preview;
     map.set(key, winner);
@@ -124,6 +125,7 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             waitingWorkingHours: card.wait?.waitingWorkingHours ?? 0,
             href: `/admin/comms?conversation=${card.id}`,
             badges,
+            intakeReadiness: card.intakeReadiness ?? null,
         });
     }
 

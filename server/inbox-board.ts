@@ -7,7 +7,7 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { conversations, messages, calls, messageDrafts, agentQuestions, nudgeQueue, personalizedQuotes } from '@shared/schema';
+import { conversations, messages, calls, messageDrafts, agentQuestions, nudgeQueue, personalizedQuotes, quoteResearch } from '@shared/schema';
 import { eq, desc, ne, and, asc, inArray, isNull, sql, gt } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
 import { callMessageId, classificationLine, readCallClassification } from './call-thread';
@@ -90,8 +90,9 @@ export type BoardCard = {
     bensDesk: boolean;
     /** True when the newest (non-quarantined, non-auto-ack) message in the thread is outbound. */
     lastMessageOutbound: boolean;
-    /** The quote-prep clerk's verdict, from conversations.metadata.quotePrepIntake. */
-    intakeReadiness: 'quote_ready' | 'needs_info' | 'visit_first' | null;
+    /** The quote-prep clerk's verdict, from conversations.metadata.quotePrepIntake.
+     *  'quote_pending' when readiness is quote_ready but research is still running. */
+    intakeReadiness: 'quote_pending' | 'quote_ready' | 'needs_info' | 'visit_first' | null;
     /** Open agent_questions rows for this conversation. */
     openQuestionCount: number;
     /** Options length on the newest open question — "answer in {n} taps". */
@@ -123,6 +124,8 @@ export type CardDerived = {
     quoteValueGBP: number | null;
     quoteViewCount: number | null;
     quoteSlug: string | null;
+    /** Research status: 'pending'|'running' means still researching (quote_pending). */
+    researchStatus: 'pending' | 'running' | 'completed' | 'failed' | null;
 };
 
 const EMPTY_DERIVED: CardDerived = {
@@ -131,6 +134,7 @@ const EMPTY_DERIVED: CardDerived = {
     heldDraftCount: 0,
     recontactDate: null,
     quoteValueGBP: null,
+    researchStatus: null,
     quoteViewCount: null,
     quoteSlug: null,
 };
@@ -229,6 +233,21 @@ export async function loadCardDerived(
         });
     }
 
+    // 5. Research status: show 'quote_pending' when research is pending/running.
+    //    Newest row per conversation wins (a retry creates a new row).
+    const researchByConv = new Map<string, 'pending' | 'running' | 'completed' | 'failed'>();
+    const researchRows = await db.select({
+        conversationId: quoteResearch.conversationId,
+        status: quoteResearch.status,
+    })
+        .from(quoteResearch)
+        .where(inArray(quoteResearch.conversationId, conversationIds))
+        .orderBy(desc(quoteResearch.createdAt));
+    for (const r of researchRows) {
+        if (researchByConv.has(r.conversationId)) continue; // newest first
+        researchByConv.set(r.conversationId, r.status);
+    }
+
     for (const r of rows) {
         const key = digits10(r.phoneNumber);
         const question = questionByConv.get(r.id);
@@ -241,6 +260,7 @@ export async function loadCardDerived(
             quoteValueGBP: quote?.valueGBP ?? null,
             quoteViewCount: quote?.viewCount ?? null,
             quoteSlug: quote?.slug ?? null,
+            researchStatus: researchByConv.get(r.id) ?? null,
         });
     }
     return map;
@@ -395,10 +415,17 @@ export function toCard(
         && d.openQuestionCount === 0;
 
     // The clerk's verdict, stored on metadata by maybeAutoQuotePrep (server/agents/comms.ts).
+    // quote_pending = agent has enough info, research running in background.
+    // quote_ready = research done, ready for Ben to price.
+    // The researchStatus fallback handles legacy data where quote_ready was set before quote_pending existed.
     const rawReadiness = (c.metadata as Record<string, any> | null)?.quotePrepIntake?.readiness;
-    const intakeReadiness: BoardCard['intakeReadiness'] =
-        rawReadiness === 'quote_ready' || rawReadiness === 'needs_info' || rawReadiness === 'visit_first'
+    let intakeReadiness: BoardCard['intakeReadiness'] =
+        rawReadiness === 'quote_ready' || rawReadiness === 'quote_pending' || rawReadiness === 'needs_info' || rawReadiness === 'visit_first'
             ? rawReadiness : null;
+    // Legacy fallback: if metadata says quote_ready but research is still pending/running, show pending
+    if (intakeReadiness === 'quote_ready' && (d.researchStatus === 'pending' || d.researchStatus === 'running')) {
+        intakeReadiness = 'quote_pending';
+    }
 
     return {
         id: c.id,

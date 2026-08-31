@@ -108,6 +108,10 @@ export interface DeskItem {
   taskId?: string;
   /** kind === 'assignment' — a pending assignment_proposals row awaiting approve/reject. */
   proposalId?: string;
+  /** Quote readiness from the conversation's intake state.
+   *  quote_pending = research is running (show "Researching..." spinner).
+   *  quote_ready = research complete (show "Build Quote" button). */
+  intakeReadiness?: 'quote_pending' | 'quote_ready' | 'needs_info' | 'visit_first' | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,3 +134,4 @@ export interface RunOpsManagerTurnResult {
 }
 
 export type RunOpsManagerTurn = (opts: RunOpsManagerTurnOptions) => Promise<RunOpsManagerTurnResult>;
+

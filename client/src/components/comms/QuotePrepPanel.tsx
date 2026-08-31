@@ -60,7 +60,7 @@ export interface IntakeLine {
     assumptions: string[];
 }
 
-export type IntakeReadiness = 'quote_ready' | 'needs_info' | 'visit_first';
+export type IntakeReadiness = 'quote_ready' | 'quote_pending' | 'needs_info' | 'visit_first';
 
 export interface IntakeGap {
     question: string;
@@ -228,6 +228,12 @@ const READINESS_UI: Record<IntakeReadiness, { label: string; blurb: string; chip
         blurb: 'Everything needed to price this is in the thread.',
         chip: 'bg-emerald-600 text-white',
         card: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    },
+    quote_pending: {
+        label: 'Researching...',
+        blurb: 'Background research in progress. Ready for pricing soon.',
+        chip: 'bg-blue-500 text-white',
+        card: 'border-blue-200 bg-blue-50 text-blue-900',
     },
     needs_info: {
         label: 'Needs info',

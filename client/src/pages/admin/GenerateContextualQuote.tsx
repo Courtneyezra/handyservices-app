@@ -44,6 +44,7 @@ import {
   X,
   Ruler,
   Video,
+  Search,
 } from 'lucide-react';
 import { format as formatDate, getDaysInMonth, getDay, startOfMonth } from 'date-fns';
 import { useRoute, useLocation } from 'wouter';
@@ -82,6 +83,9 @@ import { LineAssumptionsEditor } from '@/components/quote/LineAssumptionsEditor'
 import { SurveyGateCard } from '@/components/quote/SurveyGateCard';
 import { CrewSkinPicker } from '@/components/quote/CrewSkinPicker';
 import { ExtrasEditor } from '@/components/quote/ExtrasEditor';
+import { EstimatorStatus } from '@/components/quote/EstimatorStatus';
+import { startEstimate } from '@/lib/quote-estimator';
+import type { QuoteBuild, EstimatedMaterial, EstimatedLine } from '@shared/quote-build';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -179,6 +183,27 @@ interface LineItem {
    */
   priceOverridePence?: number;
   timeOverrideMinutes?: number;
+  // ── F-WP2 Estimator metadata ──────────────────────────────────────────────
+  /**
+   * Time confidence from the estimator agent (high/medium/low). When present,
+   * the UI shows a badge next to the time input.
+   */
+  _timeConfidence?: 'high' | 'medium' | 'low';
+  /** Human-readable note about the time estimate basis. */
+  _timeNote?: string;
+  /** Unresolved item note from the estimator — show a red banner if present. */
+  _unresolved?: string;
+}
+
+/**
+ * Extended QuoteMaterial with estimator metadata flags. The picker displays
+ * amber border + "Verify price" badge when _needsReview is true.
+ */
+interface EstimatorMaterial extends QuoteMaterial {
+  /** True for web/model-sourced materials (unverified price — needs human review). */
+  _needsReview?: boolean;
+  /** Human-readable provenance, e.g. "Found on Toolstation", "Model estimate". */
+  _sourceNote?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1548,6 +1573,12 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     { id: generateId(), description: '', category: 'general_fixing' as JobCategory, estimatedMinutes: 30, materialsCostPounds: 0, source: 'custom' },
   ]);
 
+  // ── F-WP2 Estimator agent state ──
+  const [estimatorRunning, setEstimatorRunning] = useState(false);
+  const [estimateId, setEstimateId] = useState<string | null>(null);
+  /** Quote-level unresolved items from the estimator (shown as a banner at form top). */
+  const [estimatorUnresolvedItems, setEstimatorUnresolvedItems] = useState<string[]>([]);
+
   // Prefill from the comms quote-prep agent ("Prep quote" button on a thread). The agent
   // hands over lines already split for the quote, so the mapping is direct and nothing is
   // guessed here: title → description, detail → details, assumptions → the line's own
@@ -1612,6 +1643,61 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
           : 'The quote-prep agent read the thread and its photos. Its open questions are on line 1\'s details, check them before you send.',
       });
     } catch { /* malformed payload — start blank */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // F-WP2: Load intake from ?conv=<conversationId> URL param (for testing estimator)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const convId = params.get('conv');
+    if (!convId) return;
+
+    // Fetch the conversation's quotePrepIntake from the server
+    (async () => {
+      try {
+        const res = await fetch(`/api/conversations/${encodeURIComponent(convId)}`);
+        if (!res.ok) {
+          toast({ title: 'Failed to load conversation', variant: 'destructive' });
+          return;
+        }
+        const data = await res.json();
+        const intake = data.metadata?.quotePrepIntake;
+        if (!intake) {
+          toast({ title: 'No quote intake found', description: 'Run quote-prep first', variant: 'destructive' });
+          return;
+        }
+
+        // Hydrate form with intake data (same logic as sessionStorage)
+        if (intake.customerName) setCustomerName(intake.customerName);
+        if (intake.phone) setPhone(intake.phone);
+        if (intake.postcode) setPostcode(intake.postcode);
+        if (CUSTOMER_TYPES.some((t) => t.value === intake.customerType)) setCustomerType(intake.customerType);
+
+        const agentLines: { title?: string; detail?: string; assumptions?: string[] }[] =
+          Array.isArray(intake.lines) ? intake.lines : [];
+
+        if (agentLines.length) {
+          setLineItems(agentLines.map((line) => ({
+            id: generateId(),
+            description: (line.title || '').trim().slice(0, 120),
+            category: 'general_fixing' as JobCategory,
+            estimatedMinutes: 30,
+            materialsCostPounds: 0,
+            source: 'custom' as const,
+            ...(line.detail ? { details: line.detail } : {}),
+            ...(line.assumptions?.length ? { assumptions: line.assumptions } : {}),
+          })));
+        }
+
+        if (intake.readiness === 'visit_first') setSurveyRequired(true);
+
+        toast({
+          title: `Loaded from conversation`,
+          description: `${agentLines.length} lines ready. Click "Research Job" to run the estimator.`,
+        });
+      } catch (err) {
+        toast({ title: 'Failed to load conversation', variant: 'destructive' });
+      }
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pricing signals ──
@@ -2476,6 +2562,112 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     } else {
       setJobDescription('');
       setLineItems([]);
+    }
+  };
+
+  // ── F-WP2 Estimator hydration ───────────────────────────────────────────────
+  /**
+   * Hydrate the builder from an estimator agent QuoteBuild. Maps the agent's
+   * researched materials, time, procedure, and assumptions into LineItem[].
+   */
+  const hydrateFromEstimatorBuild = (build: QuoteBuild) => {
+    // Customer (if present)
+    if (build.customer) {
+      setCustomerName(build.customer.name);
+      setPhone(normalizePhoneInput(build.customer.phone));
+      setPostcode(build.customer.postcode);
+    }
+
+    // Quote-level unresolved items
+    if (build.unresolvedItems && build.unresolvedItems.length > 0) {
+      setEstimatorUnresolvedItems(build.unresolvedItems);
+    } else {
+      setEstimatorUnresolvedItems([]);
+    }
+
+    // Convert EstimatedLine[] to LineItem[]
+    const hydrated: LineItem[] = build.lines.map((line: EstimatedLine) => {
+      // Map EstimatedMaterial[] to QuoteMaterial[] with extension fields
+      const materials: EstimatorMaterial[] = line.materials.map((mat: EstimatedMaterial) => ({
+        catalogId: mat.catalogId,
+        name: mat.name,
+        qty: mat.qty,
+        unitPricePence: mat.unitPricePence,
+        unitPriceIncVatPence: mat.unitPriceIncVatPence,
+        imageUrl: mat.imageUrl,
+        supplier: mat.supplier === 'catalog' ? undefined : mat.supplier as any,
+        supplierItemNumber: mat.supplierItemNumber,
+        supplierUrl: mat.supplierUrl,
+        // Estimator extension fields
+        _needsReview: mat.needsReview,
+        _sourceNote: mat.sourceNote,
+      }));
+
+      // Compute materials cost from the picked items
+      const matCostPence = materialsCostPence(materials);
+
+      return {
+        id: generateId(),
+        description: line.description,
+        category: line.category as JobCategory,
+        estimatedMinutes: line.time.minutes,
+        materialsCostPounds: matCostPence / 100,
+        materials: materials as QuoteMaterial[],
+        scopeSteps: line.procedure,
+        assumptions: line.assumptions,
+        source: 'custom' as const,
+        // Estimator metadata
+        _timeConfidence: line.time.confidence,
+        _timeNote: line.time.note,
+        _unresolved: line.unresolved,
+      };
+    });
+
+    setLineItems(hydrated);
+
+    // Open materials picker for lines that have materials
+    const idsWithMaterials = new Set(
+      hydrated.filter((li) => li.materials && li.materials.length > 0).map((li) => li.id)
+    );
+    setMaterialsOpenIds(idsWithMaterials);
+
+    toast({
+      title: 'Job researched!',
+      description: `${hydrated.length} line${hydrated.length === 1 ? '' : 's'} hydrated with materials and time estimates.`,
+    });
+  };
+
+  /**
+   * Start the estimator agent for the current line items.
+   */
+  const handleStartEstimator = async () => {
+    // Validate: need at least one line with a description
+    const linesWithContent = lineItems.filter((li) => li.description.trim().length > 0);
+    if (linesWithContent.length === 0) {
+      toast({
+        title: 'No line items',
+        description: 'Add at least one line item with a description.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setEstimatorRunning(true);
+      const response = await startEstimate({
+        lines: linesWithContent.map((li) => ({
+          description: li.description,
+          category: li.category,
+        })),
+      });
+      setEstimateId(response.estimateId);
+    } catch (err) {
+      toast({
+        title: 'Failed to start estimate',
+        description: err instanceof Error ? err.message : 'Try again.',
+        variant: 'destructive',
+      });
+      setEstimatorRunning(false);
     }
   };
 
@@ -3891,7 +4083,34 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            {/* F-WP2 time confidence badge */}
+                            {item._timeConfidence && (
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] px-1.5 py-0 ${
+                                  item._timeConfidence === 'high'
+                                    ? 'border-green-500/50 bg-green-50 text-green-700'
+                                    : item._timeConfidence === 'medium'
+                                      ? 'border-amber-500/50 bg-amber-50 text-amber-700'
+                                      : 'border-red-500/50 bg-red-50 text-red-700'
+                                }`}
+                                title={item._timeNote || `Time estimate: ${item._timeConfidence} confidence`}
+                              >
+                                {item._timeConfidence === 'high' ? 'Time verified' : item._timeConfidence === 'medium' ? 'Time est.' : 'Time rough'}
+                              </Badge>
+                            )}
                           </div>
+
+                          {/* F-WP2 unresolved item banner */}
+                          {item._unresolved && (
+                            <div className="flex items-start gap-2 rounded-lg border-2 border-red-400 bg-red-50 px-3 py-2">
+                              <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-xs font-semibold text-red-700">Unresolved</p>
+                                <p className="text-xs text-red-600">{item._unresolved}</p>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Phase 25d — line body. A picked SKU shows the
                               deterministic SKU slab; anything else shows the
@@ -4188,7 +4407,37 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                                 items, tune qty. Drives materialsCostPounds via
                                 handleUpdateLineMaterials so cost stays = Σ ex-VAT × qty. */}
                             {materialsOpen && (
-                              <div className="w-full mt-1">
+                              <div className="w-full mt-1 space-y-2">
+                                {/* F-WP2 materials needing review banner */}
+                                {(() => {
+                                  const needsReviewMats = (item.materials ?? []).filter(
+                                    (m: any) => m._needsReview
+                                  );
+                                  if (needsReviewMats.length === 0) return null;
+                                  return (
+                                    <div className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2">
+                                      <div className="flex items-start gap-2">
+                                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-semibold text-amber-700">
+                                            {needsReviewMats.length} material{needsReviewMats.length === 1 ? '' : 's'} need price verification
+                                          </p>
+                                          <ul className="mt-1 space-y-0.5">
+                                            {needsReviewMats.map((m: any, i: number) => (
+                                              <li key={i} className="text-xs text-amber-600 flex items-center gap-1.5">
+                                                <span className="w-1 h-1 rounded-full bg-amber-500 shrink-0" />
+                                                <span className="truncate">{m.name}</span>
+                                                {m._sourceNote && (
+                                                  <span className="text-amber-500/70">({m._sourceNote})</span>
+                                                )}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                                 <MaterialsPicker
                                   materials={item.materials ?? []}
                                   onChange={(m) => handleUpdateLineMaterials(item.id, m)}
@@ -4621,9 +4870,62 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
 
             </>)}
 
+            {/* ─── F-WP2 Estimator unresolved banner ─── */}
+            {estimatorUnresolvedItems.length > 0 && (
+              <div className="rounded-lg border-2 border-red-400 bg-red-50 p-4 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-700">
+                      Unresolved items from estimator
+                    </p>
+                    <p className="text-xs text-red-600 mt-1">
+                      The estimator could not resolve these items. Review and source manually.
+                    </p>
+                  </div>
+                </div>
+                <ul className="list-disc list-inside space-y-1 ml-7">
+                  {estimatorUnresolvedItems.map((item, i) => (
+                    <li key={i} className="text-sm text-red-700">{item}</li>
+                  ))}
+                </ul>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-red-600 hover:text-red-700 hover:bg-red-100 -ml-1"
+                  onClick={() => setEstimatorUnresolvedItems([])}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            )}
+
             {/* ─── Section 6: Preview + Generate (brand CTAs — preview outline-navy, generate navy-primary) ─── */}
             {/* Stack full-width on mobile (the two labels can't fit one row < 380px); side-by-side on sm+. */}
             <div className="flex flex-col sm:flex-row gap-3">
+              {/* F-WP2: Research Job button — runs the estimator agent */}
+              {!visitLinkOnly && !editQuoteId && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full sm:flex-1 h-12 text-base font-semibold border-amber-500/50 text-amber-700 hover:bg-amber-50 hover:border-amber-500"
+                  onClick={handleStartEstimator}
+                  disabled={lineItems.filter(li => li.description.trim()).length === 0 || estimatorRunning}
+                  title="Research materials, time, and procedure for all lines"
+                >
+                  {estimatorRunning ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Researching...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-5 h-5 mr-2" />
+                      Research Job
+                    </>
+                  )}
+                </Button>
+              )}
               {!visitLinkOnly && (
                 <Button
                   size="lg"
@@ -5146,6 +5448,27 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* F-WP2 — Estimator Status Modal */}
+      {estimatorRunning && estimateId && (
+        <EstimatorStatus
+          estimateId={estimateId}
+          onComplete={(build) => {
+            hydrateFromEstimatorBuild(build);
+            setEstimatorRunning(false);
+            setEstimateId(null);
+          }}
+          onCancel={() => {
+            setEstimatorRunning(false);
+            setEstimateId(null);
+          }}
+          onError={(error) => {
+            toast({ title: 'Estimator failed', description: error, variant: 'destructive' });
+            setEstimatorRunning(false);
+            setEstimateId(null);
+          }}
+        />
+      )}
 
       {/* Phase 15 — Draft Preview Dialog (renders from live pricing — no DB write) */}
       <Dialog open={draftPreviewOpen} onOpenChange={setDraftPreviewOpen}>

@@ -13,11 +13,12 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
-    AlertTriangle, CheckCircle2, Clock, Inbox, MessageSquare,
+    AlertTriangle, Calculator, CheckCircle2, Clock, FileText, Inbox, Loader2, MessageSquare,
     PhoneCall, ShieldAlert, UserCheck,
 } from 'lucide-react';
 import type { DeskItem } from '@shared/ops-types';
 import { DraftApprovalCard } from '@/components/ops/DraftApprovalCard';
+import { QuoteBuilderPanel } from '@/components/quote-builder';
 import { useCommsEvents } from '@/hooks/useCommsEvents';
 import { cn } from '@/lib/utils';
 
@@ -122,9 +123,10 @@ function WaitPill({ hours }: { hours: number }) {
     );
 }
 
-function DeskRow({ item }: { item: DeskItem }) {
+function DeskRow({ item, onBuildQuote }: { item: DeskItem; onBuildQuote: (conversationId: string) => void }) {
     const meta = KIND_META[item.kind];
     const Icon = meta.icon;
+
     const body = (
         <>
             <div className="flex items-start justify-between gap-3">
@@ -142,7 +144,24 @@ function DeskRow({ item }: { item: DeskItem }) {
                         )}
                     </div>
                 </div>
-                <WaitPill hours={item.waitingWorkingHours} />
+                <div className="flex items-center gap-2 shrink-0">
+                    {item.intakeReadiness === 'quote_pending' && (
+                        <span className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-bold uppercase text-amber-600">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Researching...
+                        </span>
+                    )}
+                    {item.intakeReadiness === 'quote_ready' && item.conversationId && (
+                        <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onBuildQuote(item.conversationId!); }}
+                            className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-emerald-500"
+                        >
+                            <Calculator className="h-3 w-3" />
+                            Build Quote
+                        </button>
+                    )}
+                    <WaitPill hours={item.waitingWorkingHours} />
+                </div>
             </div>
             {item.badges.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -178,6 +197,7 @@ function DeskRow({ item }: { item: DeskItem }) {
             </li>
         );
     }
+
     return (
         <li>
             <Link href={item.href} className="block rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/50 hover:bg-muted/40">
@@ -191,6 +211,7 @@ function DeskRow({ item }: { item: DeskItem }) {
 
 export default function DeskPage() {
     const queryClient = useQueryClient();
+    const [builderConvId, setBuilderConvId] = useState<string | null>(null);
 
     const { data: items, isLoading, error } = useQuery<DeskItem[]>({
         queryKey: ['desk'],
@@ -244,10 +265,20 @@ export default function DeskPage() {
             ) : (
                 <ul className="space-y-2">
                     {items.map((item) => (
-                        <DeskRow key={`${item.kind}:${item.conversationId ?? item.draftId ?? item.taskId ?? item.proposalId ?? item.phone}`} item={item} />
+                        <DeskRow
+                            key={`${item.kind}:${item.conversationId ?? item.draftId ?? item.taskId ?? item.proposalId ?? item.phone}`}
+                            item={item}
+                            onBuildQuote={setBuilderConvId}
+                        />
                     ))}
                 </ul>
             )}
+
+            <QuoteBuilderPanel
+                conversationId={builderConvId ?? ''}
+                open={!!builderConvId}
+                onOpenChange={(open) => !open && setBuilderConvId(null)}
+            />
         </div>
     );
 }

@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
  */
 const LANE_UI: Record<string, { label: string; chip: string }> = {
     quote_ready: { label: 'Quote ready', chip: 'bg-emerald-600 text-white' },
+    quote_pending: { label: 'Researching...', chip: 'bg-blue-500 text-white' },
     needs_info: { label: 'Needs info', chip: 'bg-amber-500 text-white' },
     visit_first: { label: 'Visit first', chip: 'bg-slate-700 text-white' },
 };
@@ -15,6 +16,7 @@ const LANE_UI: Record<string, { label: string; chip: string }> = {
 /** One-line explanation of what a lane means; empty for unknown lanes. */
 export const LANE_BLURB: Record<string, string> = {
     quote_ready: 'Everything needed to price this is in the thread.',
+    quote_pending: 'Background research in progress. Ready for pricing soon.',
     needs_info: 'These answers change the price or the scope. Ask before you send.',
     visit_first: 'This one cannot be priced honestly from the thread. Book a visit, not a guess.',
 };

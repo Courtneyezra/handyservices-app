@@ -21,13 +21,14 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText, User, Hourglass,
-    ShieldCheck, Ban, EyeOff, ClipboardList, Trash2, HardHat, RefreshCw,
+    ShieldCheck, Ban, EyeOff, ClipboardList, Trash2, HardHat, RefreshCw, Calculator,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
 import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
+import { QuoteBuilderPanel } from '@/components/quote-builder';
 import { useCommsEvents, useRecentBoardChange } from '@/hooks/useCommsEvents';
 
 function getAuthHeaders(): Record<string, string> {
@@ -68,7 +69,7 @@ interface BoardCard {
     whoseMove: 'ben' | 'agent' | 'customer';
     bensDesk: boolean;
     lastMessageOutbound: boolean;
-    intakeReadiness: 'quote_ready' | 'needs_info' | 'visit_first' | null;
+    intakeReadiness: 'quote_pending' | 'quote_ready' | 'needs_info' | 'visit_first' | null;
     openQuestionCount: number;
     openQuestionOptions: number;
     heldDraftCount: number;
@@ -535,7 +536,13 @@ function CardBadges({ card }: { card: BoardCard }) {
     // Intake badges are a TO-DO ("this thread is priceable — go build the quote"). Once a
     // quote exists the to-do is done, so past quote_sent they're stale noise and hidden.
     const quoteOut = ['quote_sent', 'won', 'closed'].includes(card.stage) || (card.quoteViewCount ?? 0) > 0;
-    if (card.intakeReadiness === 'quote_ready' && !quoteOut) {
+    if (card.intakeReadiness === 'quote_pending' && !quoteOut) {
+        pills.push(
+            <span key="intake" className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Researching...
+            </span>
+        );
+    } else if (card.intakeReadiness === 'quote_ready' && !quoteOut) {
         pills.push(
             <span key="intake" className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">
                 <ClipboardList className="h-2.5 w-2.5" /> Intake ready to price
@@ -1110,6 +1117,8 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const [channel, setChannel] = useState<'whatsapp' | 'sms'>(() => defaultChannel(card));
     const [error, setError] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
+    // Quote builder panel state
+    const [builderOpen, setBuilderOpen] = useState(false);
 
     const { data, isLoading } = useQuery<{
         messages: ThreadMessage[]; timeline?: TimelineItem[]; totalMessages: number; totalCalls?: number;
@@ -1217,7 +1226,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     // switches, so per-thread panel state has to follow the card or it leaks between customers.
     useEffect(() => {
         setIntake(null); setPrepOpen(false); setShowTemplates(false);
-        setChannel(defaultChannel(card));
+        setChannel(defaultChannel(card)); setBuilderOpen(false);
     }, [card.id]);
 
     // The comms agent runs the conversation on its own now, and when it decides a thread is
@@ -1397,6 +1406,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const sending = sendFreeform.isPending || sendQuick.isPending || sendingVoice;
 
     return (
+        <>
         <aside className="flex w-[440px] shrink-0 flex-col border-l border-slate-200 bg-white">
             <header className="flex items-start justify-between border-b border-slate-200 px-4 py-3">
                 <div className="min-w-0">
@@ -1407,15 +1417,25 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => prepQuote.mutate()}
-                        disabled={prepQuote.isPending}
-                        title="Quote-prep agent reads this whole thread (photos included) and prefills the quote builder"
-                        className="flex items-center gap-1 rounded bg-slate-900 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-slate-700 disabled:opacity-60"
-                    >
-                        {prepQuote.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
-                        {prepQuote.isPending ? 'Reading thread…' : 'Prep quote'}
-                    </button>
+                    {card.intakeReadiness === 'quote_pending' && (
+                        <span
+                            title="Research is running in the background"
+                            className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-bold uppercase text-amber-600"
+                        >
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Researching...
+                        </span>
+                    )}
+                    {card.intakeReadiness === 'quote_ready' && (
+                        <button
+                            onClick={() => setBuilderOpen(true)}
+                            title="Open the quote builder to price and send"
+                            className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-emerald-500"
+                        >
+                            <Calculator className="h-3 w-3" />
+                            Build Quote
+                        </button>
+                    )}
                     {card.windowOpen ? (
                         <span className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white">
                             {card.windowHoursLeft}h window
@@ -1763,6 +1783,14 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 </div>
             </div>
         </aside>
+
+        {/* Quote builder panel — opens when "Build Quote" is clicked for quote_ready threads. */}
+        <QuoteBuilderPanel
+            conversationId={card.id}
+            open={builderOpen}
+            onOpenChange={setBuilderOpen}
+        />
+        </>
     );
 }
 

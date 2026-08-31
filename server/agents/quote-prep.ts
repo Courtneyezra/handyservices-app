@@ -37,8 +37,9 @@ export interface IntakeLine {
 }
 
 /** Can we price this from the thread, do we need an answer first, do we need eyes on it —
- *  or is the whole job outside our scope (certified trade), proposing a polite no? */
-export type IntakeReadiness = 'quote_ready' | 'needs_info' | 'visit_first' | 'decline';
+ *  or is the whole job outside our scope (certified trade), proposing a polite no?
+ *  quote_pending = agent has enough info, speculative research running in the background */
+export type IntakeReadiness = 'quote_ready' | 'quote_pending' | 'needs_info' | 'visit_first' | 'decline';
 
 /**
  * The only four grounds for a proposed decline, per docs/DECLINE_CRITERIA.md (29 Aug 2026).
@@ -170,7 +171,7 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
         };
     });
 
-    const readiness: IntakeReadiness = (['quote_ready', 'needs_info', 'visit_first', 'decline'] as const)
+    const readiness: IntakeReadiness = (['quote_ready', 'quote_pending', 'needs_info', 'visit_first', 'decline'] as const)
         .includes(input?.readiness) ? input.readiness : 'needs_info';
 
     const declineReason: DeclineReason | null =
