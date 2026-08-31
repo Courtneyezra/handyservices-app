@@ -16,6 +16,8 @@
 import { db } from '../db';
 import { conversations, messages, messageDrafts } from '@shared/schema';
 import { and, eq, gte, isNull, notInArray, sql } from 'drizzle-orm';
+import { queueDraft, approveAndSendDraft } from '../message-drafts';
+import type { V2PipelineOutcome } from '../pipeline/v2';
 
 /** Don't race the on-inbound debounce: only pick up threads quiet at least this long. */
 const MIN_QUIET_MINUTES = 3;
@@ -31,6 +33,39 @@ const BOOT_DELAY_MS = 30_000;
 
 function isTestNumber(phone: string): boolean {
     return phone.replace(/\D/g, '').includes('7700900');
+}
+
+/**
+ * Send a V2 pipeline reply: queue the draft and auto-send it.
+ * Returns true if sent, false if queued for review.
+ */
+async function sendV2Reply(
+    conversationId: string,
+    phone: string,
+    reply: string
+): Promise<boolean> {
+    // Queue the draft
+    const draftId = await queueDraft({
+        phone,
+        body: reply,
+        source: 'comms_agent',
+        reason: 'V2 pipeline auto-reply',
+    });
+
+    if (!draftId) {
+        console.log(`[CommsSweep:V2] Draft suppressed for ${phone} (opt-out or duplicate)`);
+        return false;
+    }
+
+    // Auto-send it
+    const result = await approveAndSendDraft(draftId, 'v2_pipeline:autosend');
+    if (result.ok) {
+        console.log(`[CommsSweep:V2] SENT reply to ${phone}: ${reply.substring(0, 50)}...`);
+        return true;
+    } else {
+        console.log(`[CommsSweep:V2] Draft queued for ${phone} (${result.code}): ${result.message}`);
+        return false;
+    }
 }
 
 /** One agent run per conversation per this many minutes, enforced atomically across every trigger
@@ -163,6 +198,11 @@ async function sweepOnce(): Promise<void> {
             if (shouldUseV2(c.id)) {
                 const outcome = await runV2Pipeline(c.id, 'sla_sweep');
                 console.log(`[CommsSweep:V2] ${c.id}: ${outcome.actions.map((a) => a.tool).join(' → ') || 'no actions'}`);
+                // Send the V2 reply if one was generated
+                if (outcome.reply && !outcome.error) {
+                    const sent = await sendV2Reply(c.id, c.phoneNumber, outcome.reply);
+                    console.log(`[CommsSweep:V2] ${c.id}: reply ${sent ? 'SENT' : 'queued'}`);
+                }
             } else {
                 const outcome = await runCommsAgent(c.id, 'sla_sweep');
                 console.log(`[CommsSweep] ${c.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
@@ -187,10 +227,10 @@ async function tickDueTriage(): Promise<void> {
     if (!config.enabled || !config.onInbound) return;
 
     const due: any = await db.execute(sql`
-        SELECT id, metadata->>'nextTriageAt' AS due_at FROM conversations
+        SELECT id, phone_number, metadata->>'nextTriageAt' AS due_at FROM conversations
         WHERE archived_at IS NULL AND metadata->>'nextTriageAt' <= ${new Date().toISOString()}
         LIMIT 3`);
-    for (const row of ((due.rows ?? due) as { id: string; due_at: string }[])) {
+    for (const row of ((due.rows ?? due) as { id: string; phone_number: string; due_at: string }[])) {
         // 27 Aug 2026: win the SHARED run claim before touching the debounce lease — the lease
         // below only serializes tickDueTriage against itself; it never excluded sweepOnce or any
         // other runCommsAgent path (see claimTriageTurn's root cause). Losing the turn means
@@ -220,6 +260,11 @@ async function tickDueTriage(): Promise<void> {
             if (shouldUseV2(row.id)) {
                 const outcome = await runV2Pipeline(row.id, 'inbound_message');
                 console.log(`[CommsSweep:V2] ${row.id}: ${outcome.actions.map((a) => a.tool).join(' → ') || 'no actions'}`);
+                // Send the V2 reply if one was generated
+                if (outcome.reply && !outcome.error) {
+                    const sent = await sendV2Reply(row.id, row.phone_number, outcome.reply);
+                    console.log(`[CommsSweep:V2] ${row.id}: reply ${sent ? 'SENT' : 'queued'}`);
+                }
             } else {
                 const outcome = await runCommsAgent(row.id, 'inbound_message');
                 console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
