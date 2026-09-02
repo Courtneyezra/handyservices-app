@@ -33,6 +33,20 @@ export interface SpineConfig {
     triageModel: string;
     /** Pack-level city key (§3.4): the second city is config. */
     city: string;
+    // ---- Phase 3 (additive, all default false / fail closed) ----
+    /** The rules layer's content-free asks (ask_media / ask_postcode) from the spine exit (§3.5). */
+    asks: { enabled: boolean };
+    /** Promotion / demotion job (pane A, §4). */
+    autonomy: { enabled: boolean };
+    /** The 10% next-morning sampler (§4 "un-earning"). */
+    sampler: { enabled: boolean };
+}
+
+/** The three-way mode Phase 3 reads: off (nothing runs), shadow (compute + record, never exit), live. */
+export type SpineMode = 'off' | 'shadow' | 'live';
+export function spineMode(c: Pick<SpineConfig, 'enabled' | 'shadow'>): SpineMode {
+    if (!c.enabled) return 'off';
+    return c.shadow ? 'shadow' : 'live';
 }
 
 export const DEFAULT_SPINE_CONFIG: SpineConfig = {
@@ -43,6 +57,9 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     debounceMinutes: 10,
     triageModel: 'claude-haiku-4-5',
     city: 'nottingham',
+    asks: { enabled: false },
+    autonomy: { enabled: false },
+    sampler: { enabled: false },
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -50,6 +67,9 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         ...DEFAULT_SPINE_CONFIG,
         ...(patch ?? {}),
         agents: { ...(patch?.agents ?? {}) },
+        asks: { ...DEFAULT_SPINE_CONFIG.asks, ...(patch?.asks ?? {}) },
+        autonomy: { ...DEFAULT_SPINE_CONFIG.autonomy, ...(patch?.autonomy ?? {}) },
+        sampler: { ...DEFAULT_SPINE_CONFIG.sampler, ...(patch?.sampler ?? {}) },
     };
 }
 

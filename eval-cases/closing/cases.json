@@ -1,0 +1,161 @@
+{
+ "cases": [
+  {
+   "id": "cl-001-arranged-someone-else",
+   "family": "closing",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Hey, I managed to arrange someone to go immediately, I will have you in mind for anything in the future. Thank you!",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "No worries, glad you got it sorted quickly.\n---\nWe'll be here if anything else crops up. Thanks \ud83d\ude42",
+    "intent": "closing"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "closing",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_5195c3061f"
+  },
+  {
+   "id": "cl-002-sorted-now",
+   "family": "closing",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "I got it sorted now thank you",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "No worries at all, glad you got it sorted.",
+    "intent": "closing"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "closing",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_37787c8519"
+  },
+  {
+   "id": "cl-003-thanks",
+   "family": "closing",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Thanks!",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "You're welcome. Shout if anything else comes up.",
+    "intent": "closing"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "closing",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "cl-004-thanks-but-rubbish",
+   "family": "closing",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Thanks, but honestly the job was rubbish",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Sorry to hear that. Let me look into it properly.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "complaint"
+    ]
+   },
+   "provenance": "complaint hiding in a closer: Ben"
+  },
+  {
+   "id": "cl-005-all-done-absence",
+   "family": "closing",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "All done, thanks again",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Glad it went well. Thanks\nBen",
+    "intent": null
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced"
+  }
+ ]
+}

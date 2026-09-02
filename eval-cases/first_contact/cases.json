@@ -85,14 +85,14 @@
     "lane": "rules"
    },
    "expected": {
-    "lane": "rules",
     "intent": [
      "ack_returning",
      "ask_media"
     ],
     "mustNotEscalate": true,
     "guardsMustNotTrip": true,
-    "voiceClean": true
+    "voiceClean": true,
+    "notes": "A returning customer with prior outbound is scoper lane in triageRules; ack_returning is the rules layer's wording for the reply, not a lane."
    },
    "provenance": "rules.first_contact pack: ack_returning"
   },

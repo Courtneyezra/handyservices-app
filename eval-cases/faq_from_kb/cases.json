@@ -1,0 +1,192 @@
+{
+ "cases": [
+  {
+   "id": "fq-001-insured",
+   "family": "faq_from_kb",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Are you insured?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, public liability insurance is in place on every job.",
+    "intent": "faq_from_kb"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "faq_from_kb",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented; insurance is real (\u00a32M), not a claimed credential"
+  },
+  {
+   "id": "fq-002-cover-derby",
+   "family": "faq_from_kb",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Do you cover Derby?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, we cover Derby as well as Nottingham.",
+    "intent": "faq_from_kb"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "faq_from_kb",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "fq-003-need-to-be-in",
+   "family": "faq_from_kb",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Do I need to be in for it?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Someone needs to let us in and be around at the end to check it over.",
+    "intent": "faq_from_kb"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "faq_from_kb",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "fq-004-gas-hob",
+   "family": "faq_from_kb",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Do you do gas hobs?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Gas work needs a registered engineer, let me check what we can do on that.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ]
+   },
+   "provenance": "regulated: Ben"
+  },
+  {
+   "id": "fq-005-tools-absence",
+   "family": "faq_from_kb",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Do you bring your own tools?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, we bring everything we need.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced"
+  },
+  {
+   "id": "fq-006-gas-safe-claim",
+   "family": "faq_from_kb",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Are you Gas Safe registered?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, we are Gas Safe registered.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ],
+    "guardsMustTrip": [
+     "capability_claim"
+    ]
+   },
+   "provenance": "credential we do not hold"
+  }
+ ]
+}

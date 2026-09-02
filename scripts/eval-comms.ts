@@ -10,14 +10,21 @@
  *
  * Cases are DATA under eval-cases/<family>/*.json (schema: server/evals/case-schema.ts), each
  * self-contained: a context thread, an optional recorded reply (`candidate`), and `expected`.
- * Nothing here opens a database or a socket unless EVAL_LIVE=1. Three adapters:
+ * Nothing here opens a database or a socket unless EVAL_LIVE=1. Four adapters:
  *   replay  — grades the recorded candidate through the real detectors + triage lexicon (always runs)
+ *   triage  — the real spine pre-checks (server/spine/triage.ts triageRules + decide) over the case
+ *             file built from the context: grades lane / exceptions / flag only (always runs)
+ *   spine   — the real pipeline in-process (model triage → registered agent → guards → decide, no
+ *             exit, no DB): needs EVAL_LIVE=1 and the model key; skipped otherwise
  *   legacy  — the pre-spine comms agent; it has no propose/dry-run mode, so it is SKIPPED with a
  *             reason (DB-fixture evals live in scripts/eval-comms-db.ts against a Neon branch)
- *   spine   — pane A's runOnce with the registered Scoper; skipped until both are on the branch
+ * Each adapter grades only what it observes (a lane-only adapter never fails an intent check).
  * Regression families report pass^k (k = --trials, default 3); capability cases report pass@k.
- * Results: eval-results/<timestamp>.json, eval-results/latest.json, eval-results/latest.md
- * (scoreboard with deltas vs the previous run and the §9 guard false-negative report).
+ * Results: eval-results/<timestamp>.json, eval-results/latest.json (with the `families` block the
+ * Phase 3 autonomy job reads: families[name].passed is true ONLY when the spine adapter ran the
+ * whole family green — replay/triage results are reported beside it, never as `passed`),
+ * eval-results/latest.md (scoreboard, deltas, the §9 guard false-negative report).
+ * --judge (with EVAL_LIVE=1) attaches the advisory voice-v1 verdict to replay trials.
  * Exit code: 1 if any REGRESSION case is red; capability reds are improvement targets.
  */
 if (!process.env.EVAL_LIVE) {
@@ -36,7 +43,7 @@ import { lexiconExceptions, lexiconLane } from '../server/evals/triage-lexicon';
 import { caseFileFromContext } from '../server/evals/case-file-from-context';
 import { intentFromReason } from '../server/verdict-stats';
 import {
-    scoreboardMarkdown, summarise, type CaseOutcome, type EvalRunV2, type GuardFalseNegativeReport, type TrialOutcome,
+    scoreboardMarkdown, summarise, familiesSummary, type CaseOutcome, type EvalRunV2, type GuardFalseNegativeReport, type TrialOutcome,
 } from '../server/evals/scoreboard';
 import { chatVoiceViolations } from '@shared/chat-voice';
 
@@ -47,8 +54,28 @@ const TRIALS = Math.max(1, Number(arg('trials') ?? 3));
 const FAMILY = arg('family');
 const ONLY = arg('only');
 const QUICK = flag('quick');
-type AdapterName = 'replay' | 'legacy' | 'spine';
-const ADAPTERS: AdapterName[] = ((arg('adapter') ?? 'all') === 'all' ? ['replay', 'legacy', 'spine'] : [arg('adapter') as AdapterName]);
+type AdapterName = 'replay' | 'triage' | 'legacy' | 'spine';
+const ADAPTERS: AdapterName[] = ((arg('adapter') ?? 'all') === 'all' ? ['replay', 'triage', 'legacy', 'spine'] : [arg('adapter') as AdapterName]);
+const JUDGE = flag('judge');
+const LIVE = !!process.env.EVAL_LIVE;
+
+/** Which `expected` keys each adapter can honestly grade. Others are dropped for that adapter. */
+const OBSERVES: Record<AdapterName, ReadonlySet<keyof EvalCaseV2['expected']>> = {
+    replay: new Set(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'mustHold', 'exceptions', 'noExceptions', 'voiceClean']),
+    // Lane / flag only. `exceptions` names are the eval lexicon's; the spine's own pre-checks are a
+    // different (narrower, then model-widened) list, so only the flag/no-flag outcome is compared.
+    triage: new Set(['lane', 'mustFlag', 'mustNotEscalate']),
+    spine: new Set(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
+    legacy: new Set(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
+};
+function applicableExpected(expected: EvalCaseV2['expected'], adapter: AdapterName): EvalCaseV2['expected'] {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(expected)) if (OBSERVES[adapter].has(k as keyof EvalCaseV2['expected'])) out[k] = v;
+    // A flag the case expects from a GUARD on the reply (no customer-side exception listed) is not
+    // something the triage pre-checks alone can raise; grade only the customer-side flags there.
+    if (adapter === 'triage' && expected.mustFlag && !expected.exceptions?.length) delete out.mustFlag;
+    return out as EvalCaseV2['expected'];
+}
 
 const CASES_DIR = path.resolve(process.cwd(), 'eval-cases');
 const RESULTS_DIR = path.resolve(process.cwd(), 'eval-results');
@@ -93,7 +120,7 @@ async function replayAdapter(c: EvalCaseV2): Promise<AdapterResult> {
         observed: {
             body: c.candidate.body,
             intent: c.candidate.intent ?? intentFromReason(c.candidate.reason) ?? null,
-            lane: c.candidate.lane ?? lexiconLane(exceptions, { firstContact: !!c.firstContact, postQuote: !!c.quote }),
+            lane: c.candidate.lane ?? lexiconLane(exceptions, { firstContact: !!c.firstContact, postQuote: !!c.quote && !c.quote.paid }),
             flagged: !!c.candidate.flagged,
             guardHits: guard.hits.map((h) => h.code),
             escalatingGuards: guard.escalatingCodes,
@@ -110,60 +137,74 @@ async function legacyAdapter(_c: EvalCaseV2): Promise<AdapterResult> {
     return { skipped: 'legacy runCommsAgent has no propose mode; use scripts/eval-comms-db.ts on a Neon branch' };
 }
 
-let spineRunner: null | ((input: { caseFile: unknown; trigger: string }) => Promise<any>) = null;
+/** The real spine pre-checks, no model, no DB: triageRules → decide over the case file built from the context. */
+async function triageAdapter(c: EvalCaseV2): Promise<AdapterResult> {
+    const { triageRules } = await import('../server/spine/triage');
+    const { decide } = await import('../server/spine/decide');
+    const { resolvePack } = await import('../server/spine/packs');
+    const cf = caseFileFromContext(c);
+    const tri = triageRules(cf);
+    const pack = resolvePack(cf, tri);
+    const decision = decide({ proposal: null, guards: null, pack, triage: tri, caseFile: cf });
+    return { observed: { body: null, lane: tri.lane, flagged: decision.kind === 'flag', customerExceptions: tri.exceptions } };
+}
+
 let spineSkip: string | null = null;
-async function loadSpine() {
-    if (spineRunner || spineSkip) return spineRunner;
-    for (const spec of ['../server/spine/run-once', '../server/spine/runner', '../server/spine/index']) {
-        try {
-            const m: any = await import(/* @vite-ignore */ spec);
-            const fn = m.runOnce ?? m.default?.runOnce;
-            if (typeof fn === 'function') { spineRunner = fn; break; }
-        } catch { /* try the next name */ }
-    }
-    if (!spineRunner) { spineSkip = 'spine runOnce not on this branch (pane A)'; return null; }
-    try {
-        const agents: any = await import('../server/spine/agents/index');
-        if (!agents.getSpineAgent?.('scoper')) { spineSkip = 'no Scoper registered (pane B)'; spineRunner = null; }
-    } catch (e: any) { spineSkip = `agent registry: ${e?.message ?? e}`; spineRunner = null; }
-    return spineRunner;
-}
-
+/** The real pipeline in-process, minus the exit: model triage → registered agent → guards → decide. EVAL_LIVE only. */
 async function spineAdapter(c: EvalCaseV2): Promise<AdapterResult> {
-    const run = await loadSpine();
-    if (!run) return { skipped: spineSkip ?? 'spine unavailable' };
-    const caseFile = caseFileFromContext(c);
-    const out = await run({ caseFile, trigger: 'inbound_message' });
-    const body = out?.proposal?.body?.length ? out.proposal.body.join('\n---\n') : null;
-    return {
-        observed: {
-            body,
-            intent: out?.proposal?.intent ?? out?.triage?.intent ?? null,
-            lane: out?.triage?.lane ?? null,
-            flagged: out?.decision?.kind === 'flag' || !!out?.proposal?.flag,
-            guardHits: out?.guards?.guardsHit ?? [],
-            escalatingGuards: out?.guards?.escalate ? (out?.guards?.guardsHit ?? []) : [],
-            customerExceptions: out?.triage?.exceptions ?? [],
-            voiceViolations: body ? chatVoiceViolations(body).map((v: any) => (typeof v === 'string' ? v : v?.rule ?? String(v))) : [],
-        },
-    };
+    if (!LIVE) return { skipped: 'spine adapter runs the model: set EVAL_LIVE=1 (and ANTHROPIC_API_KEY)' };
+    if (spineSkip) return { skipped: spineSkip };
+    try {
+        const spine = await import('../server/spine/index');
+        const agents = await import('../server/spine/agents/index');
+        const cf = caseFileFromContext(c);
+        const tri = await spine.triage(cf);
+        const pack = spine.resolvePack(cf, tri);
+        const laneAgent = (spine as any).agentForLane?.(tri.lane) ?? null;
+        const agent = laneAgent ? agents.getSpineAgent(laneAgent) : null;
+        if (laneAgent && !agent) { spineSkip = `no agent registered for lane ${tri.lane}`; return { skipped: spineSkip }; }
+        const proposal = agent ? await agent.run({ caseFile: cf, pack, triage: tri, runId: `eval_${c.id}` }) : null;
+        const guards = proposal ? spine.checkProposal(proposal, pack, cf) : null;
+        const decision = spine.decide({ proposal, guards, pack, triage: tri, caseFile: cf });
+        const body = proposal?.body?.length ? proposal.body.join('\n---\n') : null;
+        const escalating = guards && guards.escalate ? guards.guardsHit : [];
+        return {
+            observed: {
+                body, intent: proposal?.intent ?? null, lane: tri.lane,
+                flagged: decision.kind === 'flag' || !!proposal?.flag,
+                guardHits: guards?.guardsHit ?? [], escalatingGuards: escalating, customerExceptions: tri.exceptions,
+                voiceViolations: body ? chatVoiceViolations(body).map((v: any) => (typeof v === 'string' ? v : v?.rule ?? String(v))) : [],
+            },
+        };
+    } catch (e: any) {
+        return { skipped: `spine adapter: ${e?.message ?? e}` };
+    }
 }
 
-const ADAPTER_FNS: Record<AdapterName, (c: EvalCaseV2) => Promise<AdapterResult>> = { replay: replayAdapter, legacy: legacyAdapter, spine: spineAdapter };
+const ADAPTER_FNS: Record<AdapterName, (c: EvalCaseV2) => Promise<AdapterResult>> = { replay: replayAdapter, triage: triageAdapter, legacy: legacyAdapter, spine: spineAdapter };
 
 // ---------------------------------------------------------------- run
 
 async function runCase(c: EvalCaseV2, adapter: AdapterName): Promise<CaseOutcome> {
     const kind = c.kind ?? 'regression';
-    const n = adapter === 'replay' ? TRIALS : (c.trials ?? TRIALS);
+    const n = adapter === 'spine' ? (c.trials ?? TRIALS) : TRIALS;
     const trials: TrialOutcome[] = [];
     let skipped: string | undefined;
+    const expected = applicableExpected(c.expected, adapter);
+    if (Object.keys(expected).length === 0) {
+        return { id: c.id, family: c.family, kind, adapter, trials: [{ trial: 1, pass: false, graders: [], skipped: 'nothing this adapter observes' }], skipped: 'nothing this adapter observes', passK: null, passAny: null };
+    }
     for (let t = 1; t <= n; t++) {
         try {
             const r = await ADAPTER_FNS[adapter](c);
             if (r.skipped || !r.observed) { skipped = r.skipped ?? 'no observation'; trials.push({ trial: t, pass: false, graders: [], skipped }); break; }
-            const graders = gradeObserved(c.expected, r.observed);
-            trials.push({ trial: t, pass: graders.every((g) => g.pass), graders, body: r.observed.body });
+            const graders = gradeObserved(expected, r.observed);
+            let judge: unknown;
+            if (JUDGE && LIVE && adapter === 'replay' && r.observed.body) {
+                const { judgeVoiceV1 } = await import('../server/spine/judge');
+                judge = await judgeVoiceV1({ body: r.observed.body, customerText: lastInbound(c.context), intent: r.observed.intent ?? null });
+            }
+            trials.push({ trial: t, pass: graders.every((g) => g.pass), graders, body: r.observed.body, ...(judge ? { judge } : {}) });
         } catch (e: any) {
             trials.push({ trial: t, pass: false, graders: [], error: e?.message ?? String(e) });
         }
@@ -239,6 +280,7 @@ async function main() {
     const run: EvalRunV2 = {
         runId, startedAt, finishedAt: new Date().toISOString(), gitRef, trialsRequested: TRIALS, adapters: ADAPTERS,
         cases: outcomes, guardFalseNegative: guardFalseNegatives(selected, outcomes),
+        families: familiesSummary(outcomes, TRIALS, new Date().toISOString()),
     };
     fs.mkdirSync(RESULTS_DIR, { recursive: true });
     const latestPath = path.join(RESULTS_DIR, 'latest.json');

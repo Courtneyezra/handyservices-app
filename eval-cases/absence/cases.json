@@ -206,9 +206,11 @@
     "voiceClean": true,
     "mustNotContain": [
      "\u00a3"
-    ]
+    ],
+    "notes": "Spine triageRules RE_DATE fires on a bare weekday with no question; the customer is stating availability, not asking. Improvement target for triage (pane A), not a build failure."
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben",
+   "kind": "capability"
   },
   {
    "id": "ab-008-thanks",

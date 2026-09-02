@@ -4,7 +4,7 @@
  */
 import type { GraderResult } from './graders';
 
-export interface TrialOutcome { trial: number; pass: boolean; graders: GraderResult[]; body?: string | null; error?: string; skipped?: string }
+export interface TrialOutcome { trial: number; pass: boolean; graders: GraderResult[]; body?: string | null; error?: string; skipped?: string; /** advisory voice-v1 verdict when --judge ran */ judge?: unknown }
 
 export interface CaseOutcome {
     id: string;
@@ -32,6 +32,24 @@ export interface GuardFalseNegativeReport {
     labels: Record<string, number>;
 }
 
+/** One adapter's reading of one family. passK = share of cases green at pass^k (1 = all). */
+export interface FamilyAdapterStatus { cases: number; green: number; red: number; skipped: number; passK: number; passed: boolean }
+
+/**
+ * The block the Phase 3 autonomy job reads (BRIEF-P3-autonomy §2): families[name].passed is true
+ * ONLY when the real agent (spine adapter) ran every case of the family green at pass^k. Replay and
+ * triage readings sit beside it for humans; they never set `passed`.
+ */
+export interface FamilyStatus {
+    k: number;
+    at: string;
+    passK: number;
+    passed: boolean;
+    /** Which adapter `passed`/`passK` come from: 'spine' or 'none' (spine did not run). */
+    adapter: 'spine' | 'none';
+    adapters: Partial<Record<string, FamilyAdapterStatus>>;
+}
+
 export interface EvalRunV2 {
     runId: string;
     startedAt: string;
@@ -41,6 +59,30 @@ export interface EvalRunV2 {
     adapters: string[];
     cases: CaseOutcome[];
     guardFalseNegative?: GuardFalseNegativeReport | null;
+    families?: Record<string, FamilyStatus>;
+}
+
+export function familiesSummary(cases: CaseOutcome[], k: number, at: string): Record<string, FamilyStatus> {
+    const byFam = new Map<string, Map<string, CaseOutcome[]>>();
+    for (const c of cases) {
+        if (!byFam.has(c.family)) byFam.set(c.family, new Map());
+        const byAd = byFam.get(c.family)!;
+        byAd.set(c.adapter, [...(byAd.get(c.adapter) ?? []), c]);
+    }
+    const out: Record<string, FamilyStatus> = {};
+    for (const [family, byAd] of Array.from(byFam.entries())) {
+        const adapters: Partial<Record<string, FamilyAdapterStatus>> = {};
+        for (const [adapter, list] of Array.from(byAd.entries())) {
+            const green = list.filter((c) => headline(c) === true).length;
+            const red = list.filter((c) => headline(c) === false).length;
+            const skipped = list.filter((c) => headline(c) === null).length;
+            const graded = green + red;
+            adapters[adapter] = { cases: list.length, green, red, skipped, passK: graded ? green / graded : 0, passed: list.length > 0 && skipped === 0 && red === 0 };
+        }
+        const spine = adapters.spine;
+        out[family] = { k, at, passK: spine?.passK ?? 0, passed: spine?.passed ?? false, adapter: spine && spine.skipped === 0 ? 'spine' : 'none', adapters };
+    }
+    return out;
 }
 
 export type Delta = 'new' | 'same' | 'fixed' | 'regressed' | 'skipped' | 'unskipped';
@@ -62,6 +104,7 @@ export function deltaFor(current: CaseOutcome, previous: CaseOutcome | undefined
 
 export interface Summary {
     total: number; green: number; red: number; skipped: number;
+    /** Keyed "family · adapter"; adapters that skipped a whole family are left out. */
     byFamily: Record<string, { total: number; green: number; red: number; skipped: number }>;
 }
 
@@ -69,7 +112,7 @@ export function summarise(cases: CaseOutcome[]): Summary {
     const s: Summary = { total: 0, green: 0, red: 0, skipped: 0, byFamily: {} };
     for (const c of cases) {
         const h = headline(c);
-        const fam = (s.byFamily[c.family] ??= { total: 0, green: 0, red: 0, skipped: 0 });
+        const fam = (s.byFamily[`${c.family} · ${c.adapter}`] ??= { total: 0, green: 0, red: 0, skipped: 0 });
         s.total += 1; fam.total += 1;
         if (h === null) { s.skipped += 1; fam.skipped += 1; }
         else if (h) { s.green += 1; fam.green += 1; }
@@ -94,7 +137,12 @@ export function scoreboardMarkdown(run: EvalRunV2, prev: EvalRunV2 | null): stri
         `| family | green | red | skipped |`,
         `| --- | --- | --- | --- |`,
     ];
-    for (const [fam, f] of Object.entries(sum.byFamily).sort()) lines.push(`| ${fam} | ${f.green} | ${f.red} | ${f.skipped} |`);
+    for (const [fam, f] of Object.entries(sum.byFamily).sort()) if (f.skipped < f.total) lines.push(`| ${fam} | ${f.green} | ${f.red} | ${f.skipped} |`);
+    if (run.families) {
+        lines.push(``, `## Families for promotion (pass^${run.trialsRequested}, spine adapter only)`, ``, `| family | passed | spine pass^k | replay pass^k | triage pass^k |`, `| --- | --- | --- | --- | --- |`);
+        const fmt = (a?: { passK: number; skipped: number; cases: number }) => (!a || a.skipped === a.cases ? 'skipped' : `${Math.round(a.passK * 100)}%`);
+        for (const [name, f] of Object.entries(run.families).sort()) lines.push(`| ${name} | ${f.passed ? '✅' : '❌'} | ${fmt(f.adapters.spine)} | ${fmt(f.adapters.replay)} | ${fmt(f.adapters.triage)} |`);
+    }
 
     if (run.guardFalseNegative) {
         const g = run.guardFalseNegative;
