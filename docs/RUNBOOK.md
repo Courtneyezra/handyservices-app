@@ -95,6 +95,9 @@ pre-existing failures (pricing engine, segment classifier, contractor pay). The 
    strip `(line,col)`, compare per-file × error-code counts. One tsc at a time (shared tsbuildinfo).
 2. **vitest failures identical to baseline**: `DATABASE_URL=postgres://u:p@127.0.0.1:1/x PHASE0_MERGED=1 npx vitest run`
    (the fake URL keeps `server/db.ts` from throwing; `server/__tests__/setup.ts` refuses the
-   production host outright).
+   production host outright). This runs two projects (`vitest.config.ts`): `server` (the 42
+   baseline live here) and `client` (jsdom + Testing Library for the admin UI, must be green).
+   `npm run test:client` runs the client project alone; new UI needs a test beside it under
+   `client/src/**/__tests__/`, helpers in `client/test-utils.tsx`, jsdom gaps in `client/test-setup.ts`.
 3. **esbuild succeeds**: `npx esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=/tmp/esb.js`.
 Architecture rules (`server/__tests__/architecture.test.ts`) pin the send choke points and the exit's importers.

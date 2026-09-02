@@ -41,7 +41,7 @@ interface StaffVerdicts {
 }
 
 /** Phase 5: the spine's switches as /api/agents/staff reports them (app_settings.spine, no secrets). */
-interface SpineSwitches {
+export interface SpineSwitches {
     mode: 'off' | 'shadow' | 'live';
     enabled: boolean; shadow: boolean; explicitMode: string | null;
     agents: Partial<Record<string, { enabled: boolean }>>;
@@ -51,11 +51,11 @@ interface SpineSwitches {
     video: { enabled: boolean; images: boolean; maxPerRun: number };
     sweepLimit: number; debounceMinutes: number; triageModel: string; city: string;
 }
-interface LegacySwitches { enabled: boolean; onInbound: boolean; autosend: boolean; firstContactAck: boolean; quotePrep: boolean }
+export interface LegacySwitches { enabled: boolean; onInbound: boolean; autosend: boolean; firstContactAck: boolean; quotePrep: boolean }
 
 /** Phase 0 heartbeat, same shape as GET /api/health/comms-worker. Every field optional: an older
  *  server answers without it and the strip simply says so. */
-interface WorkerHeartbeat {
+export interface WorkerHeartbeat {
     ok?: boolean;
     ageSeconds?: number | null;
     stale?: boolean;
@@ -68,7 +68,7 @@ interface WorkerHeartbeat {
     thisProcess?: { role: 'worker' | 'passive'; pid: number; host: string; version: string | null };
 }
 /** Phase 3: one (pack, intent) row of the autonomy ladder with its promotion evidence (server/spine/autonomy.ts). */
-interface PackTierRow {
+export interface PackTierRow {
     packId: string;
     intent: string;
     tier: 'READ' | 'PROPOSE' | 'DRAFT' | 'SEND';
@@ -228,7 +228,7 @@ function ageText(seconds: number | null | undefined): string {
  * customer-facing loops stamped the DB within the stale window; red = it did not, and every
  * sweep, tick and morning release is silently off. That silence was the 31 Aug incident.
  */
-function WorkerHeartbeatStrip({ hb }: { hb: WorkerHeartbeat | null | undefined }) {
+export function WorkerHeartbeatStrip({ hb }: { hb: WorkerHeartbeat | null | undefined }) {
     if (!hb) {
         return (
             <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
@@ -306,7 +306,7 @@ function VerdictBlock({ v }: { v: StaffVerdicts }) {
 }
 
 /** Phase 3: the ladder — intent · tier · verdicts/30d · unedited % · unsafe · eval family · last change. */
-function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
+export function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
     const packs = Array.from(new Set(rows.map((r) => r.packId)));
     const tierCls: Record<PackTierRow['tier'], string> = {
         SEND: 'bg-emerald-100 text-emerald-800', DRAFT: 'bg-amber-100 text-amber-800', PROPOSE: 'bg-sky-100 text-sky-800', READ: 'bg-slate-100 text-slate-600',
@@ -362,7 +362,7 @@ function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
  * Flips happen on scripts/_spine-mode.ts or the app_settings row (docs/comms-build/CUTOVER.md);
  * this strip only reads.
  */
-function SpineSwitchStrip({ spine, legacy }: { spine: SpineSwitches | null | undefined; legacy: LegacySwitches | null | undefined }) {
+export function SpineSwitchStrip({ spine, legacy }: { spine: SpineSwitches | null | undefined; legacy: LegacySwitches | null | undefined }) {
     if (!spine) {
         return <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">Spine switches not reported by this server.</div>;
     }

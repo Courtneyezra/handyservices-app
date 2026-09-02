@@ -1,5 +1,5 @@
 /** Proof for the submit_intake guard rails. Run: npx tsx <this file> */
-import { normalizeIntake, LINE_TITLE_MAX } from '/Users/courtneebonnick/v6-switchboard/server/agents/quote-prep';
+import { normalizeIntake, LINE_TITLE_MAX } from '../../server/agents/quote-prep';
 
 const ctx = { phone: '+84357691573', contactName: 'Courtnee' };
 const ok = (label: string, cond: boolean, extra = '') =>

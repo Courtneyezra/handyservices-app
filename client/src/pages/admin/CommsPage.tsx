@@ -182,7 +182,7 @@ interface DraftEvent {
 type TimelineItem = ThreadMessage | CallEvent | DraftEvent;
 
 /** A machine-authored message awaiting Ben's approval — the human gate before anything sends. */
-interface PendingDraft {
+export interface PendingDraft {
     id: string;
     phone: string;
     body: string;
@@ -215,7 +215,7 @@ interface AgentQuestion {
 }
 
 /** "due in 2h" / "overdue by 40m" chip for drafts and flags; nothing when there is no due time. */
-function DueChip({ dueAt }: { dueAt?: string | null }) {
+export function DueChip({ dueAt }: { dueAt?: string | null }) {
     const due = dueLabel(dueAt);
     if (!due) return null;
     return (
@@ -799,7 +799,7 @@ function Column({ stage, cards, selectedId, onOpen }: {
  * A machine-drafted reply, parked above the composer until Ben approves it. Bold amber block —
  * this is a decision demanding attention, not a notification.
  */
-function DraftApprovalCard({ draft, windowOpen, onDone }: {
+export function DraftApprovalCard({ draft, windowOpen, onDone }: {
     draft: PendingDraft; windowOpen: boolean; onDone: () => void;
 }) {
     const [editing, setEditing] = useState(false);
