@@ -36,60 +36,13 @@ function isTestNumber(phone: string): boolean {
     return phone.replace(/\D/g, '').includes('7700900');
 }
 
-/** One agent run per conversation per this many minutes, enforced atomically across every trigger
- *  path and every process. Matches MIN_MINUTES_BETWEEN_RUNS: the floor that was always intended,
- *  now actually enforced. */
-const TRIAGE_TURN_MINUTES = 5;
-
 /**
- * THE atomic run claim — win this or do not run the agent.
- *
- * ROOT CAUSE, 27 Aug 2026 triple-send (conv b57b6790401ff28a3db04d58ff1e366f, +447950552830,
- * "James"): the customer asked one question at 11:05:09 and three agent runs auto-sent replies at
- * 11:05:40, 11:05:52 and 11:06:17 — two of them opening with the identical sentence. Each trigger
- * path guarded itself on its OWN metadata key and nothing excluded one from another:
- *
- *   - sweepOnce checked lastAutoTriageAt and then stamped it in a SECOND statement — a classic
- *     check-then-act race that two concurrent passes both win;
- *   - tickDueTriage leased nextTriageAt with a real CAS, but that lease is invisible to sweepOnce
- *     and to every other runCommsAgent entry point;
- *   - and the guards were per-process in effect only by luck: this file runs wherever the server
- *     boots, including dev checkouts pointed at the production database. The production
- *     deployment's logs for the incident window show its ticker starting only the THIRD run —
- *     the first two arrived through paths/processes its lease never saw.
- *
- * So: one shared claim, one atomic UPDATE whose WHERE re-checks the hold under the row lock —
- * the same CAS shape as approveAndSendDraft's `WHERE status = 'pending'` claim
- * (server/message-drafts.ts). Concurrent claimers serialize on the row; the losers match zero
- * rows and skip. The hold expires by itself, so a run that dies mid-flight costs
- * TRIAGE_TURN_MINUTES, never a wedge — and the hold standing after a SUCCESSFUL run is the
- * point, not a leak: it is the between-runs floor that 40 seconds of triple-send did not have.
- *
- * Returns the written hold value (the release token) on a win, null when someone else holds it.
+ * The atomic run claim and its release moved to server/spine/request-run.ts (Phase 2): one CAS
+ * for every path that can run an agent, spine or legacy. Re-exported so the legacy paths below
+ * keep compiling and keep sharing the same floor.
  */
-export async function claimTriageTurn(conversationId: string): Promise<string | null> {
-    const now = new Date();
-    const heldUntil = new Date(now.getTime() + TRIAGE_TURN_MINUTES * 60_000).toISOString();
-    const res: any = await db.execute(sql`
-        UPDATE conversations
-        SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('triageHeldUntil', ${heldUntil}::text)
-        WHERE id = ${conversationId}
-          AND (metadata->>'triageHeldUntil' IS NULL OR metadata->>'triageHeldUntil' <= ${now.toISOString()})
-        RETURNING id`);
-    return ((res.rows ?? res) as unknown[]).length ? heldUntil : null;
-}
-
-/**
- * Give a won turn back WITHOUT having run — only for a claimer that then discovered it has
- * nothing to do (e.g. the debounce was re-armed by a newer message mid-claim). CAS on our own
- * token, so a later claimer's hold is never clobbered. Never called after an actual run: a run
- * that happened must pay the full floor.
- */
-export async function releaseTriageTurn(conversationId: string, token: string): Promise<void> {
-    await db.execute(sql`
-        UPDATE conversations SET metadata = metadata - 'triageHeldUntil'
-        WHERE id = ${conversationId} AND metadata->>'triageHeldUntil' = ${token}`);
-}
+export { claimTriageTurn, releaseTriageTurn, TRIAGE_TURN_MINUTES } from '../spine/request-run';
+import { claimTriageTurn, releaseTriageTurn } from '../spine/request-run';
 
 async function sweepOnce(): Promise<void> {
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
@@ -180,6 +133,14 @@ async function sweepOnce(): Promise<void> {
  * that crashes cannot retry every 30 seconds forever (the slow sweep remains the backstop).
  */
 async function tickDueTriage(): Promise<void> {
+    // Phase 2: with the spine switched on, due rows belong to server/spine (same metadata key,
+    // same claim). Off = byte-for-byte legacy below.
+    const { isSpineEnabled } = await import('../spine/config');
+    if (await isSpineEnabled()) {
+        const { runDue } = await import('../spine/request-run');
+        await runDue(3);
+        return;
+    }
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
     const config = await getCommsAgentConfig();
     if (!config.enabled || !config.onInbound) return;

@@ -30,7 +30,16 @@ export interface ClaudeChatOpts {
  * multi-turn pattern). Below the model's minimum cacheable prefix (4096
  * tokens on haiku-4-5, our default) the marker is a silent no-op and costs
  * nothing, so small prompts are safe. */
-export async function claudeText(opts: ClaudeChatOpts): Promise<string> {
+/** Token usage of one call, in the shape server/agent-cost.ts prices. */
+export interface ClaudeUsage {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+}
+
+/** claudeText plus the usage and the model actually called — for callers that record a run (Phase 2 triage). */
+export async function claudeTextWithUsage(opts: ClaudeChatOpts): Promise<{ text: string; usage: ClaudeUsage; model: string }> {
     const model = opts.model || FAST_MODEL;
     const response = await getAnthropic().messages.create({
         model,
@@ -52,7 +61,26 @@ export async function claudeText(opts: ClaudeChatOpts): Promise<string> {
     }
     const block = response.content.find((b) => b.type === 'text');
     if (!block || block.type !== 'text') throw new Error('Claude returned no text');
-    return block.text;
+    return {
+        text: block.text,
+        usage: { inputTokens: u.input_tokens, outputTokens: u.output_tokens, cacheReadTokens: u.cache_read_input_tokens ?? 0, cacheWriteTokens: u.cache_creation_input_tokens ?? 0 },
+        model,
+    };
+}
+
+export async function claudeText(opts: ClaudeChatOpts): Promise<string> {
+    return (await claudeTextWithUsage(opts)).text;
+}
+
+/** claudeJson plus usage/model. Same bare-JSON instruction and fence tolerance. */
+export async function claudeJsonWithUsage<T = any>(opts: ClaudeChatOpts): Promise<{ data: T; usage: ClaudeUsage; model: string }> {
+    const system = [
+        opts.system || '',
+        'Reply with ONLY a single valid JSON object. No prose before or after, no markdown code fences.',
+    ].filter(Boolean).join('\n\n');
+    const r = await claudeTextWithUsage({ ...opts, system });
+    const raw = r.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+    return { data: JSON.parse(raw) as T, usage: r.usage, model: r.model };
 }
 
 /** Single-turn JSON completion — the response_format:{type:"json_object"}

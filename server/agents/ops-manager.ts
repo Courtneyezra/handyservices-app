@@ -32,7 +32,8 @@ import type {
 import { runAgent, type AgentTool } from './runner';
 import { newRunId } from '../approver';
 import { leanTranscriptEvent } from './transcript-lean';
-import { runCommsAgent, flagThreadForBen, STAFF as commsStaff } from './comms';
+import { flagThreadForBen, STAFF as commsStaff } from './comms';
+import { requestRun } from '../spine/request-run';
 import { runQuotePrep, STAFF as quotePrepStaff } from './quote-prep';
 import { runRecovery, STAFF as recoveryStaff } from './recovery';
 import { STAFF as opsBriefStaff } from './ops-brief';
@@ -428,21 +429,24 @@ export function buildTools(ctx: { runId?: string } = {}): AgentTool[] {
         // ---------- actions (delegation + the two gated exits) ----------
         {
             name: 'run_comms_agent',
-            description: 'DELEGATE a conversation to the comms specialist: it reads the thread and handles the reply/triage itself under its own guard rails. Prefer this over drafting customer replies yourself.',
+            description: 'DELEGATE a conversation to the comms specialist: it reads the thread and handles the reply/triage itself under its own guard rails. Prefer this over drafting customer replies yourself. The run is QUEUED for the comms worker (it runs within about a minute); you will not see its result in this turn.',
             input_schema: {
                 type: 'object' as const,
                 properties: { conversationId: { type: 'string' } },
                 required: ['conversationId'],
             },
             run: async (input: { conversationId: string }) => {
-                const outcome = await runCommsAgent(input.conversationId, 'ops_manager');
+                // Phase 2 (design §3.5): the Ops Manager may only ASK for a run. requestRun writes
+                // the same debounce row both the spine and the legacy fast tick read, so this
+                // works whichever is switched on; only the worker process ever runs an agent.
+                const r = await requestRun(input.conversationId, 'manual', { delayMs: 0 });
                 return {
-                    conversationId: outcome.conversationId,
-                    actions: outcome.actions.map((a) => a.tool),
-                    autosent: outcome.autosent,
-                    escalated: outcome.escalated,
-                    quotePrepHandoff: !!outcome.handoff,
-                    summary: outcome.result.finalText.slice(0, 500),
+                    conversationId: input.conversationId,
+                    queued: r.queued,
+                    reason: r.reason ?? null,
+                    note: r.queued
+                        ? 'Queued for the comms worker. It will triage and draft (or send, where an intent has earned it) within about a minute; check the thread or the agent runs drawer for the result.'
+                        : `Not queued: ${r.reason}.`,
                 };
             },
         },

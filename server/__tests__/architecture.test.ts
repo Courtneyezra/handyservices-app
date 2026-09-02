@@ -133,6 +133,7 @@ const APPROVE_AND_SEND_ALLOWED = [
     'server/outbound.ts',
     'server/agent-staff.ts',
     'server/rules-layer.ts',      // Phase 1: the rules layer's holding lines and asks (rules.* approvers)
+    'server/spine/exit.ts',       // Phase 2: the spine's exit (SEND → queueDraft + approveAndSendDraft with the pack approver)
 ].sort();
 
 function approveAndSendImporters(): string[] {
