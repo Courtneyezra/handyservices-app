@@ -290,9 +290,11 @@ export async function detectSlaLane(conv: ConvRow): Promise<DetectedLane | null>
         }
     }
 
-    const readiness = meta.quotePrepIntake?.readiness as string | undefined;
-    const lastRunAtRaw = meta.quotePrepAuto?.lastRunAt as string | undefined;
-    const lastRunAt = lastRunAtRaw ? new Date(lastRunAtRaw) : null;
+    // P8: ONE intake source (server/intake.ts) — the spine clerk's artifact with any human
+    // override, the legacy metadata blob only for pre-spine threads.
+    const intakeRecord = await (await import('../intake')).getIntake(conv.id, { metadata: meta }).catch(() => null);
+    const readiness = intakeRecord?.readiness as string | undefined;
+    const lastRunAt = intakeRecord?.at ? new Date(intakeRecord.at) : null;
     if (!readiness || !lastRunAt || Number.isNaN(lastRunAt.getTime())) return null;
 
     // 2) quote_ready — ready to price, resolved only by a quote actually going out.
@@ -511,7 +513,9 @@ export async function sweepSlaBreaches(opts?: {
         .where(and(
             isNull(conversations.archivedAt),
             sql`(${conversations.stage} IS NULL OR ${conversations.stage} NOT IN ('closed', 'won'))`,
-            sql`(${conversations.metadata}->'quotePrepIntake'->>'readiness' IS NOT NULL OR 'needs_ben' = ANY(${conversations.tags}))`,
+            // P8: a spine clerk intake lives on agent_runs, not metadata — include those threads too.
+            sql`(${conversations.metadata}->'quotePrepIntake'->>'readiness' IS NOT NULL OR 'needs_ben' = ANY(${conversations.tags})
+                OR EXISTS (SELECT 1 FROM agent_runs r WHERE r.conversation_id = ${conversations.id} AND r.agent = 'quote_clerk'))`,
             ...(scope ? [inArray(conversations.id, scope)] : []),
         ))
         .limit(100);

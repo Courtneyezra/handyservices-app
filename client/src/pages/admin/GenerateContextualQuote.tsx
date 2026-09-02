@@ -1660,9 +1660,10 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
           return;
         }
         const data = await res.json();
-        const intake = data.metadata?.quotePrepIntake;
+        // P8: the server resolves ONE intake (spine clerk artifact → override → legacy blob).
+        const intake = data.intake ?? data.metadata?.quotePrepIntake;
         if (!intake) {
-          toast({ title: 'No quote intake found', description: 'Run quote-prep first', variant: 'destructive' });
+          toast({ title: 'No quote intake found', description: 'Run the clerk first', variant: 'destructive' });
           return;
         }
 

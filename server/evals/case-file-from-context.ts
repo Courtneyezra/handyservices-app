@@ -31,7 +31,7 @@ export function caseFileFromContext(c: EvalCaseV2, now: Date = new Date()): Case
         quote: c.quote ? { slug: c.quote.slug ?? 'evalq', total: c.quote.totalPence ?? null, lines: 1, viewedAt: c.quote.seen ? now.toISOString() : null, expiresAt: null, paid: !!c.quote.paid } : null,
         openPromises: [],
         openFlags: [],
-        tags: [],
+        tags: c.tags ?? [],
         lastRun: null,
         builtAt: now.toISOString(),
     };

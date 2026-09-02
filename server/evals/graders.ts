@@ -21,6 +21,8 @@ export interface ObservedRun {
     customerExceptions?: string[];
     holds?: { nearDuplicate?: boolean; malformedReason?: boolean };
     voiceViolations?: string[];
+    /** P8: the PROPOSE-tier artifact a run produced (the clerk's intake), for the intake family. */
+    artifact?: { kind: string; readiness?: string | null; lineTitles?: string[] } | null;
 }
 
 const norm = (s: string) => s.toLowerCase();
@@ -86,6 +88,20 @@ export function gradeObserved(expected: EvalExpected, o: ObservedRun): GraderRes
     if (expected.voiceClean) {
         const v = o.voiceViolations ?? [];
         out.push({ grader: 'voice-clean', pass: v.length === 0, note: v.length ? v.join(', ') : undefined });
+    }
+    if (expected.intake) {
+        const a = o.artifact ?? null;
+        const titles = a?.lineTitles ?? [];
+        if (expected.intake.readiness) {
+            out.push({ grader: 'intake-readiness', pass: !!a && a.readiness === expected.intake.readiness, note: `got ${a?.readiness ?? 'no intake'}, want ${expected.intake.readiness}` });
+        }
+        if (expected.intake.minLines != null) {
+            out.push({ grader: 'intake-min-lines', pass: titles.length >= expected.intake.minLines, note: `got ${titles.length} line(s), want ≥ ${expected.intake.minLines}` });
+        }
+        if (expected.intake.mustMentionLine?.length) {
+            const missing = expected.intake.mustMentionLine.filter((p) => !titles.some((t) => new RegExp(p, 'i').test(t)));
+            out.push({ grader: 'intake-lines-mention', pass: missing.length === 0, note: missing.length ? `no line matches: ${missing.join(' | ')} (lines: ${titles.join(' / ') || 'none'})` : undefined });
+        }
     }
     return out;
 }

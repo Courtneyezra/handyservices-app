@@ -62,6 +62,16 @@ Rollback, any time, one command (`docs/comms-build/CUTOVER.md` §4):
    sampler is on: 1 to 15 sends, fine / not fine, thirty seconds.
 4. **Missed calls** get the missed-call text automatically. Answered calls: the transcript reaches
    the clerk (spine live) and a quote intake card appears in the thread when there is enough to price.
+4a. **Pricing (P8, 3 Sep).** The intake card is the only way into a quote now; the old "Prep
+   quote" slide-over and "Build Quote" button are gone. Its pill says the lane in one vocabulary:
+   *Ready to price* / *Estimating…* / *Needs info* / *Visit first* / *Decline proposed*. When the
+   estimator has measured the job you get one Pushover, "Quote ready to price", and the card (and
+   the portal's review page) shows **Price and send** → `/admin/price/<slug>`: every line with a
+   suggested price prefilled, the band, a `check this` badge where the estimator could not measure
+   it, totals at the live margin. Edit what you disagree with, tap **Send quote**. Nothing goes
+   out before that tap. **Open full builder** is still one tap away. *Visit first* and *Decline*
+   put a draft (survey offer / polite no) in your queue to approve. If the clerk's lane is wrong,
+   the portal's lane override moves it; **Re-run clerk** on the card asks for a fresh intake.
 5. **What the agent did** — the drawer on any thread shows every run: lane, decision, guards hit,
    the proposal, cost. If a draft looks odd, that is where to look before rejecting.
 6. Reply from the **business number only** (that is how the desk sees your replies and closes flags).
@@ -114,5 +124,5 @@ Kill criteria that undo any of this are in CUTOVER §6.
 - `holding_line_v1` submitted to Meta (content SID HX1c733d68035a5fe3c15b90936f80ec8f), awaiting approval.
 - The six stale `tsx watch` dev servers on the Mac were killed.
 - Front-end gaps closed 3 Sep: every switch is a toggle on /admin/staff (owner-only for mode, legacy autosend and autonomy; live runs the go-live check first, then you type LIVE; rollback button always visible), a template status table with Sync now, and a shadow-report panel (7 days, 1-day toggle). Still to check by hand: Ben's approve / edit / reject flow and the morning sample strip on a phone screen.
-- Intake pipeline misalignment found 3 Sep (two clerks, stale legacy intake, orphaned estimator, an auto-pricing send path): documented in the Obsidian Build Log; alignment brief pending the owner's choice.
+- Intake pipeline misalignment found 3 Sep (two clerks, stale legacy intake, orphaned estimator, an auto-pricing send path): documented in the Obsidian Build Log. RESOLVED by P8 (3 Sep): one vocabulary (`shared/intake-readiness.ts`), one source (`server/intake.ts getIntake`), one card; the legacy handoff no longer fires; research is the estimator's labelled fallback only. Reports: `P8-DONE.md` at the root of each P8 worktree (chain / price-screen / align), filed under `docs/comms-build/` at merge.
 - Still open: OpenRouter key kept for now (prepaid credits; see the Obsidian note "OpenRouter Credits" for the plan to use them via a narrow adapter, then revoke); Neon dev branch + strip Twilio secrets from laptops; the live flip after one shadow day (eligible 4 Sep).

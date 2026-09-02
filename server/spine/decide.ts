@@ -97,6 +97,11 @@ export function decide(input: DecideInput): Decision {
     // 3. Nothing proposed.
     if (!proposal) return { kind: 'none', reason: 'no proposal' };
     if (proposal.flag) return { kind: 'flag', exception: proposal.flag.exception, dueAt: flagDue(), note: proposal.flag.note };
+    // 3b. P8: an artifact with nothing to say (the clerk's intake, a nudge batch) is recorded on
+    //     the run and read by the card; it must never become an empty draft in Ben's queue.
+    if (proposal.artifact && proposal.body.every((b) => !b.trim())) {
+        return { kind: 'none', reason: `artifact ${proposal.artifact.kind} recorded (tier PROPOSE); nothing goes to the customer` };
+    }
 
     // 4. The pack's vocabulary and guards.
     if (!(pack.allowedIntents as string[]).includes(proposal.intent)) {

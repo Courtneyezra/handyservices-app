@@ -14,6 +14,8 @@ import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './c
 import { callMessageId, classificationLine, readCallClassification } from './call-thread';
 import { neverSentMeta } from './message-quarantine';
 import { inboundSince } from './draft-freshness';
+import { loadIntakeReadinessMap } from './intake';
+import type { IntakeReadiness } from '@shared/intake-readiness';
 import {
     loadAutoAckSends, autoAckSpansByConversation, insideAnyAutoAckSpan, notWrittenByAnyAutoAck,
     type AutoAckSend,
@@ -92,9 +94,12 @@ export type BoardCard = {
     bensDesk: boolean;
     /** True when the newest (non-quarantined, non-auto-ack) message in the thread is outbound. */
     lastMessageOutbound: boolean;
-    /** The quote-prep clerk's verdict, from conversations.metadata.quotePrepIntake.
-     *  'quote_pending' when readiness is quote_ready but research is still running. */
-    intakeReadiness: 'quote_pending' | 'quote_ready' | 'needs_info' | 'visit_first' | null;
+    /** The quote clerk's verdict — ONE vocabulary (shared/intake-readiness.ts), ONE source
+     *  (server/intake.ts getIntake: spine artifact → human override → legacy fallback).
+     *  'quote_pending' = quote_ready with the estimator still running. */
+    intakeReadiness: IntakeReadiness | null;
+    /** P8: the priced draft's slug once the chain has produced one — links to /admin/price/{slug}. */
+    priceDraftSlug: string | null;
     /** Open agent_questions rows for this conversation. */
     openQuestionCount: number;
     /** Options length on the newest open question — "answer in {n} taps". */
@@ -130,6 +135,10 @@ export type CardDerived = {
     quoteSlug: string | null;
     /** Research status: 'pending'|'running' means still researching (quote_pending). */
     researchStatus: 'pending' | 'running' | 'completed' | 'failed' | null;
+    /** P8: the effective readiness from server/intake.ts (spine → override → legacy). */
+    intakeReadiness: IntakeReadiness | null;
+    intakeSource: 'spine' | 'legacy' | null;
+    priceDraftSlug: string | null;
 };
 
 const EMPTY_DERIVED: CardDerived = {
@@ -141,6 +150,9 @@ const EMPTY_DERIVED: CardDerived = {
     researchStatus: null,
     quoteViewCount: null,
     quoteSlug: null,
+    intakeReadiness: null,
+    intakeSource: null,
+    priceDraftSlug: null,
 };
 
 /** Last 10 digits of any phone spelling — the same normalisation the agents use
@@ -154,7 +166,7 @@ function digits10(phone: string | null | undefined): string {
  * whatever the board size — never a query per card.
  */
 export async function loadCardDerived(
-    rows: Array<{ id: string; phoneNumber: string }>,
+    rows: Array<{ id: string; phoneNumber: string; metadata?: Record<string, any> | null }>,
 ): Promise<Map<string, CardDerived>> {
     const map = new Map<string, CardDerived>();
     if (rows.length === 0) return map;
@@ -252,10 +264,20 @@ export async function loadCardDerived(
         researchByConv.set(r.conversationId, r.status);
     }
 
+    // 6. P8: the intake readiness, ONE source for every surface (server/intake.ts). The spine
+    //    clerk's newest artifact (a projected scalar, never the blob), a human override when it
+    //    was made against that artifact, the legacy metadata blob only for pre-spine threads.
+    const readinessByConv = await loadIntakeReadinessMap(rows.map((r) => ({
+        id: r.id,
+        override: r.metadata?.quote_intake_override ?? null,
+        legacyReadiness: (r.metadata?.quotePrepIntake?.readiness as string | undefined) ?? null,
+    })));
+
     for (const r of rows) {
         const key = digits10(r.phoneNumber);
         const question = questionByConv.get(r.id);
         const quote = key ? quoteByPhone.get(key) : undefined;
+        const readiness = readinessByConv.get(r.id);
         map.set(r.id, {
             openQuestionCount: question?.count ?? 0,
             openQuestionOptions: question?.options ?? 0,
@@ -265,6 +287,9 @@ export async function loadCardDerived(
             quoteViewCount: quote?.viewCount ?? null,
             quoteSlug: quote?.slug ?? null,
             researchStatus: researchByConv.get(r.id) ?? null,
+            intakeReadiness: readiness?.readiness ?? null,
+            intakeSource: readiness?.source ?? null,
+            priceDraftSlug: readiness?.draftSlug ?? null,
         });
     }
     return map;
@@ -418,16 +443,12 @@ export function toCard(
         && !lastMessageOutbound
         && d.openQuestionCount === 0;
 
-    // The clerk's verdict, stored on metadata by maybeAutoQuotePrep (server/agents/comms.ts).
-    // quote_pending = agent has enough info, research running in background.
-    // quote_ready = research done, ready for Ben to price.
-    // The researchStatus fallback handles legacy data where quote_ready was set before quote_pending existed.
-    const rawReadiness = (c.metadata as Record<string, any> | null)?.quotePrepIntake?.readiness;
-    let intakeReadiness: BoardCard['intakeReadiness'] =
-        rawReadiness === 'quote_ready' || rawReadiness === 'quote_pending' || rawReadiness === 'needs_info' || rawReadiness === 'visit_first'
-            ? rawReadiness : null;
-    // Legacy fallback: if metadata says quote_ready but research is still pending/running, show pending
-    if (intakeReadiness === 'quote_ready' && (d.researchStatus === 'pending' || d.researchStatus === 'running')) {
+    // The clerk's verdict (P8 / C): resolved once in loadCardDerived through server/intake.ts —
+    // spine artifact → human override → legacy fallback — and `quote_pending` is derived from
+    // pane A's estimate state. The heuristic research row still means "pending" for a LEGACY
+    // intake only (nothing queues it any more; it is the estimator's explicit fallback).
+    let intakeReadiness: BoardCard['intakeReadiness'] = d.intakeReadiness ?? null;
+    if (intakeReadiness === 'quote_ready' && d.intakeSource === 'legacy' && (d.researchStatus === 'pending' || d.researchStatus === 'running')) {
         intakeReadiness = 'quote_pending';
     }
 
@@ -466,6 +487,7 @@ export function toCard(
         bensDesk: whoseMove === 'ben' && stage !== 'closed',
         lastMessageOutbound,
         intakeReadiness,
+        priceDraftSlug: d.priceDraftSlug ?? null,
         openQuestionCount: d.openQuestionCount,
         openQuestionOptions: d.openQuestionOptions,
         heldDraftCount: d.heldDraftCount,
@@ -555,8 +577,9 @@ export async function loadBoardCards(opts: { limit?: number; lane?: 'customer' |
         // Projection, not select-*: full rows drag every thread's stored quote-prep intake blob
         // (metadata jsonb, multi-KB each) across the wire × 400 cards, which took the board from
         // instant to ~20s on a remote link (found 21 Aug: "comms won't load in dev"). The board
-        // needs ONE scalar out of metadata — the clerk's readiness — so that is all it fetches,
-        // reshaped so toCard reads it exactly as before.
+        // needs two small things out of metadata — the legacy readiness scalar (pre-spine
+        // fallback) and the human lane override — so that is all it fetches, reshaped so
+        // loadCardDerived / toCard read them as before.
         const rows = (await db.select({
             id: conversations.id,
             phoneNumber: conversations.phoneNumber,
@@ -573,6 +596,7 @@ export async function loadBoardCards(opts: { limit?: number; lane?: 'customer' |
             leadId: conversations.leadId,
             status: conversations.status,
             intakeReadiness: sql<string | null>`${conversations.metadata}->'quotePrepIntake'->>'readiness'`,
+            intakeOverride: sql<Record<string, unknown> | null>`${conversations.metadata}->'quote_intake_override'`,
             roleProfile: conversations.roleProfile,
         }).from(conversations)
             .where(and(
@@ -585,7 +609,10 @@ export async function loadBoardCards(opts: { limit?: number; lane?: 'customer' |
             .limit(limit))
             .map((r) => ({
                 ...r,
-                metadata: r.intakeReadiness ? { quotePrepIntake: { readiness: r.intakeReadiness } } : null,
+                metadata: (r.intakeReadiness || r.intakeOverride) ? {
+                    ...(r.intakeReadiness ? { quotePrepIntake: { readiness: r.intakeReadiness } } : {}),
+                    ...(r.intakeOverride ? { quote_intake_override: r.intakeOverride } : {}),
+                } : null,
             })) as any[];
 
         const activity = await loadActivity(rows.map((r) => r.id));

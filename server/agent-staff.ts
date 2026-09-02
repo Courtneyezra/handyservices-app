@@ -29,7 +29,7 @@ import {
 import { STAFF as opsBriefStaff, SYSTEM as opsBriefSystem } from './agents/ops-brief';
 import { STAFF as recoveryStaff, SYSTEM as recoverySystem } from './agents/recovery';
 import { STAFF as commsStaff, SYSTEM as commsSystem, getCommsAgentConfig, setCommsAgentConfig } from './agents/comms';
-import { STAFF as quotePrepStaff, SYSTEM as quotePrepSystem, runQuotePrep } from './agents/quote-prep';
+import { STAFF as quotePrepStaff, SYSTEM as quotePrepSystem } from './agents/quote-prep';
 import { STAFF as opsManagerStaff, SYSTEM as opsManagerSystem } from './agents/ops-manager';
 import { FIRST_CONTACT_CHANNELS, type FirstContactChannel } from './first-contact-ack';
 import {
@@ -120,9 +120,11 @@ async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: stri
                     : 'DIRECT SEND OFF · every reply queues for approval',
                 on: config.autosend.enabled,
             },
+            // P8 (3 Sep 2026): the legacy auto quote-prep handoff is retired. The spine clerk is
+            // the only intake; the flag is ignored and shown as such.
             {
-                label: config.quotePrep.enabled ? 'AUTO QUOTE-PREP ON' : 'AUTO QUOTE-PREP OFF',
-                on: config.quotePrep.enabled,
+                label: 'LEGACY QUOTE-PREP RETIRED · spine clerk is the only intake (P8)',
+                on: false,
             },
             // Phase 0 (2 Sep 2026): the dead-man heartbeat. "SLA SWEEP ON" is a config bit; this
             // is whether the one process allowed to sweep has actually ticked in the last 10 min.
@@ -1100,44 +1102,47 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
     }
 });
 
-// GET /api/agents/quote-prep/:conversationId/intake — the intake the AUTOMATIC handoff already
-// prepped, if there is one.
+// GET /api/agents/quote-prep/:conversationId/intake — THE intake for a thread (P8 / C).
 //
-// The manual "Prep quote" button runs the clerk synchronously and hands the result straight to the
-// panel. Under direct send the clerk usually runs by itself (server/agents/comms.ts,
-// maybeAutoQuotePrep) minutes before Ben ever opens the thread, so the intake is sitting in
-// conversations.metadata with a Pushover alert already on his phone. Without this route the panel
-// would have no way to reach it and he would pay for a second identical run to see it.
+// One source: server/intake.ts getIntake — the newest spine clerk artifact with any human lane
+// override applied, falling back to the legacy metadata blob only for threads that predate the
+// spine clerk. The response keeps the old { intake, preparedAt, readiness } shape for existing
+// readers and adds where it came from, the override and pane A's estimate state.
 agentStaffRouter.get('/quote-prep/:conversationId/intake', async (req, res) => {
     try {
-        const [conv] = await db.select().from(conversations)
-            .where(eq(conversations.id, req.params.conversationId));
-        if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-        const meta = (conv.metadata ?? {}) as Record<string, any>;
-        const intake = meta.quotePrepIntake ?? null;
+        const { getIntake } = await import('./intake');
+        const record = await getIntake(req.params.conversationId);
+        if (!record) return res.json({ intake: null, preparedAt: null, readiness: null, source: null, runId: null, override: null, estimate: null });
         res.json({
-            intake,
-            preparedAt: meta.quotePrepAuto?.lastRunAt ?? null,
-            readiness: intake?.readiness ?? meta.quotePrepAuto?.lastReadiness ?? null,
+            intake: record.intake,
+            preparedAt: record.at,
+            readiness: record.readiness,
+            clerkReadiness: record.clerkReadiness,
+            source: record.source,
+            runId: record.runId,
+            override: record.override,
+            overrideApplied: record.overrideApplied,
+            estimate: record.estimate,
+            summary: record.summary,
         });
     } catch (error: any) {
-        console.error('[QuotePrep] Stored intake read failed:', error);
-        res.status(500).json({ error: error?.message || 'Could not read the stored intake' });
+        console.error('[QuotePrep] Intake read failed:', error);
+        res.status(500).json({ error: error?.message || 'Could not read the intake' });
     }
 });
 
-// POST /api/agents/quote-prep/:conversationId — run the intake clerk on one thread.
-// Synchronous on purpose: the caller is a human who just clicked "Prep quote" and wants the
-// prefill; a run takes ~20-40s and the button shows progress.
+// POST /api/agents/quote-prep/:conversationId — ask the SPINE clerk to run on one thread (P8 / C).
+// Was: a synchronous legacy runQuotePrep that wrote metadata.quotePrepIntake. Now: the thread is
+// tagged needs_quote and a spine run is requested; the worker executes it and the card / board
+// read the artifact. 202, never a result — with the spine off nothing runs (fail closed).
 agentStaffRouter.post('/quote-prep/:conversationId', async (req, res) => {
     try {
-        const { intake, summary, turns } = await runQuotePrep(req.params.conversationId);
-        if (!intake) {
-            return res.status(422).json({ error: 'NO_INTAKE', message: summary || 'The agent could not extract a usable intake from this thread.' });
-        }
-        res.json({ intake, summary, turns });
+        const { requestClerkRerun } = await import('./intake');
+        const r = await requestClerkRerun(req.params.conversationId);
+        if (!r.queued) return res.status(409).json({ error: 'NOT_QUEUED', message: r.reason ?? 'The spine did not accept the run request', mode: r.mode });
+        res.status(202).json({ queued: true, mode: r.mode, message: r.reason ?? 'Clerk run requested. The intake card updates when it lands.' });
     } catch (error: any) {
-        console.error('[QuotePrep] Run failed:', error);
-        res.status(500).json({ error: error?.message || 'Quote prep failed' });
+        console.error('[QuotePrep] Run request failed:', error);
+        res.status(500).json({ error: error?.message || 'Could not request a clerk run' });
     }
 });

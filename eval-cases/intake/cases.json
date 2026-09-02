@@ -1,0 +1,63 @@
+{
+ "cases": [
+  {
+   "id": "in-001-scope-added-new-intake-supersedes",
+   "family": "intake",
+   "tags": ["needs_quote"],
+   "customer": { "firstName": "G." },
+   "context": [
+    { "direction": "inbound", "body": "Hi, I need my bathroom door re-hung, it has dropped and catches on the frame when it closes. NG5 area. Photo attached.", "at": "2026-09-02T09:02:00.000Z" },
+    { "direction": "outbound", "body": "Thanks, got the photo. I'll get this priced up for you shortly.", "at": "2026-09-02T09:05:00.000Z" },
+    { "direction": "inbound", "body": "Also, while you're here, the kitchen window sill. The paint has flaked and the wood underneath has gone soft in one corner, so it probably needs filling, sanding and repainting.", "at": "2026-09-02T09:20:00.000Z" }
+   ],
+   "expected": {
+    "lane": "quote_clerk",
+    "intake": { "minLines": 2, "mustMentionLine": ["sill"] },
+    "mustNotContain": ["£"],
+    "notes": "Scope added after the first intake. The clerk's NEW intake must carry both jobs (door + window sill); pane A marks the earlier estimate and unsent draft superseded and re-runs the chain (BRIEF-P8-chain §5). Gemma window-sill thread, 2 Sep 2026, scrubbed."
+   },
+   "provenance": "p8_intake_supersede_2026-09-02"
+  },
+  {
+   "id": "in-002-visit-first-offer-survey",
+   "family": "intake",
+   "tags": ["needs_quote"],
+   "customer": { "firstName": "R." },
+   "context": [
+    { "direction": "inbound", "body": "We've got damp coming through the wall in the back bedroom and the plaster is bubbling in a couple of places. Not sure where it's coming from, the gutter outside looks ok. Can you sort it? NG3.", "at": "2026-09-02T11:00:00.000Z" },
+    { "direction": "outbound", "body": "Thanks for the message. Could you send a photo or two of the wall?", "at": "2026-09-02T11:03:00.000Z" },
+    { "direction": "inbound", "body": "Here's a photo. It's worse than it looks, the whole corner feels damp to touch.", "at": "2026-09-02T11:10:00.000Z" }
+   ],
+   "expected": {
+    "lane": "quote_clerk",
+    "intent": "offer_survey",
+    "intake": { "readiness": "visit_first" },
+    "voiceClean": true,
+    "notes": "Cannot be priced honestly from the thread (unknown cause of damp). Readiness visit_first; the spine drafts the paid survey offer (intent offer_survey, tier DRAFT, fee from settings, booking link — BRIEF-P8-chain §6) for Ben to approve. The intent grader stays red until pane A's offer_survey lands."
+   },
+   "provenance": "p8_visit_first_2026-09-02"
+  },
+  {
+   "id": "in-003-decline-roofing-height-closing-draft",
+   "family": "intake",
+   "tags": ["needs_quote"],
+   "customer": { "firstName": "D." },
+   "context": [
+    { "direction": "inbound", "body": "Hi, a few roof tiles have slipped near the ridge on our two-storey house and one has come off completely. Can you get up and refix them and replace the missing one? NG9.", "at": "2026-09-02T14:00:00.000Z" },
+    { "direction": "outbound", "body": "Thanks for getting in touch. Do you have a photo of the roof from the ground?", "at": "2026-09-02T14:02:00.000Z" },
+    { "direction": "inbound", "body": "Photo attached, it's the section above the bedroom window.", "at": "2026-09-02T14:08:00.000Z" }
+   ],
+   "expected": {
+    "lane": "quote_clerk",
+    "intent": "closing",
+    "intake": { "readiness": "decline" },
+    "mustNotContain": ["£", "discount"],
+    "mustContain": ["roofing specialist", "not something we can take on"],
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "notes": "One of the four no-go trades (roofing & work at height, docs/DECLINE_CRITERIA.md) that the regulated-trade lexicon does NOT catch, so the clerk sees it. Readiness decline → the fixed polite-no template as a DRAFT at intent closing; Ben confirms in the queue (P8 / C)."
+   },
+   "provenance": "p8_decline_2026-09-02"
+  }
+ ]
+}

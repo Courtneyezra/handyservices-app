@@ -220,6 +220,46 @@ Why, from the evidence:
 
 **Build the catalog as a by-product:** the clerk emits `category` on every line from day one, and every line Ben keeps unchanged is a labelled SKU candidate. **Revisit trigger:** the day 30 quotes in 90 days share one category with one line and ≤ 20% price variance, run a READ-tier shadow estimate for that category for 30 days. If ≥ 80% within 10% of Ben's price, bring "agent sends engine-priced quote for category X" to council.
 
+### 6.1 Addendum — Route A (built 3 Sep 2026, P8)
+
+The boundary above stands; what changed is how much of the work before Ben's tap is automatic.
+The contract, in one line: **clerk scopes, estimator measures, engine prices, Ben decides.**
+
+- **Clerk scopes.** The spine's Quote clerk is the ONLY intake (the legacy `maybeAutoQuotePrep`
+  handoff no longer fires and `metadata.quotePrepIntake` is never written again; it is read only as
+  a fallback for pre-spine threads). One readiness vocabulary everywhere
+  (`shared/intake-readiness.ts`: `quote_ready | quote_pending | needs_info | visit_first | decline`),
+  one reader everywhere (`server/intake.ts getIntake`: spine artifact → human override → legacy
+  fallback), one card in the thread and in the portal (`QuoteIntakeCard`).
+- **Estimator measures.** It judges category, on-site time as a range, materials with cost,
+  access/difficulty flags and confidence. It NEVER outputs a price; a price field in its output is
+  stripped and refused. Time comes from history first (same category, last 12 months) and the
+  model only when history is thin (`timeSource`).
+- **Engine prices.** The ONLY pricing engine is `server/contextual-pricing/multi-line-engine.ts`
+  with the live settings row (`materialsMarginPercent`, 27 today, never hardcoded). Labour = the
+  estimator's on-site minutes per line + ONE setup and ONE cleanup allowance per job (no per-line
+  buffers). The additive module in `pricing-config.ts` and `/api/quotes/from-estimate` are retired.
+- **Ben decides.** The chain writes a DRAFT with suggested prices and bands in a separate field;
+  every customer-visible price stays null until Ben's tap on the phone-first "price and send"
+  screen (`/admin/price/<slug>`). The contextual generator stays one tap away. No price reaches a
+  customer without that tap — COMMIT is still never an agent tier.
+
+**Fallback rule.** A line the estimator cannot measure (no history, no catalogue match, low
+confidence) is priced at the category reference rate × default duration from
+`reference-prices.ts`, flagged `check_this` with the reason. It is never silent: the price screen
+shows the badge and the reason.
+
+**Visit-first rule.** Readiness `visit_first` produces no price. The spine drafts the paid survey
+offer (intent `offer_survey`, tier DRAFT, fixed fee from settings, booking link) for Ben to
+approve. **Decline rule.** Readiness `decline` (one of the four no-go trades) drafts the fixed
+polite-no template at intent `closing`, tier DRAFT; Ben confirms it in the queue. The portal's lane
+override can set `decline` by hand; that queues the same draft.
+
+**Route B graduation trigger — unchanged.** Per category: ≥ 30 quotes in 90 days, ≤ 20% price
+variance, and ≥ 80% of lines unedited-in-band for 30 days. Met → bring "agent sends engine-priced
+quote for category X" to council. Nothing auto-sends in this phase; the price screen's stats table
+only reports the trigger.
+
 ---
 
 ## 7. Scope lanes beyond the customer thread

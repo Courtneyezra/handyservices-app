@@ -59,7 +59,10 @@ UPDATE app_settings SET value = value || '{"enabled": true, "shadow": true}'::js
    max one per thread per 24h, same suppression as the holding line.
 3. Turn the legacy comms agent's on-inbound path OFF for the customer lane so two brains do not
    draft the same thread (`comms_agent.onInbound = false` in `app_settings`; the sweeps stay until
-   Phase 5). Ben's queue now comes from the spine.
+   Phase 5). Ben's queue now comes from the spine. **Note (P8, 3 Sep):** the legacy quote-prep
+   handoff is ALREADY off in code — `maybeAutoQuotePrep` is a no-op and `comms_agent.quotePrep`
+   is ignored whatever the row says. The spine clerk is the only intake in every mode (its card
+   reads in shadow too); nothing to flip for it here.
 4. `sampler.enabled: true` (needs Phase 3 / B if built; otherwise leave false and note it).
 5. After ≥ 14 days of verdicts: `autonomy.enabled: true`. The daily job promotes per §4 / §0b and
    demotes on any `unsafe`. Promotions and demotions appear on `/admin/staff` and as Pushover.

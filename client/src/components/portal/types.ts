@@ -1,15 +1,19 @@
 /**
- * Shared types for the unified mobile portal (/admin/portal, T5).
+ * Shared types for the unified mobile portal (/admin/portal, T5; P8 / C, 3 Sep 2026).
  *
  * These mirror server shapes read-only:
  *  - PortalCard is the subset of the inbox board card (server/inbox-board.ts toCard) the portal renders.
- *  - PortalIntake mirrors conversations.metadata.quotePrepIntake (server/agents/quote-prep.ts).
+ *  - PortalIntake mirrors the ONE intake server/intake.ts getIntake returns (spine clerk artifact
+ *    → human override → legacy blob), as served by GET /api/agents/quote-prep/:id/intake.
  *
- * Deliberately NO shadow-score fields: the portal renders lanes, never numeric confidence
- * (docs/AGENT_DECISION_FRAMEWORK.md — "output lanes, not scores").
+ * The lane vocabulary is shared/intake-readiness.ts — one set of five values for the server,
+ * the board, the thread card and this portal. Deliberately NO shadow-score fields: the portal
+ * renders lanes, never numeric confidence (docs/AGENT_DECISION_FRAMEWORK.md).
  */
+import type { IntakeReadiness, OverridableReadiness } from '@shared/intake-readiness';
 
-export type Lane = 'quote_ready' | 'quote_pending' | 'needs_info' | 'visit_first';
+export type Lane = IntakeReadiness;
+export type OverridableLane = OverridableReadiness;
 
 export interface PortalCard {
     id: string;
@@ -27,6 +31,8 @@ export interface PortalCard {
     bensDesk: boolean;
     /** The clerk's lane; string (not Lane) so future lanes render harmlessly (T6a seam). */
     intakeReadiness: string | null;
+    /** P8: the priced draft's slug once the chain has one — /admin/price/{slug}. */
+    priceDraftSlug?: string | null;
     openQuestionCount: number;
     heldDraftCount: number;
     callbackDue: boolean;
@@ -56,7 +62,9 @@ export interface PortalIntakeGap {
 
 export interface PortalIntakeLine {
     title: string;
-    detail: string;
+    detail: string | null;
+    category?: string | null;
+    qty?: number | null;
     assumptions: string[];
 }
 
@@ -72,10 +80,36 @@ export interface PortalIntake {
     urgency: 'low' | 'med' | 'high';
 }
 
+export interface PortalIntakeOverride {
+    readiness: string;
+    runId: string | null;
+    from: string | null;
+    by: string;
+    at: string;
+    reason: string | null;
+}
+
+export interface PortalEstimate {
+    id: string;
+    status: string;
+    phase: 'running' | 'done' | 'failed';
+    createdAt: string | null;
+    draftQuoteId: string | null;
+    draftSlug: string | null;
+}
+
 export interface IntakeResponse {
     intake: PortalIntake | null;
     preparedAt: string | null;
+    /** EFFECTIVE readiness (override applied, estimate state derived). */
     readiness: string | null;
+    clerkReadiness?: string | null;
+    source?: 'spine' | 'legacy' | null;
+    runId?: string | null;
+    override?: PortalIntakeOverride | null;
+    overrideApplied?: boolean;
+    estimate?: PortalEstimate | null;
+    summary?: string | null;
 }
 
 /** One event on the unified thread timeline (GET /api/inbox/conversations/:id/thread). */

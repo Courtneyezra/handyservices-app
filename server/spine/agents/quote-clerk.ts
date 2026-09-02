@@ -13,13 +13,19 @@
  * (server/spine/config.ts), so this ships dark.
  */
 import { newRunId } from '../../approver';
-import { runQuotePrep } from '../../agents/quote-prep';
-import { READY_TO_PRICE_TAG } from '../../agents/comms';
+import { runQuotePrep, DECLINE_TEMPLATES, type DeclineReason } from '../../agents/quote-prep';
+import { READY_TO_PRICE_TAG, DECLINE_PROPOSED_TAG } from '../../agents/comms';
 import { withLineCategories } from './line-category';
 import { recordSpineRunStart, recordSpineRunFinish } from '../run-record';
 import type { CaseFile, Proposal, SpineAgent, TriageResult, Trigger } from '../types';
 
 export const QUOTE_CLERK_TRIGGER = 'spine:quote_clerk';
+
+/** The polite-no body for a decline verdict: the fixed template per reason code, or null when the reason is unknown. */
+export function declineProposalBody(reason: string | null | undefined): string | null {
+    if (!reason || !(reason in DECLINE_TEMPLATES)) return null;
+    return DECLINE_TEMPLATES[reason as DeclineReason];
+}
 
 export function caseFileHasTranscript(caseFile: CaseFile): boolean {
     return caseFile.timeline.some((t) => (t.kind === 'call_in' || t.kind === 'call_out') && !!t.transcript && t.transcript.trim().length > 40);
@@ -49,15 +55,21 @@ export const quoteClerkAgent: SpineAgent = {
                 return null;
             }
             const categorised = withLineCategories(intake);
+            // P8 / C: a proposed decline is a DRAFT reply at intent `closing` — the fixed polite-no
+            // template for the reason code (docs/DECLINE_CRITERIA.md), never composed per thread.
+            // Tier DRAFT means it sits in Ben's queue: he confirms the polite no or rethinks. The
+            // intake artifact rides along so the card and the portal show the `decline` lane.
+            const decline = intake.readiness === 'decline' ? declineProposalBody(intake.declineReason) : null;
             const proposal: Proposal = {
-                intent: 'propose_intake',
-                body: [],
-                reasons: [summary.slice(0, 500)],
+                intent: decline ? 'closing' : 'propose_intake',
+                body: decline ? [decline] : [],
+                reasons: [
+                    ...(decline ? [`Clerk proposes a decline (${intake.declineReason ?? 'no reason given'}); Ben confirms the polite no.`] : []),
+                    summary.slice(0, 500),
+                ],
                 citations: [`agent_runs:${childRunId}`],
-                // A polite no is a Ben decision (docs/DECLINE_CRITERIA.md), surfaced as an exception.
-                flag: intake.readiness === 'decline'
-                    ? { exception: 'out_of_scope', note: `Clerk proposes a decline: ${intake.declineReason ?? 'no reason given'}` }
-                    : null,
+                flag: null,
+                ...(decline ? { tags: [DECLINE_PROPOSED_TAG] } : {}),
                 contactName: intake.customerName ?? null,
                 artifact: {
                     kind: 'quote_intake',
@@ -68,7 +80,7 @@ export const quoteClerkAgent: SpineAgent = {
             };
             await recordSpineRunFinish(runId, meta, {
                 decision: 'PROPOSE', lane: triage.lane, durationMs: Date.now() - startedAt,
-                proposal: { intent: proposal.intent, artifact: proposal.artifact, flag: proposal.flag },
+                proposal: { intent: proposal.intent, artifact: proposal.artifact, flag: proposal.flag, body: proposal.body },
             });
             return proposal;
         } catch (error: any) {

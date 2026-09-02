@@ -21,11 +21,10 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
     Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText, User, Hourglass,
-    ShieldCheck, Ban, EyeOff, ClipboardList, Trash2, HardHat, RefreshCw, Calculator,
+    ShieldCheck, Ban, EyeOff, ClipboardList, Trash2, HardHat, RefreshCw, PoundSterling,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
 import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
 import { AgentRunsDrawer } from '@/components/comms/AgentRunsDrawer';
@@ -33,7 +32,7 @@ import { SampleReviewStrip } from '@/components/comms/SampleReviewStrip';
 import { QuoteIntakeCard } from '@/components/comms/QuoteIntakeCard';
 import { VerdictReasonChips, type VerdictReason } from '@/components/comms/VerdictReasonChips';
 import { dueLabel } from '@/lib/due-label';
-import { QuoteBuilderPanel } from '@/components/quote-builder';
+import { READINESS_UI, type IntakeReadiness } from '@shared/intake-readiness';
 import { useCommsEvents, useRecentBoardChange } from '@/hooks/useCommsEvents';
 
 function getAuthHeaders(): Record<string, string> {
@@ -74,7 +73,10 @@ interface BoardCard {
     whoseMove: 'ben' | 'agent' | 'customer';
     bensDesk: boolean;
     lastMessageOutbound: boolean;
-    intakeReadiness: 'quote_pending' | 'quote_ready' | 'needs_info' | 'visit_first' | null;
+    /** ONE vocabulary (shared/intake-readiness.ts), ONE source (server/intake.ts). */
+    intakeReadiness: IntakeReadiness | null;
+    /** P8: the priced draft's slug once the chain has one — /admin/price/{slug}. */
+    priceDraftSlug: string | null;
     openQuestionCount: number;
     openQuestionOptions: number;
     heldDraftCount: number;
@@ -568,22 +570,16 @@ function CardBadges({ card }: { card: BoardCard }) {
     // Intake badges are a TO-DO ("this thread is priceable — go build the quote"). Once a
     // quote exists the to-do is done, so past quote_sent they're stale noise and hidden.
     const quoteOut = ['quote_sent', 'won', 'closed'].includes(card.stage) || (card.quoteViewCount ?? 0) > 0;
-    if (card.intakeReadiness === 'quote_pending' && !quoteOut) {
+    // P8: one vocabulary for the clerk's lane (shared/intake-readiness.ts). needs_info is the
+    // agent's move, not a to-do, so it stays off the card; the other four are Ben's.
+    if (card.intakeReadiness && card.intakeReadiness !== 'needs_info' && !quoteOut) {
+        const ui = READINESS_UI[card.intakeReadiness];
         pills.push(
-            <span key="intake" className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
-                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Researching...
-            </span>
-        );
-    } else if (card.intakeReadiness === 'quote_ready' && !quoteOut) {
-        pills.push(
-            <span key="intake" className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">
-                <ClipboardList className="h-2.5 w-2.5" /> Intake ready to price
-            </span>
-        );
-    } else if (card.intakeReadiness === 'visit_first' && !quoteOut) {
-        pills.push(
-            <span key="visit" className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-800">
-                Visit first
+            <span key="intake" className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold', ui.pill)} title={ui.blurb}>
+                {card.intakeReadiness === 'quote_pending'
+                    ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    : card.priceDraftSlug ? <PoundSterling className="h-2.5 w-2.5" /> : <ClipboardList className="h-2.5 w-2.5" />}
+                {card.priceDraftSlug && card.intakeReadiness === 'quote_ready' ? 'Priced draft ready' : ui.label}
             </span>
         );
     }
@@ -1222,8 +1218,6 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     const [channel, setChannel] = useState<'whatsapp' | 'sms'>(() => defaultChannel(card));
     const [error, setError] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
-    // Quote builder panel state
-    const [builderOpen, setBuilderOpen] = useState(false);
 
     const { data, isLoading } = useQuery<{
         messages: ThreadMessage[]; timeline?: TimelineItem[]; totalMessages: number; totalCalls?: number;
@@ -1315,85 +1309,15 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         queryClient.invalidateQueries({ queryKey: ['comms-board'] });
     };
 
-    // Quote-prep agent: reads the whole thread (media included), returns a structured intake,
-    // rendered in a full-height slide-over panel with builder parity (materials, assumptions,
-    // signals, crew/skin, extras). The thread stays one click back — closing the panel keeps
-    // its state, so Ben can check a message and reopen without losing edits. The full builder
-    // stays reachable from the panel for anything beyond it.
-    // The agent never prices; the panel's Save runs the same engine the builder uses.
-    const [intake, setIntake] = useState<QuoteIntake | null>(null);
-    const [prepOpen, setPrepOpen] = useState(false);
-    // Bumped per run so a re-prep remounts the panel (fresh state from the new intake).
-    const [intakeRun, setIntakeRun] = useState(0);
-    // ThreadPanel is one instance across card switches — without this, another
-    // customer's intake panel would linger on the newly opened thread.
-    // Same reason the template picker is reset here: ThreadPanel is one instance across card
-    // switches, so per-thread panel state has to follow the card or it leaks between customers.
+    // P8 / C: the legacy quote-prep slide-over, its stored-intake fetch and the manual "Prep quote"
+    // run are gone. The spine's QuoteIntakeCard below is the single entry into a quote: readiness,
+    // lines, gaps, media, and "Price and send" once the chain has priced a draft.
+    // ThreadPanel is one instance across card switches, so per-thread panel state (template picker,
+    // channel) has to follow the card or it leaks between customers.
     useEffect(() => {
-        setIntake(null); setPrepOpen(false); setShowTemplates(false);
-        setChannel(defaultChannel(card)); setBuilderOpen(false);
+        setShowTemplates(false);
+        setChannel(defaultChannel(card));
     }, [card.id]);
-
-    // The comms agent runs the conversation on its own now, and when it decides a thread is
-    // priceable it fires the clerk itself and pushes Ben a notification. By the time he taps
-    // through, the intake is already prepped and stored — so load it rather than making him click
-    // "Prep quote" and pay for the identical run a second time. The panel opens closed (the chip
-    // below is one tap) so arriving at a thread does not shove a slide-over over the messages he
-    // came to read.
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await fetch(`/api/agents/quote-prep/${card.id}/intake`, { headers: getAuthHeaders() });
-                if (!res.ok) return;
-                const detail = await res.json().catch(() => ({}));
-                if (cancelled || !detail?.intake) return;
-                setIntake(detail.intake as QuoteIntake);
-                setIntakeRun((n) => n + 1);
-                // Arrived from the Pushover deep link (&prep=1): Ben came specifically to price
-                // this, so the panel opens itself. The param is stripped so a later refresh or a
-                // second thread does not re-shove the slide-over.
-                const params = new URLSearchParams(window.location.search);
-                if (params.get('prep') === '1' && params.get('conversation') === card.id) {
-                    setPrepOpen(true);
-                    window.history.replaceState(null, '', window.location.pathname);
-                }
-            } catch { /* a missing prefill is not an error worth showing anyone */ }
-        })();
-        return () => { cancelled = true; };
-    }, [card.id]);
-    const prepQuote = useMutation({
-        mutationFn: async () => {
-            const res = await fetch(`/api/agents/quote-prep/${card.id}`, {
-                method: 'POST', headers: getAuthHeaders(),
-            });
-            const detail = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(detail.message || detail.error || 'Quote prep failed');
-            return detail as { intake: QuoteIntake };
-        },
-        onSuccess: ({ intake: fresh }) => {
-            setError(null);
-            setIntake(fresh);
-            setIntakeRun((n) => n + 1);
-            setPrepOpen(true);
-        },
-        onError: (e: Error) => setError(e.message),
-    });
-
-    // The thread's photos and videos, offered on the card as tickable thumbnails.
-    // Deduped by URL; audio and documents can't illustrate a quote so they're skipped.
-    const threadMedia = useMemo(() => {
-        const seen = new Map<string, ThreadMessage>();
-        for (const m of data?.messages ?? []) {
-            if (!m.mediaUrl || seen.has(m.mediaUrl)) continue;
-            const mime = m.mediaType ?? '';
-            if (mime.startsWith('audio/') || m.type === 'audio') continue;
-            if (mime.startsWith('image/') || mime.startsWith('video/') || m.type === 'image' || m.type === 'video' || mime === '') {
-                seen.set(m.mediaUrl, m);
-            }
-        }
-        return [...seen.values()];
-    }, [data?.messages]);
 
     const sendFreeform = useMutation({
         mutationFn: async (body: string) => {
@@ -1529,25 +1453,25 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    {card.intakeReadiness === 'quote_pending' && (
-                        <span
-                            title="Research is running in the background"
-                            className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-bold uppercase text-amber-600"
-                        >
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            Researching...
-                        </span>
-                    )}
-                    {card.intakeReadiness === 'quote_ready' && (
-                        <button
-                            onClick={() => setBuilderOpen(true)}
-                            title="Open the quote builder to price and send"
+                    {/* P8: the clerk's lane, one vocabulary; the priced draft is one tap away. */}
+                    {card.priceDraftSlug ? (
+                        <a
+                            href={`/admin/price/${card.priceDraftSlug}`}
+                            title="Open the price-and-send screen for the priced draft"
                             className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white hover:bg-emerald-500"
                         >
-                            <Calculator className="h-3 w-3" />
-                            Build Quote
-                        </button>
-                    )}
+                            <PoundSterling className="h-3 w-3" />
+                            Price and send
+                        </a>
+                    ) : card.intakeReadiness && card.intakeReadiness !== 'needs_info' ? (
+                        <span
+                            title={READINESS_UI[card.intakeReadiness].blurb}
+                            className={cn('flex items-center gap-1 rounded px-2 py-1 text-[10px] font-bold uppercase', READINESS_UI[card.intakeReadiness].pill)}
+                        >
+                            {card.intakeReadiness === 'quote_pending' && <Loader2 className="h-3 w-3 animate-spin" />}
+                            {READINESS_UI[card.intakeReadiness].label}
+                        </span>
+                    ) : null}
                     {card.windowOpen ? (
                         <span className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white">
                             {card.windowHoursLeft}h window
@@ -1679,51 +1603,10 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 <LiveRunPanel conversationId={card.id} />
             </div>
 
-            {/* Quote-prep slide-over — full builder parity over the thread. The panel stays
-                mounted (state intact) while intake exists; the Sheet just shows/hides it. */}
-            {intake && (
-                <QuotePrepPanel
-                    key={intakeRun}
-                    intake={intake}
-                    conversation={card}
-                    media={threadMedia}
-                    open={prepOpen}
-                    onOpenChange={setPrepOpen}
-                    onDismiss={() => { setIntake(null); setPrepOpen(false); }}
-                    onRefresh={refresh}
-                />
-            )}
-
-            {/* Phase 4: the spine's in-chat quote card — compact review, draft-save, asks. Renders
-                nothing until the spine's clerk has left an intake for this thread. */}
+            {/* The ONE quote entry on a thread (P8 / C): the spine's in-chat quote card — readiness
+                lane, lines, gaps, media, "Price and send" once the chain has priced a draft.
+                Renders nothing until the clerk has left an intake for this thread. */}
             <QuoteIntakeCard conversationId={card.id} />
-
-            {/* Closed-but-alive prep: one tap back into the panel, nothing lost. */}
-            {intake && !prepOpen && (
-                <div className="flex items-center justify-between gap-2 border-t-2 border-slate-900 bg-white px-3 py-2">
-                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-900">
-                        <FileText className="h-3.5 w-3.5" />
-                        {intake.readiness === 'quote_ready' ? 'Intake ready to price'
-                            : intake.readiness === 'visit_first' ? 'Needs a visit before pricing'
-                                : 'Quote prep in progress'}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                        <button
-                            onClick={() => setPrepOpen(true)}
-                            className="rounded bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase text-white hover:bg-slate-700"
-                        >
-                            Open
-                        </button>
-                        <button
-                            onClick={() => setIntake(null)}
-                            title="Discard this prep"
-                            className="text-slate-400 hover:text-red-600"
-                        >
-                            <X className="h-4 w-4" />
-                        </button>
-                    </div>
-                </div>
-            )}
 
             {/* The agent's pending work on this thread: the flag note when it needs Ben, then
                 drafts awaiting approval. Above the composer so a decision is never below the fold.
@@ -1906,12 +1789,6 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             </div>
         </aside>
 
-        {/* Quote builder panel — opens when "Build Quote" is clicked for quote_ready threads. */}
-        <QuoteBuilderPanel
-            conversationId={card.id}
-            open={builderOpen}
-            onOpenChange={setBuilderOpen}
-        />
         </>
     );
 }

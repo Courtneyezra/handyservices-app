@@ -11,6 +11,8 @@
  * The mapping intake → draft row is pure (`intakeToDraftQuote`) and tested; nothing here prices.
  */
 import type { ProposalArtifact } from './types';
+import { normaliseReadiness, type IntakeReadiness } from '@shared/intake-readiness';
+import type { EstimateStatus, IntakeOverride, IntakeRecord } from '../intake';
 
 export type CardCustomerType = 'homeowner' | 'landlord' | 'letting_agent' | 'business';
 export const CARD_CUSTOMER_TYPES: readonly CardCustomerType[] = ['homeowner', 'landlord', 'letting_agent', 'business'];
@@ -41,20 +43,29 @@ export interface ThreadMediaItem {
 
 export interface QuoteIntakeCardPayload {
     available: true;
-    runId: string;
+    /** The spine run that produced the intake; null when the card is showing a pre-spine legacy blob. */
+    runId: string | null;
     at: string;
     summary: string;
     intake: {
         customerName: string | null;
         postcode: string | null;
         customerType: CardCustomerType;
-        readiness: string | null;
+        /** EFFECTIVE readiness — one vocabulary (shared/intake-readiness.ts), override applied. */
+        readiness: IntakeReadiness | null;
         lines: CardLine[];
         assumptions: string[];
         gaps: Array<{ question: string; audience: string; lineIndex: number | null }>;
+        declineReason: string | null;
     };
     missing: Array<'name' | 'postcode'>;
     media: ThreadMediaItem[];
+    /** P8: where the intake came from, the clerk's own verdict, any human override, the estimate state. */
+    source: 'spine' | 'legacy';
+    clerkReadiness: IntakeReadiness;
+    override: IntakeOverride | null;
+    overrideApplied: boolean;
+    estimate: EstimateStatus | null;
 }
 
 // ---------------------------------------------------------------- pure
@@ -101,7 +112,8 @@ export function intakeFromArtifact(artifact: ProposalArtifact | null | undefined
         customerName: typeof d.customerName === 'string' && d.customerName.trim() ? d.customerName.trim() : null,
         postcode: typeof d.postcode === 'string' && d.postcode.trim() ? d.postcode.trim().toUpperCase() : null,
         customerType: normaliseCustomerType(d.customerType),
-        readiness: typeof d.readiness === 'string' ? d.readiness : null,
+        readiness: typeof d.readiness === 'string' ? normaliseReadiness(d.readiness) : null,
+        declineReason: typeof d.declineReason === 'string' && d.declineReason ? d.declineReason : null,
         lines,
         assumptions: Array.isArray(d.assumptions) ? d.assumptions.map(String) : [],
         gaps: Array.isArray(d.gaps) ? d.gaps.map((g: any) => ({ question: String(g?.question ?? ''), audience: String(g?.audience ?? 'customer'), lineIndex: typeof g?.lineIndex === 'number' ? g.lineIndex : null })) : [],
@@ -243,23 +255,45 @@ export async function loadThreadMedia(conversationId: string): Promise<ThreadMed
     return out.reverse();
 }
 
-export async function loadQuoteIntakeCard(conversationId: string): Promise<QuoteIntakeCardPayload | { available: false; reason: string }> {
-    const { db } = await import('../db');
-    const { agentRuns } = await import('@shared/schema');
-    const { and, eq, desc } = await import('drizzle-orm');
-    const runs = await db.select({ id: agentRuns.id, agent: agentRuns.agent, finishedAt: agentRuns.finishedAt, startedAt: agentRuns.startedAt, proposal: agentRuns.proposal })
-        .from(agentRuns).where(and(eq(agentRuns.conversationId, conversationId), eq(agentRuns.agent, 'quote_clerk')))
-        .orderBy(desc(agentRuns.startedAt)).limit(20);
-    const picked = pickLatestIntakeRun(runs);
-    if (!picked) return { available: false, reason: 'no quote_intake artifact for this thread' };
-    const intake = intakeFromArtifact(picked.artifact);
-    if (!intake) return { available: false, reason: 'artifact unreadable' };
-    const media = await loadThreadMedia(conversationId);
-    return {
-        available: true, runId: picked.run.id,
-        at: new Date(picked.run.finishedAt ?? picked.run.startedAt).toISOString(),
-        summary: picked.artifact.summary, intake, missing: missingFields(intake), media,
+/** The card payload from a resolved intake record (pure; the loader below adds media). */
+export function cardFromIntakeRecord(record: IntakeRecord, media: ThreadMediaItem[]): QuoteIntakeCardPayload {
+    const v = record.intake;
+    const intake: QuoteIntakeCardPayload['intake'] = {
+        customerName: v.customerName,
+        postcode: v.postcode,
+        customerType: normaliseCustomerType(v.customerType),
+        readiness: record.readiness,
+        lines: v.lines.map((l) => ({ title: l.title, category: l.category, qty: l.qty, notes: l.detail, assumptions: l.assumptions })),
+        assumptions: v.assumptions,
+        gaps: v.gaps.map((g) => ({ question: g.question, audience: g.audience, lineIndex: g.lineIndex })),
+        declineReason: v.declineReason,
     };
+    return {
+        available: true,
+        runId: record.runId,
+        at: record.at,
+        summary: record.summary ?? `${v.lines.length} line(s), readiness ${record.readiness}, ${v.gaps.length} gap(s)`,
+        intake,
+        missing: missingFields(intake),
+        media,
+        source: record.source,
+        clerkReadiness: record.clerkReadiness,
+        override: record.override,
+        overrideApplied: record.overrideApplied,
+        estimate: record.estimate,
+    };
+}
+
+/**
+ * P8 / C: the card reads THE intake (server/intake.ts getIntake — spine artifact → human override
+ * → legacy fallback) so the comms thread and the portal show one and the same thing.
+ */
+export async function loadQuoteIntakeCard(conversationId: string): Promise<QuoteIntakeCardPayload | { available: false; reason: string }> {
+    const { getIntake } = await import('../intake');
+    const record = await getIntake(conversationId);
+    if (!record) return { available: false, reason: 'no quote intake for this thread' };
+    const media = await loadThreadMedia(conversationId);
+    return cardFromIntakeRecord(record, media);
 }
 
 export async function saveDraftQuote(conversationId: string, body: unknown, user: { id?: string | null; email?: string | null; name?: string | null } = {}):
