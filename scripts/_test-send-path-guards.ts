@@ -100,23 +100,23 @@ async function main() {
     // ---------------------------------------------------------------- 2. near-duplicate guard
     console.log('\n[2] Near-duplicate guard (automated approver)');
     const dupId = await mkDraft('dup_exact', 'Hiya James, sorry for the wait on this one.', '[answer_question] Customer asked about timing.');
-    const r1 = await approveAndSendDraft(dupId, 'comms_agent:autosend');
+    const r1 = await approveAndSendDraft(dupId, 'agent.comms.autosend');
     check(!r1.ok && r1.code === 'NEAR_DUPLICATE', `exact repeat blocked for autosend (got ${r1.ok ? 'ok' : r1.code})`);
     let d = await getDraft(dupId);
     check(d.status === 'pending' && d.approvedBy === null && d.approvedAt === null, 'blocked draft reverted to pending, approval cleared');
     check((d.reason ?? '').includes(NEAR_DUPLICATE_HOLD_MARKER), 'hold marker appended to reason');
     const reasonAfterFirst = d.reason;
-    const r2 = await approveAndSendDraft(dupId, 'comms_agent:autosend');
+    const r2 = await approveAndSendDraft(dupId, 'agent.comms.autosend');
     check(!r2.ok && r2.code === 'NEAR_DUPLICATE', 'second autosend attempt blocked again');
     d = await getDraft(dupId);
     check(d.reason === reasonAfterFirst, 'marker appended only once — reason did not grow on the second trip');
 
     const burstId = await mkDraft('dup_burst', 'Totally new first bubble about booking the visit.\n---\nHiya James, sorry for the wait on this one.', '[answer_question] Follow-up with details.');
-    const r3 = await approveAndSendDraft(burstId, 'comms_agent:autosend');
+    const r3 = await approveAndSendDraft(burstId, 'agent.comms.autosend');
     check(!r3.ok && r3.code === 'NEAR_DUPLICATE', `burst part repeat blocked (got ${r3.ok ? 'ok' : r3.code})`);
 
     const nearId = await mkDraft('dup_overlap', 'Hiya James, sorry for the big wait on this one.', '[answer_question] Re-worded apology.');
-    const r4 = await approveAndSendDraft(nearId, 'comms_agent:autosend');
+    const r4 = await approveAndSendDraft(nearId, 'agent.comms.autosend');
     check(!r4.ok && r4.code === 'NEAR_DUPLICATE', `0.9-overlap variant blocked (got ${r4.ok ? 'ok' : r4.code})`);
 
     console.log('\n[3] Near-duplicate guard: window edge + human override');
@@ -124,29 +124,29 @@ async function main() {
     // fire. WhatsApp draft + no open window => OUTSIDE_WINDOW is the "passed the guards" sentinel
     // (no real send attempted).
     const oldId = await mkDraft('dup_old', 'Completely unrelated update about the scaffolding survey from earlier.', '[follow_up] Chasing the survey.');
-    const r5 = await approveAndSendDraft(oldId, 'comms_agent:autosend');
+    const r5 = await approveAndSendDraft(oldId, 'agent.comms.autosend');
     check(!r5.ok && r5.code === 'OUTSIDE_WINDOW', `>10-min-old outbound does not block (got ${r5.ok ? 'ok' : r5.code})`);
 
-    const r6 = await approveAndSendDraft(dupId, 'ben@handyservices.app');
+    const r6 = await approveAndSendDraft(dupId, 'human:ben@handyservices.app');
     check(!r6.ok && r6.code === 'OUTSIDE_WINDOW', `human approver passes the near-dup guard (got ${r6.ok ? 'ok' : r6.code})`);
 
     // ---------------------------------------------------------------- 3. malformed-reason guard
     console.log('\n[4] Malformed-reason guard');
     const mal1 = await mkDraft('mal_unlabelled', 'Hiya James, thanks for your patience on this one.', '[unlabelled] undefined');
-    const m1 = await approveAndSendDraft(mal1, 'comms_agent:autosend');
+    const m1 = await approveAndSendDraft(mal1, 'agent.comms.autosend');
     check(!m1.ok && m1.code === 'MALFORMED_REASON', `"[unlabelled] undefined" blocked for autosend (got ${m1.ok ? 'ok' : m1.code})`);
     const md = await getDraft(mal1);
     check(md.status === 'pending' && (md.reason ?? '').includes(MALFORMED_REASON_HOLD_MARKER), 'malformed draft held pending with marker');
 
     const mal2 = await mkDraft('mal_placeholder', 'We will have your price over shortly.', '[answer_question] placeholder');
-    const m2 = await approveAndSendDraft(mal2, 'hours_gate:morning_release');
+    const m2 = await approveAndSendDraft(mal2, 'rules.hours_gate');
     check(!m2.ok && m2.code === 'MALFORMED_REASON', `"placeholder" blocked for hours_gate approver (got ${m2.ok ? 'ok' : m2.code})`);
 
     const mal3 = await mkDraft('mal_empty', 'Just checking in on the quote.', '');
-    const m3 = await approveAndSendDraft(mal3, 'first_contact_ack:held_release');
+    const m3 = await approveAndSendDraft(mal3, 'rules.first_contact');
     check(!m3.ok && m3.code === 'MALFORMED_REASON', `empty reason blocked for first_contact_ack approver (got ${m3.ok ? 'ok' : m3.code})`);
 
-    const m4 = await approveAndSendDraft(mal1, 'ben@handyservices.app');
+    const m4 = await approveAndSendDraft(mal1, 'human:ben@handyservices.app');
     check(!m4.ok && m4.code === 'OUTSIDE_WINDOW', `human approver passes the malformed-reason guard (got ${m4.ok ? 'ok' : m4.code})`);
 
     // ---------------------------------------------------------------- 4. clean draft
@@ -154,7 +154,7 @@ async function main() {
     // SMS channel exercises the full send path. ok:true or SEND_FAILED are both acceptable here
     // (no Twilio creds / dead test range) — what must NOT happen is either guard code.
     const cleanId = await mkDraft('clean', 'Your quote is being priced now — link to follow this afternoon.', '[answer_question] Customer asked when the price lands.', 'sms');
-    const c1 = await approveAndSendDraft(cleanId, 'comms_agent:autosend');
+    const c1 = await approveAndSendDraft(cleanId, 'agent.comms.autosend');
     check(c1.ok || (c1.code !== 'NEAR_DUPLICATE' && c1.code !== 'MALFORMED_REASON'),
         `clean draft not caught by guards (got ${c1.ok ? 'ok' : c1.code})`);
 

@@ -29,7 +29,8 @@ export type PushoverEventKey =
     | 'template_status'
     | 'send_failed'
     | 'comms_beta'
-    | 'va_call_task';
+    | 'va_call_task'
+    | 'worker_health';
 
 export interface PushoverEventDef {
     key: PushoverEventKey;
@@ -88,6 +89,9 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // Speed-to-lead (28 Aug 2026): a text-channel enquiry landed and a human should RING them
     // within 15 working minutes. This is the ping that makes that happen — the tel: link is the
     // whole point. Existing recipients pick it up automatically (missing key = subscribed).
+    // Phase 0 (2 Sep 2026): the comms worker's dead-man alarm — flag absent on production at
+    // boot, or heartbeat stale > 10 min in UK daytime. Infra, not a customer: no phone link.
+    { key: 'worker_health', label: 'Comms worker down or misconfigured (heartbeat stale / flag absent)', short: 'Worker', group: 'Dispatch', defaultPriority: 1, defaultSound: 'siren' },
     { key: 'va_call_task', label: 'Call task — ring a new enquiry within 15 min', short: 'Call tasks', group: 'Inbound', defaultPriority: 1, defaultSound: 'intermission' },
 ];
 

@@ -10,7 +10,7 @@ import { db } from '../server/db';
 import { conversations } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { scheduleInboundTriage } from '../server/agents/comms-lanes';
-import { getCommsAgentConfig, setCommsAgentConfig } from '../server/agents/comms';
+import { getCommsAgentConfig, setCommsAgentConfig, useProcessLocalCommsConfig } from '../server/agents/comms';
 
 async function main() {
     const phone = process.argv[2];
@@ -19,6 +19,12 @@ async function main() {
     const [conv] = await db.select().from(conversations).where(eq(conversations.phoneNumber, key));
     if (!conv) { console.error(`no conversation for ${key}`); process.exit(1); }
 
+    // Process-local config: the lane runs in this process, so it reads this seed, not the live
+    // row. Master switch on so the lane fires at all; autosend stays at its fail-closed default,
+    // so the triage QUEUES its reply here even while live direct send stays on for real customers.
+    // The short debounce below is also local now — it used to be written to the live row, which
+    // put a ~5s debounce on every production inbound for the duration of the test.
+    useProcessLocalCommsConfig({ enabled: true, onInbound: true });
     const before = await getCommsAgentConfig();
     await setCommsAgentConfig({ inboundDebounceMinutes: 0.08 }); // ~5s for the test
     try {

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { conversationEngine } from "./conversation-engine";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
 import { sendCustomerMessage, NOT_A_WHATSAPP_RECIPIENT_CODES } from "./outbound";
+import { newRunId, humanApprover } from "./approver";
 import { notifyIncomingSms, notifyIncomingWhatsApp, notifyOutboundSendFailure } from "./pushover";
 import { pushEvent } from "./web-push";
 import { resolveCallerName } from "./caller-lookup";
@@ -98,6 +99,7 @@ whatsappRouter.post('/send', requireAdmin, async (req, res) => {
         }
 
         const result = await sendCustomerMessage({
+            approver: humanApprover((req as any).user?.email || (req as any).user?.id || 'admin'), runId: newRunId('sys'),
             to,
             body,
             channel: channel === 'sms' ? 'sms' : 'whatsapp',
@@ -150,6 +152,7 @@ whatsappRouter.post('/send-template', requireAdmin, async (req, res) => {
 
         // Use sendCustomerMessage for opt-out enforcement
         const sendResult = await sendCustomerMessage({
+            approver: humanApprover((req as any).user?.email || (req as any).user?.id || 'admin'), runId: newRunId('sys'),
             to: number,
             body: templateBody,
             purpose: 'marketing',  // Template sends for video requests
@@ -298,6 +301,7 @@ async function recoverAsyncWhatsAppFailureBySms(args: {
 
         // No `purpose` on purpose: it defaults to 'marketing', so opt-outs fail closed.
         const result = await sendCustomerMessage({
+            approver: 'system.notification', runId: newRunId('sys'),
             to,
             body,
             channel: 'sms',

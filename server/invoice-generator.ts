@@ -1,3 +1,4 @@
+import { newRunId } from './approver';
 import { db } from './db';
 import {
     invoices,
@@ -852,6 +853,7 @@ export async function runDunningSequence(): Promise<{ reminded: number; escalate
                         day_21: `Final notice: Invoice ${invoice.invoiceNumber} for ${formatPence(invoice.balanceDue)} requires immediate payment: ${paymentLink}`,
                     };
                     const sendResult = await sendCustomerMessage({
+                        approver: 'system.invoice', runId: newRunId('sys'),
                         to: invoice.customerPhone,
                         body: whatsappMessages[reminderLevel],
                         purpose: 'marketing',  // Dunning reminders are opt-out-able

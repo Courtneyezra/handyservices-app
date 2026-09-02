@@ -9,6 +9,7 @@ import { db } from './db';
 import { contractorBookingRequests, handymanProfiles, users, personalizedQuotes } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 import { getKillSwitch } from './settings';
 import { getBaseUrlFromEnv } from './url-utils';
 
@@ -234,6 +235,7 @@ export async function notifyCustomer(params: NotifyCustomerParams): Promise<void
         console.log(`[CustomerNotify] Sending '${params.event}' to ${details.customerPhone}`);
 
         const sendResult = await sendCustomerMessage({
+            approver: 'system.notification', runId: newRunId('sys'),
             to: details.customerPhone,
             body: message,
             purpose: 'service_reply',  // Job lifecycle notifications, not marketing

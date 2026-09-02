@@ -15,6 +15,7 @@ import { eq, and, or, gte, lte, lt, isNotNull, isNull, sql, desc } from 'drizzle
 import { v4 as uuidv4 } from 'uuid';
 import { sendJobAssignmentEmail } from './email-service';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 import {
   generateSmartGrouping,
   extractJobCategories,
@@ -912,6 +913,7 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
         `We'll send a reminder the day before. If you need anything, just reply here.`;
 
       const sendResult = await sendCustomerMessage({
+        approver: 'system.daily_planner', runId: newRunId('sys'),
         to: quote.phone,
         body: whatsappMessage,
         purpose: 'service_reply',  // Booking confirmation
@@ -1592,6 +1594,7 @@ router.post('/dispatch-all', async (req: Request, res: Response) => {
             `${contractorName} will visit on ${formattedDate}, ${slotLabel[slot]}. ` +
             `We'll send a reminder the day before. If you need anything, just reply here.`;
           await sendCustomerMessage({
+            approver: 'system.daily_planner', runId: newRunId('sys'),
             to: quote.phone,
             body: whatsappMessage,
             purpose: 'service_reply',  // Booking confirmation
@@ -1791,6 +1794,7 @@ router.post('/confirm-cluster', async (req: Request, res: Response) => {
           `${contractorName} will visit on ${formattedDate}, ${slotLabel[slot]}. ` +
           `We'll send a reminder the day before. If you need anything, just reply here.`;
         await sendCustomerMessage({
+          approver: 'system.daily_planner', runId: newRunId('sys'),
           to: quote.phone,
           body: whatsappMessage,
           purpose: 'service_reply',  // Booking confirmation

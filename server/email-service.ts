@@ -1,3 +1,4 @@
+import { newRunId } from './approver';
 import { Resend } from 'resend';
 import { getBaseUrlFromEnv } from './url-utils';
 
@@ -789,7 +790,10 @@ We're matching your job to the best contractor in your area. You'll receive a Wh
 
 - Handy Services Team`;
 
-        await conversationEngine.sendMessage(data.customerPhone, message);
+        await conversationEngine.sendMessage(data.customerPhone, message, {
+            approver: 'system.notification',
+            runId: newRunId('sys'),
+        });
 
         console.log(`[WhatsApp] Booking confirmation sent to ${data.customerPhone}`);
         return { success: true };

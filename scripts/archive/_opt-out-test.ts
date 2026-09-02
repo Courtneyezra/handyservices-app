@@ -19,6 +19,7 @@
  *   j) no reply        → the lane sends nothing back, and queues nothing, after a STOP
  *   k) visibility      → the thread endpoint's optOut payload is populated
  */
+import { newRunId } from '../../server/approver';
 import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
 import { db } from '../server/db';
@@ -204,6 +205,7 @@ async function main() {
     // ---------------------------------------------------------------- e) marketing is refused
     head('CASE (e)  a marketing send is refused at the choke point, before Twilio is called.');
     const marketing = await sendCustomerMessage({
+        approver: 'human:opt-out-test', runId: newRunId('test'),
         to: STOP_PHONE,
         body: 'We are back in your area this month, want anything sorted?',
         context: 'opt_out_test:marketing',
@@ -220,6 +222,7 @@ async function main() {
     // ---------------------------------------------------------------- f) service replies still work
     head('CASE (f)  a DECLARED service reply still gets through the gate.');
     const service = await sendCustomerMessage({
+        approver: 'human:opt-out-test', runId: newRunId('test'),
         to: STOP_PHONE,
         body: 'Craig is on his way, about 20 minutes.',
         context: 'opt_out_test:service',
@@ -242,6 +245,7 @@ async function main() {
     pass((hardRow?.tags ?? []).includes('do_not_contact'), "the thread carries the 'do_not_contact' tag as well");
 
     const hardService = await sendCustomerMessage({
+        approver: 'human:opt-out-test', runId: newRunId('test'),
         to: HARD_PHONE, body: 'Craig is on his way.', context: 'opt_out_test:hard', purpose: 'service_reply',
     });
     console.log('result:', JSON.stringify(hardService, null, 2));
@@ -265,7 +269,7 @@ async function main() {
         id: preExisting, conversationId: stopConv, phone: STOP_PHONE,
         body: 'Still thinking about that quote?', channel: 'whatsapp', source: 'recovery', status: 'pending',
     });
-    const approved = await approveAndSendDraft(preExisting, 'opt-out-test');
+    const approved = await approveAndSendDraft(preExisting, 'human:opt-out-test');
     console.log('approve result:', JSON.stringify(approved));
     pass(approved.ok === false && (approved as any).code === 'OPTED_OUT',
         'approving a pre-existing draft is refused with code OPTED_OUT');

@@ -32,6 +32,7 @@ import { isNonMobileUkNumber } from './phone-utils';
 import { notifyOutboundSendFailure } from './pushover';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { logSystemEvent } from './system-events';
+import { type Approver, isApprover } from './approver';
 
 export type OutboundChannel = 'whatsapp' | 'sms';
 
@@ -88,6 +89,18 @@ export interface SendCustomerMessageResult {
 }
 
 export interface SendCustomerMessageInput {
+    /**
+     * Who licensed this send. REQUIRED — the Phase 0 exit gate (COMMS_AGENTS_V3_DESIGN §3.6).
+     * `system.*` for a direct caller whose job needs the message, `rules.*` for a deterministic
+     * policy, `agent.*` for an agent releasing its own draft, `human:<id>` for a person. Never a
+     * bare string: the type does not admit one and the gate below refuses anything it cannot name.
+     */
+    approver: Approver;
+    /**
+     * The run this send belongs to — the agent run id where one exists, else `newRunId('sys')`
+     * from ./approver. REQUIRED. Every send must be traceable to the run that produced it.
+     */
+    runId: string;
     /** E.164 or the `...@c.us` conversation key. */
     to: string;
     /** The words. For a template send this is the RENDERED text, which is what SMS falls back to. */
@@ -153,6 +166,32 @@ function fallbackIsPossible(input: SendCustomerMessageInput): boolean {
  */
 export async function sendCustomerMessage(input: SendCustomerMessageInput): Promise<SendCustomerMessageResult> {
     const attempts: SendAttempt[] = [];
+
+    // Rule -1, ahead of everything — even the opt-out check: no run id, no approver, no send.
+    //
+    // Phase 0 of the comms rebuild (2 Sep 2026). On 31 Aug–1 Sep six local dev processes sent 24
+    // unguarded replies to real customers and nothing on the send path could say which code had
+    // licensed them. Guarding approveAndSendDraft alone leaves every direct caller as an open door,
+    // so the guard lives HERE, at the one exit. The type makes a missing field a compile error; this
+    // runtime check catches the JS-shaped caller the type cannot see. Refused loudly, never thrown:
+    // a caller that forgot its papers must still get a result it can record.
+    const { approver, runId } = input as Partial<SendCustomerMessageInput>;
+    if (!isApprover(approver) || typeof runId !== 'string' || !runId.trim()) {
+        const summary = `Send refused: missing run id or approver (${input.context ?? 'no context'})`;
+        console.error(
+            `[Outbound] REFUSED send to ${input.to} — ${summary}; ` +
+            `approver=${JSON.stringify(approver ?? null)} runId=${JSON.stringify(runId ?? null)}`,
+        );
+        void logSystemEvent({
+            kind: 'send_refused',
+            phone: e164Quietly(input.to),
+            summary,
+            detail: { approver: approver ?? null, runId: runId ?? null, context: input.context ?? null, purpose: input.purpose ?? null, channel: input.channel ?? 'whatsapp' },
+            source: 'outbound',
+        });
+        return { ok: false, error: 'MISSING_RUN_ID_OR_APPROVER', attempts: [], fellBack: false };
+    }
+
     let e164: string;
     try {
         e164 = toE164Recipient(input.to);
@@ -270,7 +309,7 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
                 kind: 'other',
                 phone: e164,
                 summary: `WhatsApp failed (code ${code ?? 'none'}), SMS carried it — ${input.context ?? 'no context'}`,
-                detail: { code, reason, attempts },
+                detail: { code, reason, attempts, approver: input.approver, runId: input.runId },
                 source: 'outbound',
             });
             return { ok: true, channel: 'sms', sid: sms.sid, attempts, fellBack: true, reason };
@@ -279,6 +318,11 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
         await raiseDroppedMessageAlert(e164, input, attempts);
         return { ok: false, attempts, fellBack: false, reason, error: sms.error ?? error?.message };
     }
+}
+
+/** For the refusal log only: a number that cannot even be parsed is still worth a row. */
+function e164Quietly(to: string): string | null {
+    try { return toE164Recipient(to); } catch { return null; }
 }
 
 /** Logging only — a lookup failure here must never turn an allowed service reply into a failure. */

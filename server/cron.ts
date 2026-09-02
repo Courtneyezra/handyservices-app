@@ -4,7 +4,9 @@ import { db } from "./db";
 import { personalizedQuotes, contractorBookingRequests, handymanProfiles, users } from "@shared/schema";
 import { lt, and, eq, isNull, gte, lte, inArray, not, sql } from "drizzle-orm";
 import { sendCustomerMessage } from "./outbound";
+import { newRunId } from "./approver";
 import { getKillSwitch } from "./settings";
+import { gateCustomerLoop } from "./worker-gate";
 import {
     runRankTracking, runGmbPull, runGscPull, rankEnabled, gmbEnabled, gscEnabled,
     RANK_SCHEDULE, GMB_SCHEDULE, GSC_SCHEDULE,
@@ -43,13 +45,20 @@ export function setupCronJobs() {
     });
 
     // ==========================================
+    // CUSTOMER-FACING SCHEDULES — Phase 0 (2 Sep 2026): each one below is wrapped in
+    // gateCustomerLoop and registers ONLY when COMMS_WORKER=1 (the Railway worker). A dev
+    // checkout pointed at production logs a skip line per schedule and registers nothing.
+    // Read-only pulls (template poll, won auto-archive, SEO/GMB/GSC) stay ungated.
+    // ==========================================
+
+    // ==========================================
     // COMMS AGENT SLA SWEEP — every 30 min during working hours (Mon-Fri 8-18 UK).
     // Ensures every conversation whose SLA clock is running ends up with either a
     // pending draft for Ben to approve or an ask-Ben question. NEVER sends anything
     // itself (drafts go through the approval gate). Gated on appSettings 'comms_agent'
     // .enabled, which ships false — flip it via scripts/_comms-agent-config.ts.
     // ==========================================
-    cron.schedule("*/30 8-17 * * 1-5", async () => {
+    gateCustomerLoop('cron: comms agent SLA sweep (Mon-Fri 8-18)', () => cron.schedule("*/30 8-17 * * 1-5", async () => {
         try {
             const { getCommsAgentConfig, sweepCommsAgent } = await import('./agents/comms');
             const config = await getCommsAgentConfig();
@@ -61,12 +70,12 @@ export function setupCronJobs() {
         } catch (error) {
             console.error("[Cron] Comms agent sweep failed:", error);
         }
-    }, { timezone: 'Europe/London' });
+    }, { timezone: 'Europe/London' }));
 
     // COMMS AGENT WINDOW-CLOSING LANE — hourly, ALL days/hours (the 24h window doesn't keep
     // office hours; a Sunday-morning enquiry's window dies Monday 09:00 if nobody drafts).
     // Same master gate as the sweep.
-    cron.schedule("15 * * * *", async () => {
+    gateCustomerLoop('cron: comms agent window-closing lane (hourly)', () => cron.schedule("15 * * * *", async () => {
         try {
             const { getCommsAgentConfig, windowClosingSweep } = await import('./agents/comms');
             const config = await getCommsAgentConfig();
@@ -78,13 +87,13 @@ export function setupCronJobs() {
         } catch (error) {
             console.error("[Cron] Window-closing sweep failed:", error);
         }
-    }, { timezone: 'Europe/London' });
+    }, { timezone: 'Europe/London' }));
 
     // COMMS AGENT AGEING LANE — weekly (Mon 09:30 UK). Enquiries nobody answered for 21+
     // days get auto-triaged with the backlog_revival trigger: dead/spam → closed with a
     // reason tag, genuine leads → revive_candidate tag + ask-Ben. Same master gate as the
     // other comms-agent lanes; never sends anything itself.
-    cron.schedule("30 9 * * 1", async () => {
+    gateCustomerLoop('cron: comms agent backlog ageing lane (Mon 09:30)', () => cron.schedule("30 9 * * 1", async () => {
         try {
             const { getCommsAgentConfig, backlogSweep } = await import('./agents/comms');
             const config = await getCommsAgentConfig();
@@ -95,7 +104,7 @@ export function setupCronJobs() {
         } catch (error) {
             console.error("[Cron] Backlog ageing sweep failed:", error);
         }
-    }, { timezone: 'Europe/London' });
+    }, { timezone: 'Europe/London' }));
 
     // WHATSAPP TEMPLATE APPROVAL POLL — hourly at :40 (off the hour, so it never races the
     // other lanes). Twilio has NO webhook for Meta's approval decision, so polling is the only
@@ -126,10 +135,10 @@ export function setupCronJobs() {
     // DAY-BEFORE REMINDERS - Runs daily at 6pm
     // Sends WhatsApp reminders to CUSTOMERS about tomorrow's jobs
     // ==========================================
-    cron.schedule("0 18 * * *", async () => {
+    gateCustomerLoop('cron: day-before customer reminders (18:00)', () => cron.schedule("0 18 * * *", async () => {
         console.log("[DayBefore] Running day-before customer reminders...");
         await sendDayBeforeCustomerReminders();
-    });
+    }));
 
     // ==========================================
     // SEO AUTOMATION — self-activates only when the relevant credentials are set,
@@ -304,6 +313,7 @@ export async function sendDayBeforeCustomerReminders(): Promise<void> {
 
                 // Send WhatsApp message via choke point (with opt-out enforcement)
                 const sendResult = await sendCustomerMessage({
+                    approver: 'system.cron', runId: newRunId('sys'),
                     to: customerPhone,
                     body: message,
                     purpose: 'service_reply',  // Job-related, not marketing

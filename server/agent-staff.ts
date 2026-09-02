@@ -18,6 +18,7 @@ import { eq, and, gte, desc, isNotNull, isNull, sql } from 'drizzle-orm';
 import { queueDraft } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 import { renderQuickReply } from './quick-replies';
 import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
 import { claudeText } from './llm';
@@ -34,6 +35,7 @@ import {
     outcomeMetrics, outcomePatterns, recentDecisions, reconcileOutcomes, refreshOutcomes,
     exportApprovedExamples, getOutcomeLoopConfig, setOutcomeLoopConfig,
 } from './agent-outcomes';
+import { getHeartbeatHealth } from './comms-worker-heartbeat';
 
 export const agentStaffRouter = Router();
 
@@ -83,6 +85,7 @@ async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: stri
         .where(eq(agentQuestions.status, 'answered'));
     const config = await getCommsAgentConfig();
     const trust = await trustStat('comms');
+    const heartbeat = await getHeartbeatHealth();
 
     return {
         stats: [
@@ -115,6 +118,16 @@ async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: stri
                 label: config.quotePrep.enabled ? 'AUTO QUOTE-PREP ON' : 'AUTO QUOTE-PREP OFF',
                 on: config.quotePrep.enabled,
             },
+            // Phase 0 (2 Sep 2026): the dead-man heartbeat. "SLA SWEEP ON" is a config bit; this
+            // is whether the one process allowed to sweep has actually ticked in the last 10 min.
+            {
+                label: heartbeat.ageSeconds === null
+                    ? 'WORKER HEARTBEAT NEVER SEEN · no process is sweeping'
+                    : heartbeat.stale
+                        ? `WORKER HEARTBEAT STALE · last seen ${Math.round(heartbeat.ageSeconds / 60)} min ago`
+                        : `WORKER ALIVE · ${heartbeat.host ?? '?'} · ${heartbeat.ageSeconds}s ago`,
+                on: !heartbeat.stale,
+            },
         ],
     };
 }
@@ -145,8 +158,11 @@ async function recoveryStats(): Promise<{ stats: Stat[]; statusChips: { label: s
 // GET /api/agents/staff — the full directory with live stats.
 agentStaffRouter.get('/staff', async (_req, res) => {
     try {
-        const [comms, recovery] = await Promise.all([commsStats(), recoveryStats()]);
+        const [comms, recovery, workerHeartbeat] = await Promise.all([commsStats(), recoveryStats(), getHeartbeatHealth()]);
         res.json({
+            // Phase 0: { ok, ageSeconds, stale, at, host, pid, version, thisProcess } — same shape
+            // as GET /api/health/comms-worker, so the staff page can show it without a second call.
+            workerHeartbeat,
             staff: [
                 {
                     ...commsStaff,
@@ -718,6 +734,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
         if (!loaded.ok) return res.status(loaded.status).json({ error: loaded.error });
         const { conv, quote, phone } = loaded;
         const quoteUrl = quoteUrlFor(slug);
+        const runId = newRunId('sys');   // one click, one run — every burst part carries it
 
         const body = stripChatDashes(rawBody);
         if (!body.includes(quoteUrl)) {
@@ -739,6 +756,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                 for (let i = 0; i < parts.length; i++) {
                     if (i > 0) await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
                     const sendResult = await sendCustomerMessage({
+                        approver: 'system.staff', runId: runId,
                         to: phone,
                         body: parts[i],
                         purpose: 'service_reply',  // Human-approved quote send
@@ -788,6 +806,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             if (rendered.includes(quoteUrl)) {
                 try {
                     const sendResult = await sendCustomerMessage({
+                        approver: 'system.staff', runId: runId,
                         to: phone,
                         body: rendered,
                         purpose: 'service_reply',  // Human-approved quote send
@@ -822,6 +841,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                         .map(([k, v]) => [k, renderWithLink(String(v))]))
                     : undefined;
                 const sendResult = await sendCustomerMessage({
+                    approver: 'system.staff', runId: runId,
                     to: phone,
                     body: renderWithLink(template.body),
                     purpose: 'service_reply',  // Human-approved quote send

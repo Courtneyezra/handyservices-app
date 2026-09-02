@@ -20,6 +20,7 @@ export type SystemEventKind =
     | 'send'            // a message actually left the building
     | 'hold'            // something was composed but parked for human approval
     | 'delivery_fail'   // a send that reached nobody (or only by fallback)
+    | 'send_refused'    // the exit gate refused a send outright (no run id / approver)
     | 'pushover'        // a phone alert was dispatched (or skipped, and why)
     | 'classification'  // the post-call classifier stored a verdict
     | 'sweep'           // a background sweep ran

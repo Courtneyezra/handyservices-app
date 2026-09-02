@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { optionalAuth } from "./auth";
 import { sendCustomerMessage } from "./outbound";
+import { newRunId } from "./approver";
 import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
 import { findDuplicateLead } from "./lead-deduplication";
@@ -221,6 +222,7 @@ Any questions, just give me a shout! 👍`;
 
         try {
             const sendResult = await sendCustomerMessage({
+                approver: 'system.live_call', runId: newRunId('sys'),
                 to: normalizedPhone,
                 body: message,
                 purpose: 'service_reply',  // Quote sent during live call

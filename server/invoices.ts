@@ -1,3 +1,4 @@
+import { newRunId } from './approver';
 import { Router } from 'express';
 import Stripe from 'stripe';
 import { db } from './db';
@@ -623,6 +624,7 @@ invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
                 ].filter(Boolean).join('\n');
 
                 const sendResult = await sendCustomerMessage({
+                    approver: 'system.invoice', runId: newRunId('sys'),
                     to: invoice.customerPhone,
                     body: message,
                     purpose: 'service_reply',  // Invoice delivery is job-related

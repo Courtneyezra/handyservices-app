@@ -22,6 +22,7 @@ import { eq, desc, and, lt, isNull, isNotNull, or, ne, sql } from "drizzle-orm";
 import { updateLeadStage, STAGE_SLA_HOURS } from "./lead-stage-engine";
 import { canSendFreeform } from "./meta-whatsapp";
 import { sendCustomerMessage } from "./outbound";
+import { newRunId } from "./approver";
 import { checkWebFormFollowups } from "./services/webform-chase-service";
 import { getAutomationSettings } from "./settings";
 
@@ -129,6 +130,7 @@ async function checkNewLeadFollowups(): Promise<AutomationResult[]> {
                 const VIDEO_REQUEST_TEMPLATE_SID = process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID!;
 
                 const sendResult = await sendCustomerMessage({
+                    approver: 'system.lead_automation', runId: newRunId('sys'),
                     to: lead.phone,
                     body: `Hi ${firstName}, thanks for reaching out! Could you send us a quick video of ${jobSummary}?`,
                     purpose: 'marketing',
@@ -225,6 +227,7 @@ async function checkQuoteSentReminders(): Promise<AutomationResult[]> {
             const message = TEMPLATES.QUOTE_SENT_REMINDER(firstName, link);
 
             const sendResult = await sendCustomerMessage({
+                approver: 'system.lead_automation', runId: newRunId('sys'),
                 to: quote.phone,
                 body: message,
                 purpose: 'marketing',
@@ -313,6 +316,7 @@ async function checkQuoteViewedFollowups(): Promise<AutomationResult[]> {
             const message = TEMPLATES.QUOTE_VIEWED_FOLLOWUP(firstName);
 
             const sendResult = await sendCustomerMessage({
+                approver: 'system.lead_automation', runId: newRunId('sys'),
                 to: quote.phone,
                 body: message,
                 purpose: 'marketing',
@@ -390,6 +394,7 @@ async function checkAwaitingVideoReminders(): Promise<AutomationResult[]> {
             const message = TEMPLATES.AWAITING_VIDEO_REMINDER(firstName);
 
             const sendResult = await sendCustomerMessage({
+                approver: 'system.lead_automation', runId: newRunId('sys'),
                 to: lead.phone,
                 body: message,
                 purpose: 'marketing',
@@ -529,6 +534,7 @@ async function checkLostLeadRecovery(): Promise<AutomationResult[]> {
             const message = TEMPLATES.LOST_LEAD_RECOVERY(firstName, jobType);
 
             const sendResult = await sendCustomerMessage({
+                approver: 'system.lead_automation', runId: newRunId('sys'),
                 to: lead.phone,
                 body: message,
                 purpose: 'marketing',
