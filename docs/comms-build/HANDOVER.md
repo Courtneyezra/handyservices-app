@@ -113,4 +113,4 @@ Kill criteria that undo any of this are in CUTOVER §6.
 - Ben's hours agreed: **Mon–Fri 08–18, approvals are paid time**. The due-time clock the build shipped with stays as is.
 - `holding_line_v1` submitted to Meta (content SID HX1c733d68035a5fe3c15b90936f80ec8f), awaiting approval.
 - The six stale `tsx watch` dev servers on the Mac were killed.
-- Still open: revoke the old OpenRouter key; Neon dev branch + strip Twilio secrets from laptops; the live flip after one shadow day (eligible 4 Sep).
+- Still open: OpenRouter key kept for now (prepaid credits; see the Obsidian note "OpenRouter Credits" for the plan to use them via a narrow adapter, then revoke); Neon dev branch + strip Twilio secrets from laptops; the live flip after one shadow day (eligible 4 Sep).
