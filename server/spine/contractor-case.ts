@@ -51,7 +51,7 @@ export function materialsFromLines(lines: unknown): string[] {
     const out: string[] = [];
     for (const l of lines) {
         const m = (l as any)?.materials ?? (l as any)?.shoppingList ?? (l as any)?.materialsList;
-        if (Array.isArray(m)) for (const item of m) out.push(typeof item === 'string' ? item : String(item?.name ?? item?.title ?? item?.description ?? '')).filter(Boolean);
+        if (Array.isArray(m)) for (const item of m) out.push(typeof item === 'string' ? item : String(item?.name ?? item?.title ?? item?.description ?? ''));
     }
     return Array.from(new Set(out.filter(Boolean))).slice(0, 30);
 }
