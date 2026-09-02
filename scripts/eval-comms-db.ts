@@ -26,7 +26,7 @@ import 'dotenv/config';
 // nothing sends), ack + auto-quote-prep off (the harness drives triggers itself).
 process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
     enabled: true,
-    autosend: { enabled: false, intents: [] },
+    autosend: { enabled: false },
     firstContactAutoAck: { enabled: false, channels: [] },
     quotePrep: { enabled: false },
 });

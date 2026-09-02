@@ -698,7 +698,7 @@ async function contextAttacks() {
         + '   holding their phone.');
     const cfg: CommsAgentConfig = {
         ...(await retry('read config', getCommsAgentConfig)),
-        autosend: { enabled: true, intents: [] },
+        autosend: { enabled: true },
     };
     const sends = (o: Parameters<typeof maySendDirect>[0]) => maySendDirect(o).send;
     const why = (o: Parameters<typeof maySendDirect>[0]) => maySendDirect(o).reason;
@@ -779,7 +779,7 @@ async function contextAttacks() {
         ukHour: 12, postQuoteThread: false, reactive: true, guardsPassed: false,
     }) === false, 'a body the guard chain refused cannot send even if nothing else objects');
     pass(sends({
-        config: { ...cfg, autosend: { enabled: false, intents: [] } },
+        config: { ...cfg, autosend: { enabled: false } },
         intent: 'ack_enquiry', body: 'Got your message, I will come back to you shortly.',
         ukHour: 12, postQuoteThread: false, reactive: true, guardsPassed: true,
     }) === false, 'THE KILL SWITCH: config off puts every reply back in the approval queue');
@@ -787,7 +787,7 @@ async function contextAttacks() {
     // The dead whitelist must stay dead. Someone re-populating `intents` in app_settings and
     // expecting it to widen anything is the exact confusion this field's removal is meant to end.
     pass(sends({
-        config: { ...cfg, autosend: { enabled: true, intents: ['ack_enquiry'] } },
+        config: { ...cfg, autosend: { enabled: true } },
         intent: 'price_objection', body: 'Happy to edit it for you, which bits matter most?',
         ukHour: 12, postQuoteThread: true, reactive: true, guardsPassed: true,
     }) === true, 'the old intents whitelist is inert: an intent NOT in it still sends');
@@ -993,7 +993,7 @@ async function main() {
     // shared DB row the deployed agent reads is never written.
     process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
         ...savedConfig,
-        autosend: { enabled: false, intents: [] },
+        autosend: { enabled: false },
         firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: false },
         quotePrep: { ...savedConfig.quotePrep, enabled: false },
     });

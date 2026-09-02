@@ -32,7 +32,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { queueDraft, approveAndSendDraft } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
 import { findApprovedTemplateWithValues } from './whatsapp-template-sync';
-import { isNonMobileUkNumber } from './phone-utils';
+import { isNonMobileUkNumber, isTestNumber } from './phone-utils';
 import { isSmsSenderConfigured } from './whatsapp-sender';
 import { notQuarantined } from './message-quarantine';
 import { getOptOut } from './opt-out';
@@ -149,9 +149,7 @@ export function suppressReason(s: SuppressionState): SuppressReason {
     return null;
 }
 
-export function isTestNumber(phone: string): boolean {
-    return phone.replace(/\D/g, '').includes('7700900');
-}
+export { isTestNumber } from './phone-utils';
 
 /** First name for a template slot, or "there" — never a system-stamped label. */
 export function templateNameSlot(contactName?: string | null): string {

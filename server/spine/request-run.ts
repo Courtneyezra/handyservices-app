@@ -59,9 +59,8 @@ export async function releaseTriageTurn(conversationId: string, token: string): 
 }
 
 /** Ofcom test range — never spend a run on a smoke-test number. */
-export function isTestNumber(phone: string | null | undefined): boolean {
-    return (phone ?? '').replace(/\D/g, '').includes('7700900');
-}
+export { isTestNumber } from '../phone-utils';
+import { isTestNumber } from '../phone-utils';
 
 export interface RequestRunOpts {
     /** Override the debounce. inbound/media default to the configured debounce; everything else runs at once. */

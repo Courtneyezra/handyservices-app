@@ -37,7 +37,6 @@ const TOOL_LABELS: Record<string, string> = {
     schedule_recontact: 'Scheduling follow-up',
     get_quick_replies: 'Reviewing reply templates',
     set_board_state: 'Updating board',
-    resolve_question: 'Resolving question',
 };
 
 function toolLabel(tool: string | undefined): string {

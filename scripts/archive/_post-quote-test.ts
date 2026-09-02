@@ -356,7 +356,7 @@ async function main() {
     // Forced off via the process-local env override only — the shared DB row is never written.
     process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
         ...savedConfig,
-        autosend: { enabled: false, intents: [] },
+        autosend: { enabled: false },
         quotePrep: { ...savedConfig.quotePrep, enabled: false },
         firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: false },
     });

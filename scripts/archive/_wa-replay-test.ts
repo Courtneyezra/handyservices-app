@@ -77,7 +77,7 @@ async function stageMessage(direction: 'inbound' | 'outbound', content: string, 
     // Process-local override only — the shared DB row the deployed agent reads is never written.
     process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
         ...saved,
-        autosend: { enabled: false, intents: [] },
+        autosend: { enabled: false },
         quotePrep: { ...saved.quotePrep, enabled: false },
         firstContactAutoAck: { ...saved.firstContactAutoAck, enabled: false },
     });

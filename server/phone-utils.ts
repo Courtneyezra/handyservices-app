@@ -94,6 +94,15 @@ export function isValidUKPhone(phone: string | null | undefined): boolean {
  * Lives here (rather than in post-call-outreach.ts where it was written) because three callers now
  * need it: post-call outreach, the outbound router's skip-straight-to-SMS rule, and the tests.
  */
+/**
+ * The 07700 900xxx range Ofcom reserves for drama, in any format ("+447700900123", "447700900123@c.us").
+ * Every customer-facing loop skips these (Phase 5 prep: ONE definition; the sweeps, lanes, rules layer
+ * and spine all import this one).
+ */
+export function isTestNumber(phone: string | null | undefined): boolean {
+    return (phone ?? '').replace(/\D/g, '').includes('7700900');
+}
+
 export function isNonMobileUkNumber(e164: string): boolean {
     if (!e164.startsWith('+44')) return false;
     return !e164.startsWith('+447');
