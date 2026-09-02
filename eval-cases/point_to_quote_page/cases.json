@@ -1,0 +1,189 @@
+{
+ "cases": [
+  {
+   "id": "pq-001-whats-in-the-job",
+   "family": "point_to_quote_page",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Booked in, thanks.",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Remind me what's in the job?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Everything's itemised on your quote page, here's the link: https://handyservices.app/quote/paid1",
+    "intent": "point_to_quote_page"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "point_to_quote_page",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented; quote paid so the thread is scoper lane",
+   "quote": {
+    "seen": true,
+    "viewCount": 3,
+    "totalPence": 45000,
+    "slug": "paid1",
+    "paid": true
+   }
+  },
+  {
+   "id": "pq-002-in-writing",
+   "family": "point_to_quote_page",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Will I get it in writing?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, you'll get a link to your quote page with everything itemised.",
+    "intent": "point_to_quote_page"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "point_to_quote_page",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "pq-003-what-was-included",
+   "family": "point_to_quote_page",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "All done today, thanks.",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Did that include the sealant round the bath?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "It's all listed on your quote page: https://handyservices.app/quote/paid1",
+    "intent": "point_to_quote_page"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "point_to_quote_page",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented",
+   "quote": {
+    "seen": true,
+    "viewCount": 3,
+    "totalPence": 45000,
+    "slug": "paid1",
+    "paid": true
+   }
+  },
+  {
+   "id": "pq-004-how-much-again",
+   "family": "point_to_quote_page",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Booked in, thanks.",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "How much was it again?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "It's all on your quote page: https://handyservices.app/quote/paid1",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "money_question"
+    ]
+   },
+   "provenance": "money: Ben",
+   "quote": {
+    "seen": true,
+    "viewCount": 3,
+    "totalPence": 45000,
+    "slug": "paid1",
+    "paid": true
+   }
+  },
+  {
+   "id": "pq-005-link-again-absence",
+   "family": "point_to_quote_page",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Booked in, thanks.",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Can you resend the link?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Course: https://handyservices.app/quote/paid1",
+    "intent": null
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced",
+   "quote": {
+    "seen": true,
+    "viewCount": 3,
+    "totalPence": 45000,
+    "slug": "paid1",
+    "paid": true
+   }
+  }
+ ]
+}

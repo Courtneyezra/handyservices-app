@@ -1,0 +1,200 @@
+{
+ "cases": [
+  {
+   "id": "ag-001-kitchen-tap-which-kind",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Need a tap fitting in the kitchen",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Is it a mixer tap or two separate taps?\n---\nA photo of the current one helps us get it right first time.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "ag-002-which-door",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Need a door rehanging",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "No problem. Which door is it?",
+     "at": "2026-08-30T10:01:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "We want something by today if possible?",
+     "at": "2026-08-30T10:02:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Quick one before we get your quote finalised. Is this the front door, back door, or an internal one?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_26829fbb74 context"
+  },
+  {
+   "id": "ag-003-sliding-doors",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It's a wardrobe, the sliding doors keep coming off",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Are the doors coming off the top track or the bottom runner?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "ag-004-boiler-regulated",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Tap fitting please, and can you fit a new boiler as well?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "The tap is no problem. The boiler needs a registered engineer, so let me check that one.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ]
+   },
+   "provenance": "regulated trade in the gap: Ben, not the scoper"
+  },
+  {
+   "id": "ag-005-loose-handle-absence",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It's the one by the back door, the handle is loose",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got it. Is the handle loose on the door itself or the frame side?",
+    "intent": null
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced: ordinary detail must not escalate"
+  },
+  {
+   "id": "ag-006-two-windows",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Two windows, both in the front bedroom",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Are they roughly the same size?\n---\nA quick photo of each would do.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  }
+ ]
+}

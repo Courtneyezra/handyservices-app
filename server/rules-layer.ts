@@ -86,10 +86,19 @@ export const ASK_COPY: Record<AskKind, string> = {
  * ladder falls to SMS, which needs no template — the customer is never left silent either way.
  * Variables are positional: {{1}} first name (or "there").
  */
+/**
+ * Meta template names, most preferred first. `holding_line_v1` is the Phase 3 submission
+ * (scripts/_submit-holding-template.ts): "Hi {{1}}, thanks for your message, we've got it. Just
+ * looking at it now, we'll come back to you shortly." — the same words as HOLDING_COPY.silence, so
+ * a customer outside the 24h window reads what one inside it reads. `holding_line` is the older
+ * name, kept as a fallback until the new one is approved.
+ */
+export const HOLDING_TEMPLATE_NAME = 'holding_line_v1';
+export const HOLDING_TEMPLATE_BODY = "Hi {{1}}, thanks for your message, we've got it. Just looking at it now, we'll come back to you shortly.";
 export const HOLDING_TEMPLATE_PREFERENCE: Record<HoldingKind, string[]> = {
-    silence: ['holding_line'],
-    flag_expiry: ['holding_line'],
-    draft_expiry: ['holding_line'],
+    silence: [HOLDING_TEMPLATE_NAME, 'holding_line'],
+    flag_expiry: [HOLDING_TEMPLATE_NAME, 'holding_line'],
+    draft_expiry: [HOLDING_TEMPLATE_NAME, 'holding_line'],
 };
 export const ASK_TEMPLATE_PREFERENCE: Record<AskKind, string[]> = {
     ask_media: ['video_request', 'job_video_request'],
@@ -328,6 +337,35 @@ const ASK_WHY: Record<AskKind, string> = {
 };
 
 /** "We have got it" — the send that means a customer can never be waiting in silence. */
+/** Newest rules-layer ASK on a thread within `withinMs` (default 24h), for the one-ask-per-day rule. */
+export async function lastRulesAsk(conversationId: string, withinMs: number = 24 * 3600_000): Promise<{ kind: AskKind; at: Date } | null> {
+    const since = new Date(Date.now() - withinMs);
+    const [conv] = await db.select({ metadata: conversations.metadata, phoneNumber: conversations.phoneNumber })
+        .from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    if (!conv) return null;
+    const meta = (conv.metadata ?? {}) as Record<string, any>;
+    const candidates: { kind: AskKind; at: Date }[] = [];
+    const stampedKind = meta.rulesLayer?.kind;
+    const stampedAt = meta.rulesLayer?.lastSentAt ? new Date(meta.rulesLayer.lastSentAt) : null;
+    if ((stampedKind === 'ask_media' || stampedKind === 'ask_postcode') && stampedAt && stampedAt.getTime() >= since.getTime()) {
+        candidates.push({ kind: stampedKind, at: stampedAt });
+    }
+    const digits = (conv.phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+    if (digits) {
+        const rows = await db.select({ reason: messageDrafts.reason, at: messageDrafts.sentAt }).from(messageDrafts)
+            .where(and(
+                eq(messageDrafts.source, 'rules_layer'), eq(messageDrafts.status, 'sent'),
+                sql`regexp_replace(${messageDrafts.phone}, '[^0-9]', '', 'g') = ${digits}`,
+                gte(messageDrafts.sentAt, since),
+            )).orderBy(desc(messageDrafts.sentAt)).limit(5);
+        for (const r of rows) {
+            const m = /^\[(ask_media|ask_postcode)\]/.exec(r.reason ?? '');
+            if (m && r.at) candidates.push({ kind: m[1] as AskKind, at: new Date(r.at) });
+        }
+    }
+    return candidates.sort((a, b) => b.at.getTime() - a.at.getTime())[0] ?? null;
+}
+
 export async function sendHoldingLine(conversationId: string, kind: HoldingKind, runId: string): Promise<RulesSendResult> {
     return deliver({
         conversationId, kind, runId,

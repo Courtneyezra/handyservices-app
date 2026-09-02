@@ -1,0 +1,171 @@
+{
+ "cases": [
+  {
+   "id": "cr-001-postcode",
+   "family": "confirm_received",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Mirror drilling, two holes",
+     "at": "2026-08-30T10:01:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "No problem. What's your postcode?",
+     "at": "2026-08-30T10:02:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "NG7 4FT",
+     "at": "2026-08-30T10:03:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Perfect, got your postcode. That's everything we need to get this priced up for you.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "confirm_received",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_35e067866a"
+  },
+  {
+   "id": "cr-002-photos",
+   "family": "confirm_received",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "[photo] [photo] here you go",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got those, thanks. Clear enough to work from.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "confirm_received",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "cr-003-update",
+   "family": "confirm_received",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "I'll be sure to come back to you once I know more.",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "No worries at all, thanks for the update.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "confirm_received",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_5587f1f724"
+  },
+  {
+   "id": "cr-004-callback",
+   "family": "confirm_received",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Sent the details. Can someone call me to run through it?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got the details, thanks. Yes, we will give you a ring.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "callback_requested"
+    ]
+   },
+   "provenance": "callback request: Ben"
+  },
+  {
+   "id": "cr-005-video-absence",
+   "family": "confirm_received",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Sent the video just now",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got it, thanks. That shows exactly what we need.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced"
+  }
+ ]
+}

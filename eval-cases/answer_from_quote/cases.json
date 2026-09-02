@@ -1,0 +1,225 @@
+{
+ "cases": [
+  {
+   "id": "aq-001-shower-head-missing",
+   "family": "answer_from_quote",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Hi thanks for this! It all looks good but I cant see the shower head on it, just the three blinds. Is it possible to add that on?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Good spot, the shower head didn't make it onto this one.\n---\nLet me get that added on and come back to you.",
+    "intent": "answer_from_quote"
+   },
+   "expected": {
+    "lane": "post_quote",
+    "intent": "answer_from_quote",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_7142151a3d",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "aq-002-old-carpet",
+   "family": "answer_from_quote",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Does the quote include taking the old carpet up?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, that's on there as its own line, lifting and disposing of the old carpet.",
+    "intent": "answer_from_quote"
+   },
+   "expected": {
+    "lane": "post_quote",
+    "intent": "answer_from_quote",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "aq-003-sink-stays",
+   "family": "answer_from_quote",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Is the sink staying where it is?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, the bath, sink and toilet all stay in place. We fit the new floor around them.",
+    "intent": "answer_from_quote"
+   },
+   "expected": {
+    "lane": "post_quote",
+    "intent": "answer_from_quote",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_8549e3fe1c",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "aq-004-figures-question",
+   "family": "answer_from_quote",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "I see \u00a3396 and \u00a3280, why did you say it's \u00a3560 to \u00a3710?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Good question, let me double check that on our side and come straight back to you.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "money_question"
+    ]
+   },
+   "provenance": "seed_1b3c522b7a: money is Ben's",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "aq-005-which-line-absence",
+   "family": "answer_from_quote",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Which line is the blinds?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "The blinds are the second line on the quote.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "post_quote",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "aq-006-bit-expensive",
+   "family": "answer_from_quote",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It's a bit expensive, can you do anything on it?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Understand it may seem a bit high. The finish is what you're paying for, it won't be rushed.\n---\nGet a few more quotes and happy to book you in if you come back.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "money_question"
+    ]
+   },
+   "provenance": "price objection: Ben",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  }
+ ]
+}

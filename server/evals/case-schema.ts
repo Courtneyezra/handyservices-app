@@ -67,7 +67,7 @@ export interface EvalCaseV2 {
     caseFile?: CaseFile;
     context?: EvalContextMessage[];
     customer?: { firstName?: string | null; ref?: string | null };
-    quote?: { seen?: boolean; viewCount?: number; totalPence?: number | null; offeredDates?: string[]; slug?: string };
+    quote?: { seen?: boolean; viewCount?: number; totalPence?: number | null; offeredDates?: string[]; slug?: string; /** paid quotes are booked jobs: scoper lane, not post_quote */ paid?: boolean };
     firstContact?: boolean;
     candidate?: EvalCandidate;
     expected: EvalExpected;
