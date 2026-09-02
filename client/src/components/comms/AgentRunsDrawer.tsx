@@ -26,6 +26,26 @@ export interface AgentRun {
     error: string | null;
     startedAt: string | null;
     finishedAt: string | null;
+    /** P6: the spine run this row belongs to (triage model call, vision, wrapped legacy runner); absent on older servers. */
+    parentRunId?: string | null;
+}
+
+/**
+ * P6: one spine pass = one parent row plus its children (triage, vision, the clerk's or recovery's
+ * wrapped runner). Children nest under their parent; a child whose parent is not in the list (older
+ * than the page, or pre-migration) stays top-level. Order within a level is the server's (newest first).
+ */
+export function groupRuns(runs: AgentRun[]): Array<{ run: AgentRun; children: AgentRun[] }> {
+    const ids = new Set(runs.map((r) => r.id));
+    const childrenOf = new Map<string, AgentRun[]>();
+    for (const r of runs) {
+        if (r.parentRunId && ids.has(r.parentRunId) && r.parentRunId !== r.id) {
+            childrenOf.set(r.parentRunId, [...(childrenOf.get(r.parentRunId) ?? []), r]);
+        }
+    }
+    return runs
+        .filter((r) => !(r.parentRunId && ids.has(r.parentRunId) && r.parentRunId !== r.id))
+        .map((run) => ({ run, children: childrenOf.get(run.id) ?? [] }));
 }
 
 function authHeaders(): Record<string, string> {
@@ -68,7 +88,7 @@ function proposalText(proposal: unknown): { body: string | null; rest: string | 
     return { body, rest };
 }
 
-function RunRow({ run }: { run: AgentRun }) {
+function RunRow({ run, children = [], child = false }: { run: AgentRun; children?: AgentRun[]; child?: boolean }) {
     const [open, setOpen] = useState(false);
     const running = !run.finishedAt && !run.error;
     const summary = run.decision ?? run.lane ?? (run.error ? 'failed' : running ? 'running' : 'finished');
@@ -76,7 +96,7 @@ function RunRow({ run }: { run: AgentRun }) {
     const cost = pence(run.costPence);
 
     return (
-        <li className="rounded border border-slate-200 bg-white">
+        <li className={cn('rounded border bg-white', child ? 'border-slate-100' : 'border-slate-200')} data-testid={child ? 'agent-run-child' : 'agent-run'}>
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
@@ -87,8 +107,11 @@ function RunRow({ run }: { run: AgentRun }) {
                     'h-2 w-2 shrink-0 rounded-full',
                     run.error ? 'bg-red-500' : running ? 'animate-pulse bg-sky-500' : 'bg-emerald-500',
                 )} />
-                <span className="font-bold text-slate-800">{run.agent}</span>
+                <span className={cn('font-bold', child ? 'text-slate-600' : 'text-slate-800')}>{run.agent}</span>
                 <span className="truncate text-slate-600">{summary}</span>
+                {children.length > 0 && (
+                    <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-600" title="child runs of this pass (triage, vision, wrapped runners)">+{children.length}</span>
+                )}
                 {run.lane && run.decision && <span className="hidden rounded bg-slate-100 px-1 text-[10px] text-slate-600 sm:inline">{run.lane}</span>}
                 {run.guardsHit.length > 0 && (
                     <span className="rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800">{run.guardsHit.length} guard{run.guardsHit.length === 1 ? '' : 's'}</span>
@@ -127,8 +150,13 @@ function RunRow({ run }: { run: AgentRun }) {
                     {run.error && (
                         <p className="flex items-start gap-1 text-red-700"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {run.error}</p>
                     )}
-                    <div className="text-[10px] text-slate-400">run {run.id}</div>
+                    <div className="text-[10px] text-slate-400">run {run.id}{run.parentRunId ? ` · child of ${run.parentRunId}` : ''}</div>
                 </div>
+            )}
+            {children.length > 0 && (
+                <ul className="ml-4 space-y-1 border-l border-slate-200 pb-1.5 pl-2 pr-1.5">
+                    {children.map((c) => <RunRow key={c.id} run={c} child />)}
+                </ul>
             )}
         </li>
     );
@@ -173,7 +201,7 @@ export function AgentRunsDrawer({ conversationId }: { conversationId: string }) 
                     )}
                     {count > 0 && (
                         <ul className="space-y-1.5">
-                            {runs.map((r) => <RunRow key={r.id} run={r} />)}
+                            {groupRuns(runs).map(({ run, children }) => <RunRow key={run.id} run={run} children={children} />)}
                         </ul>
                     )}
                 </div>

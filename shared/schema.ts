@@ -1980,6 +1980,7 @@ export const agentRuns = pgTable("agent_runs", {
     promptHash: text("prompt_hash"),
     decision: text("decision"),                     // Phase 2: SEND | PENDING | FLAG
     shadowDecision: text("shadow_decision"),        // Phase 3: what the spine WOULD have done in shadow mode (migration 20260903)
+    parentRunId: text("parent_run_id"),             // P6: the spine run this child row (triage model, vision, wrapped legacy runner) belongs to (migration 20260904)
     lane: text("lane"),
     proposal: jsonb("proposal"),
     guardsHit: text("guards_hit").array().notNull().default(sql`'{}'::text[]`),

@@ -103,6 +103,16 @@ interface StaffMember {
     system: string;
     verdicts?: StaffVerdicts | null;
     packTiers?: PackTierRow[] | null;
+    /** P6: judge vs Ben on the sampled sends (verifier card only; server/verdict-stats.ts samplerAgreement). */
+    sampler?: SamplerAgreement | null;
+}
+
+/** P6: how often Ben agreed with the judge on yesterday's sampled sends. */
+interface SamplerAgreement {
+    judged: number;
+    humanReviewed: number;
+    agreement: number | null;
+    disagreements: { judgeFineHumanNot: number; judgeNotHumanFine: number };
 }
 
 const ACCENT: Record<string, { block: string; chip: string; ring: string }> = {
@@ -305,21 +315,123 @@ function VerdictBlock({ v }: { v: StaffVerdicts }) {
     );
 }
 
-/** Phase 3: the ladder — intent · tier · verdicts/30d · unedited % · unsafe · eval family · last change. */
+/** P6: the verifier's honesty number — judge vs Ben on the sampled sends (design §9: ≥ 85% before the judge counts). */
+function SamplerBlock({ s }: { s: SamplerAgreement }) {
+    const tone = s.agreement === null ? 'text-slate-400' : s.agreement >= 85 ? 'text-emerald-700' : 'text-amber-600';
+    return (
+        <div data-testid="sampler-agreement">
+            <h3 className="mb-2 text-[11px] font-black uppercase tracking-wide text-slate-500">Judge vs Ben (30d)</h3>
+            {s.judged === 0 ? (
+                <p className="text-xs text-slate-500">No sampled sends judged yet. The 08:30 sampler fills this once something is at SEND.</p>
+            ) : (
+                <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-lg bg-slate-50 p-2 text-center">
+                            <div className="text-xl font-black tabular-nums text-slate-900">{s.judged}</div>
+                            <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">judged</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2 text-center">
+                            <div className="text-xl font-black tabular-nums text-slate-900">{s.humanReviewed}</div>
+                            <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">Ben reviewed</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2 text-center">
+                            <div className={cn('text-xl font-black tabular-nums', tone)}>{s.agreement === null ? '—' : `${s.agreement}%`}</div>
+                            <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">agreement</div>
+                        </div>
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                        {s.disagreements.judgeFineHumanNot > 0 && <>{s.disagreements.judgeFineHumanNot} the judge passed and Ben did not. </>}
+                        {s.disagreements.judgeNotHumanFine > 0 && <>{s.disagreements.judgeNotHumanFine} the judge failed and Ben passed. </>}
+                        <span className="text-slate-400">The judge is advisory until agreement is ≥ 85% (scripts/_judge-agreement.ts).</span>
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Phase 3: the ladder — intent · tier · verdicts/30d · unedited % · unsafe · eval family · last change. P6: a person can move a row. */
 function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
+    const queryClient = useQueryClient();
     const packs = Array.from(new Set(rows.map((r) => r.packId)));
     const tierCls: Record<PackTierRow['tier'], string> = {
         SEND: 'bg-emerald-100 text-emerald-800', DRAFT: 'bg-amber-100 text-amber-800', PROPOSE: 'bg-sky-100 text-sky-800', READ: 'bg-slate-100 text-slate-600',
     };
     const evalCls: Record<PackTierRow['evalFamily'], string> = { pass: 'text-emerald-700', fail: 'text-red-700', skipped: 'text-slate-400', missing: 'text-slate-400' };
     const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+    // P6: one row at a time — pick a direction, type the why, confirm. POST /api/spine/tiers writes
+    // pack_intent_tiers + pack_tier_events as human:<you>; the server refuses SEND outside the pack
+    // or on any money/date name, so the button can only ask.
+    const [editing, setEditing] = useState<{ packId: string; intent: string; to: 'SEND' | 'DRAFT' } | null>(null);
+    const [reason, setReason] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const submit = async () => {
+        if (!editing || !reason.trim()) return;
+        setBusy(true); setError(null);
+        try {
+            const res = await fetch('/api/spine/tiers', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ packId: editing.packId, intent: editing.intent, tier: editing.to, reason: reason.trim() }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.ok) throw new Error((data.errors ?? [`HTTP ${res.status}`]).join('; '));
+            setEditing(null); setReason('');
+            await queryClient.invalidateQueries({ queryKey: ['agent-staff'] });
+        } catch (e: any) {
+            setError(e?.message ?? 'Could not change the tier');
+        } finally {
+            setBusy(false);
+        }
+    };
+    const ladderButton = (r: PackTierRow) => {
+        if (r.tier !== 'DRAFT' && r.tier !== 'SEND') return null;
+        const to = r.tier === 'DRAFT' ? 'SEND' : 'DRAFT';
+        const active = editing?.packId === r.packId && editing.intent === r.intent;
+        return (
+            <button
+                type="button"
+                onClick={() => { setEditing(active ? null : { packId: r.packId, intent: r.intent, to }); setReason(''); setError(null); }}
+                className={cn(
+                    'rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                    to === 'SEND' ? 'border-emerald-600 text-emerald-700 hover:bg-emerald-50' : 'border-amber-500 text-amber-700 hover:bg-amber-50',
+                    active && 'bg-slate-900 text-white hover:bg-slate-900',
+                )}
+                title={to === 'SEND' ? 'Promote this intent to SEND by hand (the job can still demote it)' : 'Demote this intent to DRAFT by hand'}
+                data-testid={`tier-${to.toLowerCase()}-${r.intent}`}
+            >
+                {to === 'SEND' ? '↑ send' : '↓ draft'}
+            </button>
+        );
+    };
     return (
         <div data-testid="pack-tiers">
             <h3 className="mb-1 text-[11px] font-black uppercase tracking-wide text-slate-500">Autonomy ladder (earned per intent)</h3>
             <p className="mb-2 text-[11px] text-slate-500">
                 SEND is earned: eval family pass³, ≥ 30 pack verdicts in 30d at ≥ 90% unedited, zero unsafe ever, zero escalations in 14d.
                 ask_gap / confirm_received fast-track after 14 days, 20 verdicts, 0 rejects. Any unsafe, incident or sampled approval under 80% drops it back to DRAFT.
+                A person can move a row with the buttons; every move is logged with your name and a reason.
             </p>
+            {editing && (
+                <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 p-2 text-xs" data-testid="tier-reason">
+                    <span className="font-bold text-slate-800">{editing.intent} → {editing.to}</span>
+                    <input
+                        autoFocus
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void submit(); if (e.key === 'Escape') setEditing(null); }}
+                        placeholder="Why? (required, goes on the event log)"
+                        className="min-w-[14rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                        maxLength={1000}
+                    />
+                    <button type="button" disabled={busy || !reason.trim()} onClick={() => void submit()} className="rounded bg-slate-900 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white disabled:opacity-40">
+                        {busy ? 'Saving…' : 'Confirm'}
+                    </button>
+                    <button type="button" onClick={() => setEditing(null)} className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Cancel</button>
+                    {error && <span className="w-full text-red-700">{error}</span>}
+                </div>
+            )}
             {packs.map((packId) => {
                 const pr = rows.filter((r) => r.packId === packId);
                 const head = pr[0];
@@ -333,7 +445,7 @@ function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
                             <thead className="text-[10px] uppercase tracking-wide text-slate-400">
                                 <tr>
                                     <th className="px-3 py-1">Intent</th><th className="px-2 py-1">Tier</th><th className="px-2 py-1 text-right">Verdicts/30d</th>
-                                    <th className="px-2 py-1 text-right">Unedited</th><th className="px-2 py-1 text-right">Unsafe</th><th className="px-2 py-1">Eval family</th><th className="px-2 py-1">Last change</th>
+                                    <th className="px-2 py-1 text-right">Unedited</th><th className="px-2 py-1 text-right">Unsafe</th><th className="px-2 py-1">Eval family</th><th className="px-2 py-1">Last change</th><th className="px-2 py-1"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -346,6 +458,7 @@ function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
                                         <td className={cn('px-2 py-1 text-right tabular-nums', r.unsafeEver > 0 && 'font-bold text-red-700')}>{r.unsafeEver}{r.escalations14 > 0 && <span className="text-amber-700"> · {r.escalations14} esc</span>}</td>
                                         <td className={cn('px-2 py-1', evalCls[r.evalFamily])}>{r.evalFamily}{r.evalCases > 0 && ` ${r.evalPassed}/${r.evalCases}`}</td>
                                         <td className="px-2 py-1 text-slate-500">{r.lastChange ? `${r.lastChange.tier} · ${when(r.lastChange.at)} · ${r.lastChange.by.replace(/^(system|human):/, '')}` : 'launch default'}</td>
+                                        <td className="px-2 py-1 text-right">{ladderButton(r)}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -452,6 +565,9 @@ function StaffDossier({ member }: { member: StaffMember }) {
 
                 {/* Phase 3: the autonomy ladder — which intents have earned SEND, and the evidence. */}
                 {member.packTiers && member.packTiers.length > 0 && <PackTiersBlock rows={member.packTiers} />}
+
+                {/* P6: the verifier's honesty number — judge vs Ben on the sampled sends. */}
+                {member.sampler && <SamplerBlock s={member.sampler} />}
 
                 {/* Live workload */}
                 {member.stats.length > 0 && (

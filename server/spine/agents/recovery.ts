@@ -25,7 +25,7 @@ export const recoveryAgent: SpineAgent = {
         await recordSpineRunStart({ runId, agent: 'recovery', trigger: RECOVERY_TRIGGER, caseFile, pack });
         const meta = { agent: 'recovery' as const, caseFile };
         try {
-            const result = await runRecovery({ runId: childRunId, trigger: RECOVERY_TRIGGER });
+            const result = await runRecovery({ runId: childRunId, trigger: RECOVERY_TRIGGER, parentRunId: runId });
             const summary = (result.finalText ?? '').slice(0, 500);
             const proposal: Proposal = {
                 intent: 'propose_nudges',

@@ -223,11 +223,13 @@ export const STAFF = {
     ],
 } as const;
 
-export async function runRecovery(runOpts: { runId?: string; trigger?: string } = {}) {
+export async function runRecovery(runOpts: { runId?: string; trigger?: string; parentRunId?: string | null } = {}) {
     const runId = runOpts.runId ?? newRunId('run');
     return runAgent({
         name: 'recovery',
         runId, trigger: runOpts.trigger ?? 'manual',
+        // P6: the spine's recovery agent wraps this runner; its run id is the parent of this row.
+        parentRunId: runOpts.parentRunId ?? null,
         system: SYSTEM,
         goal: 'Review the current recovery candidates and queue follow-ups for approval.',
         tools: buildTools(runId),
