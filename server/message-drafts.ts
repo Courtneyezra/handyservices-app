@@ -42,7 +42,7 @@ function pushCommsEvent(evt: CommsEvent): void {
 
 export const messageDraftsRouter = Router();
 
-export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack' | 'ops_manager' | 'rules_layer';
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack' | 'ops_manager' | 'rules_layer' | 'spine';
 
 /**
  * Which draft sources count as a service reply for opt-out purposes, and which are outreach.
@@ -56,6 +56,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continu
  *   comms_agent        a reply drafted onto a live inbound thread. Service.
  *   manual             a human composed it about a specific job. Service.
  *   rules_layer        a content-free holding line or ask on a live inbound thread. Service.
+ *   spine              a Phase 2 spine proposal on a live inbound thread. Service.
  *
  * NOT listed, therefore blocked by a plain STOP:
  *   post_call_video    we decided to ask for something after a call. Outreach.
@@ -64,7 +65,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continu
  *
  * None of this gets past an 'all' ("do not contact") suppression; that blocks every source.
  */
-const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual', 'ops_manager', 'rules_layer']);
+const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual', 'ops_manager', 'rules_layer', 'spine']);
 
 export function purposeForDraftSource(source: DraftSource): OutboundPurpose {
     return SERVICE_DRAFT_SOURCES.has(source) ? 'service_reply' : 'marketing';

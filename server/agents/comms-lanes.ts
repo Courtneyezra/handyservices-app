@@ -190,6 +190,20 @@ async function arm(conversationId: string, phone: string): Promise<void> {
     if (!conversationId) { console.warn('[CommsLanes] arm skipped: no conversationId'); return; }
     if (isTestNumber(phone)) { console.log(`[CommsLanes] arm skipped: test number ${phone}`); return; }
 
+    // Phase 2: with the spine on, the debounce is the spine's (same row, same key, plus the
+    // trigger). Off = the legacy arm below, unchanged.
+    try {
+        const { isSpineEnabled } = await import('../spine/config');
+        if (await isSpineEnabled()) {
+            const { requestRun } = await import('../spine/request-run');
+            const r = await requestRun(conversationId, 'inbound_message');
+            console.log(`[CommsLanes] spine requestRun ${conversationId}: ${r.queued ? 'queued' : `not queued (${r.reason})`}`);
+            return;
+        }
+    } catch (error: any) {
+        console.error('[CommsLanes] spine flag check failed, falling through to legacy arm:', error?.message ?? error);
+    }
+
     const { getCommsAgentConfig } = await import('./comms');
     const config = await getCommsAgentConfig();
     if (!config.enabled || !config.onInbound) {

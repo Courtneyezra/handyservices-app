@@ -17,14 +17,20 @@ import { randomUUID } from 'crypto';
 export const AUTOMATED_APPROVERS = [
     // Agents — an LLM-backed component released this.
     'agent.comms',            // the legacy comms agent releasing its own draft under the first-contact allowance
+    'agent.scoper',           // Phase 2: the spine's Scoper (server/spine/agents/scoper.ts) at SEND tier
     'agent.comms.autosend',   // the comms agent's whitelist autosend lane
     'agent.sla_chase',        // the SLA sweep's chase
+    'agent.scoper',           // spine: the Scoper releasing an intent at SEND tier (Phase 2)
+    'agent.quote_clerk',      // spine: the Quote clerk (PROPOSE tier; never sends today)
+    'agent.recovery',         // spine: Recovery (PROPOSE tier; never sends today)
+    'agent.contractor_liaison', // spine: contractor pack (Phase 4)
     // Rules — deterministic policy, no model involved.
     'rules.first_contact',    // first-contact acknowledgement (immediate or held-then-released)
     'rules.hours_gate',       // the morning release of a draft held overnight for the hour
     'rules.post_call',        // post-call follow-up rule
     'rules.holding',          // rules layer: content-free holding line (silence-breaker, flag/draft expiry)
     'rules.ask',              // rules layer: content-free ask (media, postcode)
+    'rules.followup',         // spine: rules.followup pack (quote_unviewed, promise_overdue_holding, sla_chase)
     // System — a direct caller that is neither agent nor rule: the job itself needs the message.
     'system.invoice',
     'system.notification',
