@@ -40,6 +40,19 @@ interface StaffVerdicts {
     topEditReason: { reason: string; n: number } | null;
 }
 
+/** Phase 5: the spine's switches as /api/agents/staff reports them (app_settings.spine, no secrets). */
+interface SpineSwitches {
+    mode: 'off' | 'shadow' | 'live';
+    enabled: boolean; shadow: boolean; explicitMode: string | null;
+    agents: Partial<Record<string, { enabled: boolean }>>;
+    asks: { enabled: boolean };
+    autonomy: { enabled: boolean };
+    sampler: { enabled: boolean; rate: number; min: number; max: number };
+    video: { enabled: boolean; images: boolean; maxPerRun: number };
+    sweepLimit: number; debounceMinutes: number; triageModel: string; city: string;
+}
+interface LegacySwitches { enabled: boolean; onInbound: boolean; autosend: boolean; firstContactAck: boolean; quotePrep: boolean }
+
 /** Phase 0 heartbeat, same shape as GET /api/health/comms-worker. Every field optional: an older
  *  server answers without it and the strip simply says so. */
 interface WorkerHeartbeat {
@@ -344,6 +357,54 @@ function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
     );
 }
 
+/**
+ * The spine's switches in one strip (Phase 5): which mode we are in and what each flag does.
+ * Flips happen on scripts/_spine-mode.ts or the app_settings row (docs/comms-build/CUTOVER.md);
+ * this strip only reads.
+ */
+function SpineSwitchStrip({ spine, legacy }: { spine: SpineSwitches | null | undefined; legacy: LegacySwitches | null | undefined }) {
+    if (!spine) {
+        return <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">Spine switches not reported by this server.</div>;
+    }
+    const modeTone = spine.mode === 'live' ? 'bg-emerald-600 text-white' : spine.mode === 'shadow' ? 'bg-amber-500 text-white' : 'bg-slate-700 text-white';
+    const modeText = spine.mode === 'live' ? 'LIVE — the spine answers customers; legacy off'
+        : spine.mode === 'shadow' ? 'SHADOW — the spine runs dry and records; legacy still drafts'
+        : 'OFF — legacy only';
+    const chip = (label: string, on: boolean, title: string) => (
+        <span key={label} title={title} className={cn('rounded px-2 py-0.5 text-[10px] font-black uppercase tracking-wide', on ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{label}</span>
+    );
+    const agentChips = Object.entries(spine.agents ?? {}).map(([k, v]) => chip(`${k} ${v?.enabled ? 'on' : 'off'}`, !!v?.enabled, `spine.agents.${k}.enabled`));
+    return (
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3" data-testid="spine-switches">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className={cn('rounded px-2 py-1 text-[11px] font-black uppercase tracking-wide', modeTone)}>spine {spine.mode}</span>
+                <span className="text-xs text-slate-600">{modeText}</span>
+                <span className="ml-auto text-[10px] text-slate-400">flip with scripts/_spine-mode.ts · rollback in CUTOVER.md §4</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+                {chip('enabled', spine.enabled, 'spine.enabled — master; off = nothing in server/spine runs')}
+                {chip('shadow', spine.shadow, 'spine.shadow — compute and record, never exit')}
+                {chip(`asks ${spine.asks.enabled ? 'on' : 'off'}`, spine.asks.enabled, 'spine.asks.enabled — rules-layer media/postcode asks from the exit')}
+                {chip(`autonomy ${spine.autonomy.enabled ? 'on' : 'off'}`, spine.autonomy.enabled, 'spine.autonomy.enabled — the 07:30 promotion/demotion job')}
+                {chip(`sampler ${spine.sampler.enabled ? `on · ${Math.round(spine.sampler.rate * 100)}%` : 'off'}`, spine.sampler.enabled, 'spine.sampler — the 08:30 sample of yesterday\'s automatic sends')}
+                {chip(`video ${spine.video.enabled ? `on · ${spine.video.maxPerRun}/run${spine.video.images ? ' +photos' : ''}` : 'off'}`, spine.video.enabled, 'spine.video — describe_video on the case file (Gemini)')}
+                {agentChips}
+                <span className="text-[10px] text-slate-400">debounce {spine.debounceMinutes} min · sweep {spine.sweepLimit}/tick · triage {spine.triageModel} · {spine.city}</span>
+            </div>
+            {legacy && (
+                <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">legacy comms_agent</span>
+                    {chip(`sweep ${legacy.enabled ? 'on' : 'off'}`, legacy.enabled, 'comms_agent.enabled — the legacy SLA sweep')}
+                    {chip(`on inbound ${legacy.onInbound ? 'on' : 'off'}`, legacy.onInbound, 'comms_agent.onInbound — legacy drafts on new messages (off once the spine is live)')}
+                    {chip(`autosend ${legacy.autosend ? 'ON' : 'off'}`, legacy.autosend, 'comms_agent.autosend.enabled — legacy direct send; OFF since the 2 Sep hotfix')}
+                    {chip(`first-contact ack ${legacy.firstContactAck ? 'on' : 'off'}`, legacy.firstContactAck, 'comms_agent.firstContactAutoAck.enabled')}
+                    {chip(`auto quote-prep ${legacy.quotePrep ? 'on' : 'off'}`, legacy.quotePrep, 'comms_agent.quotePrep.enabled')}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function StaffDossier({ member }: { member: StaffMember }) {
     const [showOrders, setShowOrders] = useState(false);
     const a = ACCENT[member.accent] ?? ACCENT.sky;
@@ -562,7 +623,7 @@ function TemplateStatusPanel() {
 
 export default function AgentStaffPage() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
-    const { data, isLoading, error } = useQuery<{ staff: StaffMember[]; workerHeartbeat?: WorkerHeartbeat | null }>({
+    const { data, isLoading, error } = useQuery<{ staff: StaffMember[]; workerHeartbeat?: WorkerHeartbeat | null; spine?: SpineSwitches | null; legacy?: LegacySwitches | null }>({
         queryKey: ['agent-staff'],
         queryFn: async () => {
             const res = await fetch('/api/agents/staff', { headers: getAuthHeaders() });
@@ -606,6 +667,8 @@ export default function AgentStaffPage() {
 
             {/* Phase 0/1: is the one process that runs the fleet's loops alive? */}
             <WorkerHeartbeatStrip hb={data.workerHeartbeat} />
+            {/* Phase 5: the spine's mode and every switch, read-only. */}
+            <SpineSwitchStrip spine={data.spine} legacy={data.legacy} />
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {data.staff.map((m) => (

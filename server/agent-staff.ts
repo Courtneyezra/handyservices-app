@@ -37,6 +37,9 @@ import {
     exportApprovedExamples, getOutcomeLoopConfig, setOutcomeLoopConfig,
 } from './agent-outcomes';
 import { getHeartbeatHealth } from './comms-worker-heartbeat';
+import { SPINE_STAFF } from './spine/staff';
+import { getSpineConfig, type SpineConfig } from './spine/config';
+import { spineModeFrom } from './spine/switch';
 import { verdictStats } from './verdicts';
 import { bucketForSources, topReason, type VerdictBucket, type VerdictStats } from './verdict-stats';
 
@@ -201,9 +204,110 @@ function verdictSummaryFor(stats: VerdictStats | null, staffId: string): { verdi
     return { verdicts, stats: out };
 }
 
+/**
+ * Phase 5: run counts per spine agent for the cards (agent_runs, last 7 days). One grouped query;
+ * a missing table or column is an empty map, never a 500.
+ */
+type RunTally = { runs: number; errors: number; decisions: Record<string, number>; shadow: number; costPence: number };
+async function spineRunTallies(days = 7): Promise<Record<string, RunTally>> {
+    const out: Record<string, RunTally> = {};
+    try {
+        const r: any = await db.execute(sql`
+            SELECT agent, coalesce(decision, 'none') AS decision, count(*)::int AS n,
+                   count(*) FILTER (WHERE error IS NOT NULL)::int AS errors,
+                   count(*) FILTER (WHERE shadow_decision IS NOT NULL)::int AS shadow,
+                   coalesce(sum(cost_pence), 0)::int AS cost
+            FROM agent_runs WHERE started_at > now() - (${days} || ' days')::interval
+            GROUP BY 1, 2`);
+        for (const row of (r.rows ?? r) as any[]) {
+            const t = (out[row.agent] ??= { runs: 0, errors: 0, decisions: {}, shadow: 0, costPence: 0 });
+            t.runs += Number(row.n); t.errors += Number(row.errors); t.shadow += Number(row.shadow); t.costPence += Number(row.cost);
+            t.decisions[row.decision] = (t.decisions[row.decision] ?? 0) + Number(row.n);
+        }
+    } catch (e: any) {
+        console.warn('[AgentStaff] agent_runs tallies unavailable:', e?.message);
+    }
+    return out;
+}
+
+/** The spine's switches, for the strip at the top of /admin/staff. No secrets live in this row. */
+function spineSwitches(cfg: SpineConfig) {
+    return {
+        mode: spineModeFrom(cfg),
+        enabled: cfg.enabled, shadow: cfg.shadow, explicitMode: cfg.mode ?? null,
+        agents: cfg.agents, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
+        sweepLimit: cfg.sweepLimit, debounceMinutes: cfg.debounceMinutes, triageModel: cfg.triageModel, city: cfg.city,
+    };
+}
+
+/** The spine roles' standing orders, verbatim, for the dossier ("nothing is hand-written copy"). */
+let spineOrdersCache: Record<string, string> | null = null;
+async function spineOrders(): Promise<Record<string, string>> {
+    if (spineOrdersCache) return spineOrdersCache;
+    const out: Record<string, string> = {};
+    const tryLoad = async (id: string, fn: () => Promise<string>) => { try { out[id] = await fn(); } catch (e: any) { out[id] = `(standing orders unavailable: ${e?.message ?? e})`; } };
+    await tryLoad('triage', async () => (await import('./spine/triage')).TRIAGE_SYSTEM);
+    await tryLoad('scoper', async () => { const m = await import('./spine/agents/scoper'); return `${m.loadScoperCore()}\n\n--- post-quote fragment ---\n${m.loadScoperPostQuote()}`; });
+    await tryLoad('quote-clerk', async () => quotePrepSystem);
+    await tryLoad('recovery-spine', async () => recoverySystem);
+    await tryLoad('verifier', async () => (await import('./spine/agents/verifier')).MOVE_QUALITY_SYSTEM);
+    await tryLoad('contractor-liaison', async () => (await import('./spine/agents/contractor-liaison')).LIAISON_CORE);
+    await tryLoad('vision', async () => (await import('./spine/tools/describe-video')).VISION_SYSTEM_PROMPT);
+    await tryLoad('rules-layer', async () => { const m = await import('./rules-layer'); return ['HOLDING COPY (fixed):', ...Object.entries(m.HOLDING_COPY).map(([k, v]) => `[${k}] ${v.replace(/\n---\n/g, ' / ')}`), '', 'ASK COPY (fixed):', ...Object.entries(m.ASK_COPY).map(([k, v]) => `[${k}] ${String(v).replace(/\n---\n/g, ' / ')}`), '', `Holding template: ${m.HOLDING_TEMPLATE_NAME} — "${m.HOLDING_TEMPLATE_BODY}"`].join('\n'); });
+    spineOrdersCache = out;
+    return out;
+}
+
+async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTally>, packTiers: any[]) {
+    const mode = spineModeFrom(cfg);
+    const orders = await spineOrders();
+    return SPINE_STAFF.map((card) => {
+        const t = card.agent ? tallies[card.agent] : undefined;
+        const agentKey = card.agent as keyof SpineConfig['agents'] | undefined;
+        const agentOn = cfg.enabled && (agentKey ? cfg.agents[agentKey]?.enabled !== false : true);
+        const stats: Stat[] = [];
+        if (t) {
+            stats.push({ label: 'Runs (7d)', value: t.runs, tone: 'plain' });
+            if (t.shadow) stats.push({ label: 'Shadow runs (7d)', value: t.shadow, tone: 'plain' });
+            const flags = t.decisions.flag ?? 0; const pending = t.decisions.pending ?? 0; const sends = t.decisions.send ?? 0;
+            if (flags) stats.push({ label: 'Flags to Ben (7d)', value: flags, tone: 'warn' });
+            if (pending) stats.push({ label: 'Drafts for Ben (7d)', value: pending, tone: 'plain' });
+            if (sends) stats.push({ label: 'Sends (7d)', value: sends, tone: 'good' });
+            if (t.errors) stats.push({ label: 'Errors (7d)', value: t.errors, tone: 'bad' });
+            if (t.costPence) stats.push({ label: 'Spend (7d)', value: t.costPence < 100 ? `${t.costPence}p` : `£${(t.costPence / 100).toFixed(2)}`, tone: 'plain' });
+        }
+        const featureOff =
+            card.id === 'vision' ? !cfg.video.enabled
+            : card.id === 'verifier' ? !cfg.sampler.enabled
+            : card.id === 'rules-layer' ? false
+            : !agentOn;
+        return {
+            ...card,
+            system: `${orders[card.id] ?? 'No model prompt: deterministic code.'}${card.ordersFile ? `\n\n(source: ${card.ordersFile})` : ''}`,
+            stats,
+            statusChips: [
+                { label: `SPINE ${mode.toUpperCase()}`, on: mode !== 'off' },
+                { label: `TIER ${card.tier}`, on: card.tier === 'SEND' },
+                ...(card.id === 'vision' ? [{ label: cfg.video.enabled ? 'VIDEO ON' : 'VIDEO OFF', on: cfg.video.enabled }] : []),
+                ...(card.id === 'verifier' ? [{ label: cfg.sampler.enabled ? `SAMPLER ON · ${Math.round(cfg.sampler.rate * 100)}%` : 'SAMPLER OFF', on: cfg.sampler.enabled }] : []),
+                ...(card.id === 'rules-layer' ? [{ label: cfg.asks.enabled ? 'ASKS ON' : 'ASKS OFF', on: cfg.asks.enabled }] : []),
+                ...(card.agent && agentKey && cfg.agents[agentKey] ? [{ label: cfg.agents[agentKey]!.enabled ? 'AGENT ON' : 'AGENT OFF', on: !!cfg.agents[agentKey]!.enabled }] : []),
+                ...(featureOff && mode !== 'off' ? [{ label: 'DARK', on: false }] : []),
+            ],
+            verdicts: null,
+            packTiers: card.id === 'scoper' ? packTiers.filter((r: any) => r.packId === 'customer.default' || r.packId === 'customer.post_quote')
+                : card.id === 'contractor-liaison' ? packTiers.filter((r: any) => r.packId === 'contractor.default') : [],
+        };
+    });
+}
+
 // GET /api/agents/staff — the full directory with live stats.
 agentStaffRouter.get('/staff', async (_req, res) => {
     try {
+        const [spineCfg, tallies] = await Promise.all([
+            getSpineConfig().catch(() => null),
+            spineRunTallies(7),
+        ]);
         const [comms, recovery, workerHeartbeat, verdicts, packTiers] = await Promise.all([
             commsStats(), recoveryStats(), getHeartbeatHealth(),
             // Missing table (migration not applied yet) must not take the whole directory down.
@@ -228,10 +332,14 @@ agentStaffRouter.get('/staff', async (_req, res) => {
         const commsV = v('comms');
         const recoveryV = v('recovery');
         const opsManagerV = v('ops-manager');
+        const legacyCfg = await getCommsAgentConfig().catch(() => null);
         res.json({
             // Phase 0: { ok, ageSeconds, stale, at, host, pid, version, thisProcess } — same shape
             // as GET /api/health/comms-worker, so the staff page can show it without a second call.
             workerHeartbeat,
+            // Phase 5: the spine's switches (app_settings.spine, no secrets) and the legacy agent's.
+            spine: spineCfg ? spineSwitches(spineCfg) : null,
+            legacy: legacyCfg ? { enabled: legacyCfg.enabled, onInbound: legacyCfg.onInbound, autosend: legacyCfg.autosend.enabled, firstContactAck: legacyCfg.firstContactAutoAck.enabled, quotePrep: legacyCfg.quotePrep.enabled } : null,
             // Phase 1: fleet-wide verdict totals for the window (per-agent slices sit on each member).
             verdictWindow: verdicts ? { days: verdicts.days, human: verdicts.human, uneditedApprovalRate: verdicts.uneditedApprovalRate, unsafe: verdicts.unsafe } : null,
             // Phase 3: every (pack, intent) on the DRAFT → SEND ladder with its evidence.
@@ -239,14 +347,20 @@ agentStaffRouter.get('/staff', async (_req, res) => {
             staff: [
                 {
                     ...commsStaff,
+                    // Phase 5: the Scoper replaces this agent on the customer lane once the spine has
+                    // been live for 7 days with no unsafe verdicts (docs/comms-build/PHASE5-DELETE.md).
+                    roleTitle: `${commsStaff.roleTitle} (legacy)`,
                     system: commsSystem,
                     accent: 'emerald',
                     ...comms,
                     stats: [...commsV.stats, ...comms.stats],
+                    statusChips: [{ label: 'RETIRING AFTER 7 LIVE DAYS', on: false }, ...comms.statusChips],
                     verdicts: commsV.verdicts,
                     // The Scoper's packs: the customer conversation this agent is being replaced on.
                     packTiers: tiersFor('customer.default', 'customer.post_quote'),
                 },
+                // Phase 5: the spine roles, one card each (server/spine/staff.ts).
+                ...(spineCfg ? await spineStaffMembers(spineCfg, tallies, packTiers) : []),
                 {
                     ...recoveryStaff,
                     system: recoverySystem,
