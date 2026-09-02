@@ -112,3 +112,8 @@ export async function setSpineConfig(patch: Partial<SpineConfig>, by = 'system')
     } catch { /* bookkeeping only */ }
     return next;
 }
+
+/** Per-agent switch (Phase 2 / C name). Same semantics as isSpineEnabled(agent). */
+export async function isSpineAgentEnabled(agent: SpineAgentKey): Promise<boolean> {
+    return isSpineEnabled(agent);
+}

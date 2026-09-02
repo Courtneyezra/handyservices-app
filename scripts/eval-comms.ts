@@ -1,322 +1,260 @@
 /**
- * Comms agent eval harness — docs/COMMS_EVALS_PLAN.md Phase 1.
+ * Comms eval harness, NO-DATABASE flavour (Phase 2 / C; docs/COMMS_EVALS_PLAN.md §2.2,
+ * docs/comms-build/BRIEF-P2-evals.md).
  *
- *   npx tsx scripts/eval-comms.ts                 # all cases, 1 trial each
- *   npx tsx scripts/eval-comms.ts --trials 3      # scoreboard run (pass^3 headline)
- *   npx tsx scripts/eval-comms.ts --only rf-001-naeem-belief-hygiene
+ *   npx tsx scripts/eval-comms.ts                       # every family, all adapters, 3 trials
+ *   npx tsx scripts/eval-comms.ts --family guards       # one family
+ *   npx tsx scripts/eval-comms.ts --only mq-001-tap-price
+ *   npx tsx scripts/eval-comms.ts --adapter replay      # replay | legacy | spine | all
+ *   npx tsx scripts/eval-comms.ts --trials 1 --quick
  *
- * Cases are DATA (eval-cases/*.json, schema in shared/eval-types.ts). Per trial the
- * harness seeds the case's thread under its Ofcom drama number, runs the agent (or the
- * named unit check), grades what actually happened — the drafted text and the DB
- * outcome, never the tool-call path — then deletes the fixture. Results land in
- * eval-results/<runId>.json plus a markdown scoreboard with deltas vs the last run.
- *
- * Config isolation: COMMS_CONFIG_OVERRIDE (process-local) forces the kill switch off
- * for the harness process — live flags are never written, and nothing can auto-send.
- * NEVER pipe this script through head/grep (SIGPIPE kills the run mid-fixture);
- * redirect to a file instead.
+ * Cases are DATA under eval-cases/<family>/*.json (schema: server/evals/case-schema.ts), each
+ * self-contained: a context thread, an optional recorded reply (`candidate`), and `expected`.
+ * Nothing here opens a database or a socket unless EVAL_LIVE=1. Three adapters:
+ *   replay  — grades the recorded candidate through the real detectors + triage lexicon (always runs)
+ *   legacy  — the pre-spine comms agent; it has no propose/dry-run mode, so it is SKIPPED with a
+ *             reason (DB-fixture evals live in scripts/eval-comms-db.ts against a Neon branch)
+ *   spine   — pane A's runOnce with the registered Scoper; skipped until both are on the branch
+ * Regression families report pass^k (k = --trials, default 3); capability cases report pass@k.
+ * Results: eval-results/<timestamp>.json, eval-results/latest.json, eval-results/latest.md
+ * (scoreboard with deltas vs the previous run and the §9 guard false-negative report).
+ * Exit code: 1 if any REGRESSION case is red; capability reds are improvement targets.
  */
-import 'dotenv/config';
-
-// Process-local config BEFORE any agent import: agent on, autosend off (drafts queue,
-// nothing sends), ack + auto-quote-prep off (the harness drives triggers itself).
-process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
-    enabled: true,
-    autosend: { enabled: false, intents: [] },
-    firstContactAutoAck: { enabled: false, channels: [] },
-    quotePrep: { enabled: false },
-});
-process.env.FIRST_CONTACT_ACK_NO_HOLD = '1';
+if (!process.env.EVAL_LIVE) {
+    // server/db.ts throws without DATABASE_URL at import time; a module we import for a pure
+    // function may import it transitively. Point it at nothing so no pool can ever open.
+    process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://eval:none@127.0.0.1:1/no-db';
+}
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { db } from '../server/db';
-import { conversations, messages, messageDrafts, agentQuestions, personalizedQuotes } from '@shared/schema';
-import { eq, sql, desc } from 'drizzle-orm';
+import { loadCases, lastInbound, type EvalCaseV2 } from '../server/evals/case-schema';
+import { gradeObserved, passK, passAtK, type ObservedRun } from '../server/evals/graders';
+import { runGuardChain } from '../server/evals/guard-chain';
+import { lexiconExceptions, lexiconLane } from '../server/evals/triage-lexicon';
+import { caseFileFromContext } from '../server/evals/case-file-from-context';
+import { intentFromReason } from '../server/verdict-stats';
+import {
+    scoreboardMarkdown, summarise, type CaseOutcome, type EvalRunV2, type GuardFalseNegativeReport, type TrialOutcome,
+} from '../server/evals/scoreboard';
 import { chatVoiceViolations } from '@shared/chat-voice';
-import type { EvalCase, EvalGrader, GraderResult, TrialResult, CaseResult, EvalRun } from '@shared/eval-types';
 
 const ARGS = process.argv.slice(2);
-const arg = (name: string): string | null => {
-    const i = ARGS.indexOf(`--${name}`);
-    return i >= 0 ? (ARGS[i + 1] ?? null) : null;
-};
-const TRIALS = Math.max(1, Number(arg('trials') ?? 1));
+const arg = (name: string): string | null => { const i = ARGS.indexOf(`--${name}`); return i >= 0 ? (ARGS[i + 1] ?? null) : null; };
+const flag = (name: string): boolean => ARGS.includes(`--${name}`);
+const TRIALS = Math.max(1, Number(arg('trials') ?? 3));
+const FAMILY = arg('family');
 const ONLY = arg('only');
+const QUICK = flag('quick');
+type AdapterName = 'replay' | 'legacy' | 'spine';
+const ADAPTERS: AdapterName[] = ((arg('adapter') ?? 'all') === 'all' ? ['replay', 'legacy', 'spine'] : [arg('adapter') as AdapterName]);
 
 const CASES_DIR = path.resolve(process.cwd(), 'eval-cases');
 const RESULTS_DIR = path.resolve(process.cwd(), 'eval-results');
 
-// ---------------------------------------------------------------- fixtures
+interface AdapterResult { observed?: ObservedRun; skipped?: string }
 
-const digitsOf = (phone: string) => phone.replace(/\D/g, '');
-const convKeyOf = (phone: string) => `${digitsOf(phone)}@c.us`;
-const convIdOf = (c: EvalCase) => `eval_${c.id.replace(/[^a-z0-9]/gi, '_')}`;
+// ---------------------------------------------------------------- adapters
 
-async function cleanupFixture(c: EvalCase): Promise<void> {
-    const phone = c.fixture.phone;
-    await db.delete(messages).where(eq(messages.conversationId, convIdOf(c)));
-    await db.delete(messageDrafts).where(sql`regexp_replace(${messageDrafts.phone}, '[^0-9]', '', 'g') = ${digitsOf(phone)}`);
-    await db.delete(agentQuestions).where(sql`regexp_replace(${agentQuestions.phone}, '[^0-9]', '', 'g') = ${digitsOf(phone)}`);
-    await db.delete(personalizedQuotes).where(sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${digitsOf(phone)}`);
-    await db.delete(conversations).where(eq(conversations.id, convIdOf(c)));
+let holdsModule: null | { isNearDuplicateText(a: string, b: string): boolean; isMalformedAgentReason(r: string | null | undefined): boolean } = null;
+let holdsError: string | null = null;
+async function loadHolds() {
+    if (holdsModule || holdsError) return holdsModule;
+    try {
+        const m = await import('../server/message-drafts');
+        holdsModule = { isNearDuplicateText: m.isNearDuplicateText, isMalformedAgentReason: m.isMalformedAgentReason };
+    } catch (e: any) {
+        holdsError = e?.message ?? String(e);
+    }
+    return holdsModule;
 }
 
-async function seedFixture(c: EvalCase): Promise<string> {
-    const f = c.fixture;
-    const now = Date.now();
-    const convId = convIdOf(c);
-
-    await db.insert(conversations).values({
-        id: convId,
-        phoneNumber: convKeyOf(f.phone),
-        contactName: f.contactName ?? 'Eval Fixture',
-        status: 'active',
-        stage: f.stage ?? 'scoping',
-        priority: 'normal',
-        tags: [],
+async function replayAdapter(c: EvalCaseV2): Promise<AdapterResult> {
+    if (!c.candidate) return { skipped: 'no recorded candidate to replay' };
+    const customerText = lastInbound(c.context) ?? [...(c.caseFile?.timeline ?? [])].reverse().find((t) => t.kind === 'message_in')?.body ?? null;
+    const guard = runGuardChain(c.candidate.body, {
+        customerText, intent: c.candidate.intent ?? intentFromReason(c.candidate.reason) ?? null,
+        quoteSeen: c.quote?.seen, quoteViewCount: c.quote?.viewCount, offeredDates: c.quote?.offeredDates, quoteTotalPence: c.quote?.totalPence ?? null,
     });
-
-    let lastInboundAt: Date | null = null;
-    for (const [i, m] of f.thread.entries()) {
-        const at = new Date(now - m.minsAgo * 60_000 + i); // +i keeps ordering stable within a minute
-        await db.insert(messages).values({
-            id: `evalmsg_${c.id}_${i}`,
-            conversationId: convId,
-            direction: m.dir === 'in' ? 'inbound' : 'outbound',
-            channel: m.channel ?? 'whatsapp',
-            content: m.text,
-            type: m.mediaUrl ? 'image' : 'text',
-            status: 'delivered',
-            senderName: m.dir === 'in' ? (f.contactName ?? 'Eval Fixture') : 'Agent',
-            mediaUrl: m.mediaUrl ?? null,
-            createdAt: at,
-        });
-        if (m.dir === 'in' && (m.channel ?? 'whatsapp') === 'whatsapp') lastInboundAt = at;
+    const exceptions = lexiconExceptions(customerText);
+    let holds: ObservedRun['holds'];
+    if (c.expected.mustHold?.length) {
+        const h = await loadHolds();
+        if (h) {
+            const prior = c.candidate.priorSends ?? [];
+            holds = {
+                nearDuplicate: prior.some((p) => h.isNearDuplicateText(p.body, c.candidate!.body)),
+                malformedReason: h.isMalformedAgentReason(c.candidate.reason),
+            };
+        }
     }
-    const lastMsg = f.thread[f.thread.length - 1];
-    await db.update(conversations).set({
-        lastInboundAt,
-        lastCustomerContactAt: lastInboundAt,
-        lastMessageAt: new Date(now - (lastMsg?.minsAgo ?? 0) * 60_000),
-        lastMessagePreview: (lastMsg?.text ?? '').slice(0, 50),
-        canSendFreeform: true,
-    }).where(eq(conversations.id, convId));
-
-    for (const q of f.quotes ?? []) {
-        const created = new Date(now - (q.sentMinsAgo ?? 60) * 60_000);
-        await db.insert(personalizedQuotes).values({
-            id: `evalq_${c.id}_${q.slug}`,
-            shortSlug: q.slug,
-            customerName: f.contactName ?? 'Eval Fixture',
-            phone: f.phone,
-            jobDescription: q.lines.map((l) => l.description).join('; '),
-            basePrice: q.totalPence,
-            selectedTierPricePence: q.totalPence,
-            depositAmountPence: Math.round(q.totalPence * 0.3),
-            pricingLineItems: q.lines.map((l, i) => ({
-                lineId: `${q.slug}_${i}`, description: l.description,
-                guardedPricePence: l.pence, materialsWithMarginPence: 0, assumptions: [],
-            })),
-            viewCount: q.viewCount ?? 1,
-            viewedAt: new Date(created.getTime() + 600_000),
-            lastViewedAt: new Date(now - 3600_000),
-            expiresAt: new Date(now + 5 * 86_400_000),
-            createdAt: created,
-            updatedAt: created,
-        });
-    }
-
-    // Ack-reply cases need a SENT first_contact_ack draft on record — that is what
-    // triageAckReply uses to decide "was there a recent call-offer to answer".
-    if (f.sentAckMinsAgo != null) {
-        const at = new Date(now - f.sentAckMinsAgo * 60_000);
-        await db.insert(messageDrafts).values({
-            id: `evalack_${c.id}`,
-            conversationId: convId,
-            phone: f.phone,
-            body: 'Is it OK if we give you a quick call to run through it? Or just reply here with the details and we will price it up.',
-            channel: 'whatsapp',
-            source: 'first_contact_ack',
-            reason: '[ack_enquiry] eval fixture',
-            status: 'sent',
-            createdAt: at,
-            sentAt: at,
-        });
-    }
-
-    return convId;
+    return {
+        observed: {
+            body: c.candidate.body,
+            intent: c.candidate.intent ?? intentFromReason(c.candidate.reason) ?? null,
+            lane: c.candidate.lane ?? lexiconLane(exceptions, { firstContact: !!c.firstContact, postQuote: !!c.quote }),
+            flagged: !!c.candidate.flagged,
+            guardHits: guard.hits.map((h) => h.code),
+            escalatingGuards: guard.escalatingCodes,
+            customerExceptions: exceptions,
+            holds,
+            voiceViolations: chatVoiceViolations(c.candidate.body).map((v: any) => (typeof v === 'string' ? v : v?.rule ?? String(v))),
+        },
+    };
 }
 
-// ---------------------------------------------------------------- graders
-
-function gradeDraft(grader: EvalGrader, draft: string | null): GraderResult {
-    const name = grader.type;
-    if (draft == null) return { grader: name, pass: false, note: 'no draft to grade' };
-    switch (grader.type) {
-        case 'draft-must-match': {
-            const missing = grader.patterns.filter((p) => !new RegExp(p, 'i').test(draft));
-            return { grader: name, pass: missing.length === 0, note: missing.length ? `missing: ${missing.join(' | ')}` : undefined };
-        }
-        case 'draft-must-not-match': {
-            const hits = grader.patterns.filter((p) => new RegExp(p, 'i').test(draft));
-            return { grader: name, pass: hits.length === 0, note: hits.length ? `matched: ${hits.join(' | ')}` : undefined };
-        }
-        case 'question-count-max': {
-            const n = (draft.match(/\?/g) ?? []).length;
-            return { grader: name, pass: n <= grader.max, note: `${n} question(s), max ${grader.max}` };
-        }
-        case 'chat-voice': {
-            const violations = chatVoiceViolations(draft);
-            return { grader: name, pass: violations.length === 0, note: violations.length ? violations.map((v: any) => v.rule ?? String(v)).join(', ') : undefined };
-        }
-        default:
-            return { grader: name, pass: false, note: 'grader not applicable to draft' };
-    }
+async function legacyAdapter(_c: EvalCaseV2): Promise<AdapterResult> {
+    // runCommsAgent (server/agents/comms.ts) reads and writes the database and has no propose /
+    // dry-run mode (only the sweeps take dryRun). Seeding fixtures is scripts/eval-comms-db.ts's job.
+    return { skipped: 'legacy runCommsAgent has no propose mode; use scripts/eval-comms-db.ts on a Neon branch' };
 }
 
-async function runAgentTrial(c: EvalCase, trial: number): Promise<TrialResult> {
-    await cleanupFixture(c);
-    const convId = await seedFixture(c);
+let spineRunner: null | ((input: { caseFile: unknown; trigger: string }) => Promise<any>) = null;
+let spineSkip: string | null = null;
+async function loadSpine() {
+    if (spineRunner || spineSkip) return spineRunner;
+    for (const spec of ['../server/spine/run-once', '../server/spine/runner', '../server/spine/index']) {
+        try {
+            const m: any = await import(/* @vite-ignore */ spec);
+            const fn = m.runOnce ?? m.default?.runOnce;
+            if (typeof fn === 'function') { spineRunner = fn; break; }
+        } catch { /* try the next name */ }
+    }
+    if (!spineRunner) { spineSkip = 'spine runOnce not on this branch (pane A)'; return null; }
     try {
-        const { runCommsAgent } = await import('../server/agents/comms');
-        const outcome = await runCommsAgent(convId, c.trigger);
+        const agents: any = await import('../server/spine/agents/index');
+        if (!agents.getSpineAgent?.('scoper')) { spineSkip = 'no Scoper registered (pane B)'; spineRunner = null; }
+    } catch (e: any) { spineSkip = `agent registry: ${e?.message ?? e}`; spineRunner = null; }
+    return spineRunner;
+}
 
-        // The drafted reply: every queue_draft body this run produced, joined — burst
-        // messages grade as one text (question budget is per-reply, not per-bubble).
-        const bodies = outcome.actions
-            .filter((a) => a.tool === 'queue_draft')
-            .map((a) => String(a.input?.body ?? ''))
-            .filter(Boolean);
-        const draft = bodies.length ? bodies.join('\n---\n') : null;
+async function spineAdapter(c: EvalCaseV2): Promise<AdapterResult> {
+    const run = await loadSpine();
+    if (!run) return { skipped: spineSkip ?? 'spine unavailable' };
+    const caseFile = caseFileFromContext(c);
+    const out = await run({ caseFile, trigger: 'inbound_message' });
+    const body = out?.proposal?.body?.length ? out.proposal.body.join('\n---\n') : null;
+    return {
+        observed: {
+            body,
+            intent: out?.proposal?.intent ?? out?.triage?.intent ?? null,
+            lane: out?.triage?.lane ?? null,
+            flagged: out?.decision?.kind === 'flag' || !!out?.proposal?.flag,
+            guardHits: out?.guards?.guardsHit ?? [],
+            escalatingGuards: out?.guards?.escalate ? (out?.guards?.guardsHit ?? []) : [],
+            customerExceptions: out?.triage?.exceptions ?? [],
+            voiceViolations: body ? chatVoiceViolations(body).map((v: any) => (typeof v === 'string' ? v : v?.rule ?? String(v))) : [],
+        },
+    };
+}
 
-        const [conv] = await db.select({ tags: conversations.tags }).from(conversations).where(eq(conversations.id, convId));
-        const tags: string[] = conv?.tags ?? [];
+const ADAPTER_FNS: Record<AdapterName, (c: EvalCaseV2) => Promise<AdapterResult>> = { replay: replayAdapter, legacy: legacyAdapter, spine: spineAdapter };
 
-        const graders: GraderResult[] = [];
-        for (const g of c.graders) {
-            if (g.type === 'replied') {
-                graders.push({ grader: g.type, pass: draft != null, note: draft == null ? 'agent produced no reply' : undefined });
-            } else if (g.type === 'no-autosend') {
-                graders.push({ grader: g.type, pass: !outcome.autosent, note: outcome.autosent ? 'AUTOSENT with kill switch off!' : undefined });
-            } else if (g.type === 'tag') {
-                const has = tags.includes(g.tag);
-                graders.push({ grader: `tag:${g.tag}`, pass: has === g.expect, note: `tags=[${tags.join(',')}]` });
-            } else if (g.type === 'unit') {
-                graders.push({ grader: `unit:${g.name}`, pass: false, note: 'unit grader on an agent-trigger case' });
-            } else {
-                graders.push(gradeDraft(g, draft));
-            }
+// ---------------------------------------------------------------- run
+
+async function runCase(c: EvalCaseV2, adapter: AdapterName): Promise<CaseOutcome> {
+    const kind = c.kind ?? 'regression';
+    const n = adapter === 'replay' ? TRIALS : (c.trials ?? TRIALS);
+    const trials: TrialOutcome[] = [];
+    let skipped: string | undefined;
+    for (let t = 1; t <= n; t++) {
+        try {
+            const r = await ADAPTER_FNS[adapter](c);
+            if (r.skipped || !r.observed) { skipped = r.skipped ?? 'no observation'; trials.push({ trial: t, pass: false, graders: [], skipped }); break; }
+            const graders = gradeObserved(c.expected, r.observed);
+            trials.push({ trial: t, pass: graders.every((g) => g.pass), graders, body: r.observed.body });
+        } catch (e: any) {
+            trials.push({ trial: t, pass: false, graders: [], error: e?.message ?? String(e) });
         }
-        return { trial, pass: graders.every((g) => g.pass), graders, draft, escalated: outcome.escalated, autosent: outcome.autosent };
-    } catch (error: any) {
-        return { trial, pass: false, graders: [], draft: null, escalated: false, autosent: false, error: error?.message ?? String(error) };
-    } finally {
-        await cleanupFixture(c).catch(() => undefined);
     }
+    const allSkipped = trials.every((t) => t.skipped);
+    return {
+        id: c.id, family: c.family, kind, adapter, trials, skipped: allSkipped ? skipped : undefined,
+        passK: allSkipped ? null : passK(trials), passAny: allSkipped ? null : passAtK(trials),
+    };
 }
 
-async function runUnitTrial(c: EvalCase, trial: number): Promise<TrialResult> {
-    await cleanupFixture(c);
-    const convId = await seedFixture(c);
-    try {
-        const graders: GraderResult[] = [];
-        for (const g of c.graders) {
-            if (g.type === 'unit' && g.name === 'ack-reply-consent') {
-                const { triageAckReply } = await import('../server/first-contact-ack');
-                const out = await triageAckReply({ conversationId: convId, phone: c.fixture.phone, text: g.text });
-                graders.push({
-                    grader: `unit:${g.name}`,
-                    pass: (out.tagged ?? null) === g.expectTagged,
-                    note: `tagged=${out.tagged} reason=${out.reason}${out.matched ? ` matched=${out.matched}` : ''}`,
-                });
-            } else if (g.type === 'tag') {
-                const [conv] = await db.select({ tags: conversations.tags }).from(conversations).where(eq(conversations.id, convId));
-                const tags: string[] = conv?.tags ?? [];
-                graders.push({ grader: `tag:${g.tag}`, pass: tags.includes(g.tag) === g.expect, note: `tags=[${tags.join(',')}]` });
-            }
-        }
-        return { trial, pass: graders.every((g) => g.pass), graders, draft: null, escalated: false, autosent: false };
-    } catch (error: any) {
-        return { trial, pass: false, graders: [], draft: null, escalated: false, autosent: false, error: error?.message ?? String(error) };
-    } finally {
-        await cleanupFixture(c).catch(() => undefined);
+/** §9: the guard chain measured on the 31 Aug incident sends (guards family, provenance incident). */
+function guardFalseNegatives(cases: EvalCaseV2[], outcomes: CaseOutcome[]): GuardFalseNegativeReport | null {
+    const incident = cases.filter((c) => c.family === 'guards' && /incident/.test(c.provenance ?? ''));
+    if (!incident.length) return null;
+    const by = new Map(outcomes.filter((o) => o.adapter === 'replay').map((o) => [o.id, o]));
+    const labels: Record<string, number> = {};
+    let shouldHold = 0, caughtText = 0, caughtLexOnly = 0;
+    const missedIds: string[] = [];
+    for (const c of incident) {
+        const label = c.expected.label ?? 'unlabelled';
+        labels[label] = (labels[label] ?? 0) + 1;
+        if (label === 'unguarded_but_fine') continue;
+        shouldHold += 1;
+        const o = by.get(c.id);
+        const g = o?.trials[0]?.graders.find((x) => x.grader === 'must-flag');
+        const note = g?.note ?? '';
+        const text = /guards=\[[^\]]+\]/.test(note) && !/guards=\[\]/.test(note);
+        const lex = /exceptions=\[[^\]]+\]/.test(note) && !/exceptions=\[\]/.test(note);
+        if (text) caughtText += 1;
+        else if (lex) caughtLexOnly += 1;
+        else missedIds.push(c.id);
     }
+    const missed = missedIds.length;
+    return {
+        shouldHold, caughtByTextGuard: caughtText, caughtByLexiconOnly: caughtLexOnly, missed,
+        textGuardFalseNegativeRate: shouldHold ? (shouldHold - caughtText) / shouldHold : null,
+        combinedFalseNegativeRate: shouldHold ? missed / shouldHold : null,
+        missedIds, labels,
+    };
 }
-
-// ---------------------------------------------------------------- reporting
-
-function scoreboardMd(run: EvalRun, prev: EvalRun | null): string {
-    const prevBy = new Map((prev?.cases ?? []).map((c) => [c.id, c]));
-    const lines: string[] = [
-        `# Comms eval scoreboard`,
-        ``,
-        `Run \`${run.runId}\` at ${run.startedAt} on \`${run.gitRef}\` — ${run.trialsRequested} trial(s)/case.`,
-        prev ? `Compared against \`${prev.runId}\`.` : `No previous run to compare against.`,
-        ``,
-        `| case | family | kind | result | vs last | failing graders |`,
-        `| --- | --- | --- | --- | --- | --- |`,
-    ];
-    for (const c of run.cases) {
-        const headline = c.kind === 'regression' ? c.passAll : c.passAny;
-        const label = c.kind === 'regression' ? `pass^${c.trials.length}` : `pass@${c.trials.length}`;
-        const prevCase = prevBy.get(c.id);
-        const prevHeadline = prevCase ? (prevCase.kind === 'regression' ? prevCase.passAll : prevCase.passAny) : null;
-        const delta = prevHeadline == null ? 'new' : prevHeadline === headline ? '=' : headline ? '🔺 fixed' : '🔻 REGRESSED';
-        const failing = [...new Set(c.trials.flatMap((t) => t.graders.filter((g) => !g.pass).map((g) => g.grader)))].join(', ') || '—';
-        lines.push(`| ${c.id} | ${c.family} | ${c.kind} | ${headline ? '✅' : '❌'} ${label} | ${delta} | ${failing} |`);
-    }
-    const passed = run.cases.filter((c) => (c.kind === 'regression' ? c.passAll : c.passAny)).length;
-    lines.push(``, `**${passed}/${run.cases.length} cases green.**`);
-    return lines.join('\n');
-}
-
-// ---------------------------------------------------------------- main
 
 async function main() {
-    const files = fs.readdirSync(CASES_DIR).filter((f) => f.endsWith('.json'));
-    let cases: EvalCase[] = files.flatMap((f) => JSON.parse(fs.readFileSync(path.join(CASES_DIR, f), 'utf8')).cases as EvalCase[]);
-    if (ONLY) cases = cases.filter((c) => c.id === ONLY);
-    if (!cases.length) { console.error('No cases matched.'); process.exit(2); }
+    const { cases, errors } = loadCases(CASES_DIR, { family: FAMILY, only: ONLY });
+    for (const e of errors) console.error(`case error: ${e}`);
+    if (errors.length) process.exit(2);
+    const selected = QUICK ? cases.filter((c) => (c.kind ?? 'regression') === 'regression') : cases;
+    if (!selected.length) { console.error('No cases matched.'); process.exit(2); }
 
     let gitRef = 'unknown';
-    try { gitRef = execSync('git rev-parse --short HEAD').toString().trim(); } catch { /* fine */ }
-
+    try { gitRef = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* fine */ }
     const runId = new Date().toISOString().replace(/[:.]/g, '-');
     const startedAt = new Date().toISOString();
-    console.log(`eval-comms: ${cases.length} case(s) × ${TRIALS} trial(s) on ${gitRef}\n`);
+    console.log(`eval-comms: ${selected.length} case(s) × ${TRIALS} trial(s) × adapters [${ADAPTERS.join(', ')}] on ${gitRef}${process.env.EVAL_LIVE ? ' (EVAL_LIVE)' : ' (no db, no network)'}\n`);
 
-    const results: CaseResult[] = [];
-    for (const c of cases) {
-        const trials: TrialResult[] = [];
-        const nTrials = c.trigger === 'unit' ? 1 : (c.trials ?? TRIALS); // unit checks are deterministic
-        for (let t = 1; t <= nTrials; t++) {
-            const r = c.trigger === 'unit' ? await runUnitTrial(c, t) : await runAgentTrial(c, t);
-            trials.push(r);
-            console.log(`  ${r.pass ? 'PASS' : 'FAIL'}  ${c.id} trial ${t}${r.error ? ` (ERROR: ${r.error})` : ''}`);
-            for (const g of r.graders.filter((x) => !x.pass)) console.log(`        ✗ ${g.grader}${g.note ? ` — ${g.note}` : ''}`);
+    const outcomes: CaseOutcome[] = [];
+    for (const adapter of ADAPTERS) {
+        for (const c of selected) {
+            const o = await runCase(c, adapter);
+            outcomes.push(o);
+            const h = o.kind === 'regression' ? o.passK : o.passAny;
+            const tag = h === null ? 'SKIP' : h ? 'PASS' : o.kind === 'capability' ? 'MISS' : 'FAIL';
+            if (tag !== 'PASS' && !(tag === 'SKIP' && adapter !== 'replay')) {
+                console.log(`  ${tag}  [${adapter}] ${c.id}${o.skipped ? ` — ${o.skipped}` : ''}`);
+                for (const g of o.trials.flatMap((t) => t.graders).filter((g) => !g.pass).slice(0, 4)) console.log(`        ✗ ${g.grader}${g.note ? ` — ${g.note}` : ''}`);
+                for (const t of o.trials.filter((t) => t.error)) console.log(`        ! ${t.error}`);
+            }
         }
-        results.push({
-            id: c.id, family: c.family, kind: c.kind, trials,
-            passAll: trials.every((t) => t.pass),
-            passAny: trials.some((t) => t.pass),
-        });
+        const skippedAll = outcomes.filter((o) => o.adapter === adapter && o.skipped);
+        if (skippedAll.length === selected.length) console.log(`  SKIP  [${adapter}] all ${selected.length} cases — ${skippedAll[0].skipped}`);
     }
 
-    const run: EvalRun = { runId, startedAt, finishedAt: new Date().toISOString(), gitRef, trialsRequested: TRIALS, cases: results };
-
+    const run: EvalRunV2 = {
+        runId, startedAt, finishedAt: new Date().toISOString(), gitRef, trialsRequested: TRIALS, adapters: ADAPTERS,
+        cases: outcomes, guardFalseNegative: guardFalseNegatives(selected, outcomes),
+    };
     fs.mkdirSync(RESULTS_DIR, { recursive: true });
-    const prevPath = path.join(RESULTS_DIR, 'latest.json');
-    const prev: EvalRun | null = fs.existsSync(prevPath) ? JSON.parse(fs.readFileSync(prevPath, 'utf8')) : null;
+    const latestPath = path.join(RESULTS_DIR, 'latest.json');
+    const prev: EvalRunV2 | null = fs.existsSync(latestPath) ? JSON.parse(fs.readFileSync(latestPath, 'utf8')) : null;
     fs.writeFileSync(path.join(RESULTS_DIR, `${runId}.json`), JSON.stringify(run, null, 2));
-    fs.writeFileSync(prevPath, JSON.stringify(run, null, 2));
-    const md = scoreboardMd(run, prev);
+    fs.writeFileSync(latestPath, JSON.stringify(run, null, 2));
+    const md = scoreboardMarkdown(run, prev && prev.cases ? prev : null);
     fs.writeFileSync(path.join(RESULTS_DIR, 'latest.md'), md);
 
-    console.log(`\n${md}\n\nResults: eval-results/${runId}.json`);
-    const greens = results.filter((c) => (c.kind === 'regression' ? c.passAll : c.passAny)).length;
-    process.exit(greens === results.length ? 0 : 1);
+    const sum = summarise(outcomes);
+    const regressionRed = outcomes.filter((o) => o.kind === 'regression' && o.passK === false).length;
+    const capabilityRed = outcomes.filter((o) => o.kind === 'capability' && o.passAny === false).length;
+    console.log(`\n${md.split('\n## Cases')[0]}`);
+    console.log(`\nRegression red: ${regressionRed} · capability red (improvement targets): ${capabilityRed} · skipped: ${sum.skipped}`);
+    console.log(`Results: eval-results/${runId}.json · scoreboard: eval-results/latest.md`);
+    process.exit(regressionRed > 0 ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); process.exit(2); });

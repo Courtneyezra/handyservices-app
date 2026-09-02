@@ -1,0 +1,145 @@
+{
+ "cases": [
+  {
+   "id": "dq-001-can-you-come-tuesday",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Can you come Tuesday morning?",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, Tuesday morning works, see you at 9.",
+    "intent": "point_to_picker"
+   },
+   "expected": {
+    "exceptions": [
+     "date_question"
+    ],
+    "mustFlag": true,
+    "guardsMustTrip": [
+     "date_promise"
+    ]
+   },
+   "provenance": "invented: date promised in chat"
+  },
+  {
+   "id": "dq-002-what-time-arrival",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Booked for Thursday, Craig will be with you.",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "What time will Craig arrive?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "He will be with you between 8 and 9.",
+    "intent": "answer_from_quote"
+   },
+   "expected": {
+    "exceptions": [
+     "date_question"
+    ],
+    "mustFlag": true
+   },
+   "provenance": "invented: arrival time is a Ben/Craig fact, not the agent's"
+  },
+  {
+   "id": "dq-003-another-day-incident",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "I don't have a time for this visit. Please can you confirm?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Let me check on the time with Craig and come straight back to you.",
+     "at": "2026-08-30T10:01:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Ok so is another day better?",
+     "at": "2026-08-30T10:02:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Sounds like stripping that wallpaper is a bit of a mission. We will get it sorted. What time works best for you in the PM for the rescheduled visit?",
+    "intent": "holding"
+   },
+   "expected": {
+    "exceptions": [
+     "date_question"
+    ],
+    "mustFlag": true
+   },
+   "provenance": "31 Aug incident (Dani): agent rescheduling by chat"
+  },
+  {
+   "id": "dq-004-how-long-duration",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "How long will the job take?",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Should be done in a couple of hours.",
+    "intent": "clarify_scope"
+   },
+   "expected": {
+    "mustFlag": true,
+    "guardsMustTrip": [
+     "duration_claim"
+    ]
+   },
+   "provenance": "27 Aug (James): duration is the dates rail's twin"
+  },
+  {
+   "id": "dq-005-when-can-you-fit-me-in-good-reply",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/jkl012",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "When can you fit me in?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 21000,
+    "slug": "jkl012"
+   },
+   "candidate": {
+    "body": "Pick a date on your quote page and it books straight in with the deposit.",
+    "intent": "point_to_picker"
+   },
+   "expected": {
+    "exceptions": [
+     "date_question"
+    ],
+    "mustFlag": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "the right move (point_to_picker) still passes Ben while date_question is an exception"
+  }
+ ]
+}

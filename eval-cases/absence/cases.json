@@ -1,0 +1,244 @@
+{
+ "cases": [
+  {
+   "id": "ab-001-yes-thats-fine",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Yes that's fine",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Cheers. Can you send a photo of the bath from the side?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-002-postcode",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Ng37eg",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got it, thanks. Is the leak under the taps or at the waste end?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-003-concrete-floor",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "concrete floor",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Great, that makes it straightforward. Send a quick photo of the shed base when it lands.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-004-rooms",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Two bedrooms and the hallway",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Perfect. Are the walls currently painted or papered?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-005-howdens-door",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It's a Howdens door",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks. Is it the hinges or the latch that's the problem?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-006-photos-sent",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "here are the photos",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got those, thanks. What's your postcode?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-007-in-on-thursday",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "we're in on Thursday",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Noted. You can pick the exact slot on your quote page once it's over.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-008-thanks",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Thanks!",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "You're welcome. Shout if anything else comes up.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "\u00a3"
+    ]
+   },
+   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+  }
+ ]
+}

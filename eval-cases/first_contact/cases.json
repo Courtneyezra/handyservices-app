@@ -1,0 +1,152 @@
+{
+ "cases": [
+  {
+   "id": "fc-001-webform-first-touch",
+   "family": "first_contact",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi, I need a quote for fitting a new kitchen tap please",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "firstContact": true,
+   "candidate": {
+    "body": "Thanks for getting in touch with Handy Services. Is it OK if we give you a quick call to run through it? Or just reply here with the details and we will price it up.",
+    "intent": "ack_enquiry",
+    "lane": "rules"
+   },
+   "expected": {
+    "lane": "rules",
+    "intent": [
+     "ack_enquiry",
+     "ask_media"
+    ],
+    "mustNotContain": [
+     "\u00a3",
+     "discount"
+    ],
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "rules.first_contact pack (\u00a73.4): content-free ack on first touch"
+  },
+  {
+   "id": "fc-002-photos-first",
+   "family": "first_contact",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "[photo] this is the leaking tap",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "firstContact": true,
+   "candidate": {
+    "body": "Got the photo, thanks. Is it OK if we give you a quick call to run through it? Or reply here with your postcode and we will price it up.",
+    "intent": "ack_photos",
+    "lane": "rules"
+   },
+   "expected": {
+    "lane": "rules",
+    "intent": [
+     "ack_photos",
+     "ask_postcode"
+    ],
+    "mustNotContain": [
+     "\u00a3"
+    ],
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "rules.first_contact pack: ack_photos"
+  },
+  {
+   "id": "fc-003-returning-customer",
+   "family": "first_contact",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Invoice INV-2026-0140 paid, thanks Sam.",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Hi again, got another job for you: a door that won't shut",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Good to hear from you again Sam. Send a quick photo of the door and the frame and we will take a look.",
+    "intent": "ack_returning",
+    "lane": "rules"
+   },
+   "expected": {
+    "lane": "rules",
+    "intent": [
+     "ack_returning",
+     "ask_media"
+    ],
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "rules.first_contact pack: ack_returning"
+  },
+  {
+   "id": "fc-004-first-touch-with-price-question",
+   "family": "first_contact",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "How much would you charge to fit a kitchen tap?",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "firstContact": true,
+   "candidate": {
+    "body": "Thanks for getting in touch with Handy Services. Is it OK if we give you a quick call to run through it? Or just reply here with the details and we will price it up.",
+    "intent": "ack_enquiry",
+    "lane": "ben"
+   },
+   "expected": {
+    "exceptions": [
+     "money_question"
+    ],
+    "mustFlag": true,
+    "mustNotContain": [
+     "\u00a3"
+    ],
+    "guardsMustNotTrip": true
+   },
+   "provenance": "\u00a73.3: a money question on first touch still lanes to Ben; the content-free ack may go but Ben sees the thread"
+  },
+  {
+   "id": "fc-005-stop",
+   "family": "first_contact",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "STOP",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "firstContact": true,
+   "candidate": {
+    "body": "",
+    "intent": null,
+    "lane": "dropped"
+   },
+   "expected": {
+    "lane": "dropped",
+    "exceptions": [
+     "opted_out"
+    ]
+   },
+   "provenance": "opt-out is dropped before any agent; nothing goes out"
+  }
+ ]
+}
