@@ -8,7 +8,7 @@
  * - Real-time broadcasting
  */
 
-import type { Approver } from './approver';
+import { newRunId, type Approver } from './approver';
 import { WebSocket, WebSocketServer } from 'ws';
 import { db } from './db';
 import { conversations, messages, type InsertConversation, type InsertMessage } from '../shared/schema';
@@ -90,7 +90,8 @@ export class ConversationEngine {
 
             case 'inbox:send_message':
                 if (data?.to && data?.body) {
-                    await this.sendMessage(data.to, data.body);
+                    // A person typing in the inbox over the websocket: human approver, one run id per send.
+                    await this.sendMessage(data.to, data.body, { approver: `human:${data.by ?? 'inbox-ws'}`, runId: newRunId('ws') });
                 }
                 break;
 
@@ -553,10 +554,11 @@ export class ConversationEngine {
         }
     }
 
-    public async sendTemplate(to: string, templateSid: string, variables: Record<string, string> = {}) {
+    public async sendTemplate(to: string, templateSid: string, variables: Record<string, string> = {}, gate: { approver: Approver; runId: string }) {
         return this.sendMessage(to, `[Template: ${templateSid}]`, {
             templateSid,
             templateVars: variables,
+            ...gate,
         });
     }
 
