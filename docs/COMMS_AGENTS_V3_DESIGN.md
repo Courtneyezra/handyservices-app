@@ -280,7 +280,7 @@ Each phase has a kill criterion and ends deployed. Legacy `comms.ts` keeps runni
 
 ## 12. Open questions after council
 
-1. **Ben's operating model for verdicts**: hours of coverage and whether verdict-tapping is paid time. Courtnee agrees this with Ben before Phase 1 (design defaults to Mon–Fri 08–18 until then).
+1. ~~Ben's operating model for verdicts~~ decided 3 Sep: Mon–Fri 08–18, approvals are paid time (the shipped default).
 2. **Bot disclosure** on SEND-tier agent replies. Brand decision before Phase 3.
 3. **Silence-breaker copy** at 10 minutes (decided 2 Sep). Must sound like Handy, not a bot; must never fire once any outbound has landed.
 4. **Guard false-negative bar** for promotion (§9). Proposed: 0 misses on the incident corpus, ≤ 2% on the 165 legacy autosends.

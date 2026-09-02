@@ -1,6 +1,6 @@
 # Comms desk handover — for Courtnee (owner) and Ben (operator)
 
-Written 3 Sep 2026 at the end of the Phase 0–4 build. Plain English first; the technical detail is
+Written 3 Sep 2026 at the end of the Phase 0–4 build; owner actions updated later the same day. Plain English first; the technical detail is
 in `docs/COMMS_AGENTS_V3_DESIGN.md` (why and what), `docs/comms-build/CUTOVER.md` (how to switch it
 on and off), `docs/RUNBOOK.md` → "Comms desk" (where things live), and the `P*-DONE.md` reports in
 this folder (what each build pane did).
@@ -107,3 +107,10 @@ From `CUTOVER.md` §3, with dates counted from the shadow flip (3 Sep 2026 00:15
 | Phase 5 delete of the legacy agent | **7 live days** with zero unsafe verdicts | `docs/comms-build/PHASE5-DELETE.md` |
 
 Kill criteria that undo any of this are in CUTOVER §6.
+
+## Owner actions closed on 3 Sep 2026
+- Contractor phones entered: Craig 07507255282, Bezent 07947837863; new contractor user **Cal** (cal@handyservices.co.uk) 07496556151. All three resolve to the contractor role; Bezent's existing thread retagged as a contractor thread.
+- Ben's hours agreed: **Mon–Fri 08–18, approvals are paid time**. The due-time clock the build shipped with stays as is.
+- `holding_line_v1` submitted to Meta (content SID HX1c733d68035a5fe3c15b90936f80ec8f), awaiting approval.
+- The six stale `tsx watch` dev servers on the Mac were killed.
+- Still open: revoke the old OpenRouter key; Neon dev branch + strip Twilio secrets from laptops; the live flip after one shadow day (eligible 4 Sep).
