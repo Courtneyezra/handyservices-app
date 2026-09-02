@@ -124,13 +124,26 @@ export interface QuoteRunState {
     tags: string[];
     /** metadata.nextTriageAt (ISO) — a pending or in-flight pass. */
     nextTriageAt: string | null;
-    /** A non-superseded quote_estimates row on the thread (Route A already ran or is running). */
+    /** A non-superseded quote_estimates row that is running or produced a draft (see isLiveEstimate). */
     liveEstimate: boolean;
     /** metadata.quoteDraft points at a Route A draft that is not superseded. */
     liveDraft: boolean;
 }
 
 /** Pure: does this thread need a spine pass for its quote tag? */
+/**
+ * Is this estimate still "on the way" for the thread? Running, or finished with a draft, yes. A
+ * failed estimate that never produced a draft is not: nothing is coming from it, and treating it
+ * as live blocked the thread for good (Sarah, 4c0e227b, 4 Sep 2026 — the row was failed by hand
+ * after a deploy killed the estimator, and every re-arm then answered "a live estimate already
+ * exists"). Superseded rows never reach here.
+ */
+export function isLiveEstimate(est: { status: string; draftQuoteId?: string | null } | null | undefined): boolean {
+    if (!est) return false;
+    if (est.status === 'failed' && !est.draftQuoteId) return false;
+    return true;
+}
+
 export function shouldRequestQuoteRun(state: QuoteRunState, now: Date = new Date()): { ok: true } | { ok: false; reason: string } {
     if (!state.tags.some((t) => QUOTE_TAGS.includes(t))) return { ok: false, reason: 'no needs_quote / rescope tag' };
     if (state.liveEstimate) return { ok: false, reason: 'a live estimate already exists' };
@@ -153,7 +166,7 @@ async function defaultQuoteRunState(conversationId: string): Promise<QuoteRunSta
     if (!conv) return null;
     const meta = (conv.metadata ?? {}) as Record<string, any>;
     const { latestEstimateForConversation } = await import('./estimate-store');
-    const liveEstimate = !!(await latestEstimateForConversation(conversationId).catch(() => null));
+    const liveEstimate = isLiveEstimate(await latestEstimateForConversation(conversationId).catch(() => null));
     let liveDraft = false;
     const draftId = meta.quoteDraft?.quoteId;
     if (typeof draftId === 'string' && draftId) {

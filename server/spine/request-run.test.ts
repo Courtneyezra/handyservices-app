@@ -3,7 +3,7 @@
  * with injected loaders. No database.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { shouldRequestQuoteRun, ensureQuoteRun, sweepUntriggeredQuotes, STALE_PENDING_MINUTES, UNTRIGGERED_SWEEP_LIMIT, type QuoteRunState } from './request-run';
+import { isLiveEstimate, shouldRequestQuoteRun, ensureQuoteRun, sweepUntriggeredQuotes, STALE_PENDING_MINUTES, UNTRIGGERED_SWEEP_LIMIT, type QuoteRunState } from './request-run';
 
 const NOW = new Date('2026-09-04T10:00:00Z');
 const state = (over: Partial<QuoteRunState> = {}): QuoteRunState => ({ tags: ['needs_quote'], nextTriageAt: null, liveEstimate: false, liveDraft: false, ...over });
@@ -63,4 +63,12 @@ describe('sweepUntriggeredQuotes', () => {
         expect(await sweepUntriggeredQuotes({ candidates: async () => [], ensure: vi.fn() })).toEqual({ checked: 0, requested: [] });
         expect(await sweepUntriggeredQuotes({ candidates: async () => { throw new Error('db down'); }, ensure: vi.fn() })).toEqual({ checked: 0, requested: [] });
     });
+});
+
+describe('isLiveEstimate', () => {
+    it('a running estimate is live', () => { expect(isLiveEstimate({ status: 'running', draftQuoteId: null })).toBe(true); });
+    it('a finished estimate with a draft is live', () => { expect(isLiveEstimate({ status: 'complete', draftQuoteId: 'q1' })).toBe(true); });
+    it('a failed estimate that produced a fallback draft is live', () => { expect(isLiveEstimate({ status: 'failed', draftQuoteId: 'q2' })).toBe(true); });
+    it('a failed estimate with no draft is not live (Sarah, 4 Sep)', () => { expect(isLiveEstimate({ status: 'failed', draftQuoteId: null })).toBe(false); });
+    it('no estimate is not live', () => { expect(isLiveEstimate(null)).toBe(false); });
 });
