@@ -25,6 +25,8 @@ export type CommsEvent =
     | { type: 'run_started'; runId: string; conversationId: string; at: string }
     | { type: 'run_event'; runId: string; conversationId: string; event: unknown; at: string }
     | { type: 'run_finished'; runId: string; conversationId: string; ok: boolean; at: string }
+    // Phase 4: a PROPOSE-tier artifact (quote intake) landed — the in-chat card refetches.
+    | { type: 'artifact_delta'; conversationId: string; runId: string; kind: 'quote_intake' | 'nudge_batch'; at: string }
     // Ops Manager chat dock events (shared/ops-types.ts) — session-keyed, filtered
     // by consumers; they deliberately do NOT participate in owner invalidation.
     | OpsCommsEvent;
@@ -193,6 +195,8 @@ export function useCommsEvents(onEvent?: (evt: CommsEvent) => void): void {
                     invalidateThread();
                 } else if (evt.type === 'draft_delta') {
                     invalidateThread();
+                } else if (evt.type === 'artifact_delta') {
+                    queryClient.invalidateQueries({ queryKey: ['quote-intake', evt.conversationId] });
                 }
             },
         });

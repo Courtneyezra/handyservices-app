@@ -30,6 +30,7 @@ import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
 import { AgentRunsDrawer } from '@/components/comms/AgentRunsDrawer';
 import { SampleReviewStrip } from '@/components/comms/SampleReviewStrip';
+import { QuoteIntakeCard } from '@/components/comms/QuoteIntakeCard';
 import { VerdictReasonChips, type VerdictReason } from '@/components/comms/VerdictReasonChips';
 import { dueLabel } from '@/lib/due-label';
 import { QuoteBuilderPanel } from '@/components/quote-builder';
@@ -1645,6 +1646,10 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     onRefresh={refresh}
                 />
             )}
+
+            {/* Phase 4: the spine's in-chat quote card — compact review, draft-save, asks. Renders
+                nothing until the spine's clerk has left an intake for this thread. */}
+            <QuoteIntakeCard conversationId={card.id} />
 
             {/* Closed-but-alive prep: one tap back into the panel, nothing lost. */}
             {intake && !prepOpen && (
