@@ -46,11 +46,11 @@ import { queueDraft } from '../message-drafts';
 import { STAGE_SLA_HOURS, getSLAStatus } from '../lead-stage-engine';
 import { findBestContractors, checkNetworkAvailability } from '../availability-engine';
 import { getCapacityForDates, resolveContractorDay } from '../availability-capacity';
-import { generateInvoiceForJob } from '../pipeline/actions';
+import { generateInvoiceForJob } from '../ops/actions';
 import {
     listTodaysJobs, listUnassignedJobs, getContractorSchedule, listContractors,
     listOverdueInvoices, listUnbilledCompletedJobs, getMoneySummary,
-} from '../pipeline/queries';
+} from '../ops/queries';
 import { getCustomerDossier } from '../customer-dossier';
 import { createAssignmentProposal } from '../assignment-proposals';
 

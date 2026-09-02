@@ -1,5 +1,5 @@
 /**
- * D-WP1 verification: run every server/pipeline/queries.ts helper, print
+ * D-WP1 verification: run every server/ops/queries.ts helper, print
  * counts + 2 sample rows each, and cross-check one overdue invoice against
  * the raw invoices table. Read-only — zero writes.
  *
@@ -14,7 +14,7 @@ import {
     listOverdueInvoices,
     listUnbilledCompletedJobs,
     getMoneySummary,
-} from '../server/pipeline/queries';
+} from '../server/ops/queries';
 
 function show(label: string, rows: unknown[]) {
     console.log(`\n=== ${label}: ${rows.length} row(s) ===`);

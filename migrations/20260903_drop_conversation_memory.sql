@@ -1,0 +1,13 @@
+-- Phase 5 of the comms rebuild ("Delete"), 3 Sep 2026.
+-- conversation_memory was the Agent Framework V2 store (server/memory, server/workers/*,
+-- server/pipeline/v2.ts), all deleted in Phase 5. Nothing reads or writes the table now.
+--
+-- DELIBERATELY NOT APPLIED AUTOMATICALLY. A DROP is not idempotent in the sense that matters
+-- (the data does not come back). The orchestrator applies it BY HAND, after:
+--   1. confirming the table is empty or only holds rows nobody wants:
+--        SELECT count(*), max(updated_at) FROM conversation_memory;
+--   2. taking a Neon branch / snapshot if anything in it is worth keeping.
+-- Then uncomment and run the single statement below (and the enum after it).
+--
+-- DROP TABLE IF EXISTS conversation_memory;
+-- DROP TYPE IF EXISTS memory_readiness;

@@ -4,7 +4,7 @@
  * The ops agent PROPOSES a job assignment; nothing is assigned until a human
  * approves. Mirrors the message_drafts pattern: the agent's only exit is a
  * pending assignment_proposals row that a human decides on. The approve path
- * calls assignJobToContractor (server/pipeline/actions.ts) — the exact same
+ * calls assignJobToContractor (server/ops/actions.ts) — the exact same
  * code the dispatch UI uses, so availability/conflict checks and the
  * scheduled_dates jsonb invariant are preserved.
  *
@@ -26,7 +26,7 @@ import {
     users,
     type AssignmentProposal,
 } from '@shared/schema';
-import { assignJobToContractor } from './pipeline/actions';
+import { assignJobToContractor } from './ops/actions';
 
 // ---------------------------------------------------------------- create
 

@@ -3,12 +3,12 @@ import { db } from './db';
 import { contractorBookingRequests, personalizedQuotes, contractorJobs } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 import { requireContractor } from './auth';
-import { assignJobToContractor } from './pipeline/actions';
+import { assignJobToContractor } from './ops/actions';
 
 export const jobAssignmentRouter = Router();
 
 // B5: Assign job to contractor with availability check.
-// Logic lives in pipeline/actions.assignJobToContractor (extracted verbatim so
+// Logic lives in ops/actions.assignJobToContractor (extracted verbatim so
 // it can be called as an agent tool) — this route is a thin HTTP adapter that
 // mirrors the original status codes and payloads exactly.
 jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {

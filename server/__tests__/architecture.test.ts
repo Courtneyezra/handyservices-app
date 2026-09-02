@@ -121,6 +121,46 @@ describe.skipIf(!merged)('(a) V2 pipeline routing is gone from server/agents [PH
     });
 });
 
+// ---------------------------------------------------------------- (f) the V2 pipeline is deleted (Phase 5)
+
+/** Every path Phase 5 removed. A file reappearing here is a revert of the delete, not a feature. */
+const DELETED_V2_PATHS = [
+    'server/pipeline/v2.ts',
+    'server/workers',
+    'server/memory',
+    'server/learning',
+    'server/llm/openrouter.ts',
+    'server/llm/router.ts',
+    'shared/conversation-memory.ts',
+    'scripts/_smoke-vision-video.ts',
+    'scripts/_test-reply-worker.ts',
+    'scripts/_case-study-7460080647.ts',
+    'scripts/_e2e-agent-pipeline.ts',
+    'scripts/_compare-pipelines.ts',
+    'scripts/_smoke-agent-v2.ts',
+];
+
+describe('(f) the V2 pipeline and its dependencies are deleted [PHASE5]', () => {
+    it.each(DELETED_V2_PATHS)('%s does not exist', (rel) => {
+        expect(fs.existsSync(path.join(REPO_ROOT, rel)), `${rel} is back`).toBe(false);
+    });
+    it('nothing under server/ imports openrouter, the V2 workers, the memory module or conversation-memory', () => {
+        const banned = /(openrouter|\/workers\/(vision|reply|scoping|pricing|research)|\/memory(\/index)?$|conversation-memory|pipeline\/v2|llm\/router)/;
+        const hits = SERVER_FILES.filter((f) => importSpecifiers(f).some((spec) => banned.test(spec)));
+        expect(hits).toEqual([]);
+    });
+    it('the conversation_memory table is gone from the schema', () => {
+        expect(ident('conversationMemory').test(code('shared/schema.ts'))).toBe(false);
+        expect(/pgTable\(\s*["']conversation_memory["']/.test(code('shared/schema.ts'))).toBe(false);
+    });
+    it('the live ops code moved to server/ops and nothing imports the old pipeline path', () => {
+        expect(fs.existsSync(path.join(REPO_ROOT, 'server/ops/actions.ts'))).toBe(true);
+        expect(fs.existsSync(path.join(REPO_ROOT, 'server/ops/queries.ts'))).toBe(true);
+        const hits = SERVER_FILES.filter((f) => importSpecifiers(f).some((spec) => /\/pipeline\/(actions|queries)/.test(spec)));
+        expect(hits).toEqual([]);
+    });
+});
+
 // ---------------------------------------------------------------- (b) approveAndSendDraft importers
 
 const APPROVE_AND_SEND_ALLOWED = [

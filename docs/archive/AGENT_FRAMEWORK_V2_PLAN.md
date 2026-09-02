@@ -1,3 +1,5 @@
+> **ARCHIVED (3 Sep 2026).** Superseded by `docs/COMMS_AGENTS_V3_DESIGN.md`; the V2 pipeline it describes was deleted in Phase 5. Kept for history only.
+
 # Agent Framework V2: Implementation Plan
 
 ## Executive Summary

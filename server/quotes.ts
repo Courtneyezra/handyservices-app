@@ -30,7 +30,7 @@ import { isWelcomeGiftEligible, resolveWelcomeGift } from "./welcome-gift";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
 import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
-import { bookQuoteAsJob } from "./pipeline/actions";
+import { bookQuoteAsJob } from "./ops/actions";
 
 // Base quote validity window (small jobs / fallback). Larger quotes get a
 // longer window — see quoteValidityMs.
