@@ -908,6 +908,42 @@ export async function notifyLedgerDrift(alert: LedgerDriftAlert): Promise<void> 
     });
 }
 
+export interface QuoteReadyToPriceAlert {
+    conversationId: string;
+    customerName?: string | null;
+    postcode?: string | null;
+    slug: string;
+    lines: string[];
+    checkThis: number;
+    suggestedTotalPence?: number | null;
+}
+
+/**
+ * P8 Route A: the chain produced a priced draft. One tap on the phone opens /admin/price/<slug>
+ * (pane B's screen) where Ben confirms or edits every line and sends. Rides the quote_prep_ready
+ * key: same audience, same moment in the day.
+ */
+export async function notifyQuoteReadyToPrice(alert: QuoteReadyToPriceAlert): Promise<void> {
+    const who = alert.customerName?.trim() || 'A customer';
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const link = `${baseUrl}/admin/price/${alert.slug}`;
+    const lines = [`${who}${alert.postcode ? ` · ${alert.postcode}` : ''}`];
+    if (alert.lines.length) {
+        lines.push(alert.lines.slice(0, 5).map((t) => `• ${truncate(t, 60)}`).join('\n'));
+        if (alert.lines.length > 5) lines.push(`…+${alert.lines.length - 5} more`);
+    }
+    if (alert.suggestedTotalPence != null) lines.push(`Suggested total £${(alert.suggestedTotalPence / 100).toFixed(0)} (yours to change).`);
+    if (alert.checkThis > 0) lines.push(`⚠️ ${alert.checkThis} line${alert.checkThis === 1 ? '' : 's'} marked check this.`);
+    lines.push('Nothing has been sent. Open, check, price, send.');
+    await dispatch({
+        event: 'quote_prep_ready',
+        title: `💷 Quote ready to price: ${who}`,
+        message: lines.join('\n'),
+        linkUrl: link,
+        linkUrlTitle: '💷 Price and send',
+    });
+}
+
 export interface AutonomyChangeAlert {
     packId: string;
     intent: string;

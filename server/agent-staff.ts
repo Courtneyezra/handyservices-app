@@ -1114,11 +1114,34 @@ agentStaffRouter.get('/quote-prep/:conversationId/intake', async (req, res) => {
             .where(eq(conversations.id, req.params.conversationId));
         if (!conv) return res.status(404).json({ error: 'Conversation not found' });
         const meta = (conv.metadata ?? {}) as Record<string, any>;
+        // P8: the spine clerk is the only intake now (the legacy handoff is retired). Serve the
+        // spine artifact first so nothing goes blank; the legacy metadata is a fallback for threads
+        // that predate the spine. (Pane C rewires every reader through server/intake.ts.)
+        const { loadQuoteIntakeCard } = await import('./spine/quote-intake');
+        const card = await loadQuoteIntakeCard(conv.id).catch(() => ({ available: false as const, reason: 'unreadable' }));
+        if (card.available) {
+            const { latestEstimateForConversation } = await import('./spine/estimate-store');
+            const estimate = await latestEstimateForConversation(conv.id).catch(() => null);
+            return res.json({
+                intake: {
+                    customerName: card.intake.customerName, postcode: card.intake.postcode, customerType: card.intake.customerType,
+                    readiness: card.intake.readiness, lines: card.intake.lines.map((l) => ({ title: l.title, detail: l.notes ?? '', assumptions: l.assumptions ?? [], category: l.category ?? null })),
+                    assumptions: card.intake.assumptions, gaps: card.intake.gaps, source: 'spine',
+                },
+                preparedAt: card.at,
+                readiness: card.intake.readiness,
+                source: 'spine',
+                runId: card.runId,
+                estimate: estimate ? { id: estimate.id, status: estimate.status, draftQuoteId: estimate.draftQuoteId, confidence: estimate.confidence } : null,
+                draft: meta.quoteDraft ?? null,
+            });
+        }
         const intake = meta.quotePrepIntake ?? null;
         res.json({
             intake,
             preparedAt: meta.quotePrepAuto?.lastRunAt ?? null,
             readiness: intake?.readiness ?? meta.quotePrepAuto?.lastReadiness ?? null,
+            source: intake ? 'legacy' : null,
         });
     } catch (error: any) {
         console.error('[QuotePrep] Stored intake read failed:', error);

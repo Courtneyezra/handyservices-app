@@ -6,8 +6,9 @@
  * while research is running, and displays job lines with materials, time
  * estimates, and procedures.
  *
- * Send Quote calls POST /api/quotes/from-estimate which converts the QuoteBuild
- * into a sendable quote (endpoint to be implemented in a later work package).
+ * "Open in builder" hands the QuoteBuild to the contextual generator (sessionStorage +
+ * ?conv=), which prices with the real engine; Ben confirms every line there. The old
+ * POST /api/quotes/from-estimate (hardcoded rate, sent without Ben) was deleted in P8.
  *
  * Follows the slide-over patterns from CommsPage ThreadPanel and QuotePrepPanel.
  */
@@ -97,36 +98,20 @@ export function QuoteBuilderPanel({
         0
     ) ?? 0;
 
-    // Send quote handler
+    // P8 (4 Sep 2026): /api/quotes/from-estimate is DELETED (it priced with a hardcoded rate and
+    // sent without Ben). The estimate is handed to the contextual generator, which prices with
+    // the real engine and where Ben confirms every line before anything is sent.
     const handleSendQuote = async () => {
         if (!localBuild) return;
-
         setSending(true);
         setSendError(null);
-
         try {
-            // Build quote payload from the local state
-            const payload = {
-                conversationId,
-                build: localBuild,
-            };
-
-            const res = await fetch('/api/quotes/from-estimate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify(payload),
-            });
-
-            const result = await res.json().catch(() => ({}));
-
-            if (!res.ok) {
-                throw new Error(result.error || result.message || `Failed to send quote (${res.status})`);
-            }
-
+            sessionStorage.setItem('estimatorBuildHandoff', JSON.stringify({ conversationId, build: localBuild, at: new Date().toISOString() }));
             setSendSuccess(true);
             onQuoteSent?.();
+            window.location.assign(`/admin/quotes/contextual?conv=${encodeURIComponent(conversationId)}`);
         } catch (err) {
-            setSendError(err instanceof Error ? err.message : 'Failed to send quote');
+            setSendError(err instanceof Error ? err.message : 'Could not open the builder');
         } finally {
             setSending(false);
         }
@@ -341,7 +326,7 @@ export function QuoteBuilderPanel({
                             <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800">
                                     <CheckCircle2 className="h-3.5 w-3.5" />
-                                    Quote created successfully
+                                    Opened in the builder: price and send from there
                                 </div>
                             </div>
                         )}
@@ -363,17 +348,17 @@ export function QuoteBuilderPanel({
                                 {sending ? (
                                     <>
                                         <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                                        Sending...
+                                        Opening...
                                     </>
                                 ) : sendSuccess ? (
                                     <>
                                         <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                                        Sent
+                                        Opened in builder
                                     </>
                                 ) : (
                                     <>
                                         <Send className="mr-1.5 h-4 w-4" />
-                                        Send Quote
+                                        Open in builder to price
                                     </>
                                 )}
                             </Button>

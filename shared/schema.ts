@@ -1190,6 +1190,15 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // customer: customer-facing automations skip it, and a normal builder save
     // (no isDraft flag) clears it — that's Ben taking the quote over.
     isDraft: boolean("is_draft").default(false),
+    // P8 Route A (4 Sep 2026): the chain's SUGGESTIONS for an automatic draft — per line
+    // { suggestedPence, bandLowPence, bandHighPence, checkThis, reason, basis }. Never a
+    // customer-visible price: those columns stay null until Ben confirms on /admin/price/<slug>.
+    // Migration 20260904_quote_estimates.sql.
+    pricingSuggestions: jsonb("pricing_suggestions"),
+    estimateId: text("estimate_id"),
+    // P8: an unsent draft replaced by a newer intake (never deleted).
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    supersededBy: text("superseded_by"),
 
     // Revocation
     revokedAt: timestamp("revoked_at"),
@@ -2015,6 +2024,34 @@ export const packIntentTiers = pgTable("pack_intent_tiers", {
     changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
     primaryKey({ columns: [table.packId, table.intent] }),
+]);
+
+/**
+ * P8 Route A (4 Sep 2026): the estimator's judgement per intake run (server/spine/agents/estimator.ts).
+ * Time as a range, materials with cost, flags, confidence — NEVER a price. The pricing bridge
+ * (server/spine/pricing-bridge.ts) turns a row into suggestions with the ONLY engine
+ * (server/contextual-pricing/multi-line-engine.ts). One live row per intake run; a newer intake
+ * sets superseded_at. Migration 20260904_quote_estimates.sql.
+ */
+export const quoteEstimates = pgTable("quote_estimates", {
+    id: text("id").primaryKey().notNull(),
+    conversationId: varchar("conversation_id"),
+    runId: text("run_id"),                          // the estimator's agent_runs row
+    draftQuoteId: text("draft_quote_id"),           // personalized_quotes.id of the automatic draft
+    intakeRunId: text("intake_run_id"),             // the quote_clerk agent_runs row this estimates
+    status: text("status").notNull().default('running'), // running | complete | failed
+    lines: jsonb("lines"),                          // EstimateLine[] (server/spine/estimate-store.ts)
+    job: jsonb("job"),                              // { setupMinutes, cleanupMinutes, accessNotes }
+    confidence: text("confidence"),                 // low | medium | high
+    model: text("model"),
+    costPence: integer("cost_pence"),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+}, (table) => [
+    index("idx_quote_estimates_conversation").on(table.conversationId, table.createdAt),
+    index("idx_quote_estimates_intake_run").on(table.intakeRunId),
 ]);
 
 /** Append-only: every promotion / demotion with the evidence that decided it. */

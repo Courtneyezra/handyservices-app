@@ -208,6 +208,52 @@ spineRouter.post('/rerun/:conversationId', async (req, res) => {
     }
 });
 
+// ---------------------------------------------------------------- P8 Route A
+
+/**
+ * GET /price/:slug — the draft + its estimate + the engine's suggestions, for pane B's
+ * /admin/price/<slug>. Read-only; every customer-visible price is still null on the row.
+ */
+spineRouter.get('/price/:slug', async (req, res) => {
+    try {
+        const { loadPriceScreen } = await import('./quote-intake');
+        const r = await loadPriceScreen(String(req.params.slug ?? '').trim());
+        if (!r.available) return res.status(404).json(r);
+        res.json(r);
+    } catch (error: any) {
+        console.error('[Spine] price screen read failed:', error?.message ?? error);
+        res.status(500).json({ available: false, error: error?.message ?? 'Could not read the draft' });
+    }
+});
+
+/** GET /estimate/:conversationId — the thread's live estimate (status running | complete | failed) for the card. */
+spineRouter.get('/estimate/:conversationId', async (req, res) => {
+    try {
+        const { latestEstimateForConversation } = await import('./estimate-store');
+        const e = await latestEstimateForConversation(String(req.params.conversationId ?? '').trim());
+        if (!e) return res.status(404).json({ available: false, reason: 'no live estimate for this thread' });
+        res.json({ available: true, estimate: e });
+    } catch (error: any) {
+        console.error('[Spine] estimate read failed:', error?.message ?? error);
+        res.status(500).json({ available: false, error: error?.message ?? 'Could not read the estimate' });
+    }
+});
+
+/**
+ * POST /estimate/:conversationId — ask the spine to (re)run the chain on this thread: a `manual`
+ * run, which the estimator agent accepts when the freshest quote_ready intake has no live estimate.
+ */
+spineRouter.post('/estimate/:conversationId', async (req, res) => {
+    try {
+        const { requestRun } = await import('./request-run');
+        const r = await requestRun(String(req.params.conversationId ?? '').trim(), 'manual', { delayMs: 0 });
+        res.status(r.queued ? 202 : 409).json({ ok: r.queued, ...r });
+    } catch (error: any) {
+        console.error('[Spine] estimate request failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not request an estimate'] });
+    }
+});
+
 const ASK_KINDS = ['ask_postcode', 'ask_media', 'ask_name'] as const;
 
 spineRouter.post('/ask/:conversationId', async (req, res) => {

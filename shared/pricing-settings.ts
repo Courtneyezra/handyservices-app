@@ -155,6 +155,12 @@ export interface AddonMenuItem {
 export interface PricingSettings {
   // Margins & Deposits
   materialsMarginPercent: number;      // default 27
+  /**
+   * P8 Route A (4 Sep 2026): the fixed paid-survey fee the spine offers when the clerk says
+   * `visit_first` (server/spine/survey-offer.ts). Credited to the job. A setting, never a
+   * hardcode: the survey-offer draft cites `price_source=settings` for the money guard.
+   */
+  surveyFeePence: number;              // default 4900 (£49)
   depositPercent: number;              // default 30
   payInFullDiscountPercent: number;    // default 3
 
@@ -221,6 +227,7 @@ export interface PricingSettings {
 
 export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
   materialsMarginPercent: 27,
+  surveyFeePence: 4900,
   depositPercent: 30,
   payInFullDiscountPercent: 3,
   referenceContingencyPercent: 0,      // OFF — set to ~10 to bake a contingency buffer into every quote

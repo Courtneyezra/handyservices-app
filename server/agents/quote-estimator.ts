@@ -14,7 +14,7 @@ export { normalizeQuoteBuild }; // Re-export for tests
 import type { QuoteBuild, EstimatorLineInput } from '@shared/quote-build';
 import type { IntakeLine } from './quote-prep';
 
-const SYSTEM = `You are the quote estimator. Given job lines from the intake clerk, you research what each line requires:
+export const SYSTEM = `You are the quote estimator. Given job lines from the intake clerk, you research what each line requires:
 
 1. MATERIALS — search the catalog first (instant, verified prices), then Screwfix (live, verified), then web (needs human review). Every material needs: name, qty, price. Flag needsReview=true for web/model prices.
 

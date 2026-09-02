@@ -11,7 +11,7 @@ export type Audience = 'customer' | 'contractor' | 'supplier' | 'internal';
 export type Stage = 'enquiry' | 'scoping' | 'quote_sent' | 'booked' | 'closed' | 'won';
 export type Tier = 'READ' | 'PROPOSE' | 'DRAFT' | 'SEND';
 export type Trigger = 'inbound_message' | 'media_received' | 'call_ended' | 'cadence' | 'flag_expiry' | 'manual';
-export type AgentName = 'triage' | 'rules' | 'scoper' | 'quote_clerk' | 'recovery' | 'verifier' | 'contractor_liaison' | 'vision';
+export type AgentName = 'triage' | 'rules' | 'scoper' | 'quote_clerk' | 'recovery' | 'verifier' | 'contractor_liaison' | 'vision' | 'estimator';
 
 /** Fixed vocabularies. Routing is by lane and exception, never by a confidence score (§2.3). */
 export type Lane = 'dropped' | 'rules' | 'scoper' | 'post_quote' | 'ben' | 'quote_clerk' | 'contractor';
@@ -31,7 +31,10 @@ export type Intent =
     | 'job_brief' | 'availability_ask' | 'confirm_receipt' | 'materials_list'
     // PROPOSE-tier artifacts (Phase 2 / C, additive): the clerk and recovery never speak to the
     // customer; their proposal is an artifact (intake / nudge batch) carried in Proposal.artifact.
-    | 'propose_intake' | 'propose_nudges';
+    | 'propose_intake' | 'propose_nudges'
+    // P8 Route A (additive): the chain's own vocabulary — the estimator's artifact, and the
+    // DRAFT-tier paid-survey offer when the clerk says visit_first (fee from settings).
+    | 'propose_estimate' | 'offer_survey';
 
 /** Names of detectors in server/agents/draft-guards.ts plus the contractor-pack pair. */
 export type GuardName =
@@ -122,7 +125,7 @@ export interface Proposal {
 }
 
 /** Phase 2 / C (additive). What a PROPOSE-tier agent hands to Ben instead of a reply. */
-export type ArtifactKind = 'quote_intake' | 'nudge_batch';
+export type ArtifactKind = 'quote_intake' | 'nudge_batch' | 'quote_estimate';
 export interface ProposalArtifact {
     kind: ArtifactKind;
     /** One line for the runs drawer and the staff page. */

@@ -9,6 +9,7 @@ import { verifierAgent } from './verifier';
 import { quoteClerkAgent } from './quote-clerk';
 import { recoveryAgent } from './recovery';
 import { contractorLiaisonAgent } from './contractor-liaison';
+import { estimatorAgent } from './estimator';
 
 export const SPINE_AGENTS: Partial<Record<AgentName, SpineAgent>> = {};
 
@@ -34,6 +35,7 @@ registerSpineAgent(quoteClerkAgent);
 registerSpineAgent(recoveryAgent);
 registerSpineAgent(verifierAgent); // Phase 3: READ tier, never proposes; judges the morning sample
 registerSpineAgent(contractorLiaisonAgent); // Phase 4: DRAFT tier, contractor audience only (lane 'contractor')
+registerSpineAgent(estimatorAgent); // P8: PROPOSE tier, never prices; chained inline after a quote_ready clerk run (route-a.ts), re-runnable on manual / cadence
 
 
 export { scoperAgent, createScoperAgent, SCOPER_APPROVER } from './scoper';

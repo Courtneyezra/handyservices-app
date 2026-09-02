@@ -143,7 +143,7 @@ async function searchWeb(input: { query: string }): Promise<{ summary: string; s
 /**
  * get_time_history — queries historical quotes and actuals for similar jobs.
  */
-async function getTimeHistory(input: { category: string; keywords: string[] }): Promise<{
+export async function getTimeHistory(input: { category: string; keywords: string[] }): Promise<{
     estimates: { minutes: number; source: 'quote' | 'actual' }[];
     avgMinutes: number;
     confidence: 'high' | 'medium' | 'low';

@@ -154,7 +154,10 @@ const DEFAULT_CONFIG: CommsAgentConfig = {
     inboundDebounceMinutes: 10,
     autosend: { enabled: false },
     firstContactAutoAck: DEFAULT_FIRST_CONTACT_ACK,
-    quotePrep: { enabled: true, minHoursBetweenRuns: 6 },
+    // P8 (4 Sep 2026): the legacy automatic handoff is RETIRED — the spine's Quote clerk is the
+    // only intake (server/spine/agents/quote-clerk.ts). Default off; maybeAutoQuotePrep ignores the
+    // live flag either way.
+    quotePrep: { enabled: false, minHoursBetweenRuns: 6 },
     vaCallTask: { enabled: false }, // Default OFF — owner enables via config, never code.
 };
 
@@ -1555,11 +1558,20 @@ async function substantiveSignals(conversationId: string): Promise<{
  * arrived — the two things that most often turn needs_info into quote_ready. Failure is swallowed
  * by the caller: a broken handoff must never cost a customer the reply that already went out.
  */
+/** P8: the legacy handoff is retired (not a flag: a constant, so a config row cannot turn it back on). */
+export const RETIRE_LEGACY_QUOTE_PREP = true;
+
 export async function maybeAutoQuotePrep(
     conversationId: string,
     config: CommsAgentConfig,
     runOpts: { runId?: string | null } = {},
 ): Promise<QuotePrepHandoff> {
+    // P8 (4 Sep 2026): RETIRED. Two clerks wrote two intakes (metadata.quotePrepIntake here, the
+    // spine's artifact on agent_runs) and readers disagreed. The spine clerk is the only intake now
+    // and runs in shadow and live alike; Route A (server/spine/route-a.ts) takes it from there.
+    // The live `quotePrep.enabled` flag is deliberately ignored: flipping it back on must not
+    // resurrect the second clerk. runQuotePrep itself stays — the spine clerk wraps it.
+    if (RETIRE_LEGACY_QUOTE_PREP) return { ran: false, skipped: 'retired (P8): the spine quote clerk is the only intake' };
     if (!config.quotePrep.enabled) return { ran: false, skipped: 'quote-prep handoff disabled in config' };
 
     // Re-read: the run we were called from has just written tags and a stage.

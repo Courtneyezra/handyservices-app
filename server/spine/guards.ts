@@ -8,8 +8,9 @@
 import {
     detectMoneyFigure, detectDiscountOffer, detectDatePromise, detectDurationClaim, detectCapabilityClaim,
     detectLiabilityAdmission, detectPolicyCommitment, detectCapitulation, detectVoiceBreach,
-    detectUnseenImplication, detectPriceObjection,
+    detectUnseenImplication, detectPriceObjection, extractMoneyFigures,
 } from '../agents/draft-guards';
+import { citedSettingsFeePence } from './survey-offer';
 import type { CaseFile, GuardName, GuardVerdict, PolicyPack, Proposal } from './types';
 import { lastInbound } from './triage';
 
@@ -45,10 +46,24 @@ export function detectCustomerPii(body: string): string | null {
     return null;
 }
 
-type Detector = (ctx: { body: string; customerText: string | null; caseFile: CaseFile }) => string | null;
+type Detector = (ctx: { body: string; customerText: string | null; caseFile: CaseFile; proposal: Proposal }) => string | null;
+
+/**
+ * P8: the one figure a customer draft may carry — the paid-survey fee, which is a SETTING the
+ * proposal cites (`price_source=settings surveyFeePence=<pence>`, server/spine/survey-offer.ts).
+ * Passes only when the intent is offer_survey AND every money figure in the body equals the
+ * cited fee. A second number, or a different one, is still the agent's judgement: refused.
+ */
+export function moneyAllowedBySettings(proposal: Proposal, body: string): boolean {
+    if (proposal.intent !== 'offer_survey') return false;
+    const cited = citedSettingsFeePence(proposal.citations);
+    if (cited == null || cited <= 0) return false;
+    const figures = extractMoneyFigures(body);
+    return figures.length > 0 && figures.every((f) => Number.isFinite(f.pence) && Math.round(f.pence) === Math.round(cited));
+}
 
 const DETECTORS: Record<GuardName, Detector> = {
-    money: ({ body }) => detectMoneyFigure(body),
+    money: ({ body, proposal }) => (moneyAllowedBySettings(proposal, body) ? null : detectMoneyFigure(body)),
     discount: ({ body }) => detectDiscountOffer(body),
     date_promise: ({ body }) => detectDatePromise(body),
     duration_claim: ({ body }) => detectDurationClaim(body),
@@ -79,7 +94,7 @@ export function checkProposal(proposal: Proposal, pack: PolicyPack, caseFile: Ca
         const detector = DETECTORS[name];
         if (!detector) continue;
         let hit: string | null = null;
-        try { hit = detector({ body, customerText, caseFile }); } catch (e: any) { hit = `guard ${name} threw: ${e?.message ?? e}`; }
+        try { hit = detector({ body, customerText, caseFile, proposal }); } catch (e: any) { hit = `guard ${name} threw: ${e?.message ?? e}`; }
         if (hit) { guardsHit.push(name); notes.push(`${name}: ${hit.slice(0, 200)}`); }
     }
     if (!(pack.allowedIntents as string[]).includes(proposal.intent)) {
