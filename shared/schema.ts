@@ -1829,6 +1829,11 @@ export const agentQuestions = pgTable("agent_questions", {
     status: varchar("status", { length: 16 }).default('open').notNull(),
     source: varchar("source", { length: 40 }).default('comms_agent').notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // Phase 1 (2 Sep 2026): a flag carries a clock. 4 office hours (20 min if urgent /
+    // callback_requested); when it passes unanswered the rules layer sends the holding line and
+    // stamps expiredAt. Migration 20260902_due_at_holding_line.sql.
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
 }, (table) => [
     index("idx_agent_questions_status").on(table.status, table.createdAt),
     index("idx_agent_questions_conversation").on(table.conversationId),
@@ -1856,6 +1861,11 @@ export const messageDrafts = pgTable("message_drafts", {
     sentAt: timestamp("sent_at"),
     sentMessageId: varchar("sent_message_id"),
     error: text("error"),
+    // Phase 1 (2 Sep 2026): a pending draft carries a clock (4 office hours from queue time). Past
+    // it, the rules layer sends the holding line and marks heldReason 'due_expired'; the draft
+    // stays pending for Ben. Migration 20260902_due_at_holding_line.sql.
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    heldReason: text("held_reason"),
 }, (table) => [
     index("idx_message_drafts_status").on(table.status, table.createdAt),
     index("idx_message_drafts_phone").on(table.phone),

@@ -132,6 +132,7 @@ const APPROVE_AND_SEND_ALLOWED = [
     'server/first-contact-ack.ts',
     'server/outbound.ts',
     'server/agent-staff.ts',
+    'server/rules-layer.ts',      // Phase 1: the rules layer's holding lines and asks (rules.* approvers)
 ].sort();
 
 function approveAndSendImporters(): string[] {
@@ -168,6 +169,7 @@ describe('(b) approveAndSendDraft is imported only by the allowed callers', () =
             'server/agents/comms-sweep.ts',
             'server/agents/sla-sweep.ts',
             'server/first-contact-ack.ts',
+            'server/rules-layer.ts',  // Phase 1
         ].sort();
         it('the importer set is exactly the expected list', () => {
             expect(approveAndSendImporters().sort()).toEqual(EXPECTED_IMPORTERS_AFTER_MERGE);

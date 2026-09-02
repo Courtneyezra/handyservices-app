@@ -16,6 +16,7 @@ import { eq, and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { sendCustomerMessage, type OutboundChannel } from './outbound';
+import { dueAtFor } from './working-hours';
 import { type Approver, isAutomatedApprover, isAgentApprover, approverLabel, humanApprover, newRunId } from './approver';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
@@ -37,7 +38,7 @@ function pushCommsEvent(evt: CommsEvent): void {
 
 export const messageDraftsRouter = Router();
 
-export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack' | 'ops_manager';
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack' | 'ops_manager' | 'rules_layer';
 
 /**
  * Which draft sources count as a service reply for opt-out purposes, and which are outreach.
@@ -50,6 +51,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continu
  *   first_contact_ack  the customer just wrote to us. Same.
  *   comms_agent        a reply drafted onto a live inbound thread. Service.
  *   manual             a human composed it about a specific job. Service.
+ *   rules_layer        a content-free holding line or ask on a live inbound thread. Service.
  *
  * NOT listed, therefore blocked by a plain STOP:
  *   post_call_video    we decided to ask for something after a call. Outreach.
@@ -58,7 +60,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continu
  *
  * None of this gets past an 'all' ("do not contact") suppression; that blocks every source.
  */
-const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual', 'ops_manager']);
+const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual', 'ops_manager', 'rules_layer']);
 
 export function purposeForDraftSource(source: DraftSource): OutboundPurpose {
     return SERVICE_DRAFT_SOURCES.has(source) ? 'service_reply' : 'marketing';
@@ -98,6 +100,12 @@ export async function queueDraft(input: {
      * confirmation queued as 'manual', say) can be explicit.
      */
     purpose?: OutboundPurpose;
+    /**
+     * When this draft must have been acted on. Defaults to 4 office hours from now (Phase 1,
+     * design §4): past it the rules layer sends the customer a holding line and marks the draft
+     * held_reason 'due_expired' — it stays pending, but the customer is never left in silence.
+     */
+    dueAt?: Date;
 }): Promise<string | null> {
     const phone = normalizePhoneNumber(input.phone);
     if (!phone) {
@@ -163,6 +171,7 @@ export async function queueDraft(input: {
         source: input.source,
         reason: input.reason ?? null,
         status: 'pending',
+        dueAt: input.dueAt ?? dueAtFor('draft'),
     });
 
     // OUTCOME LEDGER — freeze the proposal as written, before anyone can edit it.

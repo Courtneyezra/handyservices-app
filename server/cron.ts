@@ -106,6 +106,20 @@ export function setupCronJobs() {
         }
     }, { timezone: 'Europe/London' }));
 
+    // 09:00 COMMS DIGEST (Phase 1, design §8) — flags past due, drafts pending > 2h, threads
+    // that got only a holding line yesterday. One Pushover to Ben. Reads only; the sends it
+    // reports on happen in the fast tick (server/agents/silence-breaker.ts). Worker-gated because
+    // it is Ben-facing state about customer sends, and two processes would send two digests.
+    gateCustomerLoop('cron: 09:00 comms digest', () => cron.schedule("0 9 * * *", async () => {
+        try {
+            const { sendMorningDigest } = await import('./agents/silence-breaker');
+            const counts = await sendMorningDigest();
+            console.log(`[Cron] Comms digest: ${JSON.stringify(counts)}`);
+        } catch (error) {
+            console.error("[Cron] Comms digest failed:", error);
+        }
+    }, { timezone: 'Europe/London' }));
+
     // WHATSAPP TEMPLATE APPROVAL POLL — hourly at :40 (off the hour, so it never races the
     // other lanes). Twilio has NO webhook for Meta's approval decision, so polling is the only
     // way to learn a template went live. Read-only against Twilio, no LLM, no sends, so it runs

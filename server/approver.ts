@@ -23,6 +23,8 @@ export const AUTOMATED_APPROVERS = [
     'rules.first_contact',    // first-contact acknowledgement (immediate or held-then-released)
     'rules.hours_gate',       // the morning release of a draft held overnight for the hour
     'rules.post_call',        // post-call follow-up rule
+    'rules.holding',          // rules layer: content-free holding line (silence-breaker, flag/draft expiry)
+    'rules.ask',              // rules layer: content-free ask (media, postcode)
     // System — a direct caller that is neither agent nor rule: the job itself needs the message.
     'system.invoice',
     'system.notification',

@@ -52,7 +52,7 @@ import {
 } from '@shared/schema';
 import { and, eq, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { addWorkingHours } from './promise-tracker';
-import { isOutOfHours } from '../first-contact-ack';
+import { isOutOfHours, ukHour as ukHourOf, formatUk } from '../working-hours';
 import { emitCommsEvent } from '../comms-events';
 
 /** Live-board push for an SLA breach/reminder — fire-and-forget, never breaks the sweep. */
@@ -361,9 +361,7 @@ async function defaultChase(args: { conversationId: string; phone: string; body:
 }
 
 function laneNote(det: DetectedLane, cfg: SlaSweepConfig): string {
-    const when = new Intl.DateTimeFormat('en-GB', {
-        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London',
-    }).format(det.enteredAt);
+    const when = formatUk(det.enteredAt);
     switch (det.lane) {
         case 'quote_ready':
             return `Quote ready and still unpriced: the verdict landed ${when} (UK) and no quote has `
@@ -385,12 +383,6 @@ function laneNote(det: DetectedLane, cfg: SlaSweepConfig): string {
 /** Same tolerance problem as any timestamp round-trip: metadata ISO strings carry millis, DB
  *  timestamps carry micros — treat entries within 1.5s as the same lane entry. */
 const ENTERED_AT_TOLERANCE_MS = 1500;
-
-function ukHourOf(d: Date): number {
-    return Number(new Intl.DateTimeFormat('en-GB', {
-        hour: 'numeric', hour12: false, timeZone: 'Europe/London',
-    }).format(d));
-}
 
 export interface SlaSweepResult {
     /** True when the pass ran outside working hours and deferred entirely. */
