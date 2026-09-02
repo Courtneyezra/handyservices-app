@@ -106,6 +106,8 @@ export interface Proposal {
     flag?: { exception: ExceptionKind; note: string } | null;
     contactName?: string | null;
     recontactAt?: string | null;
+    /** Phase 2 (additive): tags the spine should set on the thread, e.g. 'needs_quote' fires the quote clerk. */
+    tags?: string[];
 }
 
 export type Decision =

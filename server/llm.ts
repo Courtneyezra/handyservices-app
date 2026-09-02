@@ -12,6 +12,8 @@
 import { getAnthropic } from './anthropic';
 
 export const FAST_MODEL = 'claude-haiku-4-5';
+/** Reasoning tier for the spine's Scoper and Quote clerk (design §3.8). */
+export const SCOPER_MODEL = 'claude-sonnet-5';
 
 export interface ClaudeChatOpts {
     system?: string;
