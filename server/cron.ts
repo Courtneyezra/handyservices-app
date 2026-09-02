@@ -155,6 +155,20 @@ export function setupCronJobs() {
         }
     }, { timezone: 'Europe/London' }));
 
+    // 03:30 LEDGER DRIFT CHECK (P6 close-out; Phase 1 design §3.7). Source-table counts vs ledger
+    // event counts over 7 days (server/ledger.ts ledgerDriftCheck). One system_events row every
+    // night; a Pushover on worker_health when the delta is non-zero. Worker-gated: it reads what the
+    // worker writes and pings the owner, and two processes would ping twice.
+    gateCustomerLoop('cron: 03:30 ledger drift check', () => cron.schedule("30 3 * * *", async () => {
+        try {
+            const { runLedgerDriftCheck } = await import('./ledger-drift-job');
+            const r = await runLedgerDriftCheck();
+            console.log(`[Cron] Ledger drift: ${r.ok ? (r.report?.clean ? 'clean' : `drift ${r.report?.totalAbsDelta}${r.notified ? ', owner pinged' : ''}`) : `failed: ${r.error}`}`);
+        } catch (error) {
+            console.error("[Cron] Ledger drift check failed:", error);
+        }
+    }, { timezone: 'Europe/London' }));
+
     // WHATSAPP TEMPLATE APPROVAL POLL — hourly at :40 (off the hour, so it never races the
     // other lanes). Twilio has NO webhook for Meta's approval decision, so polling is the only
     // way to learn a template went live. Read-only against Twilio, no LLM, no sends, so it runs

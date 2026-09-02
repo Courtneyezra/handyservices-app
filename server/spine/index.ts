@@ -96,8 +96,10 @@ export async function runOnce(
     const runId = opts.runId ?? newRunId('run');
     const startedAt = Date.now();
 
-    const caseFile = await buildCaseFile(conversationId);
-    const triage = await runTriage(caseFile);
+    // P6: every child row this pass writes (triage model call, vision, a wrapped legacy runner)
+    // carries this run id as parent_run_id, so the drawer shows one pass as one group.
+    const caseFile = await buildCaseFile(conversationId, { parentRunId: runId });
+    const triage = await runTriage(caseFile, { parentRunId: runId });
     await refreshTierOverlay(); // Phase 3: earned tiers, cached a minute, never throws
     const pack = resolvePack(caseFile, triage);
     const agentName = agentForLane(triage.lane);

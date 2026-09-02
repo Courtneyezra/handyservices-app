@@ -258,7 +258,7 @@ async function spineOrders(): Promise<Record<string, string>> {
     return out;
 }
 
-async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTally>, packTiers: any[]) {
+async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTally>, packTiers: any[], verdicts: Awaited<ReturnType<typeof verdictStats>> | null = null) {
     const mode = spineModeFrom(cfg);
     const orders = await spineOrders();
     return SPINE_STAFF.map((card) => {
@@ -266,6 +266,16 @@ async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTa
         const agentKey = card.agent as keyof SpineConfig['agents'] | undefined;
         const agentOn = cfg.enabled && (agentKey ? cfg.agents[agentKey]?.enabled !== false : true);
         const stats: Stat[] = [];
+        // P6: the verifier's honesty number — how often Ben agreed with the judge on the sampled
+        // sends (design §9: the judge influences nothing until agreement ≥ 85%).
+        const sampler = card.id === 'verifier' && verdicts ? verdicts.sampler : null;
+        if (sampler) {
+            stats.push({ label: `Judged (${verdicts!.days}d)`, value: sampler.judged, tone: 'plain' });
+            stats.push({ label: 'Ben reviewed', value: sampler.humanReviewed, tone: 'plain' });
+            if (sampler.agreement !== null) {
+                stats.push({ label: 'Agreement', value: `${sampler.agreement}%`, tone: sampler.agreement >= 85 ? 'good' : 'warn' });
+            }
+        }
         if (t) {
             stats.push({ label: 'Runs (7d)', value: t.runs, tone: 'plain' });
             if (t.shadow) stats.push({ label: 'Shadow runs (7d)', value: t.shadow, tone: 'plain' });
@@ -295,6 +305,7 @@ async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTa
                 ...(featureOff && mode !== 'off' ? [{ label: 'DARK', on: false }] : []),
             ],
             verdicts: null,
+            sampler,
             packTiers: card.id === 'scoper' ? packTiers.filter((r: any) => r.packId === 'customer.default' || r.packId === 'customer.post_quote')
                 : card.id === 'contractor-liaison' ? packTiers.filter((r: any) => r.packId === 'contractor.default') : [],
         };
@@ -360,7 +371,7 @@ agentStaffRouter.get('/staff', async (_req, res) => {
                     packTiers: tiersFor('customer.default', 'customer.post_quote'),
                 },
                 // Phase 5: the spine roles, one card each (server/spine/staff.ts).
-                ...(spineCfg ? await spineStaffMembers(spineCfg, tallies, packTiers) : []),
+                ...(spineCfg ? await spineStaffMembers(spineCfg, tallies, packTiers, verdicts) : []),
                 {
                     ...recoveryStaff,
                     system: recoverySystem,

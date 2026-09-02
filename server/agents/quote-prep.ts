@@ -433,9 +433,10 @@ export async function runQuotePrep(
     const result = await runAgent({
         name: 'quote-prep',
         runId: runOpts.runId, trigger: runOpts.trigger ?? 'manual', conversationId: conv.id, phone: e164,
-        // The comms run that handed off, when there was one — kept in the transcript ref for now
-        // (agent_runs has no parent column in Phase 1).
+        // The run that handed off, when there was one. P6: agent_runs.parent_run_id carries it; the
+        // transcript ref keeps the old `parent:` marker so rows written before the column still read.
         transcriptRef: runOpts.parentRunId ? `parent:${runOpts.parentRunId}` : undefined,
+        parentRunId: runOpts.parentRunId ?? null,
         system: SYSTEM,
         goal: `Prepare the quote intake for conversation ${conv.id} (customer: ${realNameOrNull(conv.contactName) || e164}).`,
         tools,

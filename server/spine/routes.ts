@@ -4,9 +4,14 @@
  *   GET  /quote-intake/:conversationId              latest Quote clerk artifact + thread media (404 { available:false })
  *   POST /quote-intake/:conversationId/save-draft   UNSENT draft quote from the card (never prices)
  *   POST /ask/:conversationId { kind }              rules-layer ask (postcode / media / name), approved by the signed-in human
+ *   POST /tiers { packId, intent, tier, reason }    P6: a person promotes / demotes one intent on the ladder
+ *                                                   (pack_intent_tiers + pack_tier_events, changed_by human:<id>);
+ *                                                   refuses SEND for intents outside the pack or any money/date name
  *
  * Ships dark: the writes refuse while the spine switch is 'off' (server/spine/switch.ts), and the
- * read only ever finds an artifact if the spine's clerk ran, which it cannot while off.
+ * read only ever finds an artifact if the spine's clerk ran, which it cannot while off. The tier
+ * write is config, not a send: it is allowed in every mode (a demotion must work while off), and a
+ * tier only has an effect once the spine is live.
  */
 import { Router } from 'express';
 import { loadQuoteIntakeCard, saveDraftQuote } from './quote-intake';
@@ -39,6 +44,24 @@ spineRouter.post('/quote-intake/:conversationId/save-draft', async (req, res) =>
     } catch (error: any) {
         console.error('[Spine] save-draft failed:', error?.message ?? error);
         res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not save the draft'] });
+    }
+});
+
+// P6: a person moves one intent on the ladder. Validation (pack, intent in pack, tier vocabulary,
+// never SEND on a money/date name, reason required) is validateHumanTierRequest; the write is
+// setTierByHuman — same tables and event log as the 07:30 job, changed_by = human:<id>.
+spineRouter.post('/tiers', async (req, res) => {
+    try {
+        const { validateHumanTierRequest, setTierByHuman } = await import('./autonomy');
+        const v = validateHumanTierRequest(req.body ?? {});
+        if (!v.ok) return res.status(400).json({ ok: false, errors: v.errors });
+        const { humanApprover } = await import('../approver');
+        const u = sessionUser(req);
+        const change = await setTierByHuman(v.request, { by: humanApprover(u.email ?? u.id ?? 'admin') });
+        res.json({ ok: true, change });
+    } catch (error: any) {
+        console.error('[Spine] tier change failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not change the tier'] });
     }
 });
 

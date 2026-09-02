@@ -34,6 +34,8 @@ export interface StartAgentRunInput {
     caseFileRef?: string | null;
     promptHash?: string | null;
     transcriptRef?: string | null;
+    /** P6: the spine run this row is a child of (triage model call, vision, a wrapped legacy runner). */
+    parentRunId?: string | null;
 }
 
 export interface FinishAgentRunInput {
@@ -67,6 +69,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<string> 
             caseFileRef: input.caseFileRef ?? null,
             promptHash: input.promptHash ?? null,
             transcriptRef: input.transcriptRef ?? null,
+            parentRunId: input.parentRunId ?? null,
             startedAt: new Date(),
         }).onConflictDoNothing();
     } catch (error: any) {

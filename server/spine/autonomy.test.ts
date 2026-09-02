@@ -1,8 +1,8 @@
 /**
  * Phase 3 vitest: the promotion / demotion decision over fake evidence, every branch, no database.
  */
-import { describe, it, expect } from 'vitest';
-import { decideTier, evalFamilyFrom, evaluateAutonomy, GATE, type IntentEvidence } from './autonomy';
+import { describe, it, expect, vi } from 'vitest';
+import { decideTier, evalFamilyFrom, evaluateAutonomy, GATE, validateHumanTierRequest, setTierByHuman, type IntentEvidence } from './autonomy';
 import { applyTierOverlay, getPack, assertPromotable, setTierOverlayForTests, resolvePack } from './packs';
 import type { CaseFile, TriageResult } from './types';
 
@@ -160,5 +160,59 @@ describe('pack tier overlay', () => {
             setTierOverlayForTests(null);
         }
         expect(resolvePack(cf, tri).tierByIntent.confirm_received).toBeUndefined();
+    });
+});
+
+// ---------------------------------------------------------------- P6: a person moves the ladder
+
+describe('validateHumanTierRequest', () => {
+    it('accepts a DRAFT → SEND for an intent in the pack with a reason', () => {
+        const v = validateHumanTierRequest({ packId: 'customer.default', intent: 'ask_gap', tier: 'send', reason: 'two clean weeks' });
+        expect(v).toEqual({ ok: true, request: { packId: 'customer.default', intent: 'ask_gap', tier: 'SEND', reason: 'two clean weeks' } });
+    });
+    it('refuses an intent outside the pack at any tier', () => {
+        const v = validateHumanTierRequest({ packId: 'customer.default', intent: 'job_brief', tier: 'DRAFT', reason: 'x' });
+        expect(v.ok).toBe(false);
+        expect((v as any).errors.join(' ')).toMatch(/job_brief is not an intent of pack customer.default/);
+    });
+    it('refuses SEND for a money / date name even if someone tries to smuggle it in', () => {
+        const packs = { 'customer.default': { ...getPack('customer.default'), allowedIntents: [...getPack('customer.default').allowedIntents, 'price_confirm' as any] } };
+        const v = validateHumanTierRequest({ packId: 'customer.default', intent: 'price_confirm', tier: 'SEND', reason: 'x' }, packs as any);
+        expect(v.ok).toBe(false);
+        expect((v as any).errors.join(' ')).toMatch(/not an intent|money or dates/); // isIntent fires first for a name outside the vocabulary; either way it is refused
+    });
+    it('refuses an unknown pack, a bad tier, a rules pack and an empty reason', () => {
+        expect((validateHumanTierRequest({ packId: 'nope', intent: 'ask_gap', tier: 'SEND', reason: 'x' }) as any).errors.join(' ')).toMatch(/unknown pack/);
+        expect((validateHumanTierRequest({ packId: 'customer.default', intent: 'ask_gap', tier: 'AUTO', reason: 'x' }) as any).errors.join(' ')).toMatch(/tier must be one of/);
+        expect((validateHumanTierRequest({ packId: 'rules.first_contact', intent: 'holding', tier: 'DRAFT', reason: 'x' }) as any).errors.join(' ')).toMatch(/not on the DRAFT → SEND ladder/);
+        expect((validateHumanTierRequest({ packId: 'customer.default', intent: 'ask_gap', tier: 'SEND', reason: '  ' }) as any).errors.join(' ')).toMatch(/reason is required/);
+    });
+});
+
+describe('setTierByHuman', () => {
+    it('writes the change with changed_by human:<id> and pings the owner', async () => {
+        const writes: any[] = []; const pings: any[] = [];
+        const change = await setTierByHuman({ packId: 'customer.default', intent: 'confirm_received', tier: 'SEND', reason: 'earned it' }, {
+            by: 'human:ben', currentTier: async () => 'DRAFT',
+            write: async (c, ev) => { writes.push([c, ev]); }, notify: async (a) => { pings.push(a); },
+        });
+        expect(change).toMatchObject({ packId: 'customer.default', intent: 'confirm_received', from: 'DRAFT', to: 'SEND', by: 'human:ben', changed: true });
+        expect(writes).toHaveLength(1);
+        expect(writes[0][1]).toMatchObject({ rule: 'human', by: 'human:ben', from: 'DRAFT', to: 'SEND' });
+        expect(pings[0]).toMatchObject({ packId: 'customer.default', intent: 'confirm_received', fromTier: 'DRAFT', toTier: 'SEND', reason: 'human: earned it' });
+    });
+    it('is idempotent: the tier already held writes nothing and pings nobody', async () => {
+        const writes: any[] = []; const pings: any[] = [];
+        const change = await setTierByHuman({ packId: 'customer.default', intent: 'ask_gap', tier: 'DRAFT', reason: 'demote' }, {
+            by: 'human:ben', currentTier: async () => 'DRAFT', write: async (c) => { writes.push(c); }, notify: async (a) => { pings.push(a); },
+        });
+        expect(change.changed).toBe(false);
+        expect(writes).toHaveLength(0); expect(pings).toHaveLength(0);
+    });
+    it('refuses a non-human approver and an invalid request before touching anything', async () => {
+        const write = vi.fn(async () => undefined);
+        await expect(setTierByHuman({ packId: 'customer.default', intent: 'ask_gap', tier: 'SEND', reason: 'x' }, { by: 'system:autonomy', write, currentTier: async () => 'DRAFT' })).rejects.toThrow(/human:<id>/);
+        await expect(setTierByHuman({ packId: 'customer.default', intent: 'job_brief', tier: 'SEND', reason: 'x' }, { by: 'human:ben', write, currentTier: async () => 'DRAFT' })).rejects.toThrow(/not an intent of pack/);
+        expect(write).not.toHaveBeenCalled();
     });
 });

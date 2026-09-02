@@ -36,8 +36,11 @@ function fakeDeps(): ExitDeps & { calls: string[] } {
         insertFlag: vi.fn(async (row, o) => { calls.push(`flag:${row.status}:${o.urgent ? 'urgent' : 'normal'}`); return row.id; }),
         notify: vi.fn(async () => { calls.push('notify'); }),
         now: () => new Date('2026-09-02T10:00:00Z'),
+        ask: vi.fn(async () => null),
+        resolveTemplate: vi.fn(async () => { calls.push('template'); return null; }),
     };
 }
+const SHUT = { canFreeform: false, templateRequired: true, lastInboundAt: '2026-09-01T08:00:00Z', channelLastUsed: 'whatsapp' as const };
 
 describe('exit', () => {
     it('send → queueDraft(source spine) then approveAndSendDraft with the approver and run id', async () => {
@@ -79,6 +82,49 @@ describe('exit', () => {
         expect(d.calls).toEqual([]);
         expect((ledgerRunDecided as any).mock.calls.map((c: any[]) => c[0].decision)).toEqual(['drop', 'none']);
         expect((ledgerRunDecided as any).mock.calls[0][0].runId).toBe('run_1');
+    });
+    // P6: template-first exit.
+    it('send with the window open never looks up a template', async () => {
+        const d = fakeDeps();
+        await exit(run({ kind: 'send', approver: 'agent.scoper' }), d);
+        expect(d.resolveTemplate).not.toHaveBeenCalled();
+        expect((d.queueDraft as any).mock.calls[0][0].contentSid).toBeUndefined();
+    });
+    it('send with the window shut and an approved template queues the draft with contentSid + variables and sends it', async () => {
+        const d = fakeDeps();
+        d.resolveTemplate = vi.fn(async (i) => { d.calls.push(`template:${i.packId}/${i.intent}`); return { name: 'holding_line_v1', contentSid: 'HX123', variables: { '1': 'Sam' }, body: 'Hi Sam, thanks for your message.' }; });
+        d.approveAndSendDraft = vi.fn(async (id, approver, runId) => { d.calls.push(`send:${id}:${approver}:${runId}`); return { ok: true, mode: 'template' }; });
+        const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }, { caseFile: cf({ window: SHUT, contactName: 'Sam' }) }), d);
+        expect(d.calls).toEqual(['template:customer.default/ask_gap', 'queue:spine:nodue', 'send:draft_1:agent.scoper:run_1']);
+        const queued = (d.queueDraft as any).mock.calls[0][0];
+        expect(queued).toMatchObject({ contentSid: 'HX123', contentVariables: { '1': 'Sam' }, body: 'Hi Sam, thanks for your message.', source: 'spine', runId: 'run_1' });
+        expect(queued.reason).toMatch(/Template holding_line_v1/);
+        expect((d.resolveTemplate as any).mock.calls[0][0]).toMatchObject({ packId: 'customer.default', intent: 'ask_gap', contactName: 'Sam' });
+        expect(out).toMatchObject({ kind: 'send', draftId: 'draft_1', sent: true, mode: 'template', template: 'holding_line_v1' });
+    });
+    it('send with the window shut and NO approved template falls to the freeform path, which is refused OUTSIDE_WINDOW and left pending (never silent, never freeform outside the window)', async () => {
+        const d = fakeDeps();
+        d.approveAndSendDraft = vi.fn(async () => ({ ok: false, code: 'OUTSIDE_WINDOW', message: 'window shut' }));
+        const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }, { caseFile: cf({ window: SHUT }) }), d);
+        expect(d.resolveTemplate).toHaveBeenCalledTimes(1);
+        const queued = (d.queueDraft as any).mock.calls[0][0];
+        expect(queued.contentSid).toBeUndefined();
+        expect(queued.body).toBe('Which room?\n---\nAnd is it a mixer tap?');
+        expect(out).toMatchObject({ kind: 'send', draftId: 'draft_1', sent: false, detail: expect.stringMatching(/OUTSIDE_WINDOW.*no approved template/) });
+    });
+    it('an SMS thread with no window is sent freeform without a template lookup', async () => {
+        const d = fakeDeps();
+        await exit(run({ kind: 'send', approver: 'agent.scoper' }, { caseFile: cf({ window: { ...SHUT, channelLastUsed: 'sms' } }) }), d);
+        expect(d.resolveTemplate).not.toHaveBeenCalled();
+    });
+    it('a throwing template lookup falls to the pending path instead of losing the draft', async () => {
+        const d = fakeDeps();
+        d.resolveTemplate = vi.fn(async () => { throw new Error('twilio down'); });
+        d.approveAndSendDraft = vi.fn(async () => ({ ok: false, code: 'OUTSIDE_WINDOW', message: 'window shut' }));
+        const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }, { caseFile: cf({ window: SHUT }) }), d);
+        expect(d.queueDraft).toHaveBeenCalledTimes(1);
+        expect((d.queueDraft as any).mock.calls[0][0].contentSid).toBeUndefined();
+        expect(out).toMatchObject({ kind: 'send', draftId: 'draft_1', sent: false });
     });
     it('a refused send is reported, not thrown', async () => {
         const d = fakeDeps();

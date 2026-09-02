@@ -11,7 +11,8 @@
  * 'sla_sweep'):
  *
  *   quote_ready   4 working hours   verdict says price it; no quote sent → ping Ben
- *   needs_ben     2 working hours   flagged question unanswered → ping Ben
+ *   needs_ben     2 working hours   flagged question unanswered → ping Ben (legacy flags only:
+ *                                   a flag with a due_at is chased by the flag-expiry path)
  *   needs_info   24 CLOCK hours     customer silent since our questions → canned chase
  *                                   (flag-gated, ships OFF; while off, ping Ben instead)
  *   visit_first  12 working hours   (= 1 working day on the 08:00–20:00 clock) no visit
@@ -226,6 +227,19 @@ async function callSince(conversationId: string, since: Date): Promise<boolean> 
 
 // ---------------------------------------------------------------- lane detection
 
+/**
+ * DOUBLE-PING GUARD (close-out, 3 Sep 2026; P1-silence "not done"). Phase 1 gave every flag a
+ * clock: a flagged agent_questions row with `due_at` is expired by silence-breaker's expireFlags,
+ * which sends the holding line and re-pings Ben ONCE at the due time. Until this guard the same
+ * stale flag also breached this sweep's needs_ben lane, so one flag could produce two Pushovers
+ * (one per mechanism). A flag that carries a due time belongs to the expiry path; this sweep
+ * keeps the needs_ben lane only for legacy flags written without one. Pure, so the suite can
+ * attack it without a database.
+ */
+export function flagOwnedByExpiryPath(flag: { dueAt: Date | string | null | undefined }): boolean {
+    return flag.dueAt !== null && flag.dueAt !== undefined;
+}
+
 export interface DetectedLane {
     lane: Exclude<SlaLane, 'decline'>;
     /** When the thread ENTERED the lane — the SLA clock's zero. */
@@ -260,11 +274,13 @@ export async function detectSlaLane(conv: ConvRow): Promise<DetectedLane | null>
     // from the THREAD: Ben replying or a quote going out since the flag means he acted, and the
     // stale flag must not breach — fall through to the verdict lanes instead.
     if (tags.includes('needs_ben')) {
-        const [flag] = await db.select({ createdAt: agentQuestions.createdAt, question: agentQuestions.question })
+        const [flag] = await db.select({ createdAt: agentQuestions.createdAt, question: agentQuestions.question, dueAt: agentQuestions.dueAt })
             .from(agentQuestions)
             .where(and(eq(agentQuestions.conversationId, conv.id), eq(agentQuestions.status, 'flagged')))
             .orderBy(desc(agentQuestions.createdAt)).limit(1);
-        if (flag?.createdAt) {
+        // A flag with a due time is the flag-expiry path's to chase (holding line + one re-ping at
+        // due_at); pinging here too is the double ping. Fall through to the verdict lanes instead.
+        if (flag?.createdAt && !flagOwnedByExpiryPath(flag)) {
             const enteredAt = new Date(flag.createdAt);
             const moved = await humanOutboundSince(conv.id, phone, enteredAt)
                 || await quoteWentOutSince(conv.id, digits, enteredAt);
