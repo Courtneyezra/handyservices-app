@@ -22,6 +22,8 @@ import { ledgerDraftCreated, ledgerDraftApproved, ledgerDraftEdited, ledgerDraft
 import { agentOutcomes } from '@shared/schema';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
+import { recordVerdict, approvalVerdict, runIdOfDraft, isVerdictReason } from './verdicts';
+import { VERDICT_REASONS } from '@shared/schema';
 import { logSystemEvent } from './system-events';
 import { emitCommsEvent, type CommsEvent } from './comms-events';
 
@@ -259,7 +261,9 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
         const [before] = await db.select({ body: messageDrafts.body }).from(messageDrafts)
             .where(eq(messageDrafts.id, req.params.id)).limit(1);
         const [updated] = await db.update(messageDrafts)
-            .set({ body: body.trim() })
+            // Keep the machine's wording on first edit so approval can file this as an 'edit'
+            // verdict (Phase 1). COALESCE: a second edit must not overwrite the original.
+            .set({ body: body.trim(), originalBody: sql`COALESCE(${messageDrafts.originalBody}, ${messageDrafts.body})` })
             .where(and(eq(messageDrafts.id, req.params.id), eq(messageDrafts.status, 'pending')))
             .returning();
 
@@ -703,7 +707,30 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
 messageDraftsRouter.post('/:id/approve', async (req, res) => {
     try {
         const approver = humanApprover((req as any).user?.email || (req as any).user?.id || 'admin');
+        // Verdict reason (Phase 1): one-tap approve defaults to 'fine'; an edit-then-approve
+        // carries the chip Ben picked. Anything outside the vocabulary is a client bug → 400.
+        const reasonRaw = req.body?.reason ?? 'fine';
+        if (!isVerdictReason(reasonRaw)) {
+            return res.status(400).json({ error: `Invalid 'reason' — expected one of ${VERDICT_REASONS.join(', ')}` });
+        }
         const result = await approveAndSendDraft(req.params.id, approver);
+
+        // The human decided, whatever the wire did next: every claim that succeeded is a verdict.
+        // NOT_PENDING means nothing was decided here (double-click, already handled).
+        if (result.ok || result.code !== 'NOT_PENDING') {
+            const decided = result.ok ? result.draft : (await db.select().from(messageDrafts).where(eq(messageDrafts.id, req.params.id)))[0];
+            if (decided) {
+                await recordVerdict({
+                    draftId: decided.id,
+                    runId: runIdOfDraft(decided as unknown as Record<string, unknown>),
+                    verdict: approvalVerdict(decided),
+                    reason: reasonRaw,
+                    originalBody: decided.originalBody ?? decided.body,
+                    finalBody: decided.body,
+                    by: approver,
+                });
+            }
+        }
 
         if (!result.ok) {
             if (result.code === 'SEND_FAILED') return res.status(500).json({ error: result.message });
@@ -721,6 +748,12 @@ messageDraftsRouter.post('/:id/approve', async (req, res) => {
 // POST /api/drafts/:id/reject — decline without sending.
 messageDraftsRouter.post('/:id/reject', async (req, res) => {
     try {
+        // A reject without a reason is a verdict the promotion gate cannot read (Phase 1, §4):
+        // the reason is the whole signal. Required, from the fixed vocabulary.
+        const reason = req.body?.reason;
+        if (!isVerdictReason(reason)) {
+            return res.status(400).json({ error: `Reject needs a 'reason' — one of ${VERDICT_REASONS.join(', ')}`, reasons: VERDICT_REASONS });
+        }
         const rejectedBy = (req as any).user?.email ?? 'admin';
         const [updated] = await db.update(messageDrafts)
             .set({ status: 'rejected', approvedBy: rejectedBy, approvedAt: new Date() })
@@ -734,6 +767,15 @@ messageDraftsRouter.post('/:id/reject', async (req, res) => {
         safely('recordDraftVerdict:rejected', () => recordDraftVerdict({
             draftId: updated.id, outcome: 'rejected', decidedBy: rejectedBy,
         }));
+        await recordVerdict({
+            draftId: updated.id,
+            runId: runIdOfDraft(updated as unknown as Record<string, unknown>),
+            verdict: 'reject',
+            reason,
+            originalBody: updated.originalBody ?? updated.body,
+            finalBody: null,
+            by: humanApprover(rejectedBy),
+        });
         pushCommsEvent({ type: 'draft_delta', draftId: updated.id, conversationId: updated.conversationId ?? undefined, status: 'rejected', at: new Date().toISOString() });
         res.json({ success: true, draft: updated });
     } catch (error: any) {

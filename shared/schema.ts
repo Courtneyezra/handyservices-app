@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision, uuid, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -1870,6 +1870,10 @@ export const messageDrafts = pgTable("message_drafts", {
     heldReason: text("held_reason"),
     // Phase 1 (2 Sep 2026): the agent run (or sweep / draft release) that produced this row.
     runId: text("run_id"),
+    // Phase 1 (2 Sep 2026): the body as first drafted. Set by the first PATCH on a pending draft
+    // and never changed after, so approval can tell "edit" from "approve" (draft_verdicts).
+    // Null = never edited. Migration 20260902_draft_verdicts.sql.
+    originalBody: text("original_body"),
 }, (table) => [
     index("idx_message_drafts_status").on(table.status, table.createdAt),
     index("idx_message_drafts_phone").on(table.phone),
@@ -1877,6 +1881,39 @@ export const messageDrafts = pgTable("message_drafts", {
 ]);
 
 export const insertMessageDraftSchema = createInsertSchema(messageDrafts);
+
+/**
+ * Ben's verdicts on machine-drafted messages (Phase 1, 2 Sep 2026; COMMS_AGENTS_V3_DESIGN §4, §8).
+ *
+ * One row per human decision: 'approve' (sent as drafted), 'edit' (wording changed, then sent),
+ * 'reject' (never sent) — each with a reason code. This is the evidence stream that promotes an
+ * intent to SEND (≥ 30 verdicts across the pack in 30 days, unedited-approval ≥ 90%, zero 'unsafe')
+ * and demotes it. Phase 3's 10% morning sample review reuses the table as 'sample_fine' /
+ * 'sample_not_fine'. Automated approvals (agent.* / rules.* / system.*) are NOT verdicts and never
+ * land here. Migration 20260902_draft_verdicts.sql.
+ */
+export const DRAFT_VERDICTS = ['approve', 'edit', 'reject', 'sample_fine', 'sample_not_fine'] as const;
+export type DraftVerdict = (typeof DRAFT_VERDICTS)[number];
+export const VERDICT_REASONS = ['fine', 'tone', 'wrong_move', 'unsafe', 'missing_info'] as const;
+export type VerdictReason = (typeof VERDICT_REASONS)[number];
+
+export const draftVerdicts = pgTable("draft_verdicts", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: varchar("draft_id").notNull(),               // message_drafts.id (varchar, not uuid)
+    runId: text("run_id"),                                 // agent_runs.id when the draft came from a run
+    verdict: text("verdict").notNull(),                    // DraftVerdict
+    reason: text("reason"),                                // VerdictReason; null only for legacy/system rows
+    originalBody: text("original_body").notNull(),         // what the machine wrote
+    finalBody: text("final_body"),                         // what went out (null on reject)
+    by: text("by").notNull(),                              // human:<id> — always a person
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_draft_verdicts_created_at").on(table.createdAt),
+    index("idx_draft_verdicts_draft_id").on(table.draftId),
+    check("draft_verdicts_verdict_check", sql`${table.verdict} IN ('approve', 'edit', 'reject', 'sample_fine', 'sample_not_fine')`),
+    check("draft_verdicts_reason_check", sql`${table.reason} IS NULL OR ${table.reason} IN ('fine', 'tone', 'wrong_move', 'unsafe', 'missing_info')`),
+]);
+export type DraftVerdictRow = typeof draftVerdicts.$inferSelect;
 export type MessageDraft = typeof messageDrafts.$inferSelect;
 export type InsertMessageDraft = z.infer<typeof insertMessageDraftSchema>;
 
