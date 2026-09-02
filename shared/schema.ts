@@ -1918,6 +1918,36 @@ export const draftVerdicts = pgTable("draft_verdicts", {
     check("draft_verdicts_reason_check", sql`${table.reason} IS NULL OR ${table.reason} IN ('fine', 'tone', 'wrong_move', 'unsafe', 'missing_info')`),
 ]);
 export type DraftVerdictRow = typeof draftVerdicts.$inferSelect;
+
+/**
+ * P8 / B (4 Sep 2026): one row per quote line Ben confirmed on /admin/price/<slug>. The chain
+ * suggests, Ben's tap decides; this is the record of the decision the Route B graduation trigger
+ * (design §6) is computed from. `by` is always human:<id> — the CHECK enforces the money rule.
+ * Migration: migrations/20260904_quote_price_verdicts.sql.
+ */
+export const quotePriceVerdicts = pgTable("quote_price_verdicts", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: varchar("slug", { length: 8 }).notNull(),           // personalized_quotes.short_slug
+    quoteId: varchar("quote_id").notNull(),                   // personalized_quotes.id
+    lineId: text("line_id").notNull(),                        // pricing_line_items[].lineId
+    category: text("category"),                               // line category at confirm time
+    suggestedPence: integer("suggested_pence"),               // null when the chain had nothing
+    bandLowPence: integer("band_low_pence"),
+    bandHighPence: integer("band_high_pence"),
+    finalPence: integer("final_pence").notNull(),             // what Ben sent
+    inBand: boolean("in_band").notNull().default(false),
+    edited: boolean("edited").notNull().default(false),
+    checkThis: boolean("check_this").notNull().default(false),
+    by: text("by").notNull(),                                 // human:<id>
+    at: timestamp("at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_quote_price_verdicts_at").on(table.at),
+    index("idx_quote_price_verdicts_slug").on(table.slug),
+    index("idx_quote_price_verdicts_category_at").on(table.category, table.at),
+    check("quote_price_verdicts_final_check", sql`${table.finalPence} > 0`),
+    check("quote_price_verdicts_by_check", sql`${table.by} LIKE 'human:%'`),
+]);
+export type QuotePriceVerdictRow = typeof quotePriceVerdicts.$inferSelect;
 export type MessageDraft = typeof messageDrafts.$inferSelect;
 export type InsertMessageDraft = z.infer<typeof insertMessageDraftSchema>;
 

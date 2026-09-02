@@ -9,6 +9,9 @@
  *                                                   P6: flip the spine (mode / autonomy owner-only; live needs confirm 'LIVE' + go-live check)
  *   GET  /golive-check?skipEvals=1                  P6: CUTOVER §0 preconditions as a GO / NO-GO table
  *   GET  /shadow-report?days=1|7                    P6: compareShadow() headline + last 10 pairs
+ *   GET  /price/:slug                               P8: Ben's price-and-send screen payload (draft + suggestions + band)
+ *   POST /price/:slug/send { version, lines }       P8: Ben's tap — writes his prices, records verdicts, sends via the existing path
+ *   GET  /price-stats?days=90                       P8: Route B graduation metrics per category (design §6), read-only
  *   POST /tiers { packId, intent, tier, reason }    P6: a person promotes / demotes one intent on the ladder
  *                                                   (pack_intent_tiers + pack_tier_events, changed_by human:<id>);
  *                                                   refuses SEND for intents outside the pack or any money/date name
@@ -223,5 +226,74 @@ spineRouter.post('/ask/:conversationId', async (req, res) => {
     } catch (error: any) {
         console.error('[Spine] ask failed:', error?.message ?? error);
         res.status(500).json({ sent: false, reason: 'ERROR', detail: error?.message });
+    }
+});
+
+// ---------------------------------------------------------------- P8 / B: price and send
+
+/**
+ * GET /price/:slug — everything Ben's phone screen renders: the Route A draft, the chain's
+ * per-line suggestion + band, minutes, materials at the live margin, photos, the supersede token.
+ * 404 when there is no quote with that slug. Read-only: nothing here prices or writes.
+ */
+spineRouter.get('/price/:slug', async (req, res) => {
+    try {
+        const { loadPriceScreen } = await import('./price-screen');
+        const p = await loadPriceScreen(String(req.params.slug || '').trim());
+        if (!p.available) return res.status(p.status).json({ available: false, error: p.reason });
+        res.json(p);
+    } catch (error: any) {
+        console.error('[Spine] price screen read failed:', error?.message ?? error);
+        res.status(500).json({ available: false, error: error?.message ?? 'Could not load the price screen' });
+    }
+});
+
+/**
+ * POST /price/:slug/send { version, lines:[{ lineId, finalPence }], messageStyle? } — Ben's tap.
+ * 1. confirmPrices: 409 if the draft was superseded / sent / revoked or the version differs (a new
+ *    scope arrived), 400 on a bad price; otherwise writes the customer-visible prices onto the
+ *    draft and one quote_price_verdicts row per line under human:<id>.
+ * 2. draftQuoteSendMessage + deliverQuoteLink: the EXISTING quote-send path (the one the legacy
+ *    card uses), approver human:<id>, one run id for the whole burst. The outcome (sent /
+ *    template / queued for the window) is reported as it happened. Nothing sends without this tap.
+ */
+spineRouter.post('/price/:slug/send', async (req, res) => {
+    try {
+        const slug = String(req.params.slug || '').trim();
+        const { confirmPrices } = await import('./price-screen');
+        const u = sessionUser(req);
+        const c = await confirmPrices(slug, req.body, { id: u.id ?? null, email: u.email ?? null });
+        if (!c.ok) return res.status(c.status).json({ ok: false, errors: c.errors, status: c.payload?.status ?? null, version: c.payload?.version ?? null });
+        const conversationId = c.payload.conversationId;
+        if (!conversationId) {
+            return res.status(422).json({ ok: false, priced: true, errors: ['Prices are saved on the quote, but no thread matches this customer, so the link could not be sent from here. Send it from the builder.'], quoteUrl: c.payload.quoteUrl });
+        }
+        const { draftQuoteSendMessage, deliverQuoteLink } = await import('../agent-staff');
+        const style = typeof req.body?.messageStyle === 'string' ? req.body.messageStyle : null;
+        const drafted = await draftQuoteSendMessage(conversationId, slug, style);
+        if (!drafted.ok) {
+            return res.status(drafted.status === 404 ? 422 : drafted.status).json({ ok: false, priced: true, errors: [`Prices are saved on the quote, but the message could not be drafted: ${drafted.error}`], quoteUrl: c.payload.quoteUrl });
+        }
+        const sent = await deliverQuoteLink({ conversationId, slug, body: drafted.body, approver: c.approver, runId: c.runId });
+        const ok = sent.status >= 200 && sent.status < 300;
+        res.status(sent.status).json({
+            ok, priced: true, verdicts: c.verdicts, totals: c.totals, quoteUrl: c.payload.quoteUrl, conversationId, runId: c.runId,
+            messageBody: drafted.body, ...sent.json,
+            errors: ok ? undefined : [sent.json.message ?? sent.json.error ?? 'Send failed'],
+        });
+    } catch (error: any) {
+        console.error('[Spine] price send failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not send the quote'] });
+    }
+});
+
+/** GET /price-stats?days=90 — Route B graduation metrics per category (design §6), read-only. */
+spineRouter.get('/price-stats', async (req, res) => {
+    try {
+        const { loadPriceStats, clampDays } = await import('./price-stats');
+        res.json(await loadPriceStats(clampDays(req.query.days, 90)));
+    } catch (error: any) {
+        console.error('[Spine] price stats failed:', error?.message ?? error);
+        res.status(500).json({ error: error?.message ?? 'Could not compute the price stats' });
     }
 });

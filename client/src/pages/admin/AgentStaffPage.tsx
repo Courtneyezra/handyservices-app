@@ -1133,6 +1133,109 @@ function ShadowPanel() {
     );
 }
 
+// ---------------------------------------------------------------- P8 / B: Route B graduation (design §6)
+
+export interface CategoryStat {
+    category: string; quotes: number; lines: number; uneditedPct: number; inBandPct: number; checkThisPct: number;
+    medianRelDeviation: number | null; uneditedInBandPct30: number | null; lines30: number;
+    graduation: { quotesOk: boolean; varianceOk: boolean; uneditedOk: boolean; met: boolean };
+}
+export interface PriceStatsPayload {
+    days: number; since: string;
+    thresholds: { minQuotes: number; maxVariance: number; minUneditedInBandPct: number; recentDays: number };
+    totals: { quotes: number; lines: number };
+    categories: CategoryStat[];
+}
+
+/**
+ * Per category: how Ben's final prices compare with the chain's suggestions on /admin/price, and
+ * whether the design §6 trigger (≥ 30 quotes / 90 d, ≤ 20 % variance, ≥ 80 % unedited-in-band for
+ * 30 d) is met. Read-only: meeting it brings "agent sends engine-priced quotes for category X" to
+ * council; nothing here (and nothing in Route A) sends a price without Ben's tap.
+ */
+export function CategoryGraduationTable({ data }: { data: PriceStatsPayload }) {
+    const t = data.thresholds;
+    const pct = (v: number | null) => v == null ? '—' : `${v}%`;
+    const dev = (v: number | null) => v == null ? '—' : `${Math.round(v * 100)}%`;
+    const okCls = (ok: boolean) => ok ? 'text-emerald-700' : 'text-slate-500';
+    return (
+        <div className="overflow-x-auto" data-testid="category-graduation">
+            <table className="w-full text-xs">
+                <thead>
+                    <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        <th className="px-2 py-1.5">Category</th>
+                        <th className="px-2 py-1.5 text-right">Quotes</th>
+                        <th className="px-2 py-1.5 text-right">Unedited</th>
+                        <th className="px-2 py-1.5 text-right">In band</th>
+                        <th className="px-2 py-1.5 text-right" title="median |final − suggested| / suggested">Variance</th>
+                        <th className="px-2 py-1.5 text-right" title={`unedited AND in band, last ${t.recentDays} days`}>Unedited-in-band {t.recentDays}d</th>
+                        <th className="px-2 py-1.5">Graduation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {data.categories.length === 0 && (
+                        <tr><td colSpan={7} className="px-2 py-3 text-slate-500">No priced quotes on /admin/price in the last {data.days} days yet.</td></tr>
+                    )}
+                    {data.categories.map((c) => (
+                        <tr key={c.category} className="border-b border-slate-100" data-testid={`graduation-${c.category}`}>
+                            <td className="px-2 py-1.5 font-bold text-slate-900">{c.category.replace(/_/g, ' ')}{c.checkThisPct > 0 && <span className="ml-1 font-normal text-amber-700">· {c.checkThisPct}% check_this</span>}</td>
+                            <td className={cn('px-2 py-1.5 text-right font-bold', okCls(c.graduation.quotesOk))}>{c.quotes}<span className="font-normal text-slate-400"> / {t.minQuotes}</span></td>
+                            <td className="px-2 py-1.5 text-right">{pct(c.uneditedPct)}</td>
+                            <td className="px-2 py-1.5 text-right">{pct(c.inBandPct)}</td>
+                            <td className={cn('px-2 py-1.5 text-right font-bold', okCls(c.graduation.varianceOk))}>{dev(c.medianRelDeviation)}<span className="font-normal text-slate-400"> ≤ {Math.round(t.maxVariance * 100)}%</span></td>
+                            <td className={cn('px-2 py-1.5 text-right font-bold', okCls(c.graduation.uneditedOk))}>{pct(c.uneditedInBandPct30)}<span className="font-normal text-slate-400"> ≥ {t.minUneditedInBandPct}% ({c.lines30})</span></td>
+                            <td className="px-2 py-1.5">
+                                <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide', c.graduation.met ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
+                                    {c.graduation.met ? 'met' : 'not met'}
+                                </span>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+export function CategoryGraduationBlock() {
+    const [days, setDays] = useState<30 | 90>(90);
+    const { data, isLoading, error } = useQuery<PriceStatsPayload>({
+        queryKey: ['spine-price-stats', days],
+        queryFn: async () => {
+            const res = await fetch(`/api/spine/price-stats?days=${days}`, { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error(`price stats ${res.status}`);
+            return res.json();
+        },
+        refetchInterval: 5 * 60_000,
+    });
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white" data-testid="category-graduation-block">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
+                <div>
+                    <h2 className="text-sm font-black text-slate-900">Route B graduation — Ben's prices vs the chain's suggestions</h2>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                        Per category, from every line Ben confirmed on the price-and-send screen. Design §6 trigger: 30 quotes in 90 days,
+                        variance at most 20%, and 80% left unedited inside the band for 30 days. Read-only — meeting it is a council item, not a switch.
+                    </p>
+                </div>
+                <div className="flex gap-1 rounded-lg border border-slate-300 p-0.5 text-[11px] font-bold">
+                    {([30, 90] as const).map((d) => (
+                        <button key={d} type="button" onClick={() => setDays(d)} data-testid={`graduation-days-${d}`}
+                            className={cn('rounded px-2 py-1', days === d ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50')}>
+                            {d}d
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <div className="p-4">
+                {isLoading && <div className="text-xs text-slate-500">Loading…</div>}
+                {error && <div className="text-xs text-slate-500">Price stats not available on this server ({(error as Error).message}).</div>}
+                {data && <CategoryGraduationTable data={data} />}
+            </div>
+        </div>
+    );
+}
+
 export default function AgentStaffPage() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const { data, isLoading, error } = useQuery<{ staff: StaffMember[]; workerHeartbeat?: WorkerHeartbeat | null; spine?: SpineSwitches | null; legacy?: LegacySwitches | null }>({
@@ -1185,6 +1288,8 @@ export default function AgentStaffPage() {
             <TemplateStatusPanel />
             {/* P6: the go-live evidence — spine shadow decisions vs what legacy did. */}
             <ShadowPanel />
+            {/* P8: Route B graduation per category — Ben's prices vs the chain's suggestions, read-only. */}
+            <CategoryGraduationBlock />
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {data.staff.map((m) => (

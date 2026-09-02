@@ -3,6 +3,14 @@ import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react';
 
+/** Only a relative /admin/… path may be followed after login — never a scheme, host or protocol-relative URL. */
+export function safeAdminNext(raw: string | null): string | null {
+    if (!raw) return null;
+    if (!raw.startsWith('/admin/') || raw.startsWith('//') || /[\s\\]/.test(raw)) return null;
+    if (raw.startsWith('/admin/login')) return null;
+    return raw;
+}
+
 export default function AdminLogin() {
     const [, setLocation] = useLocation();
     const [email, setEmail] = useState('');
@@ -33,8 +41,13 @@ export default function AdminLogin() {
             localStorage.setItem('adminToken', data.token);
             localStorage.setItem('adminUser', JSON.stringify(data.user));
 
-            // Redirect based on role — VA goes straight to live call
-            if (data.user?.role === 'va') {
+            // P8: a deep link that bounced through ProtectedRoute carries ?next=/admin/…; honour it
+            // (same-origin admin paths only) so a Pushover link opens the page it named.
+            const next = safeAdminNext(new URLSearchParams(window.location.search).get('next'));
+            if (next) {
+                setLocation(next);
+            } else if (data.user?.role === 'va') {
+                // Redirect based on role — VA goes straight to live call
                 setLocation('/admin/live-call');
             } else {
                 setLocation('/admin');

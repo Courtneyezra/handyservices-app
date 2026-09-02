@@ -7,7 +7,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import AgentStaffPage, {
-    WorkerHeartbeatStrip, SpineSwitchStrip, PackTiersBlock,
+    WorkerHeartbeatStrip, SpineSwitchStrip, PackTiersBlock, CategoryGraduationTable,
     type WorkerHeartbeat, type SpineSwitches, type LegacySwitches, type PackTierRow,
 } from '@/pages/admin/AgentStaffPage';
 
@@ -156,5 +156,34 @@ describe('AgentStaffPage', () => {
         mockFetch([{ url: '/api/agents/staff', reply: () => ({ status: 401, json: {} }) }], { fallback: 'notFound' });
         renderWithQuery(<AgentStaffPage />);
         expect(await screen.findByText(/Your admin session has expired/)).toBeInTheDocument();
+    });
+});
+
+describe('CategoryGraduationTable (P8 / B)', () => {
+    it('one row per category with the design §6 gates and met / not met', () => {
+        render(<CategoryGraduationTable data={{
+            days: 90, since: '2026-06-06T00:00:00Z',
+            thresholds: { minQuotes: 30, maxVariance: 0.2, minUneditedInBandPct: 80, recentDays: 30 },
+            totals: { quotes: 33, lines: 40 },
+            categories: [
+                { category: 'plumbing', quotes: 32, lines: 36, uneditedPct: 88.9, inBandPct: 94.4, checkThisPct: 0, medianRelDeviation: 0.05, uneditedInBandPct30: 85, lines30: 20, graduation: { quotesOk: true, varianceOk: true, uneditedOk: true, met: true } },
+                { category: 'fencing', quotes: 1, lines: 4, uneditedPct: 0, inBandPct: 25, checkThisPct: 100, medianRelDeviation: null, uneditedInBandPct30: 0, lines30: 4, graduation: { quotesOk: false, varianceOk: false, uneditedOk: false, met: false } },
+            ],
+        }} />);
+        const p = screen.getByTestId('graduation-plumbing');
+        expect(p).toHaveTextContent('plumbing');
+        expect(p).toHaveTextContent('32 / 30');
+        expect(p).toHaveTextContent('88.9%');
+        expect(p).toHaveTextContent('5% ≤ 20%');
+        expect(p).toHaveTextContent('85% ≥ 80% (20)');
+        expect(p).toHaveTextContent('met');
+        const f = screen.getByTestId('graduation-fencing');
+        expect(f).toHaveTextContent('100% check_this');
+        expect(f).toHaveTextContent('— ≤ 20%');
+        expect(f).toHaveTextContent('not met');
+    });
+    it('empty window', () => {
+        render(<CategoryGraduationTable data={{ days: 30, since: '', thresholds: { minQuotes: 30, maxVariance: 0.2, minUneditedInBandPct: 80, recentDays: 30 }, totals: { quotes: 0, lines: 0 }, categories: [] }} />);
+        expect(screen.getByTestId('category-graduation')).toHaveTextContent('No priced quotes on /admin/price in the last 30 days yet.');
     });
 });

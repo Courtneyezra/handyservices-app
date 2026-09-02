@@ -71,6 +71,7 @@ const NudgeQueuePage = lazy(() => import("@/pages/admin/NudgeQueuePage"));
 const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
 const DeskPage = lazy(() => import("@/pages/admin/DeskPage"));
 const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
+const PriceAndSendPage = lazy(() => import("@/pages/admin/PriceAndSendPage")); // P8: Ben's phone-first price-and-send screen
 const ActivityPage = lazy(() => import("@/pages/admin/ActivityPage"));
 const VaTasksPage = lazy(() => import("@/pages/admin/VaTasksPage"));
 const PortalInboxPage = lazy(() => import("@/pages/admin/PortalInboxPage"));
@@ -732,6 +733,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <AgentStaffPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/price/:slug">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PriceAndSendPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

@@ -18,7 +18,7 @@ import { eq, and, gte, desc, isNotNull, isNull, sql } from 'drizzle-orm';
 import { queueDraft } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
-import { newRunId } from './approver';
+import { newRunId, type Approver } from './approver';
 import { ledgerFlagClosedForConversation } from './ledger';
 import { renderQuickReply } from './quick-replies';
 import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
@@ -854,16 +854,26 @@ async function findQuoteSendTemplate() {
 // happy to answer any questions right here in the chat. Style defaults from the quote's
 // customerType; `messageStyle` in the body overrides it (the card's dropdown re-drafts).
 // Drafting only: nothing is sent here. Ben reviews/edits the text; his Send IS the approval.
-agentStaffRouter.post('/quote-prep/:conversationId/draft-send-message', async (req, res) => {
-    try {
-        const slug = String(req.body?.slug || '').trim();
-        if (!slug) return res.status(400).json({ error: "Missing 'slug'" });
-        const loaded = await loadConversationQuote(req.params.conversationId, slug);
-        if (!loaded.ok) return res.status(loaded.status).json({ error: loaded.error });
+export interface QuoteSendMessageDraft {
+    body: string; quoteUrl: string; windowOpen: boolean; styleUsed: MessageStyleId; styles: typeof MESSAGE_STYLES;
+}
+
+/**
+ * The message that delivers a finished quote link, assembled but NOT sent. Shared by the legacy
+ * card (the route below) and the P8 price-and-send screen (server/spine/routes.ts), so both send
+ * exactly what the builder would.
+ */
+export async function draftQuoteSendMessage(conversationId: string, slug: string, messageStyle?: string | null): Promise<
+    | ({ ok: true } & QuoteSendMessageDraft)
+    | { ok: false; status: number; error: string }
+> {
+    {
+        const loaded = await loadConversationQuote(conversationId, slug);
+        if (!loaded.ok) return { ok: false, status: loaded.status, error: loaded.error };
         const { conv, quote, phone } = loaded;
         const quoteUrl = quoteUrlFor(slug);
 
-        const styleParam = String(req.body?.messageStyle || '').trim();
+        const styleParam = String(messageStyle || '').trim();
         const styleId: MessageStyleId = MESSAGE_STYLES.some((s) => s.id === styleParam)
             ? (styleParam as MessageStyleId)
             : defaultStyleForCustomerType(quote.customerType);
@@ -925,7 +935,18 @@ Hard rules: one sentence, maximum 15 words. Refer ONLY to things marked CUSTOMER
         const body = stripChatDashes(assembled.replace(/£(\d+)–£(\d+)/g, '£$1 to £$2'));
 
         const windowOpen = await canSendFreeform(phone).catch(() => false);
-        res.json({ body, quoteUrl, windowOpen, styleUsed: styleId, styles: MESSAGE_STYLES });
+        return { ok: true, body, quoteUrl, windowOpen, styleUsed: styleId, styles: MESSAGE_STYLES };
+    }
+}
+
+agentStaffRouter.post('/quote-prep/:conversationId/draft-send-message', async (req, res) => {
+    try {
+        const slug = String(req.body?.slug || '').trim();
+        if (!slug) return res.status(400).json({ error: "Missing 'slug'" });
+        const r = await draftQuoteSendMessage(req.params.conversationId, slug, req.body?.messageStyle);
+        if (!r.ok) return res.status(r.status).json({ error: r.error });
+        const { ok: _ok, ...payload } = r;
+        res.json(payload);
     } catch (error: any) {
         console.error('[QuotePrep] draft-send-message failed:', error);
         res.status(500).json({ error: error?.message || 'Failed to draft the message' });
@@ -937,24 +958,42 @@ Hard rules: one sentence, maximum 15 words. Refer ONLY to things marked CUSTOMER
 // freeform burst when the 24h window is open, an approved template when one can carry the link,
 // otherwise the burst is queued as a pending draft for when the window reopens. Every outcome
 // is reported — nothing fails silently.
-agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res) => {
-    try {
-        const slug = String(req.body?.slug || '').trim();
-        const rawBody = String(req.body?.body || '').trim();
-        if (!slug || !rawBody) return res.status(400).json({ error: "Missing 'slug' or 'body'" });
+export interface DeliverQuoteLinkInput {
+    conversationId: string;
+    slug: string;
+    /** The exact text a person saw (and possibly edited). Must contain the quote link. */
+    body: string;
+    /** Who licensed the send. The legacy card passes 'system.staff'; the P8 price screen passes human:<id>. */
+    approver?: Approver;
+    /** One tap, one run — every burst part carries it. Minted here when the caller has none. */
+    runId?: string;
+}
 
-        const loaded = await loadConversationQuote(req.params.conversationId, slug);
-        if (!loaded.ok) return res.status(loaded.status).json({ error: loaded.error });
+/**
+ * The send itself, shared by the legacy card route below and the P8 price-and-send screen.
+ * Freeform burst when the 24h window is open, an approved template when one can carry the link,
+ * otherwise the burst is queued as a pending draft for when the window reopens. Returns the HTTP
+ * status and JSON the route answers with — every outcome reported, nothing fails silently.
+ */
+export async function deliverQuoteLink(input: DeliverQuoteLinkInput): Promise<{ status: number; json: Record<string, any> }> {
+    {
+        const slug = String(input.slug || '').trim();
+        const rawBody = String(input.body || '').trim();
+        if (!slug || !rawBody) return { status: 400, json: { error: "Missing 'slug' or 'body'" } };
+
+        const loaded = await loadConversationQuote(input.conversationId, slug);
+        if (!loaded.ok) return { status: loaded.status, json: { error: loaded.error } };
         const { conv, quote, phone } = loaded;
         const quoteUrl = quoteUrlFor(slug);
-        const runId = newRunId('sys');   // one click, one run — every burst part carries it
+        const approver: Approver = input.approver ?? 'system.staff';
+        const runId = input.runId ?? newRunId('sys');   // one click, one run — every burst part carries it
 
         const body = stripChatDashes(rawBody);
         if (!body.includes(quoteUrl)) {
-            return res.status(400).json({
+            return { status: 400, json: {
                 error: 'MISSING_LINK',
                 message: `The message must contain the quote link (${quoteUrl}) or the customer gets words with no quote.`,
-            });
+            } };
         }
 
         const windowOpen = await canSendFreeform(phone).catch(() => false);
@@ -969,7 +1008,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                 for (let i = 0; i < parts.length; i++) {
                     if (i > 0) await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
                     const sendResult = await sendCustomerMessage({
-                        approver: 'system.staff', runId: runId,
+                        approver, runId,
                         to: phone,
                         body: parts[i],
                         purpose: 'service_reply',  // Human-approved quote send
@@ -985,22 +1024,22 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             } catch (sendError: any) {
                 if (!linkDelivered) {
                     // The quote never reached them — leave it a draft so nothing pretends it did.
-                    return res.status(502).json({
+                    return { status: 502, json: {
                         error: 'SEND_FAILED',
                         message: sendError?.message || 'WhatsApp send failed before the quote link went out',
                         sentSids: sids,
-                    });
+                    } };
                 }
                 // The link part landed: the customer HAS the quote, so it is sent — record that,
                 // and surface the broken tail rather than hiding it.
                 await finalizeQuoteSent(quote.id, conv.id);
-                return res.json({
+                return { status: 200, json: {
                     sent: true, mode: 'freeform', sids, partial: true,
                     message: `Quote link delivered, but a follow-up part failed: ${sendError?.message || 'send failed'}`,
-                });
+                } };
             }
             await finalizeQuoteSent(quote.id, conv.id);
-            return res.json({ sent: true, mode: 'freeform', sids });
+            return { status: 200, json: { sent: true, mode: 'freeform', sids } };
         }
 
         // Window shut — only an approved template can be delivered.
@@ -1019,7 +1058,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             if (rendered.includes(quoteUrl)) {
                 try {
                     const sendResult = await sendCustomerMessage({
-                        approver: 'system.staff', runId: runId,
+                        approver, runId,
                         to: phone,
                         body: rendered,
                         purpose: 'service_reply',  // Human-approved quote send
@@ -1032,10 +1071,10 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                         throw new Error(sendResult.error || sendResult.reason || 'Send blocked');
                     }
                     await finalizeQuoteSent(quote.id, conv.id);
-                    return res.json({
+                    return { status: 200, json: {
                         sent: true, mode: 'template', sids: ['sent'],
                         templateName: approved.name, rendered,
-                    });
+                    } };
                 } catch (templateError: any) {
                     console.warn(`[QuotePrep] ${approved.name} send failed, trying fallbacks:`, templateError?.message);
                 }
@@ -1054,7 +1093,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                         .map(([k, v]) => [k, renderWithLink(String(v))]))
                     : undefined;
                 const sendResult = await sendCustomerMessage({
-                    approver: 'system.staff', runId: runId,
+                    approver, runId,
                     to: phone,
                     body: renderWithLink(template.body),
                     purpose: 'service_reply',  // Human-approved quote send
@@ -1067,7 +1106,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                     throw new Error(sendResult.error || sendResult.reason || 'Send blocked');
                 }
                 await finalizeQuoteSent(quote.id, conv.id);
-                return res.json({ sent: true, mode: 'template', sids: ['sent'], templateId: template.id });
+                return { status: 200, json: { sent: true, mode: 'template', sids: ['sent'], templateId: template.id } };
             } catch (templateError: any) {
                 // Template refused — fall through to the queue so the send is never just lost,
                 // and tell the card what happened.
@@ -1085,7 +1124,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             reason: `Quote ${slug} is ready to send but the WhatsApp window is shut. Approving sends it once the window reopens.`,
             dedupe: false,
         });
-        return res.json({
+        return { status: 200, json: {
             sent: false,
             queued: true,
             draftId,
@@ -1093,7 +1132,17 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             message: approved
                 ? 'Window shut and the template send did not go through, so it is queued for approval. The quote stays a draft until it actually sends.'
                 : `Window shut and "${QUOTE_LINK_TEMPLATE}" is not approved by Meta yet, so it is queued for approval when the window reopens. The quote stays a draft until it actually sends.`,
-        });
+        } };
+    }
+}
+
+agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res) => {
+    try {
+        const slug = String(req.body?.slug || '').trim();
+        const rawBody = String(req.body?.body || '').trim();
+        if (!slug || !rawBody) return res.status(400).json({ error: "Missing 'slug' or 'body'" });
+        const r = await deliverQuoteLink({ conversationId: req.params.conversationId, slug, body: rawBody, approver: 'system.staff' });
+        res.status(r.status).json(r.json);
     } catch (error: any) {
         console.error('[QuotePrep] send-quote failed:', error);
         res.status(500).json({ error: error?.message || 'Failed to send the quote' });
