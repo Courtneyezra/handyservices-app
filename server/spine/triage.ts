@@ -297,6 +297,14 @@ export async function triage(cf: CaseFile, deps: TriageDeps = {}): Promise<Triag
             if (merged.length !== current.length) patch.tags = merged;
             if (result.stage !== 'won' && result.stage !== stageOfRow(row?.stage) && stageOfRow(row?.stage) !== 'won') patch.stage = result.stage;
             if (Object.keys(patch).length > 1) await db.update(conversations).set(patch).where(eq(conversations.id, cf.conversationId));
+            // P10: a quote tag that just landed (needs_quote from the model, rescope from the P9
+            // pre-check) must schedule the clerk's pass, not sit as a label. ensureQuoteRun is
+            // idempotent: nothing when a pass is pending or Route A already produced something.
+            const landed = result.tags.filter((t) => (t === 'needs_quote' || t === 'rescope') && !current.includes(t));
+            if (landed.length) {
+                const { ensureQuoteRun } = await import('./request-run');
+                await ensureQuoteRun(cf.conversationId, `triage tagged ${landed.join(', ')}`);
+            }
         } catch (e: any) {
             console.warn('[Spine] triage could not write tags/stage:', e?.message ?? e);
         }

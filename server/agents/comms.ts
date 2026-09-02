@@ -915,6 +915,17 @@ export async function runCommsAgent(conversationId: string, trigger: string, run
                     }
                 }
                 await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));
+                // P10: needs_quote is a trigger, not a label. The spine's clerk runs on the tag;
+                // ask for the pass now (idempotent; nothing when one is pending or Route A already
+                // produced an estimate / draft). Never throws into the tool.
+                if ((input.add_tags ?? []).some((t) => t.toLowerCase() === READY_TO_PRICE_TAG || t.toLowerCase() === 'rescope')) {
+                    try {
+                        const { ensureQuoteRun } = await import('../spine/request-run');
+                        await ensureQuoteRun(conv.id, 'legacy set_board_state tagged needs_quote');
+                    } catch (e: any) {
+                        console.warn('[CommsAgent] ensureQuoteRun failed (tag stands):', e?.message ?? e);
+                    }
+                }
                 // Live-board push (STATE_DELTA over SSE). Dynamic import + catch: a UI stream
                 // must never throw into a triage write, and the lazy load keeps this file's
                 // import block untouched for concurrent edits.

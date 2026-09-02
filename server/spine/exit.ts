@@ -127,12 +127,9 @@ async function defaultDeps(): Promise<ExitDeps> {
             if (fresh.length) await db.update(conversations).set({ tags: [...current, ...fresh], updatedAt: new Date() }).where(eq(conversations.id, conversationId));
             return fresh;
         },
-        requestClerkRun: async (conversationId, why) => {
-            const { requestRun } = await import('./request-run');
-            const r = await requestRun(conversationId, 'cadence', { delayMs: 0 });
-            console.log(`[Spine] clerk run requested for ${conversationId} (${why}): ${r.queued ? 'queued' : `not queued (${r.reason})`}`);
-            return r;
-        },
+        // P10: one function schedules the clerk for every writer of the tag (idempotent: nothing
+        // when a pass is pending or a live estimate / Route A draft already exists).
+        requestClerkRun: async (conversationId, why) => (await import('./request-run')).ensureQuoteRun(conversationId, why),
     };
 }
 

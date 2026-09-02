@@ -46,6 +46,18 @@ async function sweepOnce(): Promise<void> {
     // shadow = dry spine pass, then legacy; off = legacy.
     const { spineMode } = await import('../spine/switch');
     const mode = await spineMode();
+    // P10: the net for a needs_quote / rescope tag nobody scheduled a pass for (Sarah, 4 Sep).
+    // Up to 5 customer threads per pass; idempotent per thread; runs in every mode the spine is
+    // on (Route A is internal), before the legacy gate below so a disabled legacy sweep cannot
+    // starve it. The shadow pass picks the cadence row up on the fast tick.
+    if (mode !== 'off') {
+        try {
+            const { sweepUntriggeredQuotes } = await import('../spine/request-run');
+            await sweepUntriggeredQuotes();
+        } catch (e: any) {
+            console.warn('[CommsSweep] untriggered-quote sweep failed:', e?.message ?? e);
+        }
+    }
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
     const config = await getCommsAgentConfig();
     if (!config.enabled) return;
@@ -158,11 +170,13 @@ async function tickDueTriage(): Promise<void> {
     const config = await getCommsAgentConfig();
     if (!config.enabled || !config.onInbound) return;
 
+    // P10: the row also carries the trigger the requester wrote (requestRun's nextTriageTrigger),
+    // so a cadence pass asked for by ensureQuoteRun is honoured as such by the shadow pass.
     const due: any = await db.execute(sql`
-        SELECT id, phone_number, metadata->>'nextTriageAt' AS due_at FROM conversations
+        SELECT id, phone_number, metadata->>'nextTriageAt' AS due_at, metadata->>'nextTriageTrigger' AS trigger FROM conversations
         WHERE archived_at IS NULL AND metadata->>'nextTriageAt' <= ${new Date().toISOString()}
         LIMIT 3`);
-    for (const row of ((due.rows ?? due) as { id: string; phone_number: string; due_at: string }[])) {
+    for (const row of ((due.rows ?? due) as { id: string; phone_number: string; due_at: string; trigger: string | null }[])) {
         // 27 Aug 2026: win the SHARED run claim before touching the debounce lease — the lease
         // below only serializes tickDueTriage against itself; it never excluded sweepOnce or any
         // other runCommsAgent path (see claimTriageTurn's root cause). Losing the turn means
@@ -191,14 +205,18 @@ async function tickDueTriage(): Promise<void> {
         try {
             if (mode === 'shadow') {
                 // Dry spine pass first, recorded with shadow_decision; legacy still owns the customer.
+                // P10: the requester's trigger (cadence for a needs_quote pass) is honoured; the
+                // clerk lanes on the tag whatever the trigger, so Route A runs in shadow too.
                 const { runShadow } = await import('../spine/shadow');
-                await runShadow(row.id, 'inbound_message');
+                const { isTrigger } = await import('../spine/vocab');
+                await runShadow(row.id, isTrigger(row.trigger) ? row.trigger : 'inbound_message');
             }
             const outcome = await runCommsAgent(row.id, 'inbound_message');
             console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
-            // Success: release the lease, unless a newer inbound re-armed it mid-run.
+            // Success: release the lease (and the requester's trigger / run id, P10), unless a
+            // newer inbound re-armed it mid-run.
             await db.execute(sql`
-                UPDATE conversations SET metadata = metadata - 'nextTriageAt'
+                UPDATE conversations SET metadata = (metadata - 'nextTriageAt') - 'nextTriageTrigger' - 'nextTriageRunId'
                 WHERE id = ${row.id} AND metadata->>'nextTriageAt' = ${lease}`);
         } catch (error: any) {
             console.error(`[CommsSweep] On-inbound run failed for ${row.id} (lease stands, will retry):`, error?.message);

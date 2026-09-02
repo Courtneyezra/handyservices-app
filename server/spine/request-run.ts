@@ -109,6 +109,130 @@ export async function requestRun(conversationId: string, trigger: Trigger, opts:
     return { queued: true };
 }
 
+// ---------------------------------------------------------------- P10: needs_quote schedules a pass
+//
+// Sarah (4c0e227b, 4 Sep): the thread carried `needs_quote` with no pass pending, so the clerk never
+// ran until someone requested a run by hand. The tag was a label. Now every writer of the tag calls
+// ensureQuoteRun, and the worker's slow sweep calls sweepUntriggeredQuotes as the net.
+
+export const QUOTE_TAGS: readonly string[] = ['needs_quote', 'rescope'];
+/** A pending run whose due time is further past than this is dead (a lease that expired unrun). */
+export const STALE_PENDING_MINUTES = 10;
+export const UNTRIGGERED_SWEEP_LIMIT = 5;
+
+export interface QuoteRunState {
+    tags: string[];
+    /** metadata.nextTriageAt (ISO) — a pending or in-flight pass. */
+    nextTriageAt: string | null;
+    /** A non-superseded quote_estimates row on the thread (Route A already ran or is running). */
+    liveEstimate: boolean;
+    /** metadata.quoteDraft points at a Route A draft that is not superseded. */
+    liveDraft: boolean;
+}
+
+/** Pure: does this thread need a spine pass for its quote tag? */
+export function shouldRequestQuoteRun(state: QuoteRunState, now: Date = new Date()): { ok: true } | { ok: false; reason: string } {
+    if (!state.tags.some((t) => QUOTE_TAGS.includes(t))) return { ok: false, reason: 'no needs_quote / rescope tag' };
+    if (state.liveEstimate) return { ok: false, reason: 'a live estimate already exists' };
+    if (state.liveDraft) return { ok: false, reason: 'a Route A draft already exists' };
+    if (state.nextTriageAt) {
+        const due = new Date(state.nextTriageAt).getTime();
+        if (Number.isFinite(due) && now.getTime() - due < STALE_PENDING_MINUTES * 60_000) return { ok: false, reason: `a pass is already pending (due ${state.nextTriageAt})` };
+    }
+    return { ok: true };
+}
+
+export interface EnsureQuoteRunDeps {
+    loadState: (conversationId: string) => Promise<QuoteRunState | null>;
+    request: (conversationId: string) => Promise<{ queued: boolean; reason?: string }>;
+    now?: () => Date;
+}
+
+async function defaultQuoteRunState(conversationId: string): Promise<QuoteRunState | null> {
+    const [conv] = await db.select({ tags: conversations.tags, metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    if (!conv) return null;
+    const meta = (conv.metadata ?? {}) as Record<string, any>;
+    const { latestEstimateForConversation } = await import('./estimate-store');
+    const liveEstimate = !!(await latestEstimateForConversation(conversationId).catch(() => null));
+    let liveDraft = false;
+    const draftId = meta.quoteDraft?.quoteId;
+    if (typeof draftId === 'string' && draftId) {
+        try {
+            const { personalizedQuotes } = await import('@shared/schema');
+            const [q] = await db.select({ supersededAt: personalizedQuotes.supersededAt, isDraft: personalizedQuotes.isDraft }).from(personalizedQuotes).where(eq(personalizedQuotes.id, draftId)).limit(1);
+            liveDraft = !!q && !q.supersededAt && !!q.isDraft;
+        } catch { liveDraft = false; }
+    }
+    return { tags: (conv.tags as string[] | null) ?? [], nextTriageAt: typeof meta.nextTriageAt === 'string' ? meta.nextTriageAt : null, liveEstimate, liveDraft };
+}
+
+/**
+ * If the thread is tagged needs_quote / rescope and nothing is on the way (no live estimate or
+ * Route A draft, no pending pass), ask for a cadence pass now. Idempotent; one log line. Never
+ * throws: a tag write must not fail because the follow-up could not be scheduled.
+ */
+export async function ensureQuoteRun(conversationId: string, reason: string, deps: Partial<EnsureQuoteRunDeps> = {}): Promise<{ requested: boolean; reason: string }> {
+    const loadState = deps.loadState ?? defaultQuoteRunState;
+    const request = deps.request ?? ((id: string) => requestRun(id, 'cadence', { delayMs: 0 }));
+    try {
+        const state = await loadState(conversationId);
+        if (!state) return { requested: false, reason: 'conversation not found' };
+        const verdict = shouldRequestQuoteRun(state, (deps.now ?? (() => new Date()))());
+        if (!verdict.ok) {
+            console.log(`[Spine] ensureQuoteRun ${conversationId} (${reason}): no run — ${verdict.reason}`);
+            return { requested: false, reason: verdict.reason };
+        }
+        const r = await request(conversationId);
+        console.log(`[Spine] ensureQuoteRun ${conversationId} (${reason}): ${r.queued ? 'cadence pass requested' : `not queued (${r.reason})`}`);
+        return { requested: r.queued, reason: r.queued ? 'requested' : (r.reason ?? 'not queued') };
+    } catch (error: any) {
+        console.warn(`[Spine] ensureQuoteRun ${conversationId} failed (tag stands):`, error?.message ?? error);
+        return { requested: false, reason: `error: ${error?.message ?? error}` };
+    }
+}
+
+export interface SweepUntriggeredDeps {
+    /** Customer threads carrying a quote tag, oldest first; the sweep decides per thread. */
+    candidates: () => Promise<string[]>;
+    ensure: (conversationId: string, reason: string) => Promise<{ requested: boolean; reason: string }>;
+    limit?: number;
+}
+
+async function defaultQuoteTagCandidates(): Promise<string[]> {
+    const res: any = await db.execute(sql`
+        SELECT id FROM conversations
+        WHERE archived_at IS NULL
+          AND (role_profile IS NULL OR role_profile = 'customer')
+          AND tags && ARRAY['needs_quote','rescope']::text[]
+        ORDER BY updated_at ASC NULLS FIRST
+        LIMIT 50`);
+    return ((res.rows ?? res) as Array<{ id: string }>).map((r) => String(r.id));
+}
+
+/**
+ * The net (worker slow sweep, every 5 min): up to N customer threads tagged needs_quote / rescope
+ * with nothing on the way get a pass requested. Runs in shadow too — Route A is internal.
+ */
+export async function sweepUntriggeredQuotes(deps: Partial<SweepUntriggeredDeps> = {}): Promise<{ checked: number; requested: string[] }> {
+    const candidates = deps.candidates ?? defaultQuoteTagCandidates;
+    const ensure = deps.ensure ?? ((id: string, why: string) => ensureQuoteRun(id, why));
+    const limit = deps.limit ?? UNTRIGGERED_SWEEP_LIMIT;
+    const requested: string[] = [];
+    let checked = 0;
+    try {
+        for (const id of await candidates()) {
+            if (requested.length >= limit) break;
+            checked += 1;
+            const r = await ensure(id, 'untriggered sweep');
+            if (r.requested) requested.push(id);
+        }
+        if (requested.length) console.log(`[Spine] untriggered-quote sweep: ${requested.length} pass(es) requested of ${checked} checked`);
+    } catch (error: any) {
+        console.warn('[Spine] untriggered-quote sweep failed:', error?.message ?? error);
+    }
+    return { checked, requested };
+}
+
 interface DueRow { id: string; phone_number: string; due_at: string; trigger: string | null; run_id: string | null }
 
 /**

@@ -465,6 +465,19 @@ export async function setIntakeOverride(conversationId: string, input: { readine
     const { db } = await import('./db');
     const { conversations } = await import('@shared/schema');
     const { eq, sql } = await import('drizzle-orm');
+    // P10: a human moving the lane to quote_ready is a request for the priced draft, not a label.
+    // Tag the thread and let ensureQuoteRun schedule the pass (idempotent).
+    if (input.readiness === 'quote_ready') {
+        try {
+            const [row] = await db.select({ tags: conversations.tags }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+            const current = (row?.tags as string[] | null) ?? [];
+            if (!current.includes('needs_quote')) await db.update(conversations).set({ tags: [...current, 'needs_quote'] }).where(eq(conversations.id, conversationId));
+            const { ensureQuoteRun } = await import('./spine/request-run');
+            await ensureQuoteRun(conversationId, `portal override to quote_ready by ${input.by}`);
+        } catch (e: any) {
+            console.warn('[Intake] ensureQuoteRun after override failed (override stands):', e?.message ?? e);
+        }
+    }
     await db.update(conversations).set({
         metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('quote_intake_override', ${JSON.stringify(override)}::jsonb)`,
         updatedAt: new Date(),
