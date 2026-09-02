@@ -227,7 +227,11 @@ async function arm(conversationId: string, phone: string): Promise<void> {
     const { conversations } = await import('@shared/schema');
     const { eq, sql } = await import('drizzle-orm');
     const due = new Date(Date.now() + Math.max(0.05, config.inboundDebounceMinutes) * 60_000).toISOString();
+    // A customer who writes to an ARCHIVED thread un-archives it (4 Sep 2026: Sarah's six photos
+    // armed a triage on a board-clearout-archived thread that no sweep would ever run, and the
+    // silence-breaker skips archived threads too — she got nothing for 25 minutes).
     const result = await db.update(conversations).set({
+        archivedAt: null,
         metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('nextTriageAt', ${due}::text)`,
     }).where(eq(conversations.id, conversationId)).returning({ id: conversations.id });
     console.log(`[CommsLanes] armed ${conversationId} for ${due} (matched ${result.length} row)`);

@@ -80,7 +80,16 @@ export async function requestRun(conversationId: string, trigger: Trigger, opts:
     const [conv] = await db.select({ id: conversations.id, phoneNumber: conversations.phoneNumber, archivedAt: conversations.archivedAt })
         .from(conversations).where(eq(conversations.id, conversationId));
     if (!conv) return { queued: false, reason: 'conversation not found' };
-    if (conv.archivedAt) return { queued: false, reason: 'conversation archived' };
+    if (conv.archivedAt) {
+        // An inbound from the customer re-opens an archived thread (4 Sep 2026); other triggers
+        // (cadence, manual, flag expiry) still respect the archive.
+        if (trigger === 'inbound_message' || trigger === 'media_received' || trigger === 'call_ended') {
+            await db.update(conversations).set({ archivedAt: null }).where(eq(conversations.id, conversationId));
+            console.log(`[Spine] un-archived ${conversationId} on ${trigger}`);
+        } else {
+            return { queued: false, reason: 'conversation archived' };
+        }
+    }
     if (isTestNumber(conv.phoneNumber)) return { queued: false, reason: 'test number' };
 
     const cfg = await getSpineConfig();
