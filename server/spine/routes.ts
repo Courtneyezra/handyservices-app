@@ -4,6 +4,11 @@
  *   GET  /quote-intake/:conversationId              latest Quote clerk artifact + thread media (404 { available:false })
  *   POST /quote-intake/:conversationId/save-draft   UNSENT draft quote from the card (never prices)
  *   POST /ask/:conversationId { kind }              rules-layer ask (postcode / media / name), approved by the signed-in human
+ *   GET  /controls                                  P6: switches + legacy flags + who last changed each + viewer rights
+ *   POST /config { mode?, agents?, asks?, autonomy?, sampler?, video?, confirm? }
+ *                                                   P6: flip the spine (mode / autonomy owner-only; live needs confirm 'LIVE' + go-live check)
+ *   GET  /golive-check?skipEvals=1                  P6: CUTOVER §0 preconditions as a GO / NO-GO table
+ *   GET  /shadow-report?days=1|7                    P6: compareShadow() headline + last 10 pairs
  *   POST /tiers { packId, intent, tier, reason }    P6: a person promotes / demotes one intent on the ladder
  *                                                   (pack_intent_tiers + pack_tier_events, changed_by human:<id>);
  *                                                   refuses SEND for intents outside the pack or any money/date name
@@ -62,6 +67,121 @@ spineRouter.post('/tiers', async (req, res) => {
     } catch (error: any) {
         console.error('[Spine] tier change failed:', error?.message ?? error);
         res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not change the tier'] });
+    }
+});
+
+// ---------------------------------------------------------------- P6 / A2: switch controls
+
+function viewer(req: any): { id?: string | null; email?: string | null; role?: string | null } {
+    const u = req?.user ?? {};
+    return { id: u.id ?? null, email: u.email ?? null, role: u.role ?? null };
+}
+
+/**
+ * GET /controls — everything the switch strip needs in one read: the spine switches, the legacy
+ * flags, who last changed each control and when (from config_change system events), whether the
+ * viewer may flip the owner-only ones, and the mode captions.
+ */
+spineRouter.get('/controls', async (req, res) => {
+    try {
+        const { getSpineConfig } = await import('./config');
+        const { spineModeFrom } = await import('./switch');
+        const { lastChangeByField, isOwner, MODE_CAPTIONS, LIVE_CONFIRM_WORD } = await import('./controls');
+        const { getCommsAgentConfig } = await import('../agents/comms');
+        const { db } = await import('../db');
+        const { systemEvents } = await import('@shared/schema');
+        const { and, desc, eq, inArray } = await import('drizzle-orm');
+        const [cfg, legacy, events] = await Promise.all([
+            getSpineConfig(),
+            getCommsAgentConfig().catch(() => null),
+            db.select({ at: systemEvents.at, source: systemEvents.source, summary: systemEvents.summary, detail: systemEvents.detail })
+                .from(systemEvents)
+                .where(and(eq(systemEvents.kind, 'config_change'), inArray(systemEvents.source, ['spine', 'comms-config'])))
+                .orderBy(desc(systemEvents.at)).limit(200)
+                .catch(() => [] as any[]),
+        ]);
+        res.json({
+            spine: {
+                mode: spineModeFrom(cfg), enabled: cfg.enabled, shadow: cfg.shadow, explicitMode: cfg.mode ?? null,
+                agents: cfg.agents, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
+                sweepLimit: cfg.sweepLimit, debounceMinutes: cfg.debounceMinutes, triageModel: cfg.triageModel, city: cfg.city,
+            },
+            legacy: legacy ? { enabled: legacy.enabled, onInbound: legacy.onInbound, autosend: legacy.autosend.enabled, firstContactAck: legacy.firstContactAutoAck.enabled, quotePrep: legacy.quotePrep.enabled } : null,
+            lastChanges: lastChangeByField(events as any),
+            viewer: { isOwner: isOwner(viewer(req)), email: viewer(req).email ?? null, role: viewer(req).role ?? null },
+            captions: MODE_CAPTIONS,
+            confirmWord: LIVE_CONFIRM_WORD,
+        });
+    } catch (error: any) {
+        console.error('[Spine] controls read failed:', error?.message ?? error);
+        res.status(500).json({ error: error?.message ?? 'Could not read the controls' });
+    }
+});
+
+/**
+ * POST /config — flip the spine's switches. Partial body { mode?, agents?, asks?, autonomy?,
+ * sampler?, video?, confirm? }; unknown fields are refused (server/spine/controls.ts). Mode and
+ * autonomy are owner-only; `mode: 'live'` needs confirm 'LIVE' AND a go-live check with no NO-GO.
+ * setSpineConfig writes the row and logs the config_change event with `by`.
+ */
+spineRouter.post('/config', async (req, res) => {
+    try {
+        const { validateSpineConfigPatch, isOwner } = await import('./controls');
+        const v = validateSpineConfigPatch(req.body ?? {});
+        if (!v.ok) return res.status(400).json({ ok: false, errors: v.errors });
+        const u = viewer(req);
+        if (v.needs === 'owner' && !isOwner(u)) return res.status(403).json({ ok: false, errors: ['The spine mode and the autonomy job are owner-only (the owner account or role admin).'] });
+        let golive: unknown = null;
+        if (v.goesLive) {
+            const { runGoLiveCheck } = await import('./golive-check');
+            const report = await runGoLiveCheck({ skipEvals: true });
+            golive = report;
+            if (!report.ok) return res.status(409).json({ ok: false, errors: [`Go-live check has ${report.noGo} NO-GO item(s); fix them first.`], golive: report });
+        }
+        const { setSpineConfig } = await import('./config');
+        const { spineModeFrom } = await import('./switch');
+        const { humanApprover } = await import('../approver');
+        const next = await setSpineConfig(v.patch, humanApprover(u.email ?? u.id ?? 'admin'));
+        console.log(`[Spine] config: ${v.changes.join(', ')} by ${u.email ?? u.id ?? 'admin'}`);
+        res.json({ ok: true, changes: v.changes, mode: spineModeFrom(next), spine: { enabled: next.enabled, shadow: next.shadow, mode: next.mode ?? null, agents: next.agents, asks: next.asks, autonomy: next.autonomy, sampler: next.sampler, video: next.video }, golive });
+    } catch (error: any) {
+        console.error('[Spine] config write failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not save the config'] });
+    }
+});
+
+/** GET /golive-check?skipEvals=1 — CUTOVER §0 as a table (server/spine/golive-check.ts). Read-only. */
+spineRouter.get('/golive-check', async (req, res) => {
+    try {
+        const { runGoLiveCheck } = await import('./golive-check');
+        const skipEvals = String(req.query.skipEvals ?? '1') !== '0';
+        res.json(await runGoLiveCheck({ skipEvals }));
+    } catch (error: any) {
+        console.error('[Spine] go-live check failed:', error?.message ?? error);
+        res.status(500).json({ error: error?.message ?? 'Go-live check failed' });
+    }
+});
+
+/** GET /shadow-report?days=1|7 — compareShadow() over the window (Phase 3), for the staff-page card. Read-only. */
+spineRouter.get('/shadow-report', async (req, res) => {
+    try {
+        const days = Number(req.query.days) === 1 ? 1 : 7;
+        const { compareShadow, loadLegacyRuns, loadShadowRuns } = await import('./shadow-report');
+        const [spine, legacy] = await Promise.all([loadShadowRuns(days), loadLegacyRuns(days)]);
+        const c = compareShadow(spine, legacy, days);
+        // The page wants the headline and the last 10 pairs; the full pair list stays on the script.
+        const recent = c.pairs.slice().sort((a, b) => {
+            const at = (id: string) => spine.find((s) => s.runId === id)?.at.getTime() ?? 0;
+            return at(b.spineRunId) - at(a.spineRunId);
+        }).slice(0, 10).map((p) => ({ ...p, at: spine.find((s) => s.runId === p.spineRunId)?.at.toISOString() ?? null }));
+        res.json({
+            days: c.days, at: new Date().toISOString(),
+            spineRuns: c.pairs.length, unpairedSpine: c.unpairedSpine, counts: c.counts, agreement: c.agreement, byDecision: c.byDecision,
+            recent,
+        });
+    } catch (error: any) {
+        console.error('[Spine] shadow report failed:', error?.message ?? error);
+        res.status(500).json({ error: error?.message ?? 'Shadow report failed' });
     }
 });
 

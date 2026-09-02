@@ -70,30 +70,35 @@ describe('WorkerHeartbeatStrip', () => {
 });
 
 describe('SpineSwitchStrip', () => {
-    it('shadow: mode pill, every switch chip on/off, agent chips, legacy row', () => {
-        render(<SpineSwitchStrip spine={spine} legacy={legacy} />);
-        const strip = screen.getByTestId('spine-switches');
-        expect(within(strip).getByText('spine shadow').className).toMatch(/bg-amber-500/);
-        expect(strip).toHaveTextContent('SHADOW — the spine runs dry and records; legacy still drafts');
-        const on = (label: string) => expect(chip(label).className).toMatch(/bg-slate-900/);
-        const off = (label: string) => expect(chip(label).className).toMatch(/bg-slate-100/);
-        on('enabled'); on('shadow'); off('asks off'); off('autonomy off'); on('sampler on · 10%'); off('video off');
-        on('scoper on'); on('quote_clerk on'); off('recovery off');
-        expect(strip).toHaveTextContent('debounce 2 min · sweep 10/tick · triage claude-haiku-4-5 · Nottingham');
-        on('sweep on'); on('on inbound on'); off('autosend off'); on('first-contact ack on'); off('auto quote-prep off');
+    const captions = { off: 'OFF — legacy only', shadow: 'SHADOW — the spine runs dry and records; legacy still drafts', live: 'LIVE — the spine answers customers; legacy off' };
+    const controls = (sp: any, lg: any) => ({ spine: sp, legacy: lg, lastChanges: {}, viewer: { isOwner: true, email: 'owner@x', role: 'admin' }, captions, confirmWord: 'LIVE' });
+
+    it('shadow: mode pill, switch chips, agent chips, legacy row (from /api/spine/controls)', async () => {
+        mockFetch([{ url: '/api/spine/controls', reply: () => ({ json: controls(spine, legacy) }) }], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const strip = await screen.findByTestId('spine-switches', {}, { timeout: 3000 });
+        const pill = within(strip).getByTestId('spine-mode');
+        expect(pill).toHaveTextContent(/spine shadow/);
+        expect(pill.className).toMatch(/bg-amber-500/);
+        expect(strip).toHaveTextContent('SHADOW');
+        expect(strip).toHaveTextContent('asks');
+        expect(strip).toHaveTextContent('sampler');
+        expect(strip).toHaveTextContent('legacy comms_agent');
     });
-    it('live and off pills; missing spine says so', () => {
-        const { unmount } = render(<SpineSwitchStrip spine={{ ...spine, mode: 'live', shadow: false }} legacy={null} />);
-        expect(screen.getByText('spine live').className).toMatch(/bg-emerald-600/);
-        expect(screen.getByTestId('spine-switches')).toHaveTextContent('LIVE — the spine answers customers; legacy off');
+
+    it('falls back to the props when the controls endpoint is unavailable; missing spine says so', async () => {
+        mockFetch([], { fallback: 'notFound' });
+        const { unmount } = renderWithQuery(<SpineSwitchStrip fallbackSpine={{ ...spine, mode: 'live', shadow: false }} fallbackLegacy={null} />);
+        expect(await screen.findByTestId('spine-mode')).toHaveTextContent(/spine live/);
+        expect(screen.getByTestId('spine-mode').className).toMatch(/bg-emerald-600/);
         expect(screen.queryByText('legacy comms_agent')).toBeNull();
         unmount();
-        render(<SpineSwitchStrip spine={{ ...spine, mode: 'off', enabled: false, shadow: false }} legacy={legacy} />);
-        expect(screen.getByText('spine off').className).toMatch(/bg-slate-700/);
-        expect(screen.getByTestId('spine-switches')).toHaveTextContent('OFF — legacy only');
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={{ ...spine, mode: 'off', enabled: false, shadow: false }} fallbackLegacy={legacy} />);
+        expect(await screen.findByTestId('spine-mode')).toHaveTextContent(/spine off/);
+        expect(screen.getByTestId('spine-mode').className).toMatch(/bg-slate-700/);
         unmount();
-        render(<SpineSwitchStrip spine={null} legacy={legacy} />);
-        expect(screen.getByText('Spine switches not reported by this server.')).toBeInTheDocument();
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={legacy} />);
+        expect(await screen.findByText(/Spine switches not reported by this server/)).toBeInTheDocument();
     });
 });
 

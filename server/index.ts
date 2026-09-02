@@ -490,7 +490,9 @@ app.use('/api/system-events', requireAdmin, systemEventsRouter); // Live-beta ac
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue
 app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
 import { spineRouter } from './spine/routes';
-app.use('/api/spine', requireAdmin, spineRouter); // Phase 4: in-chat quote card + rules-layer asks
+app.use('/api/spine', requireAdmin, spineRouter); // Phase 4: in-chat quote card + rules-layer asks; P6: switch controls, go-live check, shadow report, tiers
+import { commsAgentConfigRouter } from './comms-agent-config-routes';
+app.use('/api/comms-agent', requireAdmin, commsAgentConfigRouter); // P6: legacy autosend / onInbound flips from /admin/staff (owner-only autosend)
 app.use('/api/verdicts', requireAdmin, verdictsRouter); // Phase 1: Ben's verdicts on drafts (promotion evidence)
 app.use('/api/agent-runs', requireAdmin, agentRunsRouter); // Phase 1: per-thread agent run history (agent_runs)
 app.use('/api/ops', requireAdmin, opsManagerRouter); // Track B: Ops Manager sessions + runs (chat dock)
