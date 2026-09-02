@@ -113,5 +113,5 @@ Kill criteria that undo any of this are in CUTOVER §6.
 - Ben's hours agreed: **Mon–Fri 08–18, approvals are paid time**. The due-time clock the build shipped with stays as is.
 - `holding_line_v1` submitted to Meta (content SID HX1c733d68035a5fe3c15b90936f80ec8f), awaiting approval.
 - The six stale `tsx watch` dev servers on the Mac were killed.
-- Front-end gaps found 3 Sep and queued to the close-out pass: switch controls on /admin/staff (today display-only, flips need `scripts/_spine-mode.ts`), a template approval status table, a shadow-report panel. Still to check by hand: Ben's approve / edit / reject flow and the morning sample strip on a phone screen.
+- Front-end gaps closed 3 Sep: every switch is a toggle on /admin/staff (owner-only for mode, legacy autosend and autonomy; live runs the go-live check first, then you type LIVE; rollback button always visible), a template status table with Sync now, and a shadow-report panel (7 days, 1-day toggle). Still to check by hand: Ben's approve / edit / reject flow and the morning sample strip on a phone screen.
 - Still open: OpenRouter key kept for now (prepaid credits; see the Obsidian note "OpenRouter Credits" for the plan to use them via a narrow adapter, then revoke); Neon dev branch + strip Twilio secrets from laptops; the live flip after one shadow day (eligible 4 Sep).
