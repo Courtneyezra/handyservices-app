@@ -847,6 +847,27 @@ export async function notifyOutboundSendFailure(alert: OutboundSendFailureAlert)
     });
 }
 
+interface WorkerHealthAlert {
+    title: string;
+    message: string;
+}
+
+/**
+ * Fire a comms-worker health alarm (server/worker-gate.ts, server/comms-worker-heartbeat.ts).
+ *
+ * Two triggers: COMMS_WORKER absent on a production boot (no sweeps will run), and the
+ * heartbeat going stale in UK daytime (the worker stopped ticking or writing). Both mean
+ * customer replies are silently queueing — the 31 Aug 2026 failure with no alarm.
+ * No phone link: the action is on Railway, not with a customer.
+ */
+export async function notifyWorkerHealth(alert: WorkerHealthAlert): Promise<void> {
+    await dispatch({
+        event: 'worker_health',
+        title: `🛑 ${alert.title}`,
+        message: alert.message,
+    });
+}
+
 /**
  * Send a test alert — to one recipient (by user key) or the whole event audience.
  * Bypasses enabled/quiet-hours gating so the tester always gets it.

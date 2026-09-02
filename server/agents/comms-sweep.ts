@@ -16,8 +16,8 @@
 import { db } from '../db';
 import { conversations, messages, messageDrafts } from '@shared/schema';
 import { and, eq, gte, isNull, notInArray, sql } from 'drizzle-orm';
-import { queueDraft, approveAndSendDraft } from '../message-drafts';
-import type { V2PipelineOutcome } from '../pipeline/v2';
+import { gateCustomerLoop } from '../worker-gate';
+import { maybeWriteHeartbeat, startHeartbeatStaleCheck } from '../comms-worker-heartbeat';
 
 /** Don't race the on-inbound debounce: only pick up threads quiet at least this long. */
 const MIN_QUIET_MINUTES = 3;
@@ -33,39 +33,6 @@ const BOOT_DELAY_MS = 30_000;
 
 function isTestNumber(phone: string): boolean {
     return phone.replace(/\D/g, '').includes('7700900');
-}
-
-/**
- * Send a V2 pipeline reply: queue the draft and auto-send it.
- * Returns true if sent, false if queued for review.
- */
-async function sendV2Reply(
-    conversationId: string,
-    phone: string,
-    reply: string
-): Promise<boolean> {
-    // Queue the draft
-    const draftId = await queueDraft({
-        phone,
-        body: reply,
-        source: 'comms_agent',
-        reason: 'V2 pipeline auto-reply',
-    });
-
-    if (!draftId) {
-        console.log(`[CommsSweep:V2] Draft suppressed for ${phone} (opt-out or duplicate)`);
-        return false;
-    }
-
-    // Auto-send it
-    const result = await approveAndSendDraft(draftId, 'agent.comms.autosend');
-    if (result.ok) {
-        console.log(`[CommsSweep:V2] SENT reply to ${phone}: ${reply.substring(0, 50)}...`);
-        return true;
-    } else {
-        console.log(`[CommsSweep:V2] Draft queued for ${phone} (${result.code}): ${result.message}`);
-        return false;
-    }
 }
 
 /** One agent run per conversation per this many minutes, enforced atomically across every trigger
@@ -125,7 +92,6 @@ export async function releaseTriageTurn(conversationId: string, token: string): 
 
 async function sweepOnce(): Promise<void> {
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
-    const { shouldUseV2, runV2Pipeline } = await import('../pipeline/v2');
     const config = await getCommsAgentConfig();
     if (!config.enabled) return;
 
@@ -195,18 +161,10 @@ async function sweepOnce(): Promise<void> {
         ran++;
         console.log(`[CommsSweep] Unanswered inbound on ${c.id} — running the agent (durable trigger).`);
         try {
-            if (shouldUseV2(c.id)) {
-                const outcome = await runV2Pipeline(c.id, 'sla_sweep');
-                console.log(`[CommsSweep:V2] ${c.id}: ${outcome.actions.map((a) => a.tool).join(' → ') || 'no actions'}`);
-                // Send the V2 reply if one was generated
-                if (outcome.reply && !outcome.error) {
-                    const sent = await sendV2Reply(c.id, c.phoneNumber, outcome.reply);
-                    console.log(`[CommsSweep:V2] ${c.id}: reply ${sent ? 'SENT' : 'queued'}`);
-                }
-            } else {
-                const outcome = await runCommsAgent(c.id, 'sla_sweep');
-                console.log(`[CommsSweep] ${c.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
-            }
+            // Phase 0 (2 Sep 2026): the V2 pipeline branch that sent 24 unguarded replies from dev
+            // laptops is gone. There is one agent path, and it drafts through the approval gate.
+            const outcome = await runCommsAgent(c.id, 'sla_sweep');
+            console.log(`[CommsSweep] ${c.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
         } catch (error: any) {
             console.error(`[CommsSweep] Run failed for ${c.id}:`, error?.message);
         }
@@ -222,7 +180,6 @@ async function sweepOnce(): Promise<void> {
  */
 async function tickDueTriage(): Promise<void> {
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
-    const { shouldUseV2, runV2Pipeline } = await import('../pipeline/v2');
     const config = await getCommsAgentConfig();
     if (!config.enabled || !config.onInbound) return;
 
@@ -257,18 +214,8 @@ async function tickDueTriage(): Promise<void> {
         }
         console.log(`[CommsSweep] On-inbound triage due for ${row.id} — running (lease ${lease}).`);
         try {
-            if (shouldUseV2(row.id)) {
-                const outcome = await runV2Pipeline(row.id, 'inbound_message');
-                console.log(`[CommsSweep:V2] ${row.id}: ${outcome.actions.map((a) => a.tool).join(' → ') || 'no actions'}`);
-                // Send the V2 reply if one was generated
-                if (outcome.reply && !outcome.error) {
-                    const sent = await sendV2Reply(row.id, row.phone_number, outcome.reply);
-                    console.log(`[CommsSweep:V2] ${row.id}: reply ${sent ? 'SENT' : 'queued'}`);
-                }
-            } else {
-                const outcome = await runCommsAgent(row.id, 'inbound_message');
-                console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
-            }
+            const outcome = await runCommsAgent(row.id, 'inbound_message');
+            console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
             // Success: release the lease, unless a newer inbound re-armed it mid-run.
             await db.execute(sql`
                 UPDATE conversations SET metadata = metadata - 'nextTriageAt'
@@ -458,14 +405,23 @@ const TICK_EVERY_MS = 15_000;
 let started = false;
 
 /** Idempotent; called once from server boot. The first pass runs shortly after start, so a deploy
- *  that killed someone's debounce timer costs them minutes, not a night. */
+ *  that killed someone's debounce timer costs them minutes, not a night.
+ *
+ *  Phase 0 (2 Sep 2026): registered ONLY in the comms worker (COMMS_WORKER=1, Railway). Every
+ *  other process — a dev checkout pointed at production above all — logs one skip line per loop
+ *  and registers nothing. See server/worker-gate.ts for why. */
 export function startCommsInboundSweep(): void {
     if (started) return;
     started = true;
     const tick = () => sweepOnce().catch((e) => console.error('[CommsSweep] pass failed:', e?.message ?? e));
-    setTimeout(tick, BOOT_DELAY_MS);
-    setInterval(tick, SWEEP_EVERY_MS).unref?.();
+    const slowRegistered = gateCustomerLoop('comms-sweep: slow sweep (5 min) + boot catch-up', () => {
+        setTimeout(tick, BOOT_DELAY_MS);
+        setInterval(tick, SWEEP_EVERY_MS).unref?.();
+    });
     const fast = () => Promise.all([
+        // Dead-man heartbeat: stamped every 60s (throttled inside) so a silent worker is visible
+        // on /api/health/comms-worker and pages Ben instead of failing quietly like 31 Aug.
+        maybeWriteHeartbeat().catch((e) => console.error('[CommsSweep] heartbeat failed:', e?.message ?? e)),
         tickDueTriage().catch((e) => console.error('[CommsSweep] fast tick failed:', e?.message ?? e)),
         releaseMorningHolds().catch((e) => console.error('[CommsSweep] morning release failed:', e?.message ?? e)),
         releaseHeldAcks().catch((e) => console.error('[CommsSweep] held-ack release failed:', e?.message ?? e)),
@@ -480,6 +436,13 @@ export function startCommsInboundSweep(): void {
         // self-throttled to one pass per 5 min). Nothing rots silently.
         import('./sla-sweep').then((m) => m.sweepSlaBreaches()).catch((e) => console.error('[CommsSweep] SLA sweep failed:', e?.message ?? e)),
     ]);
-    setInterval(fast, TICK_EVERY_MS).unref?.();
+    const fastRegistered = gateCustomerLoop('comms-sweep: fast tick (15s: due triage, morning release, held acks, callback fallback, promise/SLA/call-task sweeps)', () => {
+        setInterval(fast, TICK_EVERY_MS).unref?.();
+        startHeartbeatStaleCheck();
+    });
+    if (!slowRegistered && !fastRegistered) {
+        console.log('[CommsSweep] NOT started: this process is not the comms worker (COMMS_WORKER != 1).');
+        return;
+    }
     console.log(`[CommsSweep] Started: fast tick every ${TICK_EVERY_MS / 1000}s (DB-scheduled debounce), boot catch-up in ${BOOT_DELAY_MS / 1000}s, slow sweep every ${SWEEP_EVERY_MS / 60_000} min, 24/7.`);
 }
