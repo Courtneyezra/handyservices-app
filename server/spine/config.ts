@@ -33,6 +33,16 @@ export interface SpineConfig {
     triageModel: string;
     /** Pack-level city key (§3.4): the second city is config. */
     city: string;
+    /**
+     * Phase 3: the three-way switch. When present it wins; when absent the mode is derived from
+     * `enabled` + `shadow` (see server/spine/switch.ts). off = legacy only; shadow = spine runs
+     * dry, legacy still drafts; live = spine only.
+     */
+    mode?: 'off' | 'shadow' | 'live';
+    /** Phase 3: promotion/demotion job. Off = tiers never move by themselves. */
+    autonomy: { enabled: boolean };
+    /** Phase 3: the 08:30 sampler. Off = no judge calls, no review queue. */
+    sampler: { enabled: boolean; rate: number; min: number; max: number };
 }
 
 export const DEFAULT_SPINE_CONFIG: SpineConfig = {
@@ -43,6 +53,8 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     debounceMinutes: 10,
     triageModel: 'claude-haiku-4-5',
     city: 'nottingham',
+    autonomy: { enabled: false },
+    sampler: { enabled: false, rate: 0.1, min: 1, max: 15 },
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -50,6 +62,8 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         ...DEFAULT_SPINE_CONFIG,
         ...(patch ?? {}),
         agents: { ...(patch?.agents ?? {}) },
+        autonomy: { ...DEFAULT_SPINE_CONFIG.autonomy, ...(patch?.autonomy ?? {}) },
+        sampler: { ...DEFAULT_SPINE_CONFIG.sampler, ...(patch?.sampler ?? {}) },
     };
 }
 

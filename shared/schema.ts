@@ -1979,6 +1979,7 @@ export const agentRuns = pgTable("agent_runs", {
     modelSnapshot: text("model_snapshot"),
     promptHash: text("prompt_hash"),
     decision: text("decision"),                     // Phase 2: SEND | PENDING | FLAG
+    shadowDecision: text("shadow_decision"),        // Phase 3: what the spine WOULD have done in shadow mode (migration 20260903)
     lane: text("lane"),
     proposal: jsonb("proposal"),
     guardsHit: text("guards_hit").array().notNull().default(sql`'{}'::text[]`),

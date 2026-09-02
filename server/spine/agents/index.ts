@@ -5,6 +5,7 @@
  */
 import type { AgentName, CaseFile, SpineAgent, TriageResult, Trigger } from '../types';
 import { scoperAgent } from './scoper';
+import { verifierAgent } from './verifier';
 import { quoteClerkAgent } from './quote-clerk';
 import { recoveryAgent } from './recovery';
 
@@ -30,6 +31,8 @@ export function spineAgentsFor(input: { caseFile: CaseFile; triage: TriageResult
 registerSpineAgent(scoperAgent);
 registerSpineAgent(quoteClerkAgent);
 registerSpineAgent(recoveryAgent);
+registerSpineAgent(verifierAgent); // Phase 3: READ tier, never proposes; judges the morning sample
+
 
 export { scoperAgent, createScoperAgent, SCOPER_APPROVER } from './scoper';
 export { runScoperIfEnabled, proposalToLegacyOutcome } from './scoper-adapter';
