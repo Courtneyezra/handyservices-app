@@ -14,6 +14,7 @@ import { Check, Loader2, MessageSquareText, ShieldAlert, X } from 'lucide-react'
 import { cn } from '@/lib/utils';
 import { useCommsEvents, type CommsEvent } from '@/hooks/useCommsEvents';
 import type { QueueDraftToolResult } from '@shared/ops-types';
+import { VerdictReasonChips, type VerdictReason } from '@/components/comms/VerdictReasonChips';
 
 type DraftStatus =
     | 'pending' | 'approved' | 'sent' | 'rejected' | 'blocked' | 'edited'
@@ -71,7 +72,10 @@ export function DraftApprovalCard({ result }: { result: QueueDraftToolResult }) 
         if (evt.status === 'sent' || evt.status === 'rejected') setError(null);
     }, [draftId]));
 
-    const act = async (action: 'approve' | 'reject') => {
+    // Phase 1 verdicts: reject needs a reason chip; approve here is always as-drafted ('fine').
+    const [askingReject, setAskingReject] = useState(false);
+
+    const act = async (action: 'approve' | 'reject', reason: VerdictReason = 'fine') => {
         if (!draftId || busy) return;
         setBusy(action);
         setError(null);
@@ -79,6 +83,7 @@ export function DraftApprovalCard({ result }: { result: QueueDraftToolResult }) 
             const res = await fetch(`/api/drafts/${draftId}/${action}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...authHeaders() },
+                body: JSON.stringify({ reason }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -87,6 +92,7 @@ export function DraftApprovalCard({ result }: { result: QueueDraftToolResult }) 
             }
             // draft_delta confirms the terminal state; this is just immediacy.
             setStatus(action === 'approve' ? 'approved' : 'rejected');
+            setAskingReject(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : `${action} failed`);
         } finally {
@@ -127,7 +133,16 @@ export function DraftApprovalCard({ result }: { result: QueueDraftToolResult }) 
             )}
             {error && <p className="mt-1.5 text-red-600">{error}</p>}
 
-            {actionable && (
+            {actionable && askingReject && (
+                <VerdictReasonChips
+                    prompt="Why reject?"
+                    tone="red"
+                    busy={busy !== null}
+                    onPick={(reason) => act('reject', reason)}
+                    onCancel={() => setAskingReject(false)}
+                />
+            )}
+            {actionable && !askingReject && (
                 <div className="mt-2 flex gap-2">
                     <button
                         type="button"
@@ -140,7 +155,7 @@ export function DraftApprovalCard({ result }: { result: QueueDraftToolResult }) 
                     </button>
                     <button
                         type="button"
-                        onClick={() => act('reject')}
+                        onClick={() => setAskingReject(true)}
                         disabled={busy !== null}
                         className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
                     >

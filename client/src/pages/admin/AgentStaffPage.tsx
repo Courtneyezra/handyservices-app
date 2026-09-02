@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Loader2, Bot, ShieldCheck, Hand, Ban, Eye, PenLine, Lock,
-    ChevronDown, ChevronUp, Cpu, CalendarClock, MessageSquare, RefreshCw,
+    ChevronDown, ChevronUp, Cpu, CalendarClock, MessageSquare, RefreshCw, HeartPulse, ThumbsUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -25,6 +25,35 @@ function getAuthHeaders(): Record<string, string> {
 
 interface StaffTool { name: string; blurb: string; kind: 'read' | 'write' | 'gated' }
 interface StaffStat { label: string; value: number | string; tone?: 'good' | 'warn' | 'bad' | 'plain' }
+
+/** Phase 1: one agent's slice of Ben's verdicts (server/agent-staff.ts verdictSummaryFor). */
+interface StaffVerdicts {
+    days: number;
+    approve: number; edit: number; reject: number;
+    sampleFine: number; sampleNotFine: number;
+    human: number; total: number;
+    uneditedApprovalRate: number | null;
+    unsafe: number;
+    rejectReasons: Record<string, number>;
+    editReasons: Record<string, number>;
+    topRejectReason: { reason: string; n: number } | null;
+    topEditReason: { reason: string; n: number } | null;
+}
+
+/** Phase 0 heartbeat, same shape as GET /api/health/comms-worker. Every field optional: an older
+ *  server answers without it and the strip simply says so. */
+interface WorkerHeartbeat {
+    ok?: boolean;
+    ageSeconds?: number | null;
+    stale?: boolean;
+    at?: string | null;
+    host?: string | null;
+    pid?: number | null;
+    version?: string | null;
+    staleAfterSeconds?: number;
+    error?: string;
+    thisProcess?: { role: 'worker' | 'passive'; pid: number; host: string; version: string | null };
+}
 interface StaffMember {
     id: string;
     name: string;
@@ -38,6 +67,7 @@ interface StaffMember {
     stats: StaffStat[];
     statusChips: { label: string; on: boolean }[];
     system: string;
+    verdicts?: StaffVerdicts | null;
 }
 
 const ACCENT: Record<string, { block: string; chip: string; ring: string }> = {
@@ -150,6 +180,96 @@ function AutonomyBlock({ icon: Icon, title, items, tone }: {
 }
 
 /** The full dossier, rendered inside the slide-over. */
+function ageText(seconds: number | null | undefined): string {
+    if (seconds == null) return 'never';
+    if (seconds < 90) return `${Math.round(seconds)}s ago`;
+    const m = Math.round(seconds / 60);
+    if (m < 120) return `${m} min ago`;
+    return `${Math.round(m / 60)}h ago`;
+}
+
+/**
+ * The comms worker's dead-man heartbeat (Phase 0). Green = the one process allowed to run
+ * customer-facing loops stamped the DB within the stale window; red = it did not, and every
+ * sweep, tick and morning release is silently off. That silence was the 31 Aug incident.
+ */
+function WorkerHeartbeatStrip({ hb }: { hb: WorkerHeartbeat | null | undefined }) {
+    if (!hb) {
+        return (
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                <HeartPulse className="h-4 w-4" /> Worker heartbeat not reported by this server.
+            </div>
+        );
+    }
+    const stale = hb.stale ?? !hb.ok;
+    const never = hb.ageSeconds == null;
+    const tone = stale ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-300 bg-emerald-50 text-emerald-900';
+    const staleMin = hb.staleAfterSeconds ? Math.round(hb.staleAfterSeconds / 60) : null;
+    return (
+        <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs', tone)} data-testid="worker-heartbeat">
+            <span className="inline-flex items-center gap-1.5 font-black uppercase tracking-wide">
+                <HeartPulse className={cn('h-4 w-4', !stale && 'animate-pulse')} />
+                {stale ? (never ? 'Comms worker: no heartbeat' : 'Comms worker STALE') : 'Comms worker alive'}
+            </span>
+            <span>last beat <b>{ageText(hb.ageSeconds)}</b>{hb.host ? ` on ${hb.host}` : ''}{hb.version ? ` · build ${hb.version}` : ''}</span>
+            {stale && staleMin != null && <span>(stale after {staleMin} min — sweeps, ticks and releases are OFF)</span>}
+            {hb.error && <span className="italic">{hb.error}</span>}
+            {hb.thisProcess && (
+                <span className="ml-auto text-[11px] opacity-70">
+                    this page is served by a <b>{hb.thisProcess.role}</b> process{hb.thisProcess.version ? ` · ${hb.thisProcess.version}` : ''}
+                </span>
+            )}
+        </div>
+    );
+}
+
+const REASON_LABEL: Record<string, string> = { fine: 'fine', tone: 'tone', wrong_move: 'wrong move', unsafe: 'unsafe', missing_info: 'missing info', unspecified: 'no reason' };
+
+/** Ben's verdicts on this agent's drafts over the window — the promotion evidence (§4). */
+function VerdictBlock({ v }: { v: StaffVerdicts }) {
+    const rate = v.uneditedApprovalRate;
+    const rateTone = rate == null ? 'text-slate-400' : rate >= 90 ? 'text-emerald-700' : rate >= 80 ? 'text-slate-900' : 'text-amber-600';
+    const reasons = (r: Record<string, number>) => Object.entries(r).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${REASON_LABEL[k] ?? k} ×${n}`).join(', ');
+    return (
+        <div>
+            <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wide text-slate-500">
+                <ThumbsUp className="h-3.5 w-3.5" /> Ben's verdicts ({v.days}d)
+            </h3>
+            {v.human === 0 && v.total === 0 ? (
+                <p className="text-xs text-slate-500">No verdicts yet. Approve, edit or reject a draft on /admin/comms and it lands here.</p>
+            ) : (
+                <div className="space-y-2">
+                    <div className="grid grid-cols-4 gap-2">
+                        <div className="rounded-lg bg-slate-50 p-2 text-center">
+                            <div className={cn('text-xl font-black tabular-nums', rateTone)}>{rate == null ? '—' : `${rate}%`}</div>
+                            <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">unedited</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2 text-center">
+                            <div className="text-xl font-black tabular-nums text-emerald-700">{v.approve}</div>
+                            <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">approved</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2 text-center">
+                            <div className="text-xl font-black tabular-nums text-slate-900">{v.edit}</div>
+                            <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">edited</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2 text-center">
+                            <div className={cn('text-xl font-black tabular-nums', v.reject > 0 ? 'text-red-600' : 'text-slate-900')}>{v.reject}</div>
+                            <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">rejected</div>
+                        </div>
+                    </div>
+                    <div className="space-y-0.5 text-[11px] text-slate-600">
+                        {v.unsafe > 0 && <p className="font-bold text-red-700">{v.unsafe} marked unsafe — an unsafe verdict demotes the intent to DRAFT.</p>}
+                        {Object.keys(v.rejectReasons).length > 0 && <p>Reject reasons: {reasons(v.rejectReasons)}</p>}
+                        {Object.keys(v.editReasons).length > 0 && <p>Edit reasons: {reasons(v.editReasons)}</p>}
+                        {(v.sampleFine + v.sampleNotFine) > 0 && <p>Sampled sends: {v.sampleFine} fine · {v.sampleNotFine} not fine</p>}
+                        <p className="text-slate-400">Gate to SEND: ≥ 30 verdicts across the pack, ≥ 90% unedited, zero unsafe.</p>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function StaffDossier({ member }: { member: StaffMember }) {
     const [showOrders, setShowOrders] = useState(false);
     const a = ACCENT[member.accent] ?? ACCENT.sky;
@@ -191,6 +311,9 @@ function StaffDossier({ member }: { member: StaffMember }) {
                     <AutonomyBlock icon={Hand} title="Needs approval" items={member.autonomy.approval} tone="amber" />
                     <AutonomyBlock icon={Ban} title="Never" items={member.autonomy.never} tone="red" />
                 </div>
+
+                {/* Phase 1: the verdict record — what Ben did with this agent's drafts. */}
+                {member.verdicts && <VerdictBlock v={member.verdicts} />}
 
                 {/* Live workload */}
                 {member.stats.length > 0 && (
@@ -362,7 +485,7 @@ function TemplateStatusPanel() {
 
 export default function AgentStaffPage() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
-    const { data, isLoading, error } = useQuery<{ staff: StaffMember[] }>({
+    const { data, isLoading, error } = useQuery<{ staff: StaffMember[]; workerHeartbeat?: WorkerHeartbeat | null }>({
         queryKey: ['agent-staff'],
         queryFn: async () => {
             const res = await fetch('/api/agents/staff', { headers: getAuthHeaders() });
@@ -403,6 +526,9 @@ export default function AgentStaffPage() {
                     every word of it is generated from the agent's own code, nothing is hand-written copy.
                 </p>
             </div>
+
+            {/* Phase 0/1: is the one process that runs the fleet's loops alive? */}
+            <WorkerHeartbeatStrip hb={data.workerHeartbeat} />
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {data.staff.map((m) => (
