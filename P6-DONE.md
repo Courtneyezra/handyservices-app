@@ -143,3 +143,111 @@ No dev server, no database, no `app_settings`, no push.
 - Child rows are read through `to_jsonb` so the drawer keeps working on a server that is ahead
   of the migration; the write side (`startAgentRun`) follows the shadow_decision precedent and
   needs the migration first.
+
+---
+
+# P6 close-out / A2 — switch controls, template status, shadow panel on /admin/staff
+
+Same branch `p6-seams`, built after the A commit `8a019a2`. Brief: `docs/comms-build/BRIEF-P6-staff-controls.md`
+(on `main` at `7f350f7`; not in this worktree). Decisions taken as instructed: (1) mode / legacy
+autosend / autonomy are owner-only (owner account `ezramarketingltd@gmail.com` or role `admin`,
+never `va`); asks, sampler, video and the per-agent switches are any admin. (2) Live needs the
+go-live check with no NO-GO, then the word LIVE typed. (3) Templates read-only + Sync now, no submit.
+(4) Shadow panel default 7 days with a 1-day toggle.
+
+## 1. Switch controls
+
+- `server/spine/controls.ts` (new, pure): `validateSpineConfigPatch` (fields `mode | agents | asks |
+  autonomy | sampler | video | confirm`; unknown fields, bad types, unknown agents refused; `mode`
+  writes the same three fields `scripts/_spine-mode.ts` writes; `mode:'live'` needs `confirm:'LIVE'`),
+  `validateCommsConfigPatch` (`autosend.enabled`, `onInbound`; ON needs `confirm:'LIVE'`), `isOwner`,
+  `lastChangeByField` (folds the `config_change` events the setters write into "who, when" per
+  control), `MODE_CAPTIONS` (CUTOVER §2–4).
+- `POST /api/spine/config` (`server/spine/routes.ts`): validate → owner check → for live, run the
+  go-live check (`skipEvals: true`) and 409 with the report on any NO-GO → `setSpineConfig(patch,
+  'human:<email>')` (existing; writes the row and the `config_change` event).
+- `GET /api/spine/controls`: switches + legacy flags + `lastChanges` + `viewer.isOwner` + captions.
+- `POST /api/comms-agent/config` (`server/comms-agent-config-routes.ts`, new; mounted in
+  `server/index.ts` behind `requireAdmin`): the two legacy flags via `setCommsAgentConfig`, which now
+  takes a `by` and records it (and `onInbound`) in its `config_change` event.
+- `server/spine/golive-check.ts` (new): `runGoLiveCheck({ skipEvals })` — CUTOVER §0 as a table:
+  worker heartbeat, `to_regclass` for the five comms tables + three columns, required templates
+  approved (shared list in `server/template-status.ts`), eval regression red (SKIP on the page; reads
+  `eval-results/latest.json` when run), legacy autosend OFF, shadow runs / errors in 24 h (WARN when
+  none, NO-GO on an error spike), open flags past due (WARN), current mode (INFO). Loaders injectable.
+  `GET /api/spine/golive-check?skipEvals=1`.
+- Client `SpineSwitchStrip`: every chip is a toggle (optimistic pending state, refetch of
+  `/api/spine/controls` and `/api/agents/staff` on settle); owner-only ones show 🔒 and are disabled
+  for a `va` session; each control shows who last changed it and when; the mode pill opens a
+  three-way off / shadow / live picker with the CUTOVER caption per mode; picking live runs the
+  go-live check inline, refuses on any NO-GO, and only then shows the LIVE input; "Rollback to off"
+  is always visible when not off; legacy autosend ON has its own typed confirmation.
+
+## 2. Template status
+
+- `server/template-status.ts` (new, pure): `EXPECTED_TEMPLATES` (holding line, missed-call ack,
+  video / postcode / call requests as required; the two first-contact acks as optional) and
+  `shapeTemplateStatus(rows)` → cached list (approved first), counts, `lastSyncedAt`, and per
+  purpose approved / present / missing with the status per name; `requiredApproved`.
+- `GET /api/whatsapp-templates/status` (`server/whatsapp-template-sync.ts`), reading the cache.
+- Client `TemplateStatusPanel` moved under the switch strip: the expected-names table with a
+  "NO-GO for live" mark, an "all required approved / required template missing" badge, the full
+  cache collapsed below, and "Sync now" (the existing Twilio read). No submit button.
+
+## 3. Shadow panel
+
+- `GET /api/spine/shadow-report?days=1|7`: `compareShadow()` over the window; headline counts and
+  agreement %, the decision matrix, and the last 10 pairs (newest first, with the run time).
+- Client `ShadowPanel` under the templates: 7-day default with a 1-day toggle, five stat tiles,
+  the matrix (diagonal in green), the last 10 pairs with thread links to `/admin/comms?conversation=…`.
+
+## 4. Tests
+
+`server/spine/controls.test.ts` (11: confirm rule, unknown fields, types, rights, ownership, the
+last-change fold), `server/spine/golive-check.test.ts` (9: every verdict branch with fakes),
+`server/template-status.test.ts` (4). Client tests: the client harness (P6-client-tests pane) has
+not landed in this worktree; none written.
+
+## Files (A2)
+
+New: `server/spine/controls.ts`, `server/spine/controls.test.ts`, `server/spine/golive-check.ts`,
+`server/spine/golive-check.test.ts`, `server/template-status.ts`, `server/template-status.test.ts`,
+`server/comms-agent-config-routes.ts`.
+Changed: `server/spine/routes.ts`, `server/whatsapp-template-sync.ts`, `server/agents/comms.ts`
+(`setCommsAgentConfig(patch, by)`), `server/index.ts`, `client/src/pages/admin/AgentStaffPage.tsx`.
+No migrations.
+
+## Verification (A2, on top of A)
+
+| Gate | Result |
+|---|---|
+| tsc vs `dfa65aa` | 1,876 → 1,876; the (file, error code) multiset is identical; line-level diff shows only pre-existing errors whose union-member text reordered |
+| vitest | 42 pre-existing failures identical; 891 passed (24 new). One extra failure on the first run, `call-script/__tests__/performance.test.ts › should transition station in < 1ms`, a timing benchmark that ran while tsc held the machine; it passes alone (25/25) and nothing in this change touches call-script |
+| esbuild `server/index.ts` | bundles |
+
+## Not done, and why (A2)
+
+- **`scripts/_golive-check.ts` did not exist** when this was built (it is the P6-golive pane's
+  first item, in a different worktree), so there was nothing to reuse. `server/spine/golive-check.ts`
+  is the shared logic; that script can be `runGoLiveCheck({ skipEvals: false })` + a printed table.
+  If that pane lands its own checker, keep one and point the route at it.
+- **Evals are skipped on the page** (decision 2, speed); the row says so and names the script.
+  `runGoLiveCheck({ skipEvals: false })` reads `eval-results/latest.json` and never spawns the
+  harness.
+- **Sampler rate / video maxPerRun are not editable** on the page: only the switches are exposed;
+  numbers stay script-set (the brief listed switches).
+- **`comms_agent.enabled` (the legacy SLA sweep master), first-contact ack and auto quote-prep**
+  stay read-only chips: the brief named only `autosend.enabled` and `onInbound`.
+- **The go-live check runs on the process serving the page.** The heartbeat row is shared, so a
+  passive process still reports the worker's heartbeat correctly; the shadow / flag counts are DB
+  reads either way.
+
+## Decisions (A2)
+
+- Owner-only is enforced server-side (`isOwner` in both routes), not just by disabled buttons.
+- The live flip is refused with 409 and the full go-live report when any NO-GO stands, even if the
+  client sends the word; the client shows that report inline.
+- `lastChangeByField` derives "who changed what" from the events the setters already write, so
+  script flips (`scripts/_spine-mode.ts --by …`) show up too; no new table.
+- `setCommsAgentConfig` gained a defaulted `by` parameter rather than a new setter, so every
+  existing caller compiles unchanged and the event now carries the actor.

@@ -231,7 +231,7 @@ export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
     }
 }
 
-export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Promise<CommsAgentConfig> {
+export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>, by: string = 'system'): Promise<CommsAgentConfig> {
     const current = await getCommsAgentConfig();
     const next: CommsAgentConfig = {
         ...current,
@@ -261,12 +261,12 @@ export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Pro
     try {
         const { logSystemEvent } = await import('../system-events');
         const flags = (c: CommsAgentConfig) =>
-            `autosend=${c.autosend.enabled} quotePrep=${c.quotePrep.enabled} ack=${c.firstContactAutoAck.enabled} ackMedia=${c.firstContactAutoAck.askForMedia}`;
+            `autosend=${c.autosend.enabled} onInbound=${c.onInbound} quotePrep=${c.quotePrep.enabled} ack=${c.firstContactAutoAck.enabled} ackMedia=${c.firstContactAutoAck.askForMedia}`;
         if (flags(current) !== flags(next)) {
             void logSystemEvent({
                 kind: 'config_change',
-                summary: `comms flags: ${flags(current)} → ${flags(next)}`,
-                detail: { patch },
+                summary: `comms flags: ${flags(current)} → ${flags(next)} (by ${by})`,
+                detail: { patch, by },
                 source: 'comms-config',
             });
         }

@@ -413,6 +413,21 @@ whatsappTemplatesRouter.get('/', async (_req, res) => {
     }
 });
 
+/**
+ * GET /status — P6 / A2: the cached list plus the names the rules layer, the first-contact ack
+ * and the spine packs expect, each marked approved / present / missing (server/template-status.ts).
+ * CUTOVER §0's "check templates on /admin/staff". Read-only; never submits.
+ */
+whatsappTemplatesRouter.get('/status', async (_req, res) => {
+    try {
+        const { shapeTemplateStatus } = await import('./template-status');
+        res.json(shapeTemplateStatus(await getCachedTemplates()));
+    } catch (error: any) {
+        console.error('[TemplateSync] Status failed:', error);
+        res.status(500).json({ error: error?.message || 'Failed to load template status' });
+    }
+});
+
 /** POST /sync — poll Twilio now. Read-only against Twilio; safe to hammer. */
 whatsappTemplatesRouter.post('/sync', async (_req, res) => {
     try {
