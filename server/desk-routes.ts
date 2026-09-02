@@ -204,7 +204,9 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             .where(and(
                 isNull(conversations.archivedAt),
                 sql`(${conversations.stage} IS NULL OR ${conversations.stage} NOT IN ('closed', 'won'))`,
-                sql`(${conversations.metadata}->'quotePrepIntake'->>'readiness' IS NOT NULL OR 'needs_ben' = ANY(${conversations.tags}))`,
+                // P8: a spine clerk intake lives on agent_runs, not metadata — include those threads too.
+                sql`(${conversations.metadata}->'quotePrepIntake'->>'readiness' IS NOT NULL OR 'needs_ben' = ANY(${conversations.tags})
+                    OR EXISTS (SELECT 1 FROM agent_runs r WHERE r.conversation_id = ${conversations.id} AND r.agent = 'quote_clerk'))`,
             ))
             .limit(100);
 

@@ -438,12 +438,16 @@ export async function runQuoteResearch(conversationId: string): Promise<QuoteRes
     throw new Error(`Conversation ${conversationId} not found`);
   }
 
-  const metadata = conv.metadata as any;
-  const intake: QuoteIntake | undefined = metadata?.quotePrepIntake;
+  // P8: ONE intake source (server/intake.ts) — the spine clerk's artifact, the legacy blob only
+  // as a fallback for pre-spine threads. This research is the estimator's EXPLICIT fallback now
+  // (no history, no catalogue match); nothing queues it automatically any more.
+  const { getIntake, toQuoteIntake } = await import('./intake');
+  const record = await getIntake(conversationId);
+  const intake: QuoteIntake | undefined = record ? toQuoteIntake(record, conv.phoneNumber) : undefined;
 
   if (!intake || !intake.lines || intake.lines.length === 0) {
     throw new Error(
-      `Conversation ${conversationId} has no quotePrepIntake. Run quote-prep first.`
+      `Conversation ${conversationId} has no quote intake. Run the clerk first.`
     );
   }
 
@@ -571,46 +575,10 @@ export async function processResearchJob(id: number): Promise<QuoteResearchDbRow
       .where(eq(quoteResearch.id, id))
       .returning();
 
-    // Research complete: flip conversation from quote_pending to quote_ready.
-    // intakeReadiness lives in metadata.quotePrepIntake.readiness.
-    const [convRow] = await db
-      .select({ metadata: conversations.metadata, tags: conversations.tags, phoneNumber: conversations.phoneNumber })
-      .from(conversations)
-      .where(eq(conversations.id, job.conversationId));
-    if (convRow) {
-      const meta = (convRow.metadata ?? {}) as Record<string, any>;
-      const intake = meta.quotePrepIntake ?? {};
-      const currentTags = convRow.tags ?? [];
-      // Only flip if currently pending — don't overwrite a later state
-      if (intake.readiness === 'quote_pending') {
-        await db.update(conversations)
-          .set({
-            metadata: { ...meta, quotePrepIntake: { ...intake, readiness: 'quote_ready' } },
-            // Swap tag: quote_pending -> quote_ready, add needs_ben for Ben's board
-            tags: [...currentTags.filter((t: string) => t !== 'quote_pending'), 'quote_ready', 'needs_ben'],
-          })
-          .where(eq(conversations.id, job.conversationId));
-        console.log(`[QuoteResearch] Conversation ${job.conversationId} now quote_ready`);
-
-        // Notify Ben that the quote is ready for pricing
-        try {
-          const { notifyQuotePrepReady } = await import('./pushover');
-          const digits = convRow.phoneNumber.replace('@c.us', '');
-          await notifyQuotePrepReady({
-            conversationId: job.conversationId,
-            customerName: intake.customerName ?? null,
-            phoneNumber: `+${digits}`,
-            readiness: 'quote_ready',
-            declineReason: null,
-            lines: (intake.lines ?? []).map((l: any) => l.title),
-            postcode: intake.postcode ?? null,
-            urgency: intake.urgency ?? 'med',
-          });
-        } catch (err: any) {
-          console.warn('[QuoteResearch] Push notification failed (ignored):', err?.message);
-        }
-      }
-    }
+    // P8: research no longer flips a readiness or writes metadata.quotePrepIntake (never written
+    // again). Readiness is derived by server/intake.ts from the clerk's artifact and pane A's
+    // estimate state; this row is only the estimator's labelled fallback.
+    console.log(`[QuoteResearch] Job ${id} complete for ${job.conversationId} (fallback research; no readiness change)`);
 
     return updated;
   } catch (err) {

@@ -1,8 +1,11 @@
 /**
  * Quote Estimator Routes — async estimator runs with polling status.
  *
- * OPTIMIZATION: If completed background research exists (from quote_pending → quote_ready),
- * we convert it to QuoteBuild format instantly instead of running the estimator again.
+ * P8 (3 Sep 2026): this route NEVER prices and never silently answers from the heuristic
+ * `quote_research` row. It returns the estimator's own result, or — only when the estimator
+ * itself fails and a completed research row exists — a CLEARLY LABELLED fallback
+ * (`fallback: { source: 'quote_research', reason }`, `estimatorVersion: 'research-fallback-v1'`).
+ * Pane A (BRIEF-P8-chain) replaces the in-memory job map with `quote_estimates`.
  */
 import { Router } from 'express';
 import crypto from 'crypto';
@@ -52,7 +55,7 @@ function researchToQuoteBuild(
             postcode: intake.postcode ?? '',
         } : undefined,
         lines,
-        estimatorVersion: 'research-cache-v1',
+        estimatorVersion: 'research-fallback-v1',
         createdAt: new Date().toISOString(),
     };
 }
@@ -71,11 +74,10 @@ async function getCachedResearch(conversationId: string): Promise<QuoteBuild | n
         return null;
     }
 
-    // Load intake for customer details
-    const [conv] = await db.select({ metadata: conversations.metadata })
-        .from(conversations)
-        .where(eq(conversations.id, conversationId));
-    const intake = (conv?.metadata as any)?.quotePrepIntake ?? null;
+    // Load the clerk's intake for customer details — P8: ONE source (server/intake.ts).
+    const { getIntake } = await import('./intake');
+    const record = await getIntake(conversationId).catch(() => null);
+    const intake = record ? { customerName: record.intake.customerName ?? undefined, phone: record.intake.phone ?? undefined, postcode: record.intake.postcode ?? undefined } : null;
 
     const research = row.research as QuoteResearchResult;
     return researchToQuoteBuild(research, conversationId, intake);
@@ -90,6 +92,8 @@ interface EstimateJob {
     summary?: string;
     turns?: number;
     startedAt: number;
+    /** P8: set ONLY when the estimator failed and the heuristic research row answered instead. */
+    fallback?: { source: 'quote_research'; reason: string };
 }
 
 // In-memory store for running/completed estimates
@@ -132,28 +136,8 @@ router.post('/estimate-build', async (req, res) => {
             });
         }
 
-        // OPTIMIZATION: Check for completed background research first.
-        // If research ran during quote_pending → quote_ready, use it instantly.
-        if (conversationId && !lines) {
-            const cachedBuild = await getCachedResearch(conversationId);
-            if (cachedBuild) {
-                console.log(`[Estimator] Using cached research for ${conversationId}`);
-                const estimateId = crypto.randomUUID();
-                estimateJobs.set(estimateId, {
-                    status: 'complete',
-                    build: cachedBuild,
-                    summary: 'Pre-computed from background research.',
-                    turns: 0,
-                    startedAt: Date.now(),
-                });
-                return res.status(202).json({
-                    estimateId,
-                    status: 'complete', // Immediately complete
-                    cached: true,
-                });
-            }
-        }
-
+        // P8: no silent short-circuit to the heuristic research row. The estimator runs; the
+        // research row is consulted ONLY if the estimator fails, and then the result says so.
         const estimateId = crypto.randomUUID();
 
         // Initialize job as running
@@ -181,9 +165,23 @@ router.post('/estimate-build', async (req, res) => {
                     startedAt: estimateJobs.get(estimateId)?.startedAt ?? Date.now(),
                 });
             })
-            .catch((err) => {
+            .catch(async (err) => {
                 const message = err instanceof Error ? err.message : String(err);
                 console.error(`[Estimator] Job ${estimateId} failed:`, message);
+                // P8: the labelled fallback — the heuristic research row, named as such.
+                const fallbackBuild = conversationId && !lines ? await getCachedResearch(conversationId).catch(() => null) : null;
+                if (fallbackBuild) {
+                    console.warn(`[Estimator] Job ${estimateId}: answering from quote_research FALLBACK (${message})`);
+                    estimateJobs.set(estimateId, {
+                        status: 'complete',
+                        build: fallbackBuild,
+                        summary: `FALLBACK: heuristic research, not the estimator (${message}). Check every line.`,
+                        turns: 0,
+                        startedAt: estimateJobs.get(estimateId)?.startedAt ?? Date.now(),
+                        fallback: { source: 'quote_research', reason: message },
+                    });
+                    return;
+                }
                 estimateJobs.set(estimateId, {
                     status: 'failed',
                     error: message,
@@ -232,13 +230,16 @@ router.get('/estimate-build/:estimateId', (req, res) => {
         summary: job.summary,
         turns: job.turns,
         error: job.error,
+        ...(job.fallback ? { fallback: job.fallback } : {}),
     });
 });
 
 /**
  * GET /api/conversations/:id
  *
- * Fetch a conversation by ID (for loading quotePrepIntake into the builder).
+ * Fetch a conversation by ID plus its intake for the builder's `?conv=` prefill. P8: the intake
+ * comes from server/intake.ts (spine artifact → override → legacy blob), exposed as `intake`;
+ * `metadata` is still returned for older readers.
  * Note: This route is mounted under /api/pricing but the client calls /api/conversations.
  * We export a separate router fragment for the conversations endpoint.
  */
@@ -262,7 +263,9 @@ conversationsRouter.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Conversation not found' });
         }
 
-        return res.json(conv);
+        const { getIntake, toQuoteIntake } = await import('./intake');
+        const record = await getIntake(id).catch(() => null);
+        return res.json({ ...conv, intake: record ? toQuoteIntake(record, conv.phoneNumber) : null, intakeSource: record?.source ?? null });
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error('[Conversations] Failed to fetch:', message);

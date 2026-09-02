@@ -66,7 +66,7 @@ const OBSERVES: Record<AdapterName, ReadonlySet<ExpectedKey>> = {
     // Lane / flag only. `exceptions` names are the eval lexicon's; the spine's own pre-checks are a
     // different (narrower, then model-widened) list, so only the flag/no-flag outcome is compared.
     triage: new Set<ExpectedKey>(['lane', 'mustFlag', 'mustNotEscalate']),
-    spine: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
+    spine: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean', 'intake']),
     legacy: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
 };
 function applicableExpected(expected: EvalCaseV2['expected'], adapter: AdapterName): EvalCaseV2['expected'] {
@@ -169,12 +169,16 @@ async function spineAdapter(c: EvalCaseV2): Promise<AdapterResult> {
         const decision = spine.decide({ proposal, guards, pack, triage: tri, caseFile: cf });
         const body = proposal?.body?.length ? proposal.body.join('\n---\n') : null;
         const escalating = guards && guards.escalate ? guards.guardsHit : [];
+        // P8 (intake family): the clerk's artifact, reduced to what the graders check.
+        const art = proposal?.artifact ?? null;
+        const artData = (art?.data ?? null) as { readiness?: string; lines?: Array<{ title?: string }> } | null;
         return {
             observed: {
                 body, intent: proposal?.intent ?? null, lane: tri.lane,
                 flagged: decision.kind === 'flag' || !!proposal?.flag,
                 guardHits: guards?.guardsHit ?? [], escalatingGuards: escalating, customerExceptions: tri.exceptions,
                 voiceViolations: body ? chatVoiceViolations(body).map((v: any) => (typeof v === 'string' ? v : v?.rule ?? String(v))) : [],
+                artifact: art ? { kind: art.kind, readiness: artData?.readiness ?? null, lineTitles: (artData?.lines ?? []).map((l) => String(l?.title ?? '')).filter(Boolean) } : null,
             },
         };
     } catch (e: any) {

@@ -41,7 +41,7 @@ function intakeLinesToInput(lines: IntakeLine[]): EstimatorLineInput[] {
 }
 
 export interface EstimatorRunOpts {
-    /** Conversation ID to load intake from metadata.quotePrepIntake */
+    /** Conversation ID to load the clerk's intake from (server/intake.ts getIntake) */
     conversationId?: string;
     /** Direct lines input (builder-only mode) */
     lines?: IntakeLine[];
@@ -55,10 +55,11 @@ export async function runEstimator(opts: EstimatorRunOpts): Promise<{
     let inputLines: IntakeLine[] = [];
     let conversationId: string | undefined = opts.conversationId;
 
-    // Load intake from conversation metadata if conversationId provided
+    // Load the clerk's intake if conversationId provided — P8: ONE source (server/intake.ts),
+    // the spine clerk's artifact first, the legacy metadata blob only for pre-spine threads.
     if (opts.conversationId && !opts.lines) {
         const [conv] = await db
-            .select()
+            .select({ id: conversations.id, phoneNumber: conversations.phoneNumber })
             .from(conversations)
             .where(eq(conversations.id, opts.conversationId));
 
@@ -66,12 +67,13 @@ export async function runEstimator(opts: EstimatorRunOpts): Promise<{
             throw new Error(`Conversation ${opts.conversationId} not found`);
         }
 
-        const metadata = conv.metadata as any;
-        const intake = metadata?.quotePrepIntake;
+        const { getIntake, toQuoteIntake } = await import('../intake');
+        const record = await getIntake(opts.conversationId);
+        const intake = record ? toQuoteIntake(record, conv.phoneNumber) : null;
 
-        if (!intake?.lines || !Array.isArray(intake.lines)) {
+        if (!intake?.lines || !Array.isArray(intake.lines) || intake.lines.length === 0) {
             throw new Error(
-                `Conversation ${opts.conversationId} has no quotePrepIntake. Run quote-prep first.`
+                `Conversation ${opts.conversationId} has no quote intake. Run the clerk first.`
             );
         }
 

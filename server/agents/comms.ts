@@ -85,7 +85,6 @@ import {
     detectLiabilityAdmission, detectDurationClaim, detectPolicyCommitment, type DraftViolation,
 } from './draft-guards';
 import { detectHoldingReply, assessRepeatHolding, recordOutboundCommitment } from './promise-tracker';
-import { processResearchJob } from '../quote-research';
 
 // ---------------------------------------------------------------- config
 
@@ -154,7 +153,8 @@ const DEFAULT_CONFIG: CommsAgentConfig = {
     inboundDebounceMinutes: 10,
     autosend: { enabled: false },
     firstContactAutoAck: DEFAULT_FIRST_CONTACT_ACK,
-    quotePrep: { enabled: true, minHoursBetweenRuns: 6 },
+    // P8 (3 Sep 2026): retired. Ignored whatever the stored row says; the spine clerk is the only intake.
+    quotePrep: { enabled: false, minHoursBetweenRuns: 6 },
     vaCallTask: { enabled: false }, // Default OFF — owner enables via config, never code.
 };
 
@@ -722,6 +722,10 @@ export async function runCommsAgent(conversationId: string, trigger: string, run
                 const agentSentParts = new Set(
                     agentDraftRows.flatMap((d) => d.body.split(/\n\s*---\s*\n/)).map((p) => p.trim()).filter(Boolean),
                 );
+                // P8: the clerk's intake for clerkGaps below — ONE source (server/intake.ts).
+                const clerkIntake = await import('../intake')
+                    .then((m) => m.getIntake(conv.id)).then((r) => r?.intake ?? null)
+                    .catch(() => null);
 
                 const timeline = [
                     // Calls are on this thread twice by design: a summary row in `messages` (so the
@@ -809,11 +813,13 @@ export async function runCommsAgent(conversationId: string, trigger: string, run
                     // very first real conversation (20 Aug 2026).
                     clerkGaps: (() => {
                         if (live) return undefined;
-                        const intake = (conv.metadata as any)?.quotePrepIntake;
+                        // P8: ONE intake source — the spine clerk's artifact (legacy blob only as
+                        // a fallback for pre-spine threads), via server/intake.ts.
+                        const intake = clerkIntake;
                         if (!intake || intake.readiness !== 'needs_info') return undefined;
-                        const gaps = (intake.gaps ?? [])
-                            .filter((g: any) => g.audience === 'customer')
-                            .map((g: any) => String(g.question ?? g.text ?? '')).filter(Boolean);
+                        const gaps = intake.gaps
+                            .filter((g) => g.audience === 'customer')
+                            .map((g) => g.question).filter(Boolean);
                         return gaps.length ? {
                             questions: gaps,
                             note: 'The quote clerk reviewed this thread and cannot price it until the customer answers these. Ask them naturally in your reply — short clerk questions may share one message, the one exception to the one-question rule.',
@@ -1326,35 +1332,11 @@ export async function runCommsAgent(conversationId: string, trigger: string, run
         conversationId: conv.id, phone: e164, escalations, alreadyFlagged: flaggedThisRun, runId,
     });
 
-    // THE HANDOFF. Triage said this thread is priceable, so quote-prep runs and the intake lands on
-    // Ben's desk with a push. Bounded, and never allowed to break a run that has already replied.
-    const handoff = await maybeAutoQuotePrep(conv.id, config, { runId }).catch((error: any) => {
-        console.error(`[CommsAgent] Auto quote-prep failed for ${conv.id}:`, error?.message);
-        return null;
-    });
-
-    // THE CLERK'S QUESTIONS MUST REACH THE CUSTOMER. A needs_info verdict lands AFTER the reply for
-    // this turn was already drafted, so the holding reply ("I'll get this priced up shortly") knows
-    // nothing about the gaps and the agent is otherwise forbidden from writing over a pending
-    // draft. One bounded follow-up run fixes the sequence: the stale holding reply is superseded if
-    // it has not already left, and the new run sees clerkGaps in get_thread and asks them. The
-    // trigger check makes recursion depth exactly one.
-    if (handoff?.ran && handoff.readiness === 'needs_info' && (handoff.gaps ?? 0) > 0
-        && trigger !== 'quote_prep_gaps') {
-        await db.update(messageDrafts)
-            .set({ status: 'rejected', approvedBy: 'comms_agent:superseded_by_clerk_gaps', approvedAt: new Date() })
-            .where(and(
-                eq(messageDrafts.phone, e164),
-                eq(messageDrafts.source, 'comms_agent'),
-                eq(messageDrafts.status, 'pending'),
-            ));
-        console.log(`[CommsAgent] Clerk needs info on ${conv.id} — follow-up run to ask the customer.`);
-        const followUp = await runCommsAgent(conversationId, 'quote_prep_gaps').catch((error: any) => {
-            console.error(`[CommsAgent] Gap follow-up failed for ${conv.id}:`, error?.message);
-            return null;
-        });
-        if (followUp) return { ...followUp, handoff };
-    }
+    // THE HANDOFF — retired (P8 / C, 3 Sep 2026). The legacy clerk no longer runs from here; the
+    // spine's Quote clerk is the only intake and its questions reach the customer through the
+    // spine's own Scoper (clerkGaps below still reads the spine intake so this agent, while it
+    // lasts, can ask them too). `handoff` stays in the beta ping for shape parity.
+    const handoff = null as QuotePrepHandoff | null;
 
     // Beta read-along: every completed run pings the humans with what it did and a link into the
     // thread. Fire-and-forget — observation must never break the run it observes. One toggle
@@ -1458,18 +1440,6 @@ export interface QuotePrepHandoff {
     notified?: boolean;
 }
 
-/** Bookkeeping kept on conversations.metadata so an auto-run can be rate limited without new DDL. */
-interface QuotePrepAutoState {
-    lastRunAt?: string;
-    lastReadiness?: IntakeReadiness;
-    /** How many inbound media messages existed at the last run — a new photo is new information. */
-    mediaCount?: number;
-    /** Whether a postcode had appeared by the last run — one appearing is new information. */
-    postcodeSeen?: boolean;
-}
-
-const UK_POSTCODE_RE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
-
 /** Where a verdict puts the card, and whether Ben's phone should ring about it. */
 export interface VerdictRouting {
     /** null = leave the stage alone. */
@@ -1512,248 +1482,24 @@ export function routeIntakeVerdict(readiness: IntakeReadiness, currentTags: read
 }
 
 /**
- * What the thread contains RIGHT NOW that quote-prep would care about. Used twice: to decide
- * whether anything substantive has changed since the last automatic run, and to record the new
- * high-water mark afterwards.
- */
-async function substantiveSignals(conversationId: string): Promise<{
-    mediaCount: number;
-    postcodeSeen: boolean;
-    /** When the most recent inbound media arrived — null when the customer never sent any. */
-    latestMediaAt: Date | null;
-}> {
-    const rows = await db.select({ mediaUrl: messages.mediaUrl, content: messages.content, createdAt: messages.createdAt })
-        .from(messages)
-        .where(and(eq(messages.conversationId, conversationId), eq(messages.direction, 'inbound')))
-        .limit(200);
-    const mediaTimes = rows.filter((r) => !!r.mediaUrl && r.createdAt).map((r) => new Date(r.createdAt!).getTime());
-    return {
-        mediaCount: rows.filter((r) => !!r.mediaUrl).length,
-        postcodeSeen: rows.some((r) => UK_POSTCODE_RE.test(r.content ?? '')),
-        latestMediaAt: mediaTimes.length ? new Date(Math.max(...mediaTimes)) : null,
-    };
-}
-
-/**
- * THE AUTOMATIC HANDOFF. Triage tagged the thread ready to price, so quote-prep runs by itself and
- * the result lands where Ben works instead of waiting for someone to click a button.
+ * RETIRED (P8 / C, 3 Sep 2026). The legacy automatic handoff — triage tags `needs_quote`, this
+ * ran the clerk and wrote `conversations.metadata.quotePrepIntake` (+ `quotePrepAuto`), queued a
+ * heuristic `quote_research` row and buzzed Ben — no longer fires. The spine's Quote clerk
+ * (server/spine/agents/quote-clerk.ts) is the ONLY intake: it runs on the same `needs_quote` tag
+ * (and on call transcripts), records its artifact on agent_runs, and every reader goes through
+ * server/intake.ts getIntake (spine artifact → human override → legacy blob as a read-only
+ * fallback for pre-spine threads). The stored `quotePrep.enabled` flag is ignored on purpose:
+ * two clerks writing two intakes for one thread was the 3 Sep misalignment this removes.
  *
- * Before direct send this was manual on purpose: a human was reading every reply anyway, so a human
- * clicking "Prep quote" cost nothing. Now the conversation runs on its own, and a thread that has
- * everything needed to price it can sit there indefinitely with nobody to notice. The handoff has
- * to be an event.
- *
- * The three verdicts route differently, and the difference is the whole point:
- *   quote_ready  Ben's move. Card to scoping with quote_ready + needs_ben, intake stored so the
- *                slide-over opens straight into it, and a push so he knows it is there.
- *   needs_info   the AGENT's move. It has gaps and it can now send its own questions, so nothing is
- *                escalated: it keeps conversing and re-tags when it has what it needs.
- *   visit_first  Ben's move again, but a different one. Tagged and pushed; the panel pre-toggles
- *                the survey gate off the same verdict (QuotePrepPanel, already built).
- *
- * COST. One sonnet run per conversation per minHoursBetweenRuns, unless a new photo or a postcode
- * arrived — the two things that most often turn needs_info into quote_ready. Failure is swallowed
- * by the caller: a broken handoff must never cost a customer the reply that already went out.
+ * Kept as a no-op so callers and scripts compile; `routeIntakeVerdict` above stays for its tests
+ * and for the spine to reuse the routing table.
  */
 export async function maybeAutoQuotePrep(
-    conversationId: string,
-    config: CommsAgentConfig,
-    runOpts: { runId?: string | null } = {},
+    _conversationId: string,
+    _config: CommsAgentConfig,
+    _runOpts: { runId?: string | null } = {},
 ): Promise<QuotePrepHandoff> {
-    if (!config.quotePrep.enabled) return { ran: false, skipped: 'quote-prep handoff disabled in config' };
-
-    // Re-read: the run we were called from has just written tags and a stage.
-    const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
-    if (!conv) return { ran: false, skipped: 'conversation vanished' };
-
-    const tags = conv.tags ?? [];
-    if (!tags.includes(READY_TO_PRICE_TAG)) {
-        return { ran: false, skipped: `triage did not tag ${READY_TO_PRICE_TAG}` };
-    }
-
-    // A live quote is already out. Prepping another intake behind a customer's back is how a second
-    // price appears for the same job, which is the one thing a quoted thread must never produce.
-    //
-    // Refined 27 Aug 2026 after +447452983308: a customer who was quoted for one blind came back
-    // five days later with three blinds and a dripping shower, triage re-tagged needs_quote, and
-    // this guard silently blocked the re-prep for what would have been 90 days — the old quote
-    // was even EXPIRED, but isLive ignores expiry by design (an expired quote is still the price
-    // the customer is talking about). So the guard now only blocks on a quote that is genuinely
-    // current: live, unexpired, AND with no new inbound media since it was created. New photos
-    // after the quote went out are the customer re-scoping — the re-prep still lands on Ben's
-    // desk, never in the customer's chat, so the second-price risk stays behind his click. The
-    // superseded quote is revoked when Ben sends the replacement (finalizeQuoteSent).
-    const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
-    const existing = await loadQuoteContexts({ digits, conversationId: conv.id }).catch(() => [] as QuoteContext[]);
-    const now = await substantiveSignals(conv.id);
-    const mediaAfter = (q: QuoteContext) => !!now.latestMediaAt && !!q.createdAt
-        && now.latestMediaAt.getTime() > new Date(q.createdAt).getTime();
-    const blocking = existing.find((q) => q.isLive && !q.expired && !mediaAfter(q));
-    if (blocking) {
-        // A skip while the thread is tagged ready-to-price must not be silent: the tag stays set,
-        // every later run skips the same way, and the customer waits on a promise nothing is
-        // working on. Flag Ben instead — flagThreadForBen dedupes on needs_ben, so this cannot
-        // buzz twice while the first flag is unresolved.
-        const skipped = `a live quote (${blocking.slug}) is already out for this number`;
-        console.log(`[CommsAgent] Auto quote-prep blocked for ${conv.id}: ${skipped} — flagging Ben.`);
-        await flagThreadForBen({
-            conversationId: conv.id,
-            phone: `+${digits}`,
-            runId: runOpts.runId ?? null,
-            note: `Thread is tagged ${READY_TO_PRICE_TAG} but quote ${blocking.slug} is still live, so the clerk will not prep a second price by itself. Re-quote or revoke ${blocking.slug} manually.`,
-        }).catch((e: any) => console.warn('[CommsAgent] blocked-prep flag failed:', e?.message ?? e));
-        return { ran: false, skipped };
-    }
-
-    const meta = (conv.metadata ?? {}) as Record<string, any>;
-    const state: QuotePrepAutoState = meta.quotePrepAuto ?? {};
-    // An answer to the clerk's OWN questions is the most substantive thing a customer can send,
-    // and until 20 Aug it did not count: the clerk asked "which tap?", the customer answered, and
-    // the 6-hour cost bound then blocked the re-run that would have turned needs_info into
-    // quote_ready — live thread stalled half a working day from its own success. Bounded per
-    // customer message by the caller's flow, so this cannot loop.
-    const answeredSinceNeedsInfo = state.lastReadiness === 'needs_info' && !!state.lastRunAt
-        && !!conv.lastCustomerContactAt
-        && new Date(conv.lastCustomerContactAt).getTime() > new Date(state.lastRunAt).getTime();
-    const newInfo = now.mediaCount > (state.mediaCount ?? 0)
-        || (now.postcodeSeen && !state.postcodeSeen)
-        || answeredSinceNeedsInfo;
-    const hoursSince = state.lastRunAt
-        ? (Date.now() - new Date(state.lastRunAt).getTime()) / 3_600_000
-        : Infinity;
-    if (hoursSince < config.quotePrep.minHoursBetweenRuns && !newInfo) {
-        return {
-            ran: false,
-            skipped: `last auto-prep was ${hoursSince.toFixed(1)}h ago (limit ${config.quotePrep.minHoursBetweenRuns}h) and nothing substantive arrived since`,
-        };
-    }
-
-    console.log(`[CommsAgent] Auto quote-prep firing for ${conv.id}${newInfo ? ' (new photo/postcode)' : ''}`);
-    const { runQuotePrep } = await import('./quote-prep');
-    const { intake } = await runQuotePrep(conv.id, { trigger: 'comms_handoff', parentRunId: runOpts.runId ?? null });
-
-    // Whatever happened, the run happened: record it so a failed extraction cannot loop.
-    const writeState = async (patch: Partial<QuotePrepAutoState>, extra: Record<string, any> = {}) => {
-        await db.update(conversations).set({
-            metadata: {
-                ...meta,
-                ...extra,
-                quotePrepAuto: { ...state, lastRunAt: new Date().toISOString(), ...now, ...patch },
-            },
-            updatedAt: new Date(),
-        }).where(eq(conversations.id, conv.id));
-    };
-
-    if (!intake) {
-        await writeState({});
-        return { ran: true, skipped: 'the clerk could not extract a usable intake' };
-    }
-
-    const handoff: QuotePrepHandoff = {
-        ran: true, readiness: intake.readiness, lines: intake.lines.length, gaps: intake.gaps.length,
-    };
-    const route = routeIntakeVerdict(intake.readiness, tags);
-    await db.update(conversations).set({
-        ...(route.stage ? { stage: route.stage } : {}),
-        tags: route.tags,
-        priority: intake.urgency === 'high' ? 'high' : conv.priority ?? 'normal',
-        updatedAt: new Date(),
-    }).where(eq(conversations.id, conv.id));
-
-    // ── SHADOW READINESS (23 Aug 2026) ──────────────────────────────────────
-    // The computed confidence gate runs ALONGSIDE the clerk's prose verdict:
-    // slot score + ask-vs-assume dial, and the sceptic verifier when the score
-    // lands in the grey band. Nothing gates on it yet — the verdict above still
-    // routes. Every run logs verdict-vs-score so cutover is a data decision.
-    let shadow: Record<string, any> | null = null;
-    try {
-        const { computeReadiness } = await import('@shared/quote-readiness');
-        const customerAnsweredRound = intake.gaps.length === 0
-            || (state.lastReadiness === 'needs_info' && answeredSinceNeedsInfo);
-        const readiness = computeReadiness(intake, { customerAnsweredRound });
-        let verifier = null;
-        if (readiness.band === 'grey') {
-            const recent = await db.select({ direction: messages.direction, content: messages.content })
-                .from(messages).where(eq(messages.conversationId, conv.id))
-                .orderBy(desc(messages.createdAt)).limit(30);
-            const threadText = recent.reverse()
-                .map((m) => `${m.direction === 'inbound' ? 'CUSTOMER' : 'US'}: ${m.content ?? ''}`)
-                .join('\n');
-            const { verifyIntake } = await import('./quote-verifier');
-            verifier = await verifyIntake(intake, threadText);
-        }
-        shadow = {
-            score: readiness.score,
-            band: readiness.band,
-            wouldAskCount: readiness.wouldAsk.length,
-            wouldAssumeCount: readiness.wouldAssume.length,
-            slots: readiness.slots,
-            verifier,
-            clerkVerdict: intake.readiness,
-            agrees: (readiness.band === 'build') === (intake.readiness === 'quote_ready'),
-            at: new Date().toISOString(),
-        };
-        const { logSystemEvent } = await import('../system-events');
-        void logSystemEvent({
-            kind: 'other',
-            phone: `+${digits}`,
-            conversationId: conv.id,
-            summary: `readiness shadow: score ${readiness.score} (${readiness.band}) vs clerk ${intake.readiness}${shadow.agrees ? '' : ' — DISAGREE'}${verifier ? ` · verifier: ${verifier.priceable ? 'priceable' : `blocked (${(verifier.blocker ?? '').slice(0, 80)})`}` : ''}`,
-            detail: shadow,
-            source: 'quote-readiness',
-        });
-    } catch (e: any) {
-        console.warn('[QuoteReadiness] shadow computation failed (non-blocking):', e?.message ?? e);
-    }
-
-    // The intake itself, so opening the thread opens the slide-over already filled in. Ephemeral by
-    // design: it is a prefill, and the quote Ben saves from it is the record.
-    await writeState({ lastReadiness: intake.readiness }, { quotePrepIntake: shadow ? { ...intake, shadow } : intake });
-
-    // ── QUOTE RESEARCH TRIGGER (WP1: Quote Builder v2) ──────────────────────────
-    // When the intake reaches quote_pending, queue a background research job. The
-    // research agent (WP2) will pick this up, populate materials/time/procedures,
-    // and flip intakeReadiness to quote_ready when complete.
-    if (intake.readiness === 'quote_pending') {
-        try {
-            const [job] = await db.insert(quoteResearch).values({
-                conversationId: conv.id,
-                status: 'pending',
-                jobs: intake.lines,
-            }).returning({ id: quoteResearch.id });
-            console.log(`[CommsAgent] Quote research queued for ${conv.id}, job ${job.id}`);
-
-            // Fire-and-forget: run research in background, transition to quote_ready when done
-            processResearchJob(job.id).catch((err) => {
-                console.error(`[CommsAgent] Background research job ${job.id} failed:`, err?.message);
-            });
-        } catch (err: any) {
-            // Non-blocking: research is an optimization, not a gate
-            console.warn('[CommsAgent] Failed to queue quote research (ignored):', err?.message);
-        }
-    }
-
-    if (!route.notify) return handoff;
-
-    try {
-        const { notifyQuotePrepReady } = await import('../pushover');
-        await notifyQuotePrepReady({
-            conversationId: conv.id,
-            // intake.customerName is already gated; the fallback must not reintroduce the junk
-            // pushname the gate just removed.
-            customerName: intake.customerName ?? realNameOrNull(conv.contactName),
-            phoneNumber: `+${digits}`,
-            readiness: intake.readiness,
-            declineReason: intake.declineReason,
-            lines: intake.lines.map((l) => l.title),
-            postcode: intake.postcode,
-            urgency: intake.urgency,
-        });
-        handoff.notified = true;
-    } catch (error: any) {
-        console.warn('[CommsAgent] Quote-prep push failed (ignored):', error?.message);
-    }
-    return handoff;
+    return { ran: false, skipped: 'legacy quote-prep handoff retired (P8, 3 Sep 2026); the spine clerk is the only intake' };
 }
 
 /**

@@ -53,6 +53,14 @@ export interface EvalExpected {
     noExceptions?: boolean;
     /** The reply must pass chatVoiceViolations. */
     voiceClean?: boolean;
+    /**
+     * P8 (intake family): what the Quote clerk's artifact must say. Graded only by adapters that
+     * run the clerk (spine). `readiness` is the shared vocabulary (shared/intake-readiness.ts);
+     * `minLines` = at least this many job lines; `mustMentionLine` = regexes (source, 'i') that
+     * must each match at least one line title — "a new intake supersedes" is proved by the new
+     * scope being on the new intake.
+     */
+    intake?: { readiness?: string; minLines?: number; mustMentionLine?: string[] };
     /** Human label for the owner review (fine | tone | wrong_move | unsafe | missing_info | unguarded_but_fine …). */
     label?: string | null;
     notes?: string;
@@ -69,6 +77,8 @@ export interface EvalCaseV2 {
     customer?: { firstName?: string | null; ref?: string | null };
     quote?: { seen?: boolean; viewCount?: number; totalPence?: number | null; offeredDates?: string[]; slug?: string; /** paid quotes are booked jobs: scoper lane, not post_quote */ paid?: boolean };
     firstContact?: boolean;
+    /** Thread tags on the case file (e.g. 'needs_quote' routes triage to the clerk without a model). */
+    tags?: string[];
     candidate?: EvalCandidate;
     expected: EvalExpected;
     provenance?: string;
