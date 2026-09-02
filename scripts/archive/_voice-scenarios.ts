@@ -20,7 +20,7 @@ import 'dotenv/config';
 import { db } from '../server/db';
 import { conversations, messages, messageDrafts, agentQuestions, personalizedQuotes } from '@shared/schema';
 import { desc, eq, sql } from 'drizzle-orm';
-import { getCommsAgentConfig, setCommsAgentConfig, runCommsAgent } from '../server/agents/comms';
+import { getCommsAgentConfig, setCommsAgentConfig, runCommsAgent, useProcessLocalCommsConfig } from '../server/agents/comms';
 
 const PHONE = '+447700900940';
 const CONV_KEY = '447700900940@c.us';
@@ -234,6 +234,9 @@ async function main() {
     console.log('VOICE SCENARIOS');
     console.log(`Ofcom reserved range only: ${PHONE}. Nothing here can reach a person.\n`);
 
+    // Process-local config (21 Aug 2026): the force-off below and the restore in `finally` land in
+    // this process only. The live comms_agent row is neither read nor written by this suite.
+    useProcessLocalCommsConfig();
     const saved = await retry('read config', getCommsAgentConfig);
     await retry('force off', () => setCommsAgentConfig({
         autosend: { enabled: false, intents: [] },

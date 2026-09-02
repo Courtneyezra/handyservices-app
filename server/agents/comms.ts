@@ -163,20 +163,58 @@ const DEFAULT_CONFIG: CommsAgentConfig = {
     vaCallTask: { enabled: false }, // Default OFF — owner enables via config, never code.
 };
 
+/** Merge a partial config over the fail-closed defaults, one nested level deep. */
+function mergeOverDefaults(o: Partial<CommsAgentConfig>): CommsAgentConfig {
+    return {
+        ...DEFAULT_CONFIG, ...o,
+        autosend: { ...DEFAULT_CONFIG.autosend, ...(o.autosend ?? {}) },
+        firstContactAutoAck: { ...DEFAULT_FIRST_CONTACT_ACK, ...(o.firstContactAutoAck ?? {}) },
+        quotePrep: { ...DEFAULT_CONFIG.quotePrep, ...(o.quotePrep ?? {}) },
+        vaCallTask: { ...DEFAULT_CONFIG.vaCallTask, ...(o.vaCallTask ?? {}) },
+    };
+}
+
+/**
+ * PROCESS-LOCAL CONFIG — the isolation layer for test suites (21 Aug 2026 incident).
+ *
+ * The comms config is one row in app_settings, in the SAME database production reads. Until this
+ * layer existed, every test suite "isolated" itself by force-writing that live row off at start and
+ * restoring it in `finally`. That is a shared mutable global across processes, and on 21 Aug 2026
+ * it failed in both directions inside three minutes:
+ *
+ *   - a real webform lead was REFUSED its first-contact ack (DISABLED, 08:08:16Z) because a suite
+ *     had just switched the live row off, and
+ *   - a concurrent session, repairing that same lead, switched the live row back ON mid-run
+ *     (08:09:08Z), and the suite's last four adversarial cases auto-sent over live Twilio.
+ *
+ * A suite calls useProcessLocalCommsConfig() ONCE, before it touches config. From then on, in this
+ * process only, getCommsAgentConfig and setCommsAgentConfig operate on an in-memory object seeded
+ * from DEFAULT_CONFIG (fail-closed: everything off) — the live row is never read NOR written again.
+ * External writes cannot reach the running suite, and the suite cannot switch anything off for real
+ * customers. Suites keep their existing force-off/restore calls; they just land here.
+ *
+ * Precedence: process-local store > COMMS_CONFIG_OVERRIDE env > app_settings row.
+ *
+ * Deliberately NOT reachable from any env var or request: only an explicit in-process call arms it,
+ * so the production server can never start in local mode.
+ */
+let localConfig: CommsAgentConfig | null = null;
+
+export function useProcessLocalCommsConfig(seed?: Partial<CommsAgentConfig>): CommsAgentConfig {
+    localConfig = mergeOverDefaults(seed ?? {});
+    console.log('[CommsAgent] Config is PROCESS-LOCAL from here: the live comms_agent row will be neither read nor written by this process.');
+    return structuredClone(localConfig);
+}
+
 export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
-    // Test isolation: a suite process sets COMMS_CONFIG_OVERRIDE (JSON) instead of
-    // writing the shared DB row, so parallel test runs can't flip live flags.
+    if (localConfig) return structuredClone(localConfig);
+    // Test isolation (older seam): a suite process sets COMMS_CONFIG_OVERRIDE (JSON) instead of
+    // writing the shared DB row, so parallel test runs can't flip live flags. Some suites reassign
+    // it mid-run (off → on), so it is re-read on every call rather than captured once.
     const override = process.env.COMMS_CONFIG_OVERRIDE;
     if (override) {
         try {
-            const o = JSON.parse(override) as Partial<CommsAgentConfig>;
-            return {
-                ...DEFAULT_CONFIG, ...o,
-                autosend: { ...DEFAULT_CONFIG.autosend, ...(o.autosend ?? {}) },
-                firstContactAutoAck: { ...DEFAULT_FIRST_CONTACT_ACK, ...(o.firstContactAutoAck ?? {}) },
-                quotePrep: { ...DEFAULT_CONFIG.quotePrep, ...(o.quotePrep ?? {}) },
-                vaCallTask: { ...DEFAULT_CONFIG.vaCallTask, ...(o.vaCallTask ?? {}) },
-            };
+            return mergeOverDefaults(JSON.parse(override) as Partial<CommsAgentConfig>);
         } catch {
             console.error('[CommsAgent] Bad COMMS_CONFIG_OVERRIDE JSON, falling through to DB config');
         }
@@ -208,6 +246,20 @@ export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>): Pro
         quotePrep: { ...current.quotePrep, ...(patch.quotePrep ?? {}) },
         vaCallTask: { ...current.vaCallTask, ...(patch.vaCallTask ?? {}) },
     };
+    if (localConfig) {
+        // Process-local mode: the suite's own flips stay in this process and off the live
+        // activity log — a test forcing flags off is not operational news.
+        localConfig = next;
+        return structuredClone(next);
+    }
+    if (process.env.COMMS_CONFIG_OVERRIDE) {
+        // A process that reads its config from the env seam must also WRITE there. Before this
+        // branch, a suite running under COMMS_CONFIG_OVERRIDE that called setCommsAgentConfig
+        // (force-off / restore) merged its override into `next` and wrote that to the live row —
+        // the same door the 21 Aug incident walked through, just via a different key.
+        process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify(next);
+        return next;
+    }
     // Every flag change lands in the activity log. Three silent reversions in 24 hours (test
     // harnesses racing across sessions) turned "why is this queued?" into detective work twice;
     // this line turns the next one into a row on /admin/activity.
