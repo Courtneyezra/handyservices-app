@@ -20,6 +20,9 @@ import { exit as runExit, type ExitOutcome } from './exit';
 import { requestRun, runDue } from './request-run';
 import type { AgentName, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, Trigger } from './types';
 
+/** P7: how long the spine waits for something the customer said was coming before it looks again. */
+export const PROMISED_MORE_FOLLOWUP_MS = 15 * 60_000;
+
 // ---------------------------------------------------------------- registry
 
 const registry = new Map<AgentName, SpineAgent>();
@@ -135,6 +138,18 @@ export async function runOnce(
     };
     const dryRun = !!(opts.dryRun || opts.shadow);
     if (!dryRun) run.outcome = await runExit(run);
+
+    // P7: the customer promised more ("back soon with the measurement"). Nothing goes out; come
+    // back in 15 minutes unless the promised item lands first (its inbound path runs sooner and
+    // renews the same due row). Not in shadow: the legacy path owns the thread there.
+    if (!dryRun && decision.kind === 'none' && decision.reason === 'waiting_for_promised') {
+        try {
+            const r = await requestRun(conversationId, 'inbound_message', { delayMs: PROMISED_MORE_FOLLOWUP_MS });
+            console.log(`[Spine] run ${runId} waiting for promised item; follow-up in ${PROMISED_MORE_FOLLOWUP_MS / 60_000} min: ${r.queued ? 'queued' : `not queued (${r.reason})`}`);
+        } catch (e: any) {
+            console.warn(`[Spine] could not schedule the promised-more follow-up for ${conversationId}:`, e?.message ?? e);
+        }
+    }
 
     await finishAgentRun(runId, { agent: recordedAgent, conversationId, phone: caseFile.phone }, {
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,

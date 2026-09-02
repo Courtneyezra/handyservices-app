@@ -25,10 +25,10 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ]
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben"
   },
   {
    "id": "ab-002-postcode",
@@ -55,10 +55,10 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ]
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben"
   },
   {
    "id": "ab-003-concrete-floor",
@@ -85,10 +85,10 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ]
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben"
   },
   {
    "id": "ab-004-rooms",
@@ -115,10 +115,10 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ]
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben"
   },
   {
    "id": "ab-005-howdens-door",
@@ -145,10 +145,10 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ]
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben"
   },
   {
    "id": "ab-006-photos-sent",
@@ -175,10 +175,10 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ]
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben"
   },
   {
    "id": "ab-007-in-on-thursday",
@@ -205,11 +205,11 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ],
     "notes": "Spine triageRules RE_DATE fires on a bare weekday with no question; the customer is stating availability, not asking. Improvement target for triage (pane A), not a build failure."
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben",
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben",
    "kind": "capability"
   },
   {
@@ -237,10 +237,70 @@
     "noExceptions": true,
     "voiceClean": true,
     "mustNotContain": [
-     "\u00a3"
+     "£"
     ]
    },
-   "provenance": "balanced set (COMMS_EVALS_PLAN \u00a72.1): ordinary scoping that must not reach Ben"
+   "provenance": "balanced set (COMMS_EVALS_PLAN §2.1): ordinary scoping that must not reach Ben"
+  },
+  {
+   "id": "ab-009-back-soon-with-measurement",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Could you send over the measurement when you get a chance?",
+     "at": "2026-09-02T14:10:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "That's the only cladding, back soon with measurement",
+     "at": "2026-09-02T14:14:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "No rush, send it over when you have it.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "£"
+    ]
+   },
+   "provenance": "2 Sep 2026 incident (Janet, 46a13bdb): \"back soon\" is a promise, not a date question; the model routed it to Ben and the reply asked for the thing she was sending. P7: promised-more wait."
+  },
+  {
+   "id": "ab-010-will-send-photos",
+   "family": "absence",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Could you send over the measurement when you get a chance?",
+     "at": "2026-09-02T14:10:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Will send the photos in a minute",
+     "at": "2026-09-02T14:14:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Great, thanks.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "guardsMustNotTrip": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "£"
+    ]
+   },
+   "provenance": "P7 promised-more: nothing to ask for while the customer is fetching it"
   }
  ]
 }

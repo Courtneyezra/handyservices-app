@@ -185,6 +185,29 @@ spineRouter.get('/shadow-report', async (req, res) => {
     }
 });
 
+/**
+ * POST /rerun/:conversationId — P7: Ben's "Re-draft" on a stale draft card. Rejects the thread's
+ * pending agent drafts (system:stale_by_inbound) and asks for a fresh run: the spine when it is
+ * enabled (shadow or live), else the legacy debounce set to now. Works in every mode — a person
+ * asking for a fresh look is never refused.
+ */
+spineRouter.post('/rerun/:conversationId', async (req, res) => {
+    try {
+        const conversationId = String(req.params.conversationId ?? '').trim();
+        if (!conversationId) return res.status(400).json({ ok: false, errors: ['conversationId required'] });
+        const { supersedeStaleDrafts } = await import('../message-drafts');
+        const { requestFreshRun, latestInboundFor } = await import('../draft-freshness');
+        const u = viewer(req);
+        const latest = await latestInboundFor(conversationId);
+        const superseded = await supersedeStaleDrafts(conversationId, latest?.at ?? new Date(), { latestInboundId: latest?.id ?? null, why: `re-draft by ${u.email ?? u.id ?? 'admin'}` });
+        const run = await requestFreshRun(conversationId, `re-draft by ${u.email ?? u.id ?? 'admin'}`);
+        res.status(run.queued ? 200 : 202).json({ ok: true, superseded: superseded.rejected, run });
+    } catch (error: any) {
+        console.error('[Spine] rerun failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not request a fresh run'] });
+    }
+});
+
 const ASK_KINDS = ['ask_postcode', 'ask_media', 'ask_name'] as const;
 
 spineRouter.post('/ask/:conversationId', async (req, res) => {

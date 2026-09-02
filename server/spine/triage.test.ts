@@ -95,3 +95,57 @@ describe('triage (rules + model)', () => {
         expect(merged.stage).toBe(rules.stage); expect(merged.lane).toBe('ben'); expect(merged.exceptions).toEqual(['complaint']);
     });
 });
+
+// ---------------------------------------------------------------- P7: promised more, model clamp, the merge guard
+
+import { customerPromisedMore, clampTriageModelOutput, RE_PROMISED_MORE } from './triage';
+
+describe('P7 customer promised more', () => {
+    it('detects the promise phrases on the customer side', () => {
+        for (const t of ["That's the only cladding, back soon with measurement", 'will send the photos tonight', 'sending now', 'one sec', 'hang on', 'bear with me', 'give me a minute', 'let me get the tape', "I'll get you the size", 'in a minute', 'shortly']) {
+            expect(customerPromisedMore(t), t).toBe(true);
+        }
+        for (const t of ['how much would it cost', 'can you come tuesday', 'thanks!', '', 'the tap is in the kitchen']) {
+            expect(customerPromisedMore(t), t).toBe(false);
+        }
+        expect(RE_PROMISED_MORE.test('The soonest slot?')).toBe(false); // "soonest" is a date word, not a promise
+    });
+    it('triageRules flags customerPromisedMore and does NOT route the incident sentence to Ben', () => {
+        const r = triageRules(cf({}, [outbound('Could you send the measurement?'), inbound("That's the only cladding, back soon with measurement")]));
+        expect(r.customerPromisedMore).toBe(true);
+        expect(r.lane).toBe('scoper');
+        expect(r.exceptions).toEqual([]);
+        expect(r.reasons).toContain('customer promised more is coming');
+    });
+    it('a call transcript or a contractor thread cannot promise more', () => {
+        expect(triageRules(cf({}, [outbound('hi'), { at: new Date().toISOString(), kind: 'call_in', channel: 'call', by: 'customer', transcript: 'back soon with the measurement' }])).customerPromisedMore).toBe(false);
+        expect(triageRules(cf({ audience: 'contractor' }, [outbound('hi'), inbound('back soon with the measurement')])).customerPromisedMore).toBe(false);
+    });
+    it('the merge drops a model-only date_question when the customer promised more and the rules found no date', () => {
+        const rules = triageRules(cf({}, [outbound('hi'), inbound("That's the only cladding, back soon with measurement")]));
+        const model = { audience: 'customer', intent: 'unknown', lane: 'ben', exceptions: ['date_question'], stage: 'scoping', tags: [], reasons: ['mentions soon'] } as any;
+        const merged = mergeTriage(rules, model, 'haiku');
+        expect(merged.exceptions).toEqual([]);
+        expect(merged.lane).not.toBe('ben');
+        expect(merged.customerPromisedMore).toBe(true);
+        // A real date question keeps its exception even with a promise in the same message.
+        const rules2 = triageRules(cf({}, [outbound('hi'), inbound('what day can you come? back soon with the measurement')]));
+        expect(mergeTriage(rules2, model, 'haiku').exceptions).toContain('date_question');
+        // And a model money_question is never dropped by the promise.
+        expect(mergeTriage(rules, { ...model, exceptions: ['money_question'] }, 'haiku').exceptions).toEqual(['money_question']);
+    });
+    it('clampTriageModelOutput trims a long reason to 200 chars instead of failing the schema', () => {
+        const long = 'x'.repeat(350);
+        const raw = { audience: 'customer', intent: 'ask_gap', lane: 'scoper', exceptions: [], stage: 'scoping', tags: ['A'.repeat(40), 'ok'], reasons: [long, 'fine', 1, '', 'a', 'b', 'c', 'd', 'e'] };
+        expect(TriageModelSchema.safeParse(raw).success).toBe(false);
+        const parsed = TriageModelSchema.safeParse(clampTriageModelOutput(raw));
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+            expect(parsed.data.reasons[0]).toHaveLength(200);
+            expect(parsed.data.reasons).toHaveLength(6);
+            expect(parsed.data.tags[0]).toHaveLength(30);
+            expect(parsed.data.tags[1]).toBe('ok');
+        }
+        expect(clampTriageModelOutput(null)).toBeNull();
+    });
+});

@@ -84,6 +84,10 @@ export interface CaseFile {
     openFlags: { exception: ExceptionKind; note: string; dueAt: string }[];
     tags: string[];
     lastRun?: { runId: string; agent: AgentName; decision: string; at: string } | null;
+    /** P7 (additive): the latest non-quarantined inbound message id — what every draft this run queues is written against. */
+    lastInboundId?: string | null;
+    /** P7 (additive): the customer's last message promised more is coming ("back soon with the measurement"). */
+    lastInboundPromisedMore?: boolean;
     hash: string;               // sha256 of the serialised file, stored as agent_runs.case_file_ref
     builtAt: string;
 }
@@ -98,6 +102,8 @@ export interface TriageResult {
     reasons: string[];
     source: 'rules' | 'model';
     model?: string;
+    /** P7 (additive): the customer's last message promised more is coming; decide waits instead of drafting. */
+    customerPromisedMore?: boolean;
 }
 
 /** What an agent returns. It never sends (§3.6). */

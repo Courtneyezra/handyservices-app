@@ -122,3 +122,53 @@ describe('DueChip', () => {
         expect(render(<DueChip dueAt="not a date" />).container).toBeEmptyDOMElement();
     });
 });
+
+// ---------------------------------------------------------------- P7: the customer wrote since this draft
+
+describe('DraftApprovalCard — stale by inbound (P7)', () => {
+    const staleDraft = () => draft({ conversationId: 'conv_1', inboundSince: { count: 2, media: 1, latestAt: new Date().toISOString(), latestId: 'm2' }, stale: true });
+
+    it('shows the red banner with the counts and disables one-tap approve; edit still works', async () => {
+        okDrafts();
+        render(<DraftApprovalCard draft={staleDraft()} windowOpen onDone={() => {}} />);
+        const banner = screen.getByTestId('stale-banner');
+        expect(banner).toHaveTextContent('Customer wrote since this draft (2 messages / 1 media)');
+        expect(screen.getByRole('button', { name: 'Approve & send' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
+        expect(screen.getByTestId('redraft')).toBeEnabled();
+        // Editing the words re-enables approve (the server still refuses if the thread is stale).
+        await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        const ta = screen.getByRole('textbox');
+        await userEvent.clear(ta);
+        await userEvent.type(ta, 'Got the measurement, thanks.');
+        expect(screen.getByRole('button', { name: 'Approve edit & send' })).toBeEnabled();
+    });
+
+    it('Re-draft posts to /api/spine/rerun/:conversationId and calls onDone', async () => {
+        const f = mockFetch([{ method: 'POST', url: /\/api\/spine\/rerun\/conv_1$/, reply: () => ({ json: { ok: true, superseded: ['d1'], run: { queued: true, via: 'spine' } } }) }]);
+        const onDone = vi.fn();
+        render(<DraftApprovalCard draft={staleDraft()} windowOpen onDone={onDone} />);
+        await userEvent.click(screen.getByTestId('redraft'));
+        await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+        expect(f.calls[0]).toMatchObject({ method: 'POST', url: '/api/spine/rerun/conv_1' });
+        expect(screen.getByTestId('redraft')).toBeDisabled();
+    });
+
+    it('a 409 STALE_BY_INBOUND from approve shows the server message', async () => {
+        mockFetch([{ method: 'POST', url: /approve$/, reply: () => ({ status: 409, json: { error: 'STALE_BY_INBOUND', message: 'The customer wrote again after this draft was written (with media). It has not been sent; a fresh reply is being drafted.' } }) }]);
+        const onDone = vi.fn();
+        // The card thought it was fresh (older list); the server knows better.
+        render(<DraftApprovalCard draft={draft()} windowOpen onDone={onDone} />);
+        await userEvent.click(screen.getByRole('button', { name: 'Approve & send' }));
+        expect(await screen.findByText(/The customer wrote again after this draft was written/)).toBeInTheDocument();
+        expect(onDone).not.toHaveBeenCalled();
+    });
+
+    it('a fresh draft shows no banner and no Re-draft', () => {
+        okDrafts();
+        render(<DraftApprovalCard draft={draft({ inboundSince: { count: 0, media: 0, latestAt: null, latestId: null }, stale: false })} windowOpen onDone={() => {}} />);
+        expect(screen.queryByTestId('stale-banner')).toBeNull();
+        expect(screen.queryByTestId('redraft')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Approve & send' })).toBeEnabled();
+    });
+});

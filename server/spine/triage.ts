@@ -36,6 +36,29 @@ export const RE_REFUND = /(refund|money back|charge ?back)/i;
 export const RE_CALLBACK = /(call me|ring me|give me a (call|ring)|phone me)/i;
 export const RE_REGULATED = /(gas safe|boiler|gas hob|flue|consumer unit|fuse ?box|rewir(e|ing)|asbestos|load.?bearing|structural|rsj|chimney breast)/i;
 
+/**
+ * P7: the customer has said more is coming ("back soon with the measurement", "will send the
+ * photos", "hang on"). Customer side only. When it fires and nothing has arrived since, the spine
+ * waits (decide → none / waiting_for_promised) instead of drafting a reply that asks for the thing
+ * they are about to send — the 2 Sep incident (Janet, 46a13bdb…).
+ */
+export const RE_PROMISED_MORE = /\b(back (to you )?soon|be back|will (send|get|grab|take|find|forward)|i'?ll (send|get you|get|grab|take|find|forward|pop)|sending (it|them|now|over)|send (it|them|you)( over)? (now|shortly|in a (sec|min|minute|bit))|one (sec|second|minute|min)|give me (a|two|five|ten) (sec|second|minute|min|mins|minutes)|hang on|bear with|let me (get|grab|take|find|check)|in a (minute|min|sec|second|bit|mo|moment)|shortly|just (a )?(sec|second|minute|min|mo|moment)|two (secs|mins)|(a )?few (mins|minutes|secs))\b/i;
+
+/** Pure: does the customer's last message promise something more is on its way? */
+export function customerPromisedMore(text: string | null | undefined): boolean {
+    const t = (text ?? '').trim();
+    return !!t && RE_PROMISED_MORE.test(t);
+}
+
+/** Pure: clamp what the model returned so a long reason or too many tags fails soft, not to rules. */
+export function clampTriageModelOutput(raw: unknown): unknown {
+    if (!raw || typeof raw !== 'object') return raw;
+    const o = { ...(raw as Record<string, unknown>) };
+    if (Array.isArray(o.reasons)) o.reasons = o.reasons.filter((r) => typeof r === 'string').map((r) => String(r).trim().slice(0, 200)).filter(Boolean).slice(0, 6);
+    if (Array.isArray(o.tags)) o.tags = o.tags.filter((t) => typeof t === 'string').map((t) => String(t).trim().toLowerCase().slice(0, 30)).filter(Boolean).slice(0, 8);
+    return o;
+}
+
 export function lastInbound(cf: CaseFile): TimelineItem | null {
     for (let i = cf.timeline.length - 1; i >= 0; i--) {
         const t = cf.timeline[i];
@@ -59,7 +82,10 @@ export function triageRules(cf: CaseFile): TriageResult {
     const tags: string[] = [];
     const audience = cf.audience;
     const stage = cf.stage;
-    const base = { audience, stage, tags, reasons, source: 'rules' as const };
+    // P7: only a customer's own words can promise more; a call transcript or an internal thread cannot.
+    const promised = last?.kind === 'message_in' && audience === 'customer' && customerPromisedMore(last?.body);
+    if (promised) reasons.push('customer promised more is coming');
+    const base = { audience, stage, tags, reasons, source: 'rules' as const, customerPromisedMore: promised };
 
     if (audience === 'internal') {
         reasons.push('internal thread');
@@ -176,10 +202,19 @@ async function defaultLlm(args: TriageLlmArgs): Promise<TriageLlmResult> {
 
 /** Merge the model's answer over the rules' — the model may only ADD exceptions, never remove one. */
 export function mergeTriage(rules: TriageResult, model: TriageModelOutput, modelId: string): TriageResult {
-    const exceptions = Array.from(new Set([...rules.exceptions, ...model.exceptions]));
+    // P7: "back soon with measurement" is a promise, not a date question. The rules lexicon
+    // (RE_DATE) does not fire on it; the model did, and routed the thread to Ben. When the
+    // customer has promised more and the rules found no date, a model-only date_question is
+    // dropped: the run waits for the promised item instead (decide → waiting_for_promised).
+    const modelExceptions = rules.customerPromisedMore && !rules.exceptions.includes('date_question')
+        ? model.exceptions.filter((e) => e !== 'date_question')
+        : model.exceptions;
+    const exceptions = Array.from(new Set([...rules.exceptions, ...modelExceptions]));
     const intent: Intent | 'unknown' = isIntent(model.intent) ? model.intent : 'unknown';
     let lane: Lane = model.lane;
     if (exceptions.length) lane = 'ben';
+    // The dropped exception was the only reason for the model's Ben lane: take the rules' lane instead.
+    else if (lane === 'ben' && modelExceptions.length !== model.exceptions.length) lane = rules.lane === 'ben' ? 'scoper' : rules.lane;
     if (rules.lane === 'dropped') lane = 'dropped';
     const stage = model.stage === 'won' ? rules.stage : model.stage;
     return {
@@ -188,6 +223,7 @@ export function mergeTriage(rules: TriageResult, model: TriageModelOutput, model
         tags: Array.from(new Set([...rules.tags, ...model.tags.map((t) => t.toLowerCase().slice(0, 30))])),
         reasons: [...model.reasons, ...rules.reasons],
         source: 'model', model: modelId,
+        customerPromisedMore: rules.customerPromisedMore,
     };
 }
 
@@ -205,7 +241,9 @@ export async function triage(cf: CaseFile, deps: TriageDeps = {}): Promise<Triag
             const llm = deps.llm ?? defaultLlm;
             const out = await llm({ system: TRIAGE_SYSTEM, user: JSON.stringify(caseFileForModel(cf)), model });
             usage = out.usage;
-            const parsed = TriageModelSchema.safeParse(out.data);
+            // P7: a reason over 200 chars failed the schema twice on one live thread and threw the
+            // whole answer away (fell to rules). Clamp the soft fields first; the enums still gate.
+            const parsed = TriageModelSchema.safeParse(clampTriageModelOutput(out.data));
             if (parsed.success) {
                 result = mergeTriage(rules, parsed.data, out.model || model);
             } else {

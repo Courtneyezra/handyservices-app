@@ -86,3 +86,23 @@ describe('decide', () => {
         expect(approverFor(rules, 'ack_enquiry')).toBe('rules.first_contact');
     });
 });
+
+// ---------------------------------------------------------------- P7: the customer promised more
+
+describe('decide — waiting for a promised item (P7)', () => {
+    const pack = getPack('customer.default');
+    it('returns none / waiting_for_promised even with a good proposal at SEND tier', () => {
+        const d = decide({ proposal: prop(), guards: ok, pack: sendPack(pack, 'ask_gap'), triage: tri({ customerPromisedMore: true }), caseFile: cf({ window: { canFreeform: true, templateRequired: false, lastInboundAt: DAY_NOW.toISOString(), channelLastUsed: 'whatsapp' } }), now: DAY_NOW });
+        expect(d).toEqual({ kind: 'none', reason: 'waiting_for_promised' });
+    });
+    it('the case-file flag alone is enough; and it is never a flag, even without a proposal', () => {
+        expect(decide({ proposal: null, guards: null, pack, triage: tri(), caseFile: cf({ lastInboundPromisedMore: true }), now: DAY_NOW })).toEqual({ kind: 'none', reason: 'waiting_for_promised' });
+    });
+    it('an exception still wins: a complaint that also says "back soon" goes to Ben', () => {
+        const d = decide({ proposal: prop(), guards: ok, pack, triage: tri({ lane: 'ben', exceptions: ['complaint'], customerPromisedMore: true }), caseFile: cf(), now: DAY_NOW });
+        expect(d.kind).toBe('flag');
+    });
+    it('opt-out still drops', () => {
+        expect(decide({ proposal: prop(), guards: ok, pack, triage: tri({ lane: 'dropped', exceptions: ['opted_out'], customerPromisedMore: true }), caseFile: cf(), now: DAY_NOW }).kind).toBe('drop');
+    });
+});

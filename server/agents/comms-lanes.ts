@@ -107,6 +107,20 @@ async function runInboundLanes(conversationId: string, phone: string, opts: {
         console.error('[CommsLanes] OPT-OUT CHECK FAILED — lanes continuing:', error?.message ?? error);
     }
 
+    // P7 — SUPERSEDE. The customer has written again: any pending agent draft written before this
+    // message answers the wrong turn. Reject it now (system:stale_by_inbound) so the source dedupe
+    // cannot block the fresh draft and Ben never sees it. Awaited: the lanes below may draft.
+    // Rules-layer drafts are left alone. Never breaks ingest.
+    if (conversationId) {
+        try {
+            const { supersedeStaleDrafts } = await import('../message-drafts');
+            const r = await supersedeStaleDrafts(conversationId, new Date(), { latestInboundId: opts.messageId ?? null, why: `inbound ${opts.messageId ?? ''}`.trim() });
+            if (r.rejected.length) console.log(`[CommsLanes] superseded ${r.rejected.length} stale draft(s) on ${conversationId}: ${r.rejected.join(', ')}`);
+        } catch (error: any) {
+            console.error('[CommsLanes] supersede check failed (lanes continuing):', error?.message ?? error);
+        }
+    }
+
     // Instant lane, before the debounce: only ever fires on a thread with no outbound history, or
     // one that has been silent longer than the returning threshold. Runs for test numbers too — it
     // costs no agent run, and the smoke conversation is how this path is exercised without

@@ -1867,9 +1867,13 @@ export const messageDrafts = pgTable("message_drafts", {
     // it, the rules layer sends the holding line and marks heldReason 'due_expired'; the draft
     // stays pending for Ben. Migration 20260902_due_at_holding_line.sql.
     dueAt: timestamp("due_at", { withTimezone: true }),
-    heldReason: text("held_reason"),
+    heldReason: text("held_reason"),                      // 'due_expired' | 'stale_by_inbound' (P7)
     // Phase 1 (2 Sep 2026): the agent run (or sweep / draft release) that produced this row.
     runId: text("run_id"),
+    // P7 (4 Sep 2026): the inbound message this draft was written against. approveAndSendDraft
+    // refuses to send when a newer inbound exists (held_reason 'stale_by_inbound'); a new inbound
+    // rejects older agent drafts outright. Migration 20260904_message_drafts_based_on_inbound.sql.
+    basedOnInboundId: text("based_on_inbound_id"),
     // Phase 1 (2 Sep 2026): the body as first drafted. Set by the first PATCH on a pending draft
     // and never changed after, so approval can tell "edit" from "approve" (draft_verdicts).
     // Null = never edited. Migration 20260902_draft_verdicts.sql.

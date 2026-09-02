@@ -86,6 +86,14 @@ export function decide(input: DecideInput): Decision {
         return { kind: 'flag', exception: exception ?? 'out_of_scope', dueAt: flagDue(), note: triage.reasons.join('; ') || 'triage routed this thread to Ben' };
     }
 
+    // 2b. P7: the customer said more is coming and nothing has arrived since (the case file's last
+    //     inbound IS the promise). Wait: no draft, no flag, no ask. The runner schedules a follow-up
+    //     run in 15 minutes; the promised item arriving runs the normal inbound path sooner. The
+    //     10-minute holding line still fires from the rules layer and asks for nothing.
+    if (triage.customerPromisedMore || caseFile.lastInboundPromisedMore) {
+        return { kind: 'none', reason: 'waiting_for_promised' };
+    }
+
     // 3. Nothing proposed.
     if (!proposal) return { kind: 'none', reason: 'no proposal' };
     if (proposal.flag) return { kind: 'flag', exception: proposal.flag.exception, dueAt: flagDue(), note: proposal.flag.note };

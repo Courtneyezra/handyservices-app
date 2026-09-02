@@ -16,6 +16,7 @@ function cf(over: Partial<CaseFile> = {}): CaseFile {
         conversationId: 'c1', phone: '+447700123456', audience: 'customer', stage: 'scoping', contactName: 'Sam',
         timeline: [], media: [], window: { canFreeform: true, templateRequired: false, lastInboundAt: null, channelLastUsed: 'whatsapp' },
         client: null, quote: null, openPromises: [], openFlags: [], tags: [], lastRun: null, hash: 'h', builtAt: new Date().toISOString(),
+        lastInboundId: 'msg_seen',
         ...over,
     };
 }
@@ -38,6 +39,9 @@ function fakeDeps(): ExitDeps & { calls: string[] } {
         now: () => new Date('2026-09-02T10:00:00Z'),
         ask: vi.fn(async () => null),
         resolveTemplate: vi.fn(async () => { calls.push('template'); return null; }),
+        // P7: by default the thread's latest inbound is the one the case file saw.
+        latestInbound: vi.fn(async () => ({ id: 'msg_seen', at: new Date('2026-09-02T09:50:00Z') })),
+        requestFreshRun: vi.fn(async (id, why) => { calls.push(`rerun:${id}:${why}`); return { queued: true }; }),
     };
 }
 const SHUT = { canFreeform: false, templateRequired: true, lastInboundAt: '2026-09-01T08:00:00Z', channelLastUsed: 'whatsapp' as const };
@@ -131,5 +135,41 @@ describe('exit', () => {
         d.approveAndSendDraft = vi.fn(async () => ({ ok: false, code: 'NEAR_DUPLICATE', message: 'held' }));
         const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }), d);
         expect(out).toMatchObject({ kind: 'send', sent: false, detail: expect.stringMatching(/NEAR_DUPLICATE/) });
+    });
+});
+
+// ---------------------------------------------------------------- P7: exit-time freshness re-check
+
+describe('exit — P7 freshness re-check on send', () => {
+    it('a newer inbound than the case file saw → queued HELD (stale_by_inbound), never approved, fresh run requested', async () => {
+        const d = fakeDeps();
+        d.latestInbound = vi.fn(async () => ({ id: 'msg_newer', at: new Date('2026-09-02T14:28:00Z'), hasMedia: true }));
+        const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }), d);
+        expect(d.approveAndSendDraft).not.toHaveBeenCalled();
+        const queued = (d.queueDraft as any).mock.calls[0][0];
+        expect(queued).toMatchObject({ source: 'spine', runId: 'run_1', heldReason: 'stale_by_inbound' });
+        expect(queued.reason).toMatch(/HELD: the customer wrote again \(msg_newer, with media\)/);
+        expect(d.calls).toContain('rerun:c1:stale spine proposal run_1');
+        expect(out).toMatchObject({ kind: 'pending', draftId: 'draft_1', detail: expect.stringMatching(/^stale_by_inbound/) });
+    });
+    it('the same inbound the case file saw → sends as before', async () => {
+        const d = fakeDeps();
+        const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }), d);
+        expect(d.approveAndSendDraft).toHaveBeenCalledTimes(1);
+        expect(d.requestFreshRun).not.toHaveBeenCalled();
+        expect(out).toMatchObject({ kind: 'send', sent: true });
+    });
+    it('no inbound at all on the thread (e.g. a webform lead) → sends', async () => {
+        const d = fakeDeps();
+        d.latestInbound = vi.fn(async () => null);
+        const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }, { caseFile: cf({ lastInboundId: null }) }), d);
+        expect(out).toMatchObject({ kind: 'send', sent: true });
+    });
+    it('an older case file without lastInboundId falls back to the time test: an inbound after builtAt holds', async () => {
+        const d = fakeDeps();
+        d.latestInbound = vi.fn(async () => ({ id: 'm', at: new Date(Date.now() + 60_000) }));
+        const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }, { caseFile: cf({ lastInboundId: undefined }) }), d);
+        expect(out.kind).toBe('pending');
+        expect(d.approveAndSendDraft).not.toHaveBeenCalled();
     });
 });

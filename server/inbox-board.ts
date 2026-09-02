@@ -13,6 +13,7 @@ import { eq, desc, ne, and, asc, inArray, isNull, sql, gt } from 'drizzle-orm';
 import { computeWaitState, DEFAULT_SLA_WORKING_HOURS, type WaitState } from './comms-sla';
 import { callMessageId, classificationLine, readCallClassification } from './call-thread';
 import { neverSentMeta } from './message-quarantine';
+import { inboundSince } from './draft-freshness';
 import {
     loadAutoAckSends, autoAckSpansByConversation, insideAnyAutoAckSpan, notWrittenByAnyAutoAck,
     type AutoAckSend,
@@ -965,7 +966,12 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
             // `timeline` is the merged view the comms thread renders.
             messages: messageEvents,
             timeline,
-            drafts: pendingDrafts,
+            // P7: each pending draft carries what the customer wrote after it, so the card can
+            // refuse one-tap approve on a stale draft (the server refuses the send regardless).
+            drafts: await Promise.all(pendingDrafts.map(async (d) => {
+                const since = await inboundSince(conv.id, d.createdAt);
+                return { ...d, inboundSince: since, stale: since.count > 0 };
+            })),
             questions: openQuestions,
         });
     } catch (error: any) {

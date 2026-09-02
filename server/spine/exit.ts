@@ -18,6 +18,7 @@
  */
 import type { Approver } from '../approver';
 import { ledgerFlagRaised, ledgerRunDecided } from '../ledger';
+import { staleAgainst, STALE_BY_INBOUND, type InboundRef } from '../draft-freshness';
 import { maybeAskFromExit, type AskOutcome } from './asks';
 import type { Decision, SpineRun } from './types';
 
@@ -39,7 +40,12 @@ export interface ExitDeps {
     queueDraft: (input: {
         phone: string; body: string; source: 'spine'; reason: string; dueAt?: Date; runId: string; dedupe?: boolean;
         contentSid?: string; contentVariables?: Record<string, string>;
+        heldReason?: string | null;
     }) => Promise<string | null>;
+    /** P7: the thread's latest non-quarantined inbound at send time (server/draft-freshness.ts). */
+    latestInbound: (conversationId: string) => Promise<InboundRef | null>;
+    /** P7: ask for the run that replaces a stale proposal. */
+    requestFreshRun: (conversationId: string, why: string) => Promise<unknown>;
     approveAndSendDraft: (draftId: string, approver: Approver, runId: string) => Promise<{ ok: boolean; code?: string; mode?: string; message?: string }>;
     /**
      * P6 (template-first exit): the pack's approved template for this intent, via the same
@@ -99,6 +105,8 @@ async function defaultDeps(): Promise<ExitDeps> {
         now: () => new Date(),
         ask: (run) => maybeAskFromExit(run),
         resolveTemplate: (input) => resolvePackTemplate(input),
+        latestInbound: async (conversationId) => (await import('../draft-freshness')).latestInboundFor(conversationId),
+        requestFreshRun: async (conversationId, why) => (await import('../draft-freshness')).requestFreshRun(conversationId, why),
     };
 }
 
@@ -150,6 +158,22 @@ export async function exit(run: SpineRun, overrides: Partial<ExitDeps> = {}): Pr
                 // template. No approved template → the freeform path below, whose refusal leaves
                 // the draft pending with a due time (the rules layer holds the line at expiry):
                 // never silent, never a freeform send outside the window.
+                // P7: re-read the thread's latest inbound NOW and compare with what the case file
+                // saw. A newer message means this proposal answers the wrong turn: queue it held
+                // (stale_by_inbound, never sent) and ask for a fresh run. approveAndSendDraft holds
+                // the same way as a second net; this check keeps the exit from ever asking it.
+                const seen = caseFile.lastInboundId ?? null;
+                const latestNow = await deps.latestInbound(caseFile.conversationId);
+                const fresh = staleAgainst({ createdAt: caseFile.builtAt, basedOnInboundId: seen }, latestNow);
+                if (fresh.stale) {
+                    const draftId = await deps.queueDraft({
+                        phone: caseFile.phone, body: run.proposal.body.join('\n---\n'), source: 'spine', runId: run.runId,
+                        reason: `${reasonFor(run)} — HELD: ${fresh.reason}`, heldReason: STALE_BY_INBOUND,
+                    });
+                    void deps.requestFreshRun(caseFile.conversationId, `stale spine proposal ${run.runId}`);
+                    outcome = { kind: 'pending', draftId, detail: `stale_by_inbound: ${fresh.reason}` };
+                    break;
+                }
                 let template: ResolvedTemplate | null = null;
                 if (windowShut(run)) {
                     try {

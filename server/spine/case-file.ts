@@ -13,6 +13,7 @@ import { and, desc, eq, sql, isNull, inArray } from 'drizzle-orm';
 import { notQuarantined } from '../message-quarantine';
 import { getSpineConfig } from './config';
 import { isException, isAgentName } from './vocab';
+import { customerPromisedMore } from './triage';
 import type { CaseFile, TimelineItem, MediaItem, Audience, Stage, ExceptionKind } from './types';
 import type { MediaBlock } from '../agents/media-context';
 
@@ -232,6 +233,10 @@ export async function buildCaseFile(conversationId: string, opts: BuildCaseFileO
         openFlags,
         tags,
         lastRun,
+        // P7: what every draft this run queues is written against, and whether the customer said
+        // more is coming (customer messages only; a call transcript cannot promise a photo).
+        lastInboundId: lastIn ? String(lastIn.id) : null,
+        lastInboundPromisedMore: !!lastIn && audienceOf(conv.roleProfile) === 'customer' && customerPromisedMore(lastIn.content),
     };
     const file: CaseFile = { ...body, hash: hashCaseFile(body), builtAt: new Date().toISOString() };
     await persistCaseFile(file);

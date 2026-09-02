@@ -140,6 +140,59 @@
     "voiceClean": true
    },
    "provenance": "the right move (point_to_picker) still passes Ben while date_question is an exception"
+  },
+  {
+   "id": "dq-006-back-soon-is-not-a-date",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Could you send over the measurement when you get a chance?",
+     "at": "2026-09-02T14:10:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "That's the only cladding, back soon with measurement",
+     "at": "2026-09-02T14:14:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks. Send the measurement over whenever you have it.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "2 Sep 2026 incident (Janet): the date lexicon must not fire on \"soon\"; the rules RE_DATE never did, the model did (P7 merge guard drops a model-only date_question when the customer promised more)"
+  },
+  {
+   "id": "dq-007-what-day-plus-back-soon",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Could you send over the measurement when you get a chance?",
+     "at": "2026-09-02T14:10:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "What day can you come? Back soon with the measurement",
+     "at": "2026-09-02T14:14:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Tuesday works.",
+    "intent": "point_to_picker"
+   },
+   "expected": {
+    "exceptions": [
+     "date_question"
+    ],
+    "mustFlag": true
+   },
+   "provenance": "P7 guard rail: a real date question keeps its exception even beside a promise"
   }
  ]
 }

@@ -25,6 +25,7 @@ import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcome
 import { recordVerdict, approvalVerdict, runIdOfDraft, isVerdictReason } from './verdicts';
 import { VERDICT_REASONS } from '@shared/schema';
 import { logSystemEvent } from './system-events';
+import { staleAgainst, selectSuperseded, latestInboundFor, inboundSince, conversationIdForDraft, requestFreshRun, AGENT_DRAFT_SOURCES, STALE_BY_INBOUND, STALE_SYSTEM_ACTOR } from './draft-freshness';
 import { emitCommsEvent, type CommsEvent } from './comms-events';
 
 /**
@@ -113,6 +114,8 @@ export async function queueDraft(input: {
     dueAt?: Date;
     /** Phase 1: the agent run (or sweep) that wrote this draft. Stored on the row and the ledger event. */
     runId?: string | null;
+    /** P7: queue already held, e.g. 'stale_by_inbound' when the spine exit found a newer inbound at send time. */
+    heldReason?: string | null;
 }): Promise<string | null> {
     const phone = normalizePhoneNumber(input.phone);
     if (!phone) {
@@ -134,6 +137,19 @@ export async function queueDraft(input: {
         return null;
     }
 
+    const convKey = `${phone.replace('+', '')}@c.us`;
+    const [conv] = await db.select({ id: conversations.id })
+        .from(conversations).where(eq(conversations.phoneNumber, convKey));
+
+    // P7: an agent draft is written against the thread's latest inbound. Before the dedupe can
+    // refuse this one, clear any OLDER pending agent draft the customer has since written past —
+    // an agent run that starts after a new inbound retires the stale draft itself (the 14:28 run
+    // in the Janet incident produced nothing because the 14:15 draft blocked it).
+    const latestInbound = conv ? await latestInboundFor(conv.id) : null;
+    if (conv && latestInbound && AGENT_DRAFT_SOURCES.has(input.source)) {
+        await supersedeStaleDrafts(conv.id, latestInbound.at, { latestInboundId: latestInbound.id, why: `new ${input.source} draft` });
+    }
+
     if (input.dedupe !== false) {
         const [existing] = await db.select({ id: messageDrafts.id })
             .from(messageDrafts)
@@ -148,10 +164,6 @@ export async function queueDraft(input: {
             return null;
         }
     }
-
-    const convKey = `${phone.replace('+', '')}@c.us`;
-    const [conv] = await db.select({ id: conversations.id })
-        .from(conversations).where(eq(conversations.phoneNumber, convKey));
 
     const id = input.id ?? `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     if (input.id) {
@@ -180,6 +192,8 @@ export async function queueDraft(input: {
         status: 'pending',
         dueAt: input.dueAt ?? dueAtFor('draft'),
         runId: input.runId ?? null,
+        basedOnInboundId: latestInbound?.id ?? null,
+        heldReason: input.heldReason ?? null,
     });
 
     // COMMS LEDGER (Phase 1, write-at-source): the draft exists. Never throws.
@@ -216,6 +230,50 @@ export async function queueDraft(input: {
     return id;
 }
 
+// ---------------------------------------------------------------- P7: supersede on new inbound
+
+export interface SupersedeOutcome { rejected: string[]; conversationId: string }
+
+/**
+ * A new inbound landed on a thread: every PENDING agent draft written before it is rejected
+ * (approved_by 'system:stale_by_inbound', ledger draft_rejected), so the source dedupe can never
+ * block the fresh draft and Ben never sees a reply to a message the customer has moved past.
+ * Called from the shared ingest lane (server/agents/comms-lanes.ts) and from queueDraft for agent
+ * sources. Never throws: a bookkeeping failure must not break ingest or the new draft.
+ */
+export async function supersedeStaleDrafts(conversationId: string, inboundAt: Date, opts: { latestInboundId?: string | null; why?: string } = {}): Promise<SupersedeOutcome> {
+    const out: SupersedeOutcome = { rejected: [], conversationId };
+    if (!conversationId) return out;
+    try {
+        const candidates = await db.select().from(messageDrafts)
+            .where(and(
+                eq(messageDrafts.conversationId, conversationId),
+                eq(messageDrafts.status, 'pending'),
+                inArray(messageDrafts.source, Array.from(AGENT_DRAFT_SOURCES)),
+            ));
+        for (const d of selectSuperseded(candidates, inboundAt, opts.latestInboundId)) {
+            const [updated] = await db.update(messageDrafts)
+                .set({ status: 'rejected', approvedBy: STALE_SYSTEM_ACTOR, approvedAt: new Date(), heldReason: STALE_BY_INBOUND, error: `superseded: the customer wrote at ${inboundAt.toISOString()} after this draft` })
+                .where(and(eq(messageDrafts.id, d.id), eq(messageDrafts.status, 'pending')))
+                .returning();
+            if (!updated) continue; // raced with an approve or a reject; that path decides
+            out.rejected.push(updated.id);
+            void ledgerDraftRejected({ draft: updated, decidedBy: STALE_SYSTEM_ACTOR, reason: `superseded by a newer inbound (${opts.why ?? 'inbound'})` });
+            safely('recordDraftVerdict:superseded', () => recordDraftVerdict({ draftId: updated.id, outcome: 'rejected', decidedBy: STALE_SYSTEM_ACTOR }));
+            void logSystemEvent({
+                kind: 'hold', phone: updated.phone, conversationId, source: 'message-drafts',
+                summary: `Draft superseded: the customer wrote again after it was drafted (${opts.why ?? 'inbound'})`,
+                detail: { draftId: updated.id, source: updated.source, inboundAt: inboundAt.toISOString(), latestInboundId: opts.latestInboundId ?? null, basedOnInboundId: updated.basedOnInboundId ?? null },
+            });
+            pushCommsEvent({ type: 'draft_delta', draftId: updated.id, conversationId, status: 'rejected', at: new Date().toISOString() });
+            console.log(`[Drafts] Superseded stale ${updated.source} draft ${updated.id} on ${conversationId} (${opts.why ?? 'inbound'})`);
+        }
+    } catch (error: any) {
+        console.warn(`[Drafts] supersedeStaleDrafts failed for ${conversationId} (ingest stands):`, error?.message ?? error);
+    }
+    return out;
+}
+
 // GET /api/drafts — the approval queue. Pending first, newest last so it reads as a worklist.
 messageDraftsRouter.get('/', async (req, res) => {
     try {
@@ -231,11 +289,15 @@ messageDraftsRouter.get('/', async (req, res) => {
             // An SMS draft is always sendable: there is no window and no template gate on SMS.
             const smsOnly = d.channel === 'sms' || isNonMobileUkNumber(d.phone);
             const windowOpen = smsOnly ? false : await canSendFreeform(d.phone).catch(() => false);
+            // P7: what the customer wrote after this draft — the approver must see it before tapping.
+            const since = d.status === 'pending' ? await inboundSince(await conversationIdForDraft(d), d.createdAt) : null;
             return {
                 ...d,
                 windowOpen,
                 sendable: smsOnly || windowOpen || !!d.contentSid,
                 mode: smsOnly ? 'sms' : windowOpen ? 'freeform' : d.contentSid ? 'template' : 'blocked',
+                inboundSince: since,
+                stale: !!since && since.count > 0,
             };
         }));
 
@@ -360,7 +422,7 @@ const NEAR_DUPLICATE_WINDOW_MINUTES = 10;
  */
 export async function approveAndSendDraft(draftId: string, approver: Approver, runId: string = newRunId('draft')): Promise<
     | { ok: true; draft: typeof messageDrafts.$inferSelect; mode: 'freeform' | 'template' | 'sms'; channel: OutboundChannel; fellBack: boolean }
-    | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED' | 'OPTED_OUT' | 'NEAR_DUPLICATE' | 'MALFORMED_REASON'; message: string }
+    | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED' | 'OPTED_OUT' | 'NEAR_DUPLICATE' | 'MALFORMED_REASON' | 'STALE_BY_INBOUND'; message: string }
 > {
     // Claim the row first so a double-click (or a racing auto-send) cannot send twice.
     const [draft] = await db.update(messageDrafts)
@@ -382,6 +444,33 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             await ledgerDraftEdited({ draft, previousBody: proposal.proposedBody, editedBy: isAutomatedApprover(approver) ? 'human:unknown' : approver, runId });
         }
     })().catch(() => undefined);
+
+    // P7 — THE FRESHNESS GUARD, every approver, human or automated. Nothing written before the
+    // customer's latest message may go out: if the thread has an inbound newer than this draft
+    // (or a different one from the inbound it was written against), revert to pending with
+    // held_reason 'stale_by_inbound', record it, and ask for a fresh run. The 2 Sep incident
+    // (Janet): a "send the measurement over" draft sat pending while the measurement arrived.
+    {
+        const threadId = await conversationIdForDraft(draft);
+        const latest = await latestInboundFor(threadId);
+        const fresh = staleAgainst({ createdAt: draft.createdAt, basedOnInboundId: draft.basedOnInboundId }, latest);
+        if (fresh.stale) {
+            await db.update(messageDrafts)
+                .set({ status: 'pending', approvedAt: null, approvedBy: null, heldReason: STALE_BY_INBOUND })
+                .where(eq(messageDrafts.id, draft.id));
+            console.warn(`[Drafts] Refused to send ${draft.id} (${approver}): ${fresh.reason}`);
+            void ledgerDraftRejected({ draft, decidedBy: STALE_SYSTEM_ACTOR, reason: `held at send: ${fresh.reason}`, runId });
+            safely('recordDraftVerdict:blocked', () => recordDraftVerdict({ draftId: draft.id, outcome: 'blocked', decidedBy: approver }));
+            void logSystemEvent({
+                kind: 'hold', phone: draft.phone, conversationId: threadId ?? draft.conversationId, source: 'message-drafts',
+                summary: `Send refused: the customer wrote after this draft (${approver})`,
+                detail: { draftId: draft.id, by: approver, marker: STALE_BY_INBOUND, latestInboundId: latest?.id ?? null, latestInboundAt: latest?.at.toISOString() ?? null, basedOnInboundId: draft.basedOnInboundId ?? null },
+            });
+            pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: threadId ?? draft.conversationId ?? undefined, status: 'blocked', at: new Date().toISOString() });
+            void requestFreshRun(threadId, `stale draft ${draft.id}`);
+            return { ok: false, code: 'STALE_BY_INBOUND', message: `The customer wrote again after this draft was written${latest?.hasMedia ? ' (with media)' : ''}. It has not been sent; a fresh reply is being drafted.` };
+        }
+    }
 
     // Re-check the suppression list at send time, not just at queue time. A draft can sit in the
     // queue for hours, and the customer may have said STOP in the meantime — that is exactly the
@@ -718,7 +807,8 @@ messageDraftsRouter.post('/:id/approve', async (req, res) => {
 
         // The human decided, whatever the wire did next: every claim that succeeded is a verdict.
         // NOT_PENDING means nothing was decided here (double-click, already handled).
-        if (result.ok || result.code !== 'NOT_PENDING') {
+        // STALE_BY_INBOUND (P7) means the words judged are about to be replaced: not a verdict.
+        if (result.ok || (result.code !== 'NOT_PENDING' && result.code !== 'STALE_BY_INBOUND')) {
             const decided = result.ok ? result.draft : (await db.select().from(messageDrafts).where(eq(messageDrafts.id, req.params.id)))[0];
             if (decided) {
                 await recordVerdict({

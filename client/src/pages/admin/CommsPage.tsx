@@ -193,6 +193,13 @@ export interface PendingDraft {
     createdAt: string;
     /** Phase 1 / B adds message_drafts.due_at; rendered only when present. */
     dueAt?: string | null;
+    /** P7: the thread this draft belongs to, for the Re-draft button. */
+    conversationId?: string | null;
+    /** P7: what the customer wrote AFTER this draft was written (server/draft-freshness.ts). */
+    inboundSince?: { count: number; media: number; latestAt: string | null; latestId: string | null } | null;
+    /** P7: true when inboundSince.count > 0 — the server refuses the send; the card refuses the tap. */
+    stale?: boolean;
+    heldReason?: string | null;
 }
 
 /**
@@ -811,6 +818,28 @@ export function DraftApprovalCard({ draft, windowOpen, onDone }: {
     const [asking, setAsking] = useState<null | 'edit' | 'reject'>(null);
     const deliverable = windowOpen || !!draft.contentSid;
     const edited = body.trim() !== draft.body.trim();
+    // P7: the customer wrote after this was drafted. One-tap approve is off (the server would
+    // refuse it anyway, 409 STALE_BY_INBOUND); edit stays possible; Re-draft asks for a fresh run.
+    const since = draft.inboundSince ?? null;
+    const stale = !!draft.stale || (since?.count ?? 0) > 0 || draft.heldReason === 'stale_by_inbound';
+    const [redrafting, setRedrafting] = useState(false);
+    const [redrafted, setRedrafted] = useState(false);
+
+    async function redraft() {
+        if (!draft.conversationId) { setError('No thread on this draft to re-draft from.'); return; }
+        setRedrafting(true); setError(null);
+        try {
+            const res = await fetch(`/api/spine/rerun/${encodeURIComponent(draft.conversationId)}`, { method: 'POST', headers: getAuthHeaders() });
+            const detail = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error((detail.errors ?? [detail.error ?? 'Re-draft failed']).join('; '));
+            setRedrafted(true);
+            onDone();
+        } catch (e: any) {
+            setError(e.message);
+        } finally {
+            setRedrafting(false);
+        }
+    }
 
     async function submit(action: 'approve' | 'reject', reason: VerdictReason) {
         setBusy(true); setError(null);
@@ -854,6 +883,13 @@ export function DraftApprovalCard({ draft, windowOpen, onDone }: {
                     <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[9px] text-white">window shut — can't send yet</span>
                 )}
             </div>
+            {stale && (
+                <div className="mt-2 rounded border-l-4 border-red-600 bg-red-50 px-2 py-1.5 text-xs font-bold text-red-800" data-testid="stale-banner">
+                    Customer wrote since this draft
+                    {since && since.count > 0 ? ` (${since.count} message${since.count === 1 ? '' : 's'}${since.media ? ` / ${since.media} media` : ''})` : ''}.
+                    <span className="font-normal"> Read what they sent, then re-draft or edit. It will not send as-is.</span>
+                </div>
+            )}
             {draft.reason && <p className="mt-1 text-[11px] italic text-amber-700">{draft.reason}</p>}
             {editing ? (
                 <>
@@ -898,11 +934,22 @@ export function DraftApprovalCard({ draft, windowOpen, onDone }: {
                 <div className="mt-2 flex items-center gap-2">
                     <button
                         onClick={() => act('approve')}
-                        disabled={busy || !deliverable || !body.trim()}
+                        disabled={busy || !deliverable || !body.trim() || (stale && !edited)}
+                        title={stale && !edited ? 'The customer wrote after this draft. Edit it or re-draft.' : undefined}
                         className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
                     >
                         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : edited ? 'Approve edit & send' : 'Approve & send'}
                     </button>
+                    {stale && (
+                        <button
+                            onClick={() => void redraft()}
+                            disabled={busy || redrafting || redrafted}
+                            className="rounded bg-red-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-800 disabled:opacity-40"
+                            data-testid="redraft"
+                        >
+                            {redrafting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : redrafted ? 'Re-drafting…' : 'Re-draft'}
+                        </button>
+                    )}
                     <button
                         onClick={() => setEditing((v) => !v)}
                         disabled={busy}
