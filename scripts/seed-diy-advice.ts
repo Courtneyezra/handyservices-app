@@ -1,4 +1,4 @@
-x**
+/**
  * Seed DIY Advice Database
  *
  * Populates the diy_advice and unsafe_patterns tables with initial data
