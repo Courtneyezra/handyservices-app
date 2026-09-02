@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, unlinkSync, readFileSync } from 'fs';
 import path from 'path';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 import { normalizePhoneNumber } from './phone-utils';
 import { mirrorMediaToS3 } from './media-store';
 
@@ -96,6 +97,7 @@ voiceNotesRouter.post('/voice-note', upload.single('audio'), async (req, res) =>
         await mirrorMediaToS3(fileName, readFileSync(outPath), 'audio/ogg');
 
         const sendResult = await sendCustomerMessage({
+            approver: 'system.voice_note', runId: newRunId('sys'),
             to: phone,
             body: '',  // Voice notes have no text body
             purpose: 'service_reply',  // Human-initiated voice note

@@ -4,6 +4,7 @@ import { db } from "./db";
 import { personalizedQuotes, contractorBookingRequests, handymanProfiles, users } from "@shared/schema";
 import { lt, and, eq, isNull, gte, lte, inArray, not, sql } from "drizzle-orm";
 import { sendCustomerMessage } from "./outbound";
+import { newRunId } from "./approver";
 import { getKillSwitch } from "./settings";
 import {
     runRankTracking, runGmbPull, runGscPull, rankEnabled, gmbEnabled, gscEnabled,
@@ -304,6 +305,7 @@ export async function sendDayBeforeCustomerReminders(): Promise<void> {
 
                 // Send WhatsApp message via choke point (with opt-out enforcement)
                 const sendResult = await sendCustomerMessage({
+                    approver: 'system.cron', runId: newRunId('sys'),
                     to: customerPhone,
                     body: message,
                     purpose: 'service_reply',  // Job-related, not marketing

@@ -66,6 +66,12 @@ function actorFromDraftSource(source: string): string {
 
 function senderFromApprovedBy(approvedBy: string | null): string | null {
     if (!approvedBy) return null;
+    // Phase 0 (2 Sep 2026) enum values first, then the legacy prefixes still on older rows.
+    if (approvedBy.startsWith('human:')) return approvedBy;
+    if (approvedBy.startsWith('agent.comms')) return 'agent:comms';
+    if (approvedBy.startsWith('agent.')) return `agent:${approvedBy.slice('agent.'.length)}`;
+    if (approvedBy === 'rules.first_contact') return 'system:first_contact_ack';
+    if (approvedBy.startsWith('rules.') || approvedBy.startsWith('system.')) return `system:${approvedBy.replace(/^(rules|system)\./, '')}`;
     if (approvedBy.startsWith('comms_agent')) return 'agent:comms';
     if (approvedBy.startsWith('first_contact_ack')) return 'system:first_contact_ack';
     if (approvedBy === 'stale_sweep') return 'system:stale_sweep';

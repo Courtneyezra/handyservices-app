@@ -34,8 +34,8 @@
  *     pushover's own quiet-hours dispatch rules still apply on top.
  *   · THE CUSTOMER CHASE IS CANNED AND GATED. No LLM composition — a fixed template through
  *     queueDraft (GATE 0 opt-out, dedupe) and approveAndSendDraft (the 27 Aug autosend guards,
- *     WhatsApp 24h window / SMS fallback). approvedBy 'comms_agent:sla_chase' deliberately
- *     matches AUTOMATED_APPROVER so the near-duplicate and malformed-reason holds apply.
+ *     WhatsApp 24h window / SMS fallback). approver 'agent.sla_chase' deliberately
+ *     is an automated approver (isAutomatedApprover) so the near-duplicate and malformed-reason holds apply.
  *     Ships with customerChase.enabled: false — while off, Ben gets the ping instead.
  *
  * T6a SEAM: quote-prep will grow a 'decline' verdict. To give it an SLA: add a lane branch in
@@ -341,7 +341,7 @@ export type ChaseOutcome = 'sent' | 'queued' | 'suppressed';
 
 /**
  * The canned customer chase, through the SAME rails as every other automated send: queueDraft
- * (GATE 0 opt-out, source dedupe) then approveAndSendDraft with an AUTOMATED_APPROVER-matching
+ * (GATE 0 opt-out, source dedupe) then approveAndSendDraft with an automated (isAutomatedApprover)
  * approver, so the 27 Aug guards (near-duplicate, malformed-reason, 24h window / SMS fallback)
  * all apply. 'queued' means a guard held it for a human — that is the guard working, not a
  * failure. 'suppressed' means it never became a draft (opt-out / duplicate pending).
@@ -356,7 +356,7 @@ async function defaultChase(args: { conversationId: string; phone: string; body:
         dedupe: true,
     });
     if (!draftId) return 'suppressed';
-    const sent = await approveAndSendDraft(draftId, 'comms_agent:sla_chase');
+    const sent = await approveAndSendDraft(draftId, 'agent.sla_chase');
     return sent.ok ? 'sent' : 'queued';
 }
 

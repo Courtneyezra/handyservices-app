@@ -917,7 +917,7 @@ async function runFirstContactAck(input: {
         // release rejects the now-redundant ack instead of sending a generic hello late.
         if (process.env.FIRST_CONTACT_ACK_NO_HOLD === '1') {
             // Test/emergency escape hatch: send immediately, exactly the old behaviour.
-            const result = await approveAndSendDraft(draftId, `first_contact_ack:${input.channel}`);
+            const result = await approveAndSendDraft(draftId, 'rules.first_contact');
             if (!result.ok) {
                 console.warn(`[FirstContact] ${e164}: send refused (${result.code}) — draft ${draftId} left for Ben`);
                 return { sent: false, reason: `SEND_REFUSED:${result.code}`, draftId, intent, contactClass, body };
@@ -1163,7 +1163,7 @@ async function runAutoSendFirstContactDraft(draftId: string, input: {
         }
 
         if (process.env.FIRST_CONTACT_ACK_NO_HOLD === '1') {
-            const result = await approveAndSendDraft(draftId, `first_contact_ack:${input.channel}`);
+            const result = await approveAndSendDraft(draftId, 'rules.first_contact');
             if (!result.ok) {
                 console.warn(`[FirstContact] ${input.phone}: ${input.channel} send refused (${result.code}) — draft ${draftId} left for Ben`);
                 return { sent: false, reason: `SEND_REFUSED:${result.code}`, draftId };

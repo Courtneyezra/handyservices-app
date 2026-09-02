@@ -1098,7 +1098,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     && await isFirstContact({ conversationId: conv.id, phone: e164 });
 
                 if (decision.send || firstContactOk) {
-                    const by = firstContactOk && !decision.send ? 'comms_agent:first_contact_ack' : 'comms_agent:autosend';
+                    const by = firstContactOk && !decision.send ? 'agent.comms' : 'agent.comms.autosend';
                     const sent = await approveAndSendDraft(id, by);
                     if (sent.ok) {
                         autosent = true;

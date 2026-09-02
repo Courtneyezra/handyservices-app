@@ -794,14 +794,14 @@ async function stage8_ledger(base: string): Promise<void> {
     if (dU) {
         created.drafts.push(dU);
         await ledgerRow('draft', dU);
-        const res = await approveAndSendDraft(dU, 'pipeline-e2e@handyservices.com');
+        const res = await approveAndSendDraft(dU, 'human:pipeline-e2e@handyservices.com');
         console.log(`  approveAndSendDraft(unedited) → ${res.ok ? 'sent' : (res as any).code}`);
         const row = await ledgerRow('draft', dU, (r) => r.verdict !== 'pending');
         check('an unedited approval is recorded as approved_unedited', row?.verdict === 'approved_unedited', row?.verdict);
         check('edit distance is 0', Number(row?.edit_distance) === 0, String(row?.edit_distance));
         check('the proposal is not duplicated into final_body when nothing changed', row?.final_body === null);
         check('delivery is recorded separately from the verdict', ['sent', 'failed'].includes(String(row?.send_status)), String(row?.send_status));
-        check('the approver is recorded', row?.decided_by === 'pipeline-e2e@handyservices.com', row?.decided_by);
+        check('the approver is recorded', row?.decided_by === 'human:pipeline-e2e@handyservices.com', row?.decided_by);
         seam('a post-quote capability keeps its identity through approval', row?.capability === 'quote_question', row?.capability);
     }
 
@@ -819,7 +819,7 @@ async function stage8_ledger(base: string): Promise<void> {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: edited }),
         });
         check('the PATCH route accepted Ben\'s edit', patch.ok, String(patch.status));
-        await approveAndSendDraft(dE, 'pipeline-e2e@handyservices.com');
+        await approveAndSendDraft(dE, 'human:pipeline-e2e@handyservices.com');
         const row = await ledgerRow('draft', dE, (r) => r.verdict !== 'pending');
         check('an edited approval is recorded as approved_edited', row?.verdict === 'approved_edited', row?.verdict);
         check('the agent\'s original wording survived the in-place edit', row?.proposed_body === proposed, row?.proposed_body);
