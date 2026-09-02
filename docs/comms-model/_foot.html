@@ -1,0 +1,19 @@
+<section id="verdict">
+  <h2>What the model says</h2>
+  <ul>
+    <li><strong>The desk removes silence, not work.</strong> Unanswered bursts go from 23% to 0% on day one, entirely through templates. Ben's taps stay flat at launch and halve by month 2.</li>
+    <li><strong>Templates do most of the lifting.</strong> At launch 100% of automatic sends are fixed wording. The AI earns its way in one reply type at a time, and the walkthrough shows exactly what a customer sees in the meantime.</li>
+    <li><strong>The Ben lane is the real bottleneck.</strong> A quarter of bursts mention money or dates. Those wait for a human by design, and the 4-hour deadline plus holding line is what keeps the customer warm. Ben's coverage hours decide the customer experience more than any model does.</li>
+    <li><strong>The sorter needs its model call.</strong> Keyword rules alone flagged a curtain-pole enquiry as a money question. The one Haiku call in triage is the difference between 27% and something nearer the measured 17%.</li>
+    <li><strong>Cost is not a factor.</strong> Roughly 8p a day in model spend at measured volume, and about £3 to £4 a month at the volume the brief assumed. Twilio and Meta fees are the same order. Five cities is a config change, not a cost problem.</li>
+    <li><strong>Calls are the front door.</strong> 390 answered calls versus 132 text bursts. The pre-filled quote from the call transcript is the single highest-leverage piece, and it runs at PROPOSE tier with no customer risk.</li>
+  </ul>
+  <h3>What would change the plan</h3>
+  <ul>
+    <li>If Ben's verdict rate in the first two weeks is under half of drafts, fix his hours and pay before touching the software.</li>
+    <li>If the holding line fires on more than a third of bursts after month 2, the Scoper is not earning autonomy fast enough; review the promotion gate.</li>
+    <li>If Ben's personal number cannot be ingested, the silence-breaker cannot ship; every "Ben replied" rule depends on it.</li>
+  </ul>
+  <div class="foot">Replay script: <code>scripts/_comms-desk-replay.ts</code>, re-runnable. Design: <code>docs/COMMS_AGENTS_V3_DESIGN.md</code>. Cost tables: <code>docs/comms-model/cost-model.md</code>. All figures from the production database on 2 Sep 2026 with test data scrubbed. Built in four panes: replay and assembly here, walkthrough, diagrams and cost model in the other three.</div>
+</section>
+</main>

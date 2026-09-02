@@ -1,0 +1,67 @@
+<section id="replay" class="rp">
+  <h2>Replay: the last 90 days through the desk</h2>
+  <p>Every real customer WhatsApp and SMS burst from 4 June to 2 September was pushed through the desk rules exactly as written in the design: drop spam and non-UK numbers, send exceptions to Ben, let the rules layer answer first contact and photos, hand the rest to the Scoper. Two futures are shown. <strong>Launch</strong> is the Scoper drafting for Ben. <strong>Month 2</strong> is the Scoper sending on its own for ordinary replies.</p>
+  <div class="callout"><p><strong>Read the run-rate, not the average.</strong> WhatsApp capture was broken until 15 August, so 96 of the 132 bursts fall in the last 17 days. Since 17 August the desk would see about 40 bursts a week. Ben's replies from his personal phone are not in the database, so "unanswered" is an upper bound and the Ben lane is over-counted by the keyword rules.</p></div>
+
+  <h3>Where each message would go</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Lane</th><th class="n">Bursts</th><th class="n">Share</th><th>What happens</th></tr>
+    <tr><td>Dropped</td><td class="n">15</td><td class="n">11%</td><td>Non-UK numbers. Logged, nothing sent</td></tr>
+    <tr><td>Rules layer <span class="chip send">SEND</span></td><td class="n">38</td><td class="n">29%</td><td>28 first contacts acknowledged, 10 photo receipts. Sent within a minute, any hour</td></tr>
+    <tr><td>Ben's lane <span class="chip ben">FLAG</span></td><td class="n">35</td><td class="n">27%</td><td>27 mention money, 8 mention dates. Flag with a 4-working-hour deadline, holding line at 20 min</td></tr>
+    <tr><td>Scoper <span class="chip draft">DRAFT</span> → <span class="chip send">SEND</span></td><td class="n">44</td><td class="n">33%</td><td>Ordinary scoping replies. Ben approves at launch, automatic by month 2</td></tr>
+  </table></div>
+  <p>A third of bursts arrive out of hours, 30 of them at the weekend. Those are the ones that go silent today.</p>
+
+  <h3>Silence and speed</h3>
+  <div class="tablewrap"><table>
+    <tr><th></th><th class="n">Today</th><th class="n">Launch</th><th class="n">Month 2</th></tr>
+    <tr><td>Bursts with no reply of any kind in 24 h</td><td class="n">27 (23%)</td><td class="n">0</td><td class="n">0</td></tr>
+    <tr><td>Bursts with only a holding line in 24 h</td><td class="n">n/a</td><td class="n">19 (16%)</td><td class="n">17 (15%)</td></tr>
+    <tr><td>Median minutes to first reply, when there is one</td><td class="n">1.5</td><td class="n">20</td><td class="n">2</td></tr>
+    <tr><td>Median minutes when Ben answers himself</td><td class="n">54</td><td class="n">—</td><td class="n">—</td></tr>
+    <tr><td>Out-of-hours: minutes to a real reply, 90th percentile</td><td class="n">silent</td><td class="n">682 (Monday)</td><td class="n">54</td></tr>
+  </table></div>
+  <p>Today's median looks fast because the old agent answered instantly when it worked. Ben on his own takes 54 minutes and a quarter of bursts never get anything. With the desk, nobody waits more than 20 minutes for a human-sounding reply, but at launch a Saturday-night scoping question still waits for Ben on Monday for the real answer. The 15 to 16% that get only a holding line in a day are almost all money and date questions sitting in Ben's lane, which is the design working, not failing.</p>
+
+  <h3>Ben's taps per working day, since 17 August</h3>
+  <div class="tablewrap"><table>
+    <tr><th></th><th class="n">Today</th><th class="n">Launch</th><th class="n">Month 2</th></tr>
+    <tr><td>Manual replies Ben writes</td><td class="n">6.7</td><td class="n">—</td><td class="n">—</td></tr>
+    <tr><td>Flags to answer</td><td class="n">—</td><td class="n">2.2</td><td class="n">2.2</td></tr>
+    <tr><td>Drafts to approve</td><td class="n">—</td><td class="n">2.7</td><td class="n">0</td></tr>
+    <tr><td>Morning spot-checks of automatic sends</td><td class="n">—</td><td class="n">1.2</td><td class="n">1.2</td></tr>
+    <tr><td><strong>Total taps</strong></td><td class="n"><strong>6.7</strong></td><td class="n"><strong>6.1</strong></td><td class="n"><strong>2.8</strong></td></tr>
+  </table></div>
+  <p>Launch does not reduce Ben's load. It changes it from writing to approving, and it collects the verdicts the desk needs to earn its autonomy. Month 2 is where the load halves.</p>
+
+  <h3>What sends automatically, per day</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Kind</th><th class="n">Launch</th><th class="n">Month 2</th><th>Written by</th></tr>
+    <tr><td>First contact and photo receipts</td><td class="n">1.2</td><td class="n">1.2</td><td>Template</td></tr>
+    <tr><td>Silence-breaker at 20 minutes</td><td class="n">3.1</td><td class="n">1.1</td><td>Template</td></tr>
+    <tr><td>Holding line when a flag passes its deadline</td><td class="n">0.5</td><td class="n">0.5</td><td>Template</td></tr>
+    <tr><td>Text-back after a missed call</td><td class="n">0.4</td><td class="n">0.4</td><td>Template</td></tr>
+    <tr><td>Scoper replies</td><td class="n">0</td><td class="n">2.6</td><td>AI, checked by guards</td></tr>
+    <tr><td><strong>All automatic sends</strong></td><td class="n"><strong>5.2</strong></td><td class="n"><strong>5.8</strong></td><td></td></tr>
+  </table></div>
+  <p>At launch every automatic message is a template. The AI writes nothing a customer reads until month 2, and even then only after earning it.</p>
+
+  <h3>Calls, the real front door</h3>
+  <p>467 inbound calls in the window, 390 answered. Each answered call becomes a pre-filled quote for Ben to price, 20 to 50 a week in a normal month. The 77 missed calls each get a text within a minute; that already works today. Model calls to run all of this: about 12 a day.</p>
+
+  <h3>Nine real bursts, then and with the desk</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Case</th><th>When</th><th>They wrote</th><th>What happened</th><th>What the desk does</th></tr>
+    <tr><td>Saturday first contact</td><td>Sat 15 Aug 18:17</td><td>"Hi, I'm looking for someone to do some work for us. When is…"</td><td>Silent for 24 h</td><td>Acknowledged at 18:18, asked for photos and postcode</td></tr>
+    <tr><td>Photos arrive</td><td>Fri 21 Aug 13:24</td><td>"It would go across both windows / There are paper blinds already"</td><td>Replied in 2 min</td><td>Photo receipt at 13:25, Scoper drafts the next question</td></tr>
+    <tr><td>Money question</td><td>Tue 9 Jun 17:16</td><td>"Can you give me a price please to 1) remove 2 doors from my…"</td><td>Silent for 24 h</td><td>Flag to Ben, holding line at 17:36, second nudge next morning</td></tr>
+    <tr><td>Date question</td><td>Sat 13 Jun 15:47</td><td>"Hi, this is Guen from Valstays. We saw online that you carry…"</td><td>Silent for 24 h</td><td>Flag to Ben, holding line at 16:07, deadline Monday noon</td></tr>
+    <tr><td>Mid-scope reply</td><td>Tue 18 Aug 11:32</td><td>"Hiya, the issue is fixed but we will surely let you know in…"</td><td>Replied in 45 min</td><td>Launch: holding line at 11:52, draft for Ben. Month 2: reply at 11:34</td></tr>
+    <tr><td>New business enquiry</td><td>Tue 9 Jun 10:20</td><td>"Good morning, this is Sarah from Creative Building Solutions…"</td><td>Silent for 24 h</td><td>Acknowledged at 10:21, tagged for Ben as a trade enquiry</td></tr>
+    <tr><td>Out of UK</td><td>Thu 4 Jun 02:14</td><td>"Hi"</td><td>Silent</td><td>Dropped, nothing sent, logged</td></tr>
+    <tr><td>Ben was fast</td><td>Fri 21 Aug 11:39</td><td>"thank you, as far as I can see, the first open date is 27th"</td><td>Ben replied in 2 min</td><td>Nothing. Ben's reply suppresses the desk</td></tr>
+    <tr><td>Curtain pole, NG4</td><td>Tue 9 Jun 17:27</td><td>"Hi / I need a curtain pole fitted near NG4 1TF. It's a small…"</td><td>Silent for 24 h</td><td>Keyword rule sent it to Ben's lane; a better sorter would treat it as a first contact and acknowledge at 17:28</td></tr>
+  </table></div>
+  <p>The last row is the honest one. Fixed keyword rules over-flag: "small" and "fitted" are not money questions. The design already says the sorter is rules first and then one model call; the replay shows why the model call is needed.</p>
+</section>

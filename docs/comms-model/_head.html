@@ -1,0 +1,69 @@
+<title>Comms Desk Model</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Shared tokens for the Comms Desk Model page. Use these variables; do not hardcode colours. */
+:root{ --bg:#F4F5F3; --surface:#FFFFFF; --ink:#1B2229; --muted:#5B6670; --line:#D5DAD8;
+  --accent:#1E4FA3; --accent-soft:#E4ECFA; --ben:#A9650B; --ben-soft:#FBEFD9;
+  --send:#23704A; --send-soft:#DDF0E4; --draft:#4B5563; --draft-soft:#E7EAEE;
+  --danger:#9C2F2F; --danger-soft:#F7E1E1; --code:#EEF1EF; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; } }
+:root[data-theme="dark"]{
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; }
+/* Fonts on the master page: Archivo (headings), IBM Plex Sans (body), IBM Plex Mono (labels). Tier chips: .chip.send/.draft/.propose/.ben/.read */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+main{max-width:84ch;margin:0 auto;padding:40px 24px 96px}
+h1,h2,h3{font-family:"Archivo","Helvetica Neue",Arial,sans-serif;text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:2.4rem;font-weight:700;letter-spacing:-.02em}
+main>h2, main>section>h2{font-size:1.45rem;font-weight:700;margin-top:64px;padding-top:18px;border-top:2px solid var(--ink)}
+h3{font-size:1.05rem;font-weight:600;margin-top:28px}
+p{margin:12px 0;max-width:72ch}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.lede{font-size:1.1rem;color:var(--muted);max-width:62ch;margin-top:14px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.86em}
+code{background:var(--code);padding:1px 5px;border-radius:3px}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px 18px;margin:26px 0 0;font-size:.9rem}
+nav.toc a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--line)}
+nav.toc a:hover,nav.toc a:focus{border-bottom-color:var(--accent)}
+.status{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:28px}
+.status>div{background:var(--surface);padding:14px 16px}
+.status .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.status .v{font-weight:600;margin-top:4px;font-size:1.3rem;font-family:"Archivo",sans-serif;font-variant-numeric:tabular-nums}
+.status .s{color:var(--muted);font-size:.8rem;margin-top:2px}
+@media (max-width:720px){.status{grid-template-columns:1fr 1fr}}
+.chip{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.7rem;letter-spacing:.06em;padding:2px 7px;border-radius:3px;font-weight:500;white-space:nowrap;vertical-align:middle}
+.chip.send{background:var(--send-soft);color:var(--send)} .chip.draft{background:var(--draft-soft);color:var(--draft)} .chip.propose{background:var(--accent-soft);color:var(--accent)} .chip.ben{background:var(--ben-soft);color:var(--ben)} .chip.read{background:var(--code);color:var(--muted)}
+.rp table{border-collapse:collapse;width:100%;font-size:.9rem;margin:14px 0}
+.rp .tablewrap{overflow-x:auto}
+.rp th{text-align:left;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:8px 10px 8px 0;border-bottom:1px solid var(--ink);white-space:nowrap}
+.rp td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top;font-variant-numeric:tabular-nums}
+.rp td:first-child{font-weight:500}
+.rp td.n{text-align:right;white-space:nowrap}
+.rp th.n{text-align:right}
+.callout{border-left:3px solid var(--ben);background:var(--ben-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.callout.blue{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout p{margin:6px 0}
+ul{padding-left:20px;margin:10px 0;max-width:72ch} li{margin:6px 0}
+.foot{margin-top:56px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+a{color:var(--accent)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<main>
+  <div class="eyebrow">Handy Services · comms desk · modelled before building · 2 Sep 2026</div>
+  <h1>Comms Desk Model</h1>
+  <p class="lede">Four ways of looking at the proposed comms desk before a line of it is built: what it would have done with the last 90 days of real conversations, a step-by-step walkthrough, the shape of the data, and what it costs to run.</p>
+  <nav class="toc"><a href="#replay">Replay on real threads</a><a href="#walkthrough">Walkthrough</a><a href="#diagrams">Data and flow</a><a href="#cost">Cost and load</a><a href="#verdict">What the model says</a></nav>
+
+  <div class="status">
+    <div><div class="k">Real bursts replayed</div><div class="v">132</div><div class="s">91 days, 56 customers, WhatsApp and SMS</div></div>
+    <div><div class="k">Went unanswered today</div><div class="v">23%</div><div class="s">no reply of any kind within 24 hours</div></div>
+    <div><div class="k">Unanswered with the desk</div><div class="v">0%</div><div class="s">holding line at 20 minutes, by construction</div></div>
+    <div><div class="k">Model cost, measured rates</div><div class="v">8p</div><div class="s">per day, one city, against £5.67 of operator time</div></div>
+  </div>

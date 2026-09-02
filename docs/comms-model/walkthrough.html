@@ -1,0 +1,702 @@
+<section id="walkthrough" class="wt-root" aria-labelledby="wt-title">
+<style>
+#walkthrough{color:var(--ink);background:var(--bg);font-family:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;line-height:1.5;padding:32px 20px 48px}
+#walkthrough *{box-sizing:border-box}
+#walkthrough .wt-inner{max-width:1120px;margin:0 auto}
+#walkthrough .wt-head{margin:0 0 6px;font-family:Archivo,'IBM Plex Sans',system-ui,sans-serif;font-size:28px;line-height:1.15;letter-spacing:-0.01em}
+#walkthrough .wt-lede{margin:0 0 20px;color:var(--muted);max-width:720px}
+#walkthrough .wt-mono{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+
+/* scenario picker */
+#walkthrough .wt-picker{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;padding:0;list-style:none}
+#walkthrough .wt-pick{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px 7px 9px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:border-color .15s,background .15s}
+#walkthrough .wt-pick:hover{border-color:var(--accent)}
+#walkthrough .wt-pick[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+#walkthrough .wt-pick .wt-num{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--code);color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px}
+#walkthrough .wt-pick[aria-pressed="true"] .wt-num{background:var(--surface);color:var(--accent)}
+
+/* scenario header */
+#walkthrough .wt-scene{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+#walkthrough .wt-scene-top{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-start;justify-content:space-between}
+#walkthrough .wt-scene h3{margin:0 0 4px;font-family:Archivo,'IBM Plex Sans',system-ui,sans-serif;font-size:20px;line-height:1.2}
+#walkthrough .wt-when{color:var(--muted);font-size:14px;margin:0}
+#walkthrough .wt-toggle{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--code)}
+#walkthrough .wt-toggle button{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:8px 14px;cursor:pointer}
+#walkthrough .wt-toggle button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+#walkthrough .wt-toggle-label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em}
+
+/* controls */
+#walkthrough .wt-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0 0}
+#walkthrough .wt-btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 14px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+#walkthrough .wt-btn:hover{border-color:var(--accent)}
+#walkthrough .wt-btn[disabled]{opacity:.45;cursor:default}
+#walkthrough .wt-btn.wt-primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+#walkthrough .wt-progress{margin-left:auto;color:var(--muted);font-size:13px}
+
+/* trace */
+#walkthrough .wt-trace{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+#walkthrough .wt-row{display:grid;grid-template-columns:150px 1fr auto;gap:12px 16px;padding:13px 18px;border-top:1px solid var(--line);align-items:start}
+#walkthrough .wt-row:first-child{border-top:0}
+#walkthrough .wt-row[hidden]{display:none}
+#walkthrough .wt-row.wt-new{animation:wt-in .25s ease-out}
+@keyframes wt-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+#walkthrough .wt-stage{font-weight:700;font-size:14px;line-height:1.35}
+#walkthrough .wt-stage .wt-t{display:block;color:var(--muted);font-weight:500;font-family:'IBM Plex Mono',monospace;font-size:11.5px;margin-top:2px}
+#walkthrough .wt-what{font-size:14.5px}
+#walkthrough .wt-ledger{display:block;margin-top:5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11.5px;word-break:break-word}
+#walkthrough .wt-ledger::before{content:"ledger  ";opacity:.7}
+#walkthrough .wt-chip{display:inline-block;white-space:nowrap;border-radius:999px;padding:3px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border:1px solid transparent}
+#walkthrough .wt-chip.wt-send{background:var(--send-soft);color:var(--send)}
+#walkthrough .wt-chip.wt-pending{background:var(--draft-soft);color:var(--draft)}
+#walkthrough .wt-chip.wt-flag{background:var(--ben-soft);color:var(--ben)}
+#walkthrough .wt-chip.wt-dropped{background:var(--danger-soft);color:var(--danger)}
+#walkthrough .wt-chip.wt-ok{background:var(--code);color:var(--muted)}
+#walkthrough .wt-chip.wt-propose{background:var(--accent-soft);color:var(--accent)}
+
+/* panels */
+#walkthrough .wt-panels{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+#walkthrough .wt-panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;min-height:220px}
+#walkthrough .wt-panel h4{margin:0 0 12px;font-family:Archivo,'IBM Plex Sans',system-ui,sans-serif;font-size:15px;display:flex;align-items:center;gap:8px}
+#walkthrough .wt-panel h4 .wt-dot{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+#walkthrough .wt-panel.wt-ben h4 .wt-dot{background:var(--ben)}
+#walkthrough .wt-thread{display:flex;flex-direction:column;gap:9px}
+#walkthrough .wt-msg{max-width:88%;display:flex;flex-direction:column;gap:3px}
+#walkthrough .wt-msg[hidden]{display:none}
+#walkthrough .wt-msg.wt-customer{align-self:flex-start}
+#walkthrough .wt-msg.wt-system,#walkthrough .wt-msg.wt-ben{align-self:flex-end;align-items:flex-end}
+#walkthrough .wt-bubble{border-radius:14px;padding:9px 13px;font-size:14px;line-height:1.45;white-space:pre-line;border:1px solid var(--line);background:var(--code);color:var(--ink)}
+#walkthrough .wt-msg.wt-customer .wt-bubble{border-bottom-left-radius:4px}
+#walkthrough .wt-msg.wt-system .wt-bubble{background:var(--accent-soft);border-color:transparent;border-bottom-right-radius:4px}
+#walkthrough .wt-msg.wt-ben .wt-bubble{background:var(--ben-soft);border-color:transparent;border-bottom-right-radius:4px}
+#walkthrough .wt-meta{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px}
+#walkthrough .wt-media{display:inline-flex;gap:4px;margin-bottom:4px}
+#walkthrough .wt-media span{width:44px;height:36px;border-radius:6px;background:var(--line);display:inline-grid;place-items:center;font-size:11px;color:var(--muted)}
+#walkthrough .wt-silence{align-self:center;color:var(--muted);font-size:12.5px;font-style:italic;padding:2px 0}
+#walkthrough .wt-silence[hidden]{display:none}
+
+/* Ben items */
+#walkthrough .wt-benlist{display:flex;flex-direction:column;gap:10px}
+#walkthrough .wt-item{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg)}
+#walkthrough .wt-item[hidden]{display:none}
+#walkthrough .wt-item.wt-pending{border-left:4px solid var(--draft)}
+#walkthrough .wt-item.wt-flag{border-left:4px solid var(--ben)}
+#walkthrough .wt-item.wt-urgent{border-left:4px solid var(--danger)}
+#walkthrough .wt-item.wt-card{border-left:4px solid var(--accent)}
+#walkthrough .wt-item.wt-done{opacity:.72}
+#walkthrough .wt-item-top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;margin-bottom:6px}
+#walkthrough .wt-kind{font-weight:700;font-size:13.5px}
+#walkthrough .wt-due{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ben);background:var(--ben-soft);border-radius:6px;padding:2px 7px}
+#walkthrough .wt-item.wt-urgent .wt-due{color:var(--danger);background:var(--danger-soft)}
+#walkthrough .wt-item.wt-pending .wt-due{color:var(--draft);background:var(--draft-soft)}
+#walkthrough .wt-item.wt-card .wt-due{color:var(--accent);background:var(--accent-soft)}
+#walkthrough .wt-item.wt-done .wt-due{color:var(--send);background:var(--send-soft)}
+#walkthrough .wt-item-body{font-size:14px;white-space:pre-line}
+#walkthrough .wt-draft{margin:8px 0 0;padding:9px 12px;border-radius:9px;background:var(--surface);border:1px dashed var(--line);white-space:pre-line;font-size:13.5px}
+#walkthrough .wt-lines{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+#walkthrough .wt-lines li{display:flex;justify-content:space-between;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13.5px}
+#walkthrough .wt-lines .wt-cat{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;white-space:nowrap}
+#walkthrough .wt-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+#walkthrough .wt-fake{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:7px;padding:4px 10px;font:inherit;font-size:12.5px;font-weight:600;cursor:default}
+#walkthrough .wt-fake.wt-go{background:var(--send-soft);color:var(--send);border-color:transparent}
+#walkthrough .wt-fake.wt-no{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+#walkthrough .wt-note{margin-top:7px;font-size:12.5px;color:var(--muted)}
+#walkthrough .wt-empty{color:var(--muted);font-size:14px;padding:20px 8px;text-align:center;border:1px dashed var(--line);border-radius:10px}
+#walkthrough .wt-empty[hidden]{display:none}
+
+/* legend */
+#walkthrough .wt-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:14px 0 0;color:var(--muted);font-size:12.5px;align-items:center}
+
+@media (max-width:760px){
+  #walkthrough .wt-row{grid-template-columns:1fr;gap:6px}
+  #walkthrough .wt-row .wt-chip{justify-self:start}
+  #walkthrough .wt-panels{grid-template-columns:1fr}
+  #walkthrough .wt-head{font-size:24px}
+}
+</style>
+
+<div class="wt-inner">
+  <h2 class="wt-head" id="wt-title">Walk a message through the desk</h2>
+  <p class="wt-lede">Pick a scenario and watch one customer message go through the spine, stage by stage. Every send carries a run id. Every flag and draft has a due time. At launch the only thing that sends on its own is the rules layer.</p>
+
+  <ul class="wt-picker" id="wt-picker" aria-label="Scenarios"></ul>
+
+  <div class="wt-scene">
+    <div class="wt-scene-top">
+      <div>
+        <h3 id="wt-scene-title"></h3>
+        <p class="wt-when" id="wt-scene-when"></p>
+      </div>
+      <div id="wt-variant" hidden>
+        <span class="wt-toggle-label" id="wt-variant-label"></span>
+        <div class="wt-toggle" id="wt-variant-toggle" role="group"></div>
+      </div>
+    </div>
+    <div class="wt-controls">
+      <button type="button" class="wt-btn wt-primary" id="wt-next">Next step</button>
+      <button type="button" class="wt-btn" id="wt-all">Show all</button>
+      <button type="button" class="wt-btn" id="wt-restart">Step through from the start</button>
+      <span class="wt-progress" id="wt-progress"></span>
+    </div>
+  </div>
+
+  <ol class="wt-trace" id="wt-trace" aria-live="polite"></ol>
+
+  <div class="wt-legend">
+    <span><span class="wt-chip wt-send">send</span> went out, with a run id</span>
+    <span><span class="wt-chip wt-pending">pending</span> draft waiting for Ben, has a due time</span>
+    <span><span class="wt-chip wt-flag">flag</span> exception for Ben, has a due time</span>
+    <span><span class="wt-chip wt-propose">propose</span> work prepared for Ben, nothing sent</span>
+    <span><span class="wt-chip wt-dropped">dropped</span> nothing sent, logged</span>
+  </div>
+
+  <div class="wt-panels">
+    <div class="wt-panel">
+      <h4><span class="wt-dot"></span>What the customer sees</h4>
+      <div class="wt-thread" id="wt-customer"></div>
+    </div>
+    <div class="wt-panel wt-ben">
+      <h4><span class="wt-dot"></span>What Ben sees</h4>
+      <div class="wt-benlist" id="wt-ben"></div>
+      <div class="wt-empty" id="wt-ben-empty" hidden></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var root = document.getElementById('walkthrough');
+  if (!root) return;
+
+  /* ---------- helpers for building content ---------- */
+  function step(stage, t, what, chip, ledger){ return {stage:stage, t:t, what:what, chip:chip||'ok', ledger:ledger||''}; }
+  function cust(at, time, text, meta, media){ return {who:'customer', at:at, time:time, text:text, meta:meta||'', media:media||0}; }
+  function sys(at, time, text, meta){ return {who:'system', at:at, time:time, text:text, meta:meta||''}; }
+  function ben(at, time, text, meta){ return {who:'ben', at:at, time:time, text:text, meta:meta||''}; }
+  function gap(at, text){ return {who:'silence', at:at, text:text}; }
+  function item(at, kind, title, due, body, extra){ var o = {at:at, kind:kind, title:title, due:due, body:body}; if (extra) for (var k in extra) o[k]=extra[k]; return o; }
+
+  /* ---------- scenarios ---------- */
+  var SCENARIOS = [
+  {
+    id:'first-whatsapp', label:'First WhatsApp, Sat night',
+    title:'First-ever WhatsApp on a Saturday night',
+    when:'Saturday 21:30. New number, never heard from before. Doors and a shelf, NG5.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Sat 21:30','WhatsApp lands from a number we have never seen. A new conversation is opened and the message is written to the ledger before anything else happens.','ok','message_in  conv_5k2m  channel=whatsapp'),
+        step('Claim','Sat 21:30','requestRun claims the thread and waits 90 seconds in case more messages follow. Nothing else can run an agent on this thread while the claim is held.','ok','run_started  run_a17c3e  trigger=inbound'),
+        step('Case file','Sat 21:30','One inbound message, no client record, no quote, no open flags. WhatsApp window is open for 24 hours. Policy pack resolved: rules.first_contact.','ok','case_file_ref=cf_9b0d  model_snapshot=none yet'),
+        step('Triage','Sat 21:30','Pre-checks pass: UK number, NG5 is inside Nottingham coverage, no spam pattern, no money, date or complaint words. First contact. Haiku sorts it: intent new_enquiry, lane scoping, no exceptions.','ok','tags+=first_contact  stage=scoping'),
+        step('Policy pack','Sat 21:30','rules.first_contact is at SEND. It allows ack_enquiry and ask_media. Reactive replies are allowed 24/7, so Saturday night is fine.','ok','pack=rules.first_contact v3'),
+        step('Worker','Sat 21:31','The rules layer, not an agent. It picks the out-of-hours ack template plus the photo ask. There is nothing to reason about and no model call.','ok'),
+        step('Guards','Sat 21:31','Template only, so no money, dates or promises can be in it by construction. Opt-out check clear. Window open, so freeform WhatsApp is deliverable.','ok','guards_hit=[]'),
+        step('Decision','Sat 21:31','SEND. Intent is at SEND tier in this pack, no exception on the thread, hours allow, channel deliverable.','send','decision=send  approver=rules.first_contact'),
+        step('Outbox / Ben','Sat 21:31','sendCustomerMessage(run_a17c3e, rules.first_contact) writes the ledger and sends over WhatsApp. Ben gets nothing tonight. The customer has a reply within a minute.','send','message_out  run_a17c3e  sent_by=rules.first_contact'),
+        step('Worker','Mon 08:30','The Scoper (Sonnet) is at DRAFT for every intent at launch, so its run is scheduled into Ben’s hours. It reads the case file and proposes an ask_gap draft.','ok','run_started  run_b82f10  agent=scoper'),
+        step('Guards','Mon 08:30','Money guard, date guard, capability guard, voice guard all pass. One question, no greeting repeat, no names in the third person.','ok','guards_hit=[]'),
+        step('Decision','Mon 08:30','PENDING. ask_gap is at DRAFT in customer.default, so the proposal goes to Ben with a due time of four working hours.','pending','draft_created  run_b82f10  due_at=Mon 12:30'),
+        step('Outbox / Ben','Mon 08:30','Nothing sent. Ben sees a pending draft with a due time. If he has not acted by 12:30 the rules layer sends one holding line so the customer is not left in silence.','pending','decision=pending  approver=none')
+      ],
+      customer:[
+        cust(0,'Sat 21:30','Hi, need a couple of doors hung and a shelf up, NG5'),
+        sys(8,'Sat 21:31','Hi, thanks for getting in touch with Handy Services. You’ve caught us out of hours, so we’ll come back to you here first thing.\n\nCould you send a couple of photos of the doors and where the shelf is going?','rules.first_contact · run_a17c3e')
+      ],
+      ben:[
+        item(12,'pending','Pending draft · ask_gap','due Mon 12:30','Draft from the Scoper on the NG5 doors and shelf thread. Approve, edit or reject. Your tap is a verdict.',{draft:'Morning. Are they internal doors, and have you already got them or do you need us to supply?', actions:['Approve','Edit','Reject'], note:'drafted_by agent.scoper · run_b82f10 · if untouched by 12:30 a holding line goes out and this stays in the queue'})
+      ]
+    }]
+  },
+  {
+    id:'missed-call', label:'Missed call, voicemail',
+    title:'Missed call with a voicemail',
+    when:'Tuesday 14:10. Ben is on a job. The caller leaves a 38-second voicemail: leaking kitchen tap and a loose bath panel, NG7.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Tue 14:10','Call ends unanswered. Recording is longer than 10 seconds so it goes to nova-3 for a transcript. The call and transcript are written to the ledger.','ok','call_in  rec=38s  transcript=ok'),
+        step('Claim','Tue 14:10','requestRun claims the thread. Trigger is call_end, the same path as an inbound text.','ok','run_started  run_c40d9a  trigger=call_end'),
+        step('Case file','Tue 14:10','One call with transcript, no prior contact, no WhatsApp window (they have never messaged us). Pack: rules.first_contact.','ok','case_file_ref=cf_1e77'),
+        step('Triage','Tue 14:10','Pre-checks pass. First contact. Haiku reads the transcript: intent new_enquiry, lane scoping, no exceptions. It tags needs_quote because the voicemail already describes the job.','ok','tags+=first_contact,needs_quote'),
+        step('Policy pack','Tue 14:10','rules.first_contact at SEND. ack_missed_call and ask_media allowed.','ok','pack=rules.first_contact v3'),
+        step('Worker','Tue 14:11','Rules layer. No WhatsApp window is open, so the ladder uses the approved missed-call template on WhatsApp, and SMS if that fails.','ok'),
+        step('Guards','Tue 14:11','Template only. Opt-out clear. Window closed, so the template ladder applies.','ok','channel=wa_template'),
+        step('Decision','Tue 14:11','SEND.','send','decision=send  approver=rules.first_contact'),
+        step('Outbox / Ben','Tue 14:11','Text-back goes out within a minute of the missed call.','send','message_out  run_c40d9a'),
+        step('Ingest','Tue 14:26','Customer replies with three photos. Written to the ledger. The WhatsApp window is now open.','ok','message_in  media=3'),
+        step('Triage','Tue 14:26','Photos on a thread that already has needs_quote. Intent ack_photos, lane gathering. No exceptions.','ok','stage=gathering'),
+        step('Worker','Tue 14:27','Rules layer sends ack_photos. In the same burst the Quote clerk (Sonnet, PROPOSE) reads the transcript plus the photos and prepares an intake.','ok','run_started  run_d5a1b3  agent=quote_clerk'),
+        step('Guards','Tue 14:27','The ack is a template. The clerk’s intake never goes to the customer, so no customer guards apply. It carries no price and no date because its tool cannot write one.','ok'),
+        step('Decision','Tue 14:27','SEND for the ack. PROPOSE for the intake: prefilled lines and ticked media for Ben, never a price.','send','message_out  run_d5a1b3  +  proposal=intake'),
+        step('Outbox / Ben','Tue 14:27','Customer gets the ack. Ben sees a quote card with two scope lines and one gap. He prices it and sends it in under a minute.','propose','draft_created(kind=intake)  run_d5a1b3')
+      ],
+      customer:[
+        cust(0,'Tue 14:10','☎ Missed call, 38s voicemail: “Hi it’s Priya, my kitchen tap’s dripping under the sink and the bath panel’s come loose, NG7. Can someone call me back?”','voicemail'),
+        sys(8,'Tue 14:11','Sorry we missed your call, it’s Handy Services. We’ll pick this up here on text shortly.\n\nCould you send a couple of photos of the tap and the bath panel?','rules.first_contact · run_c40d9a · wa template'),
+        cust(9,'Tue 14:26','Here you go, tap and the bath panel','',3),
+        sys(14,'Tue 14:27','Perfect, thanks for those. We’ll get a quote over to you shortly.','rules.first_contact · run_d5a1b3')
+      ],
+      ben:[
+        item(15,'card','Quote card · Priya, NG7','ready Tue 14:27','From the voicemail and 3 photos. Lines are scope only. You price it.',{lines:[['Replace kitchen mixer tap, drip under sink','plumbing'],['Refix loose bath panel','bathroom']], gaps:'Gap already asked: is the new tap supplied?', actions:['Open in builder','Attach 3 photos','Dismiss'], note:'proposed_by agent.quote_clerk · run_d5a1b3 · category on every line'})
+      ]
+    }]
+  },
+  {
+    id:'money-question', label:'“How much roughly?”',
+    title:'Customer asks for a rough price',
+    when:'Monday 10:05, same NG5 doors thread. “How much roughly for the doors?” Any money figure is Ben’s, always.',
+    variantLabel:'What Ben does',
+    variants:[
+      { key:'answers', label:'Ben answers 11:20',
+        trace:[
+          step('Ingest','Mon 10:05','Message lands on the existing thread and goes to the ledger.','ok','message_in  conv_5k2m'),
+          step('Claim','Mon 10:05','Thread claimed.','ok','run_started  run_e91a44'),
+          step('Case file','Mon 10:05','Thread history, the pending Scoper draft from 08:30, no quote yet. Pack would be customer.default.','ok'),
+          step('Triage','Mon 10:05','The keyword lexicon catches “how much” before any model runs. Exception: money_question. Exceptions go to Ben’s lane before any agent is allowed to run.','flag','exceptions=[money_question]'),
+          step('Policy pack','Mon 10:05','customer.exception. It allows no intents at all. Money is absent from every customer pack’s vocabulary, so no agent could answer this even if asked to.','ok','pack=customer.exception'),
+          step('Worker','Mon 10:05','No agent runs. The Scoper is skipped for this burst.','ok','agent=none'),
+          step('Guards','Mon 10:05','Nothing to guard. Nothing was proposed.','ok'),
+          step('Decision','Mon 10:05','FLAG with a due time of four working hours. One Pushover to Ben. The 08:30 draft is held behind the flag so it cannot go out while a money question is open.','flag','flag_raised  run_e91a44  due_at=Mon 14:05'),
+          step('Outbox / Ben','Mon 10:05','Nothing sent. Ben sees the flag with the due time and the customer’s exact words.','flag','pushover  digest_at=09:00 next day if still open'),
+          step('Outbox / Ben','Mon 11:20','Ben answers from the workbench. His reply goes through the same exit with approver human:ben, so it is in the ledger like everything else. The flag auto-closes.','send','message_out  run_f02c7d  sent_by=human:ben  flag_closed')
+        ],
+        customer:[
+          cust(0,'Mon 10:05','How much roughly for the doors?'),
+          ben(9,'Mon 11:20','Morning. I’ll price it properly once I’ve seen the photos, so I’m not guessing. Are they internal doors?','human:ben · run_f02c7d')
+        ],
+        ben:[
+          item(8,'flag','Flag · money_question','due Mon 14:05','Customer asked: “How much roughly for the doors?”\nThe system will not answer this. The pending ask_gap draft is held behind this flag.',{actions:['Reply','Open quote builder','Close flag'], note:'run_e91a44 · if untouched by 14:05 one template holding line goes out and it re-flags once'}),
+          item(9,'flag done','Flag closed · answered by Ben','closed Mon 11:20','Ben replied from the workbench. Flag auto-closed. Held draft released, and now stale, so Ben rejected it with reason wrong_move.',{note:'flag_closed · draft_rejected reason=wrong_move'})
+        ]
+      },
+      { key:'misses', label:'Ben misses it',
+        trace:[
+          step('Ingest','Mon 10:05','Message lands on the existing thread and goes to the ledger.','ok','message_in  conv_5k2m'),
+          step('Claim','Mon 10:05','Thread claimed.','ok','run_started  run_e91a44'),
+          step('Case file','Mon 10:05','Thread history, the pending Scoper draft from 08:30, no quote yet.','ok'),
+          step('Triage','Mon 10:05','The keyword lexicon catches “how much” before any model runs. Exception: money_question.','flag','exceptions=[money_question]'),
+          step('Policy pack','Mon 10:05','customer.exception. No intents allowed.','ok','pack=customer.exception'),
+          step('Worker','Mon 10:05','No agent runs.','ok','agent=none'),
+          step('Guards','Mon 10:05','Nothing to guard.','ok'),
+          step('Decision','Mon 10:05','FLAG, due in four working hours. One Pushover to Ben.','flag','flag_raised  run_e91a44  due_at=Mon 14:05'),
+          step('Outbox / Ben','Mon 10:05','Nothing sent. Ben sees the flag with the due time.','flag'),
+          step('Worker','Mon 14:05','Due time passes with no reply from either of Ben’s numbers. The rules layer, not an agent, picks the holding template for an expired flag.','ok','flag_expired  run_e91a44'),
+          step('Guards','Mon 14:05','Template only. It contains no figure and no time promise. Suppressed if any outbound had landed since 10:05. None did.','ok','suppress_check=no outbound since 10:05'),
+          step('Decision','Mon 14:05','SEND one holding line and re-flag once with a new due time. Silence is a failure, so the customer hears something even when Ben is busy.','send','decision=send  approver=rules.followup'),
+          step('Outbox / Ben','Mon 14:06','Holding line goes out. Ben’s flag is now past due and re-raised. It shows in the 09:00 digest tomorrow if still open.','flag','message_out  run_g33e18  sent_by=rules.followup  flag_raised due_at=Mon 18:05')
+        ],
+        customer:[
+          cust(0,'Mon 10:05','How much roughly for the doors?'),
+          gap(9,'four hours pass, Ben is on a job'),
+          sys(12,'Mon 14:06','Just so you know, we’ve seen this and it’s being looked at. We’ll come back to you properly shortly.','rules.followup · holding line · run_g33e18')
+        ],
+        ben:[
+          item(8,'flag','Flag · money_question','due Mon 14:05','Customer asked: “How much roughly for the doors?”\nThe system will not answer this.',{actions:['Reply','Open quote builder','Close flag'], note:'run_e91a44'}),
+          item(12,'flag urgent','Flag past due · re-raised once','due Mon 18:05','Holding line sent at 14:06. Customer is still waiting for a real answer. This will not re-flag again, it goes to the 09:00 digest.',{actions:['Reply now','Open quote builder'], note:'flag_expired · message_out run_g33e18 · flag_raised (2 of 2)'})
+        ]
+      }
+    ]
+  },
+  {
+    id:'date-question', label:'“Can you do Thursday?”',
+    title:'Customer asks for a specific day',
+    when:'Wednesday 11:05. Quote sent yesterday and viewed. “Can you do Thursday morning?” The system may point at the picker. It may never confirm a day.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Wed 11:05','Message lands on a thread with a live quote.','ok','message_in  conv_8p4t'),
+        step('Claim','Wed 11:05','Thread claimed.','ok','run_started  run_h12b09'),
+        step('Case file','Wed 11:05','Live quote, viewed twice, not paid. Booking picker is on the quote page. Pack would be customer.post_quote.','ok','quote=QTE-0311 viewed=2 paid=no'),
+        step('Triage','Wed 11:05','Lexicon catches “Thursday”. Exception: date_question. Goes to Ben’s lane before any agent runs.','flag','exceptions=[date_question]'),
+        step('Policy pack','Wed 11:05','customer.exception. Dates are absent from every customer pack, so no agent can say yes to Thursday, or no. Only the picker on the quote page can hold a date.','ok','pack=customer.exception'),
+        step('Worker','Wed 11:05','No agent runs.','ok','agent=none'),
+        step('Guards','Wed 11:05','Nothing proposed.','ok'),
+        step('Decision','Wed 11:05','FLAG, due in four working hours. The flag carries a one-tap point_to_picker template for Ben because that is the only safe reply the system knows.','flag','flag_raised  run_h12b09  due_at=Wed 15:05'),
+        step('Outbox / Ben','Wed 11:05','Nothing sent. Ben sees the flag.','flag'),
+        step('Outbox / Ben','Wed 11:40','Ben taps the picker template. It sends as human:ben. It points at the quote page and confirms nothing. If Ben wants to say Thursday is fine, he types it himself, and that is on him, not the system.','send','message_out  run_j77d21  sent_by=human:ben  template=point_to_picker  flag_closed')
+      ],
+      customer:[
+        cust(0,'Wed 11:05','Can you do Thursday morning?'),
+        ben(9,'Wed 11:40','Pick whichever day works for you on your quote page and it locks in from there. The link’s just above 🙂','human:ben · point_to_picker · run_j77d21')
+      ],
+      ben:[
+        item(8,'flag','Flag · date_question','due Wed 15:05','Customer asked: “Can you do Thursday morning?”\nCheck the calendar yourself. The system will not confirm or refuse a day.',{draft:'Pick whichever day works for you on your quote page and it locks in from there. The link’s just above 🙂', actions:['Send picker line','Reply my own way','Close flag'], note:'run_h12b09 · template point_to_picker, one tap, sent as you'}),
+        item(9,'flag done','Flag closed · picker line sent','closed Wed 11:40','Sent as human:ben. Nothing about Thursday was written by the system.',{note:'message_out run_j77d21 · flag_closed'})
+      ]
+    }]
+  },
+  {
+    id:'complaint', label:'Complaint: shelf fell',
+    title:'A complaint about last week’s job',
+    when:'Thursday 17:50. “The shelf you put up last week has come off the wall.” Complaints are always Ben, and the system never apologises in a way that admits fault.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Thu 17:50','Message lands on a thread with a completed, paid job.','ok','message_in  conv_2w9c'),
+        step('Claim','Thu 17:50','Thread claimed.','ok','run_started  run_k58f30'),
+        step('Case file','Thu 17:50','Paid invoice from last week, job marked complete, contractor on the job was Craig. No open flags.','ok','invoice=paid  job=complete'),
+        step('Triage','Thu 17:50','Lexicon catches “come off the wall” and “you put up”. Exception: complaint. Haiku is still run to tag it, but the lane is already Ben’s.','flag','exceptions=[complaint]  tags+=trust_concern'),
+        step('Policy pack','Thu 17:50','customer.exception. No intents allowed. The pack sets complaint due time to 60 minutes and Pushover priority high, that is config, not code.','ok','pack=customer.exception  due=60m  priority=high'),
+        step('Worker','Thu 17:50','No agent runs. No AI writes to a person who is upset.','ok','agent=none'),
+        step('Guards','Thu 17:50','Nothing proposed.','ok'),
+        step('Decision','Thu 17:50','FLAG, urgent. Ben’s phone is pinged now, not in the morning digest. The thread is locked for every non-human approver until the flag closes.','flag','flag_raised  run_k58f30  due_at=Thu 18:50  pushover=high'),
+        step('Outbox / Ben','Thu 17:50','Nothing sent yet. Ben sees an urgent flag with the customer’s words and the job history in one place.','flag'),
+        step('Worker','Thu 18:50','No reply from Ben by the due time. The rules layer picks the complaint holding template.','ok','flag_expired  run_k58f30'),
+        step('Guards','Thu 18:50','Template only. It says we have seen it and it is being treated as a priority. It does not say sorry for the work, does not blame anyone and does not promise a fix or a refund. Suppressed if Ben had replied from either number.','ok','liability=none by construction'),
+        step('Decision','Thu 18:51','SEND one holding line, re-flag once.','send','decision=send  approver=rules.followup'),
+        step('Outbox / Ben','Thu 18:51','Holding line goes out. Ben’s flag is past due and pinged again.','flag','message_out  run_m91a02  sent_by=rules.followup  flag_raised due_at=Thu 19:50')
+      ],
+      customer:[
+        cust(0,'Thu 17:50','The shelf you put up last week has come off the wall'),
+        gap(9,'an hour passes'),
+        sys(12,'Thu 18:51','We’ve seen this and it’s being treated as a priority. Someone will come back to you personally very shortly.','rules.followup · complaint holding line · run_m91a02')
+      ],
+      ben:[
+        item(8,'flag urgent','Urgent flag · complaint','due Thu 18:50','“The shelf you put up last week has come off the wall.”\nJob: shelf, completed last week by Craig, invoice paid. Phone pinged.',{actions:['Call customer','Reply','Book return visit'], note:'run_k58f30 · thread locked to human replies while open'}),
+        item(12,'flag urgent','Past due · holding line sent','due Thu 19:50','Customer has had one holding line. Nothing has apologised for the work or promised anything. This needs you.',{actions:['Call customer','Reply'], note:'flag_expired · message_out run_m91a02 · re-flagged once'})
+      ]
+    }]
+  },
+  {
+    id:'mid-scope', label:'Mid-scope reply',
+    title:'Customer answers a scoping question',
+    when:'Tuesday 10:05. Reply to yesterday’s question: “yes both doors are internal, standard size.” Same message, two moments in the rollout.',
+    variantLabel:'Where we are in the rollout',
+    variants:[
+      { key:'launch', label:'LAUNCH',
+        trace:[
+          step('Ingest','Tue 10:05','Reply lands on the doors thread.','ok','message_in  conv_5k2m'),
+          step('Claim','Tue 10:05','Thread claimed.','ok','run_started  run_n24e77  agent=scoper'),
+          step('Case file','Tue 10:05','Thread history with our question and their answer, no quote yet, no open flags. Pack: customer.default.','ok','case_file_ref=cf_3a1c  model_snapshot=sonnet-5'),
+          step('Triage','Tue 10:05','Pre-checks pass, no exception words. Haiku: intent scope_answer, lane scoping, no exceptions.','ok','lane=scoping'),
+          step('Policy pack','Tue 10:05','customer.default. At launch every Scoper intent is DRAFT.','ok','tier(confirm_received)=DRAFT  tier(ask_gap)=DRAFT'),
+          step('Worker','Tue 10:05','The Scoper reads the case file and proposes one reply: confirm what they said, then ask the one gap left, the shelf wall.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Tue 10:05','Money, date, capability, duration, voice: all pass. No greeting repeat, one question.','ok','guards_hit=[]'),
+          step('Decision','Tue 10:05','PENDING. The intents are at DRAFT, so it goes to Ben with a due time.','pending','draft_created  run_n24e77  due_at=Tue 14:05'),
+          step('Outbox / Ben','Tue 10:05','Nothing sent. Ben sees the draft. His approve, edit or reject is a verdict with a reason code, and 30 of those across the pack is what earns SEND.','pending'),
+          step('Outbox / Ben','Tue 10:41','Ben approves unedited. The draft goes out with drafted_by agent.scoper and sent_by human:ben. Verdict logged: fine.','send','draft_approved  message_out  run_n24e77  verdict=fine')
+        ],
+        customer:[
+          cust(0,'Tue 10:05','yes both doors are internal, standard size'),
+          sys(9,'Tue 10:41','Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?','drafted agent.scoper · approved human:ben · run_n24e77')
+        ],
+        ben:[
+          item(8,'pending','Pending draft · confirm_received + ask_gap','due Tue 14:05','One tap. Your reason code feeds the promotion count for this intent.',{draft:'Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?', actions:['Approve','Edit','Reject'], note:'run_n24e77 · verdicts on this pack so far: 11 of 30'}),
+          item(9,'pending done','Approved unedited · sent','sent Tue 10:41','Verdict: fine. Verdicts on this pack: 12 of 30.',{note:'draft_approved · message_out run_n24e77'})
+        ]
+      },
+      { key:'month2', label:'MONTH 2',
+        trace:[
+          step('Ingest','Tue 10:05','Reply lands on the doors thread.','ok','message_in  conv_5k2m'),
+          step('Claim','Tue 10:05','Thread claimed.','ok','run_started  run_p66c12  agent=scoper'),
+          step('Case file','Tue 10:05','Same case file as before.','ok','case_file_ref=cf_3a1c  model_snapshot=sonnet-5'),
+          step('Triage','Tue 10:05','No exception words. Intent scope_answer, lane scoping.','ok','lane=scoping'),
+          step('Policy pack','Tue 10:05','customer.default. confirm_received and ask_gap have earned SEND: eval family at pass^3 100%, 34 verdicts in 30 days at 94% unedited, zero unsafe ever, zero guard escalations in 14 days.','ok','tier(confirm_received)=SEND  tier(ask_gap)=SEND  promoted 4 weeks ago'),
+          step('Worker','Tue 10:05','The Scoper proposes the same reply.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Tue 10:05','All pass. Guards do not relax when an intent is promoted. Any guard hit would drop it back to PENDING.','ok','guards_hit=[]'),
+          step('Decision','Tue 10:06','SEND. Intents at SEND in this pack, no exception on the thread, reactive so hours allow, window open.','send','decision=send  approver=agent.scoper'),
+          step('Outbox / Ben','Tue 10:06','Goes out with approver agent.scoper. Ben does not see it today. The Verifier puts 1 in 10 of these in his morning strip so the verdicts never stop. Two bad samples in a row and the intent drops back to DRAFT.','send','message_out  run_p66c12  sent_by=agent.scoper  sampled=yes')
+        ],
+        customer:[
+          cust(0,'Tue 10:05','yes both doors are internal, standard size'),
+          sys(7,'Tue 10:06','Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?','agent.scoper · SEND tier · run_p66c12')
+        ],
+        ben:[
+          item(8,'card','Morning sample · tomorrow 09:00','1 of 4 to review','This send was picked by the 10% sampler. One tap: fine or not fine, with a reason.',{draft:'Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?', actions:['Fine','Not fine'], note:'sample_reviewed pending · run_p66c12 · sampled approval trailing 30: 96%'})
+        ]
+      }
+    ]
+  },
+  {
+    id:'landlord-email', label:'Landlord email',
+    title:'Landlord replies by email to a WhatsApp thread',
+    when:'Wednesday 09:15. Subject: “Quote for 14 Mansfield Rd”. Rachel has a quote open and has been on WhatsApp with us. Same customer, one conversation, reply goes back by email.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Wed 09:15','Email adapter parses the message and strips the signature. The sender address matches Rachel’s client record, so it joins her existing conversation rather than opening a new one.','ok','message_in  conv_6r2j  channel=email  matched_by=client.email'),
+        step('Claim','Wed 09:15','Thread claimed. Same spine as WhatsApp.','ok','run_started  run_q08a55  agent=scoper'),
+        step('Case file','Wed 09:15','WhatsApp history plus this email, role profile landlord, live quote QTE-0298 with two lines including disposal, viewed once, unpaid. Pack: customer.post_quote.','ok','quote=QTE-0298 lines=2 viewed=1'),
+        step('Triage','Wed 09:15','No money or date words. Haiku: lane post_quote, intents answer_from_quote and scope addition. Tag needs_quote for the extractor fan.','ok','lane=post_quote  tags+=needs_quote'),
+        step('Policy pack','Wed 09:15','customer.post_quote at DRAFT. It allows answer_from_quote, which may repeat what is already written on the quote page, and confirm_received.','ok','pack=customer.post_quote'),
+        step('Worker','Wed 09:15','The Scoper proposes: confirm the fan is noted, and answer the disposal question by citing line 2 of the quote. The Quote clerk proposes one added scope line for the fan, no price.','ok','proposal=confirm_received+answer_from_quote  citations=[QTE-0298 line 2]'),
+        step('Guards','Wed 09:15','Money guard checks the body carries no figure even though the quote has one. Unseen guard confirms every claim is cited to the quote. Voice passes.','ok','guards_hit=[]'),
+        step('Decision','Wed 09:15','PENDING with a due time. The clerk’s added line is PROPOSE into the builder.','pending','draft_created  run_q08a55  due_at=Wed 13:15'),
+        step('Outbox / Ben','Wed 09:15','Nothing sent. Ben sees a pending draft and, on the same card, an added quote line to price.','pending'),
+        step('Outbox / Ben','Wed 09:52','Ben adds the fan line, prices it, approves the draft. The exit replies in the channel the message came from, so this one goes out by email, not WhatsApp.','send','draft_approved  message_out  run_q08a55  channel=email  sent_by=human:ben')
+      ],
+      customer:[
+        cust(0,'Wed 09:15','✉ Quote for 14 Mansfield Rd\n\nHi, my tenant says the bathroom extractor fan has also stopped working, can you add that to the quote? And does the quote include taking the old doors away?\nThanks, Rachel','email'),
+        sys(9,'Wed 09:52','✉ Re: Quote for 14 Mansfield Rd\n\nHi Rachel, yes, taking the old doors away is already on your quote, it’s the second line.\n\nWe’ve added the extractor fan and your quote page is updated. Same link as before.','drafted agent.scoper · approved human:ben · run_q08a55 · email')
+      ],
+      ben:[
+        item(8,'pending','Pending draft · answer_from_quote (email)','due Wed 13:15','Rachel, landlord, 14 Mansfield Rd. Reply will go by email.',{draft:'Hi Rachel, yes, taking the old doors away is already on your quote, it’s the second line.\n\nWe’ve added the extractor fan and your quote page is updated. Same link as before.', lines:[['Bathroom extractor fan not working, diagnose and replace','electrical']], gaps:'Added line from the Quote clerk. Price it before approving, or the draft’s second paragraph is not true yet.', actions:['Price fan line','Approve','Edit','Reject'], note:'run_q08a55 · citation: QTE-0298 line 2'}),
+        item(9,'pending done','Approved · sent by email','sent Wed 09:52','Fan line priced by Ben. Verdict: fine.',{note:'draft_approved · message_out run_q08a55 channel=email'})
+      ]
+    }]
+  },
+  {
+    id:'web-chat', label:'Web chat: Derby?',
+    title:'Web chat asks if we cover Derby',
+    when:'Friday 11:00. Anonymous web chat, no phone number yet. “do you cover Derby?”',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Fri 11:00','Web chat widget posts the message. No phone, no email, just a session. A conversation is opened on the web channel.','ok','message_in  conv_9z1v  channel=webchat'),
+        step('Claim','Fri 11:00','Thread claimed.','ok','run_started  run_r41d88'),
+        step('Case file','Fri 11:00','One message, no client record. City record for the Nottingham operator lists DE postcodes as covered. Pack: rules.first_contact.','ok','city=nottingham  coverage=NG,DE'),
+        step('Triage','Fri 11:00','Geography pre-check: “Derby” is inside coverage, so no out_of_area exception. First contact. No spam pattern. Haiku: intent coverage_question, lane scoping.','ok','out_of_area=no  tags+=first_contact'),
+        step('Policy pack','Fri 11:00','rules.first_contact at SEND. ack_enquiry and ask_postcode allowed. Coverage yes/no is a lookup, not a judgement, so the rules layer can say it.','ok','pack=rules.first_contact'),
+        step('Worker','Fri 11:00','Rules layer. Coverage template with the postcode ask. No model call.','ok'),
+        step('Guards','Fri 11:00','Template only. Web chat is always deliverable while the session is open.','ok','channel=webchat'),
+        step('Decision','Fri 11:00','SEND.','send','decision=send  approver=rules.first_contact'),
+        step('Outbox / Ben','Fri 11:00','Reply appears in the widget straight away. Ben sees nothing until there is a postcode and a job to look at.','send','message_out  run_r41d88')
+      ],
+      customer:[
+        cust(0,'Fri 11:00','do you cover Derby?','web chat'),
+        sys(8,'Fri 11:00','Yes, we cover Derby. Pop your postcode in and tell us what needs doing, and we’ll take it from there.','rules.first_contact · run_r41d88 · web chat')
+      ],
+      ben:[]
+    }],
+    benEmpty:'Nothing. Coverage is a lookup and the ask went out on its own. Ben sees this thread once a postcode and a job arrive.'
+  },
+  {
+    id:'spam', label:'Spam, non-UK number',
+    title:'Spam from a number outside the UK',
+    when:'Sunday 03:12. +1 555 number: “We can rank your website #1 on Google. Reply YES for a free audit.”',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Sun 03:12','Message lands. It is written to the ledger like everything else, because the ledger is the record of what happened, not what we liked.','ok','message_in  conv_0x7q  from=+1555…'),
+        step('Claim','Sun 03:12','Thread claimed.','ok','run_started  run_s93b06'),
+        step('Case file','Sun 03:12','One message, non-UK number, no client record.','ok'),
+        step('Triage','Sun 03:12','Pre-checks: number is outside the UK, and the text matches the SEO and outsourcing spam patterns. Two exceptions: spam and out_of_area. No model call is spent on it.','dropped','exceptions=[spam,out_of_area]  model_call=none'),
+        step('Policy pack','Sun 03:12','No pack applies to a spam lane.','ok','pack=none'),
+        step('Worker','Sun 03:12','Nothing runs.','ok','agent=none'),
+        step('Guards','Sun 03:12','Nothing to guard.','ok'),
+        step('Decision','Sun 03:12','DROPPED. Conversation tagged spam and quarantined so it never appears in a case file. No ack, because an ack to a spammer costs sender quality on the WhatsApp number.','dropped','decision=dropped  reason=spam,out_of_uk  tags+=spam  quarantined=true'),
+        step('Outbox / Ben','Sun 03:12','Nothing sent. Nothing for Ben. It shows only as a count on /admin/staff.','dropped','run_finished  cost_pence=0')
+      ],
+      customer:[
+        cust(0,'Sun 03:12','We can rank your website #1 on Google. Reply YES for a free audit.','+1 555 number'),
+        gap(8,'no reply, ever')
+      ],
+      ben:[]
+    }],
+    benEmpty:'Nothing. Dropped and quarantined. Counted on /admin/staff, never in the queue.'
+  },
+  {
+    id:'silence-breaker', label:'Silence-breaker',
+    title:'Silence-breaker while Ben is on a job',
+    when:'Wednesday 13:05. A customer mid-thread sends one photo. Ben is up a ladder. Two versions: Ben stays silent, or Ben replies from his personal number at 13:15.',
+    variantLabel:'What Ben does',
+    variants:[
+      { key:'silent', label:'Ben silent',
+        trace:[
+          step('Ingest','Wed 13:05','Photo lands on an existing scoping thread.','ok','message_in  conv_4h8n  media=1'),
+          step('Claim','Wed 13:05','Thread claimed. A 20-minute silence timer starts for this burst.','ok','run_started  run_t15c90  silence_due=13:25'),
+          step('Case file','Wed 13:05','Thread history, no quote yet, no open flags. Not a first contact, so the first-contact pack does not apply. Pack: customer.default.','ok'),
+          step('Triage','Wed 13:05','No exception words. Haiku: intent media_received, lane gathering.','ok','lane=gathering'),
+          step('Policy pack','Wed 13:05','customer.default. confirm_received and ask_gap at DRAFT (launch).','ok','tier=DRAFT'),
+          step('Worker','Wed 13:05','The Scoper proposes: thanks for the photo, and one question about the door.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Wed 13:05','All pass.','ok','guards_hit=[]'),
+          step('Decision','Wed 13:05','PENDING, due in four working hours.','pending','draft_created  run_t15c90  due_at=Wed 17:05'),
+          step('Outbox / Ben','Wed 13:05','Nothing sent. Draft waits for Ben.','pending'),
+          step('Worker','Wed 13:25','20 minutes, no outbound on this thread from any approver, including Ben’s personal number. The rules layer picks the silence-breaker template.','ok','silence_check  last_outbound=before 13:05'),
+          step('Guards','Wed 13:25','Template only. It confirms receipt and promises nothing timed. Suppression check: no outbound since the photo, so it is not suppressed.','ok','suppressed=false'),
+          step('Decision','Wed 13:25','SEND the holding line. The Scoper draft stays pending, it is not replaced.','send','decision=send  approver=rules.first_contact  intent=holding_silence_breaker'),
+          step('Outbox / Ben','Wed 13:25','Holding line goes out. Ben still has the draft in his queue with the same due time.','send','message_out  run_u62e33  sent_by=rules.first_contact')
+        ],
+        customer:[
+          cust(0,'Wed 13:05','This is the door that sticks','',1),
+          gap(9,'20 minutes'),
+          sys(12,'Wed 13:25','Got the photo, thanks. We’re mid-job at the minute but we’ve seen it and we’ll come back to you properly shortly.','rules.first_contact · silence-breaker · run_u62e33')
+        ],
+        ben:[
+          item(8,'pending','Pending draft · confirm_received + ask_gap','due Wed 17:05','Photo of the sticking door on the NG3 thread.',{draft:'Thanks for the photo. Is it just that one door sticking, or are there others?', actions:['Approve','Edit','Reject'], note:'run_t15c90'}),
+          item(12,'pending','Same draft · holding line sent 13:25','due Wed 17:05','The customer has had a holding line. This draft still needs you. If you approve it now, the thanks at the start is trimmed because a holding line already said it.',{actions:['Approve','Edit','Reject'], note:'silence-breaker message_out run_u62e33 · draft unchanged'})
+        ]
+      },
+      { key:'replied', label:'Ben replied 13:15',
+        trace:[
+          step('Ingest','Wed 13:05','Photo lands on an existing scoping thread.','ok','message_in  conv_4h8n  media=1'),
+          step('Claim','Wed 13:05','Thread claimed. 20-minute silence timer starts.','ok','run_started  run_t15c90  silence_due=13:25'),
+          step('Case file','Wed 13:05','Thread history, no quote yet. Pack: customer.default.','ok'),
+          step('Triage','Wed 13:05','Intent media_received, lane gathering, no exceptions.','ok','lane=gathering'),
+          step('Policy pack','Wed 13:05','customer.default, DRAFT at launch.','ok','tier=DRAFT'),
+          step('Worker','Wed 13:05','The Scoper proposes thanks plus one question.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Wed 13:05','All pass.','ok'),
+          step('Decision','Wed 13:05','PENDING, due in four working hours.','pending','draft_created  run_t15c90  due_at=Wed 17:05'),
+          step('Outbox / Ben','Wed 13:05','Nothing sent. Draft waits for Ben.','pending'),
+          step('Ingest','Wed 13:15','Ben replies from his personal WhatsApp between jobs. His number is an ingest source since Phase 0, so his reply is written to the ledger as an outbound on this thread. Without that ingest, every rule below would be unsafe.','ok','message_out  source=ben_personal  sent_by=human:ben'),
+          step('Worker','Wed 13:25','Silence timer fires. The rules layer checks for any outbound since 13:05 and finds Ben’s.','ok','silence_check  last_outbound=13:15'),
+          step('Guards','Wed 13:25','Suppression: an outbound landed since the burst, so the holding line is suppressed. Sending it now would be two people talking in one thread.','ok','suppressed=true  reason=outbound_since_inbound'),
+          step('Decision','Wed 13:25','No send. The pending draft is marked as overtaken by Ben and stays for him to dismiss.','pending','decision=suppressed  draft_note=ben_replied_since'),
+          step('Outbox / Ben','Wed 13:25','Nothing goes out. Ben sees the draft with a note that he has already replied. One tap to reject it as wrong_move, or approve it if it still fits.','pending','run_finished  cost_pence=0')
+        ],
+        customer:[
+          cust(0,'Wed 13:05','This is the door that sticks','',1),
+          ben(9,'Wed 13:15','Cheers, that’s clear. Is it just that one or are there others doing the same?','human:ben · personal number · ingested')
+        ],
+        ben:[
+          item(8,'pending','Pending draft · confirm_received + ask_gap','due Wed 17:05','Photo of the sticking door on the NG3 thread.',{draft:'Thanks for the photo. Is it just that one door sticking, or are there others?', actions:['Approve','Edit','Reject'], note:'run_t15c90'}),
+          item(13,'pending done','Same draft · you replied at 13:15','due Wed 17:05','Silence-breaker suppressed because your reply landed. This draft is probably stale.',{actions:['Reject: wrong_move','Approve anyway'], note:'suppressed=true · no message_out at 13:25'})
+        ]
+      }
+    ]
+  }
+  ];
+
+  /* ---------- state ---------- */
+  var state = { s:0, v:0, shown:0 };
+
+  var elPicker = root.querySelector('#wt-picker');
+  var elTitle = root.querySelector('#wt-scene-title');
+  var elWhen = root.querySelector('#wt-scene-when');
+  var elVarWrap = root.querySelector('#wt-variant');
+  var elVarLabel = root.querySelector('#wt-variant-label');
+  var elVarToggle = root.querySelector('#wt-variant-toggle');
+  var elTrace = root.querySelector('#wt-trace');
+  var elCustomer = root.querySelector('#wt-customer');
+  var elBen = root.querySelector('#wt-ben');
+  var elBenEmpty = root.querySelector('#wt-ben-empty');
+  var elNext = root.querySelector('#wt-next');
+  var elAll = root.querySelector('#wt-all');
+  var elRestart = root.querySelector('#wt-restart');
+  var elProgress = root.querySelector('#wt-progress');
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function current(){ var sc = SCENARIOS[state.s]; return { sc:sc, va:sc.variants[state.v] }; }
+
+  /* ---------- render: picker ---------- */
+  SCENARIOS.forEach(function(sc, i){
+    var li = document.createElement('li');
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'wt-pick';
+    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+    b.innerHTML = '<span class="wt-num">' + (i+1) + '</span>' + esc(sc.label);
+    b.addEventListener('click', function(){ selectScenario(i); });
+    li.appendChild(b); elPicker.appendChild(li);
+  });
+
+  function selectScenario(i){
+    state.s = i; state.v = 0;
+    var picks = elPicker.querySelectorAll('.wt-pick');
+    for (var k = 0; k < picks.length; k++) picks[k].setAttribute('aria-pressed', k === i ? 'true' : 'false');
+    buildScene();
+    state.shown = current().va.trace.length;   /* never an empty state on switch */
+    paint(false);
+  }
+
+  function buildScene(){
+    var c = current();
+    elTitle.textContent = c.sc.title;
+    elWhen.textContent = c.sc.when;
+    elVarToggle.innerHTML = '';
+    if (c.sc.variants.length > 1) {
+      elVarWrap.hidden = false;
+      elVarLabel.textContent = c.sc.variantLabel || 'Variant';
+      c.sc.variants.forEach(function(v, j){
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = v.label;
+        b.setAttribute('aria-pressed', j === state.v ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          state.v = j;
+          var bs = elVarToggle.querySelectorAll('button');
+          for (var k = 0; k < bs.length; k++) bs[k].setAttribute('aria-pressed', k === j ? 'true' : 'false');
+          state.shown = current().va.trace.length;
+          paint(false);
+        });
+        elVarToggle.appendChild(b);
+      });
+    } else {
+      elVarWrap.hidden = true;
+    }
+  }
+
+  /* ---------- render: trace + panels ---------- */
+  function paint(animateLast){
+    var c = current(), va = c.va, n = va.trace.length;
+    if (state.shown < 1) state.shown = 1;
+    if (state.shown > n) state.shown = n;
+
+    /* trace rows */
+    elTrace.innerHTML = '';
+    va.trace.forEach(function(st, i){
+      var li = document.createElement('li');
+      li.className = 'wt-row' + (animateLast && i === state.shown - 1 ? ' wt-new' : '');
+      li.hidden = i >= state.shown;
+      li.innerHTML =
+        '<div class="wt-stage">' + esc(st.stage) + (st.t ? '<span class="wt-t">' + esc(st.t) + '</span>' : '') + '</div>' +
+        '<div class="wt-what">' + esc(st.what) + (st.ledger ? '<span class="wt-ledger">' + esc(st.ledger) + '</span>' : '') + '</div>' +
+        '<span class="wt-chip wt-' + esc(st.chip) + '">' + esc(st.chip) + '</span>';
+      elTrace.appendChild(li);
+    });
+
+    /* customer panel */
+    elCustomer.innerHTML = '';
+    va.customer.forEach(function(m){
+      var visible = m.at < state.shown;
+      if (m.who === 'silence') {
+        var s = document.createElement('div');
+        s.className = 'wt-silence'; s.hidden = !visible;
+        s.textContent = '… ' + m.text + ' …';
+        elCustomer.appendChild(s); return;
+      }
+      var d = document.createElement('div');
+      d.className = 'wt-msg wt-' + m.who; d.hidden = !visible;
+      var media = '';
+      if (m.media) { media = '<div class="wt-media">'; for (var k = 0; k < m.media; k++) media += '<span>photo</span>'; media += '</div>'; }
+      var who = m.who === 'customer' ? 'Customer' : (m.who === 'ben' ? 'Ben' : 'Handy Services');
+      d.innerHTML = media + '<div class="wt-bubble">' + esc(m.text) + '</div>' +
+        '<span class="wt-meta">' + esc(m.time) + ' · ' + who + (m.meta ? ' · ' + esc(m.meta) : '') + '</span>';
+      elCustomer.appendChild(d);
+    });
+
+    /* Ben panel */
+    elBen.innerHTML = '';
+    var anyVisible = false;
+    va.ben.forEach(function(it){
+      var visible = it.at < state.shown;
+      if (visible) anyVisible = true;
+      var d = document.createElement('div');
+      d.className = 'wt-item ' + it.kind.split(' ').map(function(k){ return 'wt-' + k; }).join(' '); d.hidden = !visible;
+      var html = '<div class="wt-item-top"><span class="wt-kind">' + esc(it.title) + '</span><span class="wt-due">' + esc(it.due) + '</span></div>' +
+        '<div class="wt-item-body">' + esc(it.body) + '</div>';
+      if (it.draft) html += '<div class="wt-draft">' + esc(it.draft) + '</div>';
+      if (it.lines) {
+        html += '<ul class="wt-lines">';
+        it.lines.forEach(function(l){ html += '<li><span>' + esc(l[0]) + '</span><span class="wt-cat">' + esc(l[1]) + ' · no price</span></li>'; });
+        html += '</ul>';
+      }
+      if (it.gaps) html += '<div class="wt-note">' + esc(it.gaps) + '</div>';
+      if (it.actions && !/done/.test(it.kind)) {
+        html += '<div class="wt-actions">';
+        it.actions.forEach(function(a, i){
+          var cls = /^(Approve|Fine|Send)/.test(a) ? ' wt-go' : (/^(Reject|Not fine|Dismiss)/.test(a) ? ' wt-no' : '');
+          html += '<span class="wt-fake' + cls + '">' + esc(a) + '</span>';
+        });
+        html += '</div>';
+      }
+      if (it.note) html += '<div class="wt-note wt-mono">' + esc(it.note) + '</div>';
+      d.innerHTML = html;
+      elBen.appendChild(d);
+    });
+    if (!anyVisible) {
+      elBenEmpty.hidden = false;
+      elBenEmpty.textContent = va.ben.length ? 'Nothing yet. Keep stepping.' : (c.sc.benEmpty || 'Nothing for Ben.');
+    } else {
+      elBenEmpty.hidden = true;
+    }
+
+    /* controls */
+    elNext.disabled = state.shown >= n;
+    elAll.disabled = state.shown >= n;
+    elProgress.textContent = 'Stage ' + state.shown + ' of ' + n;
+  }
+
+  elNext.addEventListener('click', function(){ state.shown += 1; paint(true); });
+  elAll.addEventListener('click', function(){ state.shown = current().va.trace.length; paint(false); });
+  elRestart.addEventListener('click', function(){ state.shown = 1; paint(true); });
+
+  /* first load: scenario 1, fully shown */
+  buildScene();
+  state.shown = SCENARIOS[0].variants[0].trace.length;
+  paint(false);
+})();
+</script>
+</section>

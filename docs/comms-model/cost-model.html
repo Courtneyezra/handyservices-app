@@ -1,0 +1,403 @@
+<section id="cost" class="cm-section" aria-labelledby="cm-title">
+<style>
+  #cost { --cm-radius: 10px; font-family: "IBM Plex Sans", system-ui, sans-serif; color: var(--ink); background: var(--bg); padding: 2rem 1.25rem; font-variant-numeric: tabular-nums; }
+  #cost * { box-sizing: border-box; }
+  #cost .cm-wrap { max-width: 1100px; margin: 0 auto; }
+  #cost h2, #cost h3 { font-family: "Archivo", "IBM Plex Sans", system-ui, sans-serif; margin: 0; line-height: 1.15; letter-spacing: -0.01em; }
+  #cost h2 { font-size: 1.75rem; }
+  #cost h3 { font-size: 1.05rem; margin-bottom: .5rem; }
+  #cost p { line-height: 1.5; margin: .5rem 0; }
+  #cost .cm-lede { color: var(--muted); max-width: 62ch; }
+  #cost .cm-mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+  #cost .cm-source { display: inline-block; margin-top: .75rem; padding: .35rem .7rem; border-radius: 999px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .75rem; line-height: 1.4; background: var(--ben-soft); color: var(--ben); border: 1px solid var(--ben); }
+  #cost .cm-source.cm-measured { background: var(--send-soft); color: var(--send); border-color: var(--send); }
+
+  /* controls */
+  #cost .cm-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin: 1.5rem 0; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); }
+  #cost .cm-ctl label { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .35rem; }
+  #cost .cm-ctl label em { font-style: normal; }
+  #cost .cm-ctl output { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 1.35rem; color: var(--accent); }
+  #cost .cm-ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+  #cost .cm-ctl .cm-hint { font-size: .75rem; color: var(--muted); margin-top: .2rem; line-height: 1.35; }
+  #cost .cm-toggle { display: flex; flex-direction: column; justify-content: flex-start; gap: .4rem; }
+  #cost .cm-toggle-btns { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  #cost .cm-toggle-btns button { flex: 1; padding: .5rem .4rem; border: 0; background: var(--surface); color: var(--muted); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
+  #cost .cm-toggle-btns button[aria-pressed=true] { background: var(--accent); color: var(--surface); }
+  #cost .cm-toggle-btns.cm-rates button[aria-pressed=true] { background: var(--send); }
+  #cost .cm-toggle-btns button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* KPI strip */
+  #cost .cm-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin: 1rem 0 1.5rem; }
+  #cost .cm-kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); padding: .9rem 1rem; }
+  #cost .cm-kpi .cm-v { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 1.7rem; line-height: 1.1; }
+  #cost .cm-kpi .cm-sub { font-size: .8rem; color: var(--muted); margin-top: .2rem; }
+  #cost .cm-kpi.cm-model { border-top: 4px solid var(--accent); }
+  #cost .cm-kpi.cm-benk { border-top: 4px solid var(--ben); }
+  #cost .cm-kpi.cm-sendk { border-top: 4px solid var(--send); }
+
+  /* tables */
+  #cost .cm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+  #cost .cm-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); padding: 1rem 1.1rem; min-width: 0; }
+  #cost .cm-scroll { overflow-x: auto; }
+  #cost table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  #cost th, #cost td { padding: .4rem .5rem; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  #cost th { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .72rem; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  #cost th:first-child, #cost td:first-child { text-align: left; white-space: normal; }
+  #cost tr.cm-total td { font-weight: 700; border-top: 2px solid var(--ink); border-bottom: 0; }
+  #cost tr.cm-sub td:first-child { padding-left: 1.25rem; color: var(--muted); }
+  #cost tr.cm-dim td { color: var(--muted); font-style: italic; }
+  #cost .cm-chip { display: inline-block; padding: .1rem .45rem; border-radius: 4px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .7rem; letter-spacing: .03em; text-transform: uppercase; margin-left: .4rem; vertical-align: middle; font-style: normal; }
+  #cost .cm-chip.cm-send { background: var(--send-soft); color: var(--send); }
+  #cost .cm-chip.cm-draft { background: var(--draft-soft); color: var(--draft); }
+  #cost .cm-chip.cm-propose { background: var(--accent-soft); color: var(--accent); }
+  #cost .cm-chip.cm-ben { background: var(--ben-soft); color: var(--ben); }
+  #cost .cm-chip.cm-read { background: var(--code); color: var(--muted); }
+
+  /* trade line */
+  #cost .cm-trade { margin-top: 1rem; padding: 1rem 1.25rem; border-radius: var(--cm-radius); background: var(--send-soft); border: 1px solid var(--send); color: var(--ink); font-size: 1.05rem; line-height: 1.5; }
+  #cost .cm-trade strong { color: var(--send); font-family: "Archivo", sans-serif; }
+  #cost .cm-trade .cm-note { display: block; font-size: .8rem; color: var(--muted); margin-top: .35rem; }
+
+  /* assumptions */
+  #cost details { margin-top: 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); padding: .75rem 1.1rem; }
+  #cost summary { cursor: pointer; font-weight: 600; }
+  #cost .cm-assume { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: .75rem; }
+  #cost .cm-assume table { font-size: .85rem; }
+  #cost .cm-assume td:first-child { white-space: normal; }
+  @media (max-width: 640px) { #cost { padding: 1.25rem .75rem; } #cost h2 { font-size: 1.4rem; } }
+</style>
+
+<div class="cm-wrap">
+  <div class="cm-mono">Pane 4 · Cost and load</div>
+  <h2 id="cm-title">What it costs to run, and what it costs Ben</h2>
+  <p class="cm-lede">Move the sliders. Everything recomputes: the rules layer (no model cost), the four model roles, Twilio/Meta message fees, and the taps Ben makes at his desk. Volumes are per city; a city is a config record with one operator.</p>
+  <span id="cm-source" class="cm-source cm-measured">DEFAULTS ARE MEASURED: rates come from the replay of real threads, 4 Jun – 3 Sep 2026 (130 bursts, 467 calls). Switch to “Brief” to see the pre-replay assumptions.</span>
+
+  <div class="cm-controls">
+    <div class="cm-ctl">
+      <label for="cm-msgs"><span>Inbound customer messages / week</span><output id="cm-msgs-out">30</output></label>
+      <input id="cm-msgs" type="range" min="0" max="1000" step="5" value="30">
+      <div class="cm-hint" id="cm-msgs-hint"></div>
+    </div>
+    <div class="cm-ctl">
+      <label for="cm-calls"><span>Inbound calls / week</span><output id="cm-calls-out">36</output></label>
+      <input id="cm-calls" type="range" min="0" max="200" step="1" value="36">
+      <div class="cm-hint" id="cm-calls-hint"></div>
+    </div>
+    <div class="cm-ctl">
+      <label for="cm-cities"><span>Cities</span><output id="cm-cities-out">1</output></label>
+      <input id="cm-cities" type="range" min="1" max="8" step="1" value="1">
+      <div class="cm-hint">Each city adds the same volume and its own operator.</div>
+    </div>
+    <div class="cm-ctl cm-toggle">
+      <span class="cm-mono">Scoper tier</span>
+      <div class="cm-toggle-btns" role="group" aria-label="Scoper tier">
+        <button type="button" id="cm-mode-launch" aria-pressed="true">LAUNCH · DRAFT</button>
+        <button type="button" id="cm-mode-month2" aria-pressed="false">MONTH 2 · SEND</button>
+      </div>
+      <div class="cm-hint">Month 2: non-exception replies send without Ben; fewer silence-breakers fire.</div>
+    </div>
+    <div class="cm-ctl cm-toggle">
+      <span class="cm-mono">Rates</span>
+      <div class="cm-toggle-btns cm-rates" role="group" aria-label="Rate source">
+        <button type="button" id="cm-rates-replay" aria-pressed="true">REPLAY · measured</button>
+        <button type="button" id="cm-rates-brief" aria-pressed="false">BRIEF · assumed</button>
+      </div>
+      <div class="cm-hint">Switching resets the two volume sliders to that source's defaults.</div>
+    </div>
+  </div>
+
+  <div class="cm-kpis">
+    <div class="cm-kpi cm-model"><div class="cm-mono">Models £ / day</div><div class="cm-v" id="k-gbp-day">–</div><div class="cm-sub" id="k-gbp-day-sub"></div></div>
+    <div class="cm-kpi cm-model"><div class="cm-mono">Models £ / month</div><div class="cm-v" id="k-gbp-month">–</div><div class="cm-sub" id="k-gbp-month-sub"></div></div>
+    <div class="cm-kpi cm-sendk"><div class="cm-mono">Messages £ / month</div><div class="cm-v" id="k-msg-month">–</div><div class="cm-sub">Twilio / Meta fees</div></div>
+    <div class="cm-kpi cm-benk"><div class="cm-mono">Ben taps / working day</div><div class="cm-v" id="k-taps">–</div><div class="cm-sub" id="k-taps-sub"></div></div>
+    <div class="cm-kpi cm-benk"><div class="cm-mono">Ben minutes / working day</div><div class="cm-v" id="k-min">–</div><div class="cm-sub" id="k-min-sub"></div></div>
+  </div>
+
+  <div class="cm-grid">
+    <div class="cm-card">
+      <h3>Runs per day, by kind</h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Kind</th><th>Runs / day</th><th>Model £ / day</th></tr></thead>
+        <tbody id="t-runs"></tbody>
+      </table></div>
+    </div>
+    <div class="cm-card">
+      <h3>Model calls and tokens per day</h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Model</th><th>Calls</th><th>Input</th><th>Cache read</th><th>Output</th><th>£ / day</th></tr></thead>
+        <tbody id="t-models"></tbody>
+      </table></div>
+    </div>
+    <div class="cm-card">
+      <h3>Ben's desk per day <span class="cm-chip cm-ben">per operator</span></h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Tap</th><th>Per day</th><th>Per working day</th><th>Minutes / wd</th></tr></thead>
+        <tbody id="t-ben"></tbody>
+      </table></div>
+    </div>
+    <div class="cm-card">
+      <h3>Scaling: 1, 2 and 5 cities</h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Cities</th><th>Models £/mo</th><th>Messages £/mo</th><th>Operator taps/day</th><th>Operator hrs/mo</th><th>Time saved £/mo</th></tr></thead>
+        <tbody id="t-cities"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="cm-trade" id="cm-trade"></div>
+
+  <details>
+    <summary>Assumptions and unit prices (every number above derives from these)</summary>
+    <div class="cm-assume">
+      <div><div class="cm-mono">Volume shape · Replay (measured) vs Brief (assumed)</div>
+      <table><thead><tr><th>Share of non-dropped bursts</th><th>Replay</th><th>Brief</th></tr></thead><tbody>
+        <tr><td>Messages per burst (group within 10 min)</td><td>2.95</td><td>1.6</td></tr>
+        <tr><td>Dropped (non-UK number)</td><td>10%</td><td>0%</td></tr>
+        <tr><td>First contact → rules layer</td><td>24%</td><td>25%</td></tr>
+        <tr><td>Photo-only → rules layer</td><td>9%</td><td>10%</td></tr>
+        <tr><td>Exceptions → Ben (money / dates / complaints)</td><td>30% (23 / 7 / 0)</td><td>17% (11 / 6 / 0)</td></tr>
+        <tr><td>Remainder → Scoper</td><td>38%</td><td>48%</td></tr>
+        <tr><td>Silence-breaker fires, launch / month 2</td><td>19% / 11%</td><td>30% / 5%</td></tr>
+        <tr><td>Flag-expiry holding line (rules layer)</td><td>10%</td><td>0%</td></tr>
+        <tr><td>Inbound calls answered and transcribed (&gt;10 s)</td><td>84%</td><td>80% <em>[own]</em></td></tr>
+        <tr><td>Missed calls get one post-call template</td><td>yes</td><td>no</td></tr>
+        <tr><td>Scoper bursts that are a thread's 2nd+ burst → extra clerk pass</td><td>30%</td><td>25% <em>[own]</em></td></tr>
+        <tr><td>Ben's hand-written reply, minutes (median)</td><td>1.9</td><td>3 <em>[own]</em></td></tr>
+        <tr><td>Hand-written quote intake per answered call, minutes <em>[own]</em></td><td>5</td><td>5</td></tr>
+        <tr><td>Verifier + Ben sample of automatic sends</td><td>10%</td><td>10%</td></tr>
+        <tr><td>Recovery agent</td><td colspan="2">not modelled (no token figures; batch, low volume)</td></tr>
+      </tbody></table></div>
+      <div><div class="cm-mono">Tokens per call (input / cache read / output) and price</div>
+      <table><tbody>
+        <tr><td>Triage · Haiku 4.5</td><td>2,500 / 0 / 150</td><td>$0.0033</td></tr>
+        <tr><td>Scoper · Sonnet 5</td><td>3,000 / 4,000 / 400</td><td>$0.0108</td></tr>
+        <tr><td>Quote clerk · Sonnet 5</td><td>5,000 / 4,000 / 900</td><td>$0.0198</td></tr>
+        <tr><td>Verifier · Opus 5</td><td>5,000 / 0 / 300</td><td>$0.0325</td></tr>
+        <tr><td>Rules layer</td><td>—</td><td>$0</td></tr>
+        <tr><td>USD per M tokens, 2 Sep 2026: Haiku 1 / 5, Sonnet 2 / 10, Opus 5 / 25. Cache read = 10% of input. Cache writes ignored.</td><td colspan="2">1 USD = 0.78 GBP</td></tr>
+        <tr><td>Message fees: WA template £0.035, in-window WA reply £0, SMS £0.04. 40% of rules sends are templates, 10% SMS. Scoper replies are in-window.</td><td colspan="2"></td></tr>
+        <tr><td>Ben: £15/h, 30 s per tap. Taps = draft approvals + exception flags + sample reviews (replay section D). Quote-clerk prefills are shown but not counted: they replace intake Ben already does from the call. Working day = calendar day × 7/5.</td><td colspan="2"></td></tr>
+        <tr><td>Replay caveats: Ben's personal-number replies are not in the DB; regex lexicons over-count the Ben lane; WhatsApp ingest was dead until 15 Aug, so the window average understates messages.</td><td colspan="2"></td></tr>
+      </tbody></table></div>
+    </div>
+  </details>
+</div>
+
+<script>
+(function () {
+// ---- CALC START (identical copy lives inside cost-model.html) ----
+// Two rate sets. REPLAY = measured from replay-results.json (window 4 Jun-3 Sep 2026, 130 bursts, 117 non-dropped,
+// 467 calls, 390 answered). BRIEF = the assumptions in BRIEF-cost.md. Shares are of NON-DROPPED bursts.
+var RATES = {
+  replay: {
+    label: 'Replay (measured)', defaults: { msgsWeek: 30, callsWeek: 36 },
+    msgsPerBurst: 384 / 130, dropShare: 13 / 130,
+    firstContact: 28 / 117, photoOnly: 10 / 117, exception: 35 / 117, money: 27 / 117, date: 8 / 117, complaint: 0,
+    silenceLaunch: 22 / 117, silenceMonth2: 13 / 117, flagExpiry: 12 / 117,
+    answeredShare: 390 / 467, postCallTemplate: 1,       // one template to every missed call (77 in window)
+    secondBurstShare: 13 / 44,                            // threads with 2+ Scoper bursts / Scoper bursts
+    manualMinPerBurst: 1.9, exceptionMin: 1.9,            // Ben's measured median manual reply
+    manualMinPerCall: 5                                   // OWN assumption: hand-written quote intake per answered call
+  },
+  brief: {
+    label: 'Brief (assumed)', defaults: { msgsWeek: 100, callsWeek: 15 },
+    msgsPerBurst: 1.6, dropShare: 0,
+    firstContact: 0.25, photoOnly: 0.10, exception: 0.17, money: 0.11, date: 0.06, complaint: 0,
+    silenceLaunch: 0.30, silenceMonth2: 0.05, flagExpiry: 0,
+    answeredShare: 0.80, postCallTemplate: 0,              // OWN assumptions: 80% answered; brief has no missed-call template
+    secondBurstShare: 0.25,                                // OWN assumption
+    manualMinPerBurst: 3, exceptionMin: 3, manualMinPerCall: 5
+  }
+};
+var A = {
+  sampleRate: 0.10, tapSeconds: 30, benRate: 15,
+  templateShare: 0.40, smsShare: 0.10, templateGbp: 0.035, smsGbp: 0.04,
+  usdToGbp: 0.78, daysPerMonth: 30.4, workingDayFactor: 7 / 5
+};
+var MODELS = {
+  haiku:  { name: 'Haiku 4.5', inUsd: 1.00, outUsd: 5.00 },
+  sonnet: { name: 'Sonnet 5',  inUsd: 2.00, outUsd: 10.00 },
+  opus:   { name: 'Opus 5',    inUsd: 5.00, outUsd: 25.00 }
+};
+var CALLS = {
+  triage:   { label: 'Triage / Sorter', model: 'haiku',  input: 2500, cached: 0,    output: 150 },
+  scoper:   { label: 'Scoper',          model: 'sonnet', input: 3000, cached: 4000, output: 400 },
+  clerk:    { label: 'Quote clerk',     model: 'sonnet', input: 5000, cached: 4000, output: 900 },
+  verifier: { label: 'Verifier',        model: 'opus',   input: 5000, cached: 0,    output: 300 }
+};
+function callUsd(c) {
+  var m = MODELS[c.model];
+  return (c.input * m.inUsd + c.cached * m.inUsd * 0.10 + c.output * m.outUsd) / 1e6;
+}
+function compute(inp) {
+  var R = RATES[inp.rates] || RATES.replay;
+  var cities = inp.cities, month2 = inp.mode === 'month2';
+  var msgsDay = inp.msgsWeek / 7, callsDay = inp.callsWeek / 7;          // per city
+  var burstsAll = msgsDay / R.msgsPerBurst;
+  var bursts = burstsAll * (1 - R.dropShare);                             // non-dropped
+  var firstContact = bursts * R.firstContact, photoOnly = bursts * R.photoOnly;
+  var exceptions = bursts * R.exception, scoperBursts = bursts * (1 - R.firstContact - R.photoOnly - R.exception);
+  var silence = bursts * (month2 ? R.silenceMonth2 : R.silenceLaunch);
+  var flagExpiry = bursts * R.flagExpiry;
+  var answeredCalls = callsDay * R.answeredShare, missedCalls = callsDay - answeredCalls;
+  var postCall = missedCalls * R.postCallTemplate;
+  var clerkFromCalls = answeredCalls, clerkFromThreads = scoperBursts * R.secondBurstShare;
+  var clerkCalls = clerkFromCalls + clerkFromThreads;
+  var rulesSends = firstContact + photoOnly + silence + flagExpiry + postCall;
+  var scoperSends = month2 ? scoperBursts : 0;                            // month 2: Scoper at SEND, non-exception replies
+  var autoSends = rulesSends + scoperSends;
+  var samples = autoSends * A.sampleRate;
+  var n = { triage: bursts, scoper: scoperBursts, clerk: clerkCalls, verifier: samples };
+  var byModel = {};
+  Object.keys(MODELS).forEach(function (k) { byModel[k] = { calls: 0, input: 0, cached: 0, output: 0, usd: 0 }; });
+  Object.keys(CALLS).forEach(function (k) {
+    var c = CALLS[k], b = byModel[c.model], q = n[k];
+    b.calls += q; b.input += q * c.input; b.cached += q * c.cached; b.output += q * c.output; b.usd += q * callUsd(c);
+  });
+  var usdDay = 0, tokDay = 0;
+  Object.keys(byModel).forEach(function (k) { usdDay += byModel[k].usd; tokDay += byModel[k].input + byModel[k].cached + byModel[k].output; });
+  var modelGbpDay = usdDay * A.usdToGbp;
+  var msgGbpDay = rulesSends * (A.templateShare * A.templateGbp + A.smsShare * A.smsGbp);   // Scoper replies are in-window
+  // Ben, per operator (= per city). Taps = draft approvals + flags + sample reviews (matches replay section D).
+  // Quote-clerk prefills are shown but not counted: they replace intake Ben already does from the call.
+  var drafts = month2 ? 0 : scoperBursts;
+  var taps = drafts + exceptions + samples;
+  var benMin = taps * A.tapSeconds / 60;
+  var manualMin = bursts * R.manualMinPerBurst + answeredCalls * R.manualMinPerCall;
+  var systemMin = benMin + exceptions * R.exceptionMin;
+  var savedMin = manualMin - systemMin, savedGbpDay = savedMin / 60 * A.benRate;
+  var s = function (v) { return v * cities; };
+  return {
+    inp: inp, rates: R, cities: cities, month2: month2,
+    perCity: {
+      burstsAll: burstsAll, bursts: bursts, firstContact: firstContact, photoOnly: photoOnly, silence: silence, flagExpiry: flagExpiry, postCall: postCall,
+      exceptions: exceptions, scoperBursts: scoperBursts, answeredCalls: answeredCalls, missedCalls: missedCalls,
+      clerkFromCalls: clerkFromCalls, clerkFromThreads: clerkFromThreads, clerkCalls: clerkCalls,
+      rulesSends: rulesSends, scoperSends: scoperSends, autoSends: autoSends, samples: samples,
+      ben: { drafts: drafts, clerk: clerkCalls, flags: exceptions, samples: samples, taps: taps, minutes: benMin,
+             tapsWorkingDay: taps * A.workingDayFactor, minutesWorkingDay: benMin * A.workingDayFactor },
+      trade: { manualMin: manualMin, systemMin: systemMin, savedMin: savedMin, savedGbpDay: savedGbpDay }
+    },
+    total: {
+      runs: { rulesFirstContact: s(firstContact), rulesPhoto: s(photoOnly), rulesSilence: s(silence), rulesFlagExpiry: s(flagExpiry), rulesPostCall: s(postCall),
+              rulesSends: s(rulesSends), triage: s(bursts), scoper: s(scoperBursts), clerk: s(clerkCalls), verifier: s(samples), flags: s(exceptions), dropped: s(burstsAll - bursts) },
+      byModel: Object.keys(byModel).reduce(function (o, k) {
+        var b = byModel[k]; o[k] = { calls: s(b.calls), input: s(b.input), cached: s(b.cached), output: s(b.output), gbpDay: s(b.usd) * A.usdToGbp }; return o;
+      }, {}),
+      tokDay: s(tokDay), modelGbpDay: s(modelGbpDay), modelGbpMonth: s(modelGbpDay) * A.daysPerMonth,
+      msgGbpDay: s(msgGbpDay), msgGbpMonth: s(msgGbpDay) * A.daysPerMonth,
+      benTapsDay: s(taps), benMinDay: s(benMin), benHoursMonth: s(benMin) / 60 * A.daysPerMonth,
+      savedGbpDay: s(savedGbpDay), savedGbpMonth: s(savedGbpDay) * A.daysPerMonth
+    }
+  };
+}
+// ---- CALC END ----
+
+  // ---- UI ----
+  var root = document.getElementById('cost');
+  if (!root) return;
+  var $ = function (id) { return root.querySelector('#' + id); };
+  var state = { rates: 'replay', msgsWeek: RATES.replay.defaults.msgsWeek, callsWeek: RATES.replay.defaults.callsWeek, cities: 1, mode: 'launch' };
+  var HINTS = {
+    replay: { msgs: 'Replay window averages 30/wk (WhatsApp ingest was dead until 15 Aug). Since 17 Aug the run-rate is ~130/wk. Grouped into bursts of 2.95.', calls: 'Replay: 36/wk, 84% answered. Answered calls get a transcript and one Quote clerk prefill; missed calls get a template.' },
+    brief: { msgs: 'Brief assumption: 100/wk, grouped into bursts of 1.6.', calls: 'Brief assumption: 15/wk. Answered calls get a transcript and one Quote clerk prefill.' }
+  };
+  var gbp = function (v, d) { return '£' + v.toFixed(d == null ? 2 : d); };
+  var num = function (v, d) { d = d == null ? 1 : d; return v.toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  var tok = function (v) { return v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v).toString(); };
+  var row = function (cells, cls) { return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' + cells.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; };
+  var chip = function (t, k) { return '<span class="cm-chip cm-' + k + '">' + t + '</span>'; };
+
+  function render() {
+    var r = compute(state), t = r.total, p = r.perCity, m2 = r.month2, c = r.cities, R = r.rates;
+    var citiesTxt = c === 1 ? '1 city' : c + ' cities';
+    var modeTxt = m2 ? 'month 2' : 'launch';
+    var wd = A.workingDayFactor;
+
+    $('k-gbp-day').textContent = gbp(t.modelGbpDay, 2);
+    $('k-gbp-day-sub').textContent = tok(t.tokDay) + ' tokens · ' + citiesTxt;
+    $('k-gbp-month').textContent = gbp(t.modelGbpMonth, 2);
+    $('k-gbp-month-sub').textContent = '30.4 days · ' + citiesTxt + ' · ' + modeTxt;
+    $('k-msg-month').textContent = gbp(t.msgGbpMonth, 2);
+    $('k-taps').textContent = num(p.ben.tapsWorkingDay, 1);
+    $('k-taps-sub').textContent = num(p.ben.taps, 1) + ' per calendar day · ' + num(p.ben.drafts, 1) + ' drafts · ' + num(p.ben.flags, 1) + ' flags · ' + num(p.ben.samples, 1) + ' samples';
+    $('k-min').textContent = num(p.ben.minutesWorkingDay, 1);
+    $('k-min-sub').textContent = 'at 30 s per tap · ' + num(p.ben.minutes, 1) + ' per calendar day';
+
+    var g = function (k, q) { return q * callUsd(CALLS[k]) * A.usdToGbp; };
+    var rules = [
+      row(['Rules layer sends' + chip('send', 'send'), num(t.runs.rulesSends), '£0']),
+      row(['first-contact ack', num(t.runs.rulesFirstContact), ''], 'cm-sub'),
+      row(['photo / postcode ask', num(t.runs.rulesPhoto), ''], 'cm-sub'),
+      row(['20-min silence-breaker', num(t.runs.rulesSilence), ''], 'cm-sub')
+    ];
+    if (R.flagExpiry > 0) rules.push(row(['flag-expiry holding line', num(t.runs.rulesFlagExpiry), ''], 'cm-sub'));
+    if (R.postCallTemplate > 0) rules.push(row(['post-call template (missed calls)', num(t.runs.rulesPostCall), ''], 'cm-sub'));
+    $('t-runs').innerHTML = rules.concat([
+      row(['Triage / Sorter · Haiku' + chip('read', 'read'), num(t.runs.triage), gbp(g('triage', t.runs.triage), 3)]),
+      row(['Scoper · Sonnet' + chip(m2 ? 'send' : 'draft', m2 ? 'send' : 'draft'), num(t.runs.scoper), gbp(g('scoper', t.runs.scoper), 3)]),
+      row(['Quote clerk · Sonnet' + chip('propose', 'propose'), num(t.runs.clerk), gbp(g('clerk', t.runs.clerk), 3)]),
+      row(['from answered-call transcripts', num(p.clerkFromCalls * c), ''], 'cm-sub'),
+      row(['from threads with 2+ Scoper bursts', num(p.clerkFromThreads * c), ''], 'cm-sub'),
+      row(['Verifier · Opus (10% of automatic sends)' + chip('read', 'read'), num(t.runs.verifier), gbp(g('verifier', t.runs.verifier), 3)]),
+      row(['Exception flags → Ben' + chip('ben', 'ben'), num(t.runs.flags), '£0']),
+      R.dropShare > 0 ? row(['Dropped before triage (non-UK number)', num(t.runs.dropped), '£0'], 'cm-dim') : '',
+      row(['Model cost, all runs', '', gbp(t.modelGbpDay, 3)], 'cm-total')
+    ]).join('');
+
+    var mk = ['haiku', 'sonnet', 'opus'], sum = { calls: 0, input: 0, cached: 0, output: 0 };
+    $('t-models').innerHTML = mk.map(function (k) {
+      var b = t.byModel[k]; sum.calls += b.calls; sum.input += b.input; sum.cached += b.cached; sum.output += b.output;
+      return row([MODELS[k].name, num(b.calls), tok(b.input), tok(b.cached), tok(b.output), gbp(b.gbpDay, 3)]);
+    }).join('') + row(['All models', num(sum.calls), tok(sum.input), tok(sum.cached), tok(sum.output), gbp(t.modelGbpDay, 3)], 'cm-total');
+
+    var b = p.ben, s = A.tapSeconds / 60;
+    $('t-ben').innerHTML = [
+      row(['Approve / edit / reject Scoper drafts' + chip(m2 ? 'send' : 'draft', m2 ? 'send' : 'draft'), num(b.drafts), num(b.drafts * wd), num(b.drafts * wd * s)]),
+      row(['Exception flags: money, dates, complaints' + chip('ben', 'ben'), num(b.flags), num(b.flags * wd), num(b.flags * wd * s)]),
+      row(['Next-morning 10% sample reviews', num(b.samples), num(b.samples * wd), num(b.samples * wd * s)]),
+      row(['Total taps', num(b.taps), num(b.tapsWorkingDay), num(b.minutesWorkingDay)], 'cm-total'),
+      row(['Quote clerk prefills to accept' + chip('propose', 'propose') + ' not counted: replaces intake Ben already does', num(b.clerk), num(b.clerk * wd), ''], 'cm-dim')
+    ].join('');
+
+    $('t-cities').innerHTML = [1, 2, 5].map(function (n) {
+      var x = compute({ rates: state.rates, msgsWeek: state.msgsWeek, callsWeek: state.callsWeek, cities: n, mode: state.mode }).total;
+      return row([n + (n === 1 ? ' city' : ' cities'), gbp(x.modelGbpMonth), gbp(x.msgGbpMonth), num(x.benTapsDay), num(x.benHoursMonth), gbp(x.savedGbpMonth, 0)], n === c ? 'cm-total' : '');
+    }).join('');
+
+    var ratio = t.modelGbpDay > 0 ? t.savedGbpDay / t.modelGbpDay : 0;
+    $('cm-trade').innerHTML = 'Models cost <strong>' + gbp(t.modelGbpDay) + ' a day</strong> and give back <strong>' + num(p.trade.savedMin * c, 0) + ' minutes</strong> of operator time, worth <strong>' + gbp(t.savedGbpDay) + ' a day</strong> at £15/h' + (ratio > 0 ? ', about <strong>' + num(ratio, 0) + '×</strong> the model spend' : '') +
+      '. Per month: ' + gbp(t.savedGbpMonth, 0) + ' saved against ' + gbp(t.modelGbpMonth + t.msgGbpMonth) + ' on models and messages.' +
+      '<span class="cm-note">Saved = hand-written replies avoided (' + R.manualMinPerBurst + ' min per burst, ' + R.manualMinPerCall + ' min per answered-call write-up) minus taps at 30 s and the exception replies Ben still writes by hand. ' + citiesTxt + ', ' + modeTxt + ', ' + R.label.toLowerCase() + ' rates.</span>';
+
+    $('cm-msgs-hint').textContent = HINTS[state.rates].msgs;
+    $('cm-calls-hint').textContent = HINTS[state.rates].calls;
+    var src = $('cm-source');
+    if (state.rates === 'replay') { src.className = 'cm-source cm-measured'; src.textContent = 'DEFAULTS ARE MEASURED: rates come from the replay of real threads, 4 Jun – 3 Sep 2026 (130 bursts, 467 calls). Switch to “Brief” to see the pre-replay assumptions.'; }
+    else { src.className = 'cm-source'; src.textContent = 'ASSUMPTIONS: these are the pre-replay figures from the brief. The measured replay rates are the default; switch back to “Replay”.'; }
+  }
+
+  function bind(id, key) {
+    var el = $(id), out = $(id + '-out');
+    el.addEventListener('input', function () { state[key] = +el.value; out.textContent = el.value; render(); });
+  }
+  bind('cm-msgs', 'msgsWeek'); bind('cm-calls', 'callsWeek'); bind('cm-cities', 'cities');
+  function press(a, b, on) { $(a).setAttribute('aria-pressed', on ? 'true' : 'false'); $(b).setAttribute('aria-pressed', on ? 'false' : 'true'); }
+  function setMode(m) { state.mode = m; press('cm-mode-launch', 'cm-mode-month2', m === 'launch'); render(); }
+  function setRates(k) {
+    state.rates = k; press('cm-rates-replay', 'cm-rates-brief', k === 'replay');
+    var d = RATES[k].defaults; state.msgsWeek = d.msgsWeek; state.callsWeek = d.callsWeek;
+    $('cm-msgs').value = d.msgsWeek; $('cm-msgs-out').textContent = d.msgsWeek;
+    $('cm-calls').value = d.callsWeek; $('cm-calls-out').textContent = d.callsWeek;
+    render();
+  }
+  $('cm-mode-launch').addEventListener('click', function () { setMode('launch'); });
+  $('cm-mode-month2').addEventListener('click', function () { setMode('month2'); });
+  $('cm-rates-replay').addEventListener('click', function () { setRates('replay'); });
+  $('cm-rates-brief').addEventListener('click', function () { setRates('brief'); });
+  render();
+})();
+</script>
+</section>

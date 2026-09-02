@@ -1,0 +1,1742 @@
+<title>Comms Desk Model</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Shared tokens for the Comms Desk Model page. Use these variables; do not hardcode colours. */
+:root{ --bg:#F4F5F3; --surface:#FFFFFF; --ink:#1B2229; --muted:#5B6670; --line:#D5DAD8;
+  --accent:#1E4FA3; --accent-soft:#E4ECFA; --ben:#A9650B; --ben-soft:#FBEFD9;
+  --send:#23704A; --send-soft:#DDF0E4; --draft:#4B5563; --draft-soft:#E7EAEE;
+  --danger:#9C2F2F; --danger-soft:#F7E1E1; --code:#EEF1EF; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; } }
+:root[data-theme="dark"]{
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; }
+/* Fonts on the master page: Archivo (headings), IBM Plex Sans (body), IBM Plex Mono (labels). Tier chips: .chip.send/.draft/.propose/.ben/.read */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+main{max-width:84ch;margin:0 auto;padding:40px 24px 96px}
+h1,h2,h3{font-family:"Archivo","Helvetica Neue",Arial,sans-serif;text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:2.4rem;font-weight:700;letter-spacing:-.02em}
+main>h2, main>section>h2{font-size:1.45rem;font-weight:700;margin-top:64px;padding-top:18px;border-top:2px solid var(--ink)}
+h3{font-size:1.05rem;font-weight:600;margin-top:28px}
+p{margin:12px 0;max-width:72ch}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.lede{font-size:1.1rem;color:var(--muted);max-width:62ch;margin-top:14px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.86em}
+code{background:var(--code);padding:1px 5px;border-radius:3px}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px 18px;margin:26px 0 0;font-size:.9rem}
+nav.toc a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--line)}
+nav.toc a:hover,nav.toc a:focus{border-bottom-color:var(--accent)}
+.status{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:28px}
+.status>div{background:var(--surface);padding:14px 16px}
+.status .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.status .v{font-weight:600;margin-top:4px;font-size:1.3rem;font-family:"Archivo",sans-serif;font-variant-numeric:tabular-nums}
+.status .s{color:var(--muted);font-size:.8rem;margin-top:2px}
+@media (max-width:720px){.status{grid-template-columns:1fr 1fr}}
+.chip{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.7rem;letter-spacing:.06em;padding:2px 7px;border-radius:3px;font-weight:500;white-space:nowrap;vertical-align:middle}
+.chip.send{background:var(--send-soft);color:var(--send)} .chip.draft{background:var(--draft-soft);color:var(--draft)} .chip.propose{background:var(--accent-soft);color:var(--accent)} .chip.ben{background:var(--ben-soft);color:var(--ben)} .chip.read{background:var(--code);color:var(--muted)}
+.rp table{border-collapse:collapse;width:100%;font-size:.9rem;margin:14px 0}
+.rp .tablewrap{overflow-x:auto}
+.rp th{text-align:left;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:8px 10px 8px 0;border-bottom:1px solid var(--ink);white-space:nowrap}
+.rp td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top;font-variant-numeric:tabular-nums}
+.rp td:first-child{font-weight:500}
+.rp td.n{text-align:right;white-space:nowrap}
+.rp th.n{text-align:right}
+.callout{border-left:3px solid var(--ben);background:var(--ben-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.callout.blue{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout p{margin:6px 0}
+ul{padding-left:20px;margin:10px 0;max-width:72ch} li{margin:6px 0}
+.foot{margin-top:56px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+a{color:var(--accent)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<main>
+  <div class="eyebrow">Handy Services · comms desk · modelled before building · 2 Sep 2026</div>
+  <h1>Comms Desk Model</h1>
+  <p class="lede">Four ways of looking at the proposed comms desk before a line of it is built: what it would have done with the last 90 days of real conversations, a step-by-step walkthrough, the shape of the data, and what it costs to run.</p>
+  <nav class="toc"><a href="#replay">Replay on real threads</a><a href="#walkthrough">Walkthrough</a><a href="#diagrams">Data and flow</a><a href="#cost">Cost and load</a><a href="#verdict">What the model says</a></nav>
+
+  <div class="status">
+    <div><div class="k">Real bursts replayed</div><div class="v">132</div><div class="s">91 days, 56 customers, WhatsApp and SMS</div></div>
+    <div><div class="k">Went unanswered today</div><div class="v">23%</div><div class="s">no reply of any kind within 24 hours</div></div>
+    <div><div class="k">Unanswered with the desk</div><div class="v">0%</div><div class="s">holding line at 20 minutes, by construction</div></div>
+    <div><div class="k">Model cost, measured rates</div><div class="v">8p</div><div class="s">per day, one city, against £5.67 of operator time</div></div>
+  </div>
+<section id="replay" class="rp">
+  <h2>Replay: the last 90 days through the desk</h2>
+  <p>Every real customer WhatsApp and SMS burst from 4 June to 2 September was pushed through the desk rules exactly as written in the design: drop spam and non-UK numbers, send exceptions to Ben, let the rules layer answer first contact and photos, hand the rest to the Scoper. Two futures are shown. <strong>Launch</strong> is the Scoper drafting for Ben. <strong>Month 2</strong> is the Scoper sending on its own for ordinary replies.</p>
+  <div class="callout"><p><strong>Read the run-rate, not the average.</strong> WhatsApp capture was broken until 15 August, so 96 of the 132 bursts fall in the last 17 days. Since 17 August the desk would see about 40 bursts a week. Ben's replies from his personal phone are not in the database, so "unanswered" is an upper bound and the Ben lane is over-counted by the keyword rules.</p></div>
+
+  <h3>Where each message would go</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Lane</th><th class="n">Bursts</th><th class="n">Share</th><th>What happens</th></tr>
+    <tr><td>Dropped</td><td class="n">15</td><td class="n">11%</td><td>Non-UK numbers. Logged, nothing sent</td></tr>
+    <tr><td>Rules layer <span class="chip send">SEND</span></td><td class="n">38</td><td class="n">29%</td><td>28 first contacts acknowledged, 10 photo receipts. Sent within a minute, any hour</td></tr>
+    <tr><td>Ben's lane <span class="chip ben">FLAG</span></td><td class="n">35</td><td class="n">27%</td><td>27 mention money, 8 mention dates. Flag with a 4-working-hour deadline, holding line at 20 min</td></tr>
+    <tr><td>Scoper <span class="chip draft">DRAFT</span> → <span class="chip send">SEND</span></td><td class="n">44</td><td class="n">33%</td><td>Ordinary scoping replies. Ben approves at launch, automatic by month 2</td></tr>
+  </table></div>
+  <p>A third of bursts arrive out of hours, 30 of them at the weekend. Those are the ones that go silent today.</p>
+
+  <h3>Silence and speed</h3>
+  <div class="tablewrap"><table>
+    <tr><th></th><th class="n">Today</th><th class="n">Launch</th><th class="n">Month 2</th></tr>
+    <tr><td>Bursts with no reply of any kind in 24 h</td><td class="n">27 (23%)</td><td class="n">0</td><td class="n">0</td></tr>
+    <tr><td>Bursts with only a holding line in 24 h</td><td class="n">n/a</td><td class="n">19 (16%)</td><td class="n">17 (15%)</td></tr>
+    <tr><td>Median minutes to first reply, when there is one</td><td class="n">1.5</td><td class="n">20</td><td class="n">2</td></tr>
+    <tr><td>Median minutes when Ben answers himself</td><td class="n">54</td><td class="n">—</td><td class="n">—</td></tr>
+    <tr><td>Out-of-hours: minutes to a real reply, 90th percentile</td><td class="n">silent</td><td class="n">682 (Monday)</td><td class="n">54</td></tr>
+  </table></div>
+  <p>Today's median looks fast because the old agent answered instantly when it worked. Ben on his own takes 54 minutes and a quarter of bursts never get anything. With the desk, nobody waits more than 20 minutes for a human-sounding reply, but at launch a Saturday-night scoping question still waits for Ben on Monday for the real answer. The 15 to 16% that get only a holding line in a day are almost all money and date questions sitting in Ben's lane, which is the design working, not failing.</p>
+
+  <h3>Ben's taps per working day, since 17 August</h3>
+  <div class="tablewrap"><table>
+    <tr><th></th><th class="n">Today</th><th class="n">Launch</th><th class="n">Month 2</th></tr>
+    <tr><td>Manual replies Ben writes</td><td class="n">6.7</td><td class="n">—</td><td class="n">—</td></tr>
+    <tr><td>Flags to answer</td><td class="n">—</td><td class="n">2.2</td><td class="n">2.2</td></tr>
+    <tr><td>Drafts to approve</td><td class="n">—</td><td class="n">2.7</td><td class="n">0</td></tr>
+    <tr><td>Morning spot-checks of automatic sends</td><td class="n">—</td><td class="n">1.2</td><td class="n">1.2</td></tr>
+    <tr><td><strong>Total taps</strong></td><td class="n"><strong>6.7</strong></td><td class="n"><strong>6.1</strong></td><td class="n"><strong>2.8</strong></td></tr>
+  </table></div>
+  <p>Launch does not reduce Ben's load. It changes it from writing to approving, and it collects the verdicts the desk needs to earn its autonomy. Month 2 is where the load halves.</p>
+
+  <h3>What sends automatically, per day</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Kind</th><th class="n">Launch</th><th class="n">Month 2</th><th>Written by</th></tr>
+    <tr><td>First contact and photo receipts</td><td class="n">1.2</td><td class="n">1.2</td><td>Template</td></tr>
+    <tr><td>Silence-breaker at 20 minutes</td><td class="n">3.1</td><td class="n">1.1</td><td>Template</td></tr>
+    <tr><td>Holding line when a flag passes its deadline</td><td class="n">0.5</td><td class="n">0.5</td><td>Template</td></tr>
+    <tr><td>Text-back after a missed call</td><td class="n">0.4</td><td class="n">0.4</td><td>Template</td></tr>
+    <tr><td>Scoper replies</td><td class="n">0</td><td class="n">2.6</td><td>AI, checked by guards</td></tr>
+    <tr><td><strong>All automatic sends</strong></td><td class="n"><strong>5.2</strong></td><td class="n"><strong>5.8</strong></td><td></td></tr>
+  </table></div>
+  <p>At launch every automatic message is a template. The AI writes nothing a customer reads until month 2, and even then only after earning it.</p>
+
+  <h3>Calls, the real front door</h3>
+  <p>467 inbound calls in the window, 390 answered. Each answered call becomes a pre-filled quote for Ben to price, 20 to 50 a week in a normal month. The 77 missed calls each get a text within a minute; that already works today. Model calls to run all of this: about 12 a day.</p>
+
+  <h3>Nine real bursts, then and with the desk</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Case</th><th>When</th><th>They wrote</th><th>What happened</th><th>What the desk does</th></tr>
+    <tr><td>Saturday first contact</td><td>Sat 15 Aug 18:17</td><td>"Hi, I'm looking for someone to do some work for us. When is…"</td><td>Silent for 24 h</td><td>Acknowledged at 18:18, asked for photos and postcode</td></tr>
+    <tr><td>Photos arrive</td><td>Fri 21 Aug 13:24</td><td>"It would go across both windows / There are paper blinds already"</td><td>Replied in 2 min</td><td>Photo receipt at 13:25, Scoper drafts the next question</td></tr>
+    <tr><td>Money question</td><td>Tue 9 Jun 17:16</td><td>"Can you give me a price please to 1) remove 2 doors from my…"</td><td>Silent for 24 h</td><td>Flag to Ben, holding line at 17:36, second nudge next morning</td></tr>
+    <tr><td>Date question</td><td>Sat 13 Jun 15:47</td><td>"Hi, this is Guen from Valstays. We saw online that you carry…"</td><td>Silent for 24 h</td><td>Flag to Ben, holding line at 16:07, deadline Monday noon</td></tr>
+    <tr><td>Mid-scope reply</td><td>Tue 18 Aug 11:32</td><td>"Hiya, the issue is fixed but we will surely let you know in…"</td><td>Replied in 45 min</td><td>Launch: holding line at 11:52, draft for Ben. Month 2: reply at 11:34</td></tr>
+    <tr><td>New business enquiry</td><td>Tue 9 Jun 10:20</td><td>"Good morning, this is Sarah from Creative Building Solutions…"</td><td>Silent for 24 h</td><td>Acknowledged at 10:21, tagged for Ben as a trade enquiry</td></tr>
+    <tr><td>Out of UK</td><td>Thu 4 Jun 02:14</td><td>"Hi"</td><td>Silent</td><td>Dropped, nothing sent, logged</td></tr>
+    <tr><td>Ben was fast</td><td>Fri 21 Aug 11:39</td><td>"thank you, as far as I can see, the first open date is 27th"</td><td>Ben replied in 2 min</td><td>Nothing. Ben's reply suppresses the desk</td></tr>
+    <tr><td>Curtain pole, NG4</td><td>Tue 9 Jun 17:27</td><td>"Hi / I need a curtain pole fitted near NG4 1TF. It's a small…"</td><td>Silent for 24 h</td><td>Keyword rule sent it to Ben's lane; a better sorter would treat it as a first contact and acknowledge at 17:28</td></tr>
+  </table></div>
+  <p>The last row is the honest one. Fixed keyword rules over-flag: "small" and "fitted" are not money questions. The design already says the sorter is rules first and then one model call; the replay shows why the model call is needed.</p>
+</section>
+<section id="walkthrough" class="wt-root" aria-labelledby="wt-title">
+<style>
+#walkthrough{color:var(--ink);background:var(--bg);font-family:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;line-height:1.5;padding:32px 20px 48px}
+#walkthrough *{box-sizing:border-box}
+#walkthrough .wt-inner{max-width:1120px;margin:0 auto}
+#walkthrough .wt-head{margin:0 0 6px;font-family:Archivo,'IBM Plex Sans',system-ui,sans-serif;font-size:28px;line-height:1.15;letter-spacing:-0.01em}
+#walkthrough .wt-lede{margin:0 0 20px;color:var(--muted);max-width:720px}
+#walkthrough .wt-mono{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+
+/* scenario picker */
+#walkthrough .wt-picker{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;padding:0;list-style:none}
+#walkthrough .wt-pick{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px 7px 9px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:border-color .15s,background .15s}
+#walkthrough .wt-pick:hover{border-color:var(--accent)}
+#walkthrough .wt-pick[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+#walkthrough .wt-pick .wt-num{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--code);color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px}
+#walkthrough .wt-pick[aria-pressed="true"] .wt-num{background:var(--surface);color:var(--accent)}
+
+/* scenario header */
+#walkthrough .wt-scene{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+#walkthrough .wt-scene-top{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-start;justify-content:space-between}
+#walkthrough .wt-scene h3{margin:0 0 4px;font-family:Archivo,'IBM Plex Sans',system-ui,sans-serif;font-size:20px;line-height:1.2}
+#walkthrough .wt-when{color:var(--muted);font-size:14px;margin:0}
+#walkthrough .wt-toggle{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--code)}
+#walkthrough .wt-toggle button{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:8px 14px;cursor:pointer}
+#walkthrough .wt-toggle button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+#walkthrough .wt-toggle-label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em}
+
+/* controls */
+#walkthrough .wt-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0 0}
+#walkthrough .wt-btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 14px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+#walkthrough .wt-btn:hover{border-color:var(--accent)}
+#walkthrough .wt-btn[disabled]{opacity:.45;cursor:default}
+#walkthrough .wt-btn.wt-primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+#walkthrough .wt-progress{margin-left:auto;color:var(--muted);font-size:13px}
+
+/* trace */
+#walkthrough .wt-trace{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+#walkthrough .wt-row{display:grid;grid-template-columns:150px 1fr auto;gap:12px 16px;padding:13px 18px;border-top:1px solid var(--line);align-items:start}
+#walkthrough .wt-row:first-child{border-top:0}
+#walkthrough .wt-row[hidden]{display:none}
+#walkthrough .wt-row.wt-new{animation:wt-in .25s ease-out}
+@keyframes wt-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+#walkthrough .wt-stage{font-weight:700;font-size:14px;line-height:1.35}
+#walkthrough .wt-stage .wt-t{display:block;color:var(--muted);font-weight:500;font-family:'IBM Plex Mono',monospace;font-size:11.5px;margin-top:2px}
+#walkthrough .wt-what{font-size:14.5px}
+#walkthrough .wt-ledger{display:block;margin-top:5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11.5px;word-break:break-word}
+#walkthrough .wt-ledger::before{content:"ledger  ";opacity:.7}
+#walkthrough .wt-chip{display:inline-block;white-space:nowrap;border-radius:999px;padding:3px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border:1px solid transparent}
+#walkthrough .wt-chip.wt-send{background:var(--send-soft);color:var(--send)}
+#walkthrough .wt-chip.wt-pending{background:var(--draft-soft);color:var(--draft)}
+#walkthrough .wt-chip.wt-flag{background:var(--ben-soft);color:var(--ben)}
+#walkthrough .wt-chip.wt-dropped{background:var(--danger-soft);color:var(--danger)}
+#walkthrough .wt-chip.wt-ok{background:var(--code);color:var(--muted)}
+#walkthrough .wt-chip.wt-propose{background:var(--accent-soft);color:var(--accent)}
+
+/* panels */
+#walkthrough .wt-panels{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+#walkthrough .wt-panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;min-height:220px}
+#walkthrough .wt-panel h4{margin:0 0 12px;font-family:Archivo,'IBM Plex Sans',system-ui,sans-serif;font-size:15px;display:flex;align-items:center;gap:8px}
+#walkthrough .wt-panel h4 .wt-dot{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+#walkthrough .wt-panel.wt-ben h4 .wt-dot{background:var(--ben)}
+#walkthrough .wt-thread{display:flex;flex-direction:column;gap:9px}
+#walkthrough .wt-msg{max-width:88%;display:flex;flex-direction:column;gap:3px}
+#walkthrough .wt-msg[hidden]{display:none}
+#walkthrough .wt-msg.wt-customer{align-self:flex-start}
+#walkthrough .wt-msg.wt-system,#walkthrough .wt-msg.wt-ben{align-self:flex-end;align-items:flex-end}
+#walkthrough .wt-bubble{border-radius:14px;padding:9px 13px;font-size:14px;line-height:1.45;white-space:pre-line;border:1px solid var(--line);background:var(--code);color:var(--ink)}
+#walkthrough .wt-msg.wt-customer .wt-bubble{border-bottom-left-radius:4px}
+#walkthrough .wt-msg.wt-system .wt-bubble{background:var(--accent-soft);border-color:transparent;border-bottom-right-radius:4px}
+#walkthrough .wt-msg.wt-ben .wt-bubble{background:var(--ben-soft);border-color:transparent;border-bottom-right-radius:4px}
+#walkthrough .wt-meta{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px}
+#walkthrough .wt-media{display:inline-flex;gap:4px;margin-bottom:4px}
+#walkthrough .wt-media span{width:44px;height:36px;border-radius:6px;background:var(--line);display:inline-grid;place-items:center;font-size:11px;color:var(--muted)}
+#walkthrough .wt-silence{align-self:center;color:var(--muted);font-size:12.5px;font-style:italic;padding:2px 0}
+#walkthrough .wt-silence[hidden]{display:none}
+
+/* Ben items */
+#walkthrough .wt-benlist{display:flex;flex-direction:column;gap:10px}
+#walkthrough .wt-item{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg)}
+#walkthrough .wt-item[hidden]{display:none}
+#walkthrough .wt-item.wt-pending{border-left:4px solid var(--draft)}
+#walkthrough .wt-item.wt-flag{border-left:4px solid var(--ben)}
+#walkthrough .wt-item.wt-urgent{border-left:4px solid var(--danger)}
+#walkthrough .wt-item.wt-card{border-left:4px solid var(--accent)}
+#walkthrough .wt-item.wt-done{opacity:.72}
+#walkthrough .wt-item-top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;margin-bottom:6px}
+#walkthrough .wt-kind{font-weight:700;font-size:13.5px}
+#walkthrough .wt-due{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ben);background:var(--ben-soft);border-radius:6px;padding:2px 7px}
+#walkthrough .wt-item.wt-urgent .wt-due{color:var(--danger);background:var(--danger-soft)}
+#walkthrough .wt-item.wt-pending .wt-due{color:var(--draft);background:var(--draft-soft)}
+#walkthrough .wt-item.wt-card .wt-due{color:var(--accent);background:var(--accent-soft)}
+#walkthrough .wt-item.wt-done .wt-due{color:var(--send);background:var(--send-soft)}
+#walkthrough .wt-item-body{font-size:14px;white-space:pre-line}
+#walkthrough .wt-draft{margin:8px 0 0;padding:9px 12px;border-radius:9px;background:var(--surface);border:1px dashed var(--line);white-space:pre-line;font-size:13.5px}
+#walkthrough .wt-lines{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+#walkthrough .wt-lines li{display:flex;justify-content:space-between;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13.5px}
+#walkthrough .wt-lines .wt-cat{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;white-space:nowrap}
+#walkthrough .wt-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+#walkthrough .wt-fake{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:7px;padding:4px 10px;font:inherit;font-size:12.5px;font-weight:600;cursor:default}
+#walkthrough .wt-fake.wt-go{background:var(--send-soft);color:var(--send);border-color:transparent}
+#walkthrough .wt-fake.wt-no{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+#walkthrough .wt-note{margin-top:7px;font-size:12.5px;color:var(--muted)}
+#walkthrough .wt-empty{color:var(--muted);font-size:14px;padding:20px 8px;text-align:center;border:1px dashed var(--line);border-radius:10px}
+#walkthrough .wt-empty[hidden]{display:none}
+
+/* legend */
+#walkthrough .wt-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:14px 0 0;color:var(--muted);font-size:12.5px;align-items:center}
+
+@media (max-width:760px){
+  #walkthrough .wt-row{grid-template-columns:1fr;gap:6px}
+  #walkthrough .wt-row .wt-chip{justify-self:start}
+  #walkthrough .wt-panels{grid-template-columns:1fr}
+  #walkthrough .wt-head{font-size:24px}
+}
+</style>
+
+<div class="wt-inner">
+  <h2 class="wt-head" id="wt-title">Walk a message through the desk</h2>
+  <p class="wt-lede">Pick a scenario and watch one customer message go through the spine, stage by stage. Every send carries a run id. Every flag and draft has a due time. At launch the only thing that sends on its own is the rules layer.</p>
+
+  <ul class="wt-picker" id="wt-picker" aria-label="Scenarios"></ul>
+
+  <div class="wt-scene">
+    <div class="wt-scene-top">
+      <div>
+        <h3 id="wt-scene-title"></h3>
+        <p class="wt-when" id="wt-scene-when"></p>
+      </div>
+      <div id="wt-variant" hidden>
+        <span class="wt-toggle-label" id="wt-variant-label"></span>
+        <div class="wt-toggle" id="wt-variant-toggle" role="group"></div>
+      </div>
+    </div>
+    <div class="wt-controls">
+      <button type="button" class="wt-btn wt-primary" id="wt-next">Next step</button>
+      <button type="button" class="wt-btn" id="wt-all">Show all</button>
+      <button type="button" class="wt-btn" id="wt-restart">Step through from the start</button>
+      <span class="wt-progress" id="wt-progress"></span>
+    </div>
+  </div>
+
+  <ol class="wt-trace" id="wt-trace" aria-live="polite"></ol>
+
+  <div class="wt-legend">
+    <span><span class="wt-chip wt-send">send</span> went out, with a run id</span>
+    <span><span class="wt-chip wt-pending">pending</span> draft waiting for Ben, has a due time</span>
+    <span><span class="wt-chip wt-flag">flag</span> exception for Ben, has a due time</span>
+    <span><span class="wt-chip wt-propose">propose</span> work prepared for Ben, nothing sent</span>
+    <span><span class="wt-chip wt-dropped">dropped</span> nothing sent, logged</span>
+  </div>
+
+  <div class="wt-panels">
+    <div class="wt-panel">
+      <h4><span class="wt-dot"></span>What the customer sees</h4>
+      <div class="wt-thread" id="wt-customer"></div>
+    </div>
+    <div class="wt-panel wt-ben">
+      <h4><span class="wt-dot"></span>What Ben sees</h4>
+      <div class="wt-benlist" id="wt-ben"></div>
+      <div class="wt-empty" id="wt-ben-empty" hidden></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var root = document.getElementById('walkthrough');
+  if (!root) return;
+
+  /* ---------- helpers for building content ---------- */
+  function step(stage, t, what, chip, ledger){ return {stage:stage, t:t, what:what, chip:chip||'ok', ledger:ledger||''}; }
+  function cust(at, time, text, meta, media){ return {who:'customer', at:at, time:time, text:text, meta:meta||'', media:media||0}; }
+  function sys(at, time, text, meta){ return {who:'system', at:at, time:time, text:text, meta:meta||''}; }
+  function ben(at, time, text, meta){ return {who:'ben', at:at, time:time, text:text, meta:meta||''}; }
+  function gap(at, text){ return {who:'silence', at:at, text:text}; }
+  function item(at, kind, title, due, body, extra){ var o = {at:at, kind:kind, title:title, due:due, body:body}; if (extra) for (var k in extra) o[k]=extra[k]; return o; }
+
+  /* ---------- scenarios ---------- */
+  var SCENARIOS = [
+  {
+    id:'first-whatsapp', label:'First WhatsApp, Sat night',
+    title:'First-ever WhatsApp on a Saturday night',
+    when:'Saturday 21:30. New number, never heard from before. Doors and a shelf, NG5.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Sat 21:30','WhatsApp lands from a number we have never seen. A new conversation is opened and the message is written to the ledger before anything else happens.','ok','message_in  conv_5k2m  channel=whatsapp'),
+        step('Claim','Sat 21:30','requestRun claims the thread and waits 90 seconds in case more messages follow. Nothing else can run an agent on this thread while the claim is held.','ok','run_started  run_a17c3e  trigger=inbound'),
+        step('Case file','Sat 21:30','One inbound message, no client record, no quote, no open flags. WhatsApp window is open for 24 hours. Policy pack resolved: rules.first_contact.','ok','case_file_ref=cf_9b0d  model_snapshot=none yet'),
+        step('Triage','Sat 21:30','Pre-checks pass: UK number, NG5 is inside Nottingham coverage, no spam pattern, no money, date or complaint words. First contact. Haiku sorts it: intent new_enquiry, lane scoping, no exceptions.','ok','tags+=first_contact  stage=scoping'),
+        step('Policy pack','Sat 21:30','rules.first_contact is at SEND. It allows ack_enquiry and ask_media. Reactive replies are allowed 24/7, so Saturday night is fine.','ok','pack=rules.first_contact v3'),
+        step('Worker','Sat 21:31','The rules layer, not an agent. It picks the out-of-hours ack template plus the photo ask. There is nothing to reason about and no model call.','ok'),
+        step('Guards','Sat 21:31','Template only, so no money, dates or promises can be in it by construction. Opt-out check clear. Window open, so freeform WhatsApp is deliverable.','ok','guards_hit=[]'),
+        step('Decision','Sat 21:31','SEND. Intent is at SEND tier in this pack, no exception on the thread, hours allow, channel deliverable.','send','decision=send  approver=rules.first_contact'),
+        step('Outbox / Ben','Sat 21:31','sendCustomerMessage(run_a17c3e, rules.first_contact) writes the ledger and sends over WhatsApp. Ben gets nothing tonight. The customer has a reply within a minute.','send','message_out  run_a17c3e  sent_by=rules.first_contact'),
+        step('Worker','Mon 08:30','The Scoper (Sonnet) is at DRAFT for every intent at launch, so its run is scheduled into Ben’s hours. It reads the case file and proposes an ask_gap draft.','ok','run_started  run_b82f10  agent=scoper'),
+        step('Guards','Mon 08:30','Money guard, date guard, capability guard, voice guard all pass. One question, no greeting repeat, no names in the third person.','ok','guards_hit=[]'),
+        step('Decision','Mon 08:30','PENDING. ask_gap is at DRAFT in customer.default, so the proposal goes to Ben with a due time of four working hours.','pending','draft_created  run_b82f10  due_at=Mon 12:30'),
+        step('Outbox / Ben','Mon 08:30','Nothing sent. Ben sees a pending draft with a due time. If he has not acted by 12:30 the rules layer sends one holding line so the customer is not left in silence.','pending','decision=pending  approver=none')
+      ],
+      customer:[
+        cust(0,'Sat 21:30','Hi, need a couple of doors hung and a shelf up, NG5'),
+        sys(8,'Sat 21:31','Hi, thanks for getting in touch with Handy Services. You’ve caught us out of hours, so we’ll come back to you here first thing.\n\nCould you send a couple of photos of the doors and where the shelf is going?','rules.first_contact · run_a17c3e')
+      ],
+      ben:[
+        item(12,'pending','Pending draft · ask_gap','due Mon 12:30','Draft from the Scoper on the NG5 doors and shelf thread. Approve, edit or reject. Your tap is a verdict.',{draft:'Morning. Are they internal doors, and have you already got them or do you need us to supply?', actions:['Approve','Edit','Reject'], note:'drafted_by agent.scoper · run_b82f10 · if untouched by 12:30 a holding line goes out and this stays in the queue'})
+      ]
+    }]
+  },
+  {
+    id:'missed-call', label:'Missed call, voicemail',
+    title:'Missed call with a voicemail',
+    when:'Tuesday 14:10. Ben is on a job. The caller leaves a 38-second voicemail: leaking kitchen tap and a loose bath panel, NG7.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Tue 14:10','Call ends unanswered. Recording is longer than 10 seconds so it goes to nova-3 for a transcript. The call and transcript are written to the ledger.','ok','call_in  rec=38s  transcript=ok'),
+        step('Claim','Tue 14:10','requestRun claims the thread. Trigger is call_end, the same path as an inbound text.','ok','run_started  run_c40d9a  trigger=call_end'),
+        step('Case file','Tue 14:10','One call with transcript, no prior contact, no WhatsApp window (they have never messaged us). Pack: rules.first_contact.','ok','case_file_ref=cf_1e77'),
+        step('Triage','Tue 14:10','Pre-checks pass. First contact. Haiku reads the transcript: intent new_enquiry, lane scoping, no exceptions. It tags needs_quote because the voicemail already describes the job.','ok','tags+=first_contact,needs_quote'),
+        step('Policy pack','Tue 14:10','rules.first_contact at SEND. ack_missed_call and ask_media allowed.','ok','pack=rules.first_contact v3'),
+        step('Worker','Tue 14:11','Rules layer. No WhatsApp window is open, so the ladder uses the approved missed-call template on WhatsApp, and SMS if that fails.','ok'),
+        step('Guards','Tue 14:11','Template only. Opt-out clear. Window closed, so the template ladder applies.','ok','channel=wa_template'),
+        step('Decision','Tue 14:11','SEND.','send','decision=send  approver=rules.first_contact'),
+        step('Outbox / Ben','Tue 14:11','Text-back goes out within a minute of the missed call.','send','message_out  run_c40d9a'),
+        step('Ingest','Tue 14:26','Customer replies with three photos. Written to the ledger. The WhatsApp window is now open.','ok','message_in  media=3'),
+        step('Triage','Tue 14:26','Photos on a thread that already has needs_quote. Intent ack_photos, lane gathering. No exceptions.','ok','stage=gathering'),
+        step('Worker','Tue 14:27','Rules layer sends ack_photos. In the same burst the Quote clerk (Sonnet, PROPOSE) reads the transcript plus the photos and prepares an intake.','ok','run_started  run_d5a1b3  agent=quote_clerk'),
+        step('Guards','Tue 14:27','The ack is a template. The clerk’s intake never goes to the customer, so no customer guards apply. It carries no price and no date because its tool cannot write one.','ok'),
+        step('Decision','Tue 14:27','SEND for the ack. PROPOSE for the intake: prefilled lines and ticked media for Ben, never a price.','send','message_out  run_d5a1b3  +  proposal=intake'),
+        step('Outbox / Ben','Tue 14:27','Customer gets the ack. Ben sees a quote card with two scope lines and one gap. He prices it and sends it in under a minute.','propose','draft_created(kind=intake)  run_d5a1b3')
+      ],
+      customer:[
+        cust(0,'Tue 14:10','☎ Missed call, 38s voicemail: “Hi it’s Priya, my kitchen tap’s dripping under the sink and the bath panel’s come loose, NG7. Can someone call me back?”','voicemail'),
+        sys(8,'Tue 14:11','Sorry we missed your call, it’s Handy Services. We’ll pick this up here on text shortly.\n\nCould you send a couple of photos of the tap and the bath panel?','rules.first_contact · run_c40d9a · wa template'),
+        cust(9,'Tue 14:26','Here you go, tap and the bath panel','',3),
+        sys(14,'Tue 14:27','Perfect, thanks for those. We’ll get a quote over to you shortly.','rules.first_contact · run_d5a1b3')
+      ],
+      ben:[
+        item(15,'card','Quote card · Priya, NG7','ready Tue 14:27','From the voicemail and 3 photos. Lines are scope only. You price it.',{lines:[['Replace kitchen mixer tap, drip under sink','plumbing'],['Refix loose bath panel','bathroom']], gaps:'Gap already asked: is the new tap supplied?', actions:['Open in builder','Attach 3 photos','Dismiss'], note:'proposed_by agent.quote_clerk · run_d5a1b3 · category on every line'})
+      ]
+    }]
+  },
+  {
+    id:'money-question', label:'“How much roughly?”',
+    title:'Customer asks for a rough price',
+    when:'Monday 10:05, same NG5 doors thread. “How much roughly for the doors?” Any money figure is Ben’s, always.',
+    variantLabel:'What Ben does',
+    variants:[
+      { key:'answers', label:'Ben answers 11:20',
+        trace:[
+          step('Ingest','Mon 10:05','Message lands on the existing thread and goes to the ledger.','ok','message_in  conv_5k2m'),
+          step('Claim','Mon 10:05','Thread claimed.','ok','run_started  run_e91a44'),
+          step('Case file','Mon 10:05','Thread history, the pending Scoper draft from 08:30, no quote yet. Pack would be customer.default.','ok'),
+          step('Triage','Mon 10:05','The keyword lexicon catches “how much” before any model runs. Exception: money_question. Exceptions go to Ben’s lane before any agent is allowed to run.','flag','exceptions=[money_question]'),
+          step('Policy pack','Mon 10:05','customer.exception. It allows no intents at all. Money is absent from every customer pack’s vocabulary, so no agent could answer this even if asked to.','ok','pack=customer.exception'),
+          step('Worker','Mon 10:05','No agent runs. The Scoper is skipped for this burst.','ok','agent=none'),
+          step('Guards','Mon 10:05','Nothing to guard. Nothing was proposed.','ok'),
+          step('Decision','Mon 10:05','FLAG with a due time of four working hours. One Pushover to Ben. The 08:30 draft is held behind the flag so it cannot go out while a money question is open.','flag','flag_raised  run_e91a44  due_at=Mon 14:05'),
+          step('Outbox / Ben','Mon 10:05','Nothing sent. Ben sees the flag with the due time and the customer’s exact words.','flag','pushover  digest_at=09:00 next day if still open'),
+          step('Outbox / Ben','Mon 11:20','Ben answers from the workbench. His reply goes through the same exit with approver human:ben, so it is in the ledger like everything else. The flag auto-closes.','send','message_out  run_f02c7d  sent_by=human:ben  flag_closed')
+        ],
+        customer:[
+          cust(0,'Mon 10:05','How much roughly for the doors?'),
+          ben(9,'Mon 11:20','Morning. I’ll price it properly once I’ve seen the photos, so I’m not guessing. Are they internal doors?','human:ben · run_f02c7d')
+        ],
+        ben:[
+          item(8,'flag','Flag · money_question','due Mon 14:05','Customer asked: “How much roughly for the doors?”\nThe system will not answer this. The pending ask_gap draft is held behind this flag.',{actions:['Reply','Open quote builder','Close flag'], note:'run_e91a44 · if untouched by 14:05 one template holding line goes out and it re-flags once'}),
+          item(9,'flag done','Flag closed · answered by Ben','closed Mon 11:20','Ben replied from the workbench. Flag auto-closed. Held draft released, and now stale, so Ben rejected it with reason wrong_move.',{note:'flag_closed · draft_rejected reason=wrong_move'})
+        ]
+      },
+      { key:'misses', label:'Ben misses it',
+        trace:[
+          step('Ingest','Mon 10:05','Message lands on the existing thread and goes to the ledger.','ok','message_in  conv_5k2m'),
+          step('Claim','Mon 10:05','Thread claimed.','ok','run_started  run_e91a44'),
+          step('Case file','Mon 10:05','Thread history, the pending Scoper draft from 08:30, no quote yet.','ok'),
+          step('Triage','Mon 10:05','The keyword lexicon catches “how much” before any model runs. Exception: money_question.','flag','exceptions=[money_question]'),
+          step('Policy pack','Mon 10:05','customer.exception. No intents allowed.','ok','pack=customer.exception'),
+          step('Worker','Mon 10:05','No agent runs.','ok','agent=none'),
+          step('Guards','Mon 10:05','Nothing to guard.','ok'),
+          step('Decision','Mon 10:05','FLAG, due in four working hours. One Pushover to Ben.','flag','flag_raised  run_e91a44  due_at=Mon 14:05'),
+          step('Outbox / Ben','Mon 10:05','Nothing sent. Ben sees the flag with the due time.','flag'),
+          step('Worker','Mon 14:05','Due time passes with no reply from either of Ben’s numbers. The rules layer, not an agent, picks the holding template for an expired flag.','ok','flag_expired  run_e91a44'),
+          step('Guards','Mon 14:05','Template only. It contains no figure and no time promise. Suppressed if any outbound had landed since 10:05. None did.','ok','suppress_check=no outbound since 10:05'),
+          step('Decision','Mon 14:05','SEND one holding line and re-flag once with a new due time. Silence is a failure, so the customer hears something even when Ben is busy.','send','decision=send  approver=rules.followup'),
+          step('Outbox / Ben','Mon 14:06','Holding line goes out. Ben’s flag is now past due and re-raised. It shows in the 09:00 digest tomorrow if still open.','flag','message_out  run_g33e18  sent_by=rules.followup  flag_raised due_at=Mon 18:05')
+        ],
+        customer:[
+          cust(0,'Mon 10:05','How much roughly for the doors?'),
+          gap(9,'four hours pass, Ben is on a job'),
+          sys(12,'Mon 14:06','Just so you know, we’ve seen this and it’s being looked at. We’ll come back to you properly shortly.','rules.followup · holding line · run_g33e18')
+        ],
+        ben:[
+          item(8,'flag','Flag · money_question','due Mon 14:05','Customer asked: “How much roughly for the doors?”\nThe system will not answer this.',{actions:['Reply','Open quote builder','Close flag'], note:'run_e91a44'}),
+          item(12,'flag urgent','Flag past due · re-raised once','due Mon 18:05','Holding line sent at 14:06. Customer is still waiting for a real answer. This will not re-flag again, it goes to the 09:00 digest.',{actions:['Reply now','Open quote builder'], note:'flag_expired · message_out run_g33e18 · flag_raised (2 of 2)'})
+        ]
+      }
+    ]
+  },
+  {
+    id:'date-question', label:'“Can you do Thursday?”',
+    title:'Customer asks for a specific day',
+    when:'Wednesday 11:05. Quote sent yesterday and viewed. “Can you do Thursday morning?” The system may point at the picker. It may never confirm a day.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Wed 11:05','Message lands on a thread with a live quote.','ok','message_in  conv_8p4t'),
+        step('Claim','Wed 11:05','Thread claimed.','ok','run_started  run_h12b09'),
+        step('Case file','Wed 11:05','Live quote, viewed twice, not paid. Booking picker is on the quote page. Pack would be customer.post_quote.','ok','quote=QTE-0311 viewed=2 paid=no'),
+        step('Triage','Wed 11:05','Lexicon catches “Thursday”. Exception: date_question. Goes to Ben’s lane before any agent runs.','flag','exceptions=[date_question]'),
+        step('Policy pack','Wed 11:05','customer.exception. Dates are absent from every customer pack, so no agent can say yes to Thursday, or no. Only the picker on the quote page can hold a date.','ok','pack=customer.exception'),
+        step('Worker','Wed 11:05','No agent runs.','ok','agent=none'),
+        step('Guards','Wed 11:05','Nothing proposed.','ok'),
+        step('Decision','Wed 11:05','FLAG, due in four working hours. The flag carries a one-tap point_to_picker template for Ben because that is the only safe reply the system knows.','flag','flag_raised  run_h12b09  due_at=Wed 15:05'),
+        step('Outbox / Ben','Wed 11:05','Nothing sent. Ben sees the flag.','flag'),
+        step('Outbox / Ben','Wed 11:40','Ben taps the picker template. It sends as human:ben. It points at the quote page and confirms nothing. If Ben wants to say Thursday is fine, he types it himself, and that is on him, not the system.','send','message_out  run_j77d21  sent_by=human:ben  template=point_to_picker  flag_closed')
+      ],
+      customer:[
+        cust(0,'Wed 11:05','Can you do Thursday morning?'),
+        ben(9,'Wed 11:40','Pick whichever day works for you on your quote page and it locks in from there. The link’s just above 🙂','human:ben · point_to_picker · run_j77d21')
+      ],
+      ben:[
+        item(8,'flag','Flag · date_question','due Wed 15:05','Customer asked: “Can you do Thursday morning?”\nCheck the calendar yourself. The system will not confirm or refuse a day.',{draft:'Pick whichever day works for you on your quote page and it locks in from there. The link’s just above 🙂', actions:['Send picker line','Reply my own way','Close flag'], note:'run_h12b09 · template point_to_picker, one tap, sent as you'}),
+        item(9,'flag done','Flag closed · picker line sent','closed Wed 11:40','Sent as human:ben. Nothing about Thursday was written by the system.',{note:'message_out run_j77d21 · flag_closed'})
+      ]
+    }]
+  },
+  {
+    id:'complaint', label:'Complaint: shelf fell',
+    title:'A complaint about last week’s job',
+    when:'Thursday 17:50. “The shelf you put up last week has come off the wall.” Complaints are always Ben, and the system never apologises in a way that admits fault.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Thu 17:50','Message lands on a thread with a completed, paid job.','ok','message_in  conv_2w9c'),
+        step('Claim','Thu 17:50','Thread claimed.','ok','run_started  run_k58f30'),
+        step('Case file','Thu 17:50','Paid invoice from last week, job marked complete, contractor on the job was Craig. No open flags.','ok','invoice=paid  job=complete'),
+        step('Triage','Thu 17:50','Lexicon catches “come off the wall” and “you put up”. Exception: complaint. Haiku is still run to tag it, but the lane is already Ben’s.','flag','exceptions=[complaint]  tags+=trust_concern'),
+        step('Policy pack','Thu 17:50','customer.exception. No intents allowed. The pack sets complaint due time to 60 minutes and Pushover priority high, that is config, not code.','ok','pack=customer.exception  due=60m  priority=high'),
+        step('Worker','Thu 17:50','No agent runs. No AI writes to a person who is upset.','ok','agent=none'),
+        step('Guards','Thu 17:50','Nothing proposed.','ok'),
+        step('Decision','Thu 17:50','FLAG, urgent. Ben’s phone is pinged now, not in the morning digest. The thread is locked for every non-human approver until the flag closes.','flag','flag_raised  run_k58f30  due_at=Thu 18:50  pushover=high'),
+        step('Outbox / Ben','Thu 17:50','Nothing sent yet. Ben sees an urgent flag with the customer’s words and the job history in one place.','flag'),
+        step('Worker','Thu 18:50','No reply from Ben by the due time. The rules layer picks the complaint holding template.','ok','flag_expired  run_k58f30'),
+        step('Guards','Thu 18:50','Template only. It says we have seen it and it is being treated as a priority. It does not say sorry for the work, does not blame anyone and does not promise a fix or a refund. Suppressed if Ben had replied from either number.','ok','liability=none by construction'),
+        step('Decision','Thu 18:51','SEND one holding line, re-flag once.','send','decision=send  approver=rules.followup'),
+        step('Outbox / Ben','Thu 18:51','Holding line goes out. Ben’s flag is past due and pinged again.','flag','message_out  run_m91a02  sent_by=rules.followup  flag_raised due_at=Thu 19:50')
+      ],
+      customer:[
+        cust(0,'Thu 17:50','The shelf you put up last week has come off the wall'),
+        gap(9,'an hour passes'),
+        sys(12,'Thu 18:51','We’ve seen this and it’s being treated as a priority. Someone will come back to you personally very shortly.','rules.followup · complaint holding line · run_m91a02')
+      ],
+      ben:[
+        item(8,'flag urgent','Urgent flag · complaint','due Thu 18:50','“The shelf you put up last week has come off the wall.”\nJob: shelf, completed last week by Craig, invoice paid. Phone pinged.',{actions:['Call customer','Reply','Book return visit'], note:'run_k58f30 · thread locked to human replies while open'}),
+        item(12,'flag urgent','Past due · holding line sent','due Thu 19:50','Customer has had one holding line. Nothing has apologised for the work or promised anything. This needs you.',{actions:['Call customer','Reply'], note:'flag_expired · message_out run_m91a02 · re-flagged once'})
+      ]
+    }]
+  },
+  {
+    id:'mid-scope', label:'Mid-scope reply',
+    title:'Customer answers a scoping question',
+    when:'Tuesday 10:05. Reply to yesterday’s question: “yes both doors are internal, standard size.” Same message, two moments in the rollout.',
+    variantLabel:'Where we are in the rollout',
+    variants:[
+      { key:'launch', label:'LAUNCH',
+        trace:[
+          step('Ingest','Tue 10:05','Reply lands on the doors thread.','ok','message_in  conv_5k2m'),
+          step('Claim','Tue 10:05','Thread claimed.','ok','run_started  run_n24e77  agent=scoper'),
+          step('Case file','Tue 10:05','Thread history with our question and their answer, no quote yet, no open flags. Pack: customer.default.','ok','case_file_ref=cf_3a1c  model_snapshot=sonnet-5'),
+          step('Triage','Tue 10:05','Pre-checks pass, no exception words. Haiku: intent scope_answer, lane scoping, no exceptions.','ok','lane=scoping'),
+          step('Policy pack','Tue 10:05','customer.default. At launch every Scoper intent is DRAFT.','ok','tier(confirm_received)=DRAFT  tier(ask_gap)=DRAFT'),
+          step('Worker','Tue 10:05','The Scoper reads the case file and proposes one reply: confirm what they said, then ask the one gap left, the shelf wall.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Tue 10:05','Money, date, capability, duration, voice: all pass. No greeting repeat, one question.','ok','guards_hit=[]'),
+          step('Decision','Tue 10:05','PENDING. The intents are at DRAFT, so it goes to Ben with a due time.','pending','draft_created  run_n24e77  due_at=Tue 14:05'),
+          step('Outbox / Ben','Tue 10:05','Nothing sent. Ben sees the draft. His approve, edit or reject is a verdict with a reason code, and 30 of those across the pack is what earns SEND.','pending'),
+          step('Outbox / Ben','Tue 10:41','Ben approves unedited. The draft goes out with drafted_by agent.scoper and sent_by human:ben. Verdict logged: fine.','send','draft_approved  message_out  run_n24e77  verdict=fine')
+        ],
+        customer:[
+          cust(0,'Tue 10:05','yes both doors are internal, standard size'),
+          sys(9,'Tue 10:41','Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?','drafted agent.scoper · approved human:ben · run_n24e77')
+        ],
+        ben:[
+          item(8,'pending','Pending draft · confirm_received + ask_gap','due Tue 14:05','One tap. Your reason code feeds the promotion count for this intent.',{draft:'Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?', actions:['Approve','Edit','Reject'], note:'run_n24e77 · verdicts on this pack so far: 11 of 30'}),
+          item(9,'pending done','Approved unedited · sent','sent Tue 10:41','Verdict: fine. Verdicts on this pack: 12 of 30.',{note:'draft_approved · message_out run_n24e77'})
+        ]
+      },
+      { key:'month2', label:'MONTH 2',
+        trace:[
+          step('Ingest','Tue 10:05','Reply lands on the doors thread.','ok','message_in  conv_5k2m'),
+          step('Claim','Tue 10:05','Thread claimed.','ok','run_started  run_p66c12  agent=scoper'),
+          step('Case file','Tue 10:05','Same case file as before.','ok','case_file_ref=cf_3a1c  model_snapshot=sonnet-5'),
+          step('Triage','Tue 10:05','No exception words. Intent scope_answer, lane scoping.','ok','lane=scoping'),
+          step('Policy pack','Tue 10:05','customer.default. confirm_received and ask_gap have earned SEND: eval family at pass^3 100%, 34 verdicts in 30 days at 94% unedited, zero unsafe ever, zero guard escalations in 14 days.','ok','tier(confirm_received)=SEND  tier(ask_gap)=SEND  promoted 4 weeks ago'),
+          step('Worker','Tue 10:05','The Scoper proposes the same reply.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Tue 10:05','All pass. Guards do not relax when an intent is promoted. Any guard hit would drop it back to PENDING.','ok','guards_hit=[]'),
+          step('Decision','Tue 10:06','SEND. Intents at SEND in this pack, no exception on the thread, reactive so hours allow, window open.','send','decision=send  approver=agent.scoper'),
+          step('Outbox / Ben','Tue 10:06','Goes out with approver agent.scoper. Ben does not see it today. The Verifier puts 1 in 10 of these in his morning strip so the verdicts never stop. Two bad samples in a row and the intent drops back to DRAFT.','send','message_out  run_p66c12  sent_by=agent.scoper  sampled=yes')
+        ],
+        customer:[
+          cust(0,'Tue 10:05','yes both doors are internal, standard size'),
+          sys(7,'Tue 10:06','Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?','agent.scoper · SEND tier · run_p66c12')
+        ],
+        ben:[
+          item(8,'card','Morning sample · tomorrow 09:00','1 of 4 to review','This send was picked by the 10% sampler. One tap: fine or not fine, with a reason.',{draft:'Perfect, that helps. Last thing, is the shelf going onto a plasterboard wall or brick?', actions:['Fine','Not fine'], note:'sample_reviewed pending · run_p66c12 · sampled approval trailing 30: 96%'})
+        ]
+      }
+    ]
+  },
+  {
+    id:'landlord-email', label:'Landlord email',
+    title:'Landlord replies by email to a WhatsApp thread',
+    when:'Wednesday 09:15. Subject: “Quote for 14 Mansfield Rd”. Rachel has a quote open and has been on WhatsApp with us. Same customer, one conversation, reply goes back by email.',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Wed 09:15','Email adapter parses the message and strips the signature. The sender address matches Rachel’s client record, so it joins her existing conversation rather than opening a new one.','ok','message_in  conv_6r2j  channel=email  matched_by=client.email'),
+        step('Claim','Wed 09:15','Thread claimed. Same spine as WhatsApp.','ok','run_started  run_q08a55  agent=scoper'),
+        step('Case file','Wed 09:15','WhatsApp history plus this email, role profile landlord, live quote QTE-0298 with two lines including disposal, viewed once, unpaid. Pack: customer.post_quote.','ok','quote=QTE-0298 lines=2 viewed=1'),
+        step('Triage','Wed 09:15','No money or date words. Haiku: lane post_quote, intents answer_from_quote and scope addition. Tag needs_quote for the extractor fan.','ok','lane=post_quote  tags+=needs_quote'),
+        step('Policy pack','Wed 09:15','customer.post_quote at DRAFT. It allows answer_from_quote, which may repeat what is already written on the quote page, and confirm_received.','ok','pack=customer.post_quote'),
+        step('Worker','Wed 09:15','The Scoper proposes: confirm the fan is noted, and answer the disposal question by citing line 2 of the quote. The Quote clerk proposes one added scope line for the fan, no price.','ok','proposal=confirm_received+answer_from_quote  citations=[QTE-0298 line 2]'),
+        step('Guards','Wed 09:15','Money guard checks the body carries no figure even though the quote has one. Unseen guard confirms every claim is cited to the quote. Voice passes.','ok','guards_hit=[]'),
+        step('Decision','Wed 09:15','PENDING with a due time. The clerk’s added line is PROPOSE into the builder.','pending','draft_created  run_q08a55  due_at=Wed 13:15'),
+        step('Outbox / Ben','Wed 09:15','Nothing sent. Ben sees a pending draft and, on the same card, an added quote line to price.','pending'),
+        step('Outbox / Ben','Wed 09:52','Ben adds the fan line, prices it, approves the draft. The exit replies in the channel the message came from, so this one goes out by email, not WhatsApp.','send','draft_approved  message_out  run_q08a55  channel=email  sent_by=human:ben')
+      ],
+      customer:[
+        cust(0,'Wed 09:15','✉ Quote for 14 Mansfield Rd\n\nHi, my tenant says the bathroom extractor fan has also stopped working, can you add that to the quote? And does the quote include taking the old doors away?\nThanks, Rachel','email'),
+        sys(9,'Wed 09:52','✉ Re: Quote for 14 Mansfield Rd\n\nHi Rachel, yes, taking the old doors away is already on your quote, it’s the second line.\n\nWe’ve added the extractor fan and your quote page is updated. Same link as before.','drafted agent.scoper · approved human:ben · run_q08a55 · email')
+      ],
+      ben:[
+        item(8,'pending','Pending draft · answer_from_quote (email)','due Wed 13:15','Rachel, landlord, 14 Mansfield Rd. Reply will go by email.',{draft:'Hi Rachel, yes, taking the old doors away is already on your quote, it’s the second line.\n\nWe’ve added the extractor fan and your quote page is updated. Same link as before.', lines:[['Bathroom extractor fan not working, diagnose and replace','electrical']], gaps:'Added line from the Quote clerk. Price it before approving, or the draft’s second paragraph is not true yet.', actions:['Price fan line','Approve','Edit','Reject'], note:'run_q08a55 · citation: QTE-0298 line 2'}),
+        item(9,'pending done','Approved · sent by email','sent Wed 09:52','Fan line priced by Ben. Verdict: fine.',{note:'draft_approved · message_out run_q08a55 channel=email'})
+      ]
+    }]
+  },
+  {
+    id:'web-chat', label:'Web chat: Derby?',
+    title:'Web chat asks if we cover Derby',
+    when:'Friday 11:00. Anonymous web chat, no phone number yet. “do you cover Derby?”',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Fri 11:00','Web chat widget posts the message. No phone, no email, just a session. A conversation is opened on the web channel.','ok','message_in  conv_9z1v  channel=webchat'),
+        step('Claim','Fri 11:00','Thread claimed.','ok','run_started  run_r41d88'),
+        step('Case file','Fri 11:00','One message, no client record. City record for the Nottingham operator lists DE postcodes as covered. Pack: rules.first_contact.','ok','city=nottingham  coverage=NG,DE'),
+        step('Triage','Fri 11:00','Geography pre-check: “Derby” is inside coverage, so no out_of_area exception. First contact. No spam pattern. Haiku: intent coverage_question, lane scoping.','ok','out_of_area=no  tags+=first_contact'),
+        step('Policy pack','Fri 11:00','rules.first_contact at SEND. ack_enquiry and ask_postcode allowed. Coverage yes/no is a lookup, not a judgement, so the rules layer can say it.','ok','pack=rules.first_contact'),
+        step('Worker','Fri 11:00','Rules layer. Coverage template with the postcode ask. No model call.','ok'),
+        step('Guards','Fri 11:00','Template only. Web chat is always deliverable while the session is open.','ok','channel=webchat'),
+        step('Decision','Fri 11:00','SEND.','send','decision=send  approver=rules.first_contact'),
+        step('Outbox / Ben','Fri 11:00','Reply appears in the widget straight away. Ben sees nothing until there is a postcode and a job to look at.','send','message_out  run_r41d88')
+      ],
+      customer:[
+        cust(0,'Fri 11:00','do you cover Derby?','web chat'),
+        sys(8,'Fri 11:00','Yes, we cover Derby. Pop your postcode in and tell us what needs doing, and we’ll take it from there.','rules.first_contact · run_r41d88 · web chat')
+      ],
+      ben:[]
+    }],
+    benEmpty:'Nothing. Coverage is a lookup and the ask went out on its own. Ben sees this thread once a postcode and a job arrive.'
+  },
+  {
+    id:'spam', label:'Spam, non-UK number',
+    title:'Spam from a number outside the UK',
+    when:'Sunday 03:12. +1 555 number: “We can rank your website #1 on Google. Reply YES for a free audit.”',
+    variants:[{ key:'a', label:'',
+      trace:[
+        step('Ingest','Sun 03:12','Message lands. It is written to the ledger like everything else, because the ledger is the record of what happened, not what we liked.','ok','message_in  conv_0x7q  from=+1555…'),
+        step('Claim','Sun 03:12','Thread claimed.','ok','run_started  run_s93b06'),
+        step('Case file','Sun 03:12','One message, non-UK number, no client record.','ok'),
+        step('Triage','Sun 03:12','Pre-checks: number is outside the UK, and the text matches the SEO and outsourcing spam patterns. Two exceptions: spam and out_of_area. No model call is spent on it.','dropped','exceptions=[spam,out_of_area]  model_call=none'),
+        step('Policy pack','Sun 03:12','No pack applies to a spam lane.','ok','pack=none'),
+        step('Worker','Sun 03:12','Nothing runs.','ok','agent=none'),
+        step('Guards','Sun 03:12','Nothing to guard.','ok'),
+        step('Decision','Sun 03:12','DROPPED. Conversation tagged spam and quarantined so it never appears in a case file. No ack, because an ack to a spammer costs sender quality on the WhatsApp number.','dropped','decision=dropped  reason=spam,out_of_uk  tags+=spam  quarantined=true'),
+        step('Outbox / Ben','Sun 03:12','Nothing sent. Nothing for Ben. It shows only as a count on /admin/staff.','dropped','run_finished  cost_pence=0')
+      ],
+      customer:[
+        cust(0,'Sun 03:12','We can rank your website #1 on Google. Reply YES for a free audit.','+1 555 number'),
+        gap(8,'no reply, ever')
+      ],
+      ben:[]
+    }],
+    benEmpty:'Nothing. Dropped and quarantined. Counted on /admin/staff, never in the queue.'
+  },
+  {
+    id:'silence-breaker', label:'Silence-breaker',
+    title:'Silence-breaker while Ben is on a job',
+    when:'Wednesday 13:05. A customer mid-thread sends one photo. Ben is up a ladder. Two versions: Ben stays silent, or Ben replies from his personal number at 13:15.',
+    variantLabel:'What Ben does',
+    variants:[
+      { key:'silent', label:'Ben silent',
+        trace:[
+          step('Ingest','Wed 13:05','Photo lands on an existing scoping thread.','ok','message_in  conv_4h8n  media=1'),
+          step('Claim','Wed 13:05','Thread claimed. A 20-minute silence timer starts for this burst.','ok','run_started  run_t15c90  silence_due=13:25'),
+          step('Case file','Wed 13:05','Thread history, no quote yet, no open flags. Not a first contact, so the first-contact pack does not apply. Pack: customer.default.','ok'),
+          step('Triage','Wed 13:05','No exception words. Haiku: intent media_received, lane gathering.','ok','lane=gathering'),
+          step('Policy pack','Wed 13:05','customer.default. confirm_received and ask_gap at DRAFT (launch).','ok','tier=DRAFT'),
+          step('Worker','Wed 13:05','The Scoper proposes: thanks for the photo, and one question about the door.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Wed 13:05','All pass.','ok','guards_hit=[]'),
+          step('Decision','Wed 13:05','PENDING, due in four working hours.','pending','draft_created  run_t15c90  due_at=Wed 17:05'),
+          step('Outbox / Ben','Wed 13:05','Nothing sent. Draft waits for Ben.','pending'),
+          step('Worker','Wed 13:25','20 minutes, no outbound on this thread from any approver, including Ben’s personal number. The rules layer picks the silence-breaker template.','ok','silence_check  last_outbound=before 13:05'),
+          step('Guards','Wed 13:25','Template only. It confirms receipt and promises nothing timed. Suppression check: no outbound since the photo, so it is not suppressed.','ok','suppressed=false'),
+          step('Decision','Wed 13:25','SEND the holding line. The Scoper draft stays pending, it is not replaced.','send','decision=send  approver=rules.first_contact  intent=holding_silence_breaker'),
+          step('Outbox / Ben','Wed 13:25','Holding line goes out. Ben still has the draft in his queue with the same due time.','send','message_out  run_u62e33  sent_by=rules.first_contact')
+        ],
+        customer:[
+          cust(0,'Wed 13:05','This is the door that sticks','',1),
+          gap(9,'20 minutes'),
+          sys(12,'Wed 13:25','Got the photo, thanks. We’re mid-job at the minute but we’ve seen it and we’ll come back to you properly shortly.','rules.first_contact · silence-breaker · run_u62e33')
+        ],
+        ben:[
+          item(8,'pending','Pending draft · confirm_received + ask_gap','due Wed 17:05','Photo of the sticking door on the NG3 thread.',{draft:'Thanks for the photo. Is it just that one door sticking, or are there others?', actions:['Approve','Edit','Reject'], note:'run_t15c90'}),
+          item(12,'pending','Same draft · holding line sent 13:25','due Wed 17:05','The customer has had a holding line. This draft still needs you. If you approve it now, the thanks at the start is trimmed because a holding line already said it.',{actions:['Approve','Edit','Reject'], note:'silence-breaker message_out run_u62e33 · draft unchanged'})
+        ]
+      },
+      { key:'replied', label:'Ben replied 13:15',
+        trace:[
+          step('Ingest','Wed 13:05','Photo lands on an existing scoping thread.','ok','message_in  conv_4h8n  media=1'),
+          step('Claim','Wed 13:05','Thread claimed. 20-minute silence timer starts.','ok','run_started  run_t15c90  silence_due=13:25'),
+          step('Case file','Wed 13:05','Thread history, no quote yet. Pack: customer.default.','ok'),
+          step('Triage','Wed 13:05','Intent media_received, lane gathering, no exceptions.','ok','lane=gathering'),
+          step('Policy pack','Wed 13:05','customer.default, DRAFT at launch.','ok','tier=DRAFT'),
+          step('Worker','Wed 13:05','The Scoper proposes thanks plus one question.','ok','proposal=confirm_received+ask_gap'),
+          step('Guards','Wed 13:05','All pass.','ok'),
+          step('Decision','Wed 13:05','PENDING, due in four working hours.','pending','draft_created  run_t15c90  due_at=Wed 17:05'),
+          step('Outbox / Ben','Wed 13:05','Nothing sent. Draft waits for Ben.','pending'),
+          step('Ingest','Wed 13:15','Ben replies from his personal WhatsApp between jobs. His number is an ingest source since Phase 0, so his reply is written to the ledger as an outbound on this thread. Without that ingest, every rule below would be unsafe.','ok','message_out  source=ben_personal  sent_by=human:ben'),
+          step('Worker','Wed 13:25','Silence timer fires. The rules layer checks for any outbound since 13:05 and finds Ben’s.','ok','silence_check  last_outbound=13:15'),
+          step('Guards','Wed 13:25','Suppression: an outbound landed since the burst, so the holding line is suppressed. Sending it now would be two people talking in one thread.','ok','suppressed=true  reason=outbound_since_inbound'),
+          step('Decision','Wed 13:25','No send. The pending draft is marked as overtaken by Ben and stays for him to dismiss.','pending','decision=suppressed  draft_note=ben_replied_since'),
+          step('Outbox / Ben','Wed 13:25','Nothing goes out. Ben sees the draft with a note that he has already replied. One tap to reject it as wrong_move, or approve it if it still fits.','pending','run_finished  cost_pence=0')
+        ],
+        customer:[
+          cust(0,'Wed 13:05','This is the door that sticks','',1),
+          ben(9,'Wed 13:15','Cheers, that’s clear. Is it just that one or are there others doing the same?','human:ben · personal number · ingested')
+        ],
+        ben:[
+          item(8,'pending','Pending draft · confirm_received + ask_gap','due Wed 17:05','Photo of the sticking door on the NG3 thread.',{draft:'Thanks for the photo. Is it just that one door sticking, or are there others?', actions:['Approve','Edit','Reject'], note:'run_t15c90'}),
+          item(13,'pending done','Same draft · you replied at 13:15','due Wed 17:05','Silence-breaker suppressed because your reply landed. This draft is probably stale.',{actions:['Reject: wrong_move','Approve anyway'], note:'suppressed=true · no message_out at 13:25'})
+        ]
+      }
+    ]
+  }
+  ];
+
+  /* ---------- state ---------- */
+  var state = { s:0, v:0, shown:0 };
+
+  var elPicker = root.querySelector('#wt-picker');
+  var elTitle = root.querySelector('#wt-scene-title');
+  var elWhen = root.querySelector('#wt-scene-when');
+  var elVarWrap = root.querySelector('#wt-variant');
+  var elVarLabel = root.querySelector('#wt-variant-label');
+  var elVarToggle = root.querySelector('#wt-variant-toggle');
+  var elTrace = root.querySelector('#wt-trace');
+  var elCustomer = root.querySelector('#wt-customer');
+  var elBen = root.querySelector('#wt-ben');
+  var elBenEmpty = root.querySelector('#wt-ben-empty');
+  var elNext = root.querySelector('#wt-next');
+  var elAll = root.querySelector('#wt-all');
+  var elRestart = root.querySelector('#wt-restart');
+  var elProgress = root.querySelector('#wt-progress');
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function current(){ var sc = SCENARIOS[state.s]; return { sc:sc, va:sc.variants[state.v] }; }
+
+  /* ---------- render: picker ---------- */
+  SCENARIOS.forEach(function(sc, i){
+    var li = document.createElement('li');
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'wt-pick';
+    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+    b.innerHTML = '<span class="wt-num">' + (i+1) + '</span>' + esc(sc.label);
+    b.addEventListener('click', function(){ selectScenario(i); });
+    li.appendChild(b); elPicker.appendChild(li);
+  });
+
+  function selectScenario(i){
+    state.s = i; state.v = 0;
+    var picks = elPicker.querySelectorAll('.wt-pick');
+    for (var k = 0; k < picks.length; k++) picks[k].setAttribute('aria-pressed', k === i ? 'true' : 'false');
+    buildScene();
+    state.shown = current().va.trace.length;   /* never an empty state on switch */
+    paint(false);
+  }
+
+  function buildScene(){
+    var c = current();
+    elTitle.textContent = c.sc.title;
+    elWhen.textContent = c.sc.when;
+    elVarToggle.innerHTML = '';
+    if (c.sc.variants.length > 1) {
+      elVarWrap.hidden = false;
+      elVarLabel.textContent = c.sc.variantLabel || 'Variant';
+      c.sc.variants.forEach(function(v, j){
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = v.label;
+        b.setAttribute('aria-pressed', j === state.v ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          state.v = j;
+          var bs = elVarToggle.querySelectorAll('button');
+          for (var k = 0; k < bs.length; k++) bs[k].setAttribute('aria-pressed', k === j ? 'true' : 'false');
+          state.shown = current().va.trace.length;
+          paint(false);
+        });
+        elVarToggle.appendChild(b);
+      });
+    } else {
+      elVarWrap.hidden = true;
+    }
+  }
+
+  /* ---------- render: trace + panels ---------- */
+  function paint(animateLast){
+    var c = current(), va = c.va, n = va.trace.length;
+    if (state.shown < 1) state.shown = 1;
+    if (state.shown > n) state.shown = n;
+
+    /* trace rows */
+    elTrace.innerHTML = '';
+    va.trace.forEach(function(st, i){
+      var li = document.createElement('li');
+      li.className = 'wt-row' + (animateLast && i === state.shown - 1 ? ' wt-new' : '');
+      li.hidden = i >= state.shown;
+      li.innerHTML =
+        '<div class="wt-stage">' + esc(st.stage) + (st.t ? '<span class="wt-t">' + esc(st.t) + '</span>' : '') + '</div>' +
+        '<div class="wt-what">' + esc(st.what) + (st.ledger ? '<span class="wt-ledger">' + esc(st.ledger) + '</span>' : '') + '</div>' +
+        '<span class="wt-chip wt-' + esc(st.chip) + '">' + esc(st.chip) + '</span>';
+      elTrace.appendChild(li);
+    });
+
+    /* customer panel */
+    elCustomer.innerHTML = '';
+    va.customer.forEach(function(m){
+      var visible = m.at < state.shown;
+      if (m.who === 'silence') {
+        var s = document.createElement('div');
+        s.className = 'wt-silence'; s.hidden = !visible;
+        s.textContent = '… ' + m.text + ' …';
+        elCustomer.appendChild(s); return;
+      }
+      var d = document.createElement('div');
+      d.className = 'wt-msg wt-' + m.who; d.hidden = !visible;
+      var media = '';
+      if (m.media) { media = '<div class="wt-media">'; for (var k = 0; k < m.media; k++) media += '<span>photo</span>'; media += '</div>'; }
+      var who = m.who === 'customer' ? 'Customer' : (m.who === 'ben' ? 'Ben' : 'Handy Services');
+      d.innerHTML = media + '<div class="wt-bubble">' + esc(m.text) + '</div>' +
+        '<span class="wt-meta">' + esc(m.time) + ' · ' + who + (m.meta ? ' · ' + esc(m.meta) : '') + '</span>';
+      elCustomer.appendChild(d);
+    });
+
+    /* Ben panel */
+    elBen.innerHTML = '';
+    var anyVisible = false;
+    va.ben.forEach(function(it){
+      var visible = it.at < state.shown;
+      if (visible) anyVisible = true;
+      var d = document.createElement('div');
+      d.className = 'wt-item ' + it.kind.split(' ').map(function(k){ return 'wt-' + k; }).join(' '); d.hidden = !visible;
+      var html = '<div class="wt-item-top"><span class="wt-kind">' + esc(it.title) + '</span><span class="wt-due">' + esc(it.due) + '</span></div>' +
+        '<div class="wt-item-body">' + esc(it.body) + '</div>';
+      if (it.draft) html += '<div class="wt-draft">' + esc(it.draft) + '</div>';
+      if (it.lines) {
+        html += '<ul class="wt-lines">';
+        it.lines.forEach(function(l){ html += '<li><span>' + esc(l[0]) + '</span><span class="wt-cat">' + esc(l[1]) + ' · no price</span></li>'; });
+        html += '</ul>';
+      }
+      if (it.gaps) html += '<div class="wt-note">' + esc(it.gaps) + '</div>';
+      if (it.actions && !/done/.test(it.kind)) {
+        html += '<div class="wt-actions">';
+        it.actions.forEach(function(a, i){
+          var cls = /^(Approve|Fine|Send)/.test(a) ? ' wt-go' : (/^(Reject|Not fine|Dismiss)/.test(a) ? ' wt-no' : '');
+          html += '<span class="wt-fake' + cls + '">' + esc(a) + '</span>';
+        });
+        html += '</div>';
+      }
+      if (it.note) html += '<div class="wt-note wt-mono">' + esc(it.note) + '</div>';
+      d.innerHTML = html;
+      elBen.appendChild(d);
+    });
+    if (!anyVisible) {
+      elBenEmpty.hidden = false;
+      elBenEmpty.textContent = va.ben.length ? 'Nothing yet. Keep stepping.' : (c.sc.benEmpty || 'Nothing for Ben.');
+    } else {
+      elBenEmpty.hidden = true;
+    }
+
+    /* controls */
+    elNext.disabled = state.shown >= n;
+    elAll.disabled = state.shown >= n;
+    elProgress.textContent = 'Stage ' + state.shown + ' of ' + n;
+  }
+
+  elNext.addEventListener('click', function(){ state.shown += 1; paint(true); });
+  elAll.addEventListener('click', function(){ state.shown = current().va.trace.length; paint(false); });
+  elRestart.addEventListener('click', function(){ state.shown = 1; paint(true); });
+
+  /* first load: scenario 1, fully shown */
+  buildScene();
+  state.shown = SCENARIOS[0].variants[0].trace.length;
+  paint(false);
+})();
+</script>
+</section>
+<section id="diagrams" class="dg">
+<style>
+  #diagrams.dg{color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;line-height:1.5}
+  #diagrams .dg-h{font-family:Archivo,"IBM Plex Sans",system-ui,sans-serif;font-weight:700;font-size:1.5rem;margin:0 0 .5rem}
+  #diagrams .dg-intro{color:var(--muted);max-width:68ch;margin:0 0 1.5rem}
+  #diagrams .dg-fig{margin:0 0 2.5rem;padding:1rem;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+  #diagrams .dg-fig svg{max-width:100%;height:auto;display:block;color:var(--ink)}
+  #diagrams .dg-fig figcaption{margin-top:.9rem;max-width:72ch}
+  #diagrams .dg-fig figcaption strong{display:block;font-family:Archivo,"IBM Plex Sans",system-ui,sans-serif;font-size:1rem;margin-bottom:.3rem}
+  #diagrams .dg-fig figcaption p{margin:0;color:var(--muted);font-size:.95rem}
+  #diagrams .dg-fig figcaption code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.85em;background:var(--code);padding:0 .25em;border-radius:3px}
+  /* SVG primitives: everything is currentColor + opacity; a wrapper class sets the one meaning colour per figure */
+  #diagrams .dg-box{fill:currentColor;fill-opacity:.05;stroke:currentColor;stroke-width:1.2}
+  #diagrams .dg-box--in{fill-opacity:.09}
+  #diagrams .dg-box--dash{stroke-dasharray:5 4}
+  #diagrams .dg-bar{fill:currentColor;fill-opacity:.55}
+  #diagrams .dg-dot{fill:currentColor}
+  #diagrams .dg-edge{fill:none;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round}
+  #diagrams .dg-edge--dash{stroke-dasharray:5 4}
+  #diagrams .dg-edge--soft{stroke-opacity:.4}
+  #diagrams .dg-edge--fat{stroke-width:2.2}
+  #diagrams svg text{fill:currentColor}
+  #diagrams .dg-t{font:600 13px Archivo,"IBM Plex Sans",system-ui,sans-serif}
+  #diagrams .dg-t--big{font-size:16px}
+  #diagrams .dg-s{font:600 12px "IBM Plex Sans",system-ui,sans-serif}
+  #diagrams .dg-l{font:11px "IBM Plex Sans",system-ui,sans-serif;opacity:.88}
+  #diagrams .dg-l--b{font-weight:600}
+  #diagrams .dg-m{font:11px "IBM Plex Mono",ui-monospace,monospace;opacity:.8}
+  #diagrams .dg-m--12{font-size:12px}
+  #diagrams .dg-c{font:600 11px "IBM Plex Mono",ui-monospace,monospace}
+  #diagrams .dg-mid{text-anchor:middle}
+  #diagrams .dg-end{text-anchor:end}
+  #diagrams .dg-key-accent{color:var(--accent)}
+  #diagrams .dg-key-danger{color:var(--danger)}
+  #diagrams .dg-key-send{color:var(--send)}
+</style>
+
+<h2 class="dg-h">Data and flow diagrams</h2>
+<p class="dg-intro">Four pictures of the system before it exists: what gets stored, how every channel ends up in one thread, where messages leave the building, and how an agent earns or loses the right to send.</p>
+
+<!-- ============================================================ 1. OBJECT MODEL -->
+<figure class="dg-fig">
+<svg viewBox="0 0 1000 640" role="img" aria-label="Object model: contact points belong to a customer; a customer opens one conversation per city; a city pack configures the conversation; the conversation appends message events to an append-only ledger and triggers agent runs; runs emit drafts and flags stamped with a run id; drafts queue into an outbox row that writes message_out to the ledger; outcomes are derived from the ledger, never stored.">
+  <defs>
+    <marker id="dg1-a" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L9,4.5 L0,9 Z" fill="currentColor"/></marker>
+  </defs>
+
+  <!-- Contact point -->
+  <rect class="dg-box" x="20" y="30" width="200" height="80" rx="6"/>
+  <text class="dg-t" x="30" y="50">Contact point</text>
+  <text class="dg-m" x="30" y="68">phone number · email</text>
+  <text class="dg-m" x="30" y="84">many per customer</text>
+
+  <!-- Customer -->
+  <rect class="dg-box" x="20" y="190" width="200" height="90" rx="6"/>
+  <text class="dg-t" x="30" y="210">Customer</text>
+  <text class="dg-m" x="30" y="228">service_client</text>
+  <text class="dg-m" x="30" y="244">name · role · tags</text>
+  <text class="dg-m" x="30" y="260">paid / unpaid state</text>
+
+  <!-- City pack -->
+  <rect class="dg-box" x="330" y="20" width="220" height="120" rx="6"/>
+  <text class="dg-t" x="340" y="40">City pack</text>
+  <text class="dg-m" x="340" y="58">config record, versioned</text>
+  <text class="dg-m" x="340" y="74">number · email · operator</text>
+  <text class="dg-m" x="340" y="90">hours · voice · templates</text>
+  <text class="dg-m" x="340" y="106">tier per intent</text>
+  <text class="dg-m" x="340" y="122">second city = second record</text>
+
+  <!-- Conversation -->
+  <rect class="dg-box" x="330" y="190" width="220" height="100" rx="6"/>
+  <text class="dg-t" x="340" y="210">Conversation</text>
+  <text class="dg-m" x="340" y="228">one per customer per city</text>
+  <text class="dg-m" x="340" y="244">stage · lane · tags</text>
+  <text class="dg-m" x="340" y="260">case file is built from it</text>
+
+  <!-- Ledger -->
+  <rect class="dg-box" x="700" y="60" width="250" height="180" rx="6"/>
+  <text class="dg-t" x="710" y="80">Message event (ledger)</text>
+  <text class="dg-m" x="710" y="98">append-only, write-at-source</text>
+  <text class="dg-m" x="710" y="118">message_in · message_out · call</text>
+  <text class="dg-m" x="710" y="134">draft_created · draft_sent</text>
+  <text class="dg-m" x="710" y="150">flag_raised · flag_closed</text>
+  <text class="dg-m" x="710" y="166">run_started · run_finished</text>
+  <text class="dg-m" x="710" y="182">sample_reviewed …</text>
+  <text class="dg-m" x="710" y="204">each row carries run_id + actor</text>
+
+  <!-- Agent run -->
+  <rect class="dg-box" x="330" y="360" width="220" height="120" rx="6"/>
+  <text class="dg-t" x="340" y="380">Agent run</text>
+  <text class="dg-m" x="340" y="398">id · agent · pack id + version</text>
+  <text class="dg-m" x="340" y="414">case file hash · model snapshot</text>
+  <text class="dg-m" x="340" y="430">lane · decision · guards hit</text>
+  <text class="dg-m" x="340" y="446">cost · duration · replayable</text>
+
+  <!-- Draft / Flag -->
+  <rect class="dg-box" x="330" y="520" width="220" height="60" rx="6"/>
+  <text class="dg-t" x="340" y="540">Draft / Flag</text>
+  <text class="dg-m" x="340" y="558">carries run_id · due_at</text>
+
+  <!-- Outbox row -->
+  <rect class="dg-box" x="20" y="500" width="250" height="100" rx="6"/>
+  <text class="dg-t" x="30" y="520">Outbox row</text>
+  <text class="dg-m" x="30" y="538">body · channel · send_after</text>
+  <text class="dg-m" x="30" y="554">approver · run_id</text>
+  <text class="dg-m" x="30" y="570">refused without both</text>
+
+  <!-- Legend -->
+  <text class="dg-l dg-l--b" x="20" y="330">How to read</text>
+  <line class="dg-edge" x1="20" y1="348" x2="60" y2="348" marker-end="url(#dg1-a)"/>
+  <text class="dg-l" x="68" y="352">stored relation, 1 / n = how many</text>
+  <g class="dg-key-accent">
+    <line class="dg-edge dg-edge--dash" x1="20" y1="370" x2="60" y2="370"/>
+    <text class="dg-l" x="68" y="374">derived at read time, never a column</text>
+  </g>
+
+  <!-- Edges -->
+  <!-- contact -> customer -->
+  <line class="dg-edge" x1="120" y1="110" x2="120" y2="190" marker-end="url(#dg1-a)"/>
+  <text class="dg-l" x="128" y="154">belongs to</text>
+  <text class="dg-c dg-end" x="112" y="124">n</text>
+  <text class="dg-c dg-end" x="112" y="184">1</text>
+
+  <!-- customer -> conversation -->
+  <line class="dg-edge" x1="220" y1="235" x2="330" y2="235" marker-end="url(#dg1-a)"/>
+  <text class="dg-l dg-mid" x="275" y="229">opens</text>
+  <text class="dg-c" x="226" y="251">1</text>
+  <text class="dg-c dg-end" x="324" y="251">n</text>
+  <text class="dg-l dg-mid" x="275" y="267">(one per city)</text>
+
+  <!-- city pack -> conversation -->
+  <line class="dg-edge" x1="440" y1="140" x2="440" y2="190" marker-end="url(#dg1-a)"/>
+  <text class="dg-l" x="448" y="169">configures</text>
+  <text class="dg-c dg-end" x="432" y="153">1</text>
+  <text class="dg-c dg-end" x="432" y="185">n</text>
+
+  <!-- conversation -> ledger -->
+  <line class="dg-edge" x1="550" y1="235" x2="700" y2="235" marker-end="url(#dg1-a)"/>
+  <text class="dg-l dg-mid" x="625" y="229">appends</text>
+  <text class="dg-c" x="556" y="251">1</text>
+  <text class="dg-c dg-end" x="694" y="251">n</text>
+
+  <!-- conversation -> agent run -->
+  <line class="dg-edge" x1="440" y1="290" x2="440" y2="360" marker-end="url(#dg1-a)"/>
+  <text class="dg-l" x="448" y="329">triggers</text>
+  <text class="dg-c dg-end" x="432" y="303">1</text>
+  <text class="dg-c dg-end" x="432" y="355">n</text>
+
+  <!-- agent run -> draft/flag -->
+  <line class="dg-edge" x1="440" y1="480" x2="440" y2="520" marker-end="url(#dg1-a)"/>
+  <text class="dg-l" x="448" y="504">emits, stamps run_id</text>
+
+  <!-- draft -> outbox -->
+  <line class="dg-edge" x1="330" y1="550" x2="270" y2="550" marker-end="url(#dg1-a)"/>
+  <text class="dg-l dg-mid" x="300" y="543">queues</text>
+
+  <!-- run + draft -> ledger (merged writer) -->
+  <path class="dg-edge" d="M550,420 H620"/>
+  <path class="dg-edge" d="M550,550 H620"/>
+  <path class="dg-edge" d="M620,550 V270 H740 V240" marker-end="url(#dg1-a)"/>
+  <circle class="dg-dot" cx="620" cy="420" r="3"/>
+  <text class="dg-l" x="628" y="460">writes run_started,</text>
+  <text class="dg-l" x="628" y="474">run_finished, draft_created,</text>
+  <text class="dg-l" x="628" y="488">flag_raised</text>
+
+  <!-- outbox -> ledger via bottom rail -->
+  <path class="dg-edge" d="M145,600 V622 H980 V150 H950" marker-end="url(#dg1-a)"/>
+  <text class="dg-l" x="400" y="617">writes message_out, draft_sent (the ledger is written by the exit itself)</text>
+
+  <!-- derived outcome (the one meaning colour) -->
+  <g class="dg-key-accent">
+    <defs>
+      <marker id="dg1-ak" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L9,4.5 L0,9 Z" fill="currentColor"/></marker>
+    </defs>
+    <line class="dg-edge dg-edge--dash" x1="825" y1="240" x2="825" y2="330" marker-end="url(#dg1-ak)"/>
+    <text class="dg-l" x="833" y="282">derives (never stored)</text>
+    <rect class="dg-box dg-box--dash" x="700" y="330" width="250" height="60" rx="6"/>
+    <text class="dg-t" x="710" y="350">Outcome (derived, not stored)</text>
+    <text class="dg-m" x="710" y="368">events ⋈ quotes ⋈ deposit_paid_at</text>
+  </g>
+</svg>
+<figcaption>
+  <strong>Everything that happens is a row in one ledger, and every row says which run caused it.</strong>
+  <p>A customer can have several phone numbers and emails, but only one conversation per city. Every message, call, draft and flag is appended to that conversation's ledger and never edited. When an agent runs it gets a numbered run, and anything it produces carries that number, so Ben can always ask "why did it do that". Whether a thread turned into a paid job is worked out by joining the ledger to quotes and deposits at the moment you ask, so there is no "outcome" box to go stale.</p>
+</figcaption>
+</figure>
+
+<!-- ============================================================ 2. EVERY CHANNEL, ONE CONVERSATION -->
+<figure class="dg-fig">
+<svg viewBox="0 0 1000 560" role="img" aria-label="Every channel, one conversation: five adapters (WhatsApp, SMS, call recording, email, web chat) each emit the same message_in event into the ledger, which folds into one conversation per customer per city, which the desk reads. Outbound replies pass through sendCustomerMessage, which writes message_out first and then delivers; on WhatsApp a decision checks the 24-hour window: open sends freeform, closed uses an approved template, no template falls back to SMS.">
+  <defs>
+    <marker id="dg2-a" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L9,4.5 L0,9 Z" fill="currentColor"/></marker>
+  </defs>
+
+  <!-- Adapters -->
+  <text class="dg-l dg-l--b" x="90" y="38">Channels (adapters)</text>
+  <rect class="dg-box" x="90" y="50" width="150" height="46" rx="6"/>
+  <text class="dg-s" x="100" y="69">WhatsApp</text><text class="dg-m" x="100" y="85">Meta · Twilio</text>
+  <rect class="dg-box" x="90" y="120" width="150" height="46" rx="6"/>
+  <text class="dg-s" x="100" y="139">SMS</text><text class="dg-m" x="100" y="155">Twilio</text>
+  <rect class="dg-box" x="90" y="190" width="150" height="46" rx="6"/>
+  <text class="dg-s" x="100" y="209">Call recording</text><text class="dg-m" x="100" y="225">&gt; 10 s → transcript</text>
+  <rect class="dg-box" x="90" y="260" width="150" height="46" rx="6"/>
+  <text class="dg-s" x="100" y="279">Email</text><text class="dg-m" x="100" y="295">shared inbox</text>
+  <rect class="dg-box" x="90" y="330" width="150" height="46" rx="6"/>
+  <text class="dg-s" x="100" y="349">Web chat</text><text class="dg-m" x="100" y="365">site form · Google</text>
+
+  <!-- adapter -> ledger (same event, five times) -->
+  <g>
+    <line class="dg-edge" x1="240" y1="73" x2="330" y2="73" marker-end="url(#dg2-a)"/>
+    <text class="dg-l dg-mid" x="285" y="67">emits</text><text class="dg-m dg-mid" x="285" y="87">message_in</text>
+    <line class="dg-edge" x1="240" y1="143" x2="330" y2="143" marker-end="url(#dg2-a)"/>
+    <text class="dg-l dg-mid" x="285" y="137">emits</text><text class="dg-m dg-mid" x="285" y="157">message_in</text>
+    <line class="dg-edge" x1="240" y1="213" x2="330" y2="213" marker-end="url(#dg2-a)"/>
+    <text class="dg-l dg-mid" x="285" y="207">emits</text><text class="dg-m dg-mid" x="285" y="227">message_in</text>
+    <line class="dg-edge" x1="240" y1="283" x2="330" y2="283" marker-end="url(#dg2-a)"/>
+    <text class="dg-l dg-mid" x="285" y="277">emits</text><text class="dg-m dg-mid" x="285" y="297">message_in</text>
+    <line class="dg-edge" x1="240" y1="353" x2="330" y2="353" marker-end="url(#dg2-a)"/>
+    <text class="dg-l dg-mid" x="285" y="347">emits</text><text class="dg-m dg-mid" x="285" y="367">message_in</text>
+  </g>
+
+  <!-- Ledger -->
+  <rect class="dg-box" x="330" y="50" width="140" height="326" rx="6"/>
+  <text class="dg-t" x="340" y="72">Ledger</text>
+  <text class="dg-m" x="340" y="90">append-only</text>
+  <text class="dg-m" x="340" y="112">message_in</text>
+  <text class="dg-m" x="340" y="128">message_out</text>
+  <text class="dg-m" x="340" y="144">call</text>
+  <text class="dg-m" x="340" y="160">draft_*</text>
+  <text class="dg-m" x="340" y="176">flag_*</text>
+  <text class="dg-m" x="340" y="192">run_*</text>
+  <text class="dg-m" x="340" y="214">same shape for</text>
+  <text class="dg-m" x="340" y="230">every channel</text>
+
+  <!-- ledger -> conversation -->
+  <line class="dg-edge" x1="470" y1="213" x2="540" y2="213" marker-end="url(#dg2-a)"/>
+  <text class="dg-l dg-mid" x="505" y="207">folds into</text>
+
+  <!-- Conversation -->
+  <rect class="dg-box" x="540" y="150" width="180" height="126" rx="6"/>
+  <text class="dg-t" x="550" y="172">One conversation</text>
+  <text class="dg-m" x="550" y="190">per customer per city</text>
+  <text class="dg-m" x="550" y="210">every channel lands here</text>
+  <text class="dg-m" x="550" y="226">case file built from it</text>
+  <text class="dg-m" x="550" y="242">stage · lane · tags</text>
+
+  <!-- conversation -> desk -->
+  <line class="dg-edge" x1="720" y1="213" x2="790" y2="213" marker-end="url(#dg2-a)"/>
+  <text class="dg-l dg-mid" x="755" y="207">reads</text>
+
+  <!-- Desk -->
+  <rect class="dg-box" x="790" y="50" width="190" height="326" rx="6"/>
+  <text class="dg-t" x="800" y="72">The desk</text>
+  <rect class="dg-box dg-box--in" x="805" y="90" width="165" height="40" rx="5"/>
+  <text class="dg-s" x="813" y="106">Rules layer</text><text class="dg-l" x="813" y="121">SEND from day one</text>
+  <rect class="dg-box dg-box--in" x="805" y="150" width="165" height="40" rx="5"/>
+  <text class="dg-s" x="813" y="166">Scoper</text><text class="dg-l" x="813" y="181">DRAFT → earns SEND</text>
+  <rect class="dg-box dg-box--in" x="805" y="210" width="165" height="40" rx="5"/>
+  <text class="dg-s" x="813" y="226">Quote clerk · Recovery</text><text class="dg-l" x="813" y="241">PROPOSE only</text>
+  <rect class="dg-box dg-box--in" x="805" y="270" width="165" height="40" rx="5"/>
+  <text class="dg-s" x="813" y="286">Ben</text><text class="dg-l" x="813" y="301">exceptions · approvals</text>
+  <text class="dg-m" x="813" y="340">one operator per city</text>
+
+  <!-- desk -> exit gate -->
+  <line class="dg-edge" x1="885" y1="376" x2="885" y2="440" marker-end="url(#dg2-a)"/>
+  <text class="dg-l" x="893" y="404">approves or</text>
+  <text class="dg-l" x="893" y="418">auto-sends</text>
+
+  <!-- Exit gate -->
+  <rect class="dg-box" x="700" y="440" width="280" height="44" rx="6"/>
+  <text class="dg-m dg-m--12 dg-mid" x="840" y="466">sendCustomerMessage(run_id, approver)</text>
+
+  <!-- gate -> ledger write, then -> decision -->
+  <line class="dg-edge" x1="700" y1="462" x2="378" y2="462" marker-end="url(#dg2-a)"/>
+  <text class="dg-l dg-mid" x="560" y="455">delivers</text>
+  <circle class="dg-dot" cx="400" cy="462" r="3"/>
+  <line class="dg-edge" x1="400" y1="462" x2="400" y2="376" marker-end="url(#dg2-a)"/>
+  <text class="dg-l" x="408" y="420">writes message_out first</text>
+
+  <!-- WhatsApp window decision (the one meaning colour) -->
+  <g class="dg-key-accent">
+    <defs>
+      <marker id="dg2-ak" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L9,4.5 L0,9 Z" fill="currentColor"/></marker>
+    </defs>
+    <path class="dg-box" d="M222,462 L300,428 L378,462 L300,496 Z"/>
+    <text class="dg-l dg-l--b dg-mid" x="300" y="459">WhatsApp:</text>
+    <text class="dg-l dg-mid" x="300" y="473">24 h window open?</text>
+    <line class="dg-edge" x1="222" y1="462" x2="170" y2="462" marker-end="url(#dg2-ak)"/>
+    <text class="dg-l dg-mid" x="196" y="455">yes</text>
+    <path class="dg-edge" d="M300,428 V410 H170" marker-end="url(#dg2-ak)"/>
+    <text class="dg-l dg-mid" x="235" y="404">no, template fits</text>
+    <path class="dg-edge" d="M300,496 V514 H170" marker-end="url(#dg2-ak)"/>
+    <text class="dg-l dg-mid" x="235" y="530">no template: SMS</text>
+  </g>
+
+  <!-- Outcomes -->
+  <rect class="dg-box" x="40" y="392" width="130" height="36" rx="6"/>
+  <text class="dg-l dg-mid" x="105" y="414">Approved template</text>
+  <rect class="dg-box" x="40" y="444" width="130" height="36" rx="6"/>
+  <text class="dg-l dg-mid" x="105" y="466">Freeform WhatsApp</text>
+  <rect class="dg-box" x="40" y="496" width="130" height="36" rx="6"/>
+  <text class="dg-l dg-mid" x="105" y="518">SMS fallback</text>
+
+  <!-- back out through the same adapters -->
+  <path class="dg-edge" d="M40,410 H22 M40,462 H22 M40,514 H22"/>
+  <path class="dg-edge" d="M22,514 V73"/>
+  <line class="dg-edge" x1="22" y1="73" x2="90" y2="73" marker-end="url(#dg2-a)"/>
+  <text class="dg-l dg-mid" x="56" y="66">delivers</text>
+  <line class="dg-edge" x1="22" y1="143" x2="90" y2="143" marker-end="url(#dg2-a)"/>
+  <text class="dg-l dg-mid" x="56" y="136">delivers</text>
+</svg>
+<figcaption>
+  <strong>Five ways in, one thread, one way out.</strong>
+  <p>Whatever a customer uses, the adapter for that channel turns it into the same "message arrived" row, so a WhatsApp photo, a voicemail transcript and a web form all land in the same conversation. The desk (rules, agents and Ben) reads one thread and never has to know which channel it came from. Going out, every reply is written to the ledger before it is delivered. On WhatsApp a reply can only be free text inside 24 hours of the customer's last message; after that it must be an approved template, and if none fits it drops to SMS.</p>
+</figcaption>
+</figure>
+
+<!-- ============================================================ 3. THE EXIT, BEFORE AND AFTER -->
+<figure class="dg-fig">
+<svg viewBox="0 0 1000 540" role="img" aria-label="The exit, before and after. Today: sixteen modules such as cron, lead-automations, quotes, invoices, quick-replies and customer-notifications each send straight to Twilio or Meta, and the guards sit only on the comms agent's draft path. After Phase 0: every module calls one gated sendCustomerMessage that needs a run id and an approver, which runs the guards, writes the ledger, then delivers through the adapters to Twilio or Meta; a script with no run id is refused at the gate.">
+  <defs>
+    <marker id="dg3-a" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L9,4.5 L0,9 Z" fill="currentColor"/></marker>
+  </defs>
+
+  <line class="dg-edge dg-edge--dash dg-edge--soft" x1="510" y1="20" x2="510" y2="530"/>
+
+  <!-- ===== LEFT: today ===== -->
+  <text class="dg-t" x="20" y="42">Today: 16 doors, guards on one</text>
+
+  <rect class="dg-box" x="20" y="70" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="102" y="91">cron</text>
+  <rect class="dg-box" x="20" y="114" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="102" y="135">lead-automations</text>
+  <rect class="dg-box" x="20" y="158" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="102" y="179">quotes</text>
+  <rect class="dg-box" x="20" y="202" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="102" y="223">invoices</text>
+  <rect class="dg-box" x="20" y="246" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="102" y="267">quick-replies</text>
+  <rect class="dg-box" x="20" y="290" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="102" y="311">customer-notifications</text>
+  <rect class="dg-box dg-box--dash" x="20" y="334" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="102" y="355">+ 10 more</text>
+
+  <!-- fan of direct sends -->
+  <line class="dg-edge" x1="185" y1="87" x2="350" y2="192" marker-end="url(#dg3-a)"/><text class="dg-l" x="192" y="82">sends</text>
+  <line class="dg-edge" x1="185" y1="131" x2="350" y2="200" marker-end="url(#dg3-a)"/><text class="dg-l" x="192" y="126">sends</text>
+  <line class="dg-edge" x1="185" y1="175" x2="350" y2="208" marker-end="url(#dg3-a)"/><text class="dg-l" x="192" y="170">sends</text>
+  <line class="dg-edge" x1="185" y1="219" x2="350" y2="216" marker-end="url(#dg3-a)"/><text class="dg-l" x="192" y="214">sends</text>
+  <line class="dg-edge" x1="185" y1="263" x2="350" y2="224" marker-end="url(#dg3-a)"/><text class="dg-l" x="192" y="277">sends</text>
+  <line class="dg-edge" x1="185" y1="307" x2="350" y2="232" marker-end="url(#dg3-a)"/><text class="dg-l" x="192" y="321">sends</text>
+  <line class="dg-edge dg-edge--dash" x1="185" y1="351" x2="350" y2="240" marker-end="url(#dg3-a)"/><text class="dg-l" x="192" y="365">sends</text>
+
+  <!-- Twilio / Meta (today) -->
+  <rect class="dg-box" x="350" y="180" width="140" height="70" rx="6"/>
+  <text class="dg-t dg-mid" x="420" y="210">Twilio / Meta</text>
+  <text class="dg-l dg-mid" x="420" y="228">the wire</text>
+
+  <!-- the agent's guarded path, off to the side -->
+  <rect class="dg-box" x="20" y="410" width="120" height="34" rx="5"/><text class="dg-l dg-mid" x="80" y="431">Comms agent</text>
+  <line class="dg-edge" x1="140" y1="427" x2="180" y2="427" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="160" y="420">drafts</text>
+  <rect class="dg-box" x="180" y="410" width="110" height="34" rx="5"/><text class="dg-l dg-mid" x="235" y="431">Guards</text>
+  <path class="dg-edge" d="M290,427 H420 V250" marker-end="url(#dg3-a)"/>
+  <text class="dg-l" x="426" y="340">sends</text>
+  <text class="dg-l" x="20" y="480">The guards only see the agent's drafts.</text>
+  <text class="dg-l" x="20" y="496">The other 16 callers never pass them.</text>
+
+  <!-- ===== RIGHT: after Phase 0 ===== -->
+  <text class="dg-t" x="540" y="42">After Phase 0: one door</text>
+
+  <rect class="dg-box" x="540" y="70" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="622" y="91">cron</text>
+  <rect class="dg-box" x="540" y="114" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="622" y="135">lead-automations</text>
+  <rect class="dg-box" x="540" y="158" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="622" y="179">quotes</text>
+  <rect class="dg-box" x="540" y="202" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="622" y="223">invoices</text>
+  <rect class="dg-box" x="540" y="246" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="622" y="267">quick-replies</text>
+  <rect class="dg-box" x="540" y="290" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="622" y="311">customer-notifications</text>
+  <rect class="dg-box dg-box--dash" x="540" y="334" width="165" height="34" rx="5"/><text class="dg-m dg-m--12 dg-mid" x="622" y="355">+ 10 more</text>
+
+  <!-- every module -> the collector -->
+  <line class="dg-edge" x1="705" y1="87" x2="735" y2="87" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="720" y="82">calls</text>
+  <line class="dg-edge" x1="705" y1="131" x2="735" y2="131" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="720" y="126">calls</text>
+  <line class="dg-edge" x1="705" y1="175" x2="735" y2="175" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="720" y="170">calls</text>
+  <line class="dg-edge" x1="705" y1="219" x2="735" y2="219" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="720" y="214">calls</text>
+  <line class="dg-edge" x1="705" y1="263" x2="735" y2="263" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="720" y="258">calls</text>
+  <line class="dg-edge" x1="705" y1="307" x2="735" y2="307" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="720" y="302">calls</text>
+  <line class="dg-edge dg-edge--dash" x1="705" y1="351" x2="735" y2="351" marker-end="url(#dg3-a)"/><text class="dg-l dg-mid" x="720" y="346">calls</text>
+  <rect class="dg-bar" x="735" y="78" width="4" height="282" rx="2"/>
+  <text class="dg-l" x="540" y="61">each passes a system.* or rules.* approver</text>
+
+  <!-- collector -> gate -->
+  <line class="dg-edge dg-edge--fat" x1="739" y1="220" x2="780" y2="220" marker-end="url(#dg3-a)"/>
+  <text class="dg-l dg-mid" x="759" y="213">enters</text>
+
+  <!-- the gate -->
+  <rect class="dg-box dg-box--in" x="780" y="190" width="205" height="60" rx="6"/>
+  <text class="dg-t dg-mid" x="882" y="212">sendCustomerMessage</text>
+  <text class="dg-m dg-mid" x="882" y="229">(run_id, approver)</text>
+  <text class="dg-l dg-mid" x="882" y="244">refuses without both</text>
+
+  <!-- refused caller (the one meaning colour) -->
+  <g class="dg-key-danger">
+    <rect class="dg-box dg-box--dash" x="790" y="12" width="185" height="30" rx="5"/>
+    <text class="dg-m dg-mid" x="882" y="31">script with no run_id</text>
+    <line class="dg-edge" x1="882" y1="42" x2="882" y2="172"/>
+    <path class="dg-edge dg-edge--fat" d="M874,174 L890,190 M890,174 L874,190"/>
+    <text class="dg-l dg-l--b" x="892" y="112">refuses</text>
+    <text class="dg-l" x="892" y="126">build fails too</text>
+  </g>
+
+  <!-- gate -> guards -> ledger -> adapters -> wire -->
+  <line class="dg-edge" x1="882" y1="250" x2="882" y2="280" marker-end="url(#dg3-a)"/><text class="dg-l" x="890" y="269">runs</text>
+  <rect class="dg-box" x="780" y="280" width="205" height="36" rx="5"/><text class="dg-l dg-mid" x="882" y="302">Guards (pack guard set)</text>
+  <line class="dg-edge" x1="882" y1="316" x2="882" y2="346" marker-end="url(#dg3-a)"/><text class="dg-l" x="890" y="335">writes</text>
+  <rect class="dg-box" x="780" y="346" width="205" height="36" rx="5"/><text class="dg-l dg-mid" x="882" y="368">Ledger: draft_sent · message_out</text>
+  <line class="dg-edge" x1="882" y1="382" x2="882" y2="412" marker-end="url(#dg3-a)"/><text class="dg-l" x="890" y="401">delivers via</text>
+  <rect class="dg-box" x="780" y="412" width="205" height="36" rx="5"/><text class="dg-l dg-mid" x="882" y="434">Adapters: WA → template → SMS</text>
+  <line class="dg-edge" x1="882" y1="448" x2="882" y2="478" marker-end="url(#dg3-a)"/><text class="dg-l" x="890" y="467">sends</text>
+  <rect class="dg-box" x="780" y="478" width="205" height="36" rx="5"/><text class="dg-t dg-mid" x="882" y="500">Twilio / Meta</text>
+</svg>
+<figcaption>
+  <strong>Sixteen doors become one, and the one door checks ID.</strong>
+  <p>Today sixteen separate pieces of code can text a customer directly, and the safety checks only watch the AI agent's drafts, which is how six laptops sent 24 unguarded messages in August. After Phase 0 nothing reaches Twilio or Meta except through one function, and that function will not run unless it is told which run and which approver is responsible. A stray script without a run id stops dead at the gate, and the code will not even build if a new caller forgets to say who it is.</p>
+</figcaption>
+</figure>
+
+<!-- ============================================================ 4. AUTONOMY PER INTENT -->
+<figure class="dg-fig">
+<svg viewBox="0 0 900 400" role="img" aria-label="Autonomy per intent as a state machine. Every Scoper intent starts in DRAFT, where Ben approves each message. It is promoted to SEND only when evals pass three times in a row at 100 percent, at least 30 verdicts across the pack in 30 days are at least 90 percent unedited, there has never been an unsafe reject, and no guard escalations in 14 days. In SEND the Verifier samples 10 percent. It is demoted back to DRAFT on any unsafe reject, a customer opt-out, an incident tag, or sampled approval below 80 percent. A separate Ben-only lane for money, dates and complaints has no transition into SEND, ever.">
+  <defs>
+    <marker id="dg4-a" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L9,4.5 L0,9 Z" fill="currentColor"/></marker>
+  </defs>
+
+  <!-- start -->
+  <circle class="dg-dot" cx="30" cy="165" r="5"/>
+  <line class="dg-edge" x1="35" y1="165" x2="80" y2="165" marker-end="url(#dg4-a)"/>
+  <text class="dg-l dg-mid" x="57" y="157">starts</text>
+
+  <!-- DRAFT -->
+  <rect class="dg-box" x="80" y="120" width="230" height="90" rx="8"/>
+  <text class="dg-t dg-t--big dg-mid" x="195" y="148">DRAFT</text>
+  <text class="dg-l dg-mid" x="195" y="168">Ben approves, edits or rejects</text>
+  <text class="dg-l dg-mid" x="195" y="183">each tap is a verdict with a reason</text>
+  <text class="dg-l dg-mid" x="195" y="198">launch tier for every Scoper intent</text>
+
+  <!-- SEND (the one meaning colour) -->
+  <g class="dg-key-send">
+    <defs>
+      <marker id="dg4-ak" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L9,4.5 L0,9 Z" fill="currentColor"/></marker>
+    </defs>
+    <rect class="dg-box dg-box--in" x="560" y="120" width="230" height="90" rx="8"/>
+    <text class="dg-t dg-t--big dg-mid" x="675" y="148">SEND</text>
+    <text class="dg-l dg-mid" x="675" y="168">automatic, Ben no longer sees it</text>
+    <text class="dg-l dg-mid" x="675" y="183">Verifier samples 10% next morning</text>
+    <text class="dg-l dg-mid" x="675" y="198">customer signals count as verdicts</text>
+    <!-- promotion -->
+    <path class="dg-edge dg-edge--fat" d="M310,150 C400,95 470,95 560,150" marker-end="url(#dg4-ak)"/>
+    <text class="dg-l dg-l--b dg-mid" x="435" y="40">promotes when all four hold</text>
+    <text class="dg-l dg-mid" x="435" y="55">evals for the intent pass^3 = 100%</text>
+    <text class="dg-l dg-mid" x="435" y="70">≥ 30 verdicts across the pack in 30 d, ≥ 90% unedited</text>
+    <text class="dg-l dg-mid" x="435" y="85">zero unsafe rejects on this intent, ever</text>
+    <text class="dg-l dg-mid" x="435" y="100">zero guard escalations in the last 14 d</text>
+    <!-- sampler loop -->
+    <path class="dg-edge" d="M790,150 C835,125 835,205 790,190" marker-end="url(#dg4-ak)"/>
+    <text class="dg-l" x="832" y="162">samples</text>
+    <text class="dg-l" x="832" y="176">10%</text>
+  </g>
+
+  <!-- demotion -->
+  <path class="dg-edge dg-edge--fat" d="M560,190 C470,265 400,265 310,190" marker-end="url(#dg4-a)"/>
+  <text class="dg-l dg-l--b dg-mid" x="435" y="268">demotes (and pings Courtnee) when any one holds</text>
+  <text class="dg-l dg-mid" x="435" y="283">an unsafe reject, or a sampled "not fine: unsafe"</text>
+  <text class="dg-l dg-mid" x="435" y="298">a customer opt-out, or an incident tag</text>
+  <text class="dg-l dg-mid" x="435" y="313">sampled approval below 80% over the trailing 30</text>
+
+  <!-- Ben-only lane -->
+  <rect class="dg-box dg-box--in" x="80" y="330" width="380" height="58" rx="8"/>
+  <text class="dg-t" x="95" y="352">Ben-only lane</text>
+  <text class="dg-l" x="95" y="370">money · dates · complaints · refunds · out-of-scope · trust</text>
+  <path class="dg-edge dg-edge--dash" d="M460,359 H600"/>
+  <path class="dg-edge dg-edge--fat" d="M600,345 V373"/>
+  <text class="dg-l dg-l--b" x="610" y="356">never enters SEND</text>
+  <text class="dg-l" x="610" y="371">no transition exists, by construction</text>
+</svg>
+<figcaption>
+  <strong>Sending is earned per intent from evidence, and lost faster than it is won.</strong>
+  <p>Each kind of reply (ask for a photo, confirm receipt, point to the quote page) starts with Ben approving every message. Only when the tests pass three times running, Ben has tapped "fine" on enough drafts across the pack, and nothing unsafe has ever slipped does that one intent go automatic. Once automatic, a tenth of what it sends is checked the next morning, and a single unsafe verdict or a customer opting out drops it straight back to Ben. Money, dates and complaints are not on this ladder at all: there is no rung for them to climb.</p>
+</figcaption>
+</figure>
+</section>
+<section id="cost" class="cm-section" aria-labelledby="cm-title">
+<style>
+  #cost { --cm-radius: 10px; font-family: "IBM Plex Sans", system-ui, sans-serif; color: var(--ink); background: var(--bg); padding: 2rem 1.25rem; font-variant-numeric: tabular-nums; }
+  #cost * { box-sizing: border-box; }
+  #cost .cm-wrap { max-width: 1100px; margin: 0 auto; }
+  #cost h2, #cost h3 { font-family: "Archivo", "IBM Plex Sans", system-ui, sans-serif; margin: 0; line-height: 1.15; letter-spacing: -0.01em; }
+  #cost h2 { font-size: 1.75rem; }
+  #cost h3 { font-size: 1.05rem; margin-bottom: .5rem; }
+  #cost p { line-height: 1.5; margin: .5rem 0; }
+  #cost .cm-lede { color: var(--muted); max-width: 62ch; }
+  #cost .cm-mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+  #cost .cm-source { display: inline-block; margin-top: .75rem; padding: .35rem .7rem; border-radius: 999px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .75rem; line-height: 1.4; background: var(--ben-soft); color: var(--ben); border: 1px solid var(--ben); }
+  #cost .cm-source.cm-measured { background: var(--send-soft); color: var(--send); border-color: var(--send); }
+
+  /* controls */
+  #cost .cm-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin: 1.5rem 0; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); }
+  #cost .cm-ctl label { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .35rem; }
+  #cost .cm-ctl label em { font-style: normal; }
+  #cost .cm-ctl output { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 1.35rem; color: var(--accent); }
+  #cost .cm-ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+  #cost .cm-ctl .cm-hint { font-size: .75rem; color: var(--muted); margin-top: .2rem; line-height: 1.35; }
+  #cost .cm-toggle { display: flex; flex-direction: column; justify-content: flex-start; gap: .4rem; }
+  #cost .cm-toggle-btns { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  #cost .cm-toggle-btns button { flex: 1; padding: .5rem .4rem; border: 0; background: var(--surface); color: var(--muted); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
+  #cost .cm-toggle-btns button[aria-pressed=true] { background: var(--accent); color: var(--surface); }
+  #cost .cm-toggle-btns.cm-rates button[aria-pressed=true] { background: var(--send); }
+  #cost .cm-toggle-btns button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* KPI strip */
+  #cost .cm-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin: 1rem 0 1.5rem; }
+  #cost .cm-kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); padding: .9rem 1rem; }
+  #cost .cm-kpi .cm-v { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 1.7rem; line-height: 1.1; }
+  #cost .cm-kpi .cm-sub { font-size: .8rem; color: var(--muted); margin-top: .2rem; }
+  #cost .cm-kpi.cm-model { border-top: 4px solid var(--accent); }
+  #cost .cm-kpi.cm-benk { border-top: 4px solid var(--ben); }
+  #cost .cm-kpi.cm-sendk { border-top: 4px solid var(--send); }
+
+  /* tables */
+  #cost .cm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+  #cost .cm-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); padding: 1rem 1.1rem; min-width: 0; }
+  #cost .cm-scroll { overflow-x: auto; }
+  #cost table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  #cost th, #cost td { padding: .4rem .5rem; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  #cost th { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .72rem; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  #cost th:first-child, #cost td:first-child { text-align: left; white-space: normal; }
+  #cost tr.cm-total td { font-weight: 700; border-top: 2px solid var(--ink); border-bottom: 0; }
+  #cost tr.cm-sub td:first-child { padding-left: 1.25rem; color: var(--muted); }
+  #cost tr.cm-dim td { color: var(--muted); font-style: italic; }
+  #cost .cm-chip { display: inline-block; padding: .1rem .45rem; border-radius: 4px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .7rem; letter-spacing: .03em; text-transform: uppercase; margin-left: .4rem; vertical-align: middle; font-style: normal; }
+  #cost .cm-chip.cm-send { background: var(--send-soft); color: var(--send); }
+  #cost .cm-chip.cm-draft { background: var(--draft-soft); color: var(--draft); }
+  #cost .cm-chip.cm-propose { background: var(--accent-soft); color: var(--accent); }
+  #cost .cm-chip.cm-ben { background: var(--ben-soft); color: var(--ben); }
+  #cost .cm-chip.cm-read { background: var(--code); color: var(--muted); }
+
+  /* trade line */
+  #cost .cm-trade { margin-top: 1rem; padding: 1rem 1.25rem; border-radius: var(--cm-radius); background: var(--send-soft); border: 1px solid var(--send); color: var(--ink); font-size: 1.05rem; line-height: 1.5; }
+  #cost .cm-trade strong { color: var(--send); font-family: "Archivo", sans-serif; }
+  #cost .cm-trade .cm-note { display: block; font-size: .8rem; color: var(--muted); margin-top: .35rem; }
+
+  /* assumptions */
+  #cost details { margin-top: 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--cm-radius); padding: .75rem 1.1rem; }
+  #cost summary { cursor: pointer; font-weight: 600; }
+  #cost .cm-assume { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: .75rem; }
+  #cost .cm-assume table { font-size: .85rem; }
+  #cost .cm-assume td:first-child { white-space: normal; }
+  @media (max-width: 640px) { #cost { padding: 1.25rem .75rem; } #cost h2 { font-size: 1.4rem; } }
+</style>
+
+<div class="cm-wrap">
+  <div class="cm-mono">Pane 4 · Cost and load</div>
+  <h2 id="cm-title">What it costs to run, and what it costs Ben</h2>
+  <p class="cm-lede">Move the sliders. Everything recomputes: the rules layer (no model cost), the four model roles, Twilio/Meta message fees, and the taps Ben makes at his desk. Volumes are per city; a city is a config record with one operator.</p>
+  <span id="cm-source" class="cm-source cm-measured">DEFAULTS ARE MEASURED: rates come from the replay of real threads, 4 Jun – 3 Sep 2026 (130 bursts, 467 calls). Switch to “Brief” to see the pre-replay assumptions.</span>
+
+  <div class="cm-controls">
+    <div class="cm-ctl">
+      <label for="cm-msgs"><span>Inbound customer messages / week</span><output id="cm-msgs-out">30</output></label>
+      <input id="cm-msgs" type="range" min="0" max="1000" step="5" value="30">
+      <div class="cm-hint" id="cm-msgs-hint"></div>
+    </div>
+    <div class="cm-ctl">
+      <label for="cm-calls"><span>Inbound calls / week</span><output id="cm-calls-out">36</output></label>
+      <input id="cm-calls" type="range" min="0" max="200" step="1" value="36">
+      <div class="cm-hint" id="cm-calls-hint"></div>
+    </div>
+    <div class="cm-ctl">
+      <label for="cm-cities"><span>Cities</span><output id="cm-cities-out">1</output></label>
+      <input id="cm-cities" type="range" min="1" max="8" step="1" value="1">
+      <div class="cm-hint">Each city adds the same volume and its own operator.</div>
+    </div>
+    <div class="cm-ctl cm-toggle">
+      <span class="cm-mono">Scoper tier</span>
+      <div class="cm-toggle-btns" role="group" aria-label="Scoper tier">
+        <button type="button" id="cm-mode-launch" aria-pressed="true">LAUNCH · DRAFT</button>
+        <button type="button" id="cm-mode-month2" aria-pressed="false">MONTH 2 · SEND</button>
+      </div>
+      <div class="cm-hint">Month 2: non-exception replies send without Ben; fewer silence-breakers fire.</div>
+    </div>
+    <div class="cm-ctl cm-toggle">
+      <span class="cm-mono">Rates</span>
+      <div class="cm-toggle-btns cm-rates" role="group" aria-label="Rate source">
+        <button type="button" id="cm-rates-replay" aria-pressed="true">REPLAY · measured</button>
+        <button type="button" id="cm-rates-brief" aria-pressed="false">BRIEF · assumed</button>
+      </div>
+      <div class="cm-hint">Switching resets the two volume sliders to that source's defaults.</div>
+    </div>
+  </div>
+
+  <div class="cm-kpis">
+    <div class="cm-kpi cm-model"><div class="cm-mono">Models £ / day</div><div class="cm-v" id="k-gbp-day">–</div><div class="cm-sub" id="k-gbp-day-sub"></div></div>
+    <div class="cm-kpi cm-model"><div class="cm-mono">Models £ / month</div><div class="cm-v" id="k-gbp-month">–</div><div class="cm-sub" id="k-gbp-month-sub"></div></div>
+    <div class="cm-kpi cm-sendk"><div class="cm-mono">Messages £ / month</div><div class="cm-v" id="k-msg-month">–</div><div class="cm-sub">Twilio / Meta fees</div></div>
+    <div class="cm-kpi cm-benk"><div class="cm-mono">Ben taps / working day</div><div class="cm-v" id="k-taps">–</div><div class="cm-sub" id="k-taps-sub"></div></div>
+    <div class="cm-kpi cm-benk"><div class="cm-mono">Ben minutes / working day</div><div class="cm-v" id="k-min">–</div><div class="cm-sub" id="k-min-sub"></div></div>
+  </div>
+
+  <div class="cm-grid">
+    <div class="cm-card">
+      <h3>Runs per day, by kind</h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Kind</th><th>Runs / day</th><th>Model £ / day</th></tr></thead>
+        <tbody id="t-runs"></tbody>
+      </table></div>
+    </div>
+    <div class="cm-card">
+      <h3>Model calls and tokens per day</h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Model</th><th>Calls</th><th>Input</th><th>Cache read</th><th>Output</th><th>£ / day</th></tr></thead>
+        <tbody id="t-models"></tbody>
+      </table></div>
+    </div>
+    <div class="cm-card">
+      <h3>Ben's desk per day <span class="cm-chip cm-ben">per operator</span></h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Tap</th><th>Per day</th><th>Per working day</th><th>Minutes / wd</th></tr></thead>
+        <tbody id="t-ben"></tbody>
+      </table></div>
+    </div>
+    <div class="cm-card">
+      <h3>Scaling: 1, 2 and 5 cities</h3>
+      <div class="cm-scroll"><table>
+        <thead><tr><th>Cities</th><th>Models £/mo</th><th>Messages £/mo</th><th>Operator taps/day</th><th>Operator hrs/mo</th><th>Time saved £/mo</th></tr></thead>
+        <tbody id="t-cities"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="cm-trade" id="cm-trade"></div>
+
+  <details>
+    <summary>Assumptions and unit prices (every number above derives from these)</summary>
+    <div class="cm-assume">
+      <div><div class="cm-mono">Volume shape · Replay (measured) vs Brief (assumed)</div>
+      <table><thead><tr><th>Share of non-dropped bursts</th><th>Replay</th><th>Brief</th></tr></thead><tbody>
+        <tr><td>Messages per burst (group within 10 min)</td><td>2.95</td><td>1.6</td></tr>
+        <tr><td>Dropped (non-UK number)</td><td>10%</td><td>0%</td></tr>
+        <tr><td>First contact → rules layer</td><td>24%</td><td>25%</td></tr>
+        <tr><td>Photo-only → rules layer</td><td>9%</td><td>10%</td></tr>
+        <tr><td>Exceptions → Ben (money / dates / complaints)</td><td>30% (23 / 7 / 0)</td><td>17% (11 / 6 / 0)</td></tr>
+        <tr><td>Remainder → Scoper</td><td>38%</td><td>48%</td></tr>
+        <tr><td>Silence-breaker fires, launch / month 2</td><td>19% / 11%</td><td>30% / 5%</td></tr>
+        <tr><td>Flag-expiry holding line (rules layer)</td><td>10%</td><td>0%</td></tr>
+        <tr><td>Inbound calls answered and transcribed (&gt;10 s)</td><td>84%</td><td>80% <em>[own]</em></td></tr>
+        <tr><td>Missed calls get one post-call template</td><td>yes</td><td>no</td></tr>
+        <tr><td>Scoper bursts that are a thread's 2nd+ burst → extra clerk pass</td><td>30%</td><td>25% <em>[own]</em></td></tr>
+        <tr><td>Ben's hand-written reply, minutes (median)</td><td>1.9</td><td>3 <em>[own]</em></td></tr>
+        <tr><td>Hand-written quote intake per answered call, minutes <em>[own]</em></td><td>5</td><td>5</td></tr>
+        <tr><td>Verifier + Ben sample of automatic sends</td><td>10%</td><td>10%</td></tr>
+        <tr><td>Recovery agent</td><td colspan="2">not modelled (no token figures; batch, low volume)</td></tr>
+      </tbody></table></div>
+      <div><div class="cm-mono">Tokens per call (input / cache read / output) and price</div>
+      <table><tbody>
+        <tr><td>Triage · Haiku 4.5</td><td>2,500 / 0 / 150</td><td>$0.0033</td></tr>
+        <tr><td>Scoper · Sonnet 5</td><td>3,000 / 4,000 / 400</td><td>$0.0108</td></tr>
+        <tr><td>Quote clerk · Sonnet 5</td><td>5,000 / 4,000 / 900</td><td>$0.0198</td></tr>
+        <tr><td>Verifier · Opus 5</td><td>5,000 / 0 / 300</td><td>$0.0325</td></tr>
+        <tr><td>Rules layer</td><td>—</td><td>$0</td></tr>
+        <tr><td>USD per M tokens, 2 Sep 2026: Haiku 1 / 5, Sonnet 2 / 10, Opus 5 / 25. Cache read = 10% of input. Cache writes ignored.</td><td colspan="2">1 USD = 0.78 GBP</td></tr>
+        <tr><td>Message fees: WA template £0.035, in-window WA reply £0, SMS £0.04. 40% of rules sends are templates, 10% SMS. Scoper replies are in-window.</td><td colspan="2"></td></tr>
+        <tr><td>Ben: £15/h, 30 s per tap. Taps = draft approvals + exception flags + sample reviews (replay section D). Quote-clerk prefills are shown but not counted: they replace intake Ben already does from the call. Working day = calendar day × 7/5.</td><td colspan="2"></td></tr>
+        <tr><td>Replay caveats: Ben's personal-number replies are not in the DB; regex lexicons over-count the Ben lane; WhatsApp ingest was dead until 15 Aug, so the window average understates messages.</td><td colspan="2"></td></tr>
+      </tbody></table></div>
+    </div>
+  </details>
+</div>
+
+<script>
+(function () {
+// ---- CALC START (identical copy lives inside cost-model.html) ----
+// Two rate sets. REPLAY = measured from replay-results.json (window 4 Jun-3 Sep 2026, 130 bursts, 117 non-dropped,
+// 467 calls, 390 answered). BRIEF = the assumptions in BRIEF-cost.md. Shares are of NON-DROPPED bursts.
+var RATES = {
+  replay: {
+    label: 'Replay (measured)', defaults: { msgsWeek: 30, callsWeek: 36 },
+    msgsPerBurst: 384 / 130, dropShare: 13 / 130,
+    firstContact: 28 / 117, photoOnly: 10 / 117, exception: 35 / 117, money: 27 / 117, date: 8 / 117, complaint: 0,
+    silenceLaunch: 22 / 117, silenceMonth2: 13 / 117, flagExpiry: 12 / 117,
+    answeredShare: 390 / 467, postCallTemplate: 1,       // one template to every missed call (77 in window)
+    secondBurstShare: 13 / 44,                            // threads with 2+ Scoper bursts / Scoper bursts
+    manualMinPerBurst: 1.9, exceptionMin: 1.9,            // Ben's measured median manual reply
+    manualMinPerCall: 5                                   // OWN assumption: hand-written quote intake per answered call
+  },
+  brief: {
+    label: 'Brief (assumed)', defaults: { msgsWeek: 100, callsWeek: 15 },
+    msgsPerBurst: 1.6, dropShare: 0,
+    firstContact: 0.25, photoOnly: 0.10, exception: 0.17, money: 0.11, date: 0.06, complaint: 0,
+    silenceLaunch: 0.30, silenceMonth2: 0.05, flagExpiry: 0,
+    answeredShare: 0.80, postCallTemplate: 0,              // OWN assumptions: 80% answered; brief has no missed-call template
+    secondBurstShare: 0.25,                                // OWN assumption
+    manualMinPerBurst: 3, exceptionMin: 3, manualMinPerCall: 5
+  }
+};
+var A = {
+  sampleRate: 0.10, tapSeconds: 30, benRate: 15,
+  templateShare: 0.40, smsShare: 0.10, templateGbp: 0.035, smsGbp: 0.04,
+  usdToGbp: 0.78, daysPerMonth: 30.4, workingDayFactor: 7 / 5
+};
+var MODELS = {
+  haiku:  { name: 'Haiku 4.5', inUsd: 1.00, outUsd: 5.00 },
+  sonnet: { name: 'Sonnet 5',  inUsd: 2.00, outUsd: 10.00 },
+  opus:   { name: 'Opus 5',    inUsd: 5.00, outUsd: 25.00 }
+};
+var CALLS = {
+  triage:   { label: 'Triage / Sorter', model: 'haiku',  input: 2500, cached: 0,    output: 150 },
+  scoper:   { label: 'Scoper',          model: 'sonnet', input: 3000, cached: 4000, output: 400 },
+  clerk:    { label: 'Quote clerk',     model: 'sonnet', input: 5000, cached: 4000, output: 900 },
+  verifier: { label: 'Verifier',        model: 'opus',   input: 5000, cached: 0,    output: 300 }
+};
+function callUsd(c) {
+  var m = MODELS[c.model];
+  return (c.input * m.inUsd + c.cached * m.inUsd * 0.10 + c.output * m.outUsd) / 1e6;
+}
+function compute(inp) {
+  var R = RATES[inp.rates] || RATES.replay;
+  var cities = inp.cities, month2 = inp.mode === 'month2';
+  var msgsDay = inp.msgsWeek / 7, callsDay = inp.callsWeek / 7;          // per city
+  var burstsAll = msgsDay / R.msgsPerBurst;
+  var bursts = burstsAll * (1 - R.dropShare);                             // non-dropped
+  var firstContact = bursts * R.firstContact, photoOnly = bursts * R.photoOnly;
+  var exceptions = bursts * R.exception, scoperBursts = bursts * (1 - R.firstContact - R.photoOnly - R.exception);
+  var silence = bursts * (month2 ? R.silenceMonth2 : R.silenceLaunch);
+  var flagExpiry = bursts * R.flagExpiry;
+  var answeredCalls = callsDay * R.answeredShare, missedCalls = callsDay - answeredCalls;
+  var postCall = missedCalls * R.postCallTemplate;
+  var clerkFromCalls = answeredCalls, clerkFromThreads = scoperBursts * R.secondBurstShare;
+  var clerkCalls = clerkFromCalls + clerkFromThreads;
+  var rulesSends = firstContact + photoOnly + silence + flagExpiry + postCall;
+  var scoperSends = month2 ? scoperBursts : 0;                            // month 2: Scoper at SEND, non-exception replies
+  var autoSends = rulesSends + scoperSends;
+  var samples = autoSends * A.sampleRate;
+  var n = { triage: bursts, scoper: scoperBursts, clerk: clerkCalls, verifier: samples };
+  var byModel = {};
+  Object.keys(MODELS).forEach(function (k) { byModel[k] = { calls: 0, input: 0, cached: 0, output: 0, usd: 0 }; });
+  Object.keys(CALLS).forEach(function (k) {
+    var c = CALLS[k], b = byModel[c.model], q = n[k];
+    b.calls += q; b.input += q * c.input; b.cached += q * c.cached; b.output += q * c.output; b.usd += q * callUsd(c);
+  });
+  var usdDay = 0, tokDay = 0;
+  Object.keys(byModel).forEach(function (k) { usdDay += byModel[k].usd; tokDay += byModel[k].input + byModel[k].cached + byModel[k].output; });
+  var modelGbpDay = usdDay * A.usdToGbp;
+  var msgGbpDay = rulesSends * (A.templateShare * A.templateGbp + A.smsShare * A.smsGbp);   // Scoper replies are in-window
+  // Ben, per operator (= per city). Taps = draft approvals + flags + sample reviews (matches replay section D).
+  // Quote-clerk prefills are shown but not counted: they replace intake Ben already does from the call.
+  var drafts = month2 ? 0 : scoperBursts;
+  var taps = drafts + exceptions + samples;
+  var benMin = taps * A.tapSeconds / 60;
+  var manualMin = bursts * R.manualMinPerBurst + answeredCalls * R.manualMinPerCall;
+  var systemMin = benMin + exceptions * R.exceptionMin;
+  var savedMin = manualMin - systemMin, savedGbpDay = savedMin / 60 * A.benRate;
+  var s = function (v) { return v * cities; };
+  return {
+    inp: inp, rates: R, cities: cities, month2: month2,
+    perCity: {
+      burstsAll: burstsAll, bursts: bursts, firstContact: firstContact, photoOnly: photoOnly, silence: silence, flagExpiry: flagExpiry, postCall: postCall,
+      exceptions: exceptions, scoperBursts: scoperBursts, answeredCalls: answeredCalls, missedCalls: missedCalls,
+      clerkFromCalls: clerkFromCalls, clerkFromThreads: clerkFromThreads, clerkCalls: clerkCalls,
+      rulesSends: rulesSends, scoperSends: scoperSends, autoSends: autoSends, samples: samples,
+      ben: { drafts: drafts, clerk: clerkCalls, flags: exceptions, samples: samples, taps: taps, minutes: benMin,
+             tapsWorkingDay: taps * A.workingDayFactor, minutesWorkingDay: benMin * A.workingDayFactor },
+      trade: { manualMin: manualMin, systemMin: systemMin, savedMin: savedMin, savedGbpDay: savedGbpDay }
+    },
+    total: {
+      runs: { rulesFirstContact: s(firstContact), rulesPhoto: s(photoOnly), rulesSilence: s(silence), rulesFlagExpiry: s(flagExpiry), rulesPostCall: s(postCall),
+              rulesSends: s(rulesSends), triage: s(bursts), scoper: s(scoperBursts), clerk: s(clerkCalls), verifier: s(samples), flags: s(exceptions), dropped: s(burstsAll - bursts) },
+      byModel: Object.keys(byModel).reduce(function (o, k) {
+        var b = byModel[k]; o[k] = { calls: s(b.calls), input: s(b.input), cached: s(b.cached), output: s(b.output), gbpDay: s(b.usd) * A.usdToGbp }; return o;
+      }, {}),
+      tokDay: s(tokDay), modelGbpDay: s(modelGbpDay), modelGbpMonth: s(modelGbpDay) * A.daysPerMonth,
+      msgGbpDay: s(msgGbpDay), msgGbpMonth: s(msgGbpDay) * A.daysPerMonth,
+      benTapsDay: s(taps), benMinDay: s(benMin), benHoursMonth: s(benMin) / 60 * A.daysPerMonth,
+      savedGbpDay: s(savedGbpDay), savedGbpMonth: s(savedGbpDay) * A.daysPerMonth
+    }
+  };
+}
+// ---- CALC END ----
+
+  // ---- UI ----
+  var root = document.getElementById('cost');
+  if (!root) return;
+  var $ = function (id) { return root.querySelector('#' + id); };
+  var state = { rates: 'replay', msgsWeek: RATES.replay.defaults.msgsWeek, callsWeek: RATES.replay.defaults.callsWeek, cities: 1, mode: 'launch' };
+  var HINTS = {
+    replay: { msgs: 'Replay window averages 30/wk (WhatsApp ingest was dead until 15 Aug). Since 17 Aug the run-rate is ~130/wk. Grouped into bursts of 2.95.', calls: 'Replay: 36/wk, 84% answered. Answered calls get a transcript and one Quote clerk prefill; missed calls get a template.' },
+    brief: { msgs: 'Brief assumption: 100/wk, grouped into bursts of 1.6.', calls: 'Brief assumption: 15/wk. Answered calls get a transcript and one Quote clerk prefill.' }
+  };
+  var gbp = function (v, d) { return '£' + v.toFixed(d == null ? 2 : d); };
+  var num = function (v, d) { d = d == null ? 1 : d; return v.toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  var tok = function (v) { return v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v).toString(); };
+  var row = function (cells, cls) { return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' + cells.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; };
+  var chip = function (t, k) { return '<span class="cm-chip cm-' + k + '">' + t + '</span>'; };
+
+  function render() {
+    var r = compute(state), t = r.total, p = r.perCity, m2 = r.month2, c = r.cities, R = r.rates;
+    var citiesTxt = c === 1 ? '1 city' : c + ' cities';
+    var modeTxt = m2 ? 'month 2' : 'launch';
+    var wd = A.workingDayFactor;
+
+    $('k-gbp-day').textContent = gbp(t.modelGbpDay, 2);
+    $('k-gbp-day-sub').textContent = tok(t.tokDay) + ' tokens · ' + citiesTxt;
+    $('k-gbp-month').textContent = gbp(t.modelGbpMonth, 2);
+    $('k-gbp-month-sub').textContent = '30.4 days · ' + citiesTxt + ' · ' + modeTxt;
+    $('k-msg-month').textContent = gbp(t.msgGbpMonth, 2);
+    $('k-taps').textContent = num(p.ben.tapsWorkingDay, 1);
+    $('k-taps-sub').textContent = num(p.ben.taps, 1) + ' per calendar day · ' + num(p.ben.drafts, 1) + ' drafts · ' + num(p.ben.flags, 1) + ' flags · ' + num(p.ben.samples, 1) + ' samples';
+    $('k-min').textContent = num(p.ben.minutesWorkingDay, 1);
+    $('k-min-sub').textContent = 'at 30 s per tap · ' + num(p.ben.minutes, 1) + ' per calendar day';
+
+    var g = function (k, q) { return q * callUsd(CALLS[k]) * A.usdToGbp; };
+    var rules = [
+      row(['Rules layer sends' + chip('send', 'send'), num(t.runs.rulesSends), '£0']),
+      row(['first-contact ack', num(t.runs.rulesFirstContact), ''], 'cm-sub'),
+      row(['photo / postcode ask', num(t.runs.rulesPhoto), ''], 'cm-sub'),
+      row(['20-min silence-breaker', num(t.runs.rulesSilence), ''], 'cm-sub')
+    ];
+    if (R.flagExpiry > 0) rules.push(row(['flag-expiry holding line', num(t.runs.rulesFlagExpiry), ''], 'cm-sub'));
+    if (R.postCallTemplate > 0) rules.push(row(['post-call template (missed calls)', num(t.runs.rulesPostCall), ''], 'cm-sub'));
+    $('t-runs').innerHTML = rules.concat([
+      row(['Triage / Sorter · Haiku' + chip('read', 'read'), num(t.runs.triage), gbp(g('triage', t.runs.triage), 3)]),
+      row(['Scoper · Sonnet' + chip(m2 ? 'send' : 'draft', m2 ? 'send' : 'draft'), num(t.runs.scoper), gbp(g('scoper', t.runs.scoper), 3)]),
+      row(['Quote clerk · Sonnet' + chip('propose', 'propose'), num(t.runs.clerk), gbp(g('clerk', t.runs.clerk), 3)]),
+      row(['from answered-call transcripts', num(p.clerkFromCalls * c), ''], 'cm-sub'),
+      row(['from threads with 2+ Scoper bursts', num(p.clerkFromThreads * c), ''], 'cm-sub'),
+      row(['Verifier · Opus (10% of automatic sends)' + chip('read', 'read'), num(t.runs.verifier), gbp(g('verifier', t.runs.verifier), 3)]),
+      row(['Exception flags → Ben' + chip('ben', 'ben'), num(t.runs.flags), '£0']),
+      R.dropShare > 0 ? row(['Dropped before triage (non-UK number)', num(t.runs.dropped), '£0'], 'cm-dim') : '',
+      row(['Model cost, all runs', '', gbp(t.modelGbpDay, 3)], 'cm-total')
+    ]).join('');
+
+    var mk = ['haiku', 'sonnet', 'opus'], sum = { calls: 0, input: 0, cached: 0, output: 0 };
+    $('t-models').innerHTML = mk.map(function (k) {
+      var b = t.byModel[k]; sum.calls += b.calls; sum.input += b.input; sum.cached += b.cached; sum.output += b.output;
+      return row([MODELS[k].name, num(b.calls), tok(b.input), tok(b.cached), tok(b.output), gbp(b.gbpDay, 3)]);
+    }).join('') + row(['All models', num(sum.calls), tok(sum.input), tok(sum.cached), tok(sum.output), gbp(t.modelGbpDay, 3)], 'cm-total');
+
+    var b = p.ben, s = A.tapSeconds / 60;
+    $('t-ben').innerHTML = [
+      row(['Approve / edit / reject Scoper drafts' + chip(m2 ? 'send' : 'draft', m2 ? 'send' : 'draft'), num(b.drafts), num(b.drafts * wd), num(b.drafts * wd * s)]),
+      row(['Exception flags: money, dates, complaints' + chip('ben', 'ben'), num(b.flags), num(b.flags * wd), num(b.flags * wd * s)]),
+      row(['Next-morning 10% sample reviews', num(b.samples), num(b.samples * wd), num(b.samples * wd * s)]),
+      row(['Total taps', num(b.taps), num(b.tapsWorkingDay), num(b.minutesWorkingDay)], 'cm-total'),
+      row(['Quote clerk prefills to accept' + chip('propose', 'propose') + ' not counted: replaces intake Ben already does', num(b.clerk), num(b.clerk * wd), ''], 'cm-dim')
+    ].join('');
+
+    $('t-cities').innerHTML = [1, 2, 5].map(function (n) {
+      var x = compute({ rates: state.rates, msgsWeek: state.msgsWeek, callsWeek: state.callsWeek, cities: n, mode: state.mode }).total;
+      return row([n + (n === 1 ? ' city' : ' cities'), gbp(x.modelGbpMonth), gbp(x.msgGbpMonth), num(x.benTapsDay), num(x.benHoursMonth), gbp(x.savedGbpMonth, 0)], n === c ? 'cm-total' : '');
+    }).join('');
+
+    var ratio = t.modelGbpDay > 0 ? t.savedGbpDay / t.modelGbpDay : 0;
+    $('cm-trade').innerHTML = 'Models cost <strong>' + gbp(t.modelGbpDay) + ' a day</strong> and give back <strong>' + num(p.trade.savedMin * c, 0) + ' minutes</strong> of operator time, worth <strong>' + gbp(t.savedGbpDay) + ' a day</strong> at £15/h' + (ratio > 0 ? ', about <strong>' + num(ratio, 0) + '×</strong> the model spend' : '') +
+      '. Per month: ' + gbp(t.savedGbpMonth, 0) + ' saved against ' + gbp(t.modelGbpMonth + t.msgGbpMonth) + ' on models and messages.' +
+      '<span class="cm-note">Saved = hand-written replies avoided (' + R.manualMinPerBurst + ' min per burst, ' + R.manualMinPerCall + ' min per answered-call write-up) minus taps at 30 s and the exception replies Ben still writes by hand. ' + citiesTxt + ', ' + modeTxt + ', ' + R.label.toLowerCase() + ' rates.</span>';
+
+    $('cm-msgs-hint').textContent = HINTS[state.rates].msgs;
+    $('cm-calls-hint').textContent = HINTS[state.rates].calls;
+    var src = $('cm-source');
+    if (state.rates === 'replay') { src.className = 'cm-source cm-measured'; src.textContent = 'DEFAULTS ARE MEASURED: rates come from the replay of real threads, 4 Jun – 3 Sep 2026 (130 bursts, 467 calls). Switch to “Brief” to see the pre-replay assumptions.'; }
+    else { src.className = 'cm-source'; src.textContent = 'ASSUMPTIONS: these are the pre-replay figures from the brief. The measured replay rates are the default; switch back to “Replay”.'; }
+  }
+
+  function bind(id, key) {
+    var el = $(id), out = $(id + '-out');
+    el.addEventListener('input', function () { state[key] = +el.value; out.textContent = el.value; render(); });
+  }
+  bind('cm-msgs', 'msgsWeek'); bind('cm-calls', 'callsWeek'); bind('cm-cities', 'cities');
+  function press(a, b, on) { $(a).setAttribute('aria-pressed', on ? 'true' : 'false'); $(b).setAttribute('aria-pressed', on ? 'false' : 'true'); }
+  function setMode(m) { state.mode = m; press('cm-mode-launch', 'cm-mode-month2', m === 'launch'); render(); }
+  function setRates(k) {
+    state.rates = k; press('cm-rates-replay', 'cm-rates-brief', k === 'replay');
+    var d = RATES[k].defaults; state.msgsWeek = d.msgsWeek; state.callsWeek = d.callsWeek;
+    $('cm-msgs').value = d.msgsWeek; $('cm-msgs-out').textContent = d.msgsWeek;
+    $('cm-calls').value = d.callsWeek; $('cm-calls-out').textContent = d.callsWeek;
+    render();
+  }
+  $('cm-mode-launch').addEventListener('click', function () { setMode('launch'); });
+  $('cm-mode-month2').addEventListener('click', function () { setMode('month2'); });
+  $('cm-rates-replay').addEventListener('click', function () { setRates('replay'); });
+  $('cm-rates-brief').addEventListener('click', function () { setRates('brief'); });
+  render();
+})();
+</script>
+</section>
+<section id="verdict">
+  <h2>What the model says</h2>
+  <ul>
+    <li><strong>The desk removes silence, not work.</strong> Unanswered bursts go from 23% to 0% on day one, entirely through templates. Ben's taps stay flat at launch and halve by month 2.</li>
+    <li><strong>Templates do most of the lifting.</strong> At launch 100% of automatic sends are fixed wording. The AI earns its way in one reply type at a time, and the walkthrough shows exactly what a customer sees in the meantime.</li>
+    <li><strong>The Ben lane is the real bottleneck.</strong> A quarter of bursts mention money or dates. Those wait for a human by design, and the 4-hour deadline plus holding line is what keeps the customer warm. Ben's coverage hours decide the customer experience more than any model does.</li>
+    <li><strong>The sorter needs its model call.</strong> Keyword rules alone flagged a curtain-pole enquiry as a money question. The one Haiku call in triage is the difference between 27% and something nearer the measured 17%.</li>
+    <li><strong>Cost is not a factor.</strong> Roughly 8p a day in model spend at measured volume, and about £3 to £4 a month at the volume the brief assumed. Twilio and Meta fees are the same order. Five cities is a config change, not a cost problem.</li>
+    <li><strong>Calls are the front door.</strong> 390 answered calls versus 132 text bursts. The pre-filled quote from the call transcript is the single highest-leverage piece, and it runs at PROPOSE tier with no customer risk.</li>
+  </ul>
+  <h3>What would change the plan</h3>
+  <ul>
+    <li>If Ben's verdict rate in the first two weeks is under half of drafts, fix his hours and pay before touching the software.</li>
+    <li>If the holding line fires on more than a third of bursts after month 2, the Scoper is not earning autonomy fast enough; review the promotion gate.</li>
+    <li>If Ben's personal number cannot be ingested, the silence-breaker cannot ship; every "Ben replied" rule depends on it.</li>
+  </ul>
+  <div class="foot">Replay script: <code>scripts/_comms-desk-replay.ts</code>, re-runnable. Design: <code>docs/COMMS_AGENTS_V3_DESIGN.md</code>. Cost tables: <code>docs/comms-model/cost-model.md</code>. All figures from the production database on 2 Sep 2026 with test data scrubbed. Built in four panes: replay and assembly here, walkthrough, diagrams and cost model in the other three.</div>
+</section>
+</main>

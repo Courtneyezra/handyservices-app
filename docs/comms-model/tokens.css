@@ -1,0 +1,16 @@
+/* Shared tokens for the Comms Desk Model page. Use these variables; do not hardcode colours. */
+:root{ --bg:#F4F5F3; --surface:#FFFFFF; --ink:#1B2229; --muted:#5B6670; --line:#D5DAD8;
+  --accent:#1E4FA3; --accent-soft:#E4ECFA; --ben:#A9650B; --ben-soft:#FBEFD9;
+  --send:#23704A; --send-soft:#DDF0E4; --draft:#4B5563; --draft-soft:#E7EAEE;
+  --danger:#9C2F2F; --danger-soft:#F7E1E1; --code:#EEF1EF; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; } }
+:root[data-theme="dark"]{
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; }
+/* Fonts on the master page: Archivo (headings), IBM Plex Sans (body), IBM Plex Mono (labels). Tier chips: .chip.send/.draft/.propose/.ben/.read */
