@@ -27,21 +27,10 @@ import { db } from './db';
 import { commsEvents, conversations, messages, messageDrafts, calls, users } from '@shared/schema';
 import { sql, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-
-/** Numbers that are "us": events on them are internal plumbing, not counterparty traffic. */
-const INTERNAL_DIGITS = new Set([
-    '447449501762', // business WhatsApp sender
-    '447508744402', // Ben's personal number (dark-channel capture pending)
-]);
-
-function digitsOf(phone: string | null | undefined): string {
-    return (phone ?? '').replace('@c.us', '').replace(/\D/g, '');
-}
-
-function e164(phone: string | null | undefined): string {
-    const d = digitsOf(phone);
-    return d ? `+${d}` : '';
-}
+// Phase 1 (2 Sep 2026): the attribution vocabulary lives with the write-at-source ledger and is
+// shared here so the backfill and the live path can never disagree about who an actor is.
+import { INTERNAL_DIGITS, digitsOf, e164Of as e164, actorFromDraftSource, actorFromApprovedBy as senderFromApprovedBy } from './ledger';
+export { ledgerDriftCheck } from './ledger';
 
 async function contractorDigits(): Promise<Set<string>> {
     const rows = await db.select({ phone: users.phone }).from(users).where(eq(users.role, 'contractor'));
@@ -57,25 +46,6 @@ function roleFor(digits: string, contractors: Set<string>): string {
 /** Draft bodies split into their '---' burst parts, the shape they land in as message rows. */
 function draftParts(body: string): string[] {
     return body.split(/\n?---\n?/).map((p) => p.trim()).filter(Boolean);
-}
-
-function actorFromDraftSource(source: string): string {
-    if (source === 'comms_agent') return 'agent:comms';
-    return `system:${source}`;
-}
-
-function senderFromApprovedBy(approvedBy: string | null): string | null {
-    if (!approvedBy) return null;
-    // Phase 0 (2 Sep 2026) enum values first, then the legacy prefixes still on older rows.
-    if (approvedBy.startsWith('human:')) return approvedBy;
-    if (approvedBy.startsWith('agent.comms')) return 'agent:comms';
-    if (approvedBy.startsWith('agent.')) return `agent:${approvedBy.slice('agent.'.length)}`;
-    if (approvedBy === 'rules.first_contact') return 'system:first_contact_ack';
-    if (approvedBy.startsWith('rules.') || approvedBy.startsWith('system.')) return `system:${approvedBy.replace(/^(rules|system)\./, '')}`;
-    if (approvedBy.startsWith('comms_agent')) return 'agent:comms';
-    if (approvedBy.startsWith('first_contact_ack')) return 'system:first_contact_ack';
-    if (approvedBy === 'stale_sweep') return 'system:stale_sweep';
-    return `human:${approvedBy}`;
 }
 
 export interface LedgerSyncResult {
@@ -121,7 +91,7 @@ export async function syncCommsLedger(): Promise<LedgerSyncResult> {
             id: randomUUID(), occurredAt: d.createdAt, eventType: 'draft_created',
             channel: d.channel ?? 'whatsapp', phone: e164(d.phone), roleProfile: role,
             actor: draftedBy, draftedBy, body: d.body,
-            refTable: 'message_drafts', refId: d.id,
+            refTable: 'message_drafts', refId: d.id, runId: d.runId ?? null,
             meta: { source: d.source, reason: d.reason ?? undefined },
         });
         if (d.status === 'sent' && d.sentAt) {
@@ -129,7 +99,7 @@ export async function syncCommsLedger(): Promise<LedgerSyncResult> {
                 id: randomUUID(), occurredAt: d.sentAt, eventType: 'draft_sent',
                 channel: d.channel ?? 'whatsapp', phone: e164(d.phone), roleProfile: role,
                 actor: sentBy ?? draftedBy, draftedBy, sentBy, body: d.body,
-                refTable: 'message_drafts', refId: d.id,
+                refTable: 'message_drafts', refId: d.id, runId: d.runId ?? null,
                 meta: { source: d.source, sentMessageId: d.sentMessageId ?? undefined },
             });
         } else if (d.status === 'rejected' && d.approvedAt) {
@@ -137,7 +107,7 @@ export async function syncCommsLedger(): Promise<LedgerSyncResult> {
                 id: randomUUID(), occurredAt: d.approvedAt, eventType: 'draft_rejected',
                 channel: d.channel ?? 'whatsapp', phone: e164(d.phone), roleProfile: role,
                 actor: senderFromApprovedBy(d.approvedBy) ?? 'system:unknown', draftedBy, body: d.body,
-                refTable: 'message_drafts', refId: d.id,
+                refTable: 'message_drafts', refId: d.id, runId: d.runId ?? null,
                 meta: { source: d.source },
             });
         } else if (d.status === 'failed') {
@@ -145,7 +115,7 @@ export async function syncCommsLedger(): Promise<LedgerSyncResult> {
                 id: randomUUID(), occurredAt: d.sentAt ?? d.createdAt, eventType: 'draft_failed',
                 channel: d.channel ?? 'whatsapp', phone: e164(d.phone), roleProfile: role,
                 actor: draftedBy, draftedBy, body: d.body,
-                refTable: 'message_drafts', refId: d.id,
+                refTable: 'message_drafts', refId: d.id, runId: d.runId ?? null,
                 meta: { source: d.source, error: d.error ?? undefined },
             });
         }

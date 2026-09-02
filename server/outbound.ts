@@ -33,6 +33,7 @@ import { notifyOutboundSendFailure } from './pushover';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { logSystemEvent } from './system-events';
 import { type Approver, isApprover } from './approver';
+import { ledgerMessageOut, ledgerDraftSent } from './ledger';
 
 export type OutboundChannel = 'whatsapp' | 'sms';
 
@@ -101,6 +102,12 @@ export interface SendCustomerMessageInput {
      * from ./approver. REQUIRED. Every send must be traceable to the run that produced it.
      */
     runId: string;
+    /**
+     * When this send releases a queued draft: its id and source, so the exit can append the
+     * ledger's draft_sent event alongside message_out (Phase 1). approveAndSendDraft sets these.
+     */
+    draftId?: string | null;
+    draftSource?: string | null;
     /** E.164 or the `...@c.us` conversation key. */
     to: string;
     /** The words. For a template send this is the RENDERED text, which is what SMS falls back to. */
@@ -251,7 +258,10 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
             console.log(`[Outbound] ${e164} is a UK non-mobile — skipping WhatsApp entirely, sending SMS`);
         }
         const sms = await trySms(e164, input, attempts);
-        if (sms.ok) return { ok: true, channel: 'sms', sid: sms.sid, attempts, fellBack: false, reason };
+        if (sms.ok) {
+            await recordSendInLedger(input, e164, 'sms', sms.sid ?? null);
+            return { ok: true, channel: 'sms', sid: sms.sid, attempts, fellBack: false, reason };
+        }
         await raiseDroppedMessageAlert(e164, input, attempts);
         return { ok: false, attempts, fellBack: false, reason, error: sms.error };
     }
@@ -266,6 +276,7 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
             mediaType: input.mediaType,
         });
         attempts.push({ channel: 'whatsapp', ok: true, sid: result?.sid ?? null });
+        await recordSendInLedger(input, e164, 'whatsapp', result?.sid ?? null);
         return { ok: true, channel: 'whatsapp', sid: result?.sid ?? null, attempts, fellBack: false };
     } catch (error: any) {
         const code = codeOf(error);
@@ -312,11 +323,52 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
                 detail: { code, reason, attempts, approver: input.approver, runId: input.runId },
                 source: 'outbound',
             });
+            await recordSendInLedger(input, e164, 'sms', sms.sid ?? null);
             return { ok: true, channel: 'sms', sid: sms.sid, attempts, fellBack: true, reason };
         }
 
         await raiseDroppedMessageAlert(e164, input, attempts);
         return { ok: false, attempts, fellBack: false, reason, error: sms.error ?? error?.message };
+    }
+}
+
+/**
+ * WRITE-AT-SOURCE LEDGER (Phase 1). The exit records its own message_out, and the draft_sent when
+ * it is releasing a draft, the moment the pipe confirms. The messages row id is the Twilio SID on
+ * both pipes (meta-whatsapp.ts / sms.ts), so the event keys on the SID and the backfill sync lands
+ * on the same (ref_table, ref_id, event_type) — a no-op, not a duplicate. Never throws: the
+ * customer has the message; the ledger row is bookkeeping.
+ */
+async function recordSendInLedger(input: SendCustomerMessageInput, e164: string, channel: OutboundChannel, sid: string | null): Promise<void> {
+    try {
+        let messageId = sid;
+        let conversationId: string | null = null;
+        let occurredAt = new Date();
+        if (sid) {
+            const { db } = await import('./db');
+            const { messages } = await import('@shared/schema');
+            const { eq, or } = await import('drizzle-orm');
+            const [row] = await db.select({ id: messages.id, conversationId: messages.conversationId, createdAt: messages.createdAt })
+                .from(messages).where(or(eq(messages.id, sid), eq(messages.twilioSid, sid))).limit(1);
+            if (row) {
+                messageId = row.id;
+                conversationId = row.conversationId;
+                if (row.createdAt) occurredAt = row.createdAt;
+            }
+        }
+        if (!messageId) return; // nothing to key on; the backfill sync will pick the row up
+        await ledgerMessageOut({
+            messageId, phone: e164, conversationId, channel, body: input.body, approver: input.approver, runId: input.runId,
+            draftId: input.draftId ?? null, draftSource: input.draftSource ?? null, occurredAt, context: input.context ?? null,
+        });
+        if (input.draftId) {
+            await ledgerDraftSent({
+                draftId: input.draftId, phone: e164, conversationId, channel, body: input.body, source: input.draftSource ?? null,
+                approver: input.approver, sentMessageId: messageId, runId: input.runId, occurredAt,
+            });
+        }
+    } catch (error: any) {
+        console.warn('[Outbound] ledger write failed (send stands):', error?.message ?? error);
     }
 }
 

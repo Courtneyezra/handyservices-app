@@ -27,6 +27,7 @@
  * draft would be the second holding reply in a row — the stall loop — which comms.ts uses to
  * refuse the auto-send and flag instead.
  */
+import { newRunId } from '../approver';
 import { db } from '../db';
 import { conversations, messages, messageDrafts, personalizedQuotes } from '@shared/schema';
 import { and, eq, desc, inArray, isNull, sql } from 'drizzle-orm';
@@ -384,6 +385,8 @@ async function fulfilmentSince(conversationId: string, phone: string, madeAt: Da
  */
 export async function flagOverdueCommitments(): Promise<{ scanned: number; flagged: number; cleared: number }> {
     const nowIso = new Date().toISOString();
+    // Phase 1: one run id per pass; every flag it raises carries it.
+    const runId = newRunId('sweep');
     const due = await db.select({
         id: conversations.id,
         phoneNumber: conversations.phoneNumber,
@@ -429,6 +432,8 @@ export async function flagOverdueCommitments(): Promise<{ scanned: number; flagg
             await flagThreadForBen({
                 conversationId: c.id,
                 phone,
+                runId,
+                source: 'promise_tracker',
                 note: `Open promise overdue: we told the customer "${oc.summary}" at ${madeStr} and nothing has gone out since — no quote link, no message from you. The ${COMMITMENT_DUE_WORKING_HOURS}-working-hour follow-up window has passed, so they are waiting on your move. Reply in the thread or send the quote.`,
             });
 
