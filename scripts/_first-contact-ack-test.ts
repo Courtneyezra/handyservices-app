@@ -225,7 +225,7 @@ async function main() {
         // var only — the shared DB row the deployed agent reads is never written.
         const baseOverride = {
             ...original,
-            autosend: { enabled: false, intents: [] },
+            autosend: { enabled: false },
             quotePrep: { ...original.quotePrep, enabled: false },
         };
         process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify(baseOverride);

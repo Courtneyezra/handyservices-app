@@ -31,12 +31,9 @@
  * is the backstop that guarantees eventual coverage.
  */
 import type { FirstContactChannel } from '../first-contact-ack';
+import { isTestNumber } from '../phone-utils';
 
 /** Ofcom test range — never spend agent runs on smoke-test numbers. */
-function isTestNumber(phone: string): boolean {
-    return phone.replace(/\D/g, '').includes('7700900');
-}
-
 /**
  * Call on EVERY stored inbound customer message. Fire-and-forget and exception-proof — a lane
  * must never break ingest. The eventual run is the normal worker: same gates, same approval queue.

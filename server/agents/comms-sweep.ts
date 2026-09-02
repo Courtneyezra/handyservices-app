@@ -14,6 +14,7 @@
  * fresh-burst window is left to the on-inbound timer, and test-range numbers are skipped.
  */
 import { db } from '../db';
+import { isTestNumber } from '../phone-utils';
 import { conversations, messages, messageDrafts } from '@shared/schema';
 import { and, eq, gte, isNull, notInArray, sql } from 'drizzle-orm';
 import { gateCustomerLoop } from '../worker-gate';
@@ -31,10 +32,6 @@ const MAX_AGE_HOURS = 48;
 const MAX_PER_PASS = 5;
 const SWEEP_EVERY_MS = 5 * 60_000;
 const BOOT_DELAY_MS = 30_000;
-
-function isTestNumber(phone: string): boolean {
-    return phone.replace(/\D/g, '').includes('7700900');
-}
 
 /**
  * The atomic run claim and its release moved to server/spine/request-run.ts (Phase 2): one CAS

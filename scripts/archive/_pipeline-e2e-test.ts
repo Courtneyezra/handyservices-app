@@ -765,7 +765,7 @@ async function stage8_ledger(base: string): Promise<void> {
     // post-quote reply now sends when every guard passes and it commits to no money and no date.
     // So the contract to assert is the one that replaced it — and it is stricter, because it does
     // not care what the model called its own draft.
-    const cfgOn = { ...(await getCommsAgentConfig()), autosend: { enabled: true, intents: [] } };
+    const cfgOn = { ...(await getCommsAgentConfig()), autosend: { enabled: true } };
     const gate = (body: string, intent: string) => maySendDirect({
         config: cfgOn, intent, body, ukHour: 12, postQuoteThread: true, reactive: true, guardsPassed: true,
     }).send;
@@ -976,7 +976,7 @@ async function main(): Promise<void> {
         // the deployed agent reads is never written.
         process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
             ...savedConfig,
-            autosend: { enabled: false, intents: [] },
+            autosend: { enabled: false },
             quotePrep: { ...savedConfig.quotePrep, enabled: false },
             firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'] },
         });
@@ -1001,7 +1001,7 @@ async function main(): Promise<void> {
         // call, so reassigning it here takes effect for the rest of the run.
         process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
             ...savedConfig,
-            autosend: { enabled: false, intents: [] },
+            autosend: { enabled: false },
             quotePrep: { ...savedConfig.quotePrep, enabled: false },
             firstContactAutoAck: { ...savedConfig.firstContactAutoAck, enabled: false },
         });

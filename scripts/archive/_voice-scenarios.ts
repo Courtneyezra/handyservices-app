@@ -239,7 +239,7 @@ async function main() {
     useProcessLocalCommsConfig();
     const saved = await retry('read config', getCommsAgentConfig);
     await retry('force off', () => setCommsAgentConfig({
-        autosend: { enabled: false, intents: [] },
+        autosend: { enabled: false },
         quotePrep: { ...saved.quotePrep, enabled: false },
         firstContactAutoAck: { ...saved.firstContactAutoAck, enabled: false },
     }));

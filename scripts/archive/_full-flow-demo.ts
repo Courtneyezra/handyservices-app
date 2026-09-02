@@ -161,7 +161,7 @@ async function main() {
     // Process-local override only — the shared DB row the deployed agent reads is never written.
     process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
         ...saved,
-        autosend: { enabled: false, intents: [] },
+        autosend: { enabled: false },
         firstContactAutoAck: { ...saved.firstContactAutoAck, enabled: false },
     });
     console.log(`\nDirect send forced OFF for this process (drafts are promoted by hand); quotePrep stays ${saved.quotePrep.enabled ? 'ON' : 'OFF'}.`);

@@ -50,7 +50,6 @@ const TOOL_LABELS: Record<string, string> = {
     queue_draft: 'Drafting reply',
     flag_for_ben: 'Escalating to Ben',
     schedule_recontact: 'Scheduling follow-up',
-    resolve_question: 'Resolving question',
 };
 
 function toolLabel(tool: string | undefined): string {

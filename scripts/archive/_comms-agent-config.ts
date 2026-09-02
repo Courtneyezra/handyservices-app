@@ -30,7 +30,7 @@ async function main() {
 
     if (args.includes('--enable')) patch = { ...patch, enabled: true };
     if (args.includes('--disable')) patch = { ...patch, enabled: false };
-    if (args.includes('--no-autosend')) patch = { ...patch, autosend: { enabled: false, intents: [] } };
+    if (args.includes('--no-autosend')) patch = { ...patch, autosend: { enabled: false } };
 
     const autosendIdx = args.indexOf('--autosend');
     if (autosendIdx >= 0) {

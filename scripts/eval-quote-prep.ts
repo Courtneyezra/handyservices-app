@@ -31,7 +31,7 @@ import 'dotenv/config';
 // calls runQuotePrep directly; no trigger path should be live.
 process.env.COMMS_CONFIG_OVERRIDE = JSON.stringify({
     enabled: false,
-    autosend: { enabled: false, intents: [] },
+    autosend: { enabled: false },
     firstContactAutoAck: { enabled: false, channels: [] },
     quotePrep: { enabled: false },
     vaCallTask: { enabled: false },
