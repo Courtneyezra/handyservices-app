@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision, uuid, check } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision, uuid, check, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -1992,6 +1992,38 @@ export const agentRuns = pgTable("agent_runs", {
 }, (table) => [
     index("idx_agent_runs_conversation_started").on(table.conversationId, table.startedAt),
     index("idx_agent_runs_agent_started").on(table.agent, table.startedAt),
+]);
+
+/**
+ * Phase 3 (3 Sep 2026): earned autonomy. The current tier per (pack, intent), overlaid on the
+ * static launch defaults in server/spine/packs/*.ts by resolvePack. Written only by the
+ * promotion/demotion job (server/spine/autonomy.ts) or a person. Never SEND for an intent the
+ * pack does not allow; money and dates are not intents at all.
+ */
+export const packIntentTiers = pgTable("pack_intent_tiers", {
+    packId: text("pack_id").notNull(),
+    intent: text("intent").notNull(),
+    tier: text("tier").notNull(),                   // READ | PROPOSE | DRAFT | SEND
+    reason: text("reason"),
+    changedBy: text("changed_by"),                  // system:autonomy | human:<id>
+    changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    primaryKey({ columns: [table.packId, table.intent] }),
+]);
+
+/** Append-only: every promotion / demotion with the evidence that decided it. */
+export const packTierEvents = pgTable("pack_tier_events", {
+    id: text("id").primaryKey().notNull(),
+    packId: text("pack_id").notNull(),
+    intent: text("intent").notNull(),
+    fromTier: text("from_tier"),
+    toTier: text("to_tier").notNull(),
+    reason: text("reason"),
+    evidence: jsonb("evidence"),
+    by: text("by").notNull(),
+    at: timestamp("at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_pack_tier_events_pack_at").on(table.packId, table.intent, table.at),
 ]);
 
 export type CommsEvent = typeof commsEvents.$inferSelect;

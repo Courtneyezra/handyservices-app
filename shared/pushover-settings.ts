@@ -30,7 +30,8 @@ export type PushoverEventKey =
     | 'send_failed'
     | 'comms_beta'
     | 'va_call_task'
-    | 'worker_health';
+    | 'worker_health'
+    | 'autonomy';
 
 export interface PushoverEventDef {
     key: PushoverEventKey;
@@ -93,6 +94,9 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // boot, or heartbeat stale > 10 min in UK daytime. Infra, not a customer: no phone link.
     { key: 'worker_health', label: 'Comms worker down or misconfigured (heartbeat stale / flag absent)', short: 'Worker', group: 'Dispatch', defaultPriority: 1, defaultSound: 'siren' },
     { key: 'va_call_task', label: 'Call task — ring a new enquiry within 15 min', short: 'Call tasks', group: 'Inbound', defaultPriority: 1, defaultSound: 'intermission' },
+    // Phase 3 (3 Sep 2026): an agent intent earned SEND, or lost it. Owner-facing (Courtnee);
+    // recipients who only want customer traffic can untick it. Low priority, no phone link.
+    { key: 'autonomy', label: 'Agent intent promoted to SEND or demoted to DRAFT', short: 'Autonomy', group: 'Dispatch', defaultPriority: 0, defaultSound: 'magic' },
 ];
 
 export const PUSHOVER_EVENT_KEYS: PushoverEventKey[] = PUSHOVER_EVENT_DEFS.map((e) => e.key);

@@ -13,7 +13,7 @@ import { newRunId } from '../approver';
 import { startAgentRun, finishAgentRun } from '../agent-runs';
 import { buildCaseFile } from './case-file';
 import { triage as runTriage } from './triage';
-import { resolvePack } from './packs';
+import { resolvePack, refreshTierOverlay } from './packs';
 import { checkProposal } from './guards';
 import { decide } from './decide';
 import { exit as runExit, type ExitOutcome } from './exit';
@@ -96,6 +96,7 @@ export async function runOnce(
 
     const caseFile = await buildCaseFile(conversationId);
     const triage = await runTriage(caseFile);
+    await refreshTierOverlay(); // Phase 3: earned tiers, cached a minute, never throws
     const pack = resolvePack(caseFile, triage);
     const agentName = agentForLane(triage.lane);
     const agent = agentName ? agents[agentName] : undefined;

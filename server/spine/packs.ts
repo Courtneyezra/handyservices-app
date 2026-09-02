@@ -8,8 +8,8 @@
  *     refuses any pack whose intent names smell of either);
  *   - every allowed intent is in the vocabulary.
  */
-import type { CaseFile, PolicyPack, TriageResult } from './types';
-import { isIntent, RULES_INTENTS } from './vocab';
+import type { CaseFile, PolicyPack, Tier, TriageResult } from './types';
+import { isIntent, RULES_INTENTS, TIERS } from './vocab';
 import { RULES_FIRST_CONTACT } from './packs/rules-first-contact';
 import { RULES_FOLLOWUP } from './packs/rules-followup';
 import { CUSTOMER_DEFAULT } from './packs/customer-default';
@@ -56,9 +56,85 @@ export function getPack(id: string): PolicyPack {
     return pack;
 }
 
-/** The tier an intent runs at in a pack. */
+/** The tier an intent runs at in a pack (after the DB overlay, when the pack came from resolvePack). */
 export function tierFor(pack: PolicyPack, intent: string): PolicyPack['defaultTier'] {
     return (pack.tierByIntent as Record<string, PolicyPack['defaultTier'] | undefined>)[intent] ?? pack.defaultTier;
+}
+
+// ---------------------------------------------------------------- Phase 3: earned tiers (DB overlay)
+//
+// Static packs are the LAUNCH defaults. What an intent has since earned (or lost) lives in
+// pack_intent_tiers, written only by server/spine/autonomy.ts or a person. resolvePack overlays
+// it here. The overlay is cached in-process for a minute and refreshed by runOnce before every
+// pack resolution, so `resolvePack` stays synchronous (the SpineApi contract) and a database
+// blip means "launch defaults", never "no pack".
+
+export type TierOverlay = Map<string, Record<string, Tier>>;
+export const TIER_OVERLAY_TTL_MS = 60_000;
+let tierOverlay: TierOverlay = new Map();
+let tierOverlayLoadedAt = 0;
+
+/** Money and dates are not intents; nothing may ever be promoted under such a name. */
+export function isForbiddenIntent(intent: string): boolean {
+    return FORBIDDEN_INTENT_SMELL.test(intent);
+}
+
+/** Throws unless (pack, intent) may legitimately hold a SEND tier. */
+export function assertPromotable(pack: PolicyPack, intent: string): void {
+    if (!isIntent(intent)) throw new Error(`[Spine] ${intent} is not an intent`);
+    if (isForbiddenIntent(intent)) throw new Error(`[Spine] ${intent} may carry money or dates and can never be promoted`);
+    if (!(pack.allowedIntents as string[]).includes(intent)) throw new Error(`[Spine] ${intent} is not allowed in pack ${pack.id}`);
+}
+
+/** A copy of the pack with the DB tiers merged over its static tierByIntent. Pure; refuses bad rows. */
+export function applyTierOverlay(pack: PolicyPack, tiers: Record<string, string> | undefined | null): PolicyPack {
+    if (!tiers || !Object.keys(tiers).length) return pack;
+    const merged: Partial<Record<string, Tier>> = { ...pack.tierByIntent };
+    for (const [intent, tier] of Object.entries(tiers)) {
+        if (!(TIERS as readonly string[]).includes(tier)) { console.warn(`[Spine] ignoring tier ${tier} for ${pack.id}/${intent}`); continue; }
+        if (!(pack.allowedIntents as string[]).includes(intent) || isForbiddenIntent(intent) || !isIntent(intent)) {
+            console.warn(`[Spine] ignoring DB tier for ${pack.id}/${intent}: not an allowed intent`);
+            continue;
+        }
+        merged[intent] = tier as Tier;
+    }
+    return { ...pack, tierByIntent: merged as PolicyPack['tierByIntent'] };
+}
+
+/** Load pack_intent_tiers (cached a minute). Never throws: a failure keeps the previous overlay. */
+export async function refreshTierOverlay(force = false): Promise<TierOverlay> {
+    if (!force && Date.now() - tierOverlayLoadedAt < TIER_OVERLAY_TTL_MS) return tierOverlay;
+    try {
+        const { db } = await import('../db');
+        const { packIntentTiers } = await import('@shared/schema');
+        const rows = await db.select({ packId: packIntentTiers.packId, intent: packIntentTiers.intent, tier: packIntentTiers.tier }).from(packIntentTiers);
+        const next: TierOverlay = new Map();
+        for (const r of rows) {
+            if (!next.has(r.packId)) next.set(r.packId, {});
+            next.get(r.packId)![r.intent] = r.tier as Tier;
+        }
+        tierOverlay = next;
+        tierOverlayLoadedAt = Date.now();
+    } catch (error: any) {
+        console.warn('[Spine] pack_intent_tiers unavailable, keeping launch defaults:', error?.message ?? error);
+        tierOverlayLoadedAt = Date.now(); // do not hammer a broken db every run
+    }
+    return tierOverlay;
+}
+
+export function currentTierOverlay(): TierOverlay {
+    return tierOverlay;
+}
+
+/** Tests only. */
+export function setTierOverlayForTests(overlay: TierOverlay | null): void {
+    tierOverlay = overlay ?? new Map();
+    tierOverlayLoadedAt = overlay ? Number.MAX_SAFE_INTEGER / 2 : 0;
+}
+
+/** Where an intent's effective tier comes from. */
+export function tierSourceFor(packId: string, intent: string): 'db' | 'static' {
+    return tierOverlay.get(packId)?.[intent] ? 'db' : 'static';
 }
 
 /**
@@ -66,6 +142,12 @@ export function tierFor(pack: PolicyPack, intent: string): PolicyPack['defaultTi
  * then the exception lane (Ben only), then the rules lane, then the stage.
  */
 export function resolvePack(caseFile: CaseFile, triage: TriageResult): PolicyPack {
+    const base = resolveStaticPack(caseFile, triage);
+    return applyTierOverlay(base, tierOverlay.get(base.id));
+}
+
+/** The launch-default pack, before earned tiers. */
+export function resolveStaticPack(caseFile: CaseFile, triage: TriageResult): PolicyPack {
     const audience = triage.audience ?? caseFile.audience;
     if (audience === 'internal') return INTERNAL_BEN;
     if (audience === 'contractor' || triage.lane === 'contractor') return CONTRACTOR_DEFAULT;

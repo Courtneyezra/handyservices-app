@@ -54,6 +54,27 @@ interface WorkerHeartbeat {
     error?: string;
     thisProcess?: { role: 'worker' | 'passive'; pid: number; host: string; version: string | null };
 }
+/** Phase 3: one (pack, intent) row of the autonomy ladder with its promotion evidence (server/spine/autonomy.ts). */
+interface PackTierRow {
+    packId: string;
+    intent: string;
+    tier: 'READ' | 'PROPOSE' | 'DRAFT' | 'SEND';
+    tierSource: 'db' | 'static';
+    verdicts30: number;
+    uneditedPct: number | null;
+    rejects30: number;
+    unsafeEver: number;
+    escalations14: number;
+    samples30: number;
+    sampleApprovalPct: number | null;
+    evalFamily: 'pass' | 'fail' | 'skipped' | 'missing';
+    evalCases: number;
+    evalPassed: number;
+    packVerdicts30: number;
+    packUneditedPct: number | null;
+    lastChange: { tier: string; at: string; by: string; reason: string | null } | null;
+}
+
 interface StaffMember {
     id: string;
     name: string;
@@ -68,6 +89,7 @@ interface StaffMember {
     statusChips: { label: string; on: boolean }[];
     system: string;
     verdicts?: StaffVerdicts | null;
+    packTiers?: PackTierRow[] | null;
 }
 
 const ACCENT: Record<string, { block: string; chip: string; ring: string }> = {
@@ -270,6 +292,58 @@ function VerdictBlock({ v }: { v: StaffVerdicts }) {
     );
 }
 
+/** Phase 3: the ladder — intent · tier · verdicts/30d · unedited % · unsafe · eval family · last change. */
+function PackTiersBlock({ rows }: { rows: PackTierRow[] }) {
+    const packs = Array.from(new Set(rows.map((r) => r.packId)));
+    const tierCls: Record<PackTierRow['tier'], string> = {
+        SEND: 'bg-emerald-100 text-emerald-800', DRAFT: 'bg-amber-100 text-amber-800', PROPOSE: 'bg-sky-100 text-sky-800', READ: 'bg-slate-100 text-slate-600',
+    };
+    const evalCls: Record<PackTierRow['evalFamily'], string> = { pass: 'text-emerald-700', fail: 'text-red-700', skipped: 'text-slate-400', missing: 'text-slate-400' };
+    const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return (
+        <div data-testid="pack-tiers">
+            <h3 className="mb-1 text-[11px] font-black uppercase tracking-wide text-slate-500">Autonomy ladder (earned per intent)</h3>
+            <p className="mb-2 text-[11px] text-slate-500">
+                SEND is earned: eval family pass³, ≥ 30 pack verdicts in 30d at ≥ 90% unedited, zero unsafe ever, zero escalations in 14d.
+                ask_gap / confirm_received fast-track after 14 days, 20 verdicts, 0 rejects. Any unsafe, incident or sampled approval under 80% drops it back to DRAFT.
+            </p>
+            {packs.map((packId) => {
+                const pr = rows.filter((r) => r.packId === packId);
+                const head = pr[0];
+                return (
+                    <div key={packId} className="mb-3 overflow-x-auto rounded-lg border border-slate-200">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2 bg-slate-50 px-3 py-1.5 text-[11px]">
+                            <span className="font-black text-slate-800">{packId}</span>
+                            <span className="text-slate-500">{head.packVerdicts30} pack verdicts / 30d · {head.packUneditedPct ?? '–'}% unedited</span>
+                        </div>
+                        <table className="w-full text-left text-[11px]">
+                            <thead className="text-[10px] uppercase tracking-wide text-slate-400">
+                                <tr>
+                                    <th className="px-3 py-1">Intent</th><th className="px-2 py-1">Tier</th><th className="px-2 py-1 text-right">Verdicts/30d</th>
+                                    <th className="px-2 py-1 text-right">Unedited</th><th className="px-2 py-1 text-right">Unsafe</th><th className="px-2 py-1">Eval family</th><th className="px-2 py-1">Last change</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pr.map((r) => (
+                                    <tr key={r.intent} className="border-t border-slate-100">
+                                        <td className="px-3 py-1 font-semibold text-slate-800">{r.intent}</td>
+                                        <td className="px-2 py-1"><span className={cn('rounded px-1.5 py-0.5 text-[10px] font-black', tierCls[r.tier])}>{r.tier}</span>{r.tierSource === 'db' && <span className="ml-1 text-[9px] uppercase text-slate-400">earned</span>}</td>
+                                        <td className="px-2 py-1 text-right tabular-nums">{r.verdicts30}{r.rejects30 > 0 && <span className="text-red-600"> ({r.rejects30} rej)</span>}</td>
+                                        <td className="px-2 py-1 text-right tabular-nums">{r.uneditedPct === null ? '–' : `${r.uneditedPct}%`}</td>
+                                        <td className={cn('px-2 py-1 text-right tabular-nums', r.unsafeEver > 0 && 'font-bold text-red-700')}>{r.unsafeEver}{r.escalations14 > 0 && <span className="text-amber-700"> · {r.escalations14} esc</span>}</td>
+                                        <td className={cn('px-2 py-1', evalCls[r.evalFamily])}>{r.evalFamily}{r.evalCases > 0 && ` ${r.evalPassed}/${r.evalCases}`}</td>
+                                        <td className="px-2 py-1 text-slate-500">{r.lastChange ? `${r.lastChange.tier} · ${when(r.lastChange.at)} · ${r.lastChange.by.replace(/^(system|human):/, '')}` : 'launch default'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
 function StaffDossier({ member }: { member: StaffMember }) {
     const [showOrders, setShowOrders] = useState(false);
     const a = ACCENT[member.accent] ?? ACCENT.sky;
@@ -314,6 +388,9 @@ function StaffDossier({ member }: { member: StaffMember }) {
 
                 {/* Phase 1: the verdict record — what Ben did with this agent's drafts. */}
                 {member.verdicts && <VerdictBlock v={member.verdicts} />}
+
+                {/* Phase 3: the autonomy ladder — which intents have earned SEND, and the evidence. */}
+                {member.packTiers && member.packTiers.length > 0 && <PackTiersBlock rows={member.packTiers} />}
 
                 {/* Live workload */}
                 {member.stats.length > 0 && (

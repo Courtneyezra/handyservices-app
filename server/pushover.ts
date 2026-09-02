@@ -890,6 +890,28 @@ export async function notifyWorkerHealth(alert: WorkerHealthAlert): Promise<void
     });
 }
 
+export interface AutonomyChangeAlert {
+    packId: string;
+    intent: string;
+    fromTier: string;
+    toTier: string;
+    reason: string;
+    dryRun?: boolean;
+}
+
+/**
+ * Phase 3 (3 Sep 2026): the promotion/demotion job changed an intent's tier. One line of
+ * evidence, so the owner can see WHY from the lock screen. server/spine/autonomy.ts.
+ */
+export async function notifyAutonomyChange(alert: AutonomyChangeAlert): Promise<void> {
+    const up = alert.toTier === 'SEND';
+    await dispatch({
+        event: 'autonomy',
+        title: `${up ? '⬆️' : '⬇️'} ${alert.intent} ${alert.fromTier} → ${alert.toTier} (${alert.packId})${alert.dryRun ? ' [dry run]' : ''}`,
+        message: truncate(alert.reason, 500),
+    });
+}
+
 /**
  * Send a test alert — to one recipient (by user key) or the whole event audience.
  * Bypasses enabled/quiet-hours gating so the tester always gets it.

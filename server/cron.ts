@@ -120,6 +120,22 @@ export function setupCronJobs() {
         }
     }, { timezone: 'Europe/London' }));
 
+    // PHASE 3 — EARNED AUTONOMY (3 Sep 2026): daily 07:30 UK, the promotion / demotion job
+    // (server/spine/autonomy.ts). Worker-gated (it writes pack tiers and pings the owner) and
+    // behind app_settings.spine.autonomy.enabled AND spine.enabled — both default off, fail closed.
+    // Dry run for the owner: npx tsx scripts/_autonomy-report.ts --dry-run
+    gateCustomerLoop('cron: 07:30 autonomy promotion/demotion', () => cron.schedule("30 7 * * *", async () => {
+        try {
+            const { isAutonomyEnabled } = await import('./spine/config');
+            if (!(await isAutonomyEnabled())) { console.log('[Cron] Autonomy job skipped: spine.autonomy.enabled is off'); return; }
+            const { evaluateAutonomy } = await import('./spine/autonomy');
+            const report = await evaluateAutonomy({ dryRun: false });
+            console.log(`[Cron] Autonomy: ${report.applied.length} change(s), ${report.errors.length} error(s)\n${report.table}`);
+        } catch (error) {
+            console.error("[Cron] Autonomy job failed:", error);
+        }
+    }, { timezone: 'Europe/London' }));
+
     // WHATSAPP TEMPLATE APPROVAL POLL — hourly at :40 (off the hour, so it never races the
     // other lanes). Twilio has NO webhook for Meta's approval decision, so polling is the only
     // way to learn a template went live. Read-only against Twilio, no LLM, no sends, so it runs

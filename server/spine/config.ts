@@ -33,6 +33,10 @@ export interface SpineConfig {
     triageModel: string;
     /** Pack-level city key (§3.4): the second city is config. */
     city: string;
+    /** Phase 3: the daily promotion/demotion job. Off = tiers only change by hand. */
+    autonomy: { enabled: boolean };
+    /** Phase 3: the 10% next-morning sampler of SEND messages. Off = no sample reviews are queued. */
+    sampler: { enabled: boolean };
 }
 
 export const DEFAULT_SPINE_CONFIG: SpineConfig = {
@@ -43,6 +47,8 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     debounceMinutes: 10,
     triageModel: 'claude-haiku-4-5',
     city: 'nottingham',
+    autonomy: { enabled: false },
+    sampler: { enabled: false },
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -50,7 +56,15 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         ...DEFAULT_SPINE_CONFIG,
         ...(patch ?? {}),
         agents: { ...(patch?.agents ?? {}) },
+        autonomy: { ...DEFAULT_SPINE_CONFIG.autonomy, ...(patch?.autonomy ?? {}) },
+        sampler: { ...DEFAULT_SPINE_CONFIG.sampler, ...(patch?.sampler ?? {}) },
     };
+}
+
+/** Phase 3: the promotion/demotion job runs only with the master switch AND its own switch on. */
+export async function isAutonomyEnabled(): Promise<boolean> {
+    const cfg = await getSpineConfig();
+    return cfg.enabled === true && cfg.autonomy.enabled === true;
 }
 
 let localConfig: SpineConfig | null = null;
