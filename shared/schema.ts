@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, doublePrecision, uuid, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -1829,6 +1829,13 @@ export const agentQuestions = pgTable("agent_questions", {
     status: varchar("status", { length: 16 }).default('open').notNull(),
     source: varchar("source", { length: 40 }).default('comms_agent').notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // Phase 1 (2 Sep 2026): a flag carries a clock. 4 office hours (20 min if urgent /
+    // callback_requested); when it passes unanswered the rules layer sends the holding line and
+    // stamps expiredAt. Migration 20260902_due_at_holding_line.sql.
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
+    // Phase 1 (2 Sep 2026): the agent run that raised the flag / question.
+    runId: text("run_id"),
 }, (table) => [
     index("idx_agent_questions_status").on(table.status, table.createdAt),
     index("idx_agent_questions_conversation").on(table.conversationId),
@@ -1856,12 +1863,57 @@ export const messageDrafts = pgTable("message_drafts", {
     sentAt: timestamp("sent_at"),
     sentMessageId: varchar("sent_message_id"),
     error: text("error"),
+    // Phase 1 (2 Sep 2026): a pending draft carries a clock (4 office hours from queue time). Past
+    // it, the rules layer sends the holding line and marks heldReason 'due_expired'; the draft
+    // stays pending for Ben. Migration 20260902_due_at_holding_line.sql.
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    heldReason: text("held_reason"),
+    // Phase 1 (2 Sep 2026): the agent run (or sweep / draft release) that produced this row.
+    runId: text("run_id"),
+    // Phase 1 (2 Sep 2026): the body as first drafted. Set by the first PATCH on a pending draft
+    // and never changed after, so approval can tell "edit" from "approve" (draft_verdicts).
+    // Null = never edited. Migration 20260902_draft_verdicts.sql.
+    originalBody: text("original_body"),
 }, (table) => [
     index("idx_message_drafts_status").on(table.status, table.createdAt),
     index("idx_message_drafts_phone").on(table.phone),
+    index("idx_message_drafts_run").on(table.runId),
 ]);
 
 export const insertMessageDraftSchema = createInsertSchema(messageDrafts);
+
+/**
+ * Ben's verdicts on machine-drafted messages (Phase 1, 2 Sep 2026; COMMS_AGENTS_V3_DESIGN §4, §8).
+ *
+ * One row per human decision: 'approve' (sent as drafted), 'edit' (wording changed, then sent),
+ * 'reject' (never sent) — each with a reason code. This is the evidence stream that promotes an
+ * intent to SEND (≥ 30 verdicts across the pack in 30 days, unedited-approval ≥ 90%, zero 'unsafe')
+ * and demotes it. Phase 3's 10% morning sample review reuses the table as 'sample_fine' /
+ * 'sample_not_fine'. Automated approvals (agent.* / rules.* / system.*) are NOT verdicts and never
+ * land here. Migration 20260902_draft_verdicts.sql.
+ */
+export const DRAFT_VERDICTS = ['approve', 'edit', 'reject', 'sample_fine', 'sample_not_fine'] as const;
+export type DraftVerdict = (typeof DRAFT_VERDICTS)[number];
+export const VERDICT_REASONS = ['fine', 'tone', 'wrong_move', 'unsafe', 'missing_info'] as const;
+export type VerdictReason = (typeof VERDICT_REASONS)[number];
+
+export const draftVerdicts = pgTable("draft_verdicts", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: varchar("draft_id").notNull(),               // message_drafts.id (varchar, not uuid)
+    runId: text("run_id"),                                 // agent_runs.id when the draft came from a run
+    verdict: text("verdict").notNull(),                    // DraftVerdict
+    reason: text("reason"),                                // VerdictReason; null only for legacy/system rows
+    originalBody: text("original_body").notNull(),         // what the machine wrote
+    finalBody: text("final_body"),                         // what went out (null on reject)
+    by: text("by").notNull(),                              // human:<id> — always a person
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_draft_verdicts_created_at").on(table.createdAt),
+    index("idx_draft_verdicts_draft_id").on(table.draftId),
+    check("draft_verdicts_verdict_check", sql`${table.verdict} IN ('approve', 'edit', 'reject', 'sample_fine', 'sample_not_fine')`),
+    check("draft_verdicts_reason_check", sql`${table.reason} IS NULL OR ${table.reason} IN ('fine', 'tone', 'wrong_move', 'unsafe', 'missing_info')`),
+]);
+export type DraftVerdictRow = typeof draftVerdicts.$inferSelect;
 export type MessageDraft = typeof messageDrafts.$inferSelect;
 export type InsertMessageDraft = z.infer<typeof insertMessageDraftSchema>;
 
@@ -1881,7 +1933,9 @@ export type InsertMessageDraft = z.infer<typeof insertMessageDraftSchema>;
 export const commsEvents = pgTable("comms_events", {
     id: varchar("id").primaryKey().notNull(),
     occurredAt: timestamp("occurred_at").notNull(),
-    eventType: varchar("event_type", { length: 24 }).notNull(), // message_in|message_out|call_in|call_out|draft_created|draft_sent|draft_rejected|draft_failed
+    // message_in|message_out|call_in|call_out|draft_created|draft_approved|draft_edited|draft_sent|draft_rejected|draft_failed|
+    // flag_raised|flag_closed|flag_expired|run_started|run_finished|sample_reviewed  (server/ledger.ts LEDGER_EVENT_TYPES)
+    eventType: varchar("event_type", { length: 24 }).notNull(),
     channel: varchar("channel", { length: 16 }).notNull(),      // whatsapp|sms|call|webform|email|note|system
     phone: varchar("phone").notNull(),                           // E.164 — number-first threading
     // One person, two roles, one number: threading is (phone, role_profile), not phone alone.
@@ -1897,11 +1951,47 @@ export const commsEvents = pgTable("comms_events", {
     refTable: varchar("ref_table", { length: 32 }).notNull(),
     refId: varchar("ref_id").notNull(),
     meta: jsonb("meta"),
+    // Phase 1 (2 Sep 2026): the run this event belongs to, written at source.
+    runId: text("run_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
     uniqueIndex("uq_comms_events_ref").on(table.refTable, table.refId, table.eventType),
     index("idx_comms_events_phone_time").on(table.phone, table.occurredAt),
     index("idx_comms_events_type_time").on(table.eventType, table.occurredAt),
+    index("idx_comms_events_run").on(table.runId),
+]);
+
+/**
+ * One row per agent run (Phase 1, COMMS_AGENTS_V3_DESIGN §3.7). Written by server/agents/runner.ts
+ * through server/agent-runs.ts: created at start, completed at finish. Every draft, flag and nudge
+ * an agent produces carries this id in its own run_id column, and every ledger event does too —
+ * so "what did it do and why" is one join, and the replay corpus for evals is this table.
+ */
+export const agentRuns = pgTable("agent_runs", {
+    id: text("id").primaryKey().notNull(),
+    agent: text("agent").notNull(),                 // comms | quote-prep | recovery | ops-manager | …
+    packId: text("pack_id"),                        // policy pack (Phase 2)
+    packVersion: integer("pack_version"),
+    trigger: text("trigger"),                       // inbound_message | sla_sweep | ops_manager | manual | …
+    conversationId: varchar("conversation_id"),     // conversations.id (varchar, not uuid)
+    caseFileRef: text("case_file_ref"),
+    model: text("model"),
+    modelSnapshot: text("model_snapshot"),
+    promptHash: text("prompt_hash"),
+    decision: text("decision"),                     // Phase 2: SEND | PENDING | FLAG
+    lane: text("lane"),
+    proposal: jsonb("proposal"),
+    guardsHit: text("guards_hit").array().notNull().default(sql`'{}'::text[]`),
+    usage: jsonb("usage"),                          // { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }
+    costPence: integer("cost_pence"),
+    durationMs: integer("duration_ms"),
+    transcriptRef: text("transcript_ref"),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (table) => [
+    index("idx_agent_runs_conversation_started").on(table.conversationId, table.startedAt),
+    index("idx_agent_runs_agent_started").on(table.agent, table.startedAt),
 ]);
 
 export type CommsEvent = typeof commsEvents.$inferSelect;
@@ -4295,6 +4385,7 @@ export const nudgeQueue = pgTable("nudge_queue", {
     reason: text("reason"),                            // agent's why (nudge rationale or skip reason)
     sendAfter: timestamp("send_after"),                // UK-polite scheduling hint
     agentRun: varchar("agent_run"),                    // transcript file ref for auditability
+    runId: text("run_id"),                             // Phase 1: agent_runs.id that proposed it
     createdAt: timestamp("created_at").defaultNow().notNull(),
     approvedAt: timestamp("approved_at"),
     sentAt: timestamp("sent_at"),

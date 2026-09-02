@@ -42,11 +42,7 @@ import { addWorkingHours } from './promise-tracker';
 
 /** London wall-clock hour of an arbitrary instant — isOutOfHours() alone reads the real clock,
  *  and the deferral decision must be testable at a fixed fixture time. */
-function ukHourOf(d: Date): number {
-    return Number(new Intl.DateTimeFormat('en-GB', {
-        hour: 'numeric', hour12: false, timeZone: 'Europe/London',
-    }).format(d));
-}
+import { ukHour as ukHourOf } from '../working-hours';
 
 /** The owner's window: a human rings within 15 WORKING minutes (08:00–20:00 UK) or the text lane
  *  takes the thread back. Out-of-hours enquiries are deferred (dueAt = next 08:15), never skipped. */

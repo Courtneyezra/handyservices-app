@@ -14,6 +14,7 @@
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
 import { runAgent, type AgentTool } from './runner';
+import { newRunId } from '../approver';
 
 const SCRUB = `q.phone NOT LIKE '%7700900%' AND q.customer_name NOT ILIKE 'test%'`;
 
@@ -21,7 +22,9 @@ const SCRUB = `q.phone NOT LIKE '%7700900%' AND q.customer_name NOT ILIKE 'test%
  *  store "447…@c.us" — the last 10 digits are the stable join key. */
 const DIGITS10 = (col: string) => `right(regexp_replace(${col}, '\\D', '', 'g'), 10)`;
 
-const tools: AgentTool[] = [
+/** The belt, built per run so every nudge_queue row it writes carries the run id (Phase 1). */
+function buildTools(runId: string): AgentTool[] {
+    return [
     {
         name: 'get_recovery_candidates',
         description:
@@ -149,9 +152,9 @@ const tools: AgentTool[] = [
             const quote: any = q.rows[0];
             if (!quote) throw new Error('quote not found');
             await db.execute(sql`
-                INSERT INTO nudge_queue (id, quote_id, slug, phone, status, lever, message, reason)
+                INSERT INTO nudge_queue (id, quote_id, slug, phone, status, lever, message, reason, agent_run, run_id)
                 VALUES (gen_random_uuid()::varchar, ${quote.id}, ${slug}, ${quote.phone}, 'proposed',
-                        ${String(input.lever)}, ${message}, ${String(input.reason).slice(0, 500)})`);
+                        ${String(input.lever)}, ${message}, ${String(input.reason).slice(0, 500)}, 'recovery', ${runId})`);
             return { queued: true, slug };
         },
     },
@@ -171,13 +174,14 @@ const tools: AgentTool[] = [
             const quote: any = q.rows[0];
             if (!quote) throw new Error('quote not found');
             await db.execute(sql`
-                INSERT INTO nudge_queue (id, quote_id, slug, phone, status, reason)
+                INSERT INTO nudge_queue (id, quote_id, slug, phone, status, reason, agent_run, run_id)
                 VALUES (gen_random_uuid()::varchar, ${quote.id}, ${slug}, ${quote.phone}, 'skipped',
-                        ${String(input.reason).slice(0, 500)})`);
+                        ${String(input.reason).slice(0, 500)}, 'recovery', ${runId})`);
             return { skipped: true, slug };
         },
     },
-];
+    ];
+}
 
 export const SYSTEM = `You are the HandyServices recovery assistant. Unpaid quotes go quiet and nobody follows up — your job is to draft the follow-up WhatsApp message a thoughtful, unpushy tradesperson's assistant would send. A human (Ben) reviews and sends every message; you only propose.
 
@@ -219,12 +223,14 @@ export const STAFF = {
     ],
 } as const;
 
-export async function runRecovery() {
+export async function runRecovery(runOpts: { runId?: string; trigger?: string } = {}) {
+    const runId = runOpts.runId ?? newRunId('run');
     return runAgent({
         name: 'recovery',
+        runId, trigger: runOpts.trigger ?? 'manual',
         system: SYSTEM,
         goal: 'Review the current recovery candidates and queue follow-ups for approval.',
-        tools,
+        tools: buildTools(runId),
         maxTurns: 14,
         maxTokens: 12000,
     });

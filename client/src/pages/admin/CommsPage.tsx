@@ -28,6 +28,9 @@ import { cn } from '@/lib/utils';
 import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPanel';
 import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
+import { AgentRunsDrawer } from '@/components/comms/AgentRunsDrawer';
+import { VerdictReasonChips, type VerdictReason } from '@/components/comms/VerdictReasonChips';
+import { dueLabel } from '@/lib/due-label';
 import { QuoteBuilderPanel } from '@/components/quote-builder';
 import { useCommsEvents, useRecentBoardChange } from '@/hooks/useCommsEvents';
 
@@ -184,6 +187,8 @@ interface PendingDraft {
     contentSid: string | null;
     status: string;
     createdAt: string;
+    /** Phase 1 / B adds message_drafts.due_at; rendered only when present. */
+    dueAt?: string | null;
 }
 
 /**
@@ -201,6 +206,22 @@ interface AgentQuestion {
     answer: string | null;
     status: 'open' | 'answered' | 'flagged';
     createdAt: string;
+    /** Phase 1 / B adds agent_questions.due_at; rendered only when present. */
+    dueAt?: string | null;
+}
+
+/** "due in 2h" / "overdue by 40m" chip for drafts and flags; nothing when there is no due time. */
+function DueChip({ dueAt }: { dueAt?: string | null }) {
+    const due = dueLabel(dueAt);
+    if (!due) return null;
+    return (
+        <span className={cn(
+            'rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+            due.overdue ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-700',
+        )}>
+            {due.text}
+        </span>
+    );
 }
 
 interface QuickReply {
@@ -781,13 +802,17 @@ function DraftApprovalCard({ draft, windowOpen, onDone }: {
     const [body, setBody] = useState(draft.body);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    // Phase 1 verdicts: approve-as-is is one tap (reason 'fine'); an edited approve and every
+    // reject ask for a reason chip first. `asking` is which of those we are waiting on.
+    const [asking, setAsking] = useState<null | 'edit' | 'reject'>(null);
     const deliverable = windowOpen || !!draft.contentSid;
+    const edited = body.trim() !== draft.body.trim();
 
-    async function act(action: 'approve' | 'reject') {
+    async function submit(action: 'approve' | 'reject', reason: VerdictReason) {
         setBusy(true); setError(null);
         try {
             // Save any edit first so what sends is what's on screen.
-            if (editing && body.trim() !== draft.body) {
+            if (action === 'approve' && edited) {
                 const r = await fetch(`/api/drafts/${draft.id}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -796,10 +821,13 @@ function DraftApprovalCard({ draft, windowOpen, onDone }: {
                 if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Edit failed');
             }
             const res = await fetch(`/api/drafts/${draft.id}/${action}`, {
-                method: 'POST', headers: getAuthHeaders(),
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ reason }),
             });
             const detail = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(detail.message || detail.error || `${action} failed`);
+            setAsking(null);
             onDone();
         } catch (e: any) {
             setError(e.message);
@@ -808,10 +836,16 @@ function DraftApprovalCard({ draft, windowOpen, onDone }: {
         }
     }
 
+    function act(action: 'approve' | 'reject') {
+        if (action === 'approve' && !edited) return void submit('approve', 'fine');
+        setAsking(action === 'approve' ? 'edit' : 'reject');
+    }
+
     return (
         <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3">
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase text-amber-800">
                 <Bot className="h-3.5 w-3.5" /> Drafted reply — needs your approval
+                <DueChip dueAt={draft.dueAt} />
                 {!deliverable && (
                     <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[9px] text-white">window shut — can't send yet</span>
                 )}
@@ -839,29 +873,48 @@ function DraftApprovalCard({ draft, windowOpen, onDone }: {
                 </div>
             )}
             {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
-            <div className="mt-2 flex items-center gap-2">
-                <button
-                    onClick={() => act('approve')}
-                    disabled={busy || !deliverable || !body.trim()}
-                    className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
-                >
-                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Approve & send'}
-                </button>
-                <button
-                    onClick={() => setEditing((v) => !v)}
-                    disabled={busy}
-                    className="rounded border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-40"
-                >
-                    {editing ? 'Preview' : 'Edit'}
-                </button>
-                <button
-                    onClick={() => act('reject')}
-                    disabled={busy}
-                    className="ml-auto rounded px-2 py-1.5 text-xs text-slate-500 hover:text-red-700 disabled:opacity-40"
-                >
-                    Reject
-                </button>
-            </div>
+            {asking === 'edit' && (
+                <VerdictReasonChips
+                    prompt="You changed it — why? (then it sends)"
+                    onPick={(reason) => submit('approve', reason)}
+                    onCancel={() => setAsking(null)}
+                    busy={busy}
+                />
+            )}
+            {asking === 'reject' && (
+                <VerdictReasonChips
+                    prompt="Why reject?"
+                    tone="red"
+                    onPick={(reason) => submit('reject', reason)}
+                    onCancel={() => setAsking(null)}
+                    busy={busy}
+                />
+            )}
+            {asking === null && (
+                <div className="mt-2 flex items-center gap-2">
+                    <button
+                        onClick={() => act('approve')}
+                        disabled={busy || !deliverable || !body.trim()}
+                        className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+                    >
+                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : edited ? 'Approve edit & send' : 'Approve & send'}
+                    </button>
+                    <button
+                        onClick={() => setEditing((v) => !v)}
+                        disabled={busy}
+                        className="rounded border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-40"
+                    >
+                        {editing ? 'Preview' : 'Edit'}
+                    </button>
+                    <button
+                        onClick={() => act('reject')}
+                        disabled={busy}
+                        className="ml-auto rounded px-2 py-1.5 text-xs text-slate-500 hover:text-red-700 disabled:opacity-40"
+                    >
+                        Reject
+                    </button>
+                </div>
+            )}
         </div>
     );
 }
@@ -913,6 +966,7 @@ function FlagNoteCard({ card, q, onDone }: { card: BoardCard; q: AgentQuestion; 
         <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3">
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase text-amber-800">
                 <HelpCircle className="h-3.5 w-3.5" /> Agent flagged this for you
+                <DueChip dueAt={q.dueAt} />
             </div>
             <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-900">{q.question}</p>
             {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
@@ -1553,6 +1607,12 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                         <div ref={bottomRef} />
                     </>
                 )}
+            </div>
+
+            {/* Phase 1: what the agent did on this thread — every run, newest first, from
+                agent_runs. Collapsed by default so the timeline keeps its space. */}
+            <div className="border-t border-slate-200 px-3 py-2">
+                <AgentRunsDrawer conversationId={card.id} />
             </div>
 
             {/* Live agent run — streams the comms agent's steps while it works this thread.

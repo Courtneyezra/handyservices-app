@@ -14,6 +14,7 @@
  *      them, and the answer/dismiss routes below still work.
  */
 import { Router } from 'express';
+import { dueAtFor } from './working-hours';
 import { db } from './db';
 import { agentQuestions } from '@shared/schema';
 import { eq, and, desc, inArray } from 'drizzle-orm';
@@ -33,6 +34,10 @@ export async function askBen(input: {
     context?: string;
     options?: string[];
     source?: string;
+    /** Override the default clock (4 office hours; 20 office minutes when `urgent`). */
+    dueAt?: Date;
+    /** callback_requested / priority urgent: the 20-minute clock. */
+    urgent?: boolean;
 }): Promise<string | null> {
     const [existing] = await db.select({ id: agentQuestions.id })
         .from(agentQuestions)
@@ -56,6 +61,7 @@ export async function askBen(input: {
         options: input.options && input.options.length ? input.options : null,
         source: input.source ?? 'comms_agent',
         status: 'open',
+        dueAt: input.dueAt ?? dueAtFor(input.urgent ? 'flag_urgent' : 'flag'),
     });
     // OUTCOME LEDGER — an escalation is a proposal too. Its fate (answered / dismissed / never
     // touched) is how you find out whether an agent is asking useful questions or hiding behind

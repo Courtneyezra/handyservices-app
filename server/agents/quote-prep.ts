@@ -264,7 +264,10 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
     };
 }
 
-export async function runQuotePrep(conversationId: string): Promise<{ intake: QuoteIntake | null; summary: string; turns: number }> {
+export async function runQuotePrep(
+    conversationId: string,
+    runOpts: { runId?: string; trigger?: string; parentRunId?: string | null } = {},
+): Promise<{ intake: QuoteIntake | null; summary: string; turns: number; runId: string }> {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
     if (!conv) throw new Error(`Conversation ${conversationId} not found`);
     const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
@@ -429,6 +432,10 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
 
     const result = await runAgent({
         name: 'quote-prep',
+        runId: runOpts.runId, trigger: runOpts.trigger ?? 'manual', conversationId: conv.id, phone: e164,
+        // The comms run that handed off, when there was one — kept in the transcript ref for now
+        // (agent_runs has no parent column in Phase 1).
+        transcriptRef: runOpts.parentRunId ? `parent:${runOpts.parentRunId}` : undefined,
         system: SYSTEM,
         goal: `Prepare the quote intake for conversation ${conv.id} (customer: ${realNameOrNull(conv.contactName) || e164}).`,
         tools,
@@ -441,7 +448,7 @@ export async function runQuotePrep(conversationId: string): Promise<{ intake: Qu
         maxTokens: 8000,
     });
 
-    return { intake, summary: result.finalText, turns: result.turns };
+    return { intake, summary: result.finalText, turns: result.turns, runId: result.runId };
 }
 
 export const SYSTEM = `You are the quote-prep clerk for Handy Services, a Nottingham handyman company.

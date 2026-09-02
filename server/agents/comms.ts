@@ -52,6 +52,7 @@
  * quality even though it no longer gates anything.
  */
 import { readFileSync } from 'fs';
+import { dueAtFor, ukHourNow, formatUk } from '../working-hours';
 import path from 'path';
 import { db } from '../db';
 import {
@@ -62,6 +63,8 @@ import { isLikelyRealName, realNameOrNull } from '@shared/contact-name';
 import { eq, ne, desc, and, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { runAgent, type AgentTool, type AgentRunResult, type AgentTranscriptEvent } from './runner';
+import { newRunId } from '../approver';
+import { ledgerFlagRaised, ledgerFlagClosedForConversation } from '../ledger';
 import { emitCommsEvent } from '../comms-events';
 import { buildMediaBlocks } from './media-context';
 import { queueDraft, approveAndSendDraft } from '../message-drafts';
@@ -513,7 +516,11 @@ export async function flagThreadForBen(opts: {
     note: string;
     /** Quote facts to append to the audit row, so Ben opens the thread with the paperwork known. */
     quoteFacts?: string | null;
-}): Promise<{ flagged: boolean; note: string }> {
+    /** Phase 1: the run (or sweep) raising the flag. Stored on the audit row and the ledger event. */
+    runId?: string | null;
+    /** Who is flagging, for the audit row's source. Default comms_agent. */
+    source?: string;
+}): Promise<{ flagged: boolean; note: string; questionId?: string }> {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, opts.conversationId));
     if (!conv) return { flagged: false, note: 'conversation not found' };
 
@@ -542,8 +549,18 @@ export async function flagThreadForBen(opts: {
         question: opts.note.slice(0, 2000),
         context: opts.quoteFacts ?? null,
         options: null,
-        source: 'comms_agent',
+        source: opts.source ?? 'comms_agent',
         status: 'flagged',
+        // Phase 1: the flag carries a clock. callback_requested or an already-urgent thread gets
+        // the 20-minute clock; everything else 4 office hours. At expiry the rules layer sends the
+        // holding line, stamps expired_at and re-pings once (server/agents/silence-breaker.ts).
+        dueAt: dueAtFor(conv.priority === 'urgent' || tags.includes('callback_requested') ? 'flag_urgent' : 'flag'),
+        runId: opts.runId ?? null,
+    });
+    // COMMS LEDGER (Phase 1, write-at-source). Never throws.
+    void ledgerFlagRaised({
+        questionId: id, phone: opts.phone, conversationId: opts.conversationId, note: opts.note,
+        source: opts.source ?? 'comms_agent', runId: opts.runId ?? null,
     });
 
     try {
@@ -559,7 +576,7 @@ export async function flagThreadForBen(opts: {
     }
 
     console.log(`[CommsAgent] Flagged ${opts.conversationId} for Ben: ${opts.note.slice(0, 100)}`);
-    return { flagged: true, note: 'Flagged. Ben has been pinged and will reply in the thread himself. Watch for a manual message from us that you did not write: that is him, with full authority. When he has replied, remove the needs_ben tag and resume.' };
+    return { flagged: true, questionId: id, note: 'Flagged. Ben has been pinged and will reply in the thread himself. Watch for a manual message from us that you did not write: that is him, with full authority. When he has replied, remove the needs_ben tag and resume.' };
 }
 
 // ---------------------------------------------------------------- per-conversation run
@@ -606,13 +623,17 @@ export interface CommsAgentOutcome {
     handoff: QuotePrepHandoff | null;
 }
 
-export async function runCommsAgent(conversationId: string, trigger: string): Promise<CommsAgentOutcome> {
+export async function runCommsAgent(conversationId: string, trigger: string, runOpts: { runId?: string } = {}): Promise<CommsAgentOutcome> {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
     if (!conv) throw new Error(`Conversation ${conversationId} not found`);
 
     const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
     if (!digits) throw new Error(`Conversation ${conversationId} has no usable phone number`);
     const e164 = `+${digits}`;
+
+    // THE RUN ID (Phase 1). Minted before the tools exist so every draft, flag, nudge and send this
+    // run makes carries it; the runner persists the agent_runs row under the same id.
+    const runId = runOpts.runId ?? newRunId('run');
 
     const config = await getCommsAgentConfig();
     let autosent = false;
@@ -902,6 +923,9 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         ...(input.add_tags ?? []).map((t) => t.toLowerCase().slice(0, 30)),
                     ])];
                     patch.tags = merged;
+                    if (removing.has(NEEDS_BEN_TAG) && current.includes(NEEDS_BEN_TAG)) {
+                        void ledgerFlagClosedForConversation({ conversationId: conv.id, phone: e164, closedBy: 'agent:comms', reason: 'needs_ben cleared by the agent', runId });
+                    }
                 }
                 await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));
                 // Live-board push (STATE_DELTA over SSE). Dynamic import + catch: a UI stream
@@ -1017,6 +1041,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     phone: e164,
                     body: input.body,
                     source: 'comms_agent',
+                    runId,
                     reason: `[${input.intent ?? 'unlabelled'}] ${input.reason}`,
                     // The channel the deliverability guard above resolved: WhatsApp while the
                     // window is open, SMS for an SMS-first thread the window never applies to.
@@ -1029,7 +1054,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // DIRECT SEND. Same claimed-row path a human's click takes, so the message, the
                 // thread record, the ledger row and the delivery fallbacks are all identical to an
                 // approved send. The only thing missing is the wait.
-                const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
+                const ukHour = ukHourNow();
                 const postQuoteThread = !!live?.isLive;
                 // REACTIVE vs PROACTIVE, from the customer's own clock: an inbound younger than
                 // the window means they are mid-conversation and a reply is a reply, whatever the
@@ -1066,14 +1091,14 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         });
                     if (repeat.repeat) {
                         const sinceStr = repeat.since
-                            ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }).format(repeat.since)
+                            ? formatUk(repeat.since)
                             : 'earlier';
                         decision = {
                             send: false,
                             reason: 'this would be the second consecutive holding reply — the customer is still waiting on the first promise and re-promising is the stall loop, so it queues for a human and Ben has been flagged',
                         };
                         await flagThreadForBen({
-                            conversationId: conv.id, phone: e164,
+                            conversationId: conv.id, phone: e164, runId,
                             note: `Second holding reply attempted; the customer is still waiting on "${(repeat.waitingOn ?? 'the promised follow-up').slice(0, 160)}" since ${sinceStr}. The agent was stopped from re-stalling them — its draft is queued unsent. Reply in the thread or send what was promised.`,
                         }).catch((e: any) => console.error('[CommsAgent] stall-loop flag failed (hold stands):', e?.message));
                         flaggedThisRun = true;
@@ -1099,7 +1124,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
 
                 if (decision.send || firstContactOk) {
                     const by = firstContactOk && !decision.send ? 'agent.comms' : 'agent.comms.autosend';
-                    const sent = await approveAndSendDraft(id, by);
+                    const sent = await approveAndSendDraft(id, by, runId);
                     if (sent.ok) {
                         autosent = true;
                         // A SENT promise is a debt with a timer (27 Aug 2026: "I'll get a patch
@@ -1170,7 +1195,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         + (live.materialsTotalGBP != null ? `; quote-level materials £${live.materialsTotalGBP}` : '')
                     : null;
                 const result = await flagThreadForBen({
-                    conversationId: conv.id, phone: e164,
+                    conversationId: conv.id, phone: e164, runId,
                     note: input.note, quoteFacts: facts,
                 });
                 // Flagged now or flagged already: either way Ben is on the hook for this thread,
@@ -1259,6 +1284,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                     reason: `[comms_agent, agreed re-contact ${date}] ${String(input.reason ?? '').slice(0, 400)}`,
                     sendAfter: new Date(`${date}T09:00:00Z`),
                     agentRun: 'comms',
+                    runId,
                 });
                 return {
                     scheduled: true, date, slug: live.slug,
@@ -1287,7 +1313,6 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     // watching this thread in /admin/comms sees the run happen ("reading thread… checking date…
     // drafting reply…") instead of a draft materialising. The stream is observability only: emits
     // are try/catch-wrapped and can never fail a run.
-    const runId = randomUUID();
     const emit = (evt: Parameters<typeof emitCommsEvent>[0]) => {
         try { emitCommsEvent(evt); } catch (error: any) {
             console.warn('[CommsAgent] comms event emit failed (run continues):', error?.message);
@@ -1300,6 +1325,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     try {
         result = await runAgent({
             name: 'comms',
+            runId, trigger, conversationId: conv.id, phone: e164,
             system,
             goal: `Triage conversation ${conv.id} (customer: ${realNameOrNull(conv.contactName) || e164}). Trigger: ${trigger}.`,
             tools,
@@ -1329,12 +1355,12 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
     // whether or not the model chose to flag it. Fire-and-forget in spirit but awaited, because a
     // run that reports "done" while the escalation is still in flight is the failure this removes.
     const escalated = await routeRefusalsToBen({
-        conversationId: conv.id, phone: e164, escalations, alreadyFlagged: flaggedThisRun,
+        conversationId: conv.id, phone: e164, escalations, alreadyFlagged: flaggedThisRun, runId,
     });
 
     // THE HANDOFF. Triage said this thread is priceable, so quote-prep runs and the intake lands on
     // Ben's desk with a push. Bounded, and never allowed to break a run that has already replied.
-    const handoff = await maybeAutoQuotePrep(conv.id, config).catch((error: any) => {
+    const handoff = await maybeAutoQuotePrep(conv.id, config, { runId }).catch((error: any) => {
         console.error(`[CommsAgent] Auto quote-prep failed for ${conv.id}:`, error?.message);
         return null;
     });
@@ -1403,6 +1429,7 @@ async function routeRefusalsToBen(opts: {
     phone: string;
     escalations: { violation: DraftViolation; attemptedBody: string }[];
     alreadyFlagged: boolean;
+    runId?: string | null;
 }): Promise<boolean> {
     if (opts.alreadyFlagged || !opts.escalations.length) return false;
     const first = opts.escalations[0];
@@ -1411,6 +1438,7 @@ async function routeRefusalsToBen(opts: {
         const result = await flagThreadForBen({
             conversationId: opts.conversationId,
             phone: opts.phone,
+            runId: opts.runId ?? null,
             note: [
                 `The agent tried to reply with something only you can decide (${codes}) and the run ended without a flag, so this was flagged automatically. Reply in the thread and the agent will pick it up from there.`,
                 `What it tried to write: "${first.attemptedBody.replace(/\n+/g, ' / ').slice(0, 300)}"`,
@@ -1562,6 +1590,7 @@ async function substantiveSignals(conversationId: string): Promise<{
 export async function maybeAutoQuotePrep(
     conversationId: string,
     config: CommsAgentConfig,
+    runOpts: { runId?: string | null } = {},
 ): Promise<QuotePrepHandoff> {
     if (!config.quotePrep.enabled) return { ran: false, skipped: 'quote-prep handoff disabled in config' };
 
@@ -1602,6 +1631,7 @@ export async function maybeAutoQuotePrep(
         await flagThreadForBen({
             conversationId: conv.id,
             phone: `+${digits}`,
+            runId: runOpts.runId ?? null,
             note: `Thread is tagged ${READY_TO_PRICE_TAG} but quote ${blocking.slug} is still live, so the clerk will not prep a second price by itself. Re-quote or revoke ${blocking.slug} manually.`,
         }).catch((e: any) => console.warn('[CommsAgent] blocked-prep flag failed:', e?.message ?? e));
         return { ran: false, skipped };
@@ -1632,7 +1662,7 @@ export async function maybeAutoQuotePrep(
 
     console.log(`[CommsAgent] Auto quote-prep firing for ${conv.id}${newInfo ? ' (new photo/postcode)' : ''}`);
     const { runQuotePrep } = await import('./quote-prep');
-    const { intake } = await runQuotePrep(conv.id);
+    const { intake } = await runQuotePrep(conv.id, { trigger: 'comms_handoff', parentRunId: runOpts.runId ?? null });
 
     // Whatever happened, the run happened: record it so a failed extraction cannot loop.
     const writeState = async (patch: Partial<QuotePrepAutoState>, extra: Record<string, any> = {}) => {

@@ -17,6 +17,7 @@ import { db } from '../db';
 import { conversations, messages, messageDrafts } from '@shared/schema';
 import { and, eq, gte, isNull, notInArray, sql } from 'drizzle-orm';
 import { gateCustomerLoop } from '../worker-gate';
+import { isOutOfHours, ukHourNow } from '../working-hours';
 import { maybeWriteHeartbeat, startHeartbeatStaleCheck } from '../comms-worker-heartbeat';
 
 /** Don't race the on-inbound debounce: only pick up threads quiet at least this long. */
@@ -234,8 +235,7 @@ async function tickDueTriage(): Promise<void> {
  * re-runs on the fresher thread instead of sending last night's words into this morning's context.
  */
 async function releaseMorningHolds(): Promise<void> {
-    const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
-    if (ukHour < 8 || ukHour >= 20) return;
+    if (isOutOfHours()) return;
     const { getCommsAgentConfig } = await import('./comms');
     const config = await getCommsAgentConfig();
     if (!config.autosend.enabled) return; // kill switch off = everything really does wait for a human
@@ -344,8 +344,8 @@ async function releaseHeldAcks(): Promise<void> {
  * that ships disabled this pass decides nothing and sends nothing.
  */
 async function fallbackOverdueCallbacks(): Promise<void> {
-    const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
-    if (ukHour < 8 || ukHour >= 20) return;
+    const ukHour = ukHourNow();
+    if (isOutOfHours(ukHour)) return;
 
     const { getOutreachConfig, callbackFallbackEligible, sendCallbackFallbackForCall } = await import('../post-call-outreach');
     const cfg = await getOutreachConfig();
@@ -435,8 +435,12 @@ export function startCommsInboundSweep(): void {
         // sitting past its working-hours SLA re-pings Ben (idempotent, DB-backed episodes;
         // self-throttled to one pass per 5 min). Nothing rots silently.
         import('./sla-sweep').then((m) => m.sweepSlaBreaches()).catch((e) => console.error('[CommsSweep] SLA sweep failed:', e?.message ?? e)),
+        // Phase 1 (2 Sep 2026): the rules layer's sweeps — silence-breaker (10 min, 24/7), flag
+        // expiry, draft expiry. Self-throttled to one pass a minute; every send goes through
+        // server/rules-layer.ts with a rules.* approver and a run id. "Never nothing."
+        import('./silence-breaker').then((m) => m.runSilenceBreakerTick()).catch((e) => console.error('[CommsSweep] silence-breaker failed:', e?.message ?? e)),
     ]);
-    const fastRegistered = gateCustomerLoop('comms-sweep: fast tick (15s: due triage, morning release, held acks, callback fallback, promise/SLA/call-task sweeps)', () => {
+    const fastRegistered = gateCustomerLoop('comms-sweep: fast tick (15s: due triage, morning release, held acks, callback fallback, promise/SLA/call-task sweeps, silence-breaker + expiry)', () => {
         setInterval(fast, TICK_EVERY_MS).unref?.();
         startHeartbeatStaleCheck();
     });

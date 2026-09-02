@@ -16,9 +16,14 @@ import { eq, and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { sendCustomerMessage, type OutboundChannel } from './outbound';
+import { dueAtFor } from './working-hours';
 import { type Approver, isAutomatedApprover, isAgentApprover, approverLabel, humanApprover, newRunId } from './approver';
+import { ledgerDraftCreated, ledgerDraftApproved, ledgerDraftEdited, ledgerDraftRejected, ledgerDraftFailed } from './ledger';
+import { agentOutcomes } from '@shared/schema';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
+import { recordVerdict, approvalVerdict, runIdOfDraft, isVerdictReason } from './verdicts';
+import { VERDICT_REASONS } from '@shared/schema';
 import { logSystemEvent } from './system-events';
 import { emitCommsEvent, type CommsEvent } from './comms-events';
 
@@ -37,7 +42,7 @@ function pushCommsEvent(evt: CommsEvent): void {
 
 export const messageDraftsRouter = Router();
 
-export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack' | 'ops_manager';
+export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continuation' | 'recovery' | 'manual' | 'comms_agent' | 'first_contact_ack' | 'ops_manager' | 'rules_layer';
 
 /**
  * Which draft sources count as a service reply for opt-out purposes, and which are outreach.
@@ -50,6 +55,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continu
  *   first_contact_ack  the customer just wrote to us. Same.
  *   comms_agent        a reply drafted onto a live inbound thread. Service.
  *   manual             a human composed it about a specific job. Service.
+ *   rules_layer        a content-free holding line or ask on a live inbound thread. Service.
  *
  * NOT listed, therefore blocked by a plain STOP:
  *   post_call_video    we decided to ask for something after a call. Outreach.
@@ -58,7 +64,7 @@ export type DraftSource = 'webform_ack' | 'post_call_video' | 'post_call_continu
  *
  * None of this gets past an 'all' ("do not contact") suppression; that blocks every source.
  */
-const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual', 'ops_manager']);
+const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contact_ack', 'comms_agent', 'manual', 'ops_manager', 'rules_layer']);
 
 export function purposeForDraftSource(source: DraftSource): OutboundPurpose {
     return SERVICE_DRAFT_SOURCES.has(source) ? 'service_reply' : 'marketing';
@@ -98,6 +104,14 @@ export async function queueDraft(input: {
      * confirmation queued as 'manual', say) can be explicit.
      */
     purpose?: OutboundPurpose;
+    /**
+     * When this draft must have been acted on. Defaults to 4 office hours from now (Phase 1,
+     * design §4): past it the rules layer sends the customer a holding line and marks the draft
+     * held_reason 'due_expired' — it stays pending, but the customer is never left in silence.
+     */
+    dueAt?: Date;
+    /** Phase 1: the agent run (or sweep) that wrote this draft. Stored on the row and the ledger event. */
+    runId?: string | null;
 }): Promise<string | null> {
     const phone = normalizePhoneNumber(input.phone);
     if (!phone) {
@@ -163,6 +177,14 @@ export async function queueDraft(input: {
         source: input.source,
         reason: input.reason ?? null,
         status: 'pending',
+        dueAt: input.dueAt ?? dueAtFor('draft'),
+        runId: input.runId ?? null,
+    });
+
+    // COMMS LEDGER (Phase 1, write-at-source): the draft exists. Never throws.
+    void ledgerDraftCreated({
+        id, phone, conversationId: conv?.id ?? null, channel: input.channel ?? (isNonMobileUkNumber(phone) ? 'sms' : 'whatsapp'),
+        body: input.body, source: input.source, reason: input.reason ?? null, runId: input.runId ?? null,
     });
 
     // OUTCOME LEDGER — freeze the proposal as written, before anyone can edit it.
@@ -236,12 +258,24 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
         if (typeof body !== 'string' || !body.trim()) {
             return res.status(400).json({ error: "Missing 'body'" });
         }
+        const [before] = await db.select({ body: messageDrafts.body }).from(messageDrafts)
+            .where(eq(messageDrafts.id, req.params.id)).limit(1);
         const [updated] = await db.update(messageDrafts)
-            .set({ body: body.trim() })
+            // Keep the machine's wording on first edit so approval can file this as an 'edit'
+            // verdict (Phase 1). COALESCE: a second edit must not overwrite the original.
+            .set({ body: body.trim(), originalBody: sql`COALESCE(${messageDrafts.originalBody}, ${messageDrafts.body})` })
             .where(and(eq(messageDrafts.id, req.params.id), eq(messageDrafts.status, 'pending')))
             .returning();
 
         if (!updated) return res.status(404).json({ error: 'Draft not found or no longer pending' });
+        // COMMS LEDGER (Phase 1): a human changed the words. Recorded once per draft (first edit
+        // wins on the unique ref); meta carries what the author originally wrote.
+        if (before && before.body.trim() !== updated.body) {
+            void ledgerDraftEdited({
+                draft: updated, previousBody: before.body,
+                editedBy: humanApprover((req as any).user?.email || (req as any).user?.id || 'admin'),
+            });
+        }
         pushCommsEvent({ type: 'draft_delta', draftId: updated.id, conversationId: updated.conversationId ?? undefined, status: 'edited', at: new Date().toISOString() });
         res.json({ draft: updated });
     } catch (error: any) {
@@ -335,6 +369,19 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
 
     if (!draft) return { ok: false, code: 'NOT_PENDING', message: 'Draft not found or already handled' };
 
+    // COMMS LEDGER (Phase 1, write-at-source): approved — by a person or by code — and, if the
+    // words differ from what the author proposed (the outcome ledger froze them at queue time),
+    // edited. The PATCH route records edits as they happen; this is the fallback for any other
+    // path that rewrote the body. Both no-ops when already recorded.
+    void ledgerDraftApproved({ draft, approver, runId });
+    void (async () => {
+        const [proposal] = await db.select({ proposedBody: agentOutcomes.proposedBody }).from(agentOutcomes)
+            .where(and(eq(agentOutcomes.kind, 'draft'), eq(agentOutcomes.refId, draft.id))).limit(1);
+        if (proposal && proposal.proposedBody.trim() !== draft.body.trim()) {
+            await ledgerDraftEdited({ draft, previousBody: proposal.proposedBody, editedBy: isAutomatedApprover(approver) ? 'human:unknown' : approver, runId });
+        }
+    })().catch(() => undefined);
+
     // Re-check the suppression list at send time, not just at queue time. A draft can sit in the
     // queue for hours, and the customer may have said STOP in the meantime — that is exactly the
     // window in which a campaign reply arrives. sendCustomerMessage would refuse anyway; catching
@@ -346,6 +393,7 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             .set({ status: 'rejected', error: `opted out (${suppression.scope}) on ${suppression.at.toISOString()}` })
             .where(eq(messageDrafts.id, draft.id));
         console.warn(`[Drafts] Refused to send draft ${draft.id} to ${draft.phone}: opted out (${suppression.scope})`);
+        void ledgerDraftRejected({ draft, decidedBy: 'system:opt_out', reason: `opted out (${suppression.scope})`, runId });
         // Recorded as 'blocked', not 'rejected': the system refused it, no human judged the wording.
         safely('recordDraftVerdict:blocked', () => recordDraftVerdict({
             draftId: draft.id, outcome: 'blocked', decidedBy: approver,
@@ -450,7 +498,7 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             // One SMS carrying the whole reply — sendCustomerMessage rejoins the '---' bursts,
             // because on SMS each burst is a separately billed message.
             result = await sendCustomerMessage({
-                approver, runId,
+                approver, runId, draftId: draft.id, draftSource: draft.source,
                 to: draft.phone, body: draft.body, channel: 'sms',
                 context: `draft:${draft.source}`, purpose,
             });
@@ -463,14 +511,14 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             // the same pipe, or the customer gets bubble one by SMS and bubble two by WhatsApp.
             const parts = draft.body.split(/\n\s*---\s*\n/).map((p) => p.trim()).filter(Boolean).slice(0, 4);
             result = await sendCustomerMessage({
-                approver, runId,
+                approver, runId, draftId: draft.id, draftSource: draft.source,
                 to: draft.phone, body: parts[0] ?? draft.body, context: `draft:${draft.source}`, purpose,
             });
             if (result.ok && result.channel === 'whatsapp') {
                 for (let i = 1; i < parts.length; i++) {
                     await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
                     const next = await sendCustomerMessage({
-                        approver, runId,
+                        approver, runId, draftId: draft.id, draftSource: draft.source,
                         to: draft.phone, body: parts[i], context: `draft:${draft.source}`, purpose,
                         allowSmsFallback: false,   // see above: no split-brain threads
                     });
@@ -480,7 +528,7 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             } else if (result.ok && result.channel === 'sms' && parts.length > 1) {
                 // The whole reply belongs in that one SMS, so send the remainder as one more.
                 await sendCustomerMessage({
-                    approver, runId,
+                    approver, runId, draftId: draft.id, draftSource: draft.source,
                     to: draft.phone, body: parts.slice(1).join('\n\n'), channel: 'sms',
                     context: `draft:${draft.source}`, purpose,
                 });
@@ -489,7 +537,7 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             // Templates are a single fixed message — no splitting. The rendered body travels with
             // it so an SMS fallback has real words to send.
             result = await sendCustomerMessage({
-                approver, runId,
+                approver, runId, draftId: draft.id, draftSource: draft.source,
                 to: draft.phone, body: draft.body,
                 contentSid: draft.contentSid!,
                 contentVariables: (draft.contentVariables as any) ?? undefined,
@@ -502,6 +550,7 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             await db.update(messageDrafts)
                 .set({ status: 'failed', error: result.error ?? 'send failed on every channel' })
                 .where(eq(messageDrafts.id, draft.id));
+            void ledgerDraftFailed({ draft, approver, error: result.error ?? 'send failed on every channel', runId });
             // The approval still happened and is still a judgement on the wording — send_status
             // carries the delivery failure separately, so a broken pipe cannot look like a
             // rejected draft in the trust metrics.
@@ -658,7 +707,30 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
 messageDraftsRouter.post('/:id/approve', async (req, res) => {
     try {
         const approver = humanApprover((req as any).user?.email || (req as any).user?.id || 'admin');
+        // Verdict reason (Phase 1): one-tap approve defaults to 'fine'; an edit-then-approve
+        // carries the chip Ben picked. Anything outside the vocabulary is a client bug → 400.
+        const reasonRaw = req.body?.reason ?? 'fine';
+        if (!isVerdictReason(reasonRaw)) {
+            return res.status(400).json({ error: `Invalid 'reason' — expected one of ${VERDICT_REASONS.join(', ')}` });
+        }
         const result = await approveAndSendDraft(req.params.id, approver);
+
+        // The human decided, whatever the wire did next: every claim that succeeded is a verdict.
+        // NOT_PENDING means nothing was decided here (double-click, already handled).
+        if (result.ok || result.code !== 'NOT_PENDING') {
+            const decided = result.ok ? result.draft : (await db.select().from(messageDrafts).where(eq(messageDrafts.id, req.params.id)))[0];
+            if (decided) {
+                await recordVerdict({
+                    draftId: decided.id,
+                    runId: runIdOfDraft(decided as unknown as Record<string, unknown>),
+                    verdict: approvalVerdict(decided),
+                    reason: reasonRaw,
+                    originalBody: decided.originalBody ?? decided.body,
+                    finalBody: decided.body,
+                    by: approver,
+                });
+            }
+        }
 
         if (!result.ok) {
             if (result.code === 'SEND_FAILED') return res.status(500).json({ error: result.message });
@@ -676,6 +748,12 @@ messageDraftsRouter.post('/:id/approve', async (req, res) => {
 // POST /api/drafts/:id/reject — decline without sending.
 messageDraftsRouter.post('/:id/reject', async (req, res) => {
     try {
+        // A reject without a reason is a verdict the promotion gate cannot read (Phase 1, §4):
+        // the reason is the whole signal. Required, from the fixed vocabulary.
+        const reason = req.body?.reason;
+        if (!isVerdictReason(reason)) {
+            return res.status(400).json({ error: `Reject needs a 'reason' — one of ${VERDICT_REASONS.join(', ')}`, reasons: VERDICT_REASONS });
+        }
         const rejectedBy = (req as any).user?.email ?? 'admin';
         const [updated] = await db.update(messageDrafts)
             .set({ status: 'rejected', approvedBy: rejectedBy, approvedAt: new Date() })
@@ -683,11 +761,21 @@ messageDraftsRouter.post('/:id/reject', async (req, res) => {
             .returning();
 
         if (!updated) return res.status(404).json({ error: 'Draft not found or no longer pending' });
+        void ledgerDraftRejected({ draft: updated, decidedBy: humanApprover(rejectedBy), reason: 'rejected in the approval queue' });
         // A rejection is the loudest signal the ledger gets — a human read the agent's words and
         // decided none of them should reach the customer.
         safely('recordDraftVerdict:rejected', () => recordDraftVerdict({
             draftId: updated.id, outcome: 'rejected', decidedBy: rejectedBy,
         }));
+        await recordVerdict({
+            draftId: updated.id,
+            runId: runIdOfDraft(updated as unknown as Record<string, unknown>),
+            verdict: 'reject',
+            reason,
+            originalBody: updated.originalBody ?? updated.body,
+            finalBody: null,
+            by: humanApprover(rejectedBy),
+        });
         pushCommsEvent({ type: 'draft_delta', draftId: updated.id, conversationId: updated.conversationId ?? undefined, status: 'rejected', at: new Date().toISOString() });
         res.json({ success: true, draft: updated });
     } catch (error: any) {

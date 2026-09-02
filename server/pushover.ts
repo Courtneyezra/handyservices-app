@@ -847,6 +847,28 @@ export async function notifyOutboundSendFailure(alert: OutboundSendFailureAlert)
     });
 }
 
+interface CommsDigestAlert {
+    title: string;
+    lines: string[];
+}
+
+/**
+ * The 09:00 comms digest (Phase 1, design §8): flags past due, drafts pending too long, threads
+ * that got only a holding line yesterday. Rides the 'escalation' event — it is the same audience
+ * and the same action (open the desk) — with a link to the comms desk rather than one thread.
+ */
+export async function notifyCommsDigest(alert: CommsDigestAlert): Promise<void> {
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const link = `${baseUrl}/admin/comms`;
+    await dispatch({
+        event: 'escalation',
+        title: alert.title,
+        message: [...alert.lines, link].join('\n'),
+        linkUrl: link,
+        linkUrlTitle: '📋 Open the comms desk',
+    });
+}
+
 interface WorkerHealthAlert {
     title: string;
     message: string;

@@ -55,6 +55,8 @@ import { commsEventsRouter } from "./comms-events-route";
 import { systemEventsRouter } from "./system-events";
 import { agentQuestionsRouter } from "./agent-questions";
 import { agentStaffRouter } from "./agent-staff";
+import { verdictsRouter } from "./verdicts";
+import { agentRunsRouter } from "./agent-runs-routes";
 import { opsManagerRouter } from "./ops-manager-routes";
 import { deskRouter } from "./desk-routes";
 import { vaCallTasksRouter } from "./va-call-tasks-routes";
@@ -487,6 +489,8 @@ app.use('/api/comms', requireAdmin, commsActivityRouter); // Comms ledger activi
 app.use('/api/system-events', requireAdmin, systemEventsRouter); // Live-beta activity log (/admin/activity)
 app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms agent's ask-Ben queue
 app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
+app.use('/api/verdicts', requireAdmin, verdictsRouter); // Phase 1: Ben's verdicts on drafts (promotion evidence)
+app.use('/api/agent-runs', requireAdmin, agentRunsRouter); // Phase 1: per-thread agent run history (agent_runs)
 app.use('/api/ops', requireAdmin, opsManagerRouter); // Track B: Ops Manager sessions + runs (chat dock)
 app.use('/api/desk', requireAdmin, deskRouter); // Track B: Ben's Desk ranked human queue
 app.use('/api/va-call-tasks', requireAdmin, vaCallTasksRouter); // Speed-to-lead call tasks (/admin/va-tasks)

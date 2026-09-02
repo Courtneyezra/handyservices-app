@@ -27,7 +27,9 @@
  * draft would be the second holding reply in a row — the stall loop — which comms.ts uses to
  * refuse the auto-send and flag instead.
  */
+import { newRunId } from '../approver';
 import { db } from '../db';
+import { addWorkingHours as addWorkingHoursOnClock, BEN_HOURS } from '../working-hours';
 import { conversations, messages, messageDrafts, personalizedQuotes } from '@shared/schema';
 import { and, eq, desc, inArray, isNull, sql } from 'drizzle-orm';
 
@@ -131,43 +133,17 @@ export function detectHoldingReply(body: string): string | null {
 
 // ---------------------------------------------------------------- working-hours arithmetic
 
-const UK_DAY_START = 8;  // matches the proactive-send window in comms.ts
-const UK_DAY_END = 20;
-
-function ukHourMinute(d: Date): { hour: number; minute: number } {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-        hour: 'numeric', minute: 'numeric', hour12: false, timeZone: 'Europe/London',
-    }).formatToParts(d);
-    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
-    return { hour: get('hour') % 24, minute: get('minute') };
-}
 
 /**
  * `from` + `hours` counted only inside the 08:00-20:00 UK window, rolling into the next morning
  * when the clock runs past close. A promise made at 18:30 is due 10:30 the next day, not 22:30
  * tonight — the point of the timer is a HUMAN acting on it, and 22:30 is not when Ben works.
- * Iterative over wall-clock ms so DST transitions come out right via Intl. Pure, tested.
+ *
+ * Phase 1 (2 Sep 2026): delegates to server/working-hours.ts on the BEN_HOURS clock — same
+ * daily 08–20 arithmetic, one implementation. Kept under this name for its existing importers.
  */
 export function addWorkingHours(from: Date, hours: number): Date {
-    let t = from.getTime();
-    let remaining = hours * 3_600_000;
-    for (let guard = 0; guard < 100 && remaining > 0; guard++) {
-        const { hour, minute } = ukHourMinute(new Date(t));
-        if (hour < UK_DAY_START) { t += ((UK_DAY_START - hour) * 60 - minute) * 60_000; continue; }
-        if (hour >= UK_DAY_END) { t += ((24 - hour + UK_DAY_START) * 60 - minute) * 60_000; continue; }
-        const toClose = ((UK_DAY_END - hour) * 60 - minute) * 60_000;
-        const step = Math.min(remaining, toClose);
-        t += step;
-        remaining -= step;
-    }
-    // Landed exactly on 20:00: roll to next morning so dueAt is always an hour someone works.
-    const { hour } = ukHourMinute(new Date(t));
-    if (hour >= UK_DAY_END || hour < UK_DAY_START) {
-        const d = new Date(t);
-        const { hour: h, minute: m } = ukHourMinute(d);
-        t += (h >= UK_DAY_END ? ((24 - h + UK_DAY_START) * 60 - m) : ((UK_DAY_START - h) * 60 - m)) * 60_000;
-    }
-    return new Date(t);
+    return addWorkingHoursOnClock(from, hours, BEN_HOURS);
 }
 
 // ---------------------------------------------------------------- the open commitment
@@ -384,6 +360,8 @@ async function fulfilmentSince(conversationId: string, phone: string, madeAt: Da
  */
 export async function flagOverdueCommitments(): Promise<{ scanned: number; flagged: number; cleared: number }> {
     const nowIso = new Date().toISOString();
+    // Phase 1: one run id per pass; every flag it raises carries it.
+    const runId = newRunId('sweep');
     const due = await db.select({
         id: conversations.id,
         phoneNumber: conversations.phoneNumber,
@@ -429,6 +407,8 @@ export async function flagOverdueCommitments(): Promise<{ scanned: number; flagg
             await flagThreadForBen({
                 conversationId: c.id,
                 phone,
+                runId,
+                source: 'promise_tracker',
                 note: `Open promise overdue: we told the customer "${oc.summary}" at ${madeStr} and nothing has gone out since — no quote link, no message from you. The ${COMMITMENT_DUE_WORKING_HOURS}-working-hour follow-up window has passed, so they are waiting on your move. Reply in the thread or send the quote.`,
             });
 

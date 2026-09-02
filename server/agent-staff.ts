@@ -19,6 +19,7 @@ import { queueDraft } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
 import { newRunId } from './approver';
+import { ledgerFlagClosedForConversation } from './ledger';
 import { renderQuickReply } from './quick-replies';
 import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
 import { claudeText } from './llm';
@@ -36,6 +37,8 @@ import {
     exportApprovedExamples, getOutcomeLoopConfig, setOutcomeLoopConfig,
 } from './agent-outcomes';
 import { getHeartbeatHealth } from './comms-worker-heartbeat';
+import { verdictStats } from './verdicts';
+import { bucketForSources, topReason, type VerdictBucket, type VerdictStats } from './verdict-stats';
 
 export const agentStaffRouter = Router();
 
@@ -155,26 +158,83 @@ async function recoveryStats(): Promise<{ stats: Stat[]; statusChips: { label: s
     };
 }
 
+/**
+ * Phase 1: which message_drafts.source values each agent answers for. Ben's verdicts are keyed
+ * by draft, so an agent's 30-day approval record is the sum of its sources' buckets. Quote-prep's
+ * outbound messages go through the comms rails as 'comms_agent' (see the quote-prep routes below),
+ * so they count under the comms agent, not separately.
+ */
+const VERDICT_SOURCES: Record<string, readonly string[]> = {
+    comms: ['comms_agent', 'first_contact_ack'],
+    recovery: ['recovery'],
+    'ops-manager': ['ops_manager'],
+};
+
+const VERDICT_WINDOW_DAYS = 30;
+
+export interface StaffVerdictSummary extends VerdictBucket {
+    days: number;
+    topRejectReason: { reason: string; n: number } | null;
+    topEditReason: { reason: string; n: number } | null;
+}
+
+/** The 30-day verdict slice for one agent, plus the badge stats it earns. Null-safe when the table is absent. */
+function verdictSummaryFor(stats: VerdictStats | null, staffId: string): { verdicts: StaffVerdictSummary | null; stats: Stat[] } {
+    const sources = VERDICT_SOURCES[staffId];
+    if (!stats || !sources) return { verdicts: null, stats: [] };
+    const b = bucketForSources(stats, sources);
+    const verdicts: StaffVerdictSummary = {
+        ...b, days: VERDICT_WINDOW_DAYS,
+        topRejectReason: topReason(b.rejectReasons), topEditReason: topReason(b.editReasons),
+    };
+    const out: Stat[] = [];
+    if (b.human === 0) {
+        out.push({ label: `Ben's verdicts (${VERDICT_WINDOW_DAYS}d)`, value: 0, tone: 'plain' });
+    } else if (b.human < 3 || b.uneditedApprovalRate === null) {
+        out.push({ label: `Approved unedited (${VERDICT_WINDOW_DAYS}d)`, value: `${b.approve}/${b.human}`, tone: 'plain' });
+    } else {
+        // §4 promotion gate reads ≥ 90%; below 80% the sampler would demote.
+        const tone: Stat['tone'] = b.uneditedApprovalRate >= 90 ? 'good' : b.uneditedApprovalRate >= 80 ? 'plain' : 'warn';
+        out.push({ label: `Approved unedited (${VERDICT_WINDOW_DAYS}d)`, value: `${b.uneditedApprovalRate}% of ${b.human}`, tone });
+    }
+    if (b.unsafe > 0) out.push({ label: `Marked unsafe (${VERDICT_WINDOW_DAYS}d)`, value: b.unsafe, tone: 'bad' });
+    return { verdicts, stats: out };
+}
+
 // GET /api/agents/staff — the full directory with live stats.
 agentStaffRouter.get('/staff', async (_req, res) => {
     try {
-        const [comms, recovery, workerHeartbeat] = await Promise.all([commsStats(), recoveryStats(), getHeartbeatHealth()]);
+        const [comms, recovery, workerHeartbeat, verdicts] = await Promise.all([
+            commsStats(), recoveryStats(), getHeartbeatHealth(),
+            // Missing table (migration not applied yet) must not take the whole directory down.
+            verdictStats(VERDICT_WINDOW_DAYS).catch((e: any) => { console.warn('[AgentStaff] verdict stats unavailable:', e?.message); return null; }),
+        ]);
+        const v = (id: string) => verdictSummaryFor(verdicts, id);
+        const commsV = v('comms');
+        const recoveryV = v('recovery');
+        const opsManagerV = v('ops-manager');
         res.json({
             // Phase 0: { ok, ageSeconds, stale, at, host, pid, version, thisProcess } — same shape
             // as GET /api/health/comms-worker, so the staff page can show it without a second call.
             workerHeartbeat,
+            // Phase 1: fleet-wide verdict totals for the window (per-agent slices sit on each member).
+            verdictWindow: verdicts ? { days: verdicts.days, human: verdicts.human, uneditedApprovalRate: verdicts.uneditedApprovalRate, unsafe: verdicts.unsafe } : null,
             staff: [
                 {
                     ...commsStaff,
                     system: commsSystem,
                     accent: 'emerald',
                     ...comms,
+                    stats: [...commsV.stats, ...comms.stats],
+                    verdicts: commsV.verdicts,
                 },
                 {
                     ...recoveryStaff,
                     system: recoverySystem,
                     accent: 'amber',
                     ...recovery,
+                    stats: [...recoveryV.stats, ...recovery.stats],
+                    verdicts: recoveryV.verdicts,
                 },
                 {
                     ...quotePrepStaff,
@@ -182,6 +242,7 @@ agentStaffRouter.get('/staff', async (_req, res) => {
                     accent: 'sky',
                     stats: [],
                     statusChips: [{ label: 'ON-DEMAND', on: true }],
+                    verdicts: null,
                 },
                 {
                     ...opsBriefStaff,
@@ -189,13 +250,15 @@ agentStaffRouter.get('/staff', async (_req, res) => {
                     accent: 'sky',
                     stats: [],
                     statusChips: [{ label: 'READ-ONLY', on: true }],
+                    verdicts: null,
                 },
                 {
                     ...opsManagerStaff,
                     system: opsManagerSystem,
                     accent: 'violet',
-                    stats: [],
+                    stats: opsManagerV.stats,
                     statusChips: [{ label: 'PROPOSE-ONLY', on: true }],
+                    verdicts: opsManagerV.verdicts,
                 },
             ],
         });
@@ -606,6 +669,12 @@ async function finalizeQuoteSent(quoteId: string, conversationId: string): Promi
             updatedAt: new Date(),
         })
         .where(eq(conversations.id, conversationId));
+    // COMMS LEDGER (Phase 1): sending the quote was Ben's move, so an open flag is closed by it.
+    if ((conv?.tags ?? []).includes('needs_ben')) {
+        const [c] = await db.select({ phoneNumber: conversations.phoneNumber }).from(conversations).where(eq(conversations.id, conversationId));
+        const digits = (c?.phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+        void ledgerFlagClosedForConversation({ conversationId, phone: digits ? `+${digits}` : '', closedBy: 'system:quote_sent', reason: 'quote sent' });
+    }
 }
 
 /**

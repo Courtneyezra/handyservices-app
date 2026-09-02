@@ -17,6 +17,8 @@
  */
 import { getAnthropic } from '../anthropic';
 import type Anthropic from '@anthropic-ai/sdk';
+import { newRunId } from '../approver';
+import { computeCostPence } from '../agent-cost';
 
 export interface AgentTool {
     name: string;
@@ -54,6 +56,35 @@ export interface AgentRunResult {
     turns: number;
     /** Exact token spend for the whole run, summed across turns, straight from the API. */
     usage: AgentRunUsage;
+    /** The agent_runs.id this run was recorded under (Phase 1). Every write the run made carries it. */
+    runId: string;
+    model: string;
+    /** Whole pence from usage × model price; null when the model is not in the price table. */
+    costPence: number | null;
+    durationMs: number;
+}
+
+/** What the runner persists about a run — see server/agent-runs.ts. Loaded lazily so this module needs no db. */
+interface RunPersistence {
+    startAgentRun: (input: {
+        id?: string; agent: string; trigger?: string | null; conversationId?: string | null; phone?: string | null;
+        model?: string | null; packId?: string | null; packVersion?: number | null; caseFileRef?: string | null;
+        promptHash?: string | null; transcriptRef?: string | null;
+    }) => Promise<string>;
+    finishAgentRun: (
+        id: string,
+        meta: { agent: string; conversationId?: string | null; phone?: string | null },
+        patch: { usage?: AgentRunUsage | null; model?: string | null; error?: string | null; durationMs?: number | null; transcriptRef?: string | null; turns?: number | null },
+    ) => Promise<{ costPence: number | null }>;
+}
+
+async function loadPersistence(): Promise<RunPersistence | null> {
+    try {
+        return await import('../agent-runs');
+    } catch (error: any) {
+        console.warn('[agent-runner] agent_runs persistence unavailable (run continues unrecorded):', error?.message ?? error);
+        return null;
+    }
 }
 
 export interface AgentRunUsage {
@@ -78,11 +109,40 @@ export async function runAgent(opts: {
      *  goal message — how a chat-session agent (ops manager) carries its history into a run.
      *  Purely additive: omitted means exactly the old single-goal behaviour. */
     priorMessages?: Anthropic.MessageParam[];
+    // ---- Phase 1 (2 Sep 2026): run identity, persisted to agent_runs by the runner ----
+    /** Use the caller's run id (minted up front so its tools can stamp drafts/flags before the run ends); else newRunId('run'). */
+    runId?: string;
+    /** What started the run: inbound_message | sla_sweep | ops_manager | manual | … */
+    trigger?: string;
+    conversationId?: string | null;
+    /** E.164 of the customer the run is about, for the ledger's run rows. */
+    phone?: string | null;
+    packId?: string;
+    packVersion?: number;
+    caseFileRef?: string;
+    promptHash?: string;
+    transcriptRef?: string;
+    /** false = do not write agent_runs / ledger rows (dry runs, tests). Default true. */
+    persist?: boolean;
 }): Promise<AgentRunResult> {
     const client = getAnthropic();
     const model = opts.model || 'claude-opus-5';
     const maxTurns = opts.maxTurns ?? 8;
     const transcript: AgentTranscriptEvent[] = [];
+
+    // ---- Phase 1: the run exists as a row before the first model call, and is completed whatever
+    // happens after — success, turn cap, truncation or a thrown tool. Never lets bookkeeping fail a run.
+    const runId = opts.runId ?? newRunId('run');
+    const startedAt = Date.now();
+    const agentName = opts.name.split(':')[0];
+    const persistence = opts.persist === false ? null : await loadPersistence();
+    if (persistence) {
+        await persistence.startAgentRun({
+            id: runId, agent: agentName, trigger: opts.trigger ?? null, conversationId: opts.conversationId ?? null,
+            phone: opts.phone ?? null, model, packId: opts.packId ?? null, packVersion: opts.packVersion ?? null,
+            caseFileRef: opts.caseFileRef ?? null, promptHash: opts.promptHash ?? null, transcriptRef: opts.transcriptRef ?? null,
+        }).catch(() => undefined);
+    }
     const log = (type: AgentTranscriptEvent['type'], detail: any) => {
         const evt: AgentTranscriptEvent = { at: new Date().toISOString(), type, detail };
         transcript.push(evt);
@@ -112,6 +172,21 @@ export async function runAgent(opts: {
     let finalText = '';
     let turns = 0;
     const usage: AgentRunUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+    /** Completes the agent_runs row. Called exactly once, from the finally below. */
+    const finish = async (error: string | null): Promise<number | null> => {
+        const durationMs = Date.now() - startedAt;
+        if (!persistence) return computeCostPence(usage, model);
+        const { costPence } = await persistence.finishAgentRun(
+            runId, { agent: agentName, conversationId: opts.conversationId ?? null, phone: opts.phone ?? null },
+            { usage, model, error, durationMs, transcriptRef: opts.transcriptRef ?? null, turns },
+        ).catch(() => ({ costPence: computeCostPence(usage, model) }));
+        return costPence;
+    };
+    const finished = (): Pick<AgentRunResult, 'runId' | 'model' | 'durationMs'> => ({ runId, model, durationMs: Date.now() - startedAt });
+
+    let runError: string | null = null;
+    try {
 
     // PROMPT CACHING — the single biggest cost lever on an agent loop. Without it, every turn
     // re-bills the full system prompt, tool schemas, thread history and images at full price, so
@@ -184,7 +259,7 @@ export async function runAgent(opts: {
 
         if (response.stop_reason !== 'tool_use') {
             log('done', { stop_reason: response.stop_reason });
-            return { finalText, transcript, turns, usage };
+            return { finalText, transcript, turns, usage, costPence: computeCostPence(usage, model), ...finished() };
         }
 
         // The model asked for tools: run every requested call (in parallel),
@@ -235,5 +310,11 @@ export async function runAgent(opts: {
     }
 
     log('turn_cap', { maxTurns });
-    return { finalText, transcript, turns, usage };
+    return { finalText, transcript, turns, usage, costPence: computeCostPence(usage, model), ...finished() };
+    } catch (error: any) {
+        runError = error?.message ?? String(error);
+        throw error;
+    } finally {
+        await finish(runError);
+    }
 }

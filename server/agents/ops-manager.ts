@@ -30,6 +30,7 @@ import type {
     LeanRunStep, QueueDraftToolResult, RunOpsManagerTurn,
 } from '@shared/ops-types';
 import { runAgent, type AgentTool } from './runner';
+import { newRunId } from '../approver';
 import { leanTranscriptEvent } from './transcript-lean';
 import { runCommsAgent, flagThreadForBen, STAFF as commsStaff } from './comms';
 import { runQuotePrep, STAFF as quotePrepStaff } from './quote-prep';
@@ -151,7 +152,7 @@ async function slaState() {
 
 // ---------------------------------------------------------------- tools
 
-export function buildTools(): AgentTool[] {
+export function buildTools(ctx: { runId?: string } = {}): AgentTool[] {
     return [
         // ---------- reads ----------
         {
@@ -675,6 +676,8 @@ export function buildTools(): AgentTool[] {
                     conversationId: input.conversationId,
                     phone: digits ? `+${digits}` : conv.phoneNumber,
                     note: input.note,
+                    runId: ctx.runId ?? null,
+                    source: 'ops_manager',
                 });
             },
         },
@@ -780,11 +783,14 @@ function historyToPriorMessages(history: { role: 'user' | 'assistant'; content: 
 
 export const runOpsManagerTurn: RunOpsManagerTurn = async ({ sessionId, userMessage, history, onEvent }) => {
     const leanTranscript: LeanRunStep[] = [];
+    // Phase 1: one run id per turn, minted first so the belt's flag writes carry it.
+    const runId = newRunId('run');
     const result = await runAgent({
         name: `ops-manager:${sessionId.slice(0, 8)}`,
+        runId, trigger: 'ops_manager_turn',
         system: SYSTEM,
         goal: userMessage,
-        tools: buildTools(),
+        tools: buildTools({ runId }),
         maxTurns: 12,
         priorMessages: historyToPriorMessages(history),
         onEvent: (evt) => {
