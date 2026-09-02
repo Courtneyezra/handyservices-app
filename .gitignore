@@ -51,6 +51,7 @@ whatsapp-triage-report-*.md
 uploads/
 server/storage/media/
 server/storage/case-files/
+server/storage/archive/
 
 # Ops scripts that read/push credentials (never commit)
 *-creds.sh
