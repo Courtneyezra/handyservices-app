@@ -45,6 +45,12 @@ export interface SpineConfig {
     sampler: { enabled: boolean; rate: number; min: number; max: number };
     /** Phase 3: the rules layer's content-free asks (ask_media / ask_postcode) from the spine exit (§3.5). */
     asks: { enabled: boolean };
+    /**
+     * Phase 4: describe_video via Gemini 2.5 Flash, direct (§3.8). Off = media items carry no
+     * description. `images` sends photos too (default off: photos already reach the model as
+     * image blocks). `maxPerRun` bounds how many items one case-file build may describe.
+     */
+    video: { enabled: boolean; images: boolean; maxPerRun: number };
 }
 
 /** The three-way mode Phase 3 reads: off (nothing runs), shadow (compute + record, never exit), live. */
@@ -67,6 +73,7 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     asks: { enabled: false },
     autonomy: { enabled: false },
     sampler: { enabled: false, rate: 0.1, min: 1, max: 15 },
+    video: { enabled: false, images: false, maxPerRun: 3 },
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -77,6 +84,7 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         asks: { ...DEFAULT_SPINE_CONFIG.asks, ...(patch?.asks ?? {}) },
         autonomy: { ...DEFAULT_SPINE_CONFIG.autonomy, ...(patch?.autonomy ?? {}) },
         sampler: { ...DEFAULT_SPINE_CONFIG.sampler, ...(patch?.sampler ?? {}) },
+        video: { ...DEFAULT_SPINE_CONFIG.video, ...(patch?.video ?? {}) },
     };
 }
 

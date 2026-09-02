@@ -13,7 +13,7 @@ export interface TokenUsage {
 }
 
 export interface ModelPrice {
-    family: 'haiku-4-5' | 'sonnet-5' | 'opus-5';
+    family: 'haiku-4-5' | 'sonnet-5' | 'opus-5' | 'gemini-2.5-flash';
     match: RegExp;
     /** USD per million input tokens. */
     input: number;
@@ -25,6 +25,10 @@ export const MODEL_PRICES_USD_PER_MTOK: readonly ModelPrice[] = [
     { family: 'haiku-4-5', match: /haiku/i, input: 1, output: 5 },
     { family: 'sonnet-5', match: /sonnet/i, input: 2, output: 10 },
     { family: 'opus-5', match: /opus/i, input: 5, output: 25 },
+    // Phase 4 describe_video. The repo carried no Gemini price, so this is the brief's working
+    // assumption ($0.10/M input for video tokens; output set proportionally). Correct it here when
+    // the bill arrives; every vision run's cost_pence is derived from these two numbers.
+    { family: 'gemini-2.5-flash', match: /gemini.*flash/i, input: 0.10, output: 0.40 },
 ];
 
 export const CACHE_READ_MULTIPLIER = 0.10;
