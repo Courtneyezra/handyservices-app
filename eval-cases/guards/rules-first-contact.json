@@ -1,0 +1,1060 @@
+{
+ "generatedFrom": "eval-cases/seed/real-sends.json",
+ "generator": "scripts/eval-seed-guards.ts",
+ "cases": [
+  {
+   "id": "guards-rules-4848ea1e62",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "NG2 6PS",
+     "at": "2026-08-21T08:05:24.636"
+    },
+    {
+     "direction": "inbound",
+     "body": "",
+     "at": "2026-08-21T08:05:24.995"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Sam, thanks for sending those over.",
+     "at": "2026-08-21T08:05:28.129"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Sam, thanks for getting in touch.",
+     "at": "2026-08-21T08:05:28.822"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-21T08:05:31.471"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-21T08:05:31.646"
+    }
+   ],
+   "customer": {
+    "ref": "513",
+    "firstName": "Sam"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Sam, thanks for sending those over.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_photos] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:whatsapp",
+    "sentAt": "2026-08-21 08:05:32.093"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_4848ea1e62 (rules_first_contact, sent 2026-08-21 08:05:32.093)"
+  },
+  {
+   "id": "guards-rules-a02e6d2169",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "NG2 6PS",
+     "at": "2026-08-21T08:05:24.636"
+    },
+    {
+     "direction": "inbound",
+     "body": "",
+     "at": "2026-08-21T08:05:24.995"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Sam, thanks for sending those over.",
+     "at": "2026-08-21T08:05:28.129"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Sam, thanks for getting in touch.",
+     "at": "2026-08-21T08:05:28.822"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-21T08:05:31.471"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-21T08:05:31.646"
+    }
+   ],
+   "customer": {
+    "ref": "513",
+    "firstName": "Sam"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Sam, thanks for getting in touch.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_enquiry] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:whatsapp",
+    "sentAt": "2026-08-21 08:05:32.272"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_a02e6d2169 (rules_first_contact, sent 2026-08-21 08:05:32.272)"
+  },
+  {
+   "id": "guards-rules-e83bf20fad",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "We need a roller blind cut to size and fitted with a bracket in the recess of a window. (Web enquiry — Website Visitor)",
+     "at": "2026-08-21T07:39:16"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Website, thanks for getting in touch. Is it OK if we give you a quick call to run through what you need? Or just reply here with the details and we will price it up.",
+     "at": "2026-08-21T08:09:22.205"
+    }
+   ],
+   "customer": {
+    "ref": "308",
+    "firstName": "Rebecca"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Website, thanks for getting in touch. Is it OK if we give you a quick call to run through what you need? Or just reply here with the details and we will price it up.",
+    "reason": "[ack_enquiry] First contact on webform, template call_request. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:webform",
+    "sentAt": "2026-08-21 08:09:23.379"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_e83bf20fad (rules_first_contact, sent 2026-08-21 08:09:23.379)"
+  },
+  {
+   "id": "guards-rules-d8cae77408",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hello,\n\nI need to drill 2 holes on my bathroom wall to hang my mirror,\n\nHowever, I suspect there might be cables behind it,\n\nSo I need someone who knows what they ate doing,\n\nKind regards.",
+     "at": "2026-08-21T21:48:56.291"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Yassine, thanks for getting in touch.",
+     "at": "2026-08-21T21:48:59.891"
+    },
+    {
+     "direction": "outbound",
+     "body": "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+     "at": "2026-08-21T21:49:03.168"
+    }
+   ],
+   "customer": {
+    "ref": "652",
+    "firstName": "Yassine"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Yassine, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+    "reason": "[ack_enquiry] First contact on whatsapp, out of hours. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:whatsapp",
+    "sentAt": "2026-08-21 21:49:03.822"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_d8cae77408 (rules_first_contact, sent 2026-08-21 21:49:03.822)"
+  },
+  {
+   "id": "guards-rules-945f688411",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Child's climbing frame needs deconstructing and taking to the dump, as it's rotten. I'm 4ft 11 with a degenerative condition and I can't even walk without a stick so I've got no idea how to do it on my own. It might be a two man job for speed, but the individual pieces aren't hugely heavy as they have rotted quite a lot. My (at the time) 70 year old Dad put it together so it shouldn't be too hard to take apart.",
+     "at": "2026-08-22T17:46:42.326"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi there, thanks for getting in touch. Is it OK if we give you a quick call to run through what you need? Or just reply here with the details and we will price it up.",
+     "at": "2026-08-22T17:46:45.72"
+    }
+   ],
+   "customer": {
+    "ref": "139",
+    "firstName": "Website"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, thanks for getting in touch. Is it OK if we give you a quick call to run through what you need? Or just reply here with the details and we will price it up.",
+    "reason": "[ack_enquiry] First contact on webform, template call_request. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:webform",
+    "sentAt": "2026-08-22 17:46:46.42"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_945f688411 (rules_first_contact, sent 2026-08-22 17:46:46.42)"
+  },
+  {
+   "id": "guards-rules-715d396c5a",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Inbound call (3m 7s), job enquiry: Kitchen makeover, toilet/bathroom work, flooring, and miscellaneous renovation work in ne…; WhatsApp agreed\nKitchen makeover, toilet and bathroom work, flooring, and various renovation work in a newly purchased house.",
+     "at": "2026-08-25T08:58:16.706"
+    }
+   ],
+   "customer": {
+    "ref": "913",
+    "firstName": null
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, as discussed, please send us a video of Kitchen makeover, toilet/bathroom work, flooring, and miscellaneous renovation work in newly purchased house. This helps us see exactly what is needed to give you an accurate price.",
+    "reason": "[ack_hold_until:2026-08-25T09:03:56.180Z] Inbound call CAa2f585a8080ab412574cc2b5d3e1efb1 lasted 187s. No video requested for this number in the last 30 days.",
+    "source": "post_call_video",
+    "approver": "first_contact_ack:manual_release",
+    "sentAt": "2026-08-25 10:30:09.861"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_715d396c5a (rules_first_contact, sent 2026-08-25 10:30:09.861)"
+  },
+  {
+   "id": "guards-rules-e0f36e29e8",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi do you do brick pointing?? And guttering?? Not sure if its the guttering or a blockage",
+     "at": "2026-08-25T15:28:05.068"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Carolyne, thanks for getting in touch.",
+     "at": "2026-08-25T15:29:29.478"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-25T15:29:34.735"
+    }
+   ],
+   "customer": {
+    "ref": "889",
+    "firstName": "Carolyne"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Carolyne, thanks for getting in touch.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-08-25T15:29:24.418Z] [ack_enquiry] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-25 15:29:36.271"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_e0f36e29e8 (rules_first_contact, sent 2026-08-25 15:29:36.271)"
+  },
+  {
+   "id": "guards-rules-ee1be99bb1",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Inbound call (30s)",
+     "at": "2026-05-31T17:09:30.749"
+    },
+    {
+     "direction": "inbound",
+     "body": "Inbound call (30s)",
+     "at": "2026-05-31T17:10:08.189"
+    },
+    {
+     "direction": "inbound",
+     "body": "Inbound call (1m 5s), job enquiry: UPVC door repair - remote inch issue, customer to send pictures via WhatsApp; WhatsApp agreed\nFix a UPVC door that leads to the curtain with a remote inch issue.",
+     "at": "2026-08-26T10:55:39.382"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi there, as discussed, please send us a video of UPVC door repair - remote inch issue, customer to send pictures via WhatsApp. This helps us see exactly what is needed to give you an accurate price.",
+     "at": "2026-08-26T10:58:45.398"
+    }
+   ],
+   "customer": {
+    "ref": "314",
+    "firstName": "Unknown"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, as discussed, please send us a video of UPVC door repair - remote inch issue, customer to send pictures via WhatsApp. This helps us see exactly what is needed to give you an accurate price.",
+    "reason": "[ack_hold_until:2026-08-26T10:58:36.744Z] Inbound call CAb511d1ce4e7cd6ea132b71e96fb9cf42 lasted 65s. No video requested for this number in the last 30 days.",
+    "source": "post_call_video",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-26 10:58:46.063"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_ee1be99bb1 (rules_first_contact, sent 2026-08-26 10:58:46.063)"
+  },
+  {
+   "id": "guards-rules-fa55259473",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Inbound call (1m 23s), job enquiry: Remove banister from stairs; WhatsApp agreed\nRemove a banister from stairs.",
+     "at": "2026-08-26T15:24:07.714"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi there, as discussed, please send us a video of Remove banister from stairs. This helps us see exactly what is needed to give you an accurate price.",
+     "at": "2026-08-26T15:28:04.018"
+    }
+   ],
+   "customer": {
+    "ref": "029",
+    "firstName": "Raheeeeeee"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, as discussed, please send us a video of Remove banister from stairs. This helps us see exactly what is needed to give you an accurate price.",
+    "reason": "[ack_hold_until:2026-08-26T15:28:02.608Z] Inbound call CA5ea6b6bfc509315582dd5c74593975c3 lasted 83s. No video requested for this number in the last 30 days.",
+    "source": "post_call_video",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-26 15:28:04.659"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_fa55259473 (rules_first_contact, sent 2026-08-26 15:28:04.659)"
+  },
+  {
+   "id": "guards-rules-6066b63e2a",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Inbound call (1m 21s), job enquiry: Double glazed window: one pane needs removal, cleaning (condensation issue), and replacem…; WhatsApp agreed\nRemove one side of a double glazed window, clean it to remove condensation, and install a new window pane.",
+     "at": "2026-08-27T10:39:56.032"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi there, as discussed, please send us a video of the double glazed window. This helps us see exactly what is needed to give you an accurate price.",
+     "at": "2026-08-27T10:43:37.984"
+    }
+   ],
+   "customer": {
+    "ref": "067",
+    "firstName": "H"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, as discussed, please send us a video of the double glazed window. This helps us see exactly what is needed to give you an accurate price.",
+    "reason": "[ack_hold_until:2026-08-27T10:43:28.068Z] Inbound call CA24b454342f46b207dbb58bd3e5efbd51 lasted 81s. No video requested for this number in the last 30 days.",
+    "source": "post_call_video",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-27 10:43:40.063"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_6066b63e2a (rules_first_contact, sent 2026-08-27 10:43:40.063)"
+  },
+  {
+   "id": "guards-rules-72df992d92",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hello, I am looking for a quote for someone to come and finish the job of stripping these walls please. I have done the easy bits but the stubborn bits will need either scoring and soaking or steaming. I don’t have the patience!!",
+     "at": "2026-08-28T10:38:57.646"
+    },
+    {
+     "direction": "inbound",
+     "body": "",
+     "at": "2026-08-28T10:39:16.896"
+    },
+    {
+     "direction": "inbound",
+     "body": "",
+     "at": "2026-08-28T10:39:38.096"
+    },
+    {
+     "direction": "inbound",
+     "body": "It is 2 walls in a small bedroom. Do you need measurements?",
+     "at": "2026-08-28T10:39:53.387"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Dani, thanks for getting in touch.",
+     "at": "2026-08-28T10:40:30.372"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-28T10:40:36.076"
+    }
+   ],
+   "customer": {
+    "ref": "509",
+    "firstName": "Dani"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Dani, thanks for getting in touch.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-08-28T10:40:19.047Z] [ack_enquiry] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-28 10:40:38.546"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_72df992d92 (rules_first_contact, sent 2026-08-28 10:40:38.546)"
+  },
+  {
+   "id": "guards-rules-4c1fc36878",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hello, I’m looking for a quote to remove this fireplace and hearth and make good the wall behind it. It’s a plug in electric fire, I have a box of unused floorboards to match existing floor. I would require all materials removed to be disposed of as part of the quote. Please ask for any other information needed. I live in the NG 5 area.",
+     "at": "2026-08-28T10:56:22.53"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Gill, thanks for sending those over.",
+     "at": "2026-08-28T10:58:00.921"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-28T10:58:06.9"
+    }
+   ],
+   "customer": {
+    "ref": "413",
+    "firstName": "Gill"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Gill, thanks for sending those over.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-08-28T10:57:55.877Z] [ack_photos] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-28 10:58:09.523"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_4c1fc36878 (rules_first_contact, sent 2026-08-28 10:58:09.523)"
+  },
+  {
+   "id": "guards-rules-c23867f12e",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Inbound call (3m 20s), job enquiry: Carpet fitting on staircase, hide TV wires with trunking/conduit in living area, possibly…; WhatsApp agreed\nChange carpet in staircase and hide television wires around that part of the house.",
+     "at": "2026-08-28T14:15:45.19"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi there, as discussed, please send us a video of the staircase carpet and TV wires. This helps us see exactly what is needed to give you an accurate price.",
+     "at": "2026-08-28T14:20:46.966"
+    }
+   ],
+   "customer": {
+    "ref": "482",
+    "firstName": "EBUBE"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, as discussed, please send us a video of the staircase carpet and TV wires. This helps us see exactly what is needed to give you an accurate price.",
+    "reason": "[ack_hold_until:2026-08-28T14:20:39.920Z] Inbound call CAc1ed89e952d093651fc5cb0d863e5943 lasted 200s. No video requested for this number in the last 30 days.",
+    "source": "post_call_video",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-28 14:20:48.815"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_c23867f12e (rules_first_contact, sent 2026-08-28 14:20:48.815)"
+  },
+  {
+   "id": "guards-rules-2df060a664",
+   "family": "guards",
+   "kind": "regression",
+   "context": [],
+   "customer": {
+    "ref": "177",
+    "firstName": "James"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, thanks for getting in touch. We got your message: \"URGENT-Supply and install 2 x 15l under counter unvented…\". Is it OK if we give you a quick call shortly to run through it? Or just reply here with the details and we will price it up.",
+    "reason": "[ack_hold_until:2026-08-28T16:53:47.747Z] [ack_enquiry] First contact on webform, template web_enquiry_ack_context. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-28 16:53:52.02"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_2df060a664 (rules_first_contact, sent 2026-08-28 16:53:52.02)"
+  },
+  {
+   "id": "guards-rules-d7d0324161",
+   "family": "guards",
+   "kind": "regression",
+   "context": [],
+   "customer": {
+    "ref": "783",
+    "firstName": "Monika"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Monika, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-08-28T20:42:26.890Z] [ack_enquiry] First contact on whatsapp, out of hours. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-28 20:42:43.257"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_d7d0324161 (rules_first_contact, sent 2026-08-28 20:42:43.257)"
+  },
+  {
+   "id": "guards-rules-3e7e2de678",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hello could I have a price for some work at my home requiring a maisonary drill which I don’t have - about 1-2 hours work . Out up my stair rail , ( I have it ) put up  my tv bracket ( I have it ) , install extended water pipe threw a stud wall and and extended waste pipe threw same wall for my washing machine ( next to existing bathroom ) I can provide video if easier to quote ) \n\nPut  up one bay window curtain rail with the brackets ( I have it )",
+     "at": "2026-08-29T12:36:37.44"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Just, thanks for getting in touch.",
+     "at": "2026-08-29T12:38:55.001"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-08-29T12:38:58.382"
+    }
+   ],
+   "customer": {
+    "ref": "352",
+    "firstName": "Just"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Just, thanks for getting in touch.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-08-29T12:38:38.970Z] [ack_enquiry] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-29 12:38:59.05"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_3e7e2de678 (rules_first_contact, sent 2026-08-29 12:38:59.05)"
+  },
+  {
+   "id": "guards-rules-89b89ce7e0",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi, I have a Wood’s Cortina XL portable air conditioner with a 150mm exhaust hose and the supplied window kit. I have a vertically sliding sash window. I need someone to install and securely seal the window kit and connect the exhaust hose. No permanent air-conditioning installation is required. I would like the installation to be removable and without drilling into the window frame if possible. Could you please give me a quote?",
+     "at": "2026-08-30T02:34:16.128"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi, thanks for getting in touch.",
+     "at": "2026-08-30T02:36:34.122"
+    },
+    {
+     "direction": "outbound",
+     "body": "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+     "at": "2026-08-30T02:36:37.314"
+    }
+   ],
+   "customer": {
+    "ref": "854",
+    "firstName": "."
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-08-30T02:36:24.586Z] [ack_enquiry] First contact on whatsapp, out of hours. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-30 02:36:37.981"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_89b89ce7e0 (rules_first_contact, sent 2026-08-30 02:36:37.981)"
+  },
+  {
+   "id": "guards-rules-c7d38a3017",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "",
+     "at": "2026-08-31T13:12:48.254"
+    },
+    {
+     "direction": "inbound",
+     "body": "Hi it's nina",
+     "at": "2026-08-31T13:12:50.67"
+    },
+    {
+     "direction": "inbound",
+     "body": "Ng8 5hs",
+     "at": "2026-08-31T13:13:01.823"
+    },
+    {
+     "direction": "inbound",
+     "body": "I have flooring",
+     "at": "2026-08-31T13:13:12.541"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi there, as discussed, please send us a video of the shed. This helps us see exactly what is needed to give you an accurate price.",
+     "at": "2026-08-31T13:13:42.281"
+    },
+    {
+     "direction": "inbound",
+     "body": "This storge size is 10x8",
+     "at": "2026-08-31T13:13:42.434"
+    }
+   ],
+   "customer": {
+    "ref": "647",
+    "firstName": "Nina"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, as discussed, please send us a video of the shed. This helps us see exactly what is needed to give you an accurate price.",
+    "reason": "[ack_hold_until:2026-08-31T13:13:41.415Z] Inbound call CAa95be104def195951998ed9d8f218bca lasted 59s. No video requested for this number in the last 30 days.",
+    "source": "post_call_video",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-08-31 13:13:42.92"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_c7d38a3017 (rules_first_contact, sent 2026-08-31 13:13:42.92)"
+  },
+  {
+   "id": "guards-rules-4287fe859a",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hello,\n\nI've got a few crack lines in my ceiling and I was wondering whether the repair of this is something  you offer as a service.\n\nI also have an issue with the bolts of my back door and again I wondered whether this would be a repair service you would offer.\n\nPS - I am based in Long Eaton.",
+     "at": "2026-09-01T11:24:27.333"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Yvonne, thanks for getting in touch.",
+     "at": "2026-09-01T11:26:50.972"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-09-01T11:26:53.823"
+    }
+   ],
+   "customer": {
+    "ref": "829",
+    "firstName": "Yvonne"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Yvonne, thanks for getting in touch.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-09-01T11:26:41.822Z] [ack_enquiry] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-09-01 11:26:54.483"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_4287fe859a (rules_first_contact, sent 2026-09-01 11:26:54.483)"
+  },
+  {
+   "id": "guards-rules-9d938212a6",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Inbound call (3m 7s), job enquiry: Loft insulation installation. Customer to supply materials (63 sq m). Roll insulation bet…; urgent; WhatsApp agreed\nRoll insulation between joists in loft covering 63 square meters.",
+     "at": "2026-09-01T13:25:26.59"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi there, as discussed, please send us a video of the loft insulation. This helps us see exactly what is needed to give you an accurate price.",
+     "at": "2026-09-01T13:30:36.825"
+    }
+   ],
+   "customer": {
+    "ref": "760",
+    "firstName": "Lou"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi there, as discussed, please send us a video of the loft insulation. This helps us see exactly what is needed to give you an accurate price.",
+    "reason": "[ack_hold_until:2026-09-01T13:30:29.907Z] Inbound call CAfb74033a325121a1ba79824daf29b4c9 lasted 187s. No video requested for this number in the last 30 days.",
+    "source": "post_call_video",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-09-01 13:30:37.562"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_9d938212a6 (rules_first_contact, sent 2026-09-01 13:30:37.562)"
+  },
+  {
+   "id": "guards-rules-714ccf434a",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi, I just have a quick question about your handyman service",
+     "at": "2026-09-01T13:32:56.518"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi David, thanks for getting in touch.",
+     "at": "2026-09-01T13:34:52.203"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-09-01T13:34:55.719"
+    }
+   ],
+   "customer": {
+    "ref": "768",
+    "firstName": "David"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi David, thanks for getting in touch.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-09-01T13:34:49.901Z] [ack_enquiry] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-09-01 13:34:56.373"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_714ccf434a (rules_first_contact, sent 2026-09-01 13:34:56.373)"
+  },
+  {
+   "id": "guards-rules-942195fed9",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "I'm interested in Handy Services",
+     "at": "2026-09-01T20:19:18.48"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Steven, thanks for getting in touch.",
+     "at": "2026-09-01T20:20:39.504"
+    },
+    {
+     "direction": "outbound",
+     "body": "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+     "at": "2026-09-01T20:20:42.749"
+    }
+   ],
+   "customer": {
+    "ref": "289",
+    "firstName": "Steven"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Steven, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-09-01T20:20:36.998Z] [ack_enquiry] First contact on whatsapp, out of hours. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-09-01 20:20:43.578"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_942195fed9 (rules_first_contact, sent 2026-09-01 20:20:43.578)"
+  },
+  {
+   "id": "guards-rules-c0afd4970a",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "",
+     "at": "2026-09-02T06:52:27.39"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Jr, thanks for sending those over.",
+     "at": "2026-09-02T06:54:21.565"
+    },
+    {
+     "direction": "outbound",
+     "body": "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+     "at": "2026-09-02T06:54:26.56"
+    }
+   ],
+   "customer": {
+    "ref": "315",
+    "firstName": "Jr"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Jr, thanks for sending those over.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-09-02T06:54:16.214Z] [ack_photos] First contact on whatsapp, out of hours. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-09-02 06:54:27.797"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_c0afd4970a (rules_first_contact, sent 2026-09-02 06:54:27.797)"
+  },
+  {
+   "id": "guards-rules-3b375c9866",
+   "family": "guards",
+   "kind": "regression",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi, looking for someone to fix a couple of squeaky/creaky steps on my stairs",
+     "at": "2026-09-02T10:09:51.187"
+    },
+    {
+     "direction": "inbound",
+     "body": "Do you offer this service?",
+     "at": "2026-09-02T10:11:02.786"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi Antonio, thanks for getting in touch.",
+     "at": "2026-09-02T10:11:12.291"
+    },
+    {
+     "direction": "outbound",
+     "body": "Is it OK if we give you a quick call to run through it? Or just reply here with the details.",
+     "at": "2026-09-02T10:11:14.963"
+    }
+   ],
+   "customer": {
+    "ref": "435",
+    "firstName": "Antonio"
+   },
+   "firstContact": true,
+   "candidate": {
+    "body": "Hi Antonio, thanks for getting in touch.\n---\nIs it OK if we give you a quick call to run through it? Or just reply here with the details.",
+    "reason": "[ack_hold_until:2026-09-02T10:11:08.550Z] [ack_enquiry] First contact on whatsapp. Auto-acknowledged.",
+    "source": "first_contact_ack",
+    "approver": "first_contact_ack:held_release",
+    "sentAt": "2026-09-02 10:11:15.583"
+   },
+   "expected": {
+    "mustNotContain": [
+     "£",
+     "discount"
+    ],
+    "guardsMustNotTrip": true,
+    "label": null,
+    "notes": "label with fine | tone | wrong_move | unsafe | missing_info"
+   },
+   "provenance": "eval-cases/seed/real-sends.json seed_3b375c9866 (rules_first_contact, sent 2026-09-02 10:11:15.583)"
+  }
+ ]
+}

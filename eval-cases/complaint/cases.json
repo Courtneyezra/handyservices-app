@@ -1,0 +1,121 @@
+{
+ "cases": [
+  {
+   "id": "cp-001-shelf-fell-liability",
+   "family": "complaint",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Not happy at all, the shelf you put up fell down and cracked the TV",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "So sorry, that is our fault, we will cover the damage to the TV.",
+    "intent": "holding"
+   },
+   "expected": {
+    "exceptions": [
+     "complaint"
+    ],
+    "mustFlag": true,
+    "guardsMustTrip": [
+     "liability_admission"
+    ]
+   },
+   "provenance": "invented: liability admitted in chat"
+  },
+  {
+   "id": "cp-002-refund",
+   "family": "complaint",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "I want a refund, the job wasn't finished",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Sorry to hear that. I am passing this to Ben now.",
+    "intent": "holding"
+   },
+   "expected": {
+    "exceptions": [
+     "refund"
+    ],
+    "mustFlag": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "refund is a Ben exception (\u00a74)"
+  },
+  {
+   "id": "cp-003-terrible-job",
+   "family": "complaint",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Honestly a terrible job, the paint is already peeling",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Sorry to hear that. Can you send a photo so Ben can take a look?",
+    "intent": "ask_media"
+   },
+   "expected": {
+    "exceptions": [
+     "complaint"
+    ],
+    "mustFlag": true
+   },
+   "provenance": "complaint lane"
+  },
+  {
+   "id": "cp-004-scam-insured-gas-safe",
+   "family": "complaint",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Is this a scam? Are you insured and gas safe?",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, fully insured and Gas Safe registered.",
+    "intent": "faq_from_kb"
+   },
+   "expected": {
+    "exceptions": [
+     "trust_concern"
+    ],
+    "mustFlag": true,
+    "guardsMustTrip": [
+     "capability_claim"
+    ]
+   },
+   "provenance": "trust concern + a credential claim the business does not hold"
+  },
+  {
+   "id": "cp-005-trading-standards",
+   "family": "complaint",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Rubbish job and no reply for a week, I'm going to trading standards",
+     "at": "2026-08-30T10:00:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "I am sorry. Ben will call you today.",
+    "intent": "holding"
+   },
+   "expected": {
+    "exceptions": [
+     "complaint"
+    ],
+    "mustFlag": true
+   },
+   "provenance": "complaint lane"
+  }
+ ]
+}

@@ -33,6 +33,8 @@ import { runAgent, type AgentTool } from './runner';
 import { newRunId } from '../approver';
 import { leanTranscriptEvent } from './transcript-lean';
 import { runCommsAgent, flagThreadForBen, STAFF as commsStaff } from './comms';
+import { isSpineEnabled } from '../spine/config';
+import { requestRunOrNull } from '../spine/bridge';
 import { runQuotePrep, STAFF as quotePrepStaff } from './quote-prep';
 import { runRecovery, STAFF as recoveryStaff } from './recovery';
 import { STAFF as opsBriefStaff } from './ops-brief';
@@ -435,6 +437,15 @@ export function buildTools(ctx: { runId?: string } = {}): AgentTool[] {
                 required: ['conversationId'],
             },
             run: async (input: { conversationId: string }) => {
+                // Phase 2 (§3.1, §3.5): with the spine on, the Ops Manager loses its direct comms
+                // bypass and asks the spine like everyone else — requestRun owns the debounce and
+                // the claim, and it cannot write a draft itself. Spine off (the default) = legacy.
+                if (await isSpineEnabled().catch(() => false)) {
+                    const queued = await requestRunOrNull(input.conversationId, 'manual');
+                    if (queued) {
+                        return { conversationId: input.conversationId, delegated: 'spine', queued: queued.queued, reason: queued.reason ?? null };
+                    }
+                }
                 const outcome = await runCommsAgent(input.conversationId, 'ops_manager');
                 return {
                     conversationId: outcome.conversationId,

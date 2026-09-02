@@ -28,7 +28,10 @@ export type Intent =
     // scoper (customer.post_quote)
     | 'answer_from_quote' | 'point_to_picker'
     // contractor.default
-    | 'job_brief' | 'availability_ask' | 'confirm_receipt' | 'materials_list';
+    | 'job_brief' | 'availability_ask' | 'confirm_receipt' | 'materials_list'
+    // PROPOSE-tier artifacts (Phase 2 / C, additive): the clerk and recovery never speak to the
+    // customer; their proposal is an artifact (intake / nudge batch) carried in Proposal.artifact.
+    | 'propose_intake' | 'propose_nudges';
 
 /** Names of detectors in server/agents/draft-guards.ts plus the contractor-pack pair. */
 export type GuardName =
@@ -106,6 +109,19 @@ export interface Proposal {
     flag?: { exception: ExceptionKind; note: string } | null;
     contactName?: string | null;
     recontactAt?: string | null;
+    /** Phase 2 / C (additive): a PROPOSE-tier product that is not a message (quote intake, nudge batch). */
+    artifact?: ProposalArtifact | null;
+}
+
+/** Phase 2 / C (additive). What a PROPOSE-tier agent hands to Ben instead of a reply. */
+export type ArtifactKind = 'quote_intake' | 'nudge_batch';
+export interface ProposalArtifact {
+    kind: ArtifactKind;
+    /** One line for the runs drawer and the staff page. */
+    summary: string;
+    data: unknown;
+    /** The wrapped legacy agent's own agent_runs id, so its transcript is one click away. */
+    childRunId?: string | null;
 }
 
 export type Decision =
@@ -138,6 +154,11 @@ export interface SpineAgent {
     tier: Tier;
     /** Return null when there is nothing to propose. Must not send, price, or book. */
     run(input: { caseFile: CaseFile; pack: PolicyPack; triage: TriageResult; runId: string }): Promise<Proposal | null>;
+    /**
+     * Phase 2 / C (additive, optional): should this agent run for this trigger on this case?
+     * The runner asks every registered agent; absent means "only when triage lanes to me".
+     */
+    accepts?(input: { caseFile: CaseFile; triage: TriageResult; trigger: Trigger }): boolean;
 }
 
 /** Function contracts implemented in Phase 2 (server/spine/*.ts). */
