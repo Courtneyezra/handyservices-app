@@ -45,6 +45,7 @@
  * Wired into comms-sweep.ts's fast tick (dynamic import, same as promise-tracker); throttled
  * internally to one pass per 5 minutes because the finest SLA is measured in hours.
  */
+import { newRunId } from '../approver';
 import { db } from '../db';
 import {
     conversations, messages, messageDrafts, personalizedQuotes, agentQuestions,
@@ -346,7 +347,7 @@ export type ChaseOutcome = 'sent' | 'queued' | 'suppressed';
  * all apply. 'queued' means a guard held it for a human — that is the guard working, not a
  * failure. 'suppressed' means it never became a draft (opt-out / duplicate pending).
  */
-async function defaultChase(args: { conversationId: string; phone: string; body: string }): Promise<ChaseOutcome> {
+async function defaultChase(args: { conversationId: string; phone: string; body: string; runId?: string }): Promise<ChaseOutcome> {
     const { queueDraft, approveAndSendDraft } = await import('../message-drafts');
     const draftId = await queueDraft({
         phone: args.phone,
@@ -354,9 +355,10 @@ async function defaultChase(args: { conversationId: string; phone: string; body:
         source: 'comms_agent',
         reason: '[sla_chase] needs_info: customer silent past the SLA, sending the canned no-reply chase',
         dedupe: true,
+        runId: args.runId ?? null,
     });
     if (!draftId) return 'suppressed';
-    const sent = await approveAndSendDraft(draftId, 'agent.sla_chase');
+    const sent = await approveAndSendDraft(draftId, 'agent.sla_chase', args.runId);
     return sent.ok ? 'sent' : 'queued';
 }
 
@@ -415,7 +417,7 @@ let lastPassAt = 0;
 export async function sweepSlaBreaches(opts?: {
     now?: Date;
     notify?: (alert: SlaBreachAlertArgs) => Promise<void>;
-    chase?: (args: { conversationId: string; phone: string; body: string }) => Promise<ChaseOutcome>;
+    chase?: (args: { conversationId: string; phone: string; body: string; runId?: string }) => Promise<ChaseOutcome>;
     scopeConversationIds?: string[];
 }): Promise<SlaSweepResult> {
     const res: SlaSweepResult = {
@@ -442,6 +444,8 @@ export async function sweepSlaBreaches(opts?: {
 
     const notify = opts?.notify ?? defaultNotify;
     const chase = opts?.chase ?? defaultChase;
+    // Phase 1: one run id per sweep pass; every chase it sends carries it.
+    const runId = newRunId('sweep');
     const scope = opts?.scopeConversationIds;
 
     // ---- Pass A: resolve episodes that no longer hold, so nothing ghost-alerts.
@@ -569,7 +573,7 @@ export async function sweepSlaBreaches(opts?: {
             emitSlaBoardDelta(conv.id);
 
             if (det.lane === 'needs_info' && cfg.customerChase.enabled) {
-                const outcome = await chase({ conversationId: conv.id, phone, body: cfg.customerChase.template });
+                const outcome = await chase({ conversationId: conv.id, phone, body: cfg.customerChase.template, runId });
                 res.chased++;
                 console.log(`[SlaSweep] needs_info breach on ${conv.id}: customer chase ${outcome}.`);
                 if (outcome === 'suppressed') {

@@ -19,6 +19,7 @@ import { queueDraft } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
 import { newRunId } from './approver';
+import { ledgerFlagClosedForConversation } from './ledger';
 import { renderQuickReply } from './quick-replies';
 import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
 import { claudeText } from './llm';
@@ -606,6 +607,12 @@ async function finalizeQuoteSent(quoteId: string, conversationId: string): Promi
             updatedAt: new Date(),
         })
         .where(eq(conversations.id, conversationId));
+    // COMMS LEDGER (Phase 1): sending the quote was Ben's move, so an open flag is closed by it.
+    if ((conv?.tags ?? []).includes('needs_ben')) {
+        const [c] = await db.select({ phoneNumber: conversations.phoneNumber }).from(conversations).where(eq(conversations.id, conversationId));
+        const digits = (c?.phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+        void ledgerFlagClosedForConversation({ conversationId, phone: digits ? `+${digits}` : '', closedBy: 'system:quote_sent', reason: 'quote sent' });
+    }
 }
 
 /**
