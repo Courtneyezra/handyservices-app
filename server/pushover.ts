@@ -890,6 +890,24 @@ export async function notifyWorkerHealth(alert: WorkerHealthAlert): Promise<void
     });
 }
 
+interface LedgerDriftAlert {
+    title: string;
+    message: string;
+}
+
+/**
+ * P6 (nightly ledger drift, server/ledger-drift-job.ts): source tables and the comms ledger
+ * disagree over the last 7 days. Rides the 'worker_health' key: the ledger is infrastructure and
+ * the fix is a missing write site or an unrun backfill, not a customer thread. No link.
+ */
+export async function notifyLedgerDrift(alert: LedgerDriftAlert): Promise<void> {
+    await dispatch({
+        event: 'worker_health',
+        title: `📒 ${alert.title}`,
+        message: truncate(alert.message, 900),
+    });
+}
+
 export interface AutonomyChangeAlert {
     packId: string;
     intent: string;

@@ -17,6 +17,53 @@ export interface VerdictRow {
     intent: string | null;
     by: string;
     createdAt: Date | string;
+    /** P6: the draft the verdict is about, so the judge's and a person's rows on one draft can be paired. */
+    draftId?: string | null;
+}
+
+/** The verifier's approver string (server/spine/sampler.ts SAMPLER_APPROVER); its rows are the judge's. */
+export const JUDGE_APPROVER = 'agent.verifier';
+
+/**
+ * P6: how often Ben agreed with the judge (design §9: the judge influences nothing until agreement
+ * is ≥ 85%). Pairs the `agent.verifier` sample verdict with the `human:*` sample verdict on the
+ * same draft; agreement = same verdict (fine / not fine). Human non-sample verdicts (approve / edit /
+ * reject) are a different act and are not paired.
+ */
+export interface SamplerAgreement {
+    /** Drafts the judge scored in the window. */
+    judged: number;
+    /** Of those, drafts a person also scored. */
+    humanReviewed: number;
+    /** % of humanReviewed where both said the same thing; null until there is one pair. */
+    agreement: number | null;
+    /** Pairs where the person said fine / not fine against the judge's verdict. */
+    disagreements: { judgeFineHumanNot: number; judgeNotHumanFine: number };
+}
+
+export function samplerAgreement(rows: VerdictRow[]): SamplerAgreement {
+    const isSample = (v: string) => v === 'sample_fine' || v === 'sample_not_fine';
+    const judge = new Map<string, string>();
+    const human = new Map<string, string>();
+    for (const r of rows) {
+        if (!r.draftId || !isSample(r.verdict)) continue;
+        if (r.by === JUDGE_APPROVER) { if (!judge.has(r.draftId)) judge.set(r.draftId, r.verdict); }
+        else if (r.by.startsWith('human:')) { if (!human.has(r.draftId)) human.set(r.draftId, r.verdict); }
+    }
+    let humanReviewed = 0; let agreed = 0; let judgeFineHumanNot = 0; let judgeNotHumanFine = 0;
+    judge.forEach((j, draftId) => { // forEach, not for…of: the project target cannot iterate a Map
+        const h = human.get(draftId);
+        if (!h) return;
+        humanReviewed += 1;
+        if (h === j) agreed += 1;
+        else if (j === 'sample_fine') judgeFineHumanNot += 1;
+        else judgeNotHumanFine += 1;
+    });
+    return {
+        judged: judge.size, humanReviewed,
+        agreement: humanReviewed > 0 ? Math.round((agreed / humanReviewed) * 1000) / 10 : null,
+        disagreements: { judgeFineHumanNot, judgeNotHumanFine },
+    };
 }
 
 export interface VerdictBucket {
@@ -42,6 +89,8 @@ export interface VerdictStats extends VerdictBucket {
     bySource: Array<VerdictBucket & { source: string }>;
     byIntent: Array<VerdictBucket & { intent: string }>;
     byApprover: Array<{ by: string; human: number }>;
+    /** P6: judge vs Ben on the sampled sends (server/spine/sampler.ts). */
+    sampler: SamplerAgreement;
 }
 
 export function isDraftVerdict(v: unknown): v is DraftVerdict {
@@ -130,6 +179,7 @@ export function aggregateVerdicts(rows: VerdictRow[], opts: { days: number; sinc
         bySource: Array.from(bySource.entries()).map(([source, b]) => ({ source, ...finish(b) })).sort(desc),
         byIntent: Array.from(byIntent.entries()).map(([intent, b]) => ({ intent, ...finish(b) })).sort(desc),
         byApprover: Array.from(byApprover.entries()).map(([by, human]) => ({ by, human })).sort((a, b) => b.human - a.human),
+        sampler: samplerAgreement(rows),
     };
 }
 

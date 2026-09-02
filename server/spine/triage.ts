@@ -150,6 +150,8 @@ export interface TriageDeps {
     writeConversation?: boolean;
     /** Write the agent_runs row + ledger events. Default true; tests pass false. */
     persist?: boolean;
+    /** P6: the spine run this triage belongs to; stamped on the triage row as parent_run_id. */
+    parentRunId?: string | null;
     now?: () => Date;
 }
 
@@ -234,7 +236,7 @@ export async function triage(cf: CaseFile, deps: TriageDeps = {}): Promise<Triag
     if (deps.persist !== false) {
         try {
             const { startAgentRun, finishAgentRun } = await import('../agent-runs');
-            const id = await startAgentRun({ agent: 'triage', trigger: 'triage', conversationId: cf.conversationId, phone: cf.phone, model, caseFileRef: cf.hash });
+            const id = await startAgentRun({ agent: 'triage', trigger: 'triage', conversationId: cf.conversationId, phone: cf.phone, model, caseFileRef: cf.hash, parentRunId: deps.parentRunId ?? null });
             await finishAgentRun(id, { agent: 'triage', conversationId: cf.conversationId, phone: cf.phone }, {
                 usage, model: result.source === 'model' ? result.model ?? model : null, error,
                 durationMs: Date.now() - startedAt.getTime(), decision: result.lane, lane: result.lane, proposal: result,

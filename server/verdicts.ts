@@ -68,6 +68,7 @@ export function approvalVerdict(draft: { body: string; originalBody?: string | n
 export async function verdictStats(days: number): Promise<VerdictStats> {
     const since = new Date(Date.now() - days * 24 * 3600_000);
     const rows = await db.select({
+        draftId: draftVerdicts.draftId,
         verdict: draftVerdicts.verdict,
         reason: draftVerdicts.reason,
         by: draftVerdicts.by,
@@ -80,7 +81,7 @@ export async function verdictStats(days: number): Promise<VerdictStats> {
         .where(gte(draftVerdicts.createdAt, since));
     return aggregateVerdicts(
         rows.map((r) => ({
-            verdict: r.verdict, reason: r.reason, by: r.by, createdAt: r.createdAt,
+            draftId: r.draftId, verdict: r.verdict, reason: r.reason, by: r.by, createdAt: r.createdAt,
             source: r.source ?? null, intent: intentFromReason(r.draftReason),
         })),
         { days, since },

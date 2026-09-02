@@ -3,7 +3,9 @@
  *
  *   send     queueDraft (source 'spine') → approveAndSendDraft(id, approver, runId): the same
  *            claimed-row path a human's click takes, so the near-duplicate / malformed-reason /
- *            opt-out holds and the gated sendCustomerMessage all apply.
+ *            opt-out holds and the gated sendCustomerMessage all apply. With the 24h window shut
+ *            the draft carries the pack's APPROVED template for the intent (P6); without one it
+ *            is refused OUTSIDE_WINDOW and stays pending with a due time — never silent.
  *   pending  queueDraft with due_at + run_id; a person decides, the rules layer holds the line
  *            if the due time passes.
  *   flag     agent_questions row (status flagged, due_at, run_id) + needs_ben tag + ONE Pushover.
@@ -24,11 +26,28 @@ export interface ExitFlagRow {
     source: string; status: 'flagged'; dueAt: Date; runId: string;
 }
 
+/** An approved Meta template resolved for a SEND whose 24h window is shut (P6, template-first exit). */
+export interface ResolvedTemplate {
+    name: string;
+    contentSid: string;
+    variables: Record<string, string>;
+    /** The template body with its variables filled — what the customer will read. */
+    body: string;
+}
+
 export interface ExitDeps {
     queueDraft: (input: {
         phone: string; body: string; source: 'spine'; reason: string; dueAt?: Date; runId: string; dedupe?: boolean;
+        contentSid?: string; contentVariables?: Record<string, string>;
     }) => Promise<string | null>;
     approveAndSendDraft: (draftId: string, approver: Approver, runId: string) => Promise<{ ok: boolean; code?: string; mode?: string; message?: string }>;
+    /**
+     * P6 (template-first exit): the pack's approved template for this intent, via the same
+     * approved-template lookup the rules layer uses (findApprovedTemplateWithValues, by NAME, so a
+     * template that is pending today is picked up the day Meta approves it). Null when the pack
+     * names no template for the intent or Meta has not approved it.
+     */
+    resolveTemplate: (input: { packId: string; intent: string; contactName?: string | null }) => Promise<ResolvedTemplate | null>;
     /** Insert the flag row, tag the thread needs_ben (priority high unless urgent). Return the row id. */
     insertFlag: (row: ExitFlagRow, opts: { urgent: boolean }) => Promise<string>;
     notify: (alert: { customerName?: string | null; phoneNumber: string; note: string; conversationId: string }) => Promise<void>;
@@ -42,6 +61,8 @@ export interface ExitOutcome {
     draftId?: string | null;
     sent?: boolean;
     mode?: string;
+    /** P6: the approved Meta template the send was queued with (window shut). */
+    template?: string;
     questionId?: string | null;
     deduped?: boolean;
     detail?: string;
@@ -77,7 +98,35 @@ async function defaultDeps(): Promise<ExitDeps> {
         },
         now: () => new Date(),
         ask: (run) => maybeAskFromExit(run),
+        resolveTemplate: (input) => resolvePackTemplate(input),
     };
+}
+
+/**
+ * The default template resolver: pack.templates[intent] → findApprovedTemplateWithValues (the
+ * rules layer's lookup) with {{1}} = the customer's first name or "there". Never throws; a lookup
+ * failure is "no template", and the caller falls to the pending path.
+ */
+export async function resolvePackTemplate(input: { packId: string; intent: string; contactName?: string | null }): Promise<ResolvedTemplate | null> {
+    try {
+        const { PACKS } = await import('./packs');
+        const name = (PACKS[input.packId]?.templates as Record<string, string | undefined> | undefined)?.[input.intent];
+        if (!name) return null;
+        const { findApprovedTemplateWithValues } = await import('../whatsapp-template-sync');
+        const { templateNameSlot } = await import('../rules-layer');
+        const picked = await findApprovedTemplateWithValues([name], [templateNameSlot(input.contactName)]);
+        if (!picked) return null;
+        return { name: picked.template.name, contentSid: picked.template.sid, variables: picked.variables, body: picked.body };
+    } catch (error: any) {
+        console.warn(`[Spine] template lookup failed for ${input.packId}/${input.intent} (falling to pending):`, error?.message ?? error);
+        return null;
+    }
+}
+
+/** A WhatsApp thread whose 24h window is shut: freeform is refused, only a template (or SMS) can deliver. */
+export function windowShut(run: SpineRun): boolean {
+    const w = run.caseFile.window;
+    return !w.canFreeform && w.channelLastUsed !== 'sms';
 }
 
 function reasonFor(run: SpineRun): string {
@@ -95,13 +144,34 @@ export async function exit(run: SpineRun, overrides: Partial<ExitDeps> = {}): Pr
         switch (decision.kind) {
             case 'send': {
                 if (!run.proposal) { outcome = { kind: 'none', detail: 'send with no proposal' }; break; }
+                // P6 (template-first exit): with the 24h window shut, a freeform draft can only be
+                // refused OUTSIDE_WINDOW. Resolve the pack's approved template for the intent first
+                // and queue the draft with its content SID, so approveAndSendDraft sends the
+                // template. No approved template → the freeform path below, whose refusal leaves
+                // the draft pending with a due time (the rules layer holds the line at expiry):
+                // never silent, never a freeform send outside the window.
+                let template: ResolvedTemplate | null = null;
+                if (windowShut(run)) {
+                    try {
+                        template = await deps.resolveTemplate({ packId: run.pack.id, intent: run.proposal.intent, contactName: caseFile.contactName ?? null });
+                    } catch (e: any) {
+                        // A broken lookup must not cost the customer the draft: fall to the pending path.
+                        console.warn(`[Spine] template lookup threw for ${caseFile.conversationId} (falling to pending):`, e?.message ?? e);
+                    }
+                }
                 const draftId = await deps.queueDraft({
-                    phone: caseFile.phone, body: run.proposal.body.join('\n---\n'), source: 'spine',
-                    reason: reasonFor(run), runId: run.runId, dedupe: false,
+                    phone: caseFile.phone, source: 'spine', runId: run.runId, dedupe: false,
+                    body: template ? template.body : run.proposal.body.join('\n---\n'),
+                    reason: template ? `${reasonFor(run)} Template ${template.name} (window shut).` : reasonFor(run),
+                    ...(template ? { contentSid: template.contentSid, contentVariables: template.variables } : {}),
                 });
                 if (!draftId) { outcome = { kind: 'send', draftId: null, sent: false, detail: 'queueDraft refused (opt-out or unparseable number)' }; break; }
                 const sent = await deps.approveAndSendDraft(draftId, decision.approver, run.runId);
-                outcome = { kind: 'send', draftId, sent: sent.ok, mode: sent.mode, detail: sent.ok ? undefined : `${sent.code ?? 'refused'}: ${sent.message ?? ''}` };
+                outcome = {
+                    kind: 'send', draftId, sent: sent.ok, mode: sent.mode,
+                    ...(template ? { template: template.name } : {}),
+                    detail: sent.ok ? undefined : `${sent.code ?? 'refused'}: ${sent.message ?? ''}${!template && windowShut(run) ? ' (window shut, no approved template for this intent; draft left pending)' : ''}`,
+                };
                 break;
             }
             case 'pending': {

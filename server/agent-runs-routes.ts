@@ -30,6 +30,8 @@ export interface AgentRunRow {
     error: string | null;
     startedAt: string | null;
     finishedAt: string | null;
+    /** P6: the spine run this row is a child of (triage model call, vision, wrapped legacy runner); null on top-level runs. */
+    parentRunId: string | null;
 }
 
 const MISSING_TABLE = '42P01';
@@ -38,7 +40,9 @@ export async function listAgentRuns(conversationId: string, limit = 50): Promise
     try {
         const result: any = await db.execute(sql`
             SELECT id, agent, trigger, decision, lane, guards_hit, proposal, usage, cost_pence, duration_ms,
-                   model, error, started_at, finished_at
+                   model, error, started_at, finished_at,
+                   -- P6: read through jsonb so a server ahead of migration 20260904 (no column yet) still answers.
+                   to_jsonb(agent_runs)->>'parent_run_id' AS parent_run_id
             FROM agent_runs
             WHERE conversation_id::text = ${conversationId}
             ORDER BY started_at DESC NULLS LAST
@@ -62,6 +66,7 @@ export async function listAgentRuns(conversationId: string, limit = 50): Promise
                 error: r.error ?? null,
                 startedAt: r.started_at ? new Date(r.started_at).toISOString() : null,
                 finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null,
+                parentRunId: r.parent_run_id ? String(r.parent_run_id) : null,
             })),
         };
     } catch (error: any) {

@@ -109,3 +109,36 @@ describe('helpers', () => {
         expect(topReason({})).toBeNull();
     });
 });
+
+// ---------------------------------------------------------------- P6: judge vs Ben on the sample
+
+import { samplerAgreement } from './verdict-stats';
+
+describe('samplerAgreement', () => {
+    const judge = (draftId: string, verdict: 'sample_fine' | 'sample_not_fine') => row({ draftId, verdict, by: 'agent.verifier', reason: verdict === 'sample_fine' ? 'fine' : 'tone' });
+    const ben = (draftId: string, verdict: 'sample_fine' | 'sample_not_fine') => row({ draftId, verdict, by: 'human:ben', reason: verdict === 'sample_fine' ? 'fine' : 'wrong_move' });
+
+    it('pairs the judge and a person on the same draft and scores agreement', () => {
+        const s = samplerAgreement([
+            judge('d1', 'sample_fine'), ben('d1', 'sample_fine'),          // agree
+            judge('d2', 'sample_fine'), ben('d2', 'sample_not_fine'),      // judge fine, Ben not
+            judge('d3', 'sample_not_fine'), ben('d3', 'sample_not_fine'),  // agree
+            judge('d4', 'sample_not_fine'), ben('d4', 'sample_fine'),      // judge not, Ben fine
+            judge('d5', 'sample_fine'),                                    // judged, not reviewed yet
+            ben('d6', 'sample_fine'),                                      // Ben only (no judge row): not a pair
+        ]);
+        expect(s).toEqual({ judged: 5, humanReviewed: 4, agreement: 50, disagreements: { judgeFineHumanNot: 1, judgeNotHumanFine: 1 } });
+    });
+    it('ignores approve / edit / reject and rows without a draft id; null agreement with no pairs', () => {
+        const s = samplerAgreement([
+            row({ draftId: 'd1', verdict: 'approve', by: 'human:ben' }),
+            judge('d1', 'sample_fine'),
+            row({ draftId: null, verdict: 'sample_fine', by: 'human:ben' }),
+        ]);
+        expect(s).toEqual({ judged: 1, humanReviewed: 0, agreement: null, disagreements: { judgeFineHumanNot: 0, judgeNotHumanFine: 0 } });
+    });
+    it('aggregateVerdicts carries the sampler block', () => {
+        const stats = aggregateVerdicts([judge('d1', 'sample_fine'), ben('d1', 'sample_fine')], { days: 30, since });
+        expect(stats.sampler).toMatchObject({ judged: 1, humanReviewed: 1, agreement: 100 });
+    });
+});

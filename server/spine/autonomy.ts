@@ -24,6 +24,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { PACKS, tierFor, assertPromotable, isForbiddenIntent, applyTierOverlay, refreshTierOverlay, tierSourceFor, currentTierOverlay } from './packs';
+import { TIERS } from './vocab';
 import type { PolicyPack, Tier } from './types';
 
 // ---------------------------------------------------------------- the gate, as numbers
@@ -83,7 +84,7 @@ export interface IntentEvidence {
     lastChange: TierChange | null;
 }
 
-export type AutonomyRule = 'full_gate' | 'fast_track' | 'unsafe_verdict' | 'unsafe_sample' | 'incident' | 'sample_approval' | 'not_promotable' | 'hold';
+export type AutonomyRule = 'full_gate' | 'fast_track' | 'unsafe_verdict' | 'unsafe_sample' | 'incident' | 'sample_approval' | 'not_promotable' | 'hold' | 'human';
 
 export interface AutonomyDecision {
     packId: string;
@@ -349,6 +350,118 @@ export async function applyDecision(d: AutonomyDecision, evidence: IntentEvidenc
     } catch (error: any) {
         console.warn('[Autonomy] owner ping failed (change stands):', error?.message ?? error);
     }
+}
+
+// ---------------------------------------------------------------- P6: a person moves the ladder
+
+export interface HumanTierRequest {
+    packId: string;
+    intent: string;
+    tier: string;
+    reason: string;
+}
+
+export interface HumanTierChange {
+    packId: string;
+    intent: string;
+    from: Tier;
+    to: Tier;
+    reason: string;
+    by: string;
+    /** false when the tier was already what was asked for; nothing was written. */
+    changed: boolean;
+}
+
+/**
+ * Validate a human promote / demote request against the packs (pure). Refuses:
+ *   - an unknown pack or a tier outside the vocabulary
+ *   - an intent the pack does not allow (at ANY tier: the overlay would ignore the row anyway)
+ *   - SEND for any intent whose name smells of money or dates (assertPromotable, the same guard
+ *     the autonomy job runs) — money and dates are not intents and can never be promoted
+ *   - an empty reason: a person's change is evidence too, and evidence needs a why
+ * Returns the resolved request or a list of problems.
+ */
+export function validateHumanTierRequest(req: Partial<HumanTierRequest>, packs: Record<string, PolicyPack> = PACKS): { ok: true; request: HumanTierRequest & { tier: Tier } } | { ok: false; errors: string[] } {
+    const errors: string[] = [];
+    const packId = String(req.packId ?? '').trim();
+    const intent = String(req.intent ?? '').trim();
+    const tier = String(req.tier ?? '').trim().toUpperCase();
+    const reason = String(req.reason ?? '').trim();
+    const pack = packs[packId];
+    if (!pack) errors.push(`unknown pack ${packId || '(missing)'}`);
+    if (!(TIERS as readonly string[]).includes(tier)) errors.push(`tier must be one of ${TIERS.join(', ')}`);
+    if (!reason) errors.push('a reason is required');
+    if (reason.length > 1000) errors.push('reason is too long (max 1000 characters)');
+    if (pack) {
+        if (!intent || !(pack.allowedIntents as string[]).includes(intent)) errors.push(`${intent || '(missing)'} is not an intent of pack ${packId}`);
+        else if (tier === 'SEND') {
+            try { assertPromotable(pack, intent); } catch (e: any) { errors.push(String(e?.message ?? e).replace(/^\[Spine\]\s*/, '')); }
+        }
+        if (pack.id.startsWith('rules.') || pack.audience === 'internal') errors.push(`pack ${packId} is not on the DRAFT → SEND ladder`);
+    }
+    if (errors.length) return { ok: false, errors };
+    return { ok: true, request: { packId, intent, tier: tier as Tier, reason } };
+}
+
+export interface HumanTierDeps {
+    /** `human:<id>` from server/approver.ts — the only thing that may write here besides system:autonomy. */
+    by: string;
+    notify?: ApplyDeps['notify'];
+    /** Injected for tests: the write. Default writes pack_intent_tiers + pack_tier_events, refreshes the overlay, pings the owner. */
+    write?: (change: HumanTierChange, evidence: Record<string, unknown>) => Promise<void>;
+    /** Injected for tests: the current effective tier. */
+    currentTier?: (packId: string, intent: string) => Promise<Tier>;
+}
+
+async function effectiveTier(packId: string, intent: string): Promise<Tier> {
+    await refreshTierOverlay(true);
+    const pack = applyTierOverlay(PACKS[packId], currentTierOverlay().get(packId));
+    return tierFor(pack, intent);
+}
+
+/**
+ * A person promotes or demotes one intent (POST /api/spine/tiers). Same tables and the same
+ * event log as the job, `changed_by = human:<id>`, rule 'human'. Idempotent: asking for the tier
+ * the intent already has writes nothing. Throws on an invalid request (the route turns that into
+ * a 400) and on a `by` that is not a person.
+ */
+export async function setTierByHuman(input: Partial<HumanTierRequest>, deps: HumanTierDeps): Promise<HumanTierChange> {
+    if (!deps.by.startsWith('human:')) throw new Error(`[Autonomy] setTierByHuman needs a human:<id> approver, got ${deps.by}`);
+    const v = validateHumanTierRequest(input);
+    if (!v.ok) throw new Error(v.errors.join('; '));
+    const { packId, intent, tier, reason } = v.request;
+    const from = await (deps.currentTier ?? effectiveTier)(packId, intent);
+    const change: HumanTierChange = { packId, intent, from, to: tier, reason, by: deps.by, changed: from !== tier };
+    if (!change.changed) return change;
+    const evidence = { rule: 'human', reason, by: deps.by, from, to: tier, at: new Date().toISOString() };
+    await (deps.write ?? defaultHumanTierWrite)(change, evidence);
+    try {
+        const notify = deps.notify ?? (async (alert) => { const { notifyAutonomyChange } = await import('../pushover'); await notifyAutonomyChange(alert); });
+        await notify({ packId, intent, fromTier: from, toTier: tier, reason: `human: ${reason}` });
+    } catch (error: any) {
+        console.warn('[Autonomy] owner ping failed (change stands):', error?.message ?? error);
+    }
+    return change;
+}
+
+async function defaultHumanTierWrite(change: HumanTierChange, evidence: Record<string, unknown>): Promise<void> {
+    const pack = PACKS[change.packId];
+    if (change.to === 'SEND') assertPromotable(pack, change.intent); // belt and braces at the write
+    const reason = `human: ${change.reason}`.slice(0, 1000);
+    const { db } = await import('../db');
+    const { packIntentTiers, packTierEvents } = await import('@shared/schema');
+    await db.insert(packIntentTiers)
+        .values({ packId: change.packId, intent: change.intent, tier: change.to, reason, changedBy: change.by, changedAt: new Date() })
+        .onConflictDoUpdate({ target: [packIntentTiers.packId, packIntentTiers.intent], set: { tier: change.to, reason, changedBy: change.by, changedAt: new Date() } });
+    await db.insert(packTierEvents).values({
+        id: `pte_${randomUUID()}`, packId: change.packId, intent: change.intent, fromTier: change.from, toTier: change.to, reason,
+        evidence, by: change.by, at: new Date(),
+    });
+    await refreshTierOverlay(true);
+    try {
+        const { logSystemEvent } = await import('../system-events');
+        void logSystemEvent({ kind: 'config_change', summary: `${change.intent} ${change.from} → ${change.to} in ${change.packId} (human)`, detail: { ...change }, source: 'autonomy' });
+    } catch { /* bookkeeping */ }
 }
 
 // ---------------------------------------------------------------- the job

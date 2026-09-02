@@ -87,7 +87,12 @@ export function parseFlagException(question: string | null | undefined, tags: re
 
 // ---------------------------------------------------------------- the assembler
 
-export async function buildCaseFile(conversationId: string): Promise<CaseFile> {
+export interface BuildCaseFileOpts {
+    /** P6: the spine run building this file; stamped on any vision (describe_video) rows as parent_run_id. */
+    parentRunId?: string | null;
+}
+
+export async function buildCaseFile(conversationId: string, opts: BuildCaseFileOpts = {}): Promise<CaseFile> {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
     if (!conv) throw new Error(`[Spine] conversation ${conversationId} not found`);
     const digits = conv.phoneNumber.replace('@c.us', '').replace(/\D/g, '');
@@ -155,7 +160,7 @@ export async function buildCaseFile(conversationId: string): Promise<CaseFile> {
     // Phase 4: video descriptions (Gemini, direct) on the media items — only when switched on,
     // bounded per run, cached by bytes, and never able to fail the build.
     if (cfg.video?.enabled) {
-        await describeCaseFileMedia(media, msgRows, { conversationId: conv.id, phone, images: !!cfg.video.images, maxPerRun: cfg.video.maxPerRun ?? 3 });
+        await describeCaseFileMedia(media, msgRows, { conversationId: conv.id, phone, images: !!cfg.video.images, maxPerRun: cfg.video.maxPerRun ?? 3, parentRunId: opts.parentRunId ?? null });
     }
 
     // ---- window + channel ----
@@ -241,7 +246,7 @@ export async function buildCaseFile(conversationId: string): Promise<CaseFile> {
 async function describeCaseFileMedia(
     media: MediaItem[],
     rows: { id: string; content: string | null; mediaType: string | null }[],
-    ctx: { conversationId: string; phone: string; images: boolean; maxPerRun: number },
+    ctx: { conversationId: string; phone: string; images: boolean; maxPerRun: number; parentRunId?: string | null },
 ): Promise<void> {
     const targets = media
         .filter((m) => !!m.url && (m.kind === 'video' || (ctx.images && m.kind === 'image')))
@@ -272,7 +277,7 @@ async function describeCaseFileMedia(
             const { startAgentRun, finishAgentRun } = await import('../agent-runs');
             const runId = await startAgentRun({
                 agent: 'vision', trigger: 'describe_media', conversationId: ctx.conversationId, phone: ctx.phone,
-                model: tools.GEMINI_MODEL, transcriptRef: `media:${m.id}`,
+                model: tools.GEMINI_MODEL, transcriptRef: `media:${m.id}`, parentRunId: ctx.parentRunId ?? null,
             });
             await finishAgentRun(runId, { agent: 'vision', conversationId: ctx.conversationId, phone: ctx.phone }, {
                 usage: result?.usage ?? null, model: tools.GEMINI_MODEL,

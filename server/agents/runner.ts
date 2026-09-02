@@ -69,7 +69,7 @@ interface RunPersistence {
     startAgentRun: (input: {
         id?: string; agent: string; trigger?: string | null; conversationId?: string | null; phone?: string | null;
         model?: string | null; packId?: string | null; packVersion?: number | null; caseFileRef?: string | null;
-        promptHash?: string | null; transcriptRef?: string | null;
+        promptHash?: string | null; transcriptRef?: string | null; parentRunId?: string | null;
     }) => Promise<string>;
     finishAgentRun: (
         id: string,
@@ -122,6 +122,8 @@ export async function runAgent(opts: {
     caseFileRef?: string;
     promptHash?: string;
     transcriptRef?: string;
+    /** P6: the spine run this run is a child of (agent_runs.parent_run_id), when a spine agent wraps this runner. */
+    parentRunId?: string | null;
     /** false = do not write agent_runs / ledger rows (dry runs, tests). Default true. */
     persist?: boolean;
 }): Promise<AgentRunResult> {
@@ -141,6 +143,7 @@ export async function runAgent(opts: {
             id: runId, agent: agentName, trigger: opts.trigger ?? null, conversationId: opts.conversationId ?? null,
             phone: opts.phone ?? null, model, packId: opts.packId ?? null, packVersion: opts.packVersion ?? null,
             caseFileRef: opts.caseFileRef ?? null, promptHash: opts.promptHash ?? null, transcriptRef: opts.transcriptRef ?? null,
+            parentRunId: opts.parentRunId ?? null,
         }).catch(() => undefined);
     }
     const log = (type: AgentTranscriptEvent['type'], detail: any) => {
