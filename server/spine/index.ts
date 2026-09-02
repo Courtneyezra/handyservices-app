@@ -68,12 +68,29 @@ export interface RunOnceResult extends SpineRun {
     outcome?: ExitOutcome;
 }
 
+/**
+ * The Scoper (and later the clerk, recovery, verifier) live under ./agents and register themselves
+ * there. Load them on first use rather than at import so ./agents can import this module's
+ * registerAgent without a cycle at initialisation.
+ */
+async function ensureDefaultAgents(): Promise<void> {
+    if (registry.size > 1) return; // more than the rules placeholder
+    try {
+        const m = await import('./agents');
+        for (const a of Object.values(m.SPINE_AGENTS)) if (a && !registry.has(a.name)) registerAgent(a);
+    } catch (error: any) {
+        console.error('[Spine] could not load default agents:', error?.message ?? error);
+    }
+}
+
 export async function runOnce(
     conversationId: string,
     trigger: Trigger,
-    agents: Partial<Record<AgentName, SpineAgent>> = Object.fromEntries(registry) as Partial<Record<AgentName, SpineAgent>>,
+    agentsOverride?: Partial<Record<AgentName, SpineAgent>>,
     opts: RunOnceOpts = {},
 ): Promise<RunOnceResult> {
+    if (!agentsOverride) await ensureDefaultAgents();
+    const agents: Partial<Record<AgentName, SpineAgent>> = agentsOverride ?? (Object.fromEntries(registry) as Partial<Record<AgentName, SpineAgent>>);
     const runId = opts.runId ?? newRunId('run');
     const startedAt = Date.now();
 
