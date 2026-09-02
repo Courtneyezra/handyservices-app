@@ -440,9 +440,12 @@ export function buildTools(ctx: { runId?: string } = {}): AgentTool[] {
                 // the same debounce row both the spine and the legacy fast tick read, so this
                 // works whichever is switched on; only the worker process ever runs an agent.
                 const r = await requestRun(input.conversationId, 'manual', { delayMs: 0 });
+                // Phase 3: the row is shared; which side dequeues it is the switch's business.
+                const mode = await (await import('../spine/switch')).spineMode().catch(() => 'off' as const);
                 return {
                     conversationId: input.conversationId,
                     queued: r.queued,
+                    mode,
                     reason: r.reason ?? null,
                     note: r.queued
                         ? 'Queued for the comms worker. It will triage and draft (or send, where an intent has earned it) within about a minute; check the thread or the agent runs drawer for the result.'

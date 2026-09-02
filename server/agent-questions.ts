@@ -100,10 +100,13 @@ export async function markQuestionResolved(id: string): Promise<void> {
 agentQuestionsRouter.get('/', async (req, res) => {
     try {
         const status = String(req.query.status || 'open');
+        // Phase 3: ?source=sampler gives the morning strip its own list without touching the queue.
+        const source = typeof req.query.source === 'string' && req.query.source ? String(req.query.source) : null;
+        const statusWhere = status === 'all'
+            ? inArray(agentQuestions.status, ['open', 'answered', 'resolved', 'dismissed'])
+            : eq(agentQuestions.status, status);
         const rows = await db.select().from(agentQuestions)
-            .where(status === 'all'
-                ? inArray(agentQuestions.status, ['open', 'answered', 'resolved', 'dismissed'])
-                : eq(agentQuestions.status, status))
+            .where(source ? and(statusWhere, eq(agentQuestions.source, source)) : statusWhere)
             .orderBy(desc(agentQuestions.createdAt))
             .limit(100);
         res.json({ questions: rows, openCount: rows.filter((q) => q.status === 'open').length });
@@ -135,6 +138,25 @@ agentQuestionsRouter.post('/:id/answer', async (req, res) => {
         safely('recordQuestionVerdict:answered', () => recordQuestionVerdict({
             questionId: updated.id, outcome: 'answered', answer: updated.answer, decidedBy: answeredBy,
         }));
+        // Phase 3: a sampler row is Ben's verdict on an automatic send. His tap outranks the judge:
+        // a second draft_verdicts row by human:<id> (the judge's row by agent.verifier stays for the
+        // agreement stat). Reason chip is optional in the body.
+        if (updated.source === 'sampler') {
+            safely('sampler:humanVerdict', async () => {
+                const { draftIdFromQuestionId, verdictFromAnswer } = await import('./spine/sampler');
+                const { recordVerdict, isVerdictReason } = await import('./verdicts');
+                const { humanApprover } = await import('./approver');
+                const { messageDrafts } = await import('@shared/schema');
+                const draftId = draftIdFromQuestionId(updated.id);
+                if (!draftId) return;
+                const [draft] = await db.select({ body: messageDrafts.body, runId: messageDrafts.runId }).from(messageDrafts).where(eq(messageDrafts.id, draftId)).limit(1);
+                if (!draft) return;
+                const verdict = verdictFromAnswer(updated.answer ?? '');
+                const rawReason = (req.body || {}).reason;
+                const reason = isVerdictReason(rawReason) ? rawReason : verdict === 'sample_fine' ? 'fine' : null;
+                await recordVerdict({ draftId, runId: draft.runId ?? null, verdict, reason, originalBody: draft.body, finalBody: draft.body, by: humanApprover(answeredBy) });
+            });
+        }
         res.json({ question: updated });
     } catch (error: any) {
         console.error('[AgentQuestions] Answer failed:', error);

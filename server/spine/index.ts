@@ -62,6 +62,8 @@ export interface RunOnceOpts {
     runId?: string;
     /** Skip the exit (shadow mode / replay): everything is computed and recorded, nothing touches the world. */
     dryRun?: boolean;
+    /** Phase 3 shadow mode: implies dryRun and stamps agent_runs.shadow_decision with what would have happened. */
+    shadow?: boolean;
 }
 
 export interface RunOnceResult extends SpineRun {
@@ -129,12 +131,14 @@ export async function runOnce(
         caseFile, triage, proposal, guards: guards ?? undefined, decision,
         durationMs: Date.now() - startedAt,
     };
-    if (!opts.dryRun) run.outcome = await runExit(run);
+    const dryRun = !!(opts.dryRun || opts.shadow);
+    if (!dryRun) run.outcome = await runExit(run);
 
     await finishAgentRun(runId, { agent: recordedAgent, conversationId, phone: caseFile.phone }, {
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,
-        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun: !!opts.dryRun },
+        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow },
         guardsHit: guards?.guardsHit ?? [],
+        ...(opts.shadow ? { shadowDecision: decision.kind } : {}),
     });
     console.log(`[Spine] run ${runId} ${conversationId} lane=${triage.lane} agent=${recordedAgent} pack=${pack.id} decision=${decision.kind}${run.outcome?.detail ? ` (${run.outcome.detail})` : ''}`);
     return run;

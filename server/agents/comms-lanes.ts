@@ -190,11 +190,12 @@ async function arm(conversationId: string, phone: string): Promise<void> {
     if (!conversationId) { console.warn('[CommsLanes] arm skipped: no conversationId'); return; }
     if (isTestNumber(phone)) { console.log(`[CommsLanes] arm skipped: test number ${phone}`); return; }
 
-    // Phase 2: with the spine on, the debounce is the spine's (same row, same key, plus the
-    // trigger). Off = the legacy arm below, unchanged.
+    // Phase 3: three-way switch (server/spine/switch.ts). live = the spine's requestRun owns the
+    // debounce; shadow = the legacy arm below (the legacy tick runs the shadow pass itself);
+    // off = legacy, byte-for-byte.
     try {
-        const { isSpineEnabled } = await import('../spine/config');
-        if (await isSpineEnabled()) {
+        const { spineMode } = await import('../spine/switch');
+        if ((await spineMode()) === 'live') {
             const { requestRun } = await import('../spine/request-run');
             const r = await requestRun(conversationId, 'inbound_message');
             console.log(`[CommsLanes] spine requestRun ${conversationId}: ${r.queued ? 'queued' : `not queued (${r.reason})`}`);

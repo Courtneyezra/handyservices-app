@@ -29,6 +29,7 @@ import { QuotePrepPanel, type QuoteIntake } from '@/components/comms/QuotePrepPa
 import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
 import { AgentRunsDrawer } from '@/components/comms/AgentRunsDrawer';
+import { SampleReviewStrip } from '@/components/comms/SampleReviewStrip';
 import { VerdictReasonChips, type VerdictReason } from '@/components/comms/VerdictReasonChips';
 import { dueLabel } from '@/lib/due-label';
 import { QuoteBuilderPanel } from '@/components/quote-builder';
@@ -2100,6 +2101,14 @@ export default function CommsPage() {
                         and had no reply. Newest enquiry first — those are the ones still worth winning.
                     </span>
                 </div>
+            )}
+
+            {/* Phase 3: the morning sample review. Renders nothing until the sampler has queued something. */}
+            {lane === 'customer' && (
+                <SampleReviewStrip onOpenThread={(id) => {
+                    const card = Object.values(data.columns ?? {}).flat().find((c) => c.id === id) ?? null;
+                    if (card) setSelected(card);
+                }} />
             )}
 
             <div className="mb-3 flex flex-wrap items-center gap-3 px-5">

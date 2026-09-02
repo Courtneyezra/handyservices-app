@@ -45,6 +45,10 @@ export { claimTriageTurn, releaseTriageTurn, TRIAGE_TURN_MINUTES } from '../spin
 import { claimTriageTurn, releaseTriageTurn } from '../spine/request-run';
 
 async function sweepOnce(): Promise<void> {
+    // Phase 3: live = the durable backstop asks the spine for a run instead of running legacy;
+    // shadow = dry spine pass, then legacy; off = legacy.
+    const { spineMode } = await import('../spine/switch');
+    const mode = await spineMode();
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
     const config = await getCommsAgentConfig();
     if (!config.enabled) return;
@@ -115,6 +119,16 @@ async function sweepOnce(): Promise<void> {
         ran++;
         console.log(`[CommsSweep] Unanswered inbound on ${c.id} — running the agent (durable trigger).`);
         try {
+            if (mode === 'live') {
+                const { requestRun } = await import('../spine/request-run');
+                const r = await requestRun(c.id, 'cadence', { delayMs: 0 });
+                console.log(`[CommsSweep] ${c.id}: spine requestRun ${r.queued ? 'queued' : `not queued (${r.reason})`} (live mode, legacy not called)`);
+                continue;
+            }
+            if (mode === 'shadow') {
+                const { runShadow } = await import('../spine/shadow');
+                await runShadow(c.id, 'cadence');
+            }
             // Phase 0 (2 Sep 2026): the V2 pipeline branch that sent 24 unguarded replies from dev
             // laptops is gone. There is one agent path, and it drafts through the approval gate.
             const outcome = await runCommsAgent(c.id, 'sla_sweep');
@@ -133,10 +147,12 @@ async function sweepOnce(): Promise<void> {
  * that crashes cannot retry every 30 seconds forever (the slow sweep remains the backstop).
  */
 async function tickDueTriage(): Promise<void> {
-    // Phase 2: with the spine switched on, due rows belong to server/spine (same metadata key,
-    // same claim). Off = byte-for-byte legacy below.
-    const { isSpineEnabled } = await import('../spine/config');
-    if (await isSpineEnabled()) {
+    // Phase 3: the three-way switch (server/spine/switch.ts). live = due rows belong to the spine
+    // (same metadata key, same claim) and runCommsAgent is never called; shadow = the spine runs
+    // a dry pass on each due thread and then legacy runs exactly as before; off = legacy.
+    const { spineMode } = await import('../spine/switch');
+    const mode = await spineMode();
+    if (mode === 'live') {
         const { runDue } = await import('../spine/request-run');
         await runDue(3);
         return;
@@ -176,6 +192,11 @@ async function tickDueTriage(): Promise<void> {
         }
         console.log(`[CommsSweep] On-inbound triage due for ${row.id} — running (lease ${lease}).`);
         try {
+            if (mode === 'shadow') {
+                // Dry spine pass first, recorded with shadow_decision; legacy still owns the customer.
+                const { runShadow } = await import('../spine/shadow');
+                await runShadow(row.id, 'inbound_message');
+            }
             const outcome = await runCommsAgent(row.id, 'inbound_message');
             console.log(`[CommsSweep] ${row.id}: ${outcome.actions.map((a) => a.tool).join(', ') || 'no actions'}${outcome.autosent ? ' (sent direct)' : ''}`);
             // Success: release the lease, unless a newer inbound re-armed it mid-run.
