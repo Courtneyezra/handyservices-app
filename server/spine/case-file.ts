@@ -152,6 +152,12 @@ export async function buildCaseFile(conversationId: string): Promise<CaseFile> {
     }
     timeline.sort((a, b) => a.at.localeCompare(b.at));
 
+    // Phase 4: video descriptions (Gemini, direct) on the media items — only when switched on,
+    // bounded per run, cached by bytes, and never able to fail the build.
+    if (cfg.video?.enabled) {
+        await describeCaseFileMedia(media, msgRows, { conversationId: conv.id, phone, images: !!cfg.video.images, maxPerRun: cfg.video.maxPerRun ?? 3 });
+    }
+
     // ---- window + channel ----
     const lastIn = [...msgRows].reverse().find((m) => m.direction === 'inbound');
     const lastInboundAt = lastIn?.createdAt?.toISOString() ?? conv.lastInboundAt?.toISOString() ?? null;
@@ -225,6 +231,63 @@ export async function buildCaseFile(conversationId: string): Promise<CaseFile> {
     const file: CaseFile = { ...body, hash: hashCaseFile(body), builtAt: new Date().toISOString() };
     await persistCaseFile(file);
     return file;
+}
+
+/**
+ * Phase 4: put a Gemini description on each recent video (and photo, if configured). One child
+ * agent_runs row (agent 'vision') per model call with token usage and cost; a cache hit costs
+ * nothing and writes no row. Never throws: a failed description is a missing description.
+ */
+async function describeCaseFileMedia(
+    media: MediaItem[],
+    rows: { id: string; content: string | null; mediaType: string | null }[],
+    ctx: { conversationId: string; phone: string; images: boolean; maxPerRun: number },
+): Promise<void> {
+    const targets = media
+        .filter((m) => !!m.url && (m.kind === 'video' || (ctx.images && m.kind === 'image')))
+        .slice(-Math.max(1, ctx.maxPerRun));
+    if (!targets.length) return;
+    let tools: typeof import('./tools/describe-video');
+    try {
+        tools = await import('./tools/describe-video');
+    } catch (error: any) {
+        console.warn('[Spine] describe_video unavailable:', error?.message ?? error);
+        return;
+    }
+    for (const m of targets) {
+        const row = rows.find((r) => r.id === m.id);
+        const startedAt = Date.now();
+        let result: Awaited<ReturnType<typeof tools.describeMedia>> = null;
+        try {
+            result = await tools.describeMedia({
+                url: m.url, kind: m.kind === 'image' ? 'image' : 'video', mediaId: m.id,
+                mimeType: row?.mediaType ?? undefined, customerContext: row?.content ?? null,
+            });
+        } catch (error: any) {
+            console.warn(`[Spine] describe_video threw for ${m.id} (ignored):`, error?.message ?? error);
+        }
+        if (result) m.description = tools.formatDescription(result.description);
+        if (result?.cached) continue; // no call, no cost, no row
+        try {
+            const { startAgentRun, finishAgentRun } = await import('../agent-runs');
+            const runId = await startAgentRun({
+                agent: 'vision', trigger: 'describe_media', conversationId: ctx.conversationId, phone: ctx.phone,
+                model: tools.GEMINI_MODEL, transcriptRef: `media:${m.id}`,
+            });
+            await finishAgentRun(runId, { agent: 'vision', conversationId: ctx.conversationId, phone: ctx.phone }, {
+                usage: result?.usage ?? null, model: tools.GEMINI_MODEL,
+                error: result ? null : 'no description (see describe_video log)',
+                durationMs: result?.durationMs ?? Date.now() - startedAt,
+                decision: result ? 'described' : 'failed',
+                proposal: {
+                    mediaId: m.id, kind: m.kind, bytes: result?.bytes ?? null, hash: result?.hash ?? null,
+                    transport: result?.transport ?? null, attempts: result?.attempts ?? null, description: result?.description ?? null,
+                },
+            });
+        } catch (error: any) {
+            console.warn(`[Spine] vision run row not recorded for ${m.id}:`, error?.message ?? error);
+        }
+    }
 }
 
 /** Write <hash>.json once; a second run over identical content is a no-op. Never throws. */

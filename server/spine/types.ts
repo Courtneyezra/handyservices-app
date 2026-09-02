@@ -11,7 +11,7 @@ export type Audience = 'customer' | 'contractor' | 'supplier' | 'internal';
 export type Stage = 'enquiry' | 'scoping' | 'quote_sent' | 'booked' | 'closed' | 'won';
 export type Tier = 'READ' | 'PROPOSE' | 'DRAFT' | 'SEND';
 export type Trigger = 'inbound_message' | 'media_received' | 'call_ended' | 'cadence' | 'flag_expiry' | 'manual';
-export type AgentName = 'triage' | 'rules' | 'scoper' | 'quote_clerk' | 'recovery' | 'verifier' | 'contractor_liaison';
+export type AgentName = 'triage' | 'rules' | 'scoper' | 'quote_clerk' | 'recovery' | 'verifier' | 'contractor_liaison' | 'vision';
 
 /** Fixed vocabularies. Routing is by lane and exception, never by a confidence score (§2.3). */
 export type Lane = 'dropped' | 'rules' | 'scoper' | 'post_quote' | 'ben' | 'quote_clerk' | 'contractor';
