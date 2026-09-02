@@ -17,6 +17,16 @@ this folder (what each build pane did).
   pages but its sweeps and ticks do not register (`COMMS_WORKER=1` lives only on Railway). The
   worker stamps a heartbeat every minute; `/admin/staff` shows it and Pushover fires if it goes stale.
 
+- **Route A runs in shadow too (4 Sep).** When the clerk marks an intake ready, the estimator
+  measures it, the pricing engine prices it, and a draft appears for Ben at `/admin/price/<slug>`
+  with suggestions and a band; customer prices stay empty until he confirms. Verified twice
+  (Gemma `c1u0wkt8`, Sarah `z4p6t9mw`). The two legacy quote-prep paths are retired.
+- **Deploys no longer strand work (P11, 4 Sep).** Every deploy restarts the worker. Runs and
+  estimates killed mid-flight are closed by a janitor within 15 minutes (a killed estimate gets a
+  reference-priced fallback draft), the worker re-arms tagged threads on boot, and SIGTERM drains
+  for 20 s first. A failed estimate with no draft no longer blocks a thread's re-arm (`6b83766`).
+  Hand repair, if ever needed: supersede the dead `quote_estimates` row, then `ensureQuoteRun`.
+
 ## 2. What shipped, phase by phase
 
 | Phase | In one line | What you see |
