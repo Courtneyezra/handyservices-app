@@ -1,0 +1,10 @@
+# P11: runs and estimates killed by a deploy must not stay "running" forever (pane top-right)
+Worktree: /Users/courtneebonnick/v6-wt-exit  (branch p11-run-janitor, from comms-v3)
+
+Observed 4 Sep (Sarah, 4c0e227b…): Railway restarts the worker on every deploy; agent runs and `quote_estimates` rows that were mid-flight stay `running` / unfinished forever (18:34 quote-prep run UNFINISHED; an estimator killed mid-run leaves a `running` estimate). P10's `shouldRequestQuoteRun` treats a live `running` estimate as "in progress", so a killed estimator blocks every future quote pass for that intake. Same rules as every brief (worktree only; no DB; idempotent migrations only; verification gates; commit; `P11-DONE.md`).
+
+## Fix
+1. **Janitor** in the worker's slow sweep (every 5 min, worker-gated): `agent_runs` with `finished_at IS NULL` and `started_at < now() - 15 min` → `finished_at = now()`, `error = 'orphaned: process restarted'`, decision unchanged; `quote_estimates` with status `running` and `created_at < now() - 15 min` → status `failed`, error `orphaned: process restarted`, and then run Route A's failure path (reference-priced fallback draft with `check_this`, Pushover "priced from reference rates") so Ben still gets something; `superseded_at` untouched. Log one system_events row per sweep with counts.
+2. **Boot reconciliation**: on worker boot, run the janitor once immediately (a restart is exactly when orphans appear), then `ensureQuoteRun` for every thread that still carries `needs_quote`/`rescope` with no live estimate/draft (P10's sweep), so a deploy mid-chain self-heals within a minute.
+3. **Graceful shutdown**: on SIGTERM, stop claiming new runs, give in-flight runs up to 20 s, then mark the rest orphaned before exit (Railway sends SIGTERM before killing). Keep it simple; note Railway's actual grace period if you can find it in the repo/docs.
+4. Tests with fakes: janitor thresholds, failure-path draft after an orphaned estimate, boot reconciliation picks the tagged thread.
