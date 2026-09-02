@@ -78,7 +78,7 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 - Ben's approve / edit / reject with reason chips (`draft_verdicts`) plus eval families (`eval-cases/`, `scripts/eval-comms.ts`) are what promote an intent DRAFT → SEND (`server/spine/autonomy.ts`); the 10% sampler and any `unsafe` verdict demote.
 - Only the Railway worker (`COMMS_WORKER=1`) runs customer loops; heartbeat on `/api/health/comms-worker`.
 - Docs: design `docs/COMMS_AGENTS_V3_DESIGN.md` · switching `docs/comms-build/CUTOVER.md` · people `docs/comms-build/HANDOVER.md` · ops `docs/RUNBOOK.md` §4 · per-pane reports `docs/comms-build/P*-DONE.md` · delete list `docs/comms-build/PHASE5-DELETE.md`.
-- Build gate: zero NEW tsc errors vs your start commit (the repo has ~1,882 pre-existing), vitest 42 pre-existing failures unchanged, esbuild bundles. Never `db:push`; migrations are idempotent SQL applied with psql.
+- Build gate: zero NEW tsc errors vs your start commit (the repo has ~1,882 pre-existing), vitest 42 pre-existing failures unchanged, esbuild bundles. Never `db:push`; migrations are idempotent SQL applied with `npx tsx scripts/_apply-migration.ts migrations/<file>.sql`.
 
 ### Quoting System - PROP_MGR Segment (Completed Feb 4, 2025)
 
