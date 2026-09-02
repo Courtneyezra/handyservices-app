@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto';
 export const AUTOMATED_APPROVERS = [
     // Agents — an LLM-backed component released this.
     'agent.comms',            // the legacy comms agent releasing its own draft under the first-contact allowance
+    'agent.scoper',           // Phase 2: the spine's Scoper (server/spine/agents/scoper.ts) at SEND tier
     'agent.comms.autosend',   // the comms agent's whitelist autosend lane
     'agent.sla_chase',        // the SLA sweep's chase
     // Rules — deterministic policy, no model involved.
