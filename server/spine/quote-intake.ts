@@ -1,0 +1,303 @@
+/**
+ * IN-CHAT QUOTE CARD — server side (Phase 4 / B, design §3.5 "Quote clerk", §10 Phase 4 row;
+ * locked spec 18 Aug 2026: compact review card in the thread panel, Save = UNSENT draft, missing
+ * name/postcode → the rules layer asks, media = tickable thumbnails all ticked by default).
+ *
+ * Reads the latest Quote clerk artifact (`Proposal.artifact.kind === 'quote_intake'`) off
+ * agent_runs for a thread, lists the thread's media, and saves a DRAFT personalized_quotes row
+ * (`is_draft = true`, every price null). The draft mechanism already existed in the schema
+ * (`isDraft`: customer-facing automations skip it; a builder save clears it), so no migration.
+ *
+ * The mapping intake → draft row is pure (`intakeToDraftQuote`) and tested; nothing here prices.
+ */
+import type { ProposalArtifact } from './types';
+
+export type CardCustomerType = 'homeowner' | 'landlord' | 'letting_agent' | 'business';
+export const CARD_CUSTOMER_TYPES: readonly CardCustomerType[] = ['homeowner', 'landlord', 'letting_agent', 'business'];
+
+/** The quote row's customer_type vocabulary (shared/schema.ts) for each card value. */
+export const QUOTE_CUSTOMER_TYPE: Record<CardCustomerType, string> = {
+    homeowner: 'homeowner',
+    landlord: 'landlord',
+    letting_agent: 'property_manager',
+    business: 'business',
+};
+
+export interface CardLine {
+    title: string;
+    category?: string | null;
+    qty?: number | null;
+    notes?: string | null;
+    assumptions?: string[];
+}
+
+export interface ThreadMediaItem {
+    id: string;
+    url: string;
+    mimeType: string | null;
+    kind: 'image' | 'video' | 'other';
+    at: string | null;
+}
+
+export interface QuoteIntakeCardPayload {
+    available: true;
+    runId: string;
+    at: string;
+    summary: string;
+    intake: {
+        customerName: string | null;
+        postcode: string | null;
+        customerType: CardCustomerType;
+        readiness: string | null;
+        lines: CardLine[];
+        assumptions: string[];
+        gaps: Array<{ question: string; audience: string; lineIndex: number | null }>;
+    };
+    missing: Array<'name' | 'postcode'>;
+    media: ThreadMediaItem[];
+}
+
+// ---------------------------------------------------------------- pure
+
+export function mediaKindOf(mimeType: string | null | undefined, type?: string | null): ThreadMediaItem['kind'] {
+    const m = (mimeType ?? '').toLowerCase();
+    if (m.startsWith('image/') || type === 'image') return 'image';
+    if (m.startsWith('video/') || type === 'video') return 'video';
+    return 'other';
+}
+
+export function normaliseCustomerType(raw: unknown): CardCustomerType {
+    const v = String(raw ?? '').toLowerCase().replace(/[\s-]+/g, '_');
+    if (v === 'letting_agent' || v === 'property_manager' || v === 'agent') return 'letting_agent';
+    if (v === 'landlord') return 'landlord';
+    if (v === 'business' || v === 'small_biz' || v === 'commercial') return 'business';
+    return 'homeowner';
+}
+
+/** Cheap signal read over the customer's own words, for when the clerk left the default. */
+export function inferCustomerType(text: string | null | undefined, fallback: CardCustomerType = 'homeowner'): CardCustomerType {
+    const t = (text ?? '').toLowerCase();
+    if (!t) return fallback;
+    if (/\b(letting agent|lettings|property manag|managing agent|on behalf of (the|my) landlord|our tenant)\b/.test(t)) return 'letting_agent';
+    if (/\b(my tenant|my rental|buy to let|btl|i'?m (a|the) landlord|landlord)\b/.test(t)) return 'landlord';
+    if (/\b(our (shop|office|premises|store|salon|restaurant|cafe|warehouse)|the business|our staff|invoice to the company|ltd\b|limited\b)\b/.test(t)) return 'business';
+    return fallback;
+}
+
+/** Pull the card-shaped intake out of a clerk artifact (defensive: the jsonb is untyped). */
+export function intakeFromArtifact(artifact: ProposalArtifact | null | undefined): QuoteIntakeCardPayload['intake'] | null {
+    if (!artifact || artifact.kind !== 'quote_intake' || !artifact.data || typeof artifact.data !== 'object') return null;
+    const d = artifact.data as Record<string, any>;
+    const lines: CardLine[] = Array.isArray(d.lines)
+        ? d.lines.map((l: any) => ({
+            title: String(l?.title ?? '').trim(),
+            category: l?.category ?? null,
+            qty: typeof l?.qty === 'number' ? l.qty : null,
+            notes: typeof l?.detail === 'string' && l.detail.trim() ? l.detail.trim() : null,
+            assumptions: Array.isArray(l?.assumptions) ? l.assumptions.map(String) : [],
+        })).filter((l: CardLine) => l.title)
+        : [];
+    return {
+        customerName: typeof d.customerName === 'string' && d.customerName.trim() ? d.customerName.trim() : null,
+        postcode: typeof d.postcode === 'string' && d.postcode.trim() ? d.postcode.trim().toUpperCase() : null,
+        customerType: normaliseCustomerType(d.customerType),
+        readiness: typeof d.readiness === 'string' ? d.readiness : null,
+        lines,
+        assumptions: Array.isArray(d.assumptions) ? d.assumptions.map(String) : [],
+        gaps: Array.isArray(d.gaps) ? d.gaps.map((g: any) => ({ question: String(g?.question ?? ''), audience: String(g?.audience ?? 'customer'), lineIndex: typeof g?.lineIndex === 'number' ? g.lineIndex : null })) : [],
+    };
+}
+
+export function missingFields(intake: { customerName: string | null; postcode: string | null }): Array<'name' | 'postcode'> {
+    const out: Array<'name' | 'postcode'> = [];
+    if (!intake.customerName) out.push('name');
+    if (!intake.postcode) out.push('postcode');
+    return out;
+}
+
+/** From a list of runs (newest first or not), the newest quote_intake artifact. Pure. */
+export function pickLatestIntakeRun<T extends { id: string; finishedAt: Date | string | null; startedAt: Date | string; proposal: unknown }>(runs: T[]): { run: T; artifact: ProposalArtifact } | null {
+    const withArtifact = runs
+        .map((r) => ({ r, artifact: ((r.proposal as any)?.artifact ?? (r.proposal as any)?.proposal?.artifact ?? null) as ProposalArtifact | null }))
+        .filter((x): x is { r: T; artifact: ProposalArtifact } => !!x.artifact && x.artifact.kind === 'quote_intake');
+    if (!withArtifact.length) return null;
+    withArtifact.sort((a, b) => new Date(b.r.finishedAt ?? b.r.startedAt).getTime() - new Date(a.r.finishedAt ?? a.r.startedAt).getTime());
+    return { run: withArtifact[0].r, artifact: withArtifact[0].artifact };
+}
+
+export interface SaveDraftInput {
+    lines: CardLine[];
+    customerType: CardCustomerType;
+    name: string;
+    postcode: string;
+    mediaIds: string[];
+}
+
+export function validateDraftInput(body: unknown): { ok: true; input: SaveDraftInput } | { ok: false; errors: string[] } {
+    const b = (body ?? {}) as Record<string, any>;
+    const errors: string[] = [];
+    const lines: CardLine[] = Array.isArray(b.lines)
+        ? b.lines.map((l: any) => ({
+            title: String(l?.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 160),
+            category: l?.category ? String(l.category).slice(0, 40) : null,
+            qty: l?.qty == null || l?.qty === '' ? null : Number(l.qty),
+            notes: l?.notes ? String(l.notes).trim().slice(0, 600) : null,
+            assumptions: Array.isArray(l?.assumptions) ? l.assumptions.map(String).slice(0, 10) : [],
+        })).filter((l: CardLine) => l.title)
+        : [];
+    if (!lines.length) errors.push('At least one job line with a title is required.');
+    for (const l of lines) if (l.qty != null && (!Number.isFinite(l.qty) || l.qty <= 0 || l.qty > 999)) errors.push(`Quantity for "${l.title}" must be a positive number.`);
+    const name = String(b.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const postcode = String(b.postcode ?? '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 12);
+    if (postcode && !/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/.test(postcode)) errors.push('Postcode does not look like a UK postcode.');
+    const customerType = normaliseCustomerType(b.customerType);
+    const mediaIds = Array.isArray(b.mediaIds) ? b.mediaIds.map(String).filter(Boolean).slice(0, 40) : [];
+    if (errors.length) return { ok: false, errors };
+    return { ok: true, input: { lines, customerType, name, postcode, mediaIds } };
+}
+
+export interface DraftQuoteRow {
+    customerName: string;
+    phone: string;
+    postcode: string | null;
+    jobDescription: string;
+    quoteMode: 'simple';
+    segment: string;
+    customerType: string;
+    isDraft: true;
+    pricingLineItems: Array<{
+        lineId: string; label: string; title: string; description: string | null; category: string | null; qty: number;
+        pricePence: null; labourPence: null; materialsPence: null; assumptions: string[]; source: 'quote_intake';
+    }>;
+    quoteAssumptions: string[] | null;
+    customerPhotoUrls: string[] | null;
+    customerVideoUrls: string[] | null;
+    sourceChannel: string;
+    createdBy: string | null;
+    createdByName: string | null;
+    expiresAt: Date;
+}
+
+/**
+ * The draft row. Every price is null by construction: the type does not admit a number there.
+ * Media is split by kind onto the quote's photo/video columns, ticked ids only.
+ */
+export function intakeToDraftQuote(input: {
+    draft: SaveDraftInput;
+    phone: string;
+    media: ThreadMediaItem[];
+    assumptions?: string[];
+    createdBy?: string | null;
+    createdByName?: string | null;
+    now?: Date;
+}): DraftQuoteRow {
+    const now = input.now ?? new Date();
+    const ticked = new Set(input.draft.mediaIds);
+    const chosen = input.media.filter((m) => ticked.has(m.id));
+    const photos = chosen.filter((m) => m.kind === 'image').map((m) => m.url);
+    const videos = chosen.filter((m) => m.kind === 'video').map((m) => m.url);
+    return {
+        customerName: input.draft.name || 'Customer',
+        phone: input.phone,
+        postcode: input.draft.postcode || null,
+        jobDescription: input.draft.lines.map((l) => (l.qty && l.qty > 1 ? `${l.qty}× ${l.title}` : l.title)).join('; ').slice(0, 2000),
+        quoteMode: 'simple',
+        segment: 'CONTEXTUAL',
+        customerType: QUOTE_CUSTOMER_TYPE[input.draft.customerType],
+        isDraft: true,
+        pricingLineItems: input.draft.lines.map((l, i) => ({
+            lineId: `card_${i + 1}`, label: l.title, title: l.title, description: l.notes ?? null, category: l.category ?? null,
+            qty: l.qty && l.qty > 0 ? l.qty : 1,
+            pricePence: null, labourPence: null, materialsPence: null,
+            assumptions: l.assumptions ?? [], source: 'quote_intake',
+        })),
+        quoteAssumptions: input.assumptions?.length ? input.assumptions : null,
+        customerPhotoUrls: photos.length ? photos : null,
+        customerVideoUrls: videos.length ? videos : null,
+        sourceChannel: 'comms_quote_card',
+        createdBy: input.createdBy ?? null,
+        createdByName: input.createdByName ?? null,
+        expiresAt: new Date(now.getTime() + 30 * 24 * 3_600_000),
+    };
+}
+
+// ---------------------------------------------------------------- db
+
+export async function loadThreadMedia(conversationId: string): Promise<ThreadMediaItem[]> {
+    const { db } = await import('../db');
+    const { messages } = await import('@shared/schema');
+    const { and, eq, isNotNull, desc } = await import('drizzle-orm');
+    const { notQuarantined } = await import('../message-quarantine');
+    const rows = await db.select({ id: messages.id, mediaUrl: messages.mediaUrl, mediaType: messages.mediaType, type: messages.type, createdAt: messages.createdAt })
+        .from(messages).where(and(eq(messages.conversationId, conversationId), isNotNull(messages.mediaUrl), notQuarantined))
+        .orderBy(desc(messages.createdAt)).limit(60);
+    const seen = new Set<string>();
+    const out: ThreadMediaItem[] = [];
+    for (const r of rows) {
+        if (!r.mediaUrl || seen.has(r.mediaUrl)) continue;
+        const kind = mediaKindOf(r.mediaType, r.type);
+        if (kind === 'other') continue;
+        seen.add(r.mediaUrl);
+        out.push({ id: r.id, url: r.mediaUrl, mimeType: r.mediaType ?? null, kind, at: r.createdAt ? new Date(r.createdAt).toISOString() : null });
+    }
+    return out.reverse();
+}
+
+export async function loadQuoteIntakeCard(conversationId: string): Promise<QuoteIntakeCardPayload | { available: false; reason: string }> {
+    const { db } = await import('../db');
+    const { agentRuns } = await import('@shared/schema');
+    const { and, eq, desc } = await import('drizzle-orm');
+    const runs = await db.select({ id: agentRuns.id, agent: agentRuns.agent, finishedAt: agentRuns.finishedAt, startedAt: agentRuns.startedAt, proposal: agentRuns.proposal })
+        .from(agentRuns).where(and(eq(agentRuns.conversationId, conversationId), eq(agentRuns.agent, 'quote_clerk')))
+        .orderBy(desc(agentRuns.startedAt)).limit(20);
+    const picked = pickLatestIntakeRun(runs);
+    if (!picked) return { available: false, reason: 'no quote_intake artifact for this thread' };
+    const intake = intakeFromArtifact(picked.artifact);
+    if (!intake) return { available: false, reason: 'artifact unreadable' };
+    const media = await loadThreadMedia(conversationId);
+    return {
+        available: true, runId: picked.run.id,
+        at: new Date(picked.run.finishedAt ?? picked.run.startedAt).toISOString(),
+        summary: picked.artifact.summary, intake, missing: missingFields(intake), media,
+    };
+}
+
+export async function saveDraftQuote(conversationId: string, body: unknown, user: { id?: string | null; email?: string | null; name?: string | null } = {}):
+    Promise<{ ok: true; id: string; slug: string; editUrl: string } | { ok: false; status: number; errors: string[] }> {
+    const v = validateDraftInput(body);
+    if (!v.ok) return { ok: false, status: 400, errors: v.errors };
+    const { db } = await import('../db');
+    const { conversations, personalizedQuotes } = await import('@shared/schema');
+    const { eq, sql } = await import('drizzle-orm');
+    const { nanoid } = await import('nanoid');
+    const [conv] = await db.select({ id: conversations.id, phoneNumber: conversations.phoneNumber, contactName: conversations.contactName })
+        .from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    if (!conv) return { ok: false, status: 404, errors: ['Conversation not found'] };
+    const digits = (conv.phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+    if (!digits) return { ok: false, status: 422, errors: ['Conversation has no usable phone'] };
+    const media = await loadThreadMedia(conversationId);
+    if (!v.input.name && conv.contactName) v.input.name = conv.contactName;
+    const row = intakeToDraftQuote({
+        draft: v.input, phone: `+${digits}`, media,
+        createdBy: user.id ?? user.email ?? null, createdByName: user.name ?? user.email ?? null,
+    });
+    // Same slug discipline as the builder (contextual-pricing/routes.ts generateUniqueSlug).
+    let shortSlug = '';
+    for (let i = 0; i < 5 && !shortSlug; i++) {
+        const candidate = Math.random().toString(36).substring(2, 10);
+        const [hit] = await db.select({ id: personalizedQuotes.id }).from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, candidate)).limit(1);
+        if (!hit) shortSlug = candidate;
+    }
+    if (!shortSlug) shortSlug = nanoid(8);
+    const id = `quote_${nanoid()}`;
+    await db.insert(personalizedQuotes).values({ id, shortSlug, ...row, createdAt: new Date() } as any);
+    await db.update(conversations).set({
+        metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('quoteDraft', jsonb_build_object('slug', ${shortSlug}::text, 'quoteId', ${id}::text, 'at', ${new Date().toISOString()}::text))`,
+        updatedAt: new Date(),
+    }).where(eq(conversations.id, conversationId));
+    try {
+        const { emitCommsEvent } = await import('../comms-events');
+        emitCommsEvent({ type: 'board_delta', conversationId, reason: 'other', at: new Date().toISOString() });
+    } catch { /* bookkeeping */ }
+    return { ok: true, id, slug: shortSlug, editUrl: `/admin/quotes/${shortSlug}/edit` };
+}
