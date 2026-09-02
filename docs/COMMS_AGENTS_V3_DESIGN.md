@@ -19,6 +19,20 @@ Honours: `docs/COMMS_MAP_2026-08.md`, `docs/AGENT_DECISION_FRAMEWORK.md`, `docs/
 | Models | Claude core via `server/llm.ts`; Gemini kept narrowly for native video (Phase 4); no OpenRouter |
 | Deliverable | Design doc, council-tested (done 2 Sep), build next session |
 
+### 0b. Interview decisions (owner, 2 Sep 2026, after the model)
+
+| Question | Decision |
+|---|---|
+| Ben's hours / paid approvals | Not yet decided; Courtnee agrees it with Ben. Default Mon–Fri 08–18 |
+| Bot disclosure | None. Automated messages speak as Handy Services |
+| Silence-breaker wait | **10 minutes** (model used 20; re-run replay before Phase 1) |
+| 30-day success metric | **Unanswered bursts in 24h: 23% → under 2%** |
+| Non-UK numbers | Acknowledge like anyone else; only obvious spam patterns are dropped |
+| First AI role to build | **Scoper on WhatsApp**, then Quote clerk on call transcripts, then Sorter deadlines |
+| Go-live | Switch as soon as eval families pass; no mandatory shadow week |
+| Ben's reply channel | Business number only, confirmed from data; no personal-number ingest |
+| Chores this week | Courtnee enters 8 contractor phones; Courtnee agrees Ben's hours; Claude drafts the note to Ben |
+
 ---
 
 ## 1. Why now — what the audits found (2 Sep 2026)
@@ -95,20 +109,20 @@ Structural lessons this design encodes, not just remembers:
 
 ### 3.1 Ingest and claim
 - Unchanged entry points (`meta-whatsapp.ts`, `conversation-engine.ts`, `leads.ts`, call finalize) all call one function: `spine.requestRun(conversationId, trigger)`. Nothing else may run an agent — not cron, not Ops Manager, not scripts. `requestRun` owns the debounce and the atomic `triageHeldUntil` claim (the 27 Aug fix, now the only path).
-- **Ben's personal WhatsApp number is an ingest source** (Phase 0). Until it is, every "Ben replied" rule below is unsafe.
+- **Ben replies only from the business number** (confirmed 2 Sep). The desk therefore sees every human reply, and every "Ben replied" rule below is safe without further ingest. This is now a standing rule, not an assumption.
 - **Worker gate:** `requestRun` enqueues; only a process with `COMMS_WORKER=1` (Railway only) dequeues. Local dev runs against a Neon branch with no Twilio secrets; scripts may run an agent only with `--allow-send`, refused unless `NODE_ENV=production`.
 - **Heartbeat:** the worker writes `app_settings.comms_worker_heartbeat` every tick. A Pushover fires if it is stale > 10 min in UK hours, and at boot on Railway if `COMMS_WORKER` is absent. This is the alarm 31 Aug did not have.
 
 ### 3.2 Case file (shared assembler)
 One module builds one immutable object per run, and it is the *only* thing any agent reads:
-- thread timeline (messages + calls with transcripts, quarantined rows excluded, Ben's personal-number replies included), media as image blocks and video descriptions, WhatsApp window state, channel deliverability;
+- thread timeline (messages + calls with transcripts, quarantined rows excluded), media as image blocks and video descriptions, WhatsApp window state, channel deliverability;
 - client record (`service_clients`), role profile, open leads, live quote with lines/views/expiry, paid/unpaid state;
 - open promises, open flags, last agent run summary, tags/stage;
 - policy pack id + version resolved for (audience, stage).
 Persisted by hash to `agent_runs.case_file_ref` with the **exact model snapshot id** so a run is replayable against what actually shipped. This replaces `get_thread`, `get_customer_context`, and the V2 `conversation_memory` table.
 
 ### 3.3 Triage (rung 4, not an agent)
-Deterministic pre-checks first (opt-out, geography, spam patterns, first-contact, keyword lexicon for money/date/complaint), then a single schema-validated Claude call (Haiku 4.5) over the case file → `{ audience, intent, lane, exceptions[], stage, tags[] }` from fixed vocabularies. Exceptions: `complaint`, `trust_concern`, `refund`, `out_of_scope`, `regulated_trade`, `money_question`, `date_question`, `spam`, `out_of_area`. Any exception routes to the Ben lane before any agent runs. Measured share today: ~17% of inbound. Triage writes tags/stage itself and logs a run.
+Deterministic pre-checks first (opt-out, spam patterns, first-contact, keyword lexicon for money/date/complaint; non-UK numbers are NOT dropped, decided 2 Sep, the replay found real customers among them), then a single schema-validated Claude call (Haiku 4.5) over the case file → `{ audience, intent, lane, exceptions[], stage, tags[] }` from fixed vocabularies. Exceptions: `complaint`, `trust_concern`, `refund`, `out_of_scope`, `regulated_trade`, `money_question`, `date_question`, `spam`, `out_of_area`. Any exception routes to the Ben lane before any agent runs. Measured share today: ~17% of inbound. Triage writes tags/stage itself and logs a run.
 
 ### 3.4 Policy packs (config, versioned)
 ```
@@ -120,7 +134,7 @@ pack = { audience, stage?, city?, allowedIntents[], guardSet[], tier, hours, exc
 | `customer.default` (Scoper) | ask_gap, clarify_scope, confirm_received, holding, faq_from_kb, point_to_quote_page, closing | money (unconditional), date_promise, discount, duration, capability, liability, policy, capitulation, voice, unseen | DRAFT → earns SEND per intent |
 | `customer.post_quote` | + answer_from_quote, point_to_picker | same + `price_objection` → Ben | DRAFT |
 | `customer.exception` | none | — | Ben only; rules layer may send one holding line at flag expiry |
-| `rules.followup` | quote_unviewed, promise_overdue_holding, sla_chase | template only | SEND once Ben's number is ingested; PROPOSE before |
+| `rules.followup` | quote_unviewed, promise_overdue_holding, sla_chase | template only | SEND (content-free templates) |
 | `contractor.default` | job_brief, availability_ask, confirm_receipt, materials_list | customer_pii, money_to_customer | Phase 4, DRAFT |
 | `internal.ben` | anything | none | n/a |
 
@@ -129,7 +143,7 @@ Money and dates are absent from every customer pack's vocabulary; no intent can 
 ### 3.5 The agents and the rules layer
 | Component | Kind / tier | Trigger | Belt | Replaces |
 |---|---|---|---|---|
-| **Rules layer** (first contact + silence-breaker + follow-up templates) | rules, content-free SEND | inbound first touch; no reply after N min (default 20, 24/7); cadence table | template ladder only; suppressed if any outbound (incl. Ben's number) landed since | `first-contact-ack.ts` (kept), `sla-sweep.ts`, `promise-tracker.ts` chases, cron sweeps |
+| **Rules layer** (first contact + silence-breaker + follow-up templates) | rules, content-free SEND | inbound first touch; no reply after N min (10 min, decided 2 Sep; 24/7); cadence table | template ladder only; suppressed if any outbound landed since | `first-contact-ack.ts` (kept), `sla-sweep.ts`, `promise-tracker.ts` chases, cron sweeps |
 | **Scoper** (customer conversation) | agent, DRAFT→SEND per intent | triage lane `scoping`/`gathering`/`post_quote` | read case file; `describe_video` (Phase 4); `propose_reply(intent, body)`; `flag(exception, note, due)`; `set_contact_name`; `schedule_recontact` | `comms.ts` reply half, V2 scoping+reply workers |
 | **Quote clerk** | agent, PROPOSE | tag `needs_quote`, scoper `ready_to_quote`, **or post-call transcript** | read case file; `propose_intake(lines[{title, category}], gaps, media[])` → prefilled builder + in-chat card | `quote-prep.ts` (kept, moved onto spine) |
 | **Recovery** | agent, PROPOSE | unpaid quote ≤21d, no recent nudge | read; `queue_nudge` into `nudge_queue` (wa.me prefill send) | `recovery.ts` (kept) |
@@ -160,7 +174,7 @@ Ops Manager stays as Ben's console but loses `run_comms_agent`; it calls `spine.
 
 ## 4. "Auto by default, Ben on exceptions" — what it means concretely
 
-**Exception lane (always Ben):** complaints, trust concerns, refunds, out-of-scope/regulated/unusual jobs, any money or date question (~17% of inbound). The flag carries `due_at` (default 4 working hours, 20 min for `callback_requested`). One Pushover, a 09:00 digest, auto-close when Ben replies from either number. **At expiry the rules layer sends one template holding line** ("Ben's picking this up, back to you by …") and re-flags once. Flags never rot silently again.
+**Exception lane (always Ben):** complaints, trust concerns, refunds, out-of-scope/regulated/unusual jobs, any money or date question (~17% of inbound). The flag carries `due_at` (default 4 working hours, 20 min for `callback_requested`). One Pushover, a 09:00 digest, auto-close when Ben replies in the thread. **At expiry the rules layer sends one template holding line** ("Ben's picking this up, back to you by …") and re-flags once. Flags never rot silently again.
 
 **Everything else (agent by default):** the customer pack's allowed intents. At launch every Scoper intent is DRAFT, but the customer is never silent: the rules layer already covers first contact, media/postcode asks and the silence-breaker at SEND. Promotion to SEND is per intent, automatic, from evidence:
 - eval regression family for the intent at pass^3 = 100% (`COMMS_EVALS_PLAN` gate), and
@@ -181,7 +195,7 @@ Ops Manager stays as Ben's console but loses `run_comms_agent`; it calls `spine.
 
 | Component | Launch | 30 days | 90 days |
 |---|---|---|---|
-| Rules layer | SEND: first contact, ask_media, ask_postcode, silence-breaker | + quote_unviewed, promise_overdue_holding (once Ben's number ingested) | same |
+| Rules layer | SEND: first contact, ask_media, ask_postcode, silence-breaker | + quote_unviewed, promise_overdue_holding | same |
 | Triage | writes tags/stage | same | same |
 | Scoper | DRAFT all | SEND: ask_gap, confirm_received | + holding, point_to_quote_page |
 | Quote clerk | PROPOSE (card), post-call included | PROPOSE | PROPOSE; auto-attach media |
@@ -209,7 +223,7 @@ Why, from the evidence:
 
 **Post-call outreach.** Rules, not a model: recording > 10 s → nova-3 transcript → Triage (same call as inbound) → template ladder (freeform if window open, else approved template, else SMS) → Quote clerk on the transcript → thread now has a first outbound, so the Scoper handles the reply. Outbound calls are captured since 23 Aug. Merge gate remains the four call types from the `remove-realtime` worktree.
 
-**Recovery / re-engagement.** Unpaid-quote nudges stay PROPOSE into `nudge_queue` with the wa.me prefill send (the Sukhy lesson) **until Ben's personal number is ingested**; then `quote_unviewed` template chases move to the rules layer at SEND. Re-engagement campaigns stay manual-triggered.
+**Recovery / re-engagement.** Unpaid-quote nudges stay PROPOSE into `nudge_queue` with the wa.me prefill send (the Sukhy lesson) ; `quote_unviewed` template chases run from the rules layer at SEND. Re-engagement campaigns stay manual-triggered.
 
 **Contractor lane (Phase 4).** Pack defined in §3.4; ingest fork and role resolver already exist (`server/roles.ts`, `conversations.role_profile`). Precondition is data entry: real phones for the 8 contractors on `/admin/contractors` (empty strings today). Owner: Courtnee, before Phase 2 starts. Relay via the Handy number stays verdict step 6.
 
@@ -235,9 +249,9 @@ Each phase has a kill criterion and ends deployed. Legacy `comms.ts` keeps runni
 
 | Phase | Build | Exit criterion | Kill |
 |---|---|---|---|
-| **0 — Close the doors** (2 Sep hotfix done; +2 days) | Delete `sendV2Reply` + V2 routing; `Approver` enum; **`sendCustomerMessage` refuses without `run_id` + approver, 16 callers migrated**; `COMMS_WORKER` gate on every tick/cron site + boot alarm + heartbeat; Neon dev branch + Twilio secrets off local `.env`; **ingest Ben's personal number**; cherry-pick process-local config; enter 8 contractor phones | Railway is the only process that can send; no send without a run id; Ben's replies visible in threads | — |
+| **0 — Close the doors** (2 Sep hotfix done; +2 days) | Delete `sendV2Reply` + V2 routing; `Approver` enum; **`sendCustomerMessage` refuses without `run_id` + approver, 16 callers migrated**; `COMMS_WORKER` gate on every tick/cron site + boot alarm + heartbeat; Neon dev branch + Twilio secrets off local `.env`; cherry-pick process-local config; enter 8 contractor phones | Railway is the only process that can send; no send without a run id; Ben confirmed on the business number only | — |
 | **1 — See everything, never go silent** (~3 days) | Write-at-source ledger events; `agent_runs` table; run id on drafts/flags/tags; verdict capture with reason codes; `due_at` on drafts and flags with template-holding-line expiry; **rules-layer silence-breaker**; ack/ask_media/ask_postcode moved into the rules layer | 100% of sends have a run id; 0 inbound bursts unanswered > N min; ≥ 30 verdicts in 14 days | if verdict rate < 50% of drafts after 14 days, fix Ben's operating model (hours/pay) before touching UI |
-| **2 — The spine** (~2–3 weeks, honest estimate) | `server/spine/` (requestRun, case file, triage, packs, proposal, exit); Scoper + Quote clerk (incl. post-call) + Recovery ported; Ops Manager's comms bypass removed; shadow mode: spine proposes, legacy drafts, both logged; eval families written in parallel by the named owner | Shadow agreement report over ≥ 200 runs; guard-hit parity with legacy; guard false-negative rate measured | if shadow disagrees on > 30% of moves with no clear winner, stop and review packs |
+| **2 — The spine** (~2–3 weeks, honest estimate) | `server/spine/` (requestRun, case file, triage, packs, proposal, exit); Scoper first, then Quote clerk (incl. post-call), then Recovery ported; Ops Manager's comms bypass removed; eval families written in parallel by the named owner; shadow logging optional, not a gate | Eval families pass for the ported role; guard-hit parity with legacy on replayed bursts; guard false-negative rate measured | if the Scoper's eval family cannot reach pass^3 in two weeks, stop and review packs |
 | **3 — Earn sending** (~2 weeks, mostly waiting) | Eval harness reads ledger; judge calibrated; promotion + demotion job live; 10% sampler live; Scoper replaces legacy on customer lane; bot-disclosure decision made | first Scoper intents promoted to SEND by evidence; legacy `comms.ts` deleted | any `unsafe` on a SEND intent → automatic demotion, review |
 | **4 — Widen** | Gemini `describe_video` tool; in-chat quote card; post-call merge-gate validation; contractor pack | video descriptions used in ≥ 50 runs; one contractor thread end-to-end | — |
 | **5 — Delete** | `server/pipeline/v2.ts`, `server/workers/*` (except salvaged prompts), `conversation_memory`, `sla-sweep.ts`, `promise-tracker.ts`, `comms-sweep.ts`, cron comms sweeps, `resolve_question`, `autosend.intents`, `AUTOMATED_APPROVER` regex | no references; `/admin/staff` lists only spine components | — |
@@ -263,9 +277,9 @@ Each phase has a kill criterion and ends deployed. Legacy `comms.ts` keeps runni
 
 ## 12. Open questions after council
 
-1. **Ben's operating model for verdicts**: hours of coverage, whether verdict-tapping and sample review are paid time, what "reactive" means outside 08–20. Owner decision before Phase 1.
+1. **Ben's operating model for verdicts**: hours of coverage and whether verdict-tapping is paid time. Courtnee agrees this with Ben before Phase 1 (design defaults to Mon–Fri 08–18 until then).
 2. **Bot disclosure** on SEND-tier agent replies. Brand decision before Phase 3.
-3. **Silence-breaker N** (default 20 min) and copy. Must sound like Handy, not a bot; must never fire if Ben's number replied.
+3. **Silence-breaker copy** at 10 minutes (decided 2 Sep). Must sound like Handy, not a bot; must never fire once any outbound has landed.
 4. **Guard false-negative bar** for promotion (§9). Proposed: 0 misses on the incident corpus, ≤ 2% on the 165 legacy autosends.
 
 ---
@@ -276,7 +290,7 @@ Five advisors (Contrarian, First Principles, Expansionist, Outsider, Executor), 
 
 **Agreed and adopted:** the exit was guarded at the wrong function (`sendCustomerMessage` has 16 direct callers) → §3.6 rewritten; the ≥30-verdicts-per-intent gate was unreachable at this volume → §4 gate now per pack + zero unsafe per intent; acks/media/postcode asks are rules, not agent intents → moved to the rules layer at SEND; contractor lane is blocked on an afternoon of data entry → Phase 4, phones entered in Phase 0; no dead-man heartbeat → §3.1; flags rot → `due_at` expiry into a holding send.
 
-**Caught in peer review:** Ben's personal number uncaptured makes every "Ben replied" rule unsafe → Phase 0; autonomy was never un-earned once at SEND → 10% sampler + customer-side verdicts; eval families were an unowned precondition → named owner before Phase 2; local machines hold prod secrets → Neon branch; guard chain's false-negative rate never measured → §9; replay without model snapshot → §3.2.
+**Caught in peer review:** Ben's personal number was thought uncaptured → checked 2 Sep: he has used only the business number since 15 Aug, so the desk sees all replies and no ingest is needed; autonomy was never un-earned once at SEND → 10% sampler + customer-side verdicts; eval families were an unowned precondition → named owner before Phase 2; local machines hold prod secrets → Neon branch; guard chain's false-negative rate never measured → §9; replay without model snapshot → §3.2.
 
 **Clashes resolved:** grandfather acks vs rules → rules (both eliminate silence; rules cost nothing per send). Shadow estimate now vs never → emit `category` now, estimate when 30 quotes share one. Unpaid chases SEND vs PROPOSE → SEND once Ben's number is ingested. Contrarian's "money/dates are most of the thread" → measured at 17%, not adopted.
 
