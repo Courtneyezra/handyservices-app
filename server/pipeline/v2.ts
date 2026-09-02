@@ -38,7 +38,11 @@ export interface V2PipelineConfig {
 }
 
 const DEFAULT_CONFIG: V2PipelineConfig = {
-  enabled: true,
+  // 2 Sep 2026: OFF. V2 was routed to every conversation with no allowlist, and sendV2Reply
+  // bypasses checkDraft, autosend.enabled and the hours gate. Railway has no OPENROUTER_API_KEY,
+  // so prod was silent on inbound from 31 Aug while local dev processes sent unguarded replies.
+  // Legacy comms.ts is the live path until the redesign lands (docs/COMMS_AGENTS_V3_DESIGN.md).
+  enabled: false,
   autoSend: false, // Start with manual review
   maxGapsToAsk: 1,
 };
