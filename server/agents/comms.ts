@@ -1494,6 +1494,9 @@ export function routeIntakeVerdict(readiness: IntakeReadiness, currentTags: read
  * Kept as a no-op so callers and scripts compile; `routeIntakeVerdict` above stays for its tests
  * and for the spine to reuse the routing table.
  */
+/** P8: the legacy handoff is retired (not a flag: a constant, so a config row cannot turn it back on). */
+export const RETIRE_LEGACY_QUOTE_PREP = true;
+
 export async function maybeAutoQuotePrep(
     _conversationId: string,
     _config: CommsAgentConfig,

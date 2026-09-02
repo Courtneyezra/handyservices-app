@@ -1,21 +1,24 @@
 /**
  * Quote Estimator Routes — async estimator runs with polling status.
  *
- * P8 (3 Sep 2026): this route NEVER prices and never silently answers from the heuristic
- * `quote_research` row. It returns the estimator's own result, or — only when the estimator
- * itself fails and a completed research row exists — a CLEARLY LABELLED fallback
- * (`fallback: { source: 'quote_research', reason }`, `estimatorVersion: 'research-fallback-v1'`).
- * Pane A (BRIEF-P8-chain) replaces the in-memory job map with `quote_estimates`.
+ * P8 (4 Sep 2026): the in-memory job map is gone; a run is a `quote_estimates` row
+ * (server/spine/estimate-store.ts) with status running | complete | failed, so a poll survives a
+ * deploy and the row is the same one Route A reads. The poll route keeps its response shape
+ * ({ status, build, summary, turns, error }) for the existing builder client until pane B lands.
+ * This module NEVER prices (architecture test: server/spine/architecture.test.ts).
+ *
+ * OPTIMIZATION (unchanged): completed background research (quote_pending → quote_ready) is
+ * converted to QuoteBuild instantly, labelled `cached: true`, instead of running the estimator.
  */
 import { Router } from 'express';
-import crypto from 'crypto';
 import { eq, desc } from 'drizzle-orm';
 import { db } from './db';
 import { conversations, quoteResearch } from '@shared/schema';
 import { runEstimator } from './agents/quote-estimator';
-import type { QuoteBuild, EstimatedLine, EstimatedMaterial, TimeEstimate } from '@shared/quote-build';
+import { insertEstimate, finishEstimate, getEstimate, type EstimateLine } from './spine/estimate-store';
+import type { QuoteBuild, EstimatedLine, EstimatedMaterial } from '@shared/quote-build';
 import type { IntakeLine } from './agents/quote-prep';
-import type { QuoteResearchResult, JobResearch, MaterialEstimate } from '@shared/quote-research-types';
+import type { QuoteResearchResult } from '@shared/quote-research-types';
 
 /**
  * Convert background research result to QuoteBuild format.
@@ -83,41 +86,48 @@ async function getCachedResearch(conversationId: string): Promise<QuoteBuild | n
     return researchToQuoteBuild(research, conversationId, intake);
 }
 
-const router = Router();
+// ---------------------------------------------------------------- QuoteBuild ⇄ quote_estimates rows
 
-interface EstimateJob {
-    status: 'running' | 'complete' | 'failed';
-    build?: QuoteBuild;
-    error?: string;
-    summary?: string;
-    turns?: number;
-    startedAt: number;
-    /** P8: set ONLY when the estimator failed and the heuristic research row answered instead. */
-    fallback?: { source: 'quote_research'; reason: string };
+/** A legacy QuoteBuild as EstimateLines (the row's shape). Pure. Never a price. */
+export function buildToEstimateLines(build: QuoteBuild): EstimateLine[] {
+    return build.lines.map((l, i) => {
+        const minutes = Number(l.time?.minutes) || 0;
+        const range = Array.isArray(l.time?.rangeMinutes) && l.time!.rangeMinutes!.length === 2 ? l.time!.rangeMinutes! : null;
+        return {
+            lineId: `card_${(typeof l.lineIndex === 'number' ? l.lineIndex : i) + 1}`, title: l.description, category: l.category,
+            minutesLow: range ? Math.min(range[0], minutes) : Math.round(minutes * 0.8), minutesHigh: range ? Math.max(range[1], minutes) : Math.round(minutes * 1.3), minutesPoint: minutes,
+            materials: (l.materials ?? []).map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitPricePence, source: m.supplier, needsReview: m.needsReview, supplierUrl: m.supplierUrl ?? null, supplierItemNumber: m.supplierItemNumber ?? null, catalogId: m.catalogId ?? null })),
+            flags: [], confidence: l.time?.confidence ?? 'low', reasoning: l.time?.note ?? '',
+            timeSource: minutes > 0 ? (l.time?.basis === 'historical' ? 'history' : 'model') : 'fallback',
+            unresolved: l.unresolved ?? null, procedure: l.procedure ?? [], assumptions: l.assumptions ?? [],
+        };
+    });
 }
 
-// In-memory store for running/completed estimates
-const estimateJobs = new Map<string, EstimateJob>();
+/** The row back as a QuoteBuild for the old builder client. Pure. */
+export function estimateLinesToBuild(lines: EstimateLine[], conversationId: string | null, createdAt: string): QuoteBuild {
+    return {
+        conversationId: conversationId ?? undefined,
+        lines: lines.map((l, i) => ({
+            lineIndex: i, description: l.title, category: l.category,
+            time: { minutes: l.minutesPoint, confidence: l.confidence, basis: l.timeSource === 'history' ? 'historical' : 'model', rangeMinutes: [l.minutesLow, l.minutesHigh], note: l.reasoning },
+            materials: l.materials.map((m) => ({ name: m.name, qty: m.qty, unitPricePence: m.unitCostPence, supplier: m.source, needsReview: !!m.needsReview, supplierUrl: m.supplierUrl ?? undefined, supplierItemNumber: m.supplierItemNumber ?? undefined, catalogId: m.catalogId ?? undefined })),
+            procedure: l.procedure ?? [], assumptions: l.assumptions ?? [], unresolved: l.unresolved ?? undefined,
+        })),
+        estimatorVersion: 'quote_estimates-v1',
+        createdAt,
+    };
+}
+
+const router = Router();
 
 // 3-minute timeout
 const ESTIMATE_TIMEOUT_MS = 3 * 60 * 1000;
 
-// Cleanup old jobs periodically (every 5 minutes)
-setInterval(() => {
-    const now = Date.now();
-    const maxAge = 10 * 60 * 1000; // 10 minutes
-
-    for (const [id, job] of estimateJobs.entries()) {
-        if (now - job.startedAt > maxAge) {
-            estimateJobs.delete(id);
-        }
-    }
-}, 5 * 60 * 1000);
-
 /**
  * POST /api/pricing/estimate-build
  *
- * Start an async estimator run. Returns immediately with an estimateId for polling.
+ * Start an async estimator run. Returns immediately with an estimateId (a quote_estimates row) for polling.
  *
  * Body:
  *   - conversationId?: string — load intake from conversation metadata
@@ -136,64 +146,43 @@ router.post('/estimate-build', async (req, res) => {
             });
         }
 
-        // P8: no silent short-circuit to the heuristic research row. The estimator runs; the
-        // research row is consulted ONLY if the estimator fails, and then the result says so.
-        const estimateId = crypto.randomUUID();
+        // OPTIMIZATION: completed background research first, clearly labelled as cached.
+        if (conversationId && !lines) {
+            const cachedBuild = await getCachedResearch(conversationId);
+            if (cachedBuild) {
+                console.log(`[Estimator] Using cached research for ${conversationId}`);
+                const estimateId = await insertEstimate({ conversationId, status: 'complete', lines: buildToEstimateLines(cachedBuild), model: 'research-cache-v1' });
+                await finishEstimate(estimateId, { status: 'complete' });
+                return res.status(202).json({
+                    estimateId,
+                    status: 'complete', // Immediately complete
+                    cached: true,
+                });
+            }
+        }
 
-        // Initialize job as running
-        estimateJobs.set(estimateId, {
-            status: 'running',
-            startedAt: Date.now(),
-        });
+        const estimateId = await insertEstimate({ conversationId: conversationId ?? null, status: 'running', model: 'claude-sonnet-5' });
 
-        // Start estimator in background (don't await)
+        // Start estimator in background (don't await); the row carries the outcome.
         const estimatePromise = runEstimator({ conversationId, lines });
-
-        // Set up timeout
         const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => reject(new Error('Estimate timed out after 3 minutes')), ESTIMATE_TIMEOUT_MS);
         });
-
-        // Race estimate vs timeout
         Promise.race([estimatePromise, timeoutPromise])
-            .then((result) => {
-                estimateJobs.set(estimateId, {
+            .then(async (result) => {
+                await finishEstimate(estimateId, {
                     status: 'complete',
-                    build: result.build ?? undefined,
-                    summary: result.summary,
-                    turns: result.turns,
-                    startedAt: estimateJobs.get(estimateId)?.startedAt ?? Date.now(),
+                    lines: result.build ? buildToEstimateLines(result.build) : [],
+                    error: result.build ? null : (result.summary || 'estimator returned no build'),
                 });
             })
             .catch(async (err) => {
                 const message = err instanceof Error ? err.message : String(err);
                 console.error(`[Estimator] Job ${estimateId} failed:`, message);
-                // P8: the labelled fallback — the heuristic research row, named as such.
-                const fallbackBuild = conversationId && !lines ? await getCachedResearch(conversationId).catch(() => null) : null;
-                if (fallbackBuild) {
-                    console.warn(`[Estimator] Job ${estimateId}: answering from quote_research FALLBACK (${message})`);
-                    estimateJobs.set(estimateId, {
-                        status: 'complete',
-                        build: fallbackBuild,
-                        summary: `FALLBACK: heuristic research, not the estimator (${message}). Check every line.`,
-                        turns: 0,
-                        startedAt: estimateJobs.get(estimateId)?.startedAt ?? Date.now(),
-                        fallback: { source: 'quote_research', reason: message },
-                    });
-                    return;
-                }
-                estimateJobs.set(estimateId, {
-                    status: 'failed',
-                    error: message,
-                    startedAt: estimateJobs.get(estimateId)?.startedAt ?? Date.now(),
-                });
+                await finishEstimate(estimateId, { status: 'failed', error: message }).catch(() => undefined);
             });
 
-        // Return immediately with job ID
-        return res.status(202).json({
-            estimateId,
-            status: 'running',
-        });
+        return res.status(202).json({ estimateId, status: 'running' });
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error('[Estimator] Failed to start job:', message);
@@ -204,34 +193,25 @@ router.post('/estimate-build', async (req, res) => {
 /**
  * GET /api/pricing/estimate-build/:estimateId
  *
- * Poll status of an estimate job.
- *
- * Returns:
- *   - status: 'running' | 'complete' | 'failed'
- *   - build?: QuoteBuild (when complete)
- *   - summary?: string (agent's final text)
- *   - turns?: number (how many agent turns)
- *   - error?: string (when failed)
+ * Poll status of an estimate row. Shape unchanged: { status, build?, summary?, turns?, error? }.
  */
-router.get('/estimate-build/:estimateId', (req, res) => {
+router.get('/estimate-build/:estimateId', async (req, res) => {
     const { estimateId } = req.params;
-
-    const job = estimateJobs.get(estimateId);
-
-    if (!job) {
-        return res.status(404).json({
-            error: 'Estimate job not found. It may have expired (10 minute TTL).',
+    try {
+        const row = await getEstimate(estimateId);
+        if (!row) return res.status(404).json({ error: 'Estimate not found.' });
+        const build = row.status === 'complete' && row.lines.length ? estimateLinesToBuild(row.lines, row.conversationId, row.createdAt) : undefined;
+        return res.json({
+            status: row.status,
+            build,
+            summary: row.status === 'complete' ? (build ? `${row.lines.length} line(s) estimated.` : row.error ?? undefined) : undefined,
+            turns: undefined,
+            error: row.status === 'failed' ? row.error ?? 'estimate failed' : undefined,
         });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return res.status(500).json({ error: message });
     }
-
-    return res.json({
-        status: job.status,
-        build: job.build,
-        summary: job.summary,
-        turns: job.turns,
-        error: job.error,
-        ...(job.fallback ? { fallback: job.fallback } : {}),
-    });
 });
 
 /**

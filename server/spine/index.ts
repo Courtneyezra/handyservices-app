@@ -18,6 +18,7 @@ import { checkProposal } from './guards';
 import { decide } from './decide';
 import { exit as runExit, type ExitOutcome } from './exit';
 import { requestRun, runDue } from './request-run';
+import { runRouteAChain, surveyOfferFor, artifactReadiness, type RouteAOutcome } from './route-a';
 import type { AgentName, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, Trigger } from './types';
 
 /** P7: how long the spine waits for something the customer said was coming before it looks again. */
@@ -71,6 +72,8 @@ export interface RunOnceOpts {
 
 export interface RunOnceResult extends SpineRun {
     outcome?: ExitOutcome;
+    /** P8: what the Route A chain did after a quote_ready clerk artifact (estimate id, draft slug, supersessions). */
+    routeA?: RouteAOutcome;
 }
 
 /**
@@ -130,11 +133,37 @@ export async function runOnce(
         if (proposal) guards = checkProposal(proposal, pack, caseFile);
     }
 
+    // P8 Route A — the chain runs INLINE after the Quote clerk (see route-a.ts for why not a
+    // queued cadence run). quote_ready → estimator → engine → priced draft (prices null) → Pushover;
+    // visit_first → the proposal becomes the DRAFT-tier survey offer for Ben. Runs in shadow too:
+    // nothing here reaches a customer. A chain failure is recorded on the run and never blocks the
+    // decision the clerk's pass would have taken.
+    let routeA: RouteAOutcome | undefined;
+    if (proposal?.artifact?.kind === 'quote_intake') {
+        const readiness = artifactReadiness(proposal.artifact);
+        if (readiness === 'quote_ready') {
+            try {
+                routeA = await runRouteAChain({ caseFile, pack, triage, clerkRunId: runId, artifact: proposal.artifact });
+            } catch (e: any) {
+                routeA = { ran: true, reason: `chain failed: ${e?.message ?? e}` };
+                console.error(`[Spine] Route A chain failed for ${conversationId}:`, e?.message ?? e);
+            }
+        } else if (readiness === 'visit_first') {
+            try {
+                const offer = await surveyOfferFor({ caseFile, clerkRunId: runId, artifact: proposal.artifact });
+                if (offer) { proposal = offer; guards = checkProposal(offer, pack, caseFile); }
+            } catch (e: any) {
+                console.error(`[Spine] survey offer failed for ${conversationId}:`, e?.message ?? e);
+            }
+        }
+    }
+
     const decision = decide({ proposal, guards, pack, triage, caseFile });
     const run: RunOnceResult = {
         runId, agent: recordedAgent, trigger, pack: { id: pack.id, version: pack.version },
         caseFile, triage, proposal, guards: guards ?? undefined, decision,
         durationMs: Date.now() - startedAt,
+        ...(routeA ? { routeA } : {}),
     };
     const dryRun = !!(opts.dryRun || opts.shadow);
     if (!dryRun) run.outcome = await runExit(run);
@@ -153,7 +182,7 @@ export async function runOnce(
 
     await finishAgentRun(runId, { agent: recordedAgent, conversationId, phone: caseFile.phone }, {
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,
-        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow },
+        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(routeA ? { routeA } : {}) },
         guardsHit: guards?.guardsHit ?? [],
         ...(opts.shadow ? { shadowDecision: decision.kind } : {}),
     });

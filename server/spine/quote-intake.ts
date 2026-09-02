@@ -335,3 +335,129 @@ export async function saveDraftQuote(conversationId: string, body: unknown, user
     } catch { /* bookkeeping */ }
     return { ok: true, id, slug: shortSlug, editUrl: `/admin/quotes/${shortSlug}/edit` };
 }
+
+// ---------------------------------------------------------------- P8 Route A: the automatic priced draft
+
+import type { PricingSuggestions } from './pricing-bridge';
+import type { QuoteEstimate } from './estimate-store';
+
+export const ROUTE_A_SOURCE_CHANNEL = 'spine_route_a';
+
+/**
+ * Pure: which unsent drafts on this number a new intake supersedes (never the one being kept).
+ * "Unsent" = still a draft: personalized_quotes has no sent-at column; Ben's send (pane B, or a
+ * builder save) clears is_draft, which is exactly "the customer can now see it".
+ */
+export function selectSupersededDrafts<T extends { id: string; isDraft: boolean | null; supersededAt?: Date | string | null }>(rows: T[], keepId?: string | null): T[] {
+    return rows.filter((r) => r.isDraft && !r.supersededAt && r.id !== keepId);
+}
+
+/** Pure: the draft row for the chain — every customer-visible price null; the suggestions ride in pricing_suggestions. */
+export function pricedDraftRow(input: {
+    intake: QuoteIntakeCardPayload['intake'];
+    estimate: QuoteEstimate;
+    suggestions: PricingSuggestions;
+    phone: string;
+    contactName?: string | null;
+    media: ThreadMediaItem[];
+    now?: Date;
+}): DraftQuoteRow & { pricingSuggestions: PricingSuggestions; estimateId: string } {
+    const draft: SaveDraftInput = {
+        lines: input.intake.lines, customerType: input.intake.customerType,
+        name: input.intake.customerName ?? input.contactName ?? '', postcode: input.intake.postcode ?? '',
+        mediaIds: input.media.map((m) => m.id), // all ticked by default (locked spec 18 Aug)
+    };
+    const base = intakeToDraftQuote({ draft, phone: input.phone, media: input.media, assumptions: input.intake.assumptions, createdBy: 'spine:route_a', createdByName: 'Spine (Route A)', now: input.now });
+    const byId = new Map(input.estimate.lines.map((l) => [l.lineId, l]));
+    return {
+        ...base,
+        sourceChannel: ROUTE_A_SOURCE_CHANNEL,
+        pricingLineItems: base.pricingLineItems.map((li) => {
+            const est = byId.get(li.lineId);
+            return {
+                ...li,
+                category: est?.category ?? li.category,
+                // Time and materials are the estimator's; prices stay null until Ben confirms.
+                ...(est ? { timeEstimateMinutes: est.minutesPoint, materials: est.materials.map((m) => ({ name: m.name, qty: m.qty, unitPricePence: m.unitCostPence, supplier: m.source })) } : {}),
+            } as typeof li;
+        }),
+        pricingSuggestions: input.suggestions,
+        estimateId: input.estimate.id,
+    };
+}
+
+/**
+ * Create the chain's draft: one per intake run; earlier unsent drafts on the number are marked
+ * superseded (never deleted). Returns the slug for the Pushover deep link (/admin/price/<slug>).
+ */
+export async function createPricedDraft(input: {
+    conversationId: string;
+    intake: QuoteIntakeCardPayload['intake'];
+    estimate: QuoteEstimate;
+    suggestions: PricingSuggestions;
+}): Promise<{ ok: true; id: string; slug: string; superseded: string[] } | { ok: false; status: number; errors: string[] }> {
+    const { db } = await import('../db');
+    const { conversations, personalizedQuotes } = await import('@shared/schema');
+    const { and, eq, isNull, sql, inArray } = await import('drizzle-orm');
+    const { nanoid } = await import('nanoid');
+    const [conv] = await db.select({ id: conversations.id, phoneNumber: conversations.phoneNumber, contactName: conversations.contactName })
+        .from(conversations).where(eq(conversations.id, input.conversationId)).limit(1);
+    if (!conv) return { ok: false, status: 404, errors: ['Conversation not found'] };
+    const digits = (conv.phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+    if (!digits) return { ok: false, status: 422, errors: ['Conversation has no usable phone'] };
+    const media = await loadThreadMedia(input.conversationId);
+    const row = pricedDraftRow({ intake: input.intake, estimate: input.estimate, suggestions: input.suggestions, phone: `+${digits}`, contactName: conv.contactName, media });
+
+    let shortSlug = '';
+    for (let i = 0; i < 5 && !shortSlug; i++) {
+        const candidate = Math.random().toString(36).substring(2, 10);
+        const [hit] = await db.select({ id: personalizedQuotes.id }).from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, candidate)).limit(1);
+        if (!hit) shortSlug = candidate;
+    }
+    if (!shortSlug) shortSlug = nanoid(8);
+    const id = `quote_${nanoid()}`;
+
+    // Supersede earlier unsent drafts on this number (a new intake replaces them; nothing is deleted).
+    const prior = await db.select({ id: personalizedQuotes.id, isDraft: personalizedQuotes.isDraft, supersededAt: personalizedQuotes.supersededAt })
+        .from(personalizedQuotes)
+        .where(and(eq(personalizedQuotes.isDraft, true), isNull(personalizedQuotes.supersededAt), sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${digits}`));
+    const superseded = selectSupersededDrafts(prior, id).map((r) => r.id);
+    if (superseded.length) await db.update(personalizedQuotes).set({ supersededAt: new Date(), supersededBy: id }).where(inArray(personalizedQuotes.id, superseded));
+
+    await db.insert(personalizedQuotes).values({ id, shortSlug, ...row, createdAt: new Date() } as any);
+    await db.update(conversations).set({
+        metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) || jsonb_build_object('quoteDraft', jsonb_build_object('slug', ${shortSlug}::text, 'quoteId', ${id}::text, 'at', ${new Date().toISOString()}::text, 'source', ${ROUTE_A_SOURCE_CHANNEL}::text, 'estimateId', ${input.estimate.id}::text))`,
+        updatedAt: new Date(),
+    }).where(eq(conversations.id, input.conversationId));
+    try {
+        const { emitCommsEvent } = await import('../comms-events');
+        emitCommsEvent({ type: 'board_delta', conversationId: input.conversationId, reason: 'other', at: new Date().toISOString() });
+    } catch { /* bookkeeping */ }
+    return { ok: true, id, slug: shortSlug, superseded };
+}
+
+/** For GET /api/spine/price/:slug (pane B): the draft + its estimate + suggestions, or why not. */
+export async function loadPriceScreen(slug: string): Promise<
+    | { available: true; quote: Record<string, unknown>; estimate: QuoteEstimate | null; suggestions: PricingSuggestions | null; superseded: boolean; sent: boolean }
+    | { available: false; reason: string }
+> {
+    const { db } = await import('../db');
+    const { personalizedQuotes } = await import('@shared/schema');
+    const { eq } = await import('drizzle-orm');
+    const [q] = await db.select().from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
+    if (!q) return { available: false, reason: 'no quote with that slug' };
+    const { getEstimate } = await import('./estimate-store');
+    const estimate = q.estimateId ? await getEstimate(q.estimateId) : null;
+    return {
+        available: true,
+        quote: {
+            id: q.id, slug: q.shortSlug, customerName: q.customerName, phone: q.phone, postcode: q.postcode, customerType: q.customerType,
+            jobDescription: q.jobDescription, isDraft: q.isDraft, createdAt: q.createdAt, sourceChannel: q.sourceChannel,
+            pricingLineItems: q.pricingLineItems, quoteAssumptions: q.quoteAssumptions, customerPhotoUrls: q.customerPhotoUrls, customerVideoUrls: q.customerVideoUrls,
+            supersededAt: q.supersededAt ?? null, supersededBy: q.supersededBy ?? null,
+        },
+        estimate, suggestions: (q.pricingSuggestions as PricingSuggestions | null) ?? null,
+        // A chain draft is is_draft until Ben sends (pane B clears it): "sent" = no longer a draft.
+        superseded: !!q.supersededAt, sent: !q.isDraft,
+    };
+}
