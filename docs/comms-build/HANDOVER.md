@@ -109,7 +109,7 @@ From `CUTOVER.md` §3, with dates counted from the shadow flip (3 Sep 2026 00:15
 Kill criteria that undo any of this are in CUTOVER §6.
 
 ## Owner actions closed on 3 Sep 2026
-- Contractor phones entered: Craig 07507255282, Bezent 07947837863; new contractor user **Cal** (cal@handyservices.co.uk) 07496556151. All three resolve to the contractor role; Bezent's existing thread retagged as a contractor thread.
+- Contractor phones entered: Craig 07507255282, Bezent 07947837863; new contractor user **Cal Smith** (cal@handyservices.co.uk) 07496556151. Test contractor "Mike Thompson" (Ofcom number) deactivated and phone cleared. All three resolve to the contractor role; Bezent's existing thread retagged as a contractor thread.
 - Ben's hours agreed: **Mon–Fri 08–18, approvals are paid time**. The due-time clock the build shipped with stays as is.
 - `holding_line_v1` submitted to Meta (content SID HX1c733d68035a5fe3c15b90936f80ec8f), awaiting approval.
 - The six stale `tsx watch` dev servers on the Mac were killed.
