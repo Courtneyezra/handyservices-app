@@ -34,6 +34,7 @@ import {
     outcomeMetrics, outcomePatterns, recentDecisions, reconcileOutcomes, refreshOutcomes,
     exportApprovedExamples, getOutcomeLoopConfig, setOutcomeLoopConfig,
 } from './agent-outcomes';
+import { getHeartbeatHealth } from './comms-worker-heartbeat';
 
 export const agentStaffRouter = Router();
 
@@ -83,6 +84,7 @@ async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: stri
         .where(eq(agentQuestions.status, 'answered'));
     const config = await getCommsAgentConfig();
     const trust = await trustStat('comms');
+    const heartbeat = await getHeartbeatHealth();
 
     return {
         stats: [
@@ -115,6 +117,16 @@ async function commsStats(): Promise<{ stats: Stat[]; statusChips: { label: stri
                 label: config.quotePrep.enabled ? 'AUTO QUOTE-PREP ON' : 'AUTO QUOTE-PREP OFF',
                 on: config.quotePrep.enabled,
             },
+            // Phase 0 (2 Sep 2026): the dead-man heartbeat. "SLA SWEEP ON" is a config bit; this
+            // is whether the one process allowed to sweep has actually ticked in the last 10 min.
+            {
+                label: heartbeat.ageSeconds === null
+                    ? 'WORKER HEARTBEAT NEVER SEEN · no process is sweeping'
+                    : heartbeat.stale
+                        ? `WORKER HEARTBEAT STALE · last seen ${Math.round(heartbeat.ageSeconds / 60)} min ago`
+                        : `WORKER ALIVE · ${heartbeat.host ?? '?'} · ${heartbeat.ageSeconds}s ago`,
+                on: !heartbeat.stale,
+            },
         ],
     };
 }
@@ -145,8 +157,11 @@ async function recoveryStats(): Promise<{ stats: Stat[]; statusChips: { label: s
 // GET /api/agents/staff — the full directory with live stats.
 agentStaffRouter.get('/staff', async (_req, res) => {
     try {
-        const [comms, recovery] = await Promise.all([commsStats(), recoveryStats()]);
+        const [comms, recovery, workerHeartbeat] = await Promise.all([commsStats(), recoveryStats(), getHeartbeatHealth()]);
         res.json({
+            // Phase 0: { ok, ageSeconds, stale, at, host, pid, version, thisProcess } — same shape
+            // as GET /api/health/comms-worker, so the staff page can show it without a second call.
+            workerHeartbeat,
             staff: [
                 {
                     ...commsStaff,

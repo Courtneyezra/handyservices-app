@@ -84,6 +84,7 @@ import contentLibraryRouter from './content-library/routes';
 import contentRouter from './content';
 import quotePlatformRouter, { autoSeedIfEmpty as autoSeedQuotePlatform } from './quote-platform/routes';
 import { setupCronJobs } from './cron';
+import { assertCommsWorkerAtBoot, gateCustomerLoop, skippedLoops } from './worker-gate';
 import uploadRouter from "./upload";
 import planRouter from "./plan-routes"; // customer /plan/:slug additional-works deposit checkout
 import invoiceRouter from './invoices'; // B2: Invoice management
@@ -256,6 +257,23 @@ app.get('/api/health', (req, res) => {
         uptime: process.uptime()
     });
 });
+
+// Comms worker dead-man heartbeat (Phase 0, 2 Sep 2026). Answers "is the ONE process that
+// runs customer-facing loops alive?" from the DB row it stamps every 60s, so any process can
+// serve it. 200 while fresh, 503 once stale (> 10 min) — point an uptime check here.
+app.get('/api/health/comms-worker', async (_req, res) => {
+    try {
+        const { getHeartbeatHealth } = await import('./comms-worker-heartbeat');
+        const health = await getHeartbeatHealth();
+        res.status(health.stale ? 503 : 200).json({ ...health, skippedLoopsInThisProcess: skippedLoops() });
+    } catch (error: any) {
+        res.status(503).json({ ok: false, ageSeconds: null, stale: true, error: error?.message ?? String(error) });
+    }
+});
+
+// Phase 0 boot check: production without COMMS_WORKER=1 pages Ben (no sweeps will run); a dev
+// process on the production DATABASE_URL warns loudly. Never throws, never blocks boot.
+void assertCommsWorkerAtBoot();
 
 // Start Cron Jobs
 setupCronJobs();
@@ -1925,11 +1943,16 @@ async function startServer() {
             console.error('[V6 Switchboard] Job complexity classifier initialization failed:', e);
         }
 
-        // Start Lead Automations scheduler (runs every 5 minutes)
+        // Start Lead Automations scheduler (runs every 5 minutes). It sends to customers via
+        // sendCustomerMessage (new-lead video requests, quote-sent reminders, quote-viewed
+        // follow-ups, awaiting-video reminders, lost-lead recovery), so Phase 0 gates it to the
+        // comms worker like every other customer-facing loop.
         try {
             const { startAutomationScheduler } = await import('./lead-automations');
-            startAutomationScheduler(5 * 60 * 1000); // 5 minutes
-            console.log('[V6 Switchboard] Lead automations scheduler started');
+            const registered = gateCustomerLoop('lead-automations scheduler (5 min, sends to customers)', () => {
+                startAutomationScheduler(5 * 60 * 1000); // 5 minutes
+            });
+            if (registered) console.log('[V6 Switchboard] Lead automations scheduler started');
         } catch (e) {
             console.error('[V6 Switchboard] Failed to start automations scheduler:', e);
         }
