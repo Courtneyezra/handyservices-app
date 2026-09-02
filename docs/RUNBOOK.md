@@ -79,10 +79,10 @@ Other switches (`asks`, `autonomy`, `sampler`, `video`, per-agent) are fields on
 | Autonomy ladder | `npx tsx scripts/_autonomy-report.ts --dry-run` |
 
 ### Migrations
-Files in `migrations/` are idempotent SQL (`IF NOT EXISTS`). There is no runner; apply with psql
+Files in `migrations/` are idempotent SQL (`IF NOT EXISTS`). Apply with the targeted runner `npx tsx scripts/_apply-migration.ts migrations/<file>.sql` (statement by statement, comment-safe; never `db:push` against the shared production DB). psql works too
 against the target branch, never with `db:push`:
 ```bash
-psql "$DATABASE_URL" -f migrations/20260902_agent_runs_ledger.sql
+npx tsx scripts/_apply-migration.ts migrations/20260902_agent_runs_ledger.sql
 ```
 Comms-desk migrations, in order: `20260902_agent_runs_ledger.sql`, `20260902_due_at_holding_line.sql`,
 `20260902_draft_verdicts.sql`, `20260903_pack_intent_tiers.sql`, `20260903_agent_runs_shadow_decision.sql`.
