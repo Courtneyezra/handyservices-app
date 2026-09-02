@@ -106,9 +106,24 @@ async function lastMessageTimes(conversationId: string): Promise<{ lastInboundAt
     const [lastOut] = await db.select({ at: messages.createdAt }).from(messages)
         .where(and(eq(messages.conversationId, conversationId), eq(messages.direction, 'outbound'), notQuarantined))
         .orderBy(desc(messages.createdAt)).limit(1);
+    // An outbound CALL is a reply too (2 Sep 2026): Ben ringing the customer back must not be
+    // followed by a "we have got it" text. Match on the last 10 digits of the thread's number.
+    let lastCallOutAt: Date | null = null;
+    try {
+        const [conv] = await db.select({ phone: conversations.phoneNumber }).from(conversations)
+            .where(eq(conversations.id, conversationId)).limit(1);
+        const digits = (conv?.phone ?? '').replace(/\D/g, '').slice(-10);
+        if (digits.length >= 9) {
+            const r: any = await db.execute(sql`select max(start_time) as at from calls where direction = 'outbound' and regexp_replace(phone_number, '\\D', '', 'g') like ${'%' + digits}`);
+            const at = (r.rows ?? r)?.[0]?.at;
+            if (at) lastCallOutAt = new Date(at);
+        }
+    } catch { /* calls lookup is best-effort */ }
+    const lastOutMsgAt = lastOut?.at ? new Date(lastOut.at) : null;
+    const lastOutboundAt = [lastOutMsgAt, lastCallOutAt].filter((d): d is Date => !!d).sort((x, y) => y.getTime() - x.getTime())[0] ?? null;
     return {
         lastInboundAt: lastIn?.at ? new Date(lastIn.at) : null,
-        lastOutboundAt: lastOut?.at ? new Date(lastOut.at) : null,
+        lastOutboundAt,
     };
 }
 

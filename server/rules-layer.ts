@@ -57,8 +57,8 @@ export const HOLDING_SUPPRESS_WINDOW_MS = 2 * 60 * 60_000;
 
 export const HOLDING_COPY: Record<HoldingKind, string> = {
     silence: [
-        'Thanks for your message, we have got it.',
-        'We are just looking at it now and will come back to you shortly.',
+        'Thanks for your message, we\'ve got it.',
+        'Just looking at it now, we\'ll come back to you shortly.',
     ].join('\n---\n'),
     flag_expiry: [
         'Sorry for the wait on this one.',
