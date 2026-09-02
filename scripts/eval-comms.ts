@@ -60,13 +60,14 @@ const JUDGE = flag('judge');
 const LIVE = !!process.env.EVAL_LIVE;
 
 /** Which `expected` keys each adapter can honestly grade. Others are dropped for that adapter. */
-const OBSERVES: Record<AdapterName, ReadonlySet<keyof EvalCaseV2['expected']>> = {
-    replay: new Set(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'mustHold', 'exceptions', 'noExceptions', 'voiceClean']),
+type ExpectedKey = keyof EvalCaseV2['expected'];
+const OBSERVES: Record<AdapterName, ReadonlySet<ExpectedKey>> = {
+    replay: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'mustHold', 'exceptions', 'noExceptions', 'voiceClean']),
     // Lane / flag only. `exceptions` names are the eval lexicon's; the spine's own pre-checks are a
     // different (narrower, then model-widened) list, so only the flag/no-flag outcome is compared.
-    triage: new Set(['lane', 'mustFlag', 'mustNotEscalate']),
-    spine: new Set(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
-    legacy: new Set(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
+    triage: new Set<ExpectedKey>(['lane', 'mustFlag', 'mustNotEscalate']),
+    spine: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
+    legacy: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
 };
 function applicableExpected(expected: EvalCaseV2['expected'], adapter: AdapterName): EvalCaseV2['expected'] {
     const out: Record<string, unknown> = {};
