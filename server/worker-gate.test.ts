@@ -65,7 +65,7 @@ describe('assertCommsWorkerAtBoot', () => {
     afterEach(() => vi.restoreAllMocks());
 
     it('pages when production boots without the flag', async () => {
-        const notify = vi.fn(async () => {});
+        const notify = vi.fn(async (_title: string, _message: string) => {});
         await assertCommsWorkerAtBoot({ NODE_ENV: 'production', DATABASE_URL: PROD_URL }, notify);
         expect(notify).toHaveBeenCalledTimes(1);
         expect(notify.mock.calls[0][0]).toBe('COMMS_WORKER flag absent on production: no sweeps will run');
@@ -73,14 +73,14 @@ describe('assertCommsWorkerAtBoot', () => {
     });
 
     it('does not page a correctly flagged production worker', async () => {
-        const notify = vi.fn(async () => {});
+        const notify = vi.fn(async (_title: string, _message: string) => {});
         await assertCommsWorkerAtBoot({ NODE_ENV: 'production', COMMS_WORKER: '1', DATABASE_URL: PROD_URL }, notify);
         expect(notify).not.toHaveBeenCalled();
         expect(console.error).not.toHaveBeenCalled();
     });
 
     it('warns loudly (no page) when a dev process is on the production DB', async () => {
-        const notify = vi.fn(async () => {});
+        const notify = vi.fn(async (_title: string, _message: string) => {});
         await assertCommsWorkerAtBoot({ NODE_ENV: 'development', DATABASE_URL: PROD_URL }, notify);
         expect(notify).not.toHaveBeenCalled();
         expect(console.warn).toHaveBeenCalledTimes(1);
@@ -88,7 +88,7 @@ describe('assertCommsWorkerAtBoot', () => {
     });
 
     it('never throws, even if paging throws', async () => {
-        const notify = vi.fn(async () => { throw new Error('pushover down'); });
+        const notify = vi.fn(async (_title: string, _message: string) => { throw new Error('pushover down'); });
         await expect(assertCommsWorkerAtBoot({ NODE_ENV: 'production' }, notify)).resolves.toMatchObject({ role: 'passive' });
     });
 });

@@ -80,13 +80,13 @@ describe('maybeWriteHeartbeat / checkHeartbeatStaleOnce (no DB)', () => {
     it('a passive process never writes a heartbeat and never pages', async () => {
         // No DATABASE_URL in this test env: if either function touched the db it would throw.
         expect(await maybeWriteHeartbeat(T0)).toBe(false);
-        expect(await checkHeartbeatStaleOnce(T0, vi.fn(async () => {}))).toBe('not-worker');
+        expect(await checkHeartbeatStaleOnce(T0, vi.fn(async (_title: string, _message: string) => {}))).toBe('not-worker');
     });
 
     it('the worker pages once when the heartbeat cannot be read, then throttles', async () => {
         process.env.COMMS_WORKER = '1';
         delete process.env.DATABASE_URL; // db import throws → read fails → counts as stale
-        const notify = vi.fn(async () => {});
+        const notify = vi.fn(async (_title: string, _message: string) => {});
         expect(await checkHeartbeatStaleOnce(T0, notify)).toBe('stale-alerted');
         expect(notify).toHaveBeenCalledTimes(1);
         expect(notify.mock.calls[0][0]).toBe('comms worker heartbeat stale');
