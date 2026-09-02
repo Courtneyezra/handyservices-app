@@ -114,6 +114,8 @@ export type BoardCard = {
     complaint: boolean;
     /** Tag callback_due — a promised (or interrupted) call not yet rung back. Ben's move. */
     callbackDue: boolean;
+    /** conversations.role_profile — the client shows the contractor pack chip on 'contractor' threads (Phase 4). */
+    roleProfile: string | null;
 };
 
 /** Per-conversation batch-derived agent signals. All zeros/nulls when not loaded. */
@@ -473,6 +475,7 @@ export function toCard(
         agentDown,
         complaint: (c.priority || 'normal') === 'urgent' && whoseMove === 'ben',
         callbackDue,
+        roleProfile: c.roleProfile ?? null,
     };
 }
 

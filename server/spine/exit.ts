@@ -157,6 +157,17 @@ export async function exit(run: SpineRun, overrides: Partial<ExitDeps> = {}): Pr
         }
     }
 
+    // Phase 4: an artifact proposal (the clerk's quote intake) is what the in-chat card renders;
+    // tell the open thread panel over the comms SSE bus so it refetches without a reload.
+    if (run.proposal?.artifact) {
+        try {
+            const { emitCommsEvent } = await import('../comms-events');
+            emitCommsEvent({ type: 'artifact_delta', conversationId: caseFile.conversationId, runId: run.runId, kind: run.proposal.artifact.kind, at: new Date().toISOString() });
+        } catch (e: any) {
+            console.warn('[Spine] artifact_delta emit failed (run stands):', e?.message ?? e);
+        }
+    }
+
     void ledgerRunDecided({
         runId: run.runId, agent: run.agent, conversationId: caseFile.conversationId, phone: caseFile.phone,
         decision: decision.kind, lane: run.triage.lane, intent: run.proposal?.intent ?? run.triage.intent,

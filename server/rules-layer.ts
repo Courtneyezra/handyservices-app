@@ -42,7 +42,7 @@ import { logSystemEvent } from './system-events';
 import type { Approver } from './approver';
 
 export type HoldingKind = 'silence' | 'flag_expiry' | 'draft_expiry';
-export type AskKind = 'ask_media' | 'ask_postcode';
+export type AskKind = 'ask_media' | 'ask_postcode' | 'ask_name';
 export type RulesKind = HoldingKind | AskKind;
 
 /** One holding line per wait: nothing from this module twice inside this window. */
@@ -76,6 +76,7 @@ export const ASK_COPY: Record<AskKind, string> = {
         'A clip of where the problem is helps us get it right first time.',
     ].join('\n---\n'),
     ask_postcode: 'Could you send us your postcode please? Just the postcode is fine for now.',
+    ask_name: 'Nearly ready to send your quote over. What name should we put on it?',
 };
 
 /**
@@ -103,6 +104,7 @@ export const HOLDING_TEMPLATE_PREFERENCE: Record<HoldingKind, string[]> = {
 export const ASK_TEMPLATE_PREFERENCE: Record<AskKind, string[]> = {
     ask_media: ['video_request', 'job_video_request'],
     ask_postcode: ['postcode_request'],
+    ask_name: [],
 };
 
 export const RULES_APPROVER: Record<RulesKind, Approver> = {
@@ -111,6 +113,7 @@ export const RULES_APPROVER: Record<RulesKind, Approver> = {
     draft_expiry: 'rules.holding',
     ask_media: 'rules.ask',
     ask_postcode: 'rules.ask',
+    ask_name: 'rules.ask',
 };
 
 /** Guard every fixed line at module load: a dash or a banned closer here is a build bug. */
@@ -238,6 +241,8 @@ async function deliver(input: {
     templateNames: string[];
     /** For the reason column and the ledger line. */
     why: string;
+    /** Phase 4: a human's own tap from the quote card is approved by that human, not by the rule. */
+    approver?: Approver;
 }): Promise<RulesSendResult> {
     const { kind } = input;
     try {
@@ -301,7 +306,7 @@ async function deliver(input: {
         });
         if (!draftId) return { sent: false, kind, reason: 'DUPLICATE_DRAFT' };
 
-        const result = await approveAndSendDraft(draftId, RULES_APPROVER[kind], input.runId);
+        const result = await approveAndSendDraft(draftId, input.approver ?? RULES_APPROVER[kind], input.runId);
         if (!result.ok) {
             console.warn(`[RulesLayer] ${kind} on ${thread.id} refused (${result.code}): ${result.message}`);
             void logSystemEvent({
@@ -334,6 +339,7 @@ const HOLDING_WHY: Record<HoldingKind, string> = {
 const ASK_WHY: Record<AskKind, string> = {
     ask_media: 'Content-free media ask.',
     ask_postcode: 'Content-free postcode ask.',
+    ask_name: 'Content-free name ask.',
 };
 
 /** "We have got it" — the send that means a customer can never be waiting in silence. */
@@ -376,11 +382,12 @@ export async function sendHoldingLine(conversationId: string, kind: HoldingKind,
 }
 
 /** The two content-free asks. Same ladder, same suppression, `rules.ask` approver. */
-export async function sendAsk(conversationId: string, kind: AskKind, runId: string): Promise<RulesSendResult> {
+export async function sendAsk(conversationId: string, kind: AskKind, runId: string, opts: { approver?: Approver } = {}): Promise<RulesSendResult> {
     return deliver({
         conversationId, kind, runId,
         body: ASK_COPY[kind],
         templateNames: ASK_TEMPLATE_PREFERENCE[kind],
         why: ASK_WHY[kind],
+        approver: opts.approver,
     });
 }

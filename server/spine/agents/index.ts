@@ -8,6 +8,7 @@ import { scoperAgent } from './scoper';
 import { verifierAgent } from './verifier';
 import { quoteClerkAgent } from './quote-clerk';
 import { recoveryAgent } from './recovery';
+import { contractorLiaisonAgent } from './contractor-liaison';
 
 export const SPINE_AGENTS: Partial<Record<AgentName, SpineAgent>> = {};
 
@@ -32,8 +33,10 @@ registerSpineAgent(scoperAgent);
 registerSpineAgent(quoteClerkAgent);
 registerSpineAgent(recoveryAgent);
 registerSpineAgent(verifierAgent); // Phase 3: READ tier, never proposes; judges the morning sample
+registerSpineAgent(contractorLiaisonAgent); // Phase 4: DRAFT tier, contractor audience only (lane 'contractor')
 
 
 export { scoperAgent, createScoperAgent, SCOPER_APPROVER } from './scoper';
 export { runScoperIfEnabled, proposalToLegacyOutcome } from './scoper-adapter';
 export { quoteClerkAgent, recoveryAgent };
+export { contractorLiaisonAgent, createContractorLiaisonAgent } from './contractor-liaison';

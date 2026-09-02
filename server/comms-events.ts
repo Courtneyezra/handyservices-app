@@ -8,6 +8,8 @@ export type CommsEvent =
   | { type: 'run_started'; runId: string; conversationId: string; at: string }
   | { type: 'run_event'; runId: string; conversationId: string; event: unknown; at: string }
   | { type: 'run_finished'; runId: string; conversationId: string; ok: boolean; at: string }
+  // Phase 4: a PROPOSE-tier artifact (quote intake, nudge batch) landed for a thread — the in-chat card refetches.
+  | { type: 'artifact_delta'; conversationId: string; runId: string; kind: 'quote_intake' | 'nudge_batch'; at: string }
   // Track B: Ops Manager session events (shapes frozen in shared/ops-types.ts).
   // Same bus, all admin/VA listeners receive them; clients filter by sessionId.
   | OpsCommsEvent;

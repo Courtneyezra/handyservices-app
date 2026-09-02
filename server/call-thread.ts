@@ -600,17 +600,34 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
         missed: info.missed,
     };
 
-    // --- 4. the first-contact acknowledgement ----------------------------------------
-    if (opts.ack && info.direction === 'inbound' && !existing) {
+    // --- 4/5. the post-call ladder (Phase 4 / C: server/post-call-ladder.ts, one pure decision
+    // per call type; server/__tests__/post-call-ladder.test.ts). Same rules as before for the ack
+    // and the continuation, plus: a stale abandoned ring gets no ack, and an answered call with a
+    // transcript asks the spine for a `call_ended` run when the spine is on.
+    const { decidePostCallLadder } = await import('./post-call-ladder');
+    const { isSpineEnabled } = await import('./spine/config');
+    const plan = decidePostCallLadder({
+        call, existingCard: !!existing, opts, now: new Date(),
+        spineEnabled: await isSpineEnabled().catch(() => false),
+    });
+    if (plan.ack) {
         result.ack = await ackForCall(conv.id, `+${digits}`, call, info);
+    } else if (opts.ack && info.direction === 'inbound' && !existing) {
+        console.log(`[CallThread] No ack for ${call.id}: ${plan.ackReason}`);
+    }
+    if (plan.spineRun) {
+        void (async () => {
+            const { requestRun } = await import('./spine/request-run');
+            const r = await requestRun(conv.id, plan.spineRun!);
+            console.log(`[CallThread] Spine ${plan.spineRun} for ${call.id}: ${r.queued ? 'queued' : r.reason}`);
+        })().catch((e: any) => console.warn('[CallThread] Spine call_ended request failed:', e?.message ?? e));
     }
 
-    // --- 5. the post-call continuation (flag-gated, fails closed) ---------------------
     // Fire-and-forget: the continuation does its own classification wait, idempotency and
     // guard-rails, and ingest must never block on (or break because of) outreach. NOT gated on
     // `!existing` — the ring-time ingest already wrote the row, so by finalization this is
     // always an update.
-    if (opts.continuation && info.direction === 'inbound' && !info.missed) {
+    if (plan.continuation) {
         void (async () => {
             const { maybeSendPostCallContinuation } = await import('./post-call-outreach');
             const d = await maybeSendPostCallContinuation(call.id);
