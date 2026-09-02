@@ -99,7 +99,7 @@ describe('SpineSwitchStrip', () => {
 
 describe('PackTiersBlock', () => {
     it('one table per pack: intent, tier, verdicts, unedited, unsafe, eval family, last change', () => {
-        render(<PackTiersBlock rows={tiers} />);
+        renderWithQuery(<PackTiersBlock rows={tiers} />);
         const block = screen.getByTestId('pack-tiers');
         expect(block).toHaveTextContent('Autonomy ladder (earned per intent)');
         expect(block).toHaveTextContent('customer.default');
