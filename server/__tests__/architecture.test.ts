@@ -171,6 +171,7 @@ describe('(b) approveAndSendDraft is imported only by the allowed callers', () =
             'server/agents/sla-sweep.ts',
             'server/first-contact-ack.ts',
             'server/rules-layer.ts',  // Phase 1
+            'server/spine/exit.ts',   // Phase 2: the spine's exit
         ].sort();
         it('the importer set is exactly the expected list', () => {
             expect(approveAndSendImporters().sort()).toEqual(EXPECTED_IMPORTERS_AFTER_MERGE);
