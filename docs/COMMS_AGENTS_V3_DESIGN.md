@@ -69,7 +69,7 @@ Structural lessons this design encodes, not just remembers:
 | Quote lines matching an active SKU | 0 of 571 | The catalog cannot be a quoting boundary today |
 | Quotes with 1 line / median lines | 46% / 2 | Most jobs are small and bespoke |
 | Contractors with a real phone | 0 of 8 | Contractor lane has no reachable identity yet |
-| Ben's personal WhatsApp (447508744402) ingested | No | Every "Ben replied in the thread" rule is blind to where Ben actually replies |
+| Ben replies from the business number only (since 15 Aug) | Confirmed 2 Sep: 2 manual sends vs 335 inbound in 3 weeks, none elsewhere | The desk already sees every human reply; no personal-number ingest needed |
 | `comms_events.edited_by` populated | 0 rows | Edit attribution was never captured |
 
 ---
