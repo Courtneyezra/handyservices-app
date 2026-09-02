@@ -2024,21 +2024,41 @@ server.on('error', (e: any) => {
     }
 });
 
-// Graceful shutdown handlers
-process.on('SIGINT', async () => {
-    console.log('\n[V6 Switchboard] Received SIGINT, shutting down gracefully...');
+// Graceful shutdown handlers.
+//
+// P11 (4 Sep 2026): Railway sends SIGTERM before it kills the worker on every deploy. Until now
+// the handler exited at once and every spine pass / estimator mid-flight stayed "running" forever
+// (Sarah, 4c0e227b). Now: stop claiming new runs (runDue and the legacy fast tick check
+// isShuttingDown), give in-flight passes up to SHUTDOWN_DRAIN_MS, then mark whatever is still
+// running as orphaned before exit — the boot janitor would catch it 15 min later anyway, this
+// just makes it immediate. Railway's grace period is not recorded in this repo; if the platform
+// kills sooner than the drain budget, the boot janitor is the backstop.
+const SHUTDOWN_DRAIN_MS = 20_000;
+let shutdownStarted = false;
+async function shutdownGracefully(signal: string): Promise<void> {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
+    console.log(`\n[V6 Switchboard] Received ${signal}, shutting down gracefully...`);
     clearInterval(heartbeatInterval);
+    try {
+        const { beginShutdown, drain, inFlightRuns } = await import('./spine/lifecycle');
+        beginShutdown();
+        const before = inFlightRuns();
+        if (before.length) console.log(`[V6 Switchboard] ${before.length} spine pass(es) in flight; draining up to ${SHUTDOWN_DRAIN_MS / 1000}s: ${before.map((r) => r.label).join(', ')}`);
+        const { drained, remaining } = await drain(SHUTDOWN_DRAIN_MS);
+        if (!drained) {
+            console.warn(`[V6 Switchboard] ${remaining.length} pass(es) still running after the drain budget; marking orphaned: ${remaining.map((r) => r.label).join(', ')}`);
+            const { markOrphanedNow } = await import('./spine/janitor');
+            const marked = await markOrphanedNow();
+            console.warn(`[V6 Switchboard] orphaned now: ${marked.runs} run(s), ${marked.estimates} estimate(s)`);
+        }
+    } catch (e: any) {
+        console.error('[V6 Switchboard] drain failed (exiting anyway):', e?.message ?? e);
+    }
     wssClient.close();
     conversationEngine.destroy();
     await shutdownPostHog();
     process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-    console.log('\n[V6 Switchboard] Received SIGTERM, shutting down gracefully...');
-    clearInterval(heartbeatInterval);
-    wssClient.close();
-    conversationEngine.destroy();
-    await shutdownPostHog();
-    process.exit(0);
-});
+}
+process.on('SIGINT', () => { void shutdownGracefully('SIGINT'); });
+process.on('SIGTERM', () => { void shutdownGracefully('SIGTERM'); });

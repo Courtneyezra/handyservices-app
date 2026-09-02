@@ -152,6 +152,50 @@ export async function runRouteAChain(input: {
     return { ran: true, estimateId: estimate.id, draftSlug: draft.slug, supersededEstimates, supersededDrafts: draft.superseded, checkThis, ...(estimatorFailed ? { fallback: true, reason: `${ESTIMATOR_FAILED_PREFIX}${estimatorFailed}` } : {}) };
 }
 
+/**
+ * P11: Route A's failure path for an estimate a restart killed (the janitor marked it failed).
+ * Outside a spine pass, so it rebuilds what it needs from the row: the clerk artifact on the
+ * intake run → fallback estimate (every line from the reference rate, check_this, reason
+ * "estimator failed: orphaned: process restarted") → draft → Pushover "priced from reference
+ * rates". Nothing when the estimate is superseded, already has a draft, or its intake is gone.
+ */
+export async function runFallbackDraftForOrphan(estimateId: string, deps: RouteADeps = {}): Promise<{ ok: boolean; slug?: string; reason?: string }> {
+    const { getEstimate, finishEstimate } = await import('./estimate-store');
+    const est = await getEstimate(estimateId);
+    if (!est) return { ok: false, reason: 'estimate not found' };
+    if (est.supersededAt) return { ok: false, reason: 'estimate superseded' };
+    if (est.draftQuoteId) return { ok: false, reason: 'estimate already has a draft' };
+    if (!est.conversationId || !est.intakeRunId) return { ok: false, reason: 'estimate has no thread or intake run' };
+    const { db } = await import('../db');
+    const { agentRuns, conversations } = await import('@shared/schema');
+    const { eq } = await import('drizzle-orm');
+    const [run] = await db.select({ proposal: agentRuns.proposal }).from(agentRuns).where(eq(agentRuns.id, est.intakeRunId)).limit(1);
+    const artifact = ((run?.proposal as any)?.artifact ?? (run?.proposal as any)?.proposal?.artifact ?? null) as Proposal['artifact'];
+    const intake = intakeFromArtifact(artifact);
+    const intakeLines = intakeLinesFromArtifact(artifact);
+    if (!intake || !intakeLines.length) return { ok: false, reason: 'intake artifact unreadable' };
+    const [conv] = await db.select({ contactName: conversations.contactName }).from(conversations).where(eq(conversations.id, est.conversationId)).limit(1);
+
+    const error = est.error ?? 'orphaned: process restarted';
+    const estimate = fallbackEstimate({ conversationId: est.conversationId, intakeRunId: est.intakeRunId, runId: est.runId ?? 'orphan', intakeLines, error, id: est.id });
+    const settings = await (deps.settings ?? (async () => (await import('../pricing-settings')).getPricingSettings()))();
+    const pricing = deps.pricing ?? await defaultPricingDeps();
+    const suggestions = await priceEstimate(estimate, settings as any, pricing);
+    const draft = await (deps.createDraft ?? createPricedDraft)({ conversationId: est.conversationId, intake, estimate, suggestions });
+    if (!draft.ok) return { ok: false, reason: draft.errors.join('; ') };
+    try { await finishEstimate(est.id, { status: 'failed', error, draftQuoteId: draft.id }); } catch { /* bookkeeping */ }
+    const checkThis = suggestions.lines.filter((l) => l.checkThis).length;
+    const log = deps.log ?? (async (e) => { const { logSystemEvent } = await import('../system-events'); await logSystemEvent(e); });
+    await log({ kind: 'other', source: 'route-a', conversationId: est.conversationId, summary: `Route A (janitor): draft ${draft.slug} from reference rates for orphaned estimate ${est.id}`, detail: { estimateId: est.id, draftId: draft.id, slug: draft.slug, error, totals: suggestions.totals } }).catch(() => undefined);
+    try {
+        const notify = deps.notify ?? (async (a) => { const { notifyQuoteReadyToPrice } = await import('../pushover'); await notifyQuoteReadyToPrice(a); });
+        await notify({ conversationId: est.conversationId, customerName: intake.customerName ?? conv?.contactName ?? null, postcode: intake.postcode, slug: draft.slug, lines: intake.lines.map((l) => l.title), checkThis, suggestedTotalPence: suggestions.totals.suggestedPence, estimatorFailed: error });
+    } catch (e: any) {
+        console.warn('[RouteA] Pushover failed (orphan draft stands):', e?.message ?? e);
+    }
+    return { ok: true, slug: draft.slug };
+}
+
 /** visit_first: the DRAFT survey offer for Ben (decision (e)). Fee from settings; no link (see survey-offer.ts). */
 export async function surveyOfferFor(input: { caseFile: CaseFile; clerkRunId: string; artifact: NonNullable<Proposal['artifact']> }, deps: Pick<RouteADeps, 'settings'> = {}): Promise<Proposal | null> {
     const intake = intakeFromArtifact(input.artifact);

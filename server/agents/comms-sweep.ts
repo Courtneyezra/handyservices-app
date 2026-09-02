@@ -32,6 +32,8 @@ const MAX_AGE_HOURS = 48;
 const MAX_PER_PASS = 5;
 const SWEEP_EVERY_MS = 5 * 60_000;
 const BOOT_DELAY_MS = 30_000;
+/** P11: the janitor + quote re-arm run this soon after boot — before the first sweep, after the DB pool is warm. */
+const BOOT_RECONCILE_DELAY_MS = 5_000;
 
 /**
  * The atomic run claim and its release moved to server/spine/request-run.ts (Phase 2): one CAS
@@ -46,6 +48,16 @@ async function sweepOnce(): Promise<void> {
     // shadow = dry spine pass, then legacy; off = legacy.
     const { spineMode } = await import('../spine/switch');
     const mode = await spineMode();
+    // P11: the run janitor first. Whatever a deploy killed mid-flight (agent_runs unfinished,
+    // quote_estimates still running after 15 min) is closed as orphaned; a killed estimator gets
+    // Route A's reference-priced fallback draft so Ben still has something, and P10's sweep
+    // below can re-arm the thread (a dead "running" estimate no longer blocks it).
+    try {
+        const { runJanitor } = await import('../spine/janitor');
+        await runJanitor();
+    } catch (e: any) {
+        console.warn('[CommsSweep] run janitor failed:', e?.message ?? e);
+    }
     // P10: the net for a needs_quote / rescope tag nobody scheduled a pass for (Sarah, 4 Sep).
     // Up to 5 customer threads per pass; idempotent per thread; runs in every mode the spine is
     // on (Route A is internal), before the legacy gate below so a disabled legacy sweep cannot
@@ -156,6 +168,8 @@ async function sweepOnce(): Promise<void> {
  * that crashes cannot retry every 30 seconds forever (the slow sweep remains the backstop).
  */
 async function tickDueTriage(): Promise<void> {
+    // P11: SIGTERM received — stop claiming; what is in flight finishes inside the grace budget.
+    if ((await import('../spine/lifecycle')).isShuttingDown()) return;
     // Phase 3: the three-way switch (server/spine/switch.ts). live = due rows belong to the spine
     // (same metadata key, same claim) and runCommsAgent is never called; shadow = the spine runs
     // a dry pass on each due thread and then legacy runs exactly as before; off = legacy.
@@ -412,6 +426,11 @@ export function startCommsInboundSweep(): void {
     started = true;
     const tick = () => sweepOnce().catch((e) => console.error('[CommsSweep] pass failed:', e?.message ?? e));
     const slowRegistered = gateCustomerLoop('comms-sweep: slow sweep (5 min) + boot catch-up', () => {
+        // P11: a restart is exactly when orphans appear. Reconcile at once (janitor, then re-arm
+        // every thread still carrying a quote tag with nothing on the way), before the first sweep.
+        setTimeout(() => {
+            import('../spine/janitor').then((m) => m.bootReconcile()).catch((e) => console.error('[CommsSweep] boot reconcile failed:', e?.message ?? e));
+        }, BOOT_RECONCILE_DELAY_MS);
         setTimeout(tick, BOOT_DELAY_MS);
         setInterval(tick, SWEEP_EVERY_MS).unref?.();
     });

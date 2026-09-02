@@ -97,6 +97,17 @@ export async function runOnce(
     agentsOverride?: Partial<Record<AgentName, SpineAgent>>,
     opts: RunOnceOpts = {},
 ): Promise<RunOnceResult> {
+    // P11: every pass registers itself so a SIGTERM can wait for it (server/spine/lifecycle.ts).
+    const { track } = await import('./lifecycle');
+    return track(`spine:${conversationId}:${trigger}`, runOnceInner(conversationId, trigger, agentsOverride, opts));
+}
+
+async function runOnceInner(
+    conversationId: string,
+    trigger: Trigger,
+    agentsOverride?: Partial<Record<AgentName, SpineAgent>>,
+    opts: RunOnceOpts = {},
+): Promise<RunOnceResult> {
     if (!agentsOverride) await ensureDefaultAgents();
     const agents: Partial<Record<AgentName, SpineAgent>> = agentsOverride ?? (Object.fromEntries(registry) as Partial<Record<AgentName, SpineAgent>>);
     const runId = opts.runId ?? newRunId('run');

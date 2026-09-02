@@ -242,6 +242,8 @@ interface DueRow { id: string; phone_number: string; due_at: string; trigger: st
  */
 export async function runDue(limit?: number): Promise<SpineRun[]> {
     if (!isCommsWorker()) return [];
+    // P11: SIGTERM received — claim nothing new; in-flight passes finish inside the grace budget.
+    if ((await import('./lifecycle')).isShuttingDown()) return [];
     if (!(await isSpineEnabled())) return [];
     // P8-fix: in SHADOW the legacy tick runs the shadow pass itself (server/spine/shadow.ts) on the
     // same due rows. Until this gate, this loop ALSO ran a live pass on them — two passes per

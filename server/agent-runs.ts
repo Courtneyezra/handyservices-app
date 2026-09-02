@@ -12,7 +12,7 @@
  */
 import { db } from './db';
 import { agentRuns } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, lt } from 'drizzle-orm';
 import { newRunId } from './approver';
 import { computeCostPence, type TokenUsage } from './agent-cost';
 import { ledgerRunStarted, ledgerRunFinished } from './ledger';
@@ -80,6 +80,25 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<string> 
         conversationId: input.conversationId ?? null, phone: input.phone ?? null, model: input.model ?? null,
     });
     return id;
+}
+
+/**
+ * P11: every unfinished run started before `olderThan` is closed as orphaned (finished_at = now,
+ * the error, decision untouched). Returns the ids. Runs killed by a deploy would otherwise stay
+ * "running" forever. No ledger event: the run never finished, and the ledger's run_finished is
+ * the runner's own claim.
+ */
+export async function orphanUnfinishedRuns(olderThan: Date, error: string): Promise<string[]> {
+    try {
+        const rows = await db.update(agentRuns)
+            .set({ finishedAt: new Date(), error })
+            .where(and(isNull(agentRuns.finishedAt), lt(agentRuns.startedAt, olderThan)))
+            .returning({ id: agentRuns.id });
+        return rows.map((r) => r.id);
+    } catch (e: any) {
+        console.warn('[AgentRuns] could not mark orphaned runs:', e?.message ?? e);
+        return [];
+    }
 }
 
 /** Complete the row (finished_at, usage, cost, error, …) and the run_finished event. Never throws. */

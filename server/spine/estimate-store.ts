@@ -168,6 +168,16 @@ export async function claimEstimate(input: { conversationId: string | null; runI
     }
 }
 
+/** P11: running estimates created before `olderThan` — the ones a restart killed. Superseded rows included (tidied, never priced). */
+export async function listRunningEstimatesOlderThan(olderThan: Date): Promise<Array<{ id: string; conversationId: string | null; intakeRunId: string | null; supersededAt: string | null }>> {
+    const { db } = await import('../db');
+    const { quoteEstimates } = await import('@shared/schema');
+    const { and, eq, lt } = await import('drizzle-orm');
+    const rows = await db.select({ id: quoteEstimates.id, conversationId: quoteEstimates.conversationId, intakeRunId: quoteEstimates.intakeRunId, supersededAt: quoteEstimates.supersededAt })
+        .from(quoteEstimates).where(and(eq(quoteEstimates.status, 'running'), lt(quoteEstimates.createdAt, olderThan))).limit(100);
+    return rows.map((r) => ({ id: r.id, conversationId: r.conversationId ?? null, intakeRunId: r.intakeRunId ?? null, supersededAt: r.supersededAt ? new Date(r.supersededAt).toISOString() : null }));
+}
+
 export async function finishEstimate(id: string, patch: { status: EstimateStatus; lines?: EstimateLine[]; job?: EstimateJob; model?: string | null; costPence?: number | null; error?: string | null; draftQuoteId?: string | null; runId?: string | null }): Promise<void> {
     const { db } = await import('../db');
     const { quoteEstimates } = await import('@shared/schema');
