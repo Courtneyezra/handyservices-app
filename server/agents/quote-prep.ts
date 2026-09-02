@@ -446,7 +446,10 @@ export async function runQuotePrep(
         // extractor, TV mount, shed) truncated the intake mid-write — five titled lines with
         // evidence and assumptions each simply cost more output than one. Per response, so a small
         // job still spends only what it needs.
-        maxTokens: 8000,
+        // Raised again to 16,000 on 4 Sep 2026 (matches ESTIMATOR_MAX_TOKENS): Sarah's nine-door
+        // rescope (4c0e227b) wrote 7,825 tokens the first time and 8,071 on the re-run, which hit
+        // the cap on turn 2 and failed the whole pass before any estimate started.
+        maxTokens: 16000,
     });
 
     return { intake, summary: result.finalText, turns: result.turns, runId: result.runId };
