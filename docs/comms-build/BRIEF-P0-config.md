@@ -1,5 +1,5 @@
 # Phase 0 / C: process-local config + architecture tests (pane bottom-right)
-Worktree: /Users/courtneebonnick/v6-wt-config  (branch comms-v3/config)
+Worktree: /Users/courtneebonnick/v6-wt-config  (branch p0-config)
 
 PHASE 0 of the comms rebuild ("Close the doors"). Read /Users/courtneebonnick/v6-switchboard/docs/COMMS_AGENTS_V3_DESIGN.md sections 1.2, 3.1, 3.6, 3.9 and 10 (Phase 0 row) first. Non-negotiable working rules: (1) work ONLY inside your worktree path below; cd there for every command; never edit /Users/courtneebonnick/v6-switchboard itself or any other worktree. (2) Do not run the dev server, do not query or modify the database, do not touch app_settings, do not push. (3) node_modules is symlinked; run `npm run check` (tsc) and `npx vitest run` in your worktree and make both pass before you finish. (4) Commit on your branch with clear messages. (5) When finished write `<worktree>/PHASE0-DONE.md` containing: files changed, what you verified and how, anything you could not do and why, and any decision you made that the design did not specify. The orchestrator merges your branch; do not merge or rebase yourself.
 
