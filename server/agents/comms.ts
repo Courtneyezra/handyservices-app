@@ -52,6 +52,7 @@
  * quality even though it no longer gates anything.
  */
 import { readFileSync } from 'fs';
+import { dueAtFor, ukHourNow, formatUk } from '../working-hours';
 import path from 'path';
 import { db } from '../db';
 import {
@@ -544,6 +545,10 @@ export async function flagThreadForBen(opts: {
         options: null,
         source: 'comms_agent',
         status: 'flagged',
+        // Phase 1: the flag carries a clock. callback_requested or an already-urgent thread gets
+        // the 20-minute clock; everything else 4 office hours. At expiry the rules layer sends the
+        // holding line, stamps expired_at and re-pings once (server/agents/silence-breaker.ts).
+        dueAt: dueAtFor(conv.priority === 'urgent' || tags.includes('callback_requested') ? 'flag_urgent' : 'flag'),
     });
 
     try {
@@ -1029,7 +1034,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                 // DIRECT SEND. Same claimed-row path a human's click takes, so the message, the
                 // thread record, the ledger row and the delivery fallbacks are all identical to an
                 // approved send. The only thing missing is the wait.
-                const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
+                const ukHour = ukHourNow();
                 const postQuoteThread = !!live?.isLive;
                 // REACTIVE vs PROACTIVE, from the customer's own clock: an inbound younger than
                 // the window means they are mid-conversation and a reply is a reply, whatever the
@@ -1066,7 +1071,7 @@ export async function runCommsAgent(conversationId: string, trigger: string): Pr
                         });
                     if (repeat.repeat) {
                         const sinceStr = repeat.since
-                            ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }).format(repeat.since)
+                            ? formatUk(repeat.since)
                             : 'earlier';
                         decision = {
                             send: false,

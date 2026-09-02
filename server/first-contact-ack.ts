@@ -51,6 +51,7 @@ import { isNonMobileUkNumber } from './phone-utils';
 import { isLikelyRealName } from '@shared/contact-name';
 import { isSmsSenderConfigured, getSmsSenderE164, getWhatsAppSenderE164 } from './whatsapp-sender';
 import { notQuarantined } from './message-quarantine';
+import { ukHourNow, isOutOfHours } from './working-hours';
 
 // ---------------------------------------------------------------- config shape
 
@@ -382,17 +383,9 @@ export function classifyHistory(history: ContactHistory, returningAfterDays: num
 
 // ---------------------------------------------------------------- the copy
 
-/** UK local hour — "out of hours" means out of hours in Nottingham, not in UTC. */
-export function ukHourNow(): number {
-    return Number(new Intl.DateTimeFormat('en-GB', {
-        hour: 'numeric', hour12: false, timeZone: 'Europe/London',
-    }).format(new Date()));
-}
-
-/** Same 8-20 boundary the ordinary auto-send guard uses — here it picks wording, not permission. */
-export function isOutOfHours(hour = ukHourNow()): boolean {
-    return hour < 8 || hour >= 20;
-}
+// UK local hour and the 08–20 "out of hours" boundary now live in ONE module (Phase 1,
+// server/working-hours.ts). Re-exported under the names this file's importers already use.
+export { ukHourNow, isOutOfHours };
 
 /** System-stamped lead names that are labels, not people ("Website Visitor", "Unknown Caller"). */
 const SYSTEM_STAMPED_NAME_RE = /^(unknown|customer|caller|test|website|web\b|visitor|lead|enquiry)/i;
