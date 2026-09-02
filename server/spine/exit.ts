@@ -16,6 +16,7 @@
  */
 import type { Approver } from '../approver';
 import { ledgerFlagRaised, ledgerRunDecided } from '../ledger';
+import { maybeAskFromExit, type AskOutcome } from './asks';
 import type { Decision, SpineRun } from './types';
 
 export interface ExitFlagRow {
@@ -32,6 +33,8 @@ export interface ExitDeps {
     insertFlag: (row: ExitFlagRow, opts: { urgent: boolean }) => Promise<string>;
     notify: (alert: { customerName?: string | null; phoneNumber: string; note: string; conversationId: string }) => Promise<void>;
     now: () => Date;
+    /** Phase 3: the rules layer's content-free ask on a first-contact silence (server/spine/asks.ts). */
+    ask: (run: SpineRun) => Promise<AskOutcome | null>;
 }
 
 export interface ExitOutcome {
@@ -42,6 +45,8 @@ export interface ExitOutcome {
     questionId?: string | null;
     deduped?: boolean;
     detail?: string;
+    /** Phase 3: what the rules layer asked (or would have asked in shadow) after a `none`. */
+    ask?: AskOutcome | null;
 }
 
 async function defaultDeps(): Promise<ExitDeps> {
@@ -71,6 +76,7 @@ async function defaultDeps(): Promise<ExitDeps> {
             await notifyEscalation(alert);
         },
         now: () => new Date(),
+        ask: (run) => maybeAskFromExit(run),
     };
 }
 
@@ -137,6 +143,18 @@ export async function exit(run: SpineRun, overrides: Partial<ExitDeps> = {}): Pr
     } catch (error: any) {
         outcome = { ...outcome, detail: `exit failed: ${error?.message ?? error}` };
         console.error(`[Spine] exit ${decision.kind} failed for ${caseFile.conversationId}:`, error?.message ?? error);
+    }
+
+    // Phase 3: a first-contact run that ends in `none` is exactly the silence the rules layer
+    // exists for — ask for the one thing that unblocks pricing (media, then postcode). Returns
+    // null for every other run, so nothing above changes.
+    if (decision.kind === 'none' && run.triage.lane === 'rules') {
+        try {
+            const ask = await deps.ask(run);
+            if (ask) outcome = { ...outcome, ask };
+        } catch (error: any) {
+            console.warn(`[Spine] ask after exit failed for ${caseFile.conversationId}:`, error?.message ?? error);
+        }
     }
 
     void ledgerRunDecided({

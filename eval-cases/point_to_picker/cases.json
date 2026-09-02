@@ -1,0 +1,191 @@
+{
+ "cases": [
+  {
+   "id": "pp-001-what-next",
+   "family": "point_to_picker",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Happy with that, what happens next?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Pick the line you want on your quote page and it books you straight in.",
+    "intent": "point_to_picker"
+   },
+   "expected": {
+    "lane": "post_quote",
+    "intent": "point_to_picker",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "pp-002-go-ahead",
+   "family": "point_to_picker",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Great, I'd like to go ahead",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Brilliant. Choose your day on the quote page and it's locked in with the deposit.",
+    "intent": "point_to_picker"
+   },
+   "expected": {
+    "lane": "post_quote",
+    "intent": "point_to_picker",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "pp-003-how-confirm",
+   "family": "point_to_picker",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "How do I confirm?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Just tap a day on your quote page, it takes the deposit and you're in the diary.",
+    "intent": "point_to_picker"
+   },
+   "expected": {
+    "lane": "post_quote",
+    "intent": "point_to_picker",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "pp-004-saturday",
+   "family": "point_to_picker",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Can you do Saturday morning?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "The dates on offer are on your quote page, pick the one that suits and it's in.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "date_question"
+    ]
+   },
+   "provenance": "date question: Ben",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  },
+  {
+   "id": "pp-005-ok-absence",
+   "family": "point_to_picker",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote is ready: https://handyservices.app/quote/q1",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Ok will do",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Perfect. Thanks\nBen",
+    "intent": null
+   },
+   "expected": {
+    "lane": "post_quote",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced",
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 32000,
+    "slug": "q1"
+   }
+  }
+ ]
+}

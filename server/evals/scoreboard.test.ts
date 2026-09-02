@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deltaFor, summarise, scoreboardMarkdown, type CaseOutcome, type EvalRunV2 } from './scoreboard';
+import { deltaFor, summarise, scoreboardMarkdown, familiesSummary, type CaseOutcome, type EvalRunV2 } from './scoreboard';
 
 const co = (id: string, passK: boolean | null, extra: Partial<CaseOutcome> = {}): CaseOutcome => ({
     id, family: 'guards', kind: 'regression', adapter: 'replay',
@@ -28,8 +28,8 @@ describe('summarise', () => {
     it('counts green / red / skipped overall and per family', () => {
         const s = summarise([co('a', true), co('b', false), co('c', null), co('d', true, { family: 'absence' })]);
         expect(s).toMatchObject({ total: 4, green: 2, red: 1, skipped: 1 });
-        expect(s.byFamily.guards).toEqual({ total: 3, green: 1, red: 1, skipped: 1 });
-        expect(s.byFamily.absence).toEqual({ total: 1, green: 1, red: 0, skipped: 0 });
+        expect(s.byFamily['guards · replay']).toEqual({ total: 3, green: 1, red: 1, skipped: 1 });
+        expect(s.byFamily['absence · replay']).toEqual({ total: 1, green: 1, red: 0, skipped: 0 });
     });
 });
 
@@ -51,5 +51,24 @@ describe('scoreboardMarkdown', () => {
         expect(md).toContain('Text-guard false-negative rate: **90%** · with lexicon pre-checks: **30%**');
         expect(md).toContain('Missed: x, y, z');
         expect(md).toContain('No previous run');
+    });
+});
+
+describe('familiesSummary', () => {
+    it('passed comes from the spine adapter only; replay/triage sit beside it', () => {
+        const f = familiesSummary([
+            co('a', true), co('b', true),                                   // replay green
+            co('a', true, { adapter: 'spine' }), co('b', true, { adapter: 'spine' }),
+            co('x', true, { family: 'ask_gap' }), co('x', null, { family: 'ask_gap', adapter: 'spine' }),
+        ], 3, 't');
+        expect(f.guards).toMatchObject({ k: 3, passed: true, passK: 1, adapter: 'spine' });
+        expect(f.guards.adapters.replay).toMatchObject({ cases: 2, green: 2, passed: true });
+        expect(f.ask_gap).toMatchObject({ passed: false, passK: 0, adapter: 'none' });
+        expect(f.ask_gap.adapters.replay).toMatchObject({ passed: true, passK: 1 });
+        expect(f.ask_gap.adapters.spine).toMatchObject({ skipped: 1, passed: false });
+    });
+    it('one red case fails the family for that adapter', () => {
+        const f = familiesSummary([co('a', true, { adapter: 'spine' }), co('b', false, { adapter: 'spine' })], 3, 't');
+        expect(f.guards).toMatchObject({ passed: false, passK: 0.5, adapter: 'spine' });
     });
 });

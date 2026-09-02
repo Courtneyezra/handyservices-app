@@ -14,23 +14,27 @@ const MONEY = [
     /\b(how much|what('s| is| would be) the (price|cost)|price\b|prices\b|pricing\b|cost(s|ing)?\b|quote (is|was|seems)|(too?|to) (expensive|dear|much|pricey)|cheaper|discount|budget|£\s?\d)/i,
     /\b(tell me (the )?price|price\?|what do you charge|charge for|rate\b|hourly)/i,
     /£\s?\d/,
+    /\b(bit|little|tad) (expensive|steep|pricey|dear|much|high)\b|\bhourly\b|\b(your|the|day) rate\b|\bdo you charge\b|\bcharge for\b/i,
 ];
 const DATE = [
     /\b(what time|which (day|time)|when (can|could|will|are) you|what day|another day|other day|reschedule|re-?arrange|move (it|the (visit|appointment))|(am|pm) (slot|time|please)|\bam or pm\b|\bpm or am\b|morning or afternoon|earliest|soonest|availability|available (on|this|next)|slot\b)/i,
     /\b(tomorrow|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*\?/i,
     /\bbetween \d{1,2}(:\d{2})? ?(am|pm)? and \d{1,2}/i,
 ];
-const COMPLAINT = [/\b(complain(t|ing)?|unhappy|not happy|disappointed|disgust|appalling|terrible|awful|shocking|rubbish job|poor (job|work|service)|let (me|us) down|ombudsman|trading standards)\b/i];
+const COMPLAINT = [/\b(complain(t|ing)?|unhappy|not happy|disappointed|disgust|appalling|terrible|awful|shocking|rubbish|shoddy|poor (job|work|service)|let (me|us) down|ombudsman|trading standards)\b/i];
 const REFUND = [/\b(refund|money back|charge ?back|dispute the (charge|payment))\b/i];
 const CALLBACK = [/\b(call me|give me a (call|ring|bell)|ring me|phone me|(can|could) (someone|you|somebody) (call|ring|phone)|speak (to|with) (someone|a person|ben)|talk (it )?through on the phone)\b/i];
 const OPT_OUT = [/^\s*(stop|unsubscribe|remove me|no more (messages|texts))\b/i];
-const TRUST = [/\b(is this (a )?scam|legit\b|are you (real|genuine|insured|registered)|reviews?\b.*\?|company (number|address)\??)/i];
+const TRUST = [/\b(is this (a )?scam|legit\b|are you (real|genuine)|(a )?real company|reviews?\b.*\?|company (number|address)\??)/i];
+/** Mirrors server/spine/triage.ts RE_REGULATED: work that needs a registered trade is Ben's call. */
+const REGULATED = [/\b(gas safe|gas hobs?|gas cookers?|boiler|flue|consumer unit|fuse ?box|rewir(e|ing)|asbestos|load.?bearing|structural|rsj|chimney breast)\b/i];
 
 const RULES: Array<[ExceptionKind, RegExp[]]> = [
     ['opted_out', OPT_OUT],
     ['refund', REFUND],
     ['complaint', COMPLAINT],
     ['trust_concern', TRUST],
+    ['regulated_trade', REGULATED],
     ['money_question', MONEY],
     ['date_question', DATE],
     ['callback_requested', CALLBACK],

@@ -60,6 +60,8 @@ export function setupCronJobs() {
     // ==========================================
     gateCustomerLoop('cron: comms agent SLA sweep (Mon-Fri 8-18)', () => cron.schedule("*/30 8-17 * * 1-5", async () => {
         try {
+            // Phase 3: in live mode the spine owns the customer lane; legacy runCommsAgent is never called.
+            if ((await (await import('./spine/switch')).spineMode()) === 'live') return;
             const { getCommsAgentConfig, sweepCommsAgent } = await import('./agents/comms');
             const config = await getCommsAgentConfig();
             if (!config.enabled) return;
@@ -77,6 +79,8 @@ export function setupCronJobs() {
     // Same master gate as the sweep.
     gateCustomerLoop('cron: comms agent window-closing lane (hourly)', () => cron.schedule("15 * * * *", async () => {
         try {
+            // Phase 3: in live mode the spine owns the customer lane; legacy runCommsAgent is never called.
+            if ((await (await import('./spine/switch')).spineMode()) === 'live') return;
             const { getCommsAgentConfig, windowClosingSweep } = await import('./agents/comms');
             const config = await getCommsAgentConfig();
             if (!config.enabled) return;
@@ -95,6 +99,8 @@ export function setupCronJobs() {
     // other comms-agent lanes; never sends anything itself.
     gateCustomerLoop('cron: comms agent backlog ageing lane (Mon 09:30)', () => cron.schedule("30 9 * * 1", async () => {
         try {
+            // Phase 3: in live mode the spine owns the customer lane; legacy runCommsAgent is never called.
+            if ((await (await import('./spine/switch')).spineMode()) === 'live') return;
             const { getCommsAgentConfig, backlogSweep } = await import('./agents/comms');
             const config = await getCommsAgentConfig();
             if (!config.enabled) return;
@@ -117,6 +123,35 @@ export function setupCronJobs() {
             console.log(`[Cron] Comms digest: ${JSON.stringify(counts)}`);
         } catch (error) {
             console.error("[Cron] Comms digest failed:", error);
+        }
+    }, { timezone: 'Europe/London' }));
+
+    // PHASE 3 — EARNED AUTONOMY (3 Sep 2026): daily 07:30 UK, the promotion / demotion job
+    // (server/spine/autonomy.ts). Worker-gated (it writes pack tiers and pings the owner) and
+    // behind app_settings.spine.autonomy.enabled AND spine.enabled — both default off, fail closed.
+    // Dry run for the owner: npx tsx scripts/_autonomy-report.ts --dry-run
+    gateCustomerLoop('cron: 07:30 autonomy promotion/demotion', () => cron.schedule("30 7 * * *", async () => {
+        try {
+            const { isAutonomyEnabled } = await import('./spine/config');
+            if (!(await isAutonomyEnabled())) { console.log('[Cron] Autonomy job skipped: spine.autonomy.enabled is off'); return; }
+            const { evaluateAutonomy } = await import('./spine/autonomy');
+            const report = await evaluateAutonomy({ dryRun: false });
+            console.log(`[Cron] Autonomy: ${report.applied.length} change(s), ${report.errors.length} error(s)\n${report.table}`);
+        } catch (error) {
+            console.error("[Cron] Autonomy job failed:", error);
+        }
+    }, { timezone: 'Europe/London' }));
+
+    // 08:30 MORNING SAMPLER (Phase 3, design §4 "un-earning"): 10% of yesterday's automatic sends
+    // plus every one with a bad signal → Opus judge + a fine / not fine tap for Ben. Worker-gated
+    // here AND behind spine.sampler.enabled inside runSampler (ships off).
+    gateCustomerLoop('cron: 08:30 comms sampler', () => cron.schedule("30 8 * * *", async () => {
+        try {
+            const { runSampler } = await import('./spine/sampler');
+            const r = await runSampler();
+            console.log(`[Cron] Sampler: ${JSON.stringify(r)}`);
+        } catch (error) {
+            console.error("[Cron] Sampler failed:", error);
         }
     }, { timezone: 'Europe/London' }));
 

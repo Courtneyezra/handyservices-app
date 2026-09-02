@@ -204,12 +204,27 @@ function verdictSummaryFor(stats: VerdictStats | null, staffId: string): { verdi
 // GET /api/agents/staff — the full directory with live stats.
 agentStaffRouter.get('/staff', async (_req, res) => {
     try {
-        const [comms, recovery, workerHeartbeat, verdicts] = await Promise.all([
+        const [comms, recovery, workerHeartbeat, verdicts, packTiers] = await Promise.all([
             commsStats(), recoveryStats(), getHeartbeatHealth(),
             // Missing table (migration not applied yet) must not take the whole directory down.
             verdictStats(VERDICT_WINDOW_DAYS).catch((e: any) => { console.warn('[AgentStaff] verdict stats unavailable:', e?.message); return null; }),
+            // Phase 3: per-pack intent tiers with the promotion evidence (server/spine/autonomy.ts).
+            // Read-only, dry evidence gathering; a missing table or scoreboard is an empty list.
+            import('./spine/autonomy')
+                .then((m) => m.gatherEvidence())
+                .then((rows) => rows.map((ev) => ({
+                    packId: ev.packId, intent: ev.intent, tier: ev.tier, tierSource: ev.tierSource,
+                    verdicts30: ev.intentVerdicts30.human, uneditedPct: ev.intentVerdicts30.uneditedPct, rejects30: ev.intentVerdicts30.reject,
+                    unsafeEver: ev.unsafeEver, escalations14: ev.escalations14,
+                    samples30: ev.samples30.total, sampleApprovalPct: ev.samples30.approvalPct,
+                    evalFamily: ev.evalFamily.status, evalCases: ev.evalFamily.cases, evalPassed: ev.evalFamily.passed,
+                    packVerdicts30: ev.packVerdicts30.human, packUneditedPct: ev.packVerdicts30.uneditedPct,
+                    lastChange: ev.lastChange,
+                })))
+                .catch((e: any) => { console.warn('[AgentStaff] pack tiers unavailable:', e?.message); return [] as any[]; }),
         ]);
         const v = (id: string) => verdictSummaryFor(verdicts, id);
+        const tiersFor = (...packIds: string[]) => packTiers.filter((t: any) => packIds.includes(t.packId));
         const commsV = v('comms');
         const recoveryV = v('recovery');
         const opsManagerV = v('ops-manager');
@@ -219,6 +234,8 @@ agentStaffRouter.get('/staff', async (_req, res) => {
             workerHeartbeat,
             // Phase 1: fleet-wide verdict totals for the window (per-agent slices sit on each member).
             verdictWindow: verdicts ? { days: verdicts.days, human: verdicts.human, uneditedApprovalRate: verdicts.uneditedApprovalRate, unsafe: verdicts.unsafe } : null,
+            // Phase 3: every (pack, intent) on the DRAFT → SEND ladder with its evidence.
+            packTiers,
             staff: [
                 {
                     ...commsStaff,
@@ -227,6 +244,8 @@ agentStaffRouter.get('/staff', async (_req, res) => {
                     ...comms,
                     stats: [...commsV.stats, ...comms.stats],
                     verdicts: commsV.verdicts,
+                    // The Scoper's packs: the customer conversation this agent is being replaced on.
+                    packTiers: tiersFor('customer.default', 'customer.post_quote'),
                 },
                 {
                     ...recoveryStaff,

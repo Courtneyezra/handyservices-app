@@ -47,6 +47,8 @@ export interface FinishAgentRunInput {
     proposal?: unknown;
     guardsHit?: string[] | null;
     turns?: number | null;
+    /** Phase 3: shadow mode — the decision the spine would have taken; the exit was skipped. */
+    shadowDecision?: string | null;
 }
 
 /** Insert the row and the run_started event. Returns the run id; never throws. */
@@ -97,6 +99,7 @@ export async function finishAgentRun(
             ...(patch.lane ? { lane: patch.lane } : {}),
             ...(patch.proposal !== undefined ? { proposal: patch.proposal as any } : {}),
             ...(patch.guardsHit ? { guardsHit: patch.guardsHit } : {}),
+            ...(patch.shadowDecision ? { shadowDecision: patch.shadowDecision } : {}),
         }).where(eq(agentRuns.id, id));
     } catch (error: any) {
         console.warn(`[AgentRuns] could not record finish of ${id} (${meta.agent}):`, error?.message ?? error);

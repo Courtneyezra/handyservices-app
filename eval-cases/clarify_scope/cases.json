@@ -1,0 +1,161 @@
+{
+ "cases": [
+  {
+   "id": "cs-001-just-the-drilling",
+   "family": "clarify_scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "And just to clarify. I just need the drilling. I can finish the rest of the mirror installation myself",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Good to know, thanks. So just the two holes drilled and checked for cables, you'll pop the mirror up yourself.",
+    "intent": "clarify_scope"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "clarify_scope",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_04c7a2d1ff"
+  },
+  {
+   "id": "cs-002-repair-method",
+   "family": "clarify_scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "So when you do the repair, is it like just put wood on top of the existing frame or do you take one side off and put new wood in",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "For the repair we cut out just the damaged section and splice new timber in to match, not pack it on top. Keeps it solid and looking right.",
+    "intent": "clarify_scope"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "clarify_scope",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "seed_bca469766e"
+  },
+  {
+   "id": "cs-003-old-one-away",
+   "family": "clarify_scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Do you take the old one away?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Yes, we take the old tap away with us, no extra faff.",
+    "intent": "clarify_scope"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "clarify_scope",
+    "mustNotContain": [
+     "\u00a3",
+     "discount",
+     "% off"
+    ],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "cs-004-both-doors-price",
+   "family": "clarify_scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Is that price for both doors?",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Let me check that on our side and come straight back to you.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "money_question"
+    ]
+   },
+   "provenance": "money in a scope question: Ben"
+  },
+  {
+   "id": "cs-005-same-tap-absence",
+   "family": "clarify_scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-08-30T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It's the same tap, just a new cartridge",
+     "at": "2026-08-30T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Perfect, a cartridge swap then. Which make is the tap?",
+    "intent": null
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true
+   },
+   "provenance": "balanced"
+  }
+ ]
+}

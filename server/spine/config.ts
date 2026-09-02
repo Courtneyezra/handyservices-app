@@ -33,6 +33,27 @@ export interface SpineConfig {
     triageModel: string;
     /** Pack-level city key (§3.4): the second city is config. */
     city: string;
+    /**
+     * Phase 3: the three-way switch. When present it wins; when absent the mode is derived from
+     * `enabled` + `shadow` (see server/spine/switch.ts). off = legacy only; shadow = spine runs
+     * dry, legacy still drafts; live = spine only.
+     */
+    mode?: 'off' | 'shadow' | 'live';
+    /** Phase 3: promotion/demotion job. Off = tiers never move by themselves. */
+    autonomy: { enabled: boolean };
+    /** Phase 3: the 08:30 sampler. Off = no judge calls, no review queue. */
+    sampler: { enabled: boolean; rate: number; min: number; max: number };
+    /** Phase 3: the rules layer's content-free asks (ask_media / ask_postcode) from the spine exit (§3.5). */
+    asks: { enabled: boolean };
+}
+
+/** The three-way mode Phase 3 reads: off (nothing runs), shadow (compute + record, never exit), live. */
+export type SpineMode = 'off' | 'shadow' | 'live';
+/** Pure derivation; server/spine/switch.ts wraps it with the DB read. `enabled:false` always wins. */
+export function spineMode(c: Pick<SpineConfig, 'enabled' | 'shadow' | 'mode'>): SpineMode {
+    if (!c.enabled) return 'off';
+    if (c.mode === 'off' || c.mode === 'shadow' || c.mode === 'live') return c.mode;
+    return c.shadow ? 'shadow' : 'live';
 }
 
 export const DEFAULT_SPINE_CONFIG: SpineConfig = {
@@ -43,6 +64,9 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     debounceMinutes: 10,
     triageModel: 'claude-haiku-4-5',
     city: 'nottingham',
+    asks: { enabled: false },
+    autonomy: { enabled: false },
+    sampler: { enabled: false, rate: 0.1, min: 1, max: 15 },
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -50,7 +74,16 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         ...DEFAULT_SPINE_CONFIG,
         ...(patch ?? {}),
         agents: { ...(patch?.agents ?? {}) },
+        asks: { ...DEFAULT_SPINE_CONFIG.asks, ...(patch?.asks ?? {}) },
+        autonomy: { ...DEFAULT_SPINE_CONFIG.autonomy, ...(patch?.autonomy ?? {}) },
+        sampler: { ...DEFAULT_SPINE_CONFIG.sampler, ...(patch?.sampler ?? {}) },
     };
+}
+
+/** Phase 3: the promotion/demotion job runs only with the master switch AND its own switch on. */
+export async function isAutonomyEnabled(): Promise<boolean> {
+    const cfg = await getSpineConfig();
+    return cfg.enabled === true && cfg.autonomy.enabled === true;
 }
 
 let localConfig: SpineConfig | null = null;

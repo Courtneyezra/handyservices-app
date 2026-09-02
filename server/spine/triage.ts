@@ -26,8 +26,11 @@ import type { TokenUsage } from '../agent-cost';
 
 // ---------------------------------------------------------------- lexicons (from the replay)
 
-export const RE_MONEY = /(how much|price|cost|£|cheap|expensive|budget|discount|deposit|invoice|pay)/i;
-export const RE_DATE = /(when can|what day|which day|available|availability|book|slot|next week|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i;
+// Phase 3 / C: widened from the eval families (scripts/eval-comms.ts --adapter triage): "too much",
+// "hourly rate", "do you charge" and "what time" / "another day" / "AM or PM" / "between 11 and 12"
+// were real customer lines that reached the scoper. Widening only ever sends more to Ben.
+export const RE_MONEY = /(how much|price|cost|£|cheap|expensive|budget|discount|deposit|invoice|pay|too? much|hourly|\brate\b|charge|steep|pricey)/i;
+export const RE_DATE = /(when can|what day|which day|what time|another day|other day|reschedule|am or pm|pm or am|between \d{1,2}(:\d{2})?\s?(am|pm)? and \d{1,2}|available|availability|book|slot|next week|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i;
 export const RE_COMPLAINT = /(complain|unhappy|disappoint|not happy|terrible|awful|rubbish|shocking|trading standards)/i;
 export const RE_REFUND = /(refund|money back|charge ?back)/i;
 export const RE_CALLBACK = /(call me|ring me|give me a (call|ring)|phone me)/i;
