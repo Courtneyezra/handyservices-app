@@ -8,7 +8,7 @@
  * - Real-time broadcasting
  */
 
-import { twilioClient, getWhatsAppSender } from './twilio-client';
+import type { Approver } from './approver';
 import { WebSocket, WebSocketServer } from 'ws';
 import { db } from './db';
 import { conversations, messages, type InsertConversation, type InsertMessage } from '../shared/schema';
@@ -425,7 +425,11 @@ export class ConversationEngine {
     // OUTBOUND MESSAGE SENDING
     // ==========================================
 
-    public async sendMessage(to: string, body: string, options?: { templateSid?: string; templateVars?: Record<string, string> }) {
+    public async sendMessage(
+        to: string,
+        body: string,
+        options: { templateSid?: string; templateVars?: Record<string, string>; approver: Approver; runId: string },
+    ) {
         try {
             // Normalize phone number to E.164 format (+44...)
             const rawNumber = to.replace('@c.us', '');
@@ -494,24 +498,26 @@ export class ConversationEngine {
                 throw new Error('Could not verify opt-out status — send refused');
             }
 
-            // 3. Send via Twilio
-            const messageOptions: any = {
-                from: getWhatsAppSender(),
-                to: formattedNumber,
+            // 3. Send through the one gated exit (Phase 0, 2 Sep 2026). This used to call
+            // twilioClient.messages.create directly, which skipped the opt-out rule, the channel ladder
+            // and the run-id requirement that every other sender now carries.
+            const { sendCustomerMessage } = await import('./outbound');
+            const result = await sendCustomerMessage({
+                approver: options.approver,
+                runId: options.runId,
+                to: normalized,
                 body,
-            };
-
-            if (options?.templateSid) {
-                messageOptions.contentSid = options.templateSid;
-                if (options.templateVars) {
-                    messageOptions.contentVariables = JSON.stringify(options.templateVars);
-                }
+                contentSid: options?.templateSid,
+                contentVariables: options?.templateVars,
+                via: 'twilio',
+            });
+            if (!result.ok || !result.sid) {
+                throw new Error(result.error ?? result.reason ?? 'send failed');
             }
+            console.log('[ConversationEngine] Message sent:', result.sid, 'via', result.channel);
 
-            const result = await twilioClient.messages.create(messageOptions);
-            console.log('[ConversationEngine] Message sent:', result.sid);
-
-            // 4. Store Message
+            // 4. Store Message (SMS fallback stores its own row in sms.ts)
+            if (result.channel === 'sms') return result;
             const newMessage: InsertMessage = {
                 id: result.sid,
                 conversationId: conv!.id,
