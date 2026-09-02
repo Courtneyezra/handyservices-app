@@ -46,6 +46,14 @@ export interface ExitDeps {
     latestInbound: (conversationId: string) => Promise<InboundRef | null>;
     /** P7: ask for the run that replaces a stale proposal. */
     requestFreshRun: (conversationId: string, why: string) => Promise<unknown>;
+    /**
+     * P9: write the agent's proposal tags (needs_quote, trust_concern) onto the thread — additive,
+     * never removes. Returns the tags that were NEW on the thread. Until P9 nothing on the spine
+     * wrote them, so a Scoper's `needs_quote` never reached the clerk.
+     */
+    addTags: (conversationId: string, tags: string[]) => Promise<string[]>;
+    /** P9: a newly landed needs_quote asks for the clerk's run at once. */
+    requestClerkRun: (conversationId: string, why: string) => Promise<unknown>;
     approveAndSendDraft: (draftId: string, approver: Approver, runId: string) => Promise<{ ok: boolean; code?: string; mode?: string; message?: string }>;
     /**
      * P6 (template-first exit): the pack's approved template for this intent, via the same
@@ -69,6 +77,8 @@ export interface ExitOutcome {
     mode?: string;
     /** P6: the approved Meta template the send was queued with (window shut). */
     template?: string;
+    /** P9: proposal tags that were new on the thread and got written (needs_quote triggers the clerk). */
+    tagsAdded?: string[];
     questionId?: string | null;
     deduped?: boolean;
     detail?: string;
@@ -107,8 +117,27 @@ async function defaultDeps(): Promise<ExitDeps> {
         resolveTemplate: (input) => resolvePackTemplate(input),
         latestInbound: async (conversationId) => (await import('../draft-freshness')).latestInboundFor(conversationId),
         requestFreshRun: async (conversationId, why) => (await import('../draft-freshness')).requestFreshRun(conversationId, why),
+        addTags: async (conversationId, tags) => {
+            const { db } = await import('../db');
+            const { conversations } = await import('@shared/schema');
+            const { eq } = await import('drizzle-orm');
+            const [conv] = await db.select({ tags: conversations.tags }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+            const current = (conv?.tags as string[] | null) ?? [];
+            const fresh = tags.filter((t) => !current.includes(t));
+            if (fresh.length) await db.update(conversations).set({ tags: [...current, ...fresh], updatedAt: new Date() }).where(eq(conversations.id, conversationId));
+            return fresh;
+        },
+        requestClerkRun: async (conversationId, why) => {
+            const { requestRun } = await import('./request-run');
+            const r = await requestRun(conversationId, 'cadence', { delayMs: 0 });
+            console.log(`[Spine] clerk run requested for ${conversationId} (${why}): ${r.queued ? 'queued' : `not queued (${r.reason})`}`);
+            return r;
+        },
     };
 }
+
+/** P9: the tags an agent may put on a thread through its proposal. Anything else is ignored. */
+export const PROPOSAL_TAG_ALLOWLIST: readonly string[] = ['needs_quote', 'trust_concern', 'rescope'];
 
 /**
  * The default template resolver: pack.templates[intent] → findApprovedTemplateWithValues (the
@@ -237,6 +266,21 @@ export async function exit(run: SpineRun, overrides: Partial<ExitDeps> = {}): Pr
     } catch (error: any) {
         outcome = { ...outcome, detail: `exit failed: ${error?.message ?? error}` };
         console.error(`[Spine] exit ${decision.kind} failed for ${caseFile.conversationId}:`, error?.message ?? error);
+    }
+
+    // P9: the agent's proposal tags land on the thread whatever the decision was (a draft for Ben
+    // still means "this thread now has what a quote needs"). Additive only. A NEW needs_quote asks
+    // for the clerk's run at once: that is how a rescope ("all 9 doors now") becomes a redone
+    // quote instead of a Ben flag. Nothing here reaches a customer.
+    const proposalTags = (run.proposal?.tags ?? []).map((t) => String(t).toLowerCase()).filter((t) => PROPOSAL_TAG_ALLOWLIST.includes(t));
+    if (proposalTags.length && decision.kind !== 'drop') {
+        try {
+            const fresh = await deps.addTags(caseFile.conversationId, proposalTags);
+            if (fresh.length) outcome = { ...outcome, tagsAdded: fresh };
+            if (fresh.includes('needs_quote')) await deps.requestClerkRun(caseFile.conversationId, `needs_quote from ${run.agent} run ${run.runId}`);
+        } catch (e: any) {
+            console.warn(`[Spine] proposal tags not written for ${caseFile.conversationId}:`, e?.message ?? e);
+        }
     }
 
     // Phase 3: a first-contact run that ends in `none` is exactly the silence the rules layer

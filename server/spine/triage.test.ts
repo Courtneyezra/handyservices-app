@@ -149,3 +149,60 @@ describe('P7 customer promised more', () => {
         expect(clampTriageModelOutput(null)).toBeNull();
     });
 });
+
+// ---------------------------------------------------------------- P9: a scope increase is not out_of_scope
+
+import { looksLikeRescope, TRIAGE_SYSTEM } from './triage';
+
+describe('P9 rescope pre-check', () => {
+    const quote = { slug: 'q1', total: 569, lines: 3, viewedAt: '2026-09-01T10:00:00Z', expiresAt: null, paid: false };
+    const sarah = (text: string, over: Partial<CaseFile> = {}) => cf({ quote, stage: 'quote_sent', ...over }, [outbound('Your quote for the 3 doors is ready: https://handyservices.app/quote/q1'), inbound(text, { mediaIds: ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'] })]);
+
+    it('looksLikeRescope needs a scope word AND a job noun', () => {
+        for (const t of ['Actually can you do all 9 doors instead of 3, photos attached', 'Could you add another two lights while you are here', 'Instead of the shelf can you fit the wardrobe', 'We want the rest of the windows done as well', 'Can you do the whole kitchen, not just the sink']) {
+            expect(looksLikeRescope(t), t).toBe(true);
+        }
+        for (const t of ['all good thanks', 'is another day better?', 'how much extra would that be', 'yes please go ahead', '', 'more info: the postcode is NG3 7EG']) {
+            expect(looksLikeRescope(t), t).toBe(false);
+        }
+    });
+    it("Sarah's case: a quote out, 'all 9 doors' with six photos → tag rescope, lane scoper, no exception", () => {
+        const r = triageRules(sarah('Actually could you quote for all 9 doors instead of just the 3? Photos attached'));
+        expect(r.lane).toBe('scoper');
+        expect(r.exceptions).toEqual([]);
+        expect(r.tags).toContain('rescope');
+        expect(r.reasons.join(' ')).toMatch(/scope change on quote q1/);
+    });
+    it('without a quote on the thread the same words are ordinary scoping, no rescope tag', () => {
+        const r = triageRules(cf({}, [outbound('hi'), inbound('can you do all 9 doors instead of 3')]));
+        expect(r.tags).not.toContain('rescope');
+        expect(r.lane).toBe('scoper');
+    });
+    it('a real exception still wins: a price question or regulated work on a rescope goes to Ben', () => {
+        expect(triageRules(sarah('all 9 doors instead, how much extra would that cost?')).exceptions).toContain('money_question');
+        expect(triageRules(sarah('and can you swap the boiler as well as the doors')).exceptions).toContain('regulated_trade');
+        expect(triageRules(sarah('the asbestos garage roof needs removing as well as the doors')).exceptions).toContain('regulated_trade');
+    });
+    it('needs_quote already on the thread still lanes the clerk (the redone quote is in progress)', () => {
+        const r = triageRules(sarah('all 9 doors instead of 3 please', { tags: ['needs_quote'] }));
+        expect(r.lane).toBe('quote_clerk');
+    });
+    it("the merge drops a model-only out_of_scope on a rescope and keeps the rules' lane; a rules exception is untouched", () => {
+        const rules = triageRules(sarah('Actually could you quote for all 9 doors instead of just the 3? Photos attached'));
+        const model = { audience: 'customer', intent: 'unknown', lane: 'ben', exceptions: ['out_of_scope'], stage: 'quote_sent', tags: ['photos_received'], reasons: ['customer wants 9 doors instead of 3, outside the original quote'] } as any;
+        const merged = mergeTriage(rules, model, 'haiku');
+        expect(merged.exceptions).toEqual([]);
+        expect(merged.lane).toBe('scoper');
+        expect(merged.tags).toEqual(expect.arrayContaining(['rescope', 'photos_received']));
+        const money = { ...model, exceptions: ['out_of_scope', 'money_question'] };
+        expect(mergeTriage(rules, money, 'haiku').exceptions).toEqual(['money_question']);
+        // Not a rescope (no quote): the model's out_of_scope stands.
+        const plain = triageRules(cf({}, [outbound('hi'), inbound('can you remove the asbestos garage')]));
+        expect(mergeTriage({ ...plain, exceptions: [], lane: 'scoper' }, model, 'haiku').exceptions).toContain('out_of_scope');
+    });
+    it('the prompt defines out_of_scope precisely and names the rescope rule', () => {
+        expect(TRIAGE_SYSTEM).toMatch(/out_of_scope means, precisely/);
+        expect(TRIAGE_SYSTEM).toMatch(/NEVER means "more work than the quote covered"/);
+        expect(TRIAGE_SYSTEM).toMatch(/tags "rescope" and "needs_quote", no exception/);
+    });
+});

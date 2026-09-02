@@ -1,0 +1,225 @@
+{
+ "cases": [
+  {
+   "id": "rs-001-three-doors-to-nine",
+   "family": "rescope",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi, could you quote for 3 internal doors, hinges and handles",
+     "at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Your quote for the 3 doors is ready: https://handyservices.app/quote/rs001",
+     "at": "2026-09-01T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Actually we've decided to do all 9 doors upstairs and down, not just the 3. Photos of the others attached",
+     "at": "2026-09-04T10:14:00.000Z"
+    }
+   ],
+   "quote": {
+    "seen": true,
+    "viewCount": 2,
+    "totalPence": 56900,
+    "slug": "rs001"
+   },
+   "candidate": {
+    "body": "Got the six photos, thanks. So that's all nine doors, hinges and handles, upstairs and down. I'll get a fresh quote over to you.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "£",
+     "569",
+     "on top of"
+    ]
+   },
+   "provenance": "4 Sep 2026 (Sarah, 4c0e227b, scrubbed): a £569 quote for 3 doors, back for all 9 with six photos. Haiku triage returned out_of_scope and flagged Ben with no reply. A scope increase is scoping: tag rescope + needs_quote, the clerk redoes the quote."
+  },
+  {
+   "id": "rs-002-one-line-becomes-three",
+   "family": "rescope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote for the bathroom tap is ready: https://handyservices.app/quote/rs002",
+     "at": "2026-09-01T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "While you're here could you add another two jobs: the kitchen tap is dripping as well and the shower head needs replacing",
+     "at": "2026-09-02T08:30:00.000Z"
+    }
+   ],
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 12900,
+    "slug": "rs002"
+   },
+   "candidate": {
+    "body": "No problem. So that's the bathroom tap, the kitchen tap and a new shower head. I'll redo the quote with all three and send it over.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "£"
+    ]
+   },
+   "provenance": "P9: one quoted line becoming three is a rescope, not out_of_scope"
+  },
+  {
+   "id": "rs-003-swap-one-job-for-another",
+   "family": "rescope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote for the floating shelf is ready: https://handyservices.app/quote/rs003",
+     "at": "2026-09-01T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Change of plan, instead of the shelf can you build in the wardrobe in the alcove? Same room",
+     "at": "2026-09-02T19:05:00.000Z"
+    }
+   ],
+   "quote": {
+    "seen": false,
+    "viewCount": 0,
+    "totalPence": 9900,
+    "slug": "rs003"
+   },
+   "candidate": {
+    "body": "Got it, the alcove wardrobe instead of the shelf. Could you send a photo of the alcove with something for scale? Then I'll get a fresh quote over.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "mustNotContain": [
+     "£"
+    ]
+   },
+   "provenance": "P9: swapping one job for another on an existing quote is a rescope"
+  },
+  {
+   "id": "rs-004-asbestos-is-out-of-scope",
+   "family": "rescope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote for the garage door is ready: https://handyservices.app/quote/rs004",
+     "at": "2026-09-01T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Also the garage roof is asbestos sheets, can you take those down and dispose of them as well as the door?",
+     "at": "2026-09-02T10:00:00.000Z"
+    }
+   ],
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 18900,
+    "slug": "rs004"
+   },
+   "candidate": {
+    "body": "We can add the asbestos roof removal to the quote, no problem.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ],
+    "guardsMustTrip": [
+     "capability_claim"
+    ]
+   },
+   "provenance": "P9 guard rail: a genuine out-of-scope trade (asbestos) added to a quote still goes to Ben; the rescope pre-check must not swallow it"
+  },
+  {
+   "id": "rs-005-gas-boiler-is-regulated",
+   "family": "rescope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote for the radiator move is ready: https://handyservices.app/quote/rs005",
+     "at": "2026-09-01T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Could you swap the boiler as well while the system is drained? More sensible to do both together",
+     "at": "2026-09-02T11:20:00.000Z"
+    }
+   ],
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 24900,
+    "slug": "rs005"
+   },
+   "candidate": {
+    "body": "Yes, we can do the boiler swap at the same time.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ],
+    "guardsMustTrip": [
+     "capability_claim"
+    ]
+   },
+   "provenance": "P9 guard rail: a gas boiler swap is regulated work whatever quote it is added to"
+  },
+  {
+   "id": "rs-006-rescope-with-price-question-goes-to-ben",
+   "family": "rescope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Your quote for the 3 doors is ready: https://handyservices.app/quote/rs006",
+     "at": "2026-09-01T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "If we did all 9 doors instead, how much extra would that be roughly?",
+     "at": "2026-09-02T09:00:00.000Z"
+    }
+   ],
+   "quote": {
+    "seen": true,
+    "viewCount": 1,
+    "totalPence": 56900,
+    "slug": "rs006"
+   },
+   "candidate": {
+    "body": "Happy to redo the quote for all nine. Let me get the numbers together and I'll come straight back to you.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "mustFlag": true,
+    "exceptions": [
+     "money_question"
+    ],
+    "guardsMustNotTrip": true
+   },
+   "provenance": "P9: a rescope that asks a price is still a money question for Ben; the figure-free acknowledgement is fine"
+  }
+ ]
+}

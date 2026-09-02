@@ -37,6 +37,22 @@ export const RE_CALLBACK = /(call me|ring me|give me a (call|ring)|phone me)/i;
 export const RE_REGULATED = /(gas safe|boiler|gas hob|flue|consumer unit|fuse ?box|rewir(e|ing)|asbestos|load.?bearing|structural|rsj|chimney breast)/i;
 
 /**
+ * P9: a customer adding to or changing the scope of a quote we already sent ("all 9 doors now",
+ * "another two lights", "instead of the shelf can you…"). A scope change is SCOPING, never an
+ * exception: the Scoper acknowledges and the clerk redoes the quote; money stays with Ben via the
+ * quote, not via a flag. Both halves must match — a scope word AND a job noun — so "all good
+ * thanks" and "another day" (a date, RE_DATE's) do not fire.
+ */
+export const RE_RESCOPE_WORD = /\b(all (of )?(the |them|\d+)|all \w+ (of them|doors|windows|rooms|lights|walls|radiators)|more|extra|another|additional|as well|also|plus|instead( of)?|rather than|swap|change (it|that|the \w+) (to|for)|add(ing)?|the (rest|others|whole)|every|both|the lot|do them all|(\d+|two|three|four|five|six|seven|eight|nine|ten) (of them|more))\b/i;
+export const RE_JOB_NOUN = /\b(doors?|windows?|sills?|frames?|walls?|rooms?|ceilings?|floors?|lights?|sockets?|taps?|radiators?|shelves|shelf|cupboards?|units?|handles?|locks?|gates?|fences?|panels?|tiles?|skirting|coving|blinds?|curtains?|rails?|mirrors?|tvs?|beds?|wardrobes?|kitchen|bathroom|bedrooms?|hallway|landing|stairs|garden|shed|decking|patio|gutters?|drains?|toilets?|showers?|baths?|sinks?|basins?|painting|decorating|plaster(ing)?|tiling|job|jobs|work)\b/i;
+
+/** Pure: does the customer's message read as a scope change on an existing quote? */
+export function looksLikeRescope(text: string | null | undefined): boolean {
+    const t = (text ?? '').trim();
+    return !!t && RE_RESCOPE_WORD.test(t) && RE_JOB_NOUN.test(t);
+}
+
+/**
  * P7: the customer has said more is coming ("back soon with the measurement", "will send the
  * photos", "hang on"). Customer side only. When it fires and nothing has arrived since, the spine
  * waits (decide → none / waiting_for_promised) instead of drafting a reply that asks for the thing
@@ -133,6 +149,14 @@ export function triageRules(cf: CaseFile): TriageResult {
         reasons.push('tagged needs_quote');
         return { ...base, intent: 'unknown', lane: 'quote_clerk', exceptions };
     }
+    // P9: a scope change on an existing (or expired) quote is scoping, never out_of_scope. Tag
+    // it and lane the Scoper BEFORE the model runs; the merge then refuses a model-only
+    // out_of_scope on a rescope (Sarah, 4 Sep: 3 doors quoted, "all 9" + six photos → Ben flag).
+    if (cf.quote && last?.kind === 'message_in' && looksLikeRescope(text)) {
+        tags.push('rescope');
+        reasons.push(`scope change on quote ${cf.quote.slug}: the Scoper acknowledges and the clerk redoes it`);
+        return { ...base, intent: 'unknown', lane: 'scoper', exceptions };
+    }
     if ((stage === 'quote_sent' || cf.quote) && cf.quote && !cf.quote.paid) {
         reasons.push(`quote ${cf.quote.slug} out and unpaid`);
         return { ...base, intent: 'unknown', lane: 'post_quote', exceptions };
@@ -159,7 +183,8 @@ You read a case file and classify the thread. You never write to the customer. O
 - audience: one of ${JSON.stringify(AUDIENCES)}
 - intent: what the customer needs next, one of ${JSON.stringify(INTENTS)} or "unknown"
 - lane: one of ${JSON.stringify(LANES)} — "ben" whenever any exception applies; "rules" only for a first contact or a content-free acknowledgement; "post_quote" when a quote is out and unpaid; "quote_clerk" when the job is ready to price; else "scoper"
-- exceptions: array from ${JSON.stringify(EXCEPTIONS)}. Include one whenever the customer raises money, prices or discounts (money_question), dates or availability (date_question), a complaint or unhappiness (complaint), a refund (refund), asks for a call (callback_requested), work needing certification such as gas, structural or major electrical (regulated_trade), or something we cannot do (out_of_scope). When in doubt, add the exception: Ben would rather see one thread too many than one too few.
+- exceptions: array from ${JSON.stringify(EXCEPTIONS)}. Include one whenever the customer raises money, prices or discounts (money_question), dates or availability (date_question), a complaint or unhappiness (complaint), a refund (refund), asks for a call (callback_requested), work needing certification such as gas, structural or major electrical (regulated_trade), or work we do not do (out_of_scope). When in doubt about THOSE, add the exception: Ben would rather see one thread too many than one too few.
+- out_of_scope means, precisely: a trade we do not cover (roofing at height, asbestos, large groundworks, full rewires), a job outside our service area, or regulated work (which is regulated_trade). It NEVER means "more work than the quote covered". A customer adding to, extending or changing the scope of an existing or expired quote ("all 9 doors now, not 3", "another two lights", "instead of the shelf, the wardrobe", new photos of more of the same job) is ordinary SCOPING: lane "scoper", tags "rescope" and "needs_quote", no exception. The quote is redone and Ben prices it; money stays with Ben through the quote, not through a flag.
 - stage: one of ${JSON.stringify(STAGES)}. Never "won" (that means the deposit is paid and only a payment can set it).
 - tags: up to 8 short lowercase labels (e.g. "photos_received", "needs_quote", "callback_requested")
 - reasons: up to 6 short sentences citing what in the thread decided this.
@@ -206,9 +231,15 @@ export function mergeTriage(rules: TriageResult, model: TriageModelOutput, model
     // (RE_DATE) does not fire on it; the model did, and routed the thread to Ben. When the
     // customer has promised more and the rules found no date, a model-only date_question is
     // dropped: the run waits for the promised item instead (decide → waiting_for_promised).
-    const modelExceptions = rules.customerPromisedMore && !rules.exceptions.includes('date_question')
+    let modelExceptions = rules.customerPromisedMore && !rules.exceptions.includes('date_question')
         ? model.exceptions.filter((e) => e !== 'date_question')
         : model.exceptions;
+    // P9: on a rescope (rules tagged it: a quote exists and the customer added or changed scope),
+    // a model-only out_of_scope is the misreading Sarah's thread got. Drop it; a real exception
+    // the rules found (regulated trade, money, a complaint) still wins.
+    if (rules.tags.includes('rescope') && !rules.exceptions.includes('out_of_scope')) {
+        modelExceptions = modelExceptions.filter((e) => e !== 'out_of_scope');
+    }
     const exceptions = Array.from(new Set([...rules.exceptions, ...modelExceptions]));
     const intent: Intent | 'unknown' = isIntent(model.intent) ? model.intent : 'unknown';
     let lane: Lane = model.lane;

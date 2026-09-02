@@ -42,6 +42,9 @@ function fakeDeps(): ExitDeps & { calls: string[] } {
         // P7: by default the thread's latest inbound is the one the case file saw.
         latestInbound: vi.fn(async () => ({ id: 'msg_seen', at: new Date('2026-09-02T09:50:00Z') })),
         requestFreshRun: vi.fn(async (id, why) => { calls.push(`rerun:${id}:${why}`); return { queued: true }; }),
+        // P9: tags land on the thread; every tag is new unless the test says otherwise.
+        addTags: vi.fn(async (id, tags) => { calls.push(`tags:${id}:${tags.join(',')}`); return tags; }),
+        requestClerkRun: vi.fn(async (id, why) => { calls.push(`clerk:${id}:${why}`); return { queued: true }; }),
     };
 }
 const SHUT = { canFreeform: false, templateRequired: true, lastInboundAt: '2026-09-01T08:00:00Z', channelLastUsed: 'whatsapp' as const };
@@ -171,5 +174,40 @@ describe('exit — P7 freshness re-check on send', () => {
         const out = await exit(run({ kind: 'send', approver: 'agent.scoper' }, { caseFile: cf({ lastInboundId: undefined }) }), d);
         expect(out.kind).toBe('pending');
         expect(d.approveAndSendDraft).not.toHaveBeenCalled();
+    });
+});
+
+// ---------------------------------------------------------------- P9: proposal tags reach the thread
+
+describe('exit — P9 proposal tags', () => {
+    it('a pending draft with needs_quote writes the tag and asks for the clerk run', async () => {
+        const d = fakeDeps();
+        const out = await exit(run({ kind: 'pending', dueAt: '2026-09-02T14:00:00Z', reason: 'tier DRAFT' }, {
+            proposal: { intent: 'confirm_received', body: ['Got the six photos, thanks. So that is all nine doors. I will get a fresh quote over to you.'], reasons: ['rescope'], tags: ['needs_quote', 'rescope'] },
+        }), d);
+        expect(d.calls).toEqual(['queue:spine:due', 'tags:c1:needs_quote,rescope', 'clerk:c1:needs_quote from scoper run run_1']);
+        expect(out).toMatchObject({ kind: 'pending', tagsAdded: ['needs_quote', 'rescope'] });
+    });
+    it('a tag already on the thread is not re-written and does not re-trigger the clerk; unknown tags are ignored', async () => {
+        const d = fakeDeps();
+        d.addTags = vi.fn(async (id, tags) => { d.calls.push(`tags:${id}:${tags.join(',')}`); return []; });
+        const out = await exit(run({ kind: 'pending', dueAt: '2026-09-02T14:00:00Z', reason: 'r' }, {
+            proposal: { intent: 'confirm_received', body: ['ok'], reasons: [], tags: ['needs_quote', 'made_up_tag'] },
+        }), d);
+        expect(d.calls).toEqual(['queue:spine:due', 'tags:c1:needs_quote']);
+        expect(d.requestClerkRun).not.toHaveBeenCalled();
+        expect(out.tagsAdded).toBeUndefined();
+    });
+    it('a flag-only proposal still carries its tags; a drop writes nothing; a failing tag write never breaks the exit', async () => {
+        const d = fakeDeps();
+        await exit(run({ kind: 'flag', exception: 'complaint', dueAt: '2026-09-02T14:00:00Z', note: 'n' }, { proposal: { intent: 'holding', body: [], reasons: [], tags: ['trust_concern'] } }), d);
+        expect(d.calls).toContain('tags:c1:trust_concern');
+        const d2 = fakeDeps();
+        await exit(run({ kind: 'drop', reason: 'spam' }, { proposal: { intent: 'holding', body: [], reasons: [], tags: ['needs_quote'] } }), d2);
+        expect(d2.addTags).not.toHaveBeenCalled();
+        const d3 = fakeDeps();
+        d3.addTags = vi.fn(async () => { throw new Error('db down'); });
+        const out = await exit(run({ kind: 'pending', dueAt: '2026-09-02T14:00:00Z', reason: 'r' }, { proposal: { intent: 'confirm_received', body: ['ok'], reasons: [], tags: ['needs_quote'] } }), d3);
+        expect(out.kind).toBe('pending');
     });
 });
