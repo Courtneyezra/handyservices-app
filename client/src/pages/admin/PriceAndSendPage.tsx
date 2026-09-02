@@ -226,7 +226,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
     }, [data?.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const finals = useMemo(() => Object.fromEntries((data?.lines ?? []).map((l) => [l.lineId, poundsToPence(values[l.lineId] ?? '')])), [data, values]);
-    const totals = useMemo(() => totalsOf(data?.lines ?? [], finals, data?.settings.depositPercent ?? 30), [data, finals]);
+    const totals = useMemo(() => totalsOf(data?.lines ?? [], finals, data?.settings?.depositPercent ?? 30), [data, finals]);
 
     const locked = !data || data.status !== 'draft' || !!result?.ok || !!superseded;
     const canSend = !!data && data.status === 'draft' && !sending && totals.missing === 0 && data.lines.length > 0 && !result?.ok && !superseded;

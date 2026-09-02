@@ -213,21 +213,9 @@ spineRouter.post('/rerun/:conversationId', async (req, res) => {
 
 // ---------------------------------------------------------------- P8 Route A
 
-/**
- * GET /price/:slug — the draft + its estimate + the engine's suggestions, for pane B's
- * /admin/price/<slug>. Read-only; every customer-visible price is still null on the row.
- */
-spineRouter.get('/price/:slug', async (req, res) => {
-    try {
-        const { loadPriceScreen } = await import('./quote-intake');
-        const r = await loadPriceScreen(String(req.params.slug ?? '').trim());
-        if (!r.available) return res.status(404).json(r);
-        res.json(r);
-    } catch (error: any) {
-        console.error('[Spine] price screen read failed:', error?.message ?? error);
-        res.status(500).json({ available: false, error: error?.message ?? 'Could not read the draft' });
-    }
-});
+// (P8 merge fix, 4 Sep 2026) The chain pane's GET /price/:slug handler that lived here returned the
+// quote-intake module's shape ({ available, quote, … }) and, being registered first, shadowed the
+// price-screen handler below — the page then threw reading settings.depositPercent. One route now.
 
 /** GET /estimate/:conversationId — the thread's live estimate (status running | complete | failed) for the card. */
 spineRouter.get('/estimate/:conversationId', async (req, res) => {
