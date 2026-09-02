@@ -18,6 +18,7 @@ import { eq, and, gte, desc, isNotNull, isNull, sql } from 'drizzle-orm';
 import { queueDraft } from './message-drafts';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 import { renderQuickReply } from './quick-replies';
 import { findApprovedTemplate, buildTemplateVariables, renderTemplateBody } from './whatsapp-template-sync';
 import { claudeText } from './llm';
@@ -718,6 +719,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
         if (!loaded.ok) return res.status(loaded.status).json({ error: loaded.error });
         const { conv, quote, phone } = loaded;
         const quoteUrl = quoteUrlFor(slug);
+        const runId = newRunId('sys');   // one click, one run — every burst part carries it
 
         const body = stripChatDashes(rawBody);
         if (!body.includes(quoteUrl)) {
@@ -739,6 +741,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                 for (let i = 0; i < parts.length; i++) {
                     if (i > 0) await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
                     const sendResult = await sendCustomerMessage({
+                        approver: 'system.staff', runId: runId,
                         to: phone,
                         body: parts[i],
                         purpose: 'service_reply',  // Human-approved quote send
@@ -788,6 +791,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
             if (rendered.includes(quoteUrl)) {
                 try {
                     const sendResult = await sendCustomerMessage({
+                        approver: 'system.staff', runId: runId,
                         to: phone,
                         body: rendered,
                         purpose: 'service_reply',  // Human-approved quote send
@@ -822,6 +826,7 @@ agentStaffRouter.post('/quote-prep/:conversationId/send-quote', async (req, res)
                         .map(([k, v]) => [k, renderWithLink(String(v))]))
                     : undefined;
                 const sendResult = await sendCustomerMessage({
+                    approver: 'system.staff', runId: runId,
                     to: phone,
                     body: renderWithLink(template.body),
                     purpose: 'service_reply',  // Human-approved quote send

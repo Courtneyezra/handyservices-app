@@ -25,6 +25,7 @@ import { eq, and, desc, asc } from 'drizzle-orm';
 import { notifyTemplateStatus } from './pushover';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 import { renderQuickReply } from './quick-replies';
 
 export const whatsappTemplatesRouter = Router();
@@ -533,6 +534,7 @@ whatsappTemplatesRouter.post('/send', async (req, res) => {
         // actually read, rather than an opaque template SID.
         const rendered = renderTemplateBody(template.body, vars);
         const sendResult = await sendCustomerMessage({
+            approver: 'system.template_sync', runId: newRunId('sys'),
             to: phone,
             body: rendered,
             purpose: 'marketing',  // Template test sends

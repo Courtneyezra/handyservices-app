@@ -16,6 +16,7 @@ import { eq, and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
 import { sendCustomerMessage, type OutboundChannel } from './outbound';
+import { type Approver, isAutomatedApprover, isAgentApprover, approverLabel, humanApprover, newRunId } from './approver';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
 import { logSystemEvent } from './system-events';
@@ -259,9 +260,9 @@ messageDraftsRouter.patch('/:id', async (req, res) => {
 // thing twice in ten minutes" and "never auto-send a malformed run's draft" are enforced,
 // whichever trigger path produced the draft.
 
-/** Approvers that are code, not people. A block here reverts to pending for a human; a human
- *  approver is looking at the thread and may deliberately repeat themselves. */
-const AUTOMATED_APPROVER = /^(comms_agent|hours_gate|first_contact_ack):/;
+// Approvers that are code, not people, are decided by isAutomatedApprover() in ./approver — an
+// enum, not a regex, since Phase 0 (2 Sep 2026). A block here reverts to pending for a human; a
+// human approver is looking at the thread and may deliberately repeat themselves.
 
 /** Stable markers appended to `reason` when an autosend is held. The timed releases in
  *  comms-sweep.ts skip drafts carrying these, so a held draft cannot re-enter the 15s release
@@ -322,13 +323,13 @@ const NEAR_DUPLICATE_WINDOW_MINUTES = 10;
  * Returns the outcome rather than throwing on business refusals, so callers can distinguish
  * "window shut" (draft returned to pending, retryable later) from a hard send failure.
  */
-export async function approveAndSendDraft(draftId: string, approvedBy: string): Promise<
+export async function approveAndSendDraft(draftId: string, approver: Approver, runId: string = newRunId('draft')): Promise<
     | { ok: true; draft: typeof messageDrafts.$inferSelect; mode: 'freeform' | 'template' | 'sms'; channel: OutboundChannel; fellBack: boolean }
     | { ok: false; code: 'NOT_PENDING' | 'OUTSIDE_WINDOW' | 'SEND_FAILED' | 'OPTED_OUT' | 'NEAR_DUPLICATE' | 'MALFORMED_REASON'; message: string }
 > {
     // Claim the row first so a double-click (or a racing auto-send) cannot send twice.
     const [draft] = await db.update(messageDrafts)
-        .set({ status: 'approved', approvedAt: new Date(), approvedBy })
+        .set({ status: 'approved', approvedAt: new Date(), approvedBy: approver })
         .where(and(eq(messageDrafts.id, draftId), eq(messageDrafts.status, 'pending')))
         .returning();
 
@@ -347,7 +348,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
         console.warn(`[Drafts] Refused to send draft ${draft.id} to ${draft.phone}: opted out (${suppression.scope})`);
         // Recorded as 'blocked', not 'rejected': the system refused it, no human judged the wording.
         safely('recordDraftVerdict:blocked', () => recordDraftVerdict({
-            draftId: draft.id, outcome: 'blocked', decidedBy: approvedBy,
+            draftId: draft.id, outcome: 'blocked', decidedBy: approver,
         }));
         pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: draft.conversationId ?? undefined, status: 'blocked', at: new Date().toISOString() });
         return { ok: false, code: 'OPTED_OUT', message: optOutRefusalMessage(suppression) };
@@ -359,7 +360,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
     // system refused to send this by itself, but the words may still be right — a human can read
     // the thread and decide. The ledger records the refusal as 'blocked' (the same shape as the
     // opt-out refusal above); if a human later approves, their verdict overwrites it.
-    const automatedApprover = AUTOMATED_APPROVER.test(approvedBy);
+    const automatedApprover = isAutomatedApprover(approver);
     const holdForHuman = async (marker: string, note: string) => {
         // The note is appended once — a draft that keeps tripping the guard must not grow its
         // reason on every pass.
@@ -371,14 +372,14 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             })
             .where(eq(messageDrafts.id, draft.id));
         safely('recordDraftVerdict:blocked', () => recordDraftVerdict({
-            draftId: draft.id, outcome: 'blocked', decidedBy: approvedBy,
+            draftId: draft.id, outcome: 'blocked', decidedBy: approver,
         }));
         void logSystemEvent({
             kind: 'hold',
             phone: draft.phone,
             conversationId: draft.conversationId,
             summary: `Autosend blocked: ${note}`,
-            detail: { draftId: draft.id, by: approvedBy, marker },
+            detail: { draftId: draft.id, by: approver, marker },
             source: 'message-drafts',
         });
         pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: draft.conversationId ?? undefined, status: 'blocked', at: new Date().toISOString() });
@@ -418,7 +419,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             }
             // A human clicked approve with the thread in front of them — repeating yourself on
             // purpose is a thing people legitimately do. Logged so the choice is visible.
-            console.log(`[Drafts] ${approvedBy} approved ${draft.id} despite a near-duplicate outbound in the last ${NEAR_DUPLICATE_WINDOW_MINUTES} min — human override allowed.`);
+            console.log(`[Drafts] ${approver} approved ${draft.id} despite a near-duplicate outbound in the last ${NEAR_DUPLICATE_WINDOW_MINUTES} min — human override allowed.`);
         }
     }
 
@@ -449,6 +450,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             // One SMS carrying the whole reply — sendCustomerMessage rejoins the '---' bursts,
             // because on SMS each burst is a separately billed message.
             result = await sendCustomerMessage({
+                approver, runId,
                 to: draft.phone, body: draft.body, channel: 'sms',
                 context: `draft:${draft.source}`, purpose,
             });
@@ -461,12 +463,14 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             // the same pipe, or the customer gets bubble one by SMS and bubble two by WhatsApp.
             const parts = draft.body.split(/\n\s*---\s*\n/).map((p) => p.trim()).filter(Boolean).slice(0, 4);
             result = await sendCustomerMessage({
+                approver, runId,
                 to: draft.phone, body: parts[0] ?? draft.body, context: `draft:${draft.source}`, purpose,
             });
             if (result.ok && result.channel === 'whatsapp') {
                 for (let i = 1; i < parts.length; i++) {
                     await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
                     const next = await sendCustomerMessage({
+                        approver, runId,
                         to: draft.phone, body: parts[i], context: `draft:${draft.source}`, purpose,
                         allowSmsFallback: false,   // see above: no split-brain threads
                     });
@@ -476,6 +480,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             } else if (result.ok && result.channel === 'sms' && parts.length > 1) {
                 // The whole reply belongs in that one SMS, so send the remainder as one more.
                 await sendCustomerMessage({
+                    approver, runId,
                     to: draft.phone, body: parts.slice(1).join('\n\n'), channel: 'sms',
                     context: `draft:${draft.source}`, purpose,
                 });
@@ -484,6 +489,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             // Templates are a single fixed message — no splitting. The rendered body travels with
             // it so an SMS fallback has real words to send.
             result = await sendCustomerMessage({
+                approver, runId,
                 to: draft.phone, body: draft.body,
                 contentSid: draft.contentSid!,
                 contentVariables: (draft.contentVariables as any) ?? undefined,
@@ -500,7 +506,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             // carries the delivery failure separately, so a broken pipe cannot look like a
             // rejected draft in the trust metrics.
             safely('recordDraftVerdict:failed', () => recordDraftVerdict({
-                draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
+                draftId: draft.id, outcome: 'approved', decidedBy: approver,
                 finalBody: draft.body, sendStatus: 'failed',
             }));
             void logSystemEvent({
@@ -508,7 +514,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
                 phone: draft.phone,
                 conversationId: draft.conversationId,
                 summary: `Approved draft failed on every channel: ${result.error ?? 'send failed'}`,
-                detail: { by: approvedBy, channel: draft.channel, draftId: draft.id },
+                detail: { by: approver, channel: draft.channel, draftId: draft.id },
                 source: 'message-drafts',
             });
             return { ok: false, code: 'SEND_FAILED', message: result.error ?? 'send failed on every channel' };
@@ -526,10 +532,10 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
 
         // OUTCOME LEDGER — the verdict. `draft.body` here is the text as it actually went out,
         // carrying whatever the approver changed; the ledger holds the agent's original, so the
-        // diff between them is the training signal. `approvedBy` distinguishes a human approval
+        // diff between them is the training signal. `approver` distinguishes a human approval
         // from the agent auto-sending itself, which must never count toward the trust ladder.
         safely('recordDraftVerdict:sent', () => recordDraftVerdict({
-            draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
+            draftId: draft.id, outcome: 'approved', decidedBy: approver,
             finalBody: draft.body, sendStatus: 'sent',
             sentAt: sent?.sentAt ?? new Date(), sentMessageId: result.sid ?? null,
         }));
@@ -538,7 +544,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             phone: draft.phone,
             conversationId: draft.conversationId,
             summary: draft.body.slice(0, 80),
-            detail: { by: approvedBy, channel: result.channel ?? draft.channel, draftId: draft.id },
+            detail: { by: approver, channel: result.channel ?? draft.channel, draftId: draft.id },
             source: 'message-drafts',
         });
         pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: draft.conversationId ?? undefined, status: 'sent', at: new Date().toISOString() });
@@ -549,13 +555,13 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
         // Beta read-along ping for sends released OUTSIDE an agent run (Ben approving, the
         // first-contact ack, sweeps). Agent autosends are excluded here — the run-completion
         // ping in comms.ts already reports those, and one action must not buzz twice.
-        if (!approvedBy.startsWith('comms_agent') && draft.conversationId) {
+        if (!isAgentApprover(approver) && draft.conversationId) {
             void (async () => {
                 const { notifyCommsBeta } = await import('./pushover');
                 await notifyCommsBeta({
                     conversationId: draft.conversationId!,
                     phoneNumber: draft.phone,
-                    headline: `Message sent (${approvedBy.split('@')[0]})`,
+                    headline: `Message sent (${approverLabel(approver)})`,
                     detail: [draft.body.slice(0, 200)],
                 });
             })().catch((e) => console.warn('[MessageDrafts] beta ping failed:', e?.message));
@@ -566,7 +572,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
         // so the promise-tracker only saw agent autosends). comms_agent approvers are excluded
         // here for the same reason as the ping above — comms.ts records those itself, and one
         // promise must not be booked twice. Best-effort: never breaks a completed send.
-        if (!approvedBy.startsWith('comms_agent') && draft.conversationId) {
+        if (!isAgentApprover(approver) && draft.conversationId) {
             void import('./agents/promise-tracker')
                 .then((m) => m.recordOutboundCommitment({ conversationId: draft.conversationId!, body: draft.body }))
                 .catch((e) => console.warn('[MessageDrafts] commitment recording failed (send stands):', e?.message));
@@ -625,7 +631,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             .set({ status: 'failed', error: sendError?.message ?? 'send failed' })
             .where(eq(messageDrafts.id, draft.id));
         safely('recordDraftVerdict:threw', () => recordDraftVerdict({
-            draftId: draft.id, outcome: 'approved', decidedBy: approvedBy,
+            draftId: draft.id, outcome: 'approved', decidedBy: approver,
             finalBody: draft.body, sendStatus: 'failed',
         }));
         void logSystemEvent({
@@ -633,7 +639,7 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
             phone: draft.phone,
             conversationId: draft.conversationId,
             summary: `Approved draft threw mid-send: ${sendError?.message ?? 'send failed'}`,
-            detail: { by: approvedBy, channel: draft.channel, draftId: draft.id },
+            detail: { by: approver, channel: draft.channel, draftId: draft.id },
             source: 'message-drafts',
         });
         const { notifyOutboundSendFailure } = await import('./pushover');
@@ -651,8 +657,8 @@ export async function approveAndSendDraft(draftId: string, approvedBy: string): 
 // POST /api/drafts/:id/approve — the only path that actually sends.
 messageDraftsRouter.post('/:id/approve', async (req, res) => {
     try {
-        const approvedBy = (req as any).user?.email || (req as any).user?.id || 'admin';
-        const result = await approveAndSendDraft(req.params.id, approvedBy);
+        const approver = humanApprover((req as any).user?.email || (req as any).user?.id || 'admin');
+        const result = await approveAndSendDraft(req.params.id, approver);
 
         if (!result.ok) {
             if (result.code === 'SEND_FAILED') return res.status(500).json({ error: result.message });

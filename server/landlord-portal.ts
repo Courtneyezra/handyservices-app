@@ -25,6 +25,7 @@ import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 import { getWhatsAppSenderE164 } from './whatsapp-sender';
 
 export const landlordPortalRouter = Router();
@@ -475,6 +476,7 @@ landlordPortalRouter.post('/:token/properties/:propertyId/tenants', verifyLandlo
         // Send tenant welcome message via WhatsApp
         try {
             const sendResult = await sendCustomerMessage({
+                approver: 'system.landlord_portal', runId: newRunId('sys'),
                 to: normalizedPhone,
                 body: `Hi ${name}! Welcome to Handy Services at ${property.address}. You can report any maintenance issues by messaging us here. We'll take care of everything. \uD83C\uDFE0`,
                 purpose: 'service_reply',  // Tenant onboarding welcome

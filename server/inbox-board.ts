@@ -5,6 +5,7 @@
  * read from conversations.can_send_freeform — that column is only refreshed when a conversation is
  * written to, so it goes stale as the window ages out and would show a shut window as open.
  */
+import { isAgentApprover, approverLabel } from './approver';
 import { Router } from 'express';
 import { db } from './db';
 import { conversations, messages, calls, messageDrafts, agentQuestions, nudgeQueue, personalizedQuotes, quoteResearch } from '@shared/schema';
@@ -860,8 +861,8 @@ inboxBoardRouter.get('/conversations/:id/thread', async (req, res) => {
         // Compact chip labels the UI renders verbatim. Precedence: who drafted, then who released.
         const chipFor = (draftedBy: string, sentBy: string | null): string => {
             const agentDrafted = draftedBy === 'comms_agent';
-            if (agentDrafted && sentBy?.startsWith('comms_agent')) return 'agent · auto';
-            if (agentDrafted) return `agent · ok'd by ${sentBy?.split('@')[0] ?? 'human'}`;
+            if (agentDrafted && sentBy && isAgentApprover(sentBy)) return 'agent · auto';
+            if (agentDrafted) return `agent · ok'd by ${sentBy ? approverLabel(sentBy).split('@')[0] : 'human'}`;
             if (draftedBy === 'first_contact_ack') return 'auto hello';
             return draftedBy;
         };

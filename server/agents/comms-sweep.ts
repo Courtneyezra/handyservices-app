@@ -58,7 +58,7 @@ async function sendV2Reply(
     }
 
     // Auto-send it
-    const result = await approveAndSendDraft(draftId, 'v2_pipeline:autosend');
+    const result = await approveAndSendDraft(draftId, 'agent.comms.autosend');
     if (result.ok) {
         console.log(`[CommsSweep:V2] SENT reply to ${phone}: ${reply.substring(0, 50)}...`);
         return true;
@@ -326,7 +326,7 @@ async function releaseMorningHolds(): Promise<void> {
         const { approveAndSendDraft } = await import('../message-drafts');
         console.log(`[CommsSweep] Morning release: sending ${d.id} (held overnight for the hour, not for a human).`);
         try {
-            await approveAndSendDraft(d.id, 'hours_gate:morning_release');
+            await approveAndSendDraft(d.id, 'rules.hours_gate');
         } catch (error: any) {
             console.error(`[CommsSweep] Morning release failed for ${d.id}:`, error?.message);
         }
@@ -377,7 +377,7 @@ async function releaseHeldAcks(): Promise<void> {
 
         const { approveAndSendDraft } = await import('../message-drafts');
         try {
-            const result = await approveAndSendDraft(d.id, 'first_contact_ack:held_release');
+            const result = await approveAndSendDraft(d.id, 'rules.first_contact');
             if (!result.ok) console.warn(`[CommsSweep] Held ack ${d.id} refused (${result.code}) — left for Ben.`);
             else console.log(`[CommsSweep] Held ack ${d.id} released (${result.mode}).`);
         } catch (error: any) {

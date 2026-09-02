@@ -14,6 +14,7 @@ import { leads, conversations, messages, LeadStage } from "@shared/schema";
 import { eq, and, lt, isNull, isNotNull, or, desc, gte } from "drizzle-orm";
 import { canSendFreeform } from "../meta-whatsapp";
 import { sendCustomerMessage } from "../outbound";
+import { newRunId } from "../approver";
 import { updateLeadStage } from "../lead-stage-engine";
 import { notQuarantined } from "../message-quarantine";
 
@@ -276,6 +277,7 @@ async function processLeadFollowup(
         try {
             const message = WEBFORM_TEMPLATES.FIRST_FOLLOWUP(firstName);
             const sendResult = await sendCustomerMessage({
+                approver: 'system.webform_chase', runId: newRunId('sys'),
                 to: lead.phone,
                 body: message,
                 purpose: 'marketing',
@@ -460,6 +462,7 @@ export async function triggerManualFollowup(
         const message = customMessage || WEBFORM_TEMPLATES.FIRST_FOLLOWUP(firstName);
 
         const sendResult = await sendCustomerMessage({
+            approver: 'system.webform_chase', runId: newRunId('sys'),
             to: lead.phone,
             body: message,
             purpose: 'marketing',

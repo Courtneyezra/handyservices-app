@@ -10,6 +10,7 @@ import { quickReplies, conversations } from '@shared/schema';
 import { eq, and, asc, sql } from 'drizzle-orm';
 import { canSendFreeform } from './meta-whatsapp';
 import { sendCustomerMessage } from './outbound';
+import { newRunId } from './approver';
 
 export const quickRepliesRouter = Router();
 
@@ -206,6 +207,7 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
         // sendable — the window question below applies to WhatsApp alone.
         if (channel === 'sms') {
             const smsResult = await sendCustomerMessage({
+                approver: 'system.quick_reply', runId: newRunId('sys'),
                 to: phone, body: rendered, channel: 'sms', contactName, context: `quick_reply:${reply.id}`,
                 purpose: 'service_reply',
             });
@@ -233,6 +235,7 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
 
         const transport = via === 'meta' ? 'meta' : 'twilio';
         const sendResult = await sendCustomerMessage({
+            approver: 'system.quick_reply', runId: newRunId('sys'),
             to: phone,
             body: rendered,
             purpose: 'service_reply',  // Human-initiated quick reply

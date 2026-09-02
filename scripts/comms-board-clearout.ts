@@ -65,9 +65,14 @@ import { db } from '../server/db';
 import { sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { sendCustomerMessage } from '../server/outbound';
+import { humanApprover, newRunId } from '../server/approver';
 import { findApprovedTemplateWithValues } from '../server/whatsapp-template-sync';
 import { commsPhoneKey } from '../server/phone-utils';
 import { loadOptOutIndex } from '../server/opt-out';
+
+/** One invocation of this tool is one run; the operator who ran it is the approver of every send. */
+const RUN_ID = newRunId('script');
+const OPERATOR = humanApprover(process.env.USER || 'board_clearout');
 
 const CAMPAIGN = process.env.CLEAROUT_CAMPAIGN || 'board_clearout_2026_08';
 const QUOTE_BASE = process.env.BASE_URL || 'https://handyservices.app';
@@ -543,6 +548,7 @@ async function main() {
         }
 
         const result = await sendCustomerMessage({
+            approver: OPERATOR, runId: RUN_ID,
             to: p.e164,
             body: plan.body!,
             channel: plan.channel === 'sms' ? 'sms' : undefined,

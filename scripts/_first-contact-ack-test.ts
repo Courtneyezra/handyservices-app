@@ -46,6 +46,7 @@
  *     alerts ("Message NOT delivered") at whoever is subscribed. That is the point of those cases,
  *     but it is why the phone buzzes a few times during a run.
  */
+import { newRunId } from '../server/approver';
 import 'dotenv/config';
 // The realism hold (60-150s via the sweep) would make every send assertion time-dependent;
 // the suite tests the ack's DECISIONS, not the delay, so it uses the immediate path.
@@ -400,6 +401,7 @@ async function main() {
             process.env.TWILIO_WHATSAPP_NUMBER = '+15558874602';
             import('${process.cwd()}/server/outbound.ts').then(async ({ sendCustomerMessage }) => {
                 const r = await sendCustomerMessage({
+                    approver: 'rules.first_contact', runId: 'run_fallback_test',
                     to: '${SELF_SMS_PHONE}',
                     body: 'Fallback test, please ignore.\\n---\\nSecond burst.',
                     context: 'fallback_test',
@@ -437,6 +439,7 @@ async function main() {
         // ---------------------------------------------------------------- h) landline skips WhatsApp
         head('CASE (h)  a UK landline never attempts WhatsApp at all.');
         const landline = await withCapturedLogs(() => sendCustomerMessage({
+            approver: 'rules.first_contact', runId: newRunId('test'),
             to: OFCOM_LANDLINE,
             body: 'Landline routing test, please ignore.',
             context: 'landline_test',
@@ -469,7 +472,7 @@ async function main() {
         const [queuedDead] = await db.select({ channel: messageDrafts.channel }).from(messageDrafts)
             .where(eq(messageDrafts.id, deadDraftId!));
         pass(queuedDead?.channel === 'sms', 'a landline draft is written as an SMS draft from the start');
-        const deadSend = await withCapturedLogs(() => approveAndSendDraft(deadDraftId!, 'first_contact_ack_test'));
+        const deadSend = await withCapturedLogs(() => approveAndSendDraft(deadDraftId!, 'rules.first_contact'));
         console.log('approve result:', JSON.stringify(deadSend.result));
         pass(deadSend.result.ok === false, 'the send failed, as expected for a reserved landline');
         pass(/MESSAGE NOT DELIVERED/.test(deadSend.log)

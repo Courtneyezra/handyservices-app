@@ -21,6 +21,7 @@ import { markConversationWonByPhone } from "./conversation-stage";
 import { captureServerEvent } from "./posthog";
 import { optionalAuth, requireAdmin } from "./auth";
 import { sendCustomerMessage } from "./outbound";
+import { newRunId } from "./approver";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 import { normalizeQuoteImageUrls } from "./quote-image-utils";
 import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
@@ -3037,6 +3038,7 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
             const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}.${valuePart}\nClick to view and book: ${quoteUrl}`;
 
             const sendResult = await sendCustomerMessage({
+                approver: 'system.quotes', runId: newRunId('sys'),
                 to: normalizedPhone,
                 body: message,
                 channel: input.sendVia === 'sms' ? 'sms' : 'whatsapp',
@@ -3155,6 +3157,7 @@ quotesRouter.post('/api/site-visits/request', async (req, res) => {
         const message = `Hi ${firstName}! We'd like to schedule a site visit to assess your job properly. Book a convenient time: ${bookingUrl}`;
 
         const sendResult = await sendCustomerMessage({
+            approver: 'system.quotes', runId: newRunId('sys'),
             to: normalizedPhone,
             body: message,
             channel: input.sendVia === 'sms' ? 'sms' : 'whatsapp',
@@ -3466,6 +3469,7 @@ quotesRouter.post('/api/quotes/from-estimate', requireAdmin, async (req, res) =>
 
         try {
             const sendResult = await sendCustomerMessage({
+                approver: 'system.quotes', runId: newRunId('sys'),
                 to: customerPhone,
                 body: whatsappMessage,
                 purpose: 'service_reply',

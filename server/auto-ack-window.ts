@@ -69,11 +69,14 @@
  */
 import { db } from './db';
 import { messageDrafts, conversations } from '@shared/schema';
-import { and, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, like, or, sql } from 'drizzle-orm';
+import type { Approver } from './approver';
 
 /** The draft source the first-contact lane composes under. */
 export const AUTO_ACK_SOURCE = 'first_contact_ack';
-/** The approver string the lane stamps when the MACHINE sends: `first_contact_ack:<channel>`. */
+/** The approver the lane stamps when the MACHINE sends, since Phase 0 (2 Sep 2026). */
+export const AUTO_ACK_APPROVER: Approver = 'rules.first_contact';
+/** What the lane stamped before Phase 0: `first_contact_ack:<channel>`. Older rows still carry it. */
 export const AUTO_ACK_APPROVER_PREFIX = 'first_contact_ack:';
 
 /**
@@ -125,7 +128,7 @@ export async function loadAutoAckSends(): Promise<AutoAckSend[]> {
             .where(and(
                 eq(messageDrafts.status, 'sent'),
                 eq(messageDrafts.source, AUTO_ACK_SOURCE),
-                like(messageDrafts.approvedBy, `${AUTO_ACK_APPROVER_PREFIX}%`),
+                or(eq(messageDrafts.approvedBy, AUTO_ACK_APPROVER), like(messageDrafts.approvedBy, `${AUTO_ACK_APPROVER_PREFIX}%`)),
                 isNotNull(messageDrafts.approvedAt),
                 isNotNull(messageDrafts.sentAt),
             ));

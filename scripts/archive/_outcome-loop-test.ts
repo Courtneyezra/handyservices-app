@@ -117,7 +117,7 @@ async function main() {
         if (NO_SEND) {
             console.log('  (skipped: --no-send)');
         } else {
-            const result = await approveAndSendDraft(draftA!, 'test@handyservices.com');
+            const result = await approveAndSendDraft(draftA!, 'human:test@handyservices.com');
             console.log(`  approveAndSendDraft → ${result.ok ? 'sent' : `${(result as any).code}`} (delivery to an unallocated number is expected to fail)`);
             const after = await settle('draft', draftA!, (r) => r.verdict !== 'pending');
             check('verdict is approved_unedited', after?.verdict === 'approved_unedited', after?.verdict);
@@ -144,7 +144,7 @@ async function main() {
         if (NO_SEND) {
             console.log('  (approval skipped: --no-send)');
         } else {
-            await approveAndSendDraft(draftB!, 'test@handyservices.com');
+            await approveAndSendDraft(draftB!, 'human:test@handyservices.com');
             const afterB = await settle('draft', draftB!, (r) => r.verdict !== 'pending');
             const expected = editDistance(bodyB, editedB);
             check('verdict is approved_edited', afterB?.verdict === 'approved_edited', afterB?.verdict);
