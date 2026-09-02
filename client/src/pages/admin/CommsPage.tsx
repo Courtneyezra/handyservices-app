@@ -84,6 +84,8 @@ interface BoardCard {
     complaint: boolean;
     /** Tag callback_due — a promised (or interrupted) call not yet rung back. Ben's move. */
     callbackDue: boolean;
+    /** conversations.role_profile — 'contractor' threads run the contractor pack (Phase 4). */
+    roleProfile?: string | null;
 }
 
 interface BoardResponse {
@@ -1468,6 +1470,13 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                     <h2 className="truncate text-base font-bold text-slate-900">{displayName(card)}</h2>
                     <div className="flex items-center gap-2 text-xs text-slate-500">
                         <span className="tabular-nums">{card.displayPhone}</span>
+                        {card.roleProfile === 'contractor' && (
+                            // Phase 4: the liaison's drafts land here like any other (source 'spine'); the
+                            // chip says which pack — and which rules — this thread is under.
+                            <span className="rounded bg-amber-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white" title="Pack contractor.default (DRAFT). Guards: customer PII, voice.">
+                                audience: contractor · contractor.default
+                            </span>
+                        )}
                         <ChannelIcons channels={card.channels} />
                     </div>
                 </div>
