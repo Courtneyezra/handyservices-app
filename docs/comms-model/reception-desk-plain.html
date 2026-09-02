@@ -1,0 +1,188 @@
+<title>The Handy Reception Desk</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{ --bg:#F4F5F3; --surface:#FFFFFF; --ink:#1B2229; --muted:#5B6670; --line:#D5DAD8;
+  --accent:#1E4FA3; --accent-soft:#E4ECFA; --ben:#A9650B; --ben-soft:#FBEFD9;
+  --send:#23704A; --send-soft:#DDF0E4; --draft:#4B5563; --draft-soft:#E7EAEE;
+  --danger:#9C2F2F; --danger-soft:#F7E1E1; --code:#EEF1EF; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; } }
+:root[data-theme="dark"]{
+  --bg:#12171B; --surface:#1A2127; --ink:#E6EAEC; --muted:#97A3AC; --line:#2B343B;
+  --accent:#7AA6F0; --accent-soft:#1E2C44; --ben:#E0A64A; --ben-soft:#3A2C12;
+  --send:#5FC08A; --send-soft:#153323; --draft:#B4BDC6; --draft-soft:#262E36;
+  --danger:#E07A7A; --danger-soft:#3B1D1D; --code:#222A31; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+main{max-width:70ch;margin:0 auto;padding:40px 24px 96px}
+h1,h2,h3{font-family:"Archivo","Helvetica Neue",Arial,sans-serif;text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:2.5rem;font-weight:700;letter-spacing:-.02em}
+h2{font-size:1.5rem;font-weight:700;margin-top:60px;padding-top:18px;border-top:2px solid var(--ink)}
+h3{font-size:1.1rem;font-weight:600;margin-top:26px}
+p{margin:12px 0}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.lede{font-size:1.15rem;color:var(--muted);margin-top:14px}
+.big3{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin:28px 0}
+.big3>div{background:var(--surface);padding:16px}
+.big3 .n{font-family:"Archivo",sans-serif;font-weight:700;font-size:2rem;line-height:1;font-variant-numeric:tabular-nums}
+.big3 .t{margin-top:6px;font-size:.92rem;color:var(--muted)}
+@media (max-width:640px){.big3{grid-template-columns:1fr}}
+.steps{counter-reset:s;list-style:none;padding:0;margin:18px 0}
+.steps li{display:grid;grid-template-columns:44px 1fr;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);counter-increment:s}
+.steps li::before{content:counter(s);font-family:"Archivo",sans-serif;font-weight:700;font-size:1.4rem;color:var(--accent);line-height:1.1}
+.steps .t{font-weight:600}
+.steps .s{color:var(--muted);margin-top:2px}
+.chip{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.7rem;letter-spacing:.06em;padding:2px 7px;border-radius:3px;font-weight:500;white-space:nowrap;vertical-align:middle}
+.chip.send{background:var(--send-soft);color:var(--send)} .chip.ben{background:var(--ben-soft);color:var(--ben)} .chip.draft{background:var(--draft-soft);color:var(--draft)}
+table{border-collapse:collapse;width:100%;font-size:.95rem;margin:16px 0}
+.tablewrap{overflow-x:auto}
+th{text-align:left;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:8px 10px 8px 0;border-bottom:1px solid var(--ink)}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line);vertical-align:top;font-variant-numeric:tabular-nums}
+td:first-child{font-weight:500}
+td.n{text-align:right;white-space:nowrap}
+.story{border:1px solid var(--line);background:var(--surface);padding:16px 18px;margin:16px 0}
+.story h3{margin-top:0}
+.bubbles{display:flex;flex-direction:column;gap:8px;margin:12px 0 4px}
+.b{max-width:85%;padding:8px 12px;border-radius:12px;font-size:.95rem;line-height:1.45}
+.b.them{align-self:flex-start;background:var(--code);border-bottom-left-radius:3px}
+.b.us{align-self:flex-end;background:var(--send-soft);border-bottom-right-radius:3px}
+.b.ben{align-self:flex-end;background:var(--ben-soft);border-bottom-right-radius:3px}
+.b .when{display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.68rem;color:var(--muted);margin-top:3px}
+.callout{border-left:3px solid var(--ben);background:var(--ben-soft);padding:12px 16px;margin:18px 0}
+.callout.blue{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout p{margin:6px 0}
+ul{padding-left:20px;margin:10px 0} li{margin:6px 0}
+dl{margin:12px 0} dt{font-weight:600;margin-top:10px} dd{margin:2px 0 0 0;color:var(--muted)}
+.foot{margin-top:56px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+a{color:var(--accent)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<main>
+  <div class="eyebrow">Handy Services · how customer messages will be handled · plain English · 2 Sep 2026</div>
+  <h1>The Handy Reception Desk</h1>
+  <p class="lede">What we're building for customer messages, why, and what we learned by testing the idea on the last three months of real conversations. No technical words. Where one is unavoidable, it's explained at the bottom.</p>
+
+  <h2>The problem in three numbers</h2>
+  <div class="big3">
+    <div><div class="n">1 in 4</div><div class="t">customer messages got no reply at all within a day, over the last three months</div></div>
+    <div><div class="n">2 of 35</div><div class="t">questions the old system raised for Ben were ever answered. The rest sat there.</div></div>
+    <div><div class="n">24</div><div class="t">messages went to real customers on 31 Aug with none of the safety checks, from a copy of the app on a laptop</div></div>
+  </div>
+  <p>Ben is quick when he's there, about two minutes. The problem is the hours he isn't, and a set of half-built automations that either went quiet or sent things they shouldn't. We switched the risky one off on 2 September. Today the old assistant drafts replies and Ben taps approve on each one.</p>
+
+  <h2>The idea: a reception desk with a fixed procedure</h2>
+  <p>Think of every message, call, email or web chat arriving at one desk. The desk follows the same steps every time, and nothing can skip a step.</p>
+  <ol class="steps">
+    <li><div><div class="t">One customer, one conversation</div><div class="s">Whether they call, WhatsApp, text or email, it all lands in the same thread. Ben sees one story per person.</div></div></li>
+    <li><div><div class="t">Sort it</div><div class="s">Is this a normal enquiry, or one of the things only Ben should touch: a price, a date, a complaint, a refund, an unusual job?</div></div></li>
+    <li><div><div class="t">Answer the easy part instantly</div><div class="s">A fixed, human-sounding message goes straight out: "Got it, can you send a photo and your postcode?" Any hour, within a minute.</div></div></li>
+    <li><div><div class="t">Prepare the hard part for Ben</div><div class="s">The system gathers photos, postcode and job details, drafts a reply or pre-fills a quote, and puts it in Ben's queue with a deadline.</div></div></li>
+    <li><div><div class="t">Check before anything sends</div><div class="s">Every outgoing message passes a checklist: no prices, no dates, no discounts, no promises, our voice only. Fail the checklist and it goes to Ben instead.</div></div></li>
+    <li><div><div class="t">Write it all down</div><div class="s">Every message, draft, approval and send is logged with who did it and why. If a customer ever asks "what happened?", we can answer.</div></div></li>
+  </ol>
+  <div class="callout blue"><p><strong>The one rule that makes it safe:</strong> there is a single door out to customers, and it refuses any message that didn't come through the checklist. Today there are sixteen doors. That's how 31 August happened.</p></div>
+
+  <h2>Who does what</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Role</th><th>Human, rulebook or AI</th><th>Sends to customers?</th><th>What it does</th></tr>
+    <tr><td>Receptionist</td><td>Rulebook</td><td><span class="chip send">YES, DAY ONE</span></td><td>First replies, photo receipts, the 20-minute "we've seen this" line, text-back after a missed call. Fixed wording, so it can't say anything wrong.</td></tr>
+    <tr><td>Sorter</td><td>AI, one quick look</td><td>No</td><td>Decides which lane a message is in. Reads tone and meaning, not just keywords.</td></tr>
+    <tr><td>Scoper</td><td>AI</td><td><span class="chip draft">EARNS IT</span></td><td>Works out what the job is and asks the missing questions. Ben approves its replies until it has proved itself, one reply type at a time.</td></tr>
+    <tr><td>Quote clerk</td><td>AI</td><td>No</td><td>Turns a conversation or a phone call into a pre-filled quote. Never puts a price on it.</td></tr>
+    <tr><td>Chaser</td><td>Rulebook</td><td><span class="chip send">TEMPLATES</span></td><td>"Did you see your quote?" and overdue reminders, on a schedule.</td></tr>
+    <tr><td>Checker</td><td>Rulebook</td><td>No</td><td>The checklist every message passes before the door.</td></tr>
+    <tr><td>Auditor</td><td>AI</td><td>No</td><td>Reads a sample of what went out each morning and flags anything off, so trust can be taken away as well as given.</td></tr>
+    <tr><td>Ben</td><td>Human</td><td><span class="chip ben">ALWAYS</span></td><td>Prices, dates, complaints, unusual jobs. Approves drafts while the AI is earning its stripes.</td></tr>
+  </table></div>
+  <p>Notice only the rulebooks send on their own from day one. Every AI role either prepares something for a human, or reads. Money and dates never come from a machine.</p>
+
+  <h2>What a customer actually experiences</h2>
+
+  <div class="story"><h3>Saturday, 9:30pm. First time they've ever messaged.</h3>
+    <div class="bubbles">
+      <div class="b them">Hi, need a couple of doors hung and a shelf up, NG5<span class="when">Sat 21:30</span></div>
+      <div class="b us">Hiya, thanks for getting in touch. Could you send a photo or two of the doors and the wall for the shelf, and your postcode? We'll get a quote sorted first thing.<span class="when">Sat 21:31 · automatic</span></div>
+      <div class="b them">[two photos] NG5 2AB<span class="when">Sat 21:40</span></div>
+      <div class="b us">Cheers, got those.<span class="when">Sat 21:41 · automatic</span></div>
+      <div class="b ben">Morning. Both doors look standard internal, and the shelf's a quick one. Quote's on its way over now.<span class="when">Mon 08:40 · Ben, from a pre-filled draft</span></div>
+    </div>
+    <p>Today this customer hears nothing until Monday, if at all. With the desk they get two replies inside eleven minutes and Ben starts Monday with the job already scoped.</p>
+  </div>
+
+  <div class="story"><h3>Tuesday, 2:10pm. Ben's on a job and misses a call.</h3>
+    <div class="bubbles">
+      <div class="b us">Sorry we missed you. Text us what you need doing and a photo if you have one, and we'll come back to you shortly.<span class="when">Tue 14:11 · automatic</span></div>
+      <div class="b them">Leaking downpipe at the back, NG12 5FD [photo]<span class="when">Tue 14:25</span></div>
+      <div class="b us">Cheers, got that. We'll take a look and be back to you.<span class="when">Tue 14:26 · automatic</span></div>
+    </div>
+    <p>Meanwhile the quote clerk has read the message and photo and pre-filled a quote. When Ben opens his phone at 4pm, he prices it and sends. One tap.</p>
+  </div>
+
+  <div class="story"><h3>"How much roughly?"</h3>
+    <div class="bubbles">
+      <div class="b them">How much roughly for the two doors?<span class="when">Wed 11:02</span></div>
+      <div class="b us">Ben'll come back to you on that one shortly.<span class="when">Wed 11:22 · automatic, only if Ben hasn't replied</span></div>
+      <div class="b ben">Looking at the photos, this is a half-day job. I'll put a proper quote on the page so you can see it line by line.<span class="when">Wed 12:15 · Ben</span></div>
+    </div>
+    <p>The system never says a number. It sends the question to Ben with a four-hour deadline. If he can't get to it, the customer gets a holding line rather than silence, and Ben gets nudged once more.</p>
+  </div>
+
+  <div class="story"><h3>A complaint.</h3>
+    <div class="bubbles">
+      <div class="b them">The shelf you put up last week has come off the wall<span class="when">Thu 18:45</span></div>
+      <div class="b us">Sorry to hear that. Ben's picking this up himself and will call you.<span class="when">Thu 18:47 · automatic</span></div>
+    </div>
+    <p>Complaints skip every automated role. Ben's phone buzzes immediately. The system does not apologise in a way that admits fault, does not offer a refund, and does not promise a date. It keeps the customer warm and gets a human on it.</p>
+  </div>
+
+  <h2>What we tested on real conversations</h2>
+  <p>We took every real customer message from June to September, 132 conversations in all, and ran them through the desk's rules on paper. This is what would have happened.</p>
+  <div class="tablewrap"><table>
+    <tr><th></th><th class="n">What actually happened</th><th class="n">Desk, first weeks</th><th class="n">Desk, month 2</th></tr>
+    <tr><td>Messages with no reply of any kind in a day</td><td class="n">23%</td><td class="n">0%</td><td class="n">0%</td></tr>
+    <tr><td>Messages that got only a holding line in a day</td><td class="n">—</td><td class="n">16%</td><td class="n">15%</td></tr>
+    <tr><td>Longest wait for a real reply, evenings and weekends</td><td class="n">never came</td><td class="n">Monday morning</td><td class="n">under an hour</td></tr>
+    <tr><td>Things Ben has to do per working day</td><td class="n">6.7 replies to write</td><td class="n">6.1 taps</td><td class="n">2.8 taps</td></tr>
+    <tr><td>Messages sent automatically per day</td><td class="n">—</td><td class="n">5, all fixed wording</td><td class="n">6, 2 or 3 of them AI</td></tr>
+  </table></div>
+  <p><strong>Three things stood out.</strong> First, silence disappears on day one, and it's fixed wording that does it, not AI. Second, Ben's workload doesn't drop straight away. It changes from writing to approving, and that approving is what teaches the system what "good" looks like. By month two it halves. Third, the messages that still wait are almost all price and date questions, which wait for Ben on purpose. So Ben's hours decide the customer's experience more than any technology.</p>
+  <div class="callout"><p><strong>One honest miss.</strong> The paper test used simple keyword rules to sort messages, and it wrongly sent "I need a curtain pole fitted near NG4" to Ben's lane as a money question. That's why the real sorter takes one quick AI look at each message instead of just matching words.</p></div>
+  <p>Two caveats. WhatsApp wasn't being recorded properly until mid-August, so most of the test data is from the last three weeks. And Ben's replies from his personal phone aren't in the records, so some "unanswered" messages were probably answered by him from there.</p>
+
+  <h2>What it costs</h2>
+  <p>About <strong>8p a day</strong> in AI costs at today's volume, and under £4 a month even at double the traffic. Message fees to WhatsApp and the text network are about the same again. Against that, the desk gives back roughly 20 minutes of Ben's day at launch and over an hour by month two. Opening a second city is a settings change, not a second bill.</p>
+
+  <h2>What happens next</h2>
+  <ol class="steps">
+    <li><div><div class="t">Close the doors</div><div class="s">Make the single door out the only way to reach a customer. Stop laptops being able to send. Connect Ben's personal WhatsApp so the desk knows when he's already replied. Type in the contractors' phone numbers. A couple of days.</div></div></li>
+    <li><div><div class="t">See everything, never go silent</div><div class="s">Turn on the log. Give Ben approve, edit and reject buttons with a reason. Switch on the receptionist and the 20-minute holding line. About three days.</div></div></li>
+    <li><div><div class="t">Build the desk</div><div class="s">The sorter, the scoper, the quote clerk, the checker, running alongside the old assistant so we can compare before switching. Two to three weeks.</div></div></li>
+    <li><div><div class="t">Let it earn trust</div><div class="s">Reply types graduate to automatic when the tests pass and Ben has approved enough of them unedited. Mostly waiting. About two weeks.</div></div></li>
+    <li><div><div class="t">Widen</div><div class="s">Video understanding, the quote card inside the chat, contractor messaging, email and web chat as full channels.</div></div></li>
+    <li><div><div class="t">Clean up</div><div class="s">Delete the old assistants.</div></div></li>
+  </ol>
+
+  <h2>Decisions we need from you</h2>
+  <ul>
+    <li><strong>Ben's hours.</strong> When is he "on"? Is tapping approvals paid time? The customer's experience follows this more than anything else.</li>
+    <li><strong>Should automatic messages say they're automatic?</strong> A brand call. Today they sound like a person.</li>
+    <li><strong>How long before the holding line?</strong> The model assumed 20 minutes. Shorter feels attentive, longer gives Ben more room.</li>
+    <li><strong>What "good" means at 30 days.</strong> Fewer unanswered messages, fewer taps for Ben, more deposits, or faster first reply. Pick the one we judge it by.</li>
+  </ul>
+
+  <h2>Words we use</h2>
+  <dl>
+    <dt>Burst</dt><dd>A run of messages from one customer within ten minutes. Counted as one thing to answer.</dd>
+    <dt>Lane</dt><dd>Where a message is sent after sorting: the receptionist, the scoper, Ben, or the bin.</dd>
+    <dt>Holding line</dt><dd>A fixed message that says we've seen it and someone's on it. Sent when nobody has replied in 20 minutes.</dd>
+    <dt>Draft</dt><dd>A reply the AI wrote that Ben must approve before it goes.</dd>
+    <dt>Flag</dt><dd>A message only Ben should handle, with a deadline attached.</dd>
+    <dt>Earning it</dt><dd>A reply type moves from "Ben approves" to "sends itself" only after tests pass and Ben has approved enough of them without editing. It moves back if it gets one wrong.</dd>
+    <dt>The door</dt><dd>The one piece of code allowed to send a message to a customer. It refuses anything that skipped the checklist.</dd>
+  </dl>
+
+  <div class="foot">Plain-English version of the Comms Desk Model. The technical page, with the interactive walkthrough, diagrams and cost calculator, is separate. Figures from Handy's own records, 4 June to 2 September 2026, test data removed.</div>
+</main>
