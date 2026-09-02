@@ -30,6 +30,7 @@ Honours: `docs/COMMS_MAP_2026-08.md`, `docs/AGENT_DECISION_FRAMEWORK.md`, `docs/
 | Non-UK numbers | Acknowledge like anyone else; only obvious spam patterns are dropped |
 | First AI role to build | **Scoper on WhatsApp**, then Quote clerk on call transcripts, then Sorter deadlines |
 | Go-live | Switch as soon as eval families pass; no mandatory shadow week |
+| Launch shape | Templates reach customers from week one. **Fast track:** simple scoping intents (`ask_gap`, `confirm_received`) may go to SEND after two weeks of clean approvals (zero rejects, ≥ 90% unedited, ≥ 20 verdicts) without waiting for the eval family; the 10% sampler and automatic demotion still apply. Everything else keeps the full gate |
 | Ben's reply channel | Business number only, confirmed from data; no personal-number ingest |
 | Chores this week | Courtnee enters 8 contractor phones; Courtnee agrees Ben's hours; Claude drafts the note to Ben |
 
@@ -180,6 +181,8 @@ Ops Manager stays as Ben's console but loses `run_comms_agent`; it calls `spine.
 - eval regression family for the intent at pass^3 = 100% (`COMMS_EVALS_PLAN` gate), and
 - **≥ 30 human verdicts across the pack** in the last 30 days with unedited-approval ≥ 90%, and **zero `unsafe` rejects on this intent** ever, and
 - zero guard escalations attributed to the intent in the last 14 days.
+
+**Fast track (decided 2 Sep):** `ask_gap` and `confirm_received` may skip the eval-family precondition and promote after two weeks of clean approvals (zero rejects, ≥ 90% unedited, ≥ 20 verdicts). Sampler and demotion apply unchanged. No other intent is fast-tracked.
 
 **Un-earning.** Once an intent is at SEND, Ben stops seeing it, so the verdict stream would stop. Therefore: the Verifier queues **10% of SEND messages** for a one-tap next-morning review (`fine` / `not fine` + reason), and customer-side signals count as verdicts (opt-out, no reply within 48h on a question, `trust_concern` tag, complaint keyword). Any `unsafe` or `not fine: unsafe`, any incident tag, or sampled-approval < 80% over the trailing 30 drops the intent to DRAFT and pings Courtnee.
 
