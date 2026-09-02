@@ -50,6 +50,7 @@ whatsapp-triage-report-*.md
 # Uploaded files & contractor media (customer/contractor PII — never commit)
 uploads/
 server/storage/media/
+server/storage/case-files/
 
 # Ops scripts that read/push credentials (never commit)
 *-creds.sh

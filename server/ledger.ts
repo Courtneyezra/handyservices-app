@@ -27,6 +27,7 @@ export const LEDGER_EVENT_TYPES = [
     'draft_created', 'draft_approved', 'draft_edited', 'draft_sent', 'draft_rejected', 'draft_failed',
     'flag_raised', 'flag_closed', 'flag_expired',
     'run_started', 'run_finished',
+    'run_decided',       // Phase 2: the spine's decision for a run (send | pending | flag | drop | none)
     'sample_reviewed',
 ] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
@@ -88,6 +89,8 @@ export function e164Of(phone: string | null | undefined): string {
 export function actorFromDraftSource(source: string | null | undefined): string {
     if (!source) return 'system:unknown';
     if (source === 'comms_agent') return 'agent:comms';
+    if (source === 'spine') return 'agent:spine';
+    if (source.startsWith('spine:')) return `agent:${source.slice('spine:'.length)}`;
     return `system:${source}`;
 }
 
@@ -332,6 +335,19 @@ export async function ledgerRunFinished(a: {
         conversationId: a.conversationId ?? null, actor: `agent:${a.agent}`, body: a.error ?? null,
         refTable: 'agent_runs', refId: a.runId, runId: a.runId,
         meta: { ok: a.ok, durationMs: a.durationMs ?? undefined, costPence: a.costPence ?? undefined, turns: a.turns ?? undefined },
+    });
+}
+
+/** Phase 2: one event per spine run naming the decision. Keyed on the run id. */
+export async function ledgerRunDecided(a: {
+    runId: string; agent: string; conversationId?: string | null; phone?: string | null;
+    decision: string; lane?: string | null; intent?: string | null; detail?: Record<string, unknown> | null;
+}): Promise<AppendResult> {
+    return appendEvent({
+        eventType: 'run_decided', channel: 'system', phone: a.phone ?? '', roleProfile: a.phone ? await roleProfileFor(a.phone) : 'internal',
+        conversationId: a.conversationId ?? null, actor: `agent:${a.agent}`, body: a.decision,
+        refTable: 'agent_runs', refId: a.runId, runId: a.runId,
+        meta: { decision: a.decision, lane: a.lane ?? undefined, intent: a.intent ?? undefined, ...(a.detail ?? {}) },
     });
 }
 
