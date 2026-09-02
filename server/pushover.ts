@@ -916,6 +916,8 @@ export interface QuoteReadyToPriceAlert {
     lines: string[];
     checkThis: number;
     suggestedTotalPence?: number | null;
+    /** P8-fix: the estimator failed and every line was priced from the reference rate. The error, short. */
+    estimatorFailed?: string | null;
 }
 
 /**
@@ -933,7 +935,8 @@ export async function notifyQuoteReadyToPrice(alert: QuoteReadyToPriceAlert): Pr
         if (alert.lines.length > 5) lines.push(`…+${alert.lines.length - 5} more`);
     }
     if (alert.suggestedTotalPence != null) lines.push(`Suggested total £${(alert.suggestedTotalPence / 100).toFixed(0)} (yours to change).`);
-    if (alert.checkThis > 0) lines.push(`⚠️ ${alert.checkThis} line${alert.checkThis === 1 ? '' : 's'} marked check this.`);
+    if (alert.estimatorFailed) lines.push(`⚠️ Priced from reference rates, estimator failed (${truncate(alert.estimatorFailed, 120)}). Every line needs a check.`);
+    else if (alert.checkThis > 0) lines.push(`⚠️ ${alert.checkThis} line${alert.checkThis === 1 ? '' : 's'} marked check this.`);
     lines.push('Nothing has been sent. Open, check, price, send.');
     await dispatch({
         event: 'quote_prep_ready',

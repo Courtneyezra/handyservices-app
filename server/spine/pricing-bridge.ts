@@ -105,7 +105,11 @@ export function isFallbackLine(line: EstimateLine): boolean {
     return line.timeSource === 'fallback' || !(line.minutesPoint > 0);
 }
 
+/** P8-fix: the reasoning a fallback estimate carries when the estimator itself failed (route-a.ts). */
+export const ESTIMATOR_FAILED_PREFIX = 'estimator failed: ';
+
 function fallbackReason(line: EstimateLine): string {
+    if (line.reasoning?.startsWith(ESTIMATOR_FAILED_PREFIX)) return `${line.reasoning}; priced at the ${line.category} reference rate for ${line.minutesPoint > 0 ? line.minutesPoint : FALLBACK_MINUTES} min — check this`;
     if (!(line.minutesPoint > 0)) return `no time estimate for "${line.title}": priced at the ${line.category} reference rate for ${FALLBACK_MINUTES} min — check this`;
     return `${line.title}: no job history and no catalogue match (${line.reasoning || 'estimator fallback'}); reference-rate price — check this`;
 }

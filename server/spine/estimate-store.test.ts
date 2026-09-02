@@ -62,3 +62,27 @@ describe('the chain draft row', () => {
         expect(overallConfidence([])).toBeNull();
     });
 });
+
+// ---------------------------------------------------------------- P8-fix: single flight
+
+import { canClaim, IN_FLIGHT_MINUTES } from './estimate-store';
+
+describe('canClaim (one estimator per intake run)', () => {
+    const now = new Date('2026-09-04T09:00:00Z');
+    it('refuses when a live estimate already exists for the intake, whatever its status', () => {
+        for (const status of ['running', 'complete', 'failed']) {
+            const v = canClaim({ intakeRunId: 'run_c', liveForIntake: { id: 'e1', status }, runningForConversation: [], now });
+            expect(v).toMatchObject({ claimed: false, existingId: 'e1' });
+            expect((v as any).reason).toMatch(/already exists for intake run run_c/);
+        }
+    });
+    it('refuses while another estimator is in flight on the thread; allows once it is stale', () => {
+        const fresh = { id: 'e9', intakeRunId: 'run_other', createdAt: new Date(now.getTime() - 60_000) };
+        expect(canClaim({ intakeRunId: 'run_c', liveForIntake: null, runningForConversation: [fresh], now })).toMatchObject({ claimed: false, existingId: 'e9' });
+        const stale = { ...fresh, createdAt: new Date(now.getTime() - (IN_FLIGHT_MINUTES + 1) * 60_000) };
+        expect(canClaim({ intakeRunId: 'run_c', liveForIntake: null, runningForConversation: [stale], now })).toEqual({ ok: true });
+    });
+    it('allows a fresh intake with nothing in flight', () => {
+        expect(canClaim({ intakeRunId: 'run_c', liveForIntake: null, runningForConversation: [], now })).toEqual({ ok: true });
+    });
+});

@@ -20,7 +20,7 @@ import { newRunId } from '../../approver';
 import { SYSTEM as ESTIMATOR_SYSTEM } from '../../agents/quote-estimator';
 import { buildEstimatorTools, getTimeHistory } from '../../agents/estimator-tools';
 import { recordSpineRunStart, recordSpineRunFinish } from '../run-record';
-import { insertEstimate, finishEstimate, findLiveEstimateForIntake, overallConfidence, type EstimateLine, type EstimateJob, type EstimateMaterial, type QuoteEstimate, type TimeSource } from '../estimate-store';
+import { claimEstimate, finishEstimate, findLiveEstimateForIntake, overallConfidence, type EstimateLine, type EstimateJob, type EstimateMaterial, type QuoteEstimate, type TimeSource } from '../estimate-store';
 import { DEFAULT_SETUP_MIN, DEFAULT_CLEANUP_MIN } from '@shared/schedule-composition';
 import type { CaseFile, PolicyPack, Proposal, SpineAgent, TriageResult, Trigger } from '../types';
 import type { AgentTool } from '../../agents/runner';
@@ -29,6 +29,60 @@ export const ESTIMATOR_TRIGGER = 'spine:estimator';
 export const ESTIMATOR_MODEL = 'claude-sonnet-5';
 /** Fewer history samples than this and the model's minutes are used. */
 export const HISTORY_MIN_SAMPLES = 3;
+
+// ---------------------------------------------------------------- P8-fix: output budget
+//
+// First live pass (Gemma, 2 Sep): a 6-line submit_build with materials, procedure and assumptions
+// overran the runner's 8,000-token output cap on turn 4 and the run failed with nothing usable.
+// Three changes: a 16,000 cap, a compact submission shape the belt enforces and the prompt asks
+// for, and ONE retry that tells the model to submit what it has, compactly.
+export const ESTIMATOR_MAX_TOKENS = 16000;
+export const COMPACT = { procedureSteps: 4, sentencesPerStep: 1, materialsPerLine: 8, assumptionsPerLine: 4, reasoningChars: 200 } as const;
+export const COMPACT_RULES = `OUTPUT BUDGET. Keep submit_build compact or it will be cut off:
+- procedure: at most ${COMPACT.procedureSteps} steps per line, ONE short sentence each (no prose)
+- materials: at most ${COMPACT.materialsPerLine} per line, name / qty / unit cost / supplier only
+- time.note (your reasoning): at most ${COMPACT.reasoningChars} characters per line
+- assumptions: at most ${COMPACT.assumptionsPerLine} short items per line
+- flags: short tokens ("ladder", "no_parking", "occupied", "unknown_substrate")
+Research briefly, then submit_build ONCE. Never a price.`;
+export const RETRY_GOAL_SUFFIX = 'Your previous attempt was cut off by the output limit. Do NOT research any further. Call submit_build NOW with what you already have, compactly: at most 4 one-sentence procedure steps, at most 8 materials and 4 assumptions per line, reasoning under 200 characters. Never a price.';
+
+/** Cut a string at its first sentence end (or at `max` chars). Pure. */
+export function firstSentence(s: string, max: number = COMPACT.reasoningChars): string {
+    const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+    const m = /^(.+?[.!?])(\s|$)/.exec(t);
+    return (m ? m[1] : t).slice(0, max);
+}
+
+/** The compact shape the belt stores, whatever the model sent. Pure; never adds a field. */
+export function compactBuildInput(input: any): any {
+    if (!input || typeof input !== 'object' || !Array.isArray(input.lines)) return input;
+    return {
+        ...input,
+        lines: input.lines.map((l: any) => ({
+            ...l,
+            procedure: Array.isArray(l?.procedure) ? l.procedure.slice(0, COMPACT.procedureSteps).map((s: any) => firstSentence(String(s), 160)).filter(Boolean) : [],
+            materials: Array.isArray(l?.materials) ? l.materials.slice(0, COMPACT.materialsPerLine) : [],
+            assumptions: Array.isArray(l?.assumptions) ? l.assumptions.slice(0, COMPACT.assumptionsPerLine).map((s: any) => firstSentence(String(s), 160)).filter(Boolean) : [],
+            ...(l?.time && typeof l.time === 'object' ? { time: { ...l.time, ...(l.time.note ? { note: String(l.time.note).slice(0, COMPACT.reasoningChars) } : {}) } } : {}),
+            ...(l?.unresolved ? { unresolved: String(l.unresolved).slice(0, COMPACT.reasoningChars) } : {}),
+        })),
+        ...(Array.isArray(input.quoteNotes) ? { quoteNotes: input.quoteNotes.slice(0, 4).map((s: any) => firstSentence(String(s), 160)) } : {}),
+    };
+}
+
+/** Did the runner fail because the model ran out of output tokens? (server/agents/runner.ts wording.) */
+export function isMaxTokensError(error: unknown): boolean {
+    return /hit max_tokens/i.test(String((error as any)?.message ?? error));
+}
+
+/** Thrown when another estimator already holds this intake (single flight). Route A treats it as "not mine". */
+export class EstimateClaimRefused extends Error {
+    constructor(public readonly reason: string, public readonly existingId: string | null) {
+        super(`estimator not started: ${reason}`);
+        this.name = 'EstimateClaimRefused';
+    }
+}
 
 // ---------------------------------------------------------------- the belt (pure parts)
 
@@ -131,8 +185,9 @@ export function buildEstimatorBelt(conversationId: string | undefined): { tools:
         if (t.name !== 'submit_build') return t;
         return {
             ...t,
-            description: `${t.description} NEVER include a price, total or charge of any kind: only time (minutes, range, confidence, basis), materials with their unit COST, procedure, assumptions and flags. A submission carrying a price is refused.`,
-            run: async (input: any) => {
+            description: `${t.description} NEVER include a price, total or charge of any kind: only time (minutes, range, confidence, basis), materials with their unit COST, procedure, assumptions and flags. A submission carrying a price is refused. Keep it COMPACT: at most ${COMPACT.procedureSteps} one-sentence procedure steps, ${COMPACT.materialsPerLine} materials and ${COMPACT.assumptionsPerLine} assumptions per line, time.note under ${COMPACT.reasoningChars} characters.`,
+            run: async (raw: any) => {
+                const input = compactBuildInput(raw);
                 const priceFields = findPriceFields(input);
                 const moneyText = findMoneyInText(input);
                 if (priceFields.length || moneyText.length) {
@@ -174,33 +229,56 @@ export interface EstimateRunDeps {
     /** The model runner (server/agents/runner.ts runAgent). Injected for tests. */
     runAgent?: (opts: any) => Promise<{ finalText: string; turns: number; usage?: any; costPence?: number | null; model?: string }>;
     history?: (category: string, keywords: string[]) => Promise<number[]>;
-    store?: { insert: typeof insertEstimate; finish: typeof finishEstimate };
+    store?: { claim: typeof claimEstimate; finish: typeof finishEstimate };
 }
 
-/** Run the estimator on one intake and persist the row. Never prices. */
+/** A failure that already has its quote_estimates row (status failed): Route A prices the fallback draft from it. */
+export interface EstimateFailure extends Error { estimateId?: string }
+
+/**
+ * Run the estimator on one intake and persist the row. Never prices.
+ * Single flight: the row IS the claim (claimEstimate); a refused claim throws EstimateClaimRefused
+ * before any model call. Output budget: 16,000 tokens, compact shape, ONE retry on max_tokens.
+ */
 export async function runEstimateForIntake(input: EstimateRunInput, deps: EstimateRunDeps = {}): Promise<QuoteEstimate> {
-    const store = deps.store ?? { insert: insertEstimate, finish: finishEstimate };
+    const store = deps.store ?? { claim: claimEstimate, finish: finishEstimate };
     const history = deps.history ?? (async (category: string, keywords: string[]) => (await getTimeHistory({ category, keywords })).estimates.map((e) => e.minutes));
     const runAgent = deps.runAgent ?? (async (opts: any) => (await import('../../agents/runner')).runAgent(opts));
 
-    const estimateId = await store.insert({ conversationId: input.caseFile.conversationId, runId: input.runId, intakeRunId: input.intakeRunId, status: 'running', model: ESTIMATOR_MODEL });
+    const claim = await store.claim({ conversationId: input.caseFile.conversationId, runId: input.runId, intakeRunId: input.intakeRunId, model: ESTIMATOR_MODEL });
+    if (!claim.claimed) throw new EstimateClaimRefused(claim.reason, claim.existingId);
+    const estimateId = claim.id;
     const startedAt = Date.now();
     try {
         // History first (decision: the model only when history < 3 samples).
         const hist = await Promise.all(input.intakeLines.map(async (l) => {
             try { return historyRange(await history(String(l.category ?? 'other'), keywordsFor(l.title, l.detail))); } catch { return null; }
         }));
-        const belt = buildEstimatorBelt(input.caseFile.conversationId);
+        const linesText = input.intakeLines.map((l, i) => `${i + 1}. ${l.title}${l.detail ? ` — ${l.detail}` : ''}${l.category ? ` [${l.category}]` : ''}`);
         const goal = [
             'Estimate the following job lines. Time: minutes with a [min, max] range and a confidence; materials with unit COST; a procedure; assumptions; and `flags` per line for access or difficulty (e.g. "ladder", "no_parking", "occupied", "unknown_substrate"). Never a price.',
-            '', ...input.intakeLines.map((l, i) => `${i + 1}. ${l.title}${l.detail ? ` — ${l.detail}` : ''}${l.category ? ` [${l.category}]` : ''}`),
-            '', 'Then call submit_build once.',
+            '', ...linesText,
+            '', 'Then call submit_build once, compactly.',
         ].join('\n');
-        const result = await runAgent({
-            name: 'estimator', system: ESTIMATOR_SYSTEM, goal, tools: belt.tools, model: ESTIMATOR_MODEL, maxTurns: 12, maxTokens: 8000,
+        // The runner records its own agent_runs row under this name (a CHILD of the spine's
+        // 'estimator' row via parentRunId). A distinct name so the drawer shows one spine run with
+        // one model-call child, not two "estimator" rows one second apart.
+        const runnerOpts = (attemptGoal: string, tools: AgentTool[]) => ({
+            name: 'quote-estimator', system: `${ESTIMATOR_SYSTEM}\n\n${COMPACT_RULES}`, goal: attemptGoal, tools, model: ESTIMATOR_MODEL, maxTurns: 12, maxTokens: ESTIMATOR_MAX_TOKENS,
             runId: newRunId('run'), trigger: ESTIMATOR_TRIGGER, conversationId: input.caseFile.conversationId, phone: input.caseFile.phone,
             packId: input.pack.id, packVersion: input.pack.version, caseFileRef: input.caseFile.hash, parentRunId: input.runId,
         });
+        let belt = buildEstimatorBelt(input.caseFile.conversationId);
+        let result: Awaited<ReturnType<NonNullable<EstimateRunDeps['runAgent']>>>;
+        try {
+            result = await runAgent(runnerOpts(goal, belt.tools));
+        } catch (first: any) {
+            if (!isMaxTokensError(first)) throw first;
+            // ONE retry: submit what you have, compactly. A fresh belt (the truncated attempt accepted nothing).
+            console.warn(`[Estimator] ${estimateId} hit max_tokens; retrying once with a submit-now goal`);
+            belt = buildEstimatorBelt(input.caseFile.conversationId);
+            result = await runAgent(runnerOpts([...linesText, '', RETRY_GOAL_SUFFIX].join('\n'), belt.tools));
+        }
         const build = belt.getBuild();
         const lines = foldEstimateLines(input.intakeLines, build, hist);
         const job = jobAllowance(build, lines.flatMap((l) => l.flags));
@@ -212,6 +290,8 @@ export async function runEstimateForIntake(input: EstimateRunInput, deps: Estima
         };
     } catch (error: any) {
         await store.finish(estimateId, { status: 'failed', error: error?.message ?? String(error) }).catch(() => undefined);
+        // The failed row's id rides on the error so Route A can price the fallback draft against it.
+        try { (error as EstimateFailure).estimateId = estimateId; } catch { /* frozen error object */ }
         throw error;
     }
 }
@@ -231,7 +311,8 @@ export const estimatorAgent: SpineAgent = {
     async run({ caseFile, pack, triage, runId }): Promise<Proposal | null> {
         const { loadQuoteIntakeCard } = await import('../quote-intake');
         const card = await loadQuoteIntakeCard(caseFile.conversationId);
-        if (!card.available || card.intake.readiness !== 'quote_ready') return null;
+        // A legacy-fallback intake (pane C's getIntake) has no run id: nothing to estimate against.
+        if (!card.available || card.intake.readiness !== 'quote_ready' || !card.runId) return null;
         if (await findLiveEstimateForIntake(card.runId)) return null;
         const { db } = await import('../../db');
         const { agentRuns } = await import('@shared/schema');

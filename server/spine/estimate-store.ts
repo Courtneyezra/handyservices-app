@@ -114,6 +114,60 @@ export async function insertEstimate(input: {
     return id;
 }
 
+// ---------------------------------------------------------------- P8-fix: single flight
+
+/** An estimator started within this long ago on the same thread is still in flight. */
+export const IN_FLIGHT_MINUTES = 10;
+
+export interface ClaimRefusal { claimed: false; reason: string; existingId: string | null }
+export type ClaimResult = { claimed: true; id: string } | ClaimRefusal;
+
+/**
+ * Pure: may a new estimator start? Refused when a live (non-superseded) estimate already exists
+ * for this intake run — complete, failed or running — or when another run on the same thread is
+ * still in flight. A failed row is a refusal too: Route A prices the fallback draft from it and
+ * a re-run is an explicit manual request that supersedes it first.
+ */
+export function canClaim(input: {
+    intakeRunId: string;
+    liveForIntake: { id: string; status: string } | null;
+    runningForConversation: Array<{ id: string; intakeRunId: string | null; createdAt: string | Date }>;
+    now?: Date;
+}): { ok: true } | ClaimRefusal {
+    if (input.liveForIntake) return { claimed: false, reason: `estimate ${input.liveForIntake.id} (${input.liveForIntake.status}) already exists for intake run ${input.intakeRunId}`, existingId: input.liveForIntake.id };
+    const now = (input.now ?? new Date()).getTime();
+    const inFlight = input.runningForConversation.find((r) => now - new Date(r.createdAt).getTime() < IN_FLIGHT_MINUTES * 60_000);
+    if (inFlight) return { claimed: false, reason: `estimator ${inFlight.id} still in flight on this thread (intake ${inFlight.intakeRunId ?? '?'})`, existingId: inFlight.id };
+    return { ok: true };
+}
+
+/**
+ * Claim the estimator run for an intake: read, decide, insert `running`. The partial unique index
+ * (migration 20260904_quote_estimates_single_flight) turns a lost race into a refusal as well.
+ */
+export async function claimEstimate(input: { conversationId: string | null; runId?: string | null; intakeRunId: string; model?: string | null; now?: Date }): Promise<ClaimResult> {
+    const { db } = await import('../db');
+    const { quoteEstimates } = await import('@shared/schema');
+    const { and, eq, isNull, desc } = await import('drizzle-orm');
+    const [live] = await db.select({ id: quoteEstimates.id, status: quoteEstimates.status }).from(quoteEstimates)
+        .where(and(eq(quoteEstimates.intakeRunId, input.intakeRunId), isNull(quoteEstimates.supersededAt))).orderBy(desc(quoteEstimates.createdAt)).limit(1);
+    const running = input.conversationId
+        ? await db.select({ id: quoteEstimates.id, intakeRunId: quoteEstimates.intakeRunId, createdAt: quoteEstimates.createdAt }).from(quoteEstimates)
+            .where(and(eq(quoteEstimates.conversationId, input.conversationId), eq(quoteEstimates.status, 'running'), isNull(quoteEstimates.supersededAt)))
+        : [];
+    const verdict = canClaim({ intakeRunId: input.intakeRunId, liveForIntake: live ?? null, runningForConversation: running, now: input.now });
+    if (!('ok' in verdict)) return verdict;
+    try {
+        const id = await insertEstimate({ conversationId: input.conversationId, runId: input.runId ?? null, intakeRunId: input.intakeRunId, status: 'running', model: input.model ?? null });
+        return { claimed: true, id };
+    } catch (error: any) {
+        if (error?.code === '23505' || /unique|duplicate key/i.test(String(error?.message))) {
+            return { claimed: false, reason: `lost the race: a live estimate for intake run ${input.intakeRunId} was inserted concurrently`, existingId: null };
+        }
+        throw error;
+    }
+}
+
 export async function finishEstimate(id: string, patch: { status: EstimateStatus; lines?: EstimateLine[]; job?: EstimateJob; model?: string | null; costPence?: number | null; error?: string | null; draftQuoteId?: string | null; runId?: string | null }): Promise<void> {
     const { db } = await import('../db');
     const { quoteEstimates } = await import('@shared/schema');

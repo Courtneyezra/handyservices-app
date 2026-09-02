@@ -20,7 +20,8 @@
 import type { CaseFile, PolicyPack, Proposal, TriageResult } from './types';
 import { estimateProposal, intakeLinesFromArtifact } from './agents/estimator';
 import { supersedeEstimatesForConversation, type QuoteEstimate } from './estimate-store';
-import { priceEstimate, defaultPricingDeps, type PriceEstimateDeps, type PricingSuggestions } from './pricing-bridge';
+import { priceEstimate, defaultPricingDeps, ESTIMATOR_FAILED_PREFIX, type PriceEstimateDeps, type PricingSuggestions } from './pricing-bridge';
+import type { IntakeLineForEstimate } from './agents/estimator';
 import { intakeFromArtifact, createPricedDraft } from './quote-intake';
 import { buildSurveyOfferProposal, surveyWhyFrom } from './survey-offer';
 import { newRunId } from '../approver';
@@ -33,6 +34,8 @@ export interface RouteAOutcome {
     supersededEstimates?: string[];
     supersededDrafts?: string[];
     checkThis?: number;
+    /** P8-fix: the estimator failed; the draft was priced from reference rates, every line check_this. */
+    fallback?: boolean;
 }
 
 export interface RouteADeps {
@@ -41,8 +44,29 @@ export interface RouteADeps {
     estimate?: typeof estimateProposal;
     createDraft?: typeof createPricedDraft;
     supersede?: typeof supersedeEstimatesForConversation;
-    notify?: (alert: { conversationId: string; customerName?: string | null; postcode?: string | null; slug: string; lines: string[]; checkThis: number; suggestedTotalPence?: number | null }) => Promise<void>;
+    notify?: (alert: { conversationId: string; customerName?: string | null; postcode?: string | null; slug: string; lines: string[]; checkThis: number; suggestedTotalPence?: number | null; estimatorFailed?: string | null }) => Promise<void>;
     log?: (e: { kind: 'other' | 'hold'; summary: string; detail: Record<string, unknown>; conversationId: string; source: string }) => Promise<void>;
+}
+
+/**
+ * Pure (P8-fix): the estimate Route A prices when the estimator failed — every intake line as a
+ * fallback line (no minutes, no materials, low confidence, reasoning "estimator failed: …"), so
+ * the pricing bridge prices each from the reference rate with check_this and that reason.
+ * `id` is the failed quote_estimates row when there is one, so the price screen shows the failure.
+ */
+export function fallbackEstimate(input: { conversationId: string; intakeRunId: string; runId: string; intakeLines: IntakeLineForEstimate[]; error: string; id: string | null; now?: Date }): QuoteEstimate {
+    const at = (input.now ?? new Date()).toISOString();
+    return {
+        id: input.id ?? `est_fallback_${input.intakeRunId}`, conversationId: input.conversationId, runId: input.runId, draftQuoteId: null, intakeRunId: input.intakeRunId,
+        status: 'failed', error: input.error,
+        lines: input.intakeLines.map((l) => ({
+            lineId: l.lineId, title: l.title, category: String(l.category ?? 'other'), minutesLow: 0, minutesHigh: 0, minutesPoint: 0,
+            materials: [], flags: [], confidence: 'low', reasoning: `${ESTIMATOR_FAILED_PREFIX}${input.error}`.slice(0, 400), timeSource: 'fallback',
+            assumptions: l.assumptions ?? [], procedure: [], unresolved: null,
+        })),
+        job: { setupMinutes: 0, cleanupMinutes: 0, accessNotes: [] },
+        confidence: 'low', model: null, costPence: null, createdAt: at, finishedAt: at, supersededAt: null,
+    };
 }
 
 /** Pure: readiness off a clerk artifact. */
@@ -65,11 +89,28 @@ export async function runRouteAChain(input: {
     // 1. A new scope supersedes what came before it (estimates now; drafts inside createPricedDraft).
     const supersededEstimates = await (deps.supersede ?? supersedeEstimatesForConversation)(caseFile.conversationId, null).catch(() => [] as string[]);
 
-    // 2. Estimate (its own agent_runs row, child of the clerk's pass).
+    // 2. Estimate (its own agent_runs row, child of the clerk's pass). Single flight: a refused
+    //    claim means another run holds this intake — not ours, no draft from here. Any other
+    //    failure (max_tokens after the retry, a timeout, the model down) still produces a draft:
+    //    every line priced from the reference rate with check_this and the error as the reason,
+    //    so Ben always has something to price. The estimate row stays `failed` with the error.
     const estimatorRunId = newRunId('run');
-    const proposal = await (deps.estimate ?? estimateProposal)({ caseFile, pack: { id: pack.id, version: pack.version }, triage, runId: estimatorRunId, intakeRunId: clerkRunId, intakeLines, parentRunId: clerkRunId });
-    const estimate = proposal?.artifact?.kind === 'quote_estimate' ? (proposal.artifact.data as QuoteEstimate) : null;
-    if (!estimate) return { ran: true, reason: 'estimator returned nothing', supersededEstimates };
+    let estimate: QuoteEstimate | null = null;
+    let estimatorFailed: string | null = null;
+    try {
+        const proposal = await (deps.estimate ?? estimateProposal)({ caseFile, pack: { id: pack.id, version: pack.version }, triage, runId: estimatorRunId, intakeRunId: clerkRunId, intakeLines, parentRunId: clerkRunId });
+        estimate = proposal?.artifact?.kind === 'quote_estimate' ? (proposal.artifact.data as QuoteEstimate) : null;
+        if (!estimate) estimatorFailed = 'estimator returned nothing';
+    } catch (error: any) {
+        if (error?.name === 'EstimateClaimRefused') {
+            return { ran: false, reason: error.message, supersededEstimates };
+        }
+        estimatorFailed = String(error?.message ?? error).slice(0, 300);
+        const failedId = typeof error?.estimateId === 'string' ? error.estimateId : null;
+        console.error(`[RouteA] estimator failed for ${caseFile.conversationId}; pricing the fallback draft:`, estimatorFailed);
+        estimate = fallbackEstimate({ conversationId: caseFile.conversationId, intakeRunId: clerkRunId, runId: estimatorRunId, intakeLines, error: estimatorFailed, id: failedId });
+    }
+    if (!estimate) estimate = fallbackEstimate({ conversationId: caseFile.conversationId, intakeRunId: clerkRunId, runId: estimatorRunId, intakeLines, error: estimatorFailed ?? 'estimator returned nothing', id: null });
 
     // 3. Price with the real engine and the live settings.
     const settings = await (deps.settings ?? (async () => (await import('../pricing-settings')).getPricingSettings()))();
@@ -82,25 +123,33 @@ export async function runRouteAChain(input: {
         await log({ kind: 'hold', summary: `Route A: estimate ${estimate.id} priced but no draft (${draft.errors.join('; ')})`, detail: { estimateId: estimate.id, errors: draft.errors }, conversationId: caseFile.conversationId, source: 'route-a' }).catch(() => undefined);
         return { ran: true, reason: draft.errors.join('; '), estimateId: estimate.id, supersededEstimates };
     }
-    try {
-        const { finishEstimate } = await import('./estimate-store');
-        await finishEstimate(estimate.id, { status: 'complete', draftQuoteId: draft.id });
-    } catch { /* bookkeeping */ }
+    // A failed estimate row stays `failed` with its error; only a real estimate is marked complete.
+    if (!estimatorFailed) {
+        try {
+            const { finishEstimate } = await import('./estimate-store');
+            await finishEstimate(estimate.id, { status: 'complete', draftQuoteId: draft.id });
+        } catch { /* bookkeeping */ }
+    } else if (!estimate.id.startsWith('est_fallback_')) {
+        try {
+            const { finishEstimate } = await import('./estimate-store');
+            await finishEstimate(estimate.id, { status: 'failed', error: estimatorFailed, draftQuoteId: draft.id });
+        } catch { /* bookkeeping */ }
+    }
     const checkThis = suggestions.lines.filter((l) => l.checkThis).length;
     await log({
         kind: 'other', source: 'route-a', conversationId: caseFile.conversationId,
-        summary: `Route A: draft ${draft.slug} from estimate ${estimate.id} (${suggestions.lines.length} lines, ${checkThis} check_this${supersededEstimates.length || draft.superseded.length ? `; superseded ${supersededEstimates.length} estimate(s), ${draft.superseded.length} draft(s)` : ''})`,
-        detail: { estimateId: estimate.id, draftId: draft.id, slug: draft.slug, clerkRunId, estimatorRunId, supersededEstimates, supersededDrafts: draft.superseded, totals: suggestions.totals },
+        summary: `Route A: draft ${draft.slug} from ${estimatorFailed ? 'reference rates (estimator failed)' : `estimate ${estimate.id}`} (${suggestions.lines.length} lines, ${checkThis} check_this${supersededEstimates.length || draft.superseded.length ? `; superseded ${supersededEstimates.length} estimate(s), ${draft.superseded.length} draft(s)` : ''})`,
+        detail: { estimateId: estimate.id, draftId: draft.id, slug: draft.slug, clerkRunId, estimatorRunId, supersededEstimates, supersededDrafts: draft.superseded, totals: suggestions.totals, estimatorFailed },
     }).catch(() => undefined);
 
     // 5. Ben.
     try {
         const notify = deps.notify ?? (async (a) => { const { notifyQuoteReadyToPrice } = await import('../pushover'); await notifyQuoteReadyToPrice(a); });
-        await notify({ conversationId: caseFile.conversationId, customerName: intake.customerName ?? caseFile.contactName ?? null, postcode: intake.postcode, slug: draft.slug, lines: intake.lines.map((l) => l.title), checkThis, suggestedTotalPence: suggestions.totals.suggestedPence });
+        await notify({ conversationId: caseFile.conversationId, customerName: intake.customerName ?? caseFile.contactName ?? null, postcode: intake.postcode, slug: draft.slug, lines: intake.lines.map((l) => l.title), checkThis, suggestedTotalPence: suggestions.totals.suggestedPence, estimatorFailed });
     } catch (e: any) {
         console.warn('[RouteA] Pushover failed (draft stands):', e?.message ?? e);
     }
-    return { ran: true, estimateId: estimate.id, draftSlug: draft.slug, supersededEstimates, supersededDrafts: draft.superseded, checkThis };
+    return { ran: true, estimateId: estimate.id, draftSlug: draft.slug, supersededEstimates, supersededDrafts: draft.superseded, checkThis, ...(estimatorFailed ? { fallback: true, reason: `${ESTIMATOR_FAILED_PREFIX}${estimatorFailed}` } : {}) };
 }
 
 /** visit_first: the DRAFT survey offer for Ben (decision (e)). Fee from settings; no link (see survey-offer.ts). */

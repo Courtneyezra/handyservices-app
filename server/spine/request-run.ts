@@ -20,6 +20,7 @@ import { conversations } from '@shared/schema';
 import { eq, sql } from 'drizzle-orm';
 import { isCommsWorker } from '../worker-gate';
 import { getSpineConfig, isSpineEnabled } from './config';
+import { spineMode } from './switch';
 import { isTrigger } from './vocab';
 import type { SpineRun, Trigger } from './types';
 
@@ -109,6 +110,11 @@ interface DueRow { id: string; phone_number: string; due_at: string; trigger: st
 export async function runDue(limit?: number): Promise<SpineRun[]> {
     if (!isCommsWorker()) return [];
     if (!(await isSpineEnabled())) return [];
+    // P8-fix: in SHADOW the legacy tick runs the shadow pass itself (server/spine/shadow.ts) on the
+    // same due rows. Until this gate, this loop ALSO ran a live pass on them — two passes per
+    // thread one second apart, two clerk runs, two estimators (Gemma, 2 Sep 17:19). One path:
+    // shadow = runShadow from the legacy tick; live = this loop.
+    if ((await spineMode()) !== 'live') return [];
     const cfg = await getSpineConfig();
     const max = Math.max(1, Math.min(limit ?? cfg.sweepLimit, 10));
 
