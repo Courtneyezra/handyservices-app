@@ -45,6 +45,11 @@ import { generateBalanceInvoice } from './invoice-generator';
 import { storageService } from './storage';
 // P13c: the job pack on the schedule (one query per page) and on the materials run.
 import { loadPacksForQuotes, bookingPackFields, runMaterialsFromPack, type LoadedPack } from './spine/job-pack-readers';
+// P15 part 4: the completion gate (before/after per pack task, sign-off, leftover report) and
+// the filing that follows it. Both live in this pane's own files; these are the only call sites.
+import { gateCompletion } from './contractor-completion-routes';
+import { fileCompletion } from './spine/job-pack-completion';
+import { flattenEvidence } from '../shared/completion-gate';
 
 /** The packs for a page of quote ids; an empty map when the table is absent or the read fails (the pack is optional). */
 async function packsForQuotes(quoteIds: Array<string | null | undefined>): Promise<Map<string, LoadedPack>> {
@@ -1428,11 +1433,15 @@ router.post('/:token/jobs/:bookingId/complete', async (req: Request, res: Respon
     const [booking] = await db.select().from(contractorBookingRequests).where(eq(contractorBookingRequests.id, bookingId)).limit(1);
     if (!booking || (booking.assignedContractorId ?? booking.contractorId) !== profile.id) return res.status(403).json({ error: 'Not your job' });
 
-    const evidenceUrls: string[] = Array.isArray(req.body?.evidenceUrls) ? req.body.evidenceUrls.filter((u: any) => typeof u === 'string') : [];
     const signatureDataUrl = typeof req.body?.signatureDataUrl === 'string' ? req.body.signatureDataUrl : '';
     const completionNotes = typeof req.body?.completionNotes === 'string' ? req.body.completionNotes.slice(0, 2000) : null;
-    if (evidenceUrls.length === 0) return res.status(400).json({ error: 'Add at least one photo' });
-    if (!signatureDataUrl.startsWith('data:image/')) return res.status(400).json({ error: 'Customer signature required' });
+
+    // P15 part 4 — THE GATE. A job closes on evidence: a before and an after photo for every task
+    // the pack lists, the customer's signature and her verdict, and the leftover report. Without a
+    // pack the plan is empty and the old rule (at least one photo) still holds.
+    const gate = await gateCompletion({ quoteId: booking.quoteId, body: req.body ?? {} });
+    if (!gate.ok) return res.status(422).json({ error: gate.summary, missing: gate.failures });
+    const evidenceUrls: string[] = flattenEvidence(req.body ?? {});
 
     const now = new Date();
     await db.update(contractorBookingRequests).set({
@@ -1441,6 +1450,17 @@ router.post('/:token/jobs/:bookingId/complete', async (req: Request, res: Respon
     }).where(eq(contractorBookingRequests.id, bookingId));
     await db.update(bookingAssignments).set({ status: 'completed', completedAt: now })
       .where(eq(bookingAssignments.bookingId, bookingId));
+
+    // P15 part 4 — the sign-off and the leftover report: onto the job, onto the pack's access
+    // notes, onto the property record (so the next person at this address gets told), and onto
+    // the thread as an internal note. Never throws: the job is already closed by this point.
+    await fileCompletion({
+      bookingId,
+      quoteId: booking.quoteId ?? null,
+      signOff: req.body?.signOff ?? { verdict: null },
+      leftover: req.body?.leftover ?? null,
+      dateWords: now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/London' }),
+    }).catch((e: any) => console.warn('[ContractorApp] completion filing failed:', e?.message));
 
     // (b) Customer invoice/receipt + payment link for the QR.
     let paymentUrl: string | null = null;
