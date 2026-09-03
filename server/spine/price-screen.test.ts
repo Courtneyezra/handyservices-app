@@ -42,7 +42,7 @@ describe('buildPricePayload', () => {
     const p = buildPricePayload({ row: row(), estimate, conversationId: 'conv_9', readiness: 'quote_ready', settings, baseUrl: 'https://x' });
 
     it('header: first name, postcode, customer type, readiness; builder one tap away', () => {
-        expect(p.customer).toEqual({ firstName: 'Gemma', name: 'Gemma Price-Jones', postcode: 'NG5 2AB', customerType: 'landlord', readiness: 'quote_ready' });
+        expect(p.customer).toEqual({ firstName: 'Gemma', name: 'Gemma Price-Jones', postcode: 'NG5 2AB', customerType: 'landlord', readiness: 'quote_ready', phone: '+447700900123' });
         expect(p.builderUrl).toBe('/admin/quotes/ab12cd34/edit');
         expect(p.quoteUrl).toBe('https://x/quote/ab12cd34');
         expect(p.status).toBe('draft');
@@ -58,7 +58,7 @@ describe('buildPricePayload', () => {
     });
     it('job allowances once per job, materials list, photos, estimate summary', () => {
         expect(p.job).toEqual({ setupMinutes: 15, cleanupMinutes: 15, accessNotes: 'first floor' });
-        expect(p.materials).toEqual([{ lineId: 'card_1', name: 'Softwood sill 1.2m', qty: 1, unitCostPence: 4_000, source: 'screwfix' }]);
+        expect(p.materials).toEqual([{ lineId: 'card_1', index: 0, name: 'Softwood sill 1.2m', qty: 1, unitCostPence: 4_000, source: 'screwfix' }]);
         expect(p.photos).toEqual(['/api/media/m1']);
         expect(p.estimate).toEqual({ id: 'est_1', status: 'done', confidence: 'medium', at: '2026-09-04T08:59:00Z' });
         expect(p.settings).toEqual(settings);

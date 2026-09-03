@@ -4,7 +4,7 @@
  * constant); fallback lines priced from the reference rate with check_this. No model, no db.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { priceEstimate, allocateAllowance, toJobCategory, isFallbackLine, FALLBACK_MINUTES, type PriceEstimateDeps } from './pricing-bridge';
+import { priceEstimate, allocateAllowance, toJobCategory, isFallbackLine, labourBandFromMinutes, FALLBACK_MINUTES, type PriceEstimateDeps } from './pricing-bridge';
 import type { QuoteEstimate, EstimateLine } from './estimate-store';
 import type { MultiLineRequest, MultiLineResult } from '@shared/contextual-pricing-types';
 import { DEFAULT_PRICING_SETTINGS } from '@shared/pricing-settings';
@@ -54,6 +54,39 @@ describe('priceEstimate', () => {
         expect(l.checkThis).toBe(false);
         expect(s.engine).toBe('multi-line-engine');
         expect(s.rules).toContain('Floor: raised');
+    });
+    it('P12 band bug (Sarah, nine doors): a description-anchored engine returns the same labour at low / point / high; the band still reflects the minutes range', async () => {
+        // The real engine's LLM prices "8 oak doors" the same whatever the minutes; only the time
+        // floor moves, and £810 sat above the floor at every run, so bandLow = bandHigh = suggested.
+        const flatEngine = vi.fn(async (req: MultiLineRequest): Promise<MultiLineResult> => ({
+            lineItems: req.lines.map((l) => ({
+                lineId: l.id, description: l.description, category: l.category, timeEstimateMinutes: l.timeEstimateMinutes,
+                referencePricePence: 50000, llmSuggestedPricePence: 81000, guardedPricePence: 81000,
+                adjustmentFactors: [], materialsCostPence: l.materialsCostPence ?? 0, materialsWithMarginPence: Math.round((l.materialsCostPence ?? 0) * 1.27),
+            } as any)),
+            subtotalPence: 0, totalMaterialsWithMarginPence: 0, batchDiscount: { applied: false, discountPercent: 0 } as any, finalPricePence: 0,
+            layerBreakdown: {} as any, reasoning: '', confidence: 'medium', contextualHeadline: '', contextualMessage: '', guardrails: { adjustments: [] } as any, messaging: {} as any,
+        }));
+        const doors = line({
+            lineId: 'card_1', title: '8 oak panelled doors, hung and finished', category: 'joinery', minutesLow: 640, minutesHigh: 1120, minutesPoint: 880,
+            materials: [{ name: 'Oak panelled door', qty: 8, unitCostPence: 12000, source: 'screwfix' }, { name: 'Handle set', qty: 7, unitCostPence: 1800, source: 'screwfix' }],
+        });
+        const s = await priceEstimate(estimate([doors]), settings({ materialsMarginPercent: 27 }), { engine: flatEngine, reference });
+        const l = s.lines[0];
+        const mats = Math.round((8 * 12000 + 7 * 1800) * 1.27);
+        expect(l.suggestedPence).toBe(81000 + mats);
+        // 30 min allowance: 670 / 910 / 1150 minutes on the wire.
+        expect(l.bandLowPence).toBe(Math.round((81000 * 670) / 910) + mats);
+        expect(l.bandHighPence).toBe(Math.round((81000 * 1150) / 910) + mats);
+        expect(l.bandLowPence).toBeLessThan(l.suggestedPence);
+        expect(l.bandHighPence).toBeGreaterThan(l.suggestedPence);
+        expect(s.totals.bandLowPence).toBeLessThan(s.totals.suggestedPence);
+    });
+    it('labourBandFromMinutes: scales with the range, flat when there is no range, never narrower than the point', () => {
+        expect(labourBandFromMinutes({ labourPence: 9000, minutes: 90, minutesLow: 70, minutesHigh: 110 })).toEqual({ low: 7000, high: 11000 });
+        expect(labourBandFromMinutes({ labourPence: 9000, minutes: 90, minutesLow: 90, minutesHigh: 90 })).toEqual({ low: 9000, high: 9000 });
+        expect(labourBandFromMinutes({ labourPence: 9000, minutes: 90, minutesLow: 120, minutesHigh: 60 })).toEqual({ low: 9000, high: 9000 });
+        expect(labourBandFromMinutes({ labourPence: 9000, minutes: 0, minutesLow: 10, minutesHigh: 20 })).toEqual({ low: 9000, high: 9000 });
     });
     it('materials margin comes from settings, never a constant', async () => {
         const a = await priceEstimate(estimate([line()]), settings({ materialsMarginPercent: 27 }), { engine: fakeEngine(27).engine, reference });

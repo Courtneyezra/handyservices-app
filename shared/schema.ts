@@ -1949,6 +1949,9 @@ export const quotePriceVerdicts = pgTable("quote_price_verdicts", {
     checkThis: boolean("check_this").notNull().default(false),
     by: text("by").notNull(),                                 // human:<id>
     at: timestamp("at", { withTimezone: true }).defaultNow().notNull(),
+    // P12 (migration 20260905_quote_price_verdicts_meta): how Ben resolved a contradiction on the
+    // line, whether he edited the desk's message, materials / assumptions he changed. Optional.
+    meta: jsonb("meta"),
 }, (table) => [
     index("idx_quote_price_verdicts_at").on(table.at),
     index("idx_quote_price_verdicts_slug").on(table.slug),

@@ -11,6 +11,7 @@
  *   GET  /shadow-report?days=1|7                    P6: compareShadow() headline + last 10 pairs
  *   GET  /price/:slug                               P8: Ben's price-and-send screen payload (draft + suggestions + band)
  *   POST /price/:slug/send { version, lines }       P8: Ben's tap — writes his prices, records verdicts, sends via the existing path
+ *   POST /price/:slug/{ask|call|visit}             P12: the exits that are not a send (hold the quote, ledger under Ben)
  *   GET  /price-stats?days=90                       P8: Route B graduation metrics per category (design §6), read-only
  *   POST /tiers { packId, intent, tier, reason }    P6: a person promotes / demotes one intent on the ladder
  *                                                   (pack_intent_tiers + pack_tier_events, changed_by human:<id>);
@@ -303,21 +304,92 @@ spineRouter.post('/price/:slug/send', async (req, res) => {
             return res.status(422).json({ ok: false, priced: true, errors: ['Prices are saved on the quote, but no thread matches this customer, so the link could not be sent from here. Send it from the builder.'], quoteUrl: c.payload.quoteUrl });
         }
         const { draftQuoteSendMessage, deliverQuoteLink } = await import('../agent-staff');
-        const style = typeof req.body?.messageStyle === 'string' ? req.body.messageStyle : null;
-        const drafted = await draftQuoteSendMessage(conversationId, slug, style);
-        if (!drafted.ok) {
-            return res.status(drafted.status === 404 ? 422 : drafted.status).json({ ok: false, priced: true, errors: [`Prices are saved on the quote, but the message could not be drafted: ${drafted.error}`], quoteUrl: c.payload.quoteUrl });
+        const { withQuoteLink } = await import('./price-brief');
+        // P12: the message she reads is the desk's draft as Ben left it on the screen (the link goes
+        // on as the last line). The older style-based drafter is the fallback when no message came.
+        let body: string;
+        if (c.message) {
+            body = withQuoteLink(c.message, c.payload.quoteUrl);
+        } else {
+            const style = typeof req.body?.messageStyle === 'string' ? req.body.messageStyle : null;
+            const drafted = await draftQuoteSendMessage(conversationId, slug, style);
+            if (!drafted.ok) {
+                return res.status(drafted.status === 404 ? 422 : drafted.status).json({ ok: false, priced: true, errors: [`Prices are saved on the quote, but the message could not be drafted: ${drafted.error}`], quoteUrl: c.payload.quoteUrl });
+            }
+            body = drafted.body;
         }
-        const sent = await deliverQuoteLink({ conversationId, slug, body: drafted.body, approver: c.approver, runId: c.runId });
+        const sent = await deliverQuoteLink({ conversationId, slug, body, approver: c.approver, runId: c.runId });
         const ok = sent.status >= 200 && sent.status < 300;
+        const mode: 'sent' | 'queued' | 'template' = sent.json?.queued ? 'queued' : sent.json?.mode === 'template' ? 'template' : 'sent';
         res.status(sent.status).json({
             ok, priced: true, verdicts: c.verdicts, totals: c.totals, quoteUrl: c.payload.quoteUrl, conversationId, runId: c.runId,
-            messageBody: drafted.body, ...sent.json,
+            messageBody: body, ...sent.json,
+            nextSteps: ok ? c.nextSteps(mode) : undefined,
+            nextWaiting: c.payload.nextWaiting,
             errors: ok ? undefined : [sent.json.message ?? sent.json.error ?? 'Send failed'],
         });
     } catch (error: any) {
         console.error('[Spine] price send failed:', error?.message ?? error);
         res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not send the quote'] });
+    }
+});
+
+/**
+ * P12: the three exits that are not a send. Each holds the quote (pricing_suggestions.hold, no
+ * migration), lands in the ledger under human:<id>, and never leaves the screen.
+ *   POST /price/:slug/ask   { question }  ONE question queued as a pending draft in Ben's queue
+ *   POST /price/:slug/call  {}            the ledger records the call intent; the phone dials
+ *   POST /price/:slug/visit { why? }      the survey offer (fee from settings) drafted instead of a price
+ * A sent / superseded / revoked draft refuses with 409, like the send does.
+ */
+async function priceExitContext(slug: string, req: any) {
+    const { loadPriceScreen } = await import('./price-screen');
+    const p = await loadPriceScreen(slug);
+    if (!p.available) return { error: { status: p.status, errors: [p.reason] } };
+    if (p.status !== 'draft') return { error: { status: 409, errors: [p.status === 'sent' ? 'This quote has already been sent.' : p.status === 'revoked' ? 'This quote was revoked.' : 'A new scope arrived and this draft was superseded. Reload to price the new one.'] } };
+    const u = sessionUser(req);
+    return { ctx: { quoteId: p.quoteId, slug: p.slug, conversationId: p.conversationId, phone: p.customer.phone, firstName: p.customer.firstName, user: { id: u.id ?? null, email: u.email ?? null } } };
+}
+
+spineRouter.post('/price/:slug/ask', async (req, res) => {
+    try {
+        const c = await priceExitContext(String(req.params.slug || '').trim(), req);
+        if (c.error) return res.status(c.error.status).json({ ok: false, errors: c.error.errors });
+        const { askFirst } = await import('./price-brief');
+        const r = await askFirst(c.ctx!, req.body?.question);
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        res.json({ ok: true, hold: r.hold, draftId: r.draftId, runId: r.runId });
+    } catch (error: any) {
+        console.error('[Spine] price ask failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not queue the question'] });
+    }
+});
+
+spineRouter.post('/price/:slug/call', async (req, res) => {
+    try {
+        const c = await priceExitContext(String(req.params.slug || '').trim(), req);
+        if (c.error) return res.status(c.error.status).json({ ok: false, errors: c.error.errors });
+        const { callRequested } = await import('./price-brief');
+        const r = await callRequested(c.ctx!);
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        res.json({ ok: true, hold: r.hold, tel: r.tel, runId: r.runId });
+    } catch (error: any) {
+        console.error('[Spine] price call failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not record the call'] });
+    }
+});
+
+spineRouter.post('/price/:slug/visit', async (req, res) => {
+    try {
+        const c = await priceExitContext(String(req.params.slug || '').trim(), req);
+        if (c.error) return res.status(c.error.status).json({ ok: false, errors: c.error.errors });
+        const { needsVisit } = await import('./price-brief');
+        const r = await needsVisit(c.ctx!, typeof req.body?.why === 'string' ? req.body.why : null);
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        res.json({ ok: true, hold: r.hold, draftId: r.draftId, runId: r.runId });
+    } catch (error: any) {
+        console.error('[Spine] price visit failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not draft the survey offer'] });
     }
 });
 

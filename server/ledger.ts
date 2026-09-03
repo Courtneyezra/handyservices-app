@@ -29,6 +29,8 @@ export const LEDGER_EVENT_TYPES = [
     'run_started', 'run_finished',
     'run_decided',       // Phase 2: the spine's decision for a run (send | pending | flag | drop | none)
     'sample_reviewed',
+    'quote_held',        // P12: Ben held a priced draft (asked her first / offered a visit) from the price screen
+    'call_requested',    // P12: Ben tapped "Call her" on the price screen; the phone does the call
 ] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
 

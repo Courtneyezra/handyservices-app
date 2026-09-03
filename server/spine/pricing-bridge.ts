@@ -100,6 +100,22 @@ function materialsOf(line: EstimateLine): { materials: QuoteMaterial[]; costPenc
     return { materials, costPence };
 }
 
+/**
+ * Pure (P12): the labour band a minutes range implies. Labour scales with time at the rate the
+ * point price paid per minute; a range with no spread (or no point minutes) gives a flat band.
+ * Never narrower than the point labour on either side.
+ */
+export function labourBandFromMinutes(input: { labourPence: number; minutes: number; minutesLow: number; minutesHigh: number }): { low: number; high: number } {
+    const { labourPence, minutes } = input;
+    if (!(minutes > 0) || !(labourPence > 0)) return { low: labourPence, high: labourPence };
+    const lowMin = Math.min(Math.max(1, input.minutesLow || minutes), minutes);
+    const highMin = Math.max(input.minutesHigh || minutes, minutes);
+    return {
+        low: Math.min(labourPence, Math.round((labourPence * lowMin) / minutes)),
+        high: Math.max(labourPence, Math.round((labourPence * highMin) / minutes)),
+    };
+}
+
 /** A line the engine cannot be trusted with: no measurement at all. */
 export function isFallbackLine(line: EstimateLine): boolean {
     return line.timeSource === 'fallback' || !(line.minutesPoint > 0);
@@ -168,9 +184,15 @@ export async function priceEstimate(estimate: QuoteEstimate, settings: PricingSe
             const labour = li.guardedPricePence;
             const mats = li.materialsWithMarginPence ?? 0;
             const suggested = labour + mats;
-            const bandLow = Math.min(suggested, (lo?.guardedPricePence ?? labour) + (lo?.materialsWithMarginPence ?? mats));
-            const bandHigh = Math.max(suggested, (hi?.guardedPricePence ?? labour) + (hi?.materialsWithMarginPence ?? mats));
             const minutes = li.timeEstimateMinutes || (l.minutesPoint + allowances[i]);
+            // P12 band fix: the engine's labour price is description-anchored (the LLM prices "8 oak
+            // doors" the same at 640 and 1,120 minutes; only the time FLOOR moves with minutes), so
+            // the low / high runs came back equal to the point run on Sarah's draft and the band
+            // collapsed to the suggestion. The band must reflect the minutes range, so the labour is
+            // scaled by the range (materials do not vary with time) and the engine runs only widen it.
+            const scaled = labourBandFromMinutes({ labourPence: labour, minutes, minutesLow: l.minutesLow + allowances[i], minutesHigh: l.minutesHigh + allowances[i] });
+            const bandLow = Math.min(suggested, scaled.low + mats, (lo?.guardedPricePence ?? labour) + (lo?.materialsWithMarginPence ?? mats));
+            const bandHigh = Math.max(suggested, scaled.high + mats, (hi?.guardedPricePence ?? labour) + (hi?.materialsWithMarginPence ?? mats));
             const lowConf = l.confidence === 'low';
             out.push({
                 lineId: l.lineId, title: l.title, category: li.category,

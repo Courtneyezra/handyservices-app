@@ -20,6 +20,10 @@
  * Nothing here prices: the ONLY numbers this module produces are Ben's own, echoed back.
  */
 import type { Approver } from '../approver';
+import {
+    buildThread, evidenceForLine, findContradictions, draftCustomerMessage, holdOf, nextStepsAfterSend, FOLLOW_UP_DAYS,
+    type PriceScreenThread, type LineEvidence, type Contradiction, type QuoteHold, type Resolution,
+} from './price-brief';
 
 // ---------------------------------------------------------------- shapes (pane A's, described)
 
@@ -36,6 +40,8 @@ export interface EstimateLineShape {
     confidence?: 'low' | 'medium' | 'high';
     reasoning?: string;
     timeSource?: 'history' | 'model' | 'fallback';
+    /** P12: the estimator's own per-line assumptions (estimate-store EstimateLine.assumptions). */
+    assumptions?: string[];
 }
 
 /** quote_estimates row as `to_jsonb(row)`. */
@@ -101,10 +107,14 @@ export interface DraftRowShape {
 export type PriceScreenStatus = 'draft' | 'sent' | 'superseded' | 'revoked';
 export type Confidence = 'low' | 'medium' | 'high';
 
+export interface PriceScreenMaterial { lineId: string; index: number; name: string; qty: number; unitCostPence: number | null; source: string | null }
+
 export interface PriceScreenLine {
     lineId: string;
     title: string;
     category: string | null;
+    /** The clerk's notes on the line (what she said, kept short). */
+    notes: string | null;
     qty: number;
     minutes: { point: number; low: number; high: number } | null;
     timeSource: string | null;
@@ -120,9 +130,11 @@ export interface PriceScreenLine {
     flags: string[];
     assumptions: string[];
     basis: { minutes: number | null; ratePencePerHour: number | null; marginPct: number | null; rules: string[] } | null;
+    /** P12: this line's materials (qty, cost; margin applied on the screen), swap or remove per line. */
+    materials: PriceScreenMaterial[];
+    /** P12: her words and photos this line came from. */
+    evidence: LineEvidence;
 }
-
-export interface PriceScreenMaterial { lineId: string; name: string; qty: number; unitCostPence: number | null; source: string | null }
 
 export interface PriceScreenPayload {
     available: true;
@@ -132,7 +144,7 @@ export interface PriceScreenPayload {
     /** Supersede token: the send must echo it; a different one means a new scope arrived (409). */
     version: string;
     status: PriceScreenStatus;
-    customer: { firstName: string; name: string; postcode: string | null; customerType: string; readiness: string | null };
+    customer: { firstName: string; name: string; postcode: string | null; customerType: string; readiness: string | null; phone: string | null };
     lines: PriceScreenLine[];
     job: { setupMinutes: number; cleanupMinutes: number; accessNotes: string | null } | null;
     settings: { materialsMarginPercent: number; depositPercent: number };
@@ -142,6 +154,20 @@ export interface PriceScreenPayload {
     builderUrl: string;
     estimate: { id: string | null; status: string | null; confidence: string | null; at: string | null } | null;
     quoteUrl: string;
+    // ---- P12: the briefing
+    /** The whole thread from her first message, photos inline; the screen collapses to the last 24 h. */
+    thread: PriceScreenThread;
+    /** Assumption-versus-materials clashes, one sentence each, resolved with a tap. Never block. */
+    contradictions: Contradiction[];
+    /** The message she reads, drafted by the desk, edited by Ben above Send. No price, no date, no link (added at send). */
+    message: { body: string; source: 'desk' };
+    /** Set when Ben asked her first / called / offered a visit; cleared by a send or a new scope. */
+    hold: QuoteHold | null;
+    /** The next Route A draft waiting for him, for the button on the confirm screen. */
+    nextWaiting: { slug: string; firstName: string } | null;
+    /** Call her: the number the phone dials and the business number Groundwire presents. */
+    call: { customerPhone: string | null; businessNumber: string | null };
+    followUpDays: number;
 }
 
 export interface Totals { labourPence: number; materialsPence: number; totalPence: number; depositPence: number }
@@ -225,9 +251,14 @@ export function buildScreenLine(input: {
     const checkThis = sug?.checkThis === true || line?.checkThis === true;
     const checkReason = str(sug?.checkReason) ?? str(sug?.reason) ?? str(line?.checkReason) ?? (checkThis ? 'Fallback price, no history for this line' : null);
     const flags = Array.isArray(est?.flags) ? est!.flags!.map(String) : Array.isArray(line?.flags) ? line.flags.map(String) : [];
+    const materials: PriceScreenMaterial[] = (estMaterials as any[]).map((m: any, mi: number) => ({
+        lineId, index: mi, name: String(m?.name ?? 'Material'), qty: Math.max(1, int(m?.qty) ?? 1),
+        unitCostPence: int(m?.unitCostPence) ?? int(m?.unitPricePence), source: str(m?.source) ?? str(m?.supplier),
+    }));
     return {
         lineId, title,
         category: str(line?.category) ?? str(est?.category) ?? null,
+        notes: str(line?.notes) ?? str(line?.detail) ?? str(line?.scope) ?? null,
         qty: Math.max(1, int(line?.qty) ?? 1),
         minutes: minutesOf(line, est, sug),
         timeSource: str(est?.timeSource) ?? str(line?.timeSource) ?? null,
@@ -238,11 +269,13 @@ export function buildScreenLine(input: {
         confidence: conf(sug?.confidence) ?? conf(est?.confidence) ?? conf(line?.confidence),
         checkThis, checkReason: checkThis ? checkReason : null,
         flags,
-        assumptions: Array.isArray(line?.assumptions) ? line.assumptions.map(String) : [],
+        assumptions: Array.isArray(line?.assumptions) ? line.assumptions.map(String) : Array.isArray(est?.assumptions) ? est!.assumptions!.map(String) : [],
         basis: sug?.basis ? {
             minutes: int(sug.basis.minutes), ratePencePerHour: int(sug.basis.ratePencePerHour), marginPct: num(sug.basis.marginPct),
             rules: Array.isArray(sug.basis.rules) ? sug.basis.rules.map(String) : [],
         } : null,
+        materials,
+        evidence: { basedOnInboundId: null, quotes: [], media: [] },
     };
 }
 
@@ -260,25 +293,33 @@ export function buildPricePayload(input: {
     readiness: string | null;
     settings: { materialsMarginPercent: number; depositPercent: number };
     baseUrl?: string;
+    /** P12: the thread (loadThread), the next draft waiting, the business number. Optional so the older callers still work. */
+    thread?: PriceScreenThread;
+    nextWaiting?: { slug: string; firstName: string } | null;
+    businessNumber?: string | null;
 }): PriceScreenPayload {
     const { row, estimate, settings } = input;
+    const thread = input.thread ?? buildThread([]);
     const draftLines: any[] = Array.isArray(row.pricing_line_items) ? row.pricing_line_items : [];
     const sugLines = row.pricing_suggestions?.lines ?? null;
     const estLines = estimate?.lines ?? null;
     const lines = draftLines.map((line, i) => {
         const lineId = str(line?.lineId);
-        return buildScreenLine({
+        const built = buildScreenLine({
             index: i, line,
             estimateLine: matchById(estLines, lineId, i),
             suggestion: matchById(sugLines, lineId, i),
             materialsMarginPercent: settings.materialsMarginPercent,
         });
+        built.evidence = evidenceForLine({ title: built.title, notes: built.notes, category: built.category }, thread);
+        return built;
     });
-    const materials: PriceScreenMaterial[] = lines.flatMap((l, i) => {
-        const est = matchById(estLines, l.lineId, i);
-        const list = Array.isArray(est?.materials) ? est!.materials! : Array.isArray(draftLines[i]?.materials) ? draftLines[i].materials : [];
-        return list.map((m: any) => ({ lineId: l.lineId, name: String(m?.name ?? 'Material'), qty: Math.max(1, int(m?.qty) ?? 1), unitCostPence: int(m?.unitCostPence) ?? int(m?.unitPricePence), source: str(m?.source) ?? str(m?.supplier) }));
-    });
+    const materials: PriceScreenMaterial[] = lines.flatMap((l) => l.materials);
+    const contradictions = findContradictions(lines.map((l) => ({ lineId: l.lineId, title: l.title, assumptions: l.assumptions, materials: l.materials.map((m) => ({ name: m.name, qty: m.qty })) })));
+    const photos = Array.isArray(row.customer_photo_urls) ? row.customer_photo_urls.filter(Boolean) : [];
+    const videos = Array.isArray(row.customer_video_urls) ? row.customer_video_urls.filter(Boolean) : [];
+    const sentPhotos = photos.length > 0 || thread.messages.some((m) => m.direction === 'in' && m.media?.kind === 'image');
+    const sentVideo = videos.length > 0 || thread.messages.some((m) => m.direction === 'in' && m.media?.kind === 'video');
     const job = estimate?.job ?? row.pricing_suggestions?.job ?? null;
     const baseUrl = input.baseUrl ?? process.env.BASE_URL ?? 'https://handyservices.app';
     return {
@@ -289,17 +330,33 @@ export function buildPricePayload(input: {
         customer: {
             firstName: firstNameOf(row.customer_name), name: row.customer_name ?? 'Customer',
             postcode: row.postcode ?? null, customerType: row.customer_type ?? 'homeowner', readiness: input.readiness,
+            phone: e164(row.phone),
         },
         lines,
         job: job ? { setupMinutes: int(job.setupMinutes) ?? 0, cleanupMinutes: int(job.cleanupMinutes) ?? 0, accessNotes: str(job.accessNotes) } : null,
         settings: { materialsMarginPercent: settings.materialsMarginPercent, depositPercent: settings.depositPercent },
         materials,
-        photos: Array.isArray(row.customer_photo_urls) ? row.customer_photo_urls.filter(Boolean) : [],
-        videos: Array.isArray(row.customer_video_urls) ? row.customer_video_urls.filter(Boolean) : [],
+        photos, videos,
         builderUrl: `/admin/quotes/${row.short_slug}/edit`,
         estimate: estimate ? { id: estimate.id ?? null, status: estimate.status ?? null, confidence: estimate.confidence ?? null, at: estimate.created_at ?? null } : null,
         quoteUrl: `${baseUrl}/quote/${row.short_slug}`,
+        thread,
+        contradictions,
+        message: { body: draftCustomerMessage({ firstName: row.customer_name ? firstNameOf(row.customer_name) : null, lines: lines.map((l) => ({ title: l.title, qty: l.qty })), sentPhotos, sentVideo }), source: 'desk' },
+        hold: holdOf(row.pricing_suggestions as any),
+        nextWaiting: input.nextWaiting ?? null,
+        call: { customerPhone: e164(row.phone), businessNumber: input.businessNumber ?? null },
+        followUpDays: FOLLOW_UP_DAYS,
     };
+}
+
+/** +44… from whatever the row holds; null when there are no digits. */
+export function e164(phone: string | null | undefined): string | null {
+    const digits = String(phone ?? '').replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.startsWith('44')) return `+${digits}`;
+    if (digits.startsWith('0')) return `+44${digits.slice(1)}`;
+    return `+${digits}`;
 }
 
 /**
@@ -315,7 +372,24 @@ export function totalsFor(lines: Array<{ finalPence: number; materialsPence: num
     return { labourPence, materialsPence, totalPence, depositPence };
 }
 
-export interface SendInput { version: string; lines: Array<{ lineId: string; finalPence: number }>; messageStyle: string | null }
+export interface SendMaterial { name: string; qty: number; unitCostPence: number; source: string | null }
+export interface SendLine {
+    lineId: string;
+    finalPence: number;
+    /** P12: the materials list as Ben left it (swap / remove). Absent = unchanged. */
+    materials?: SendMaterial[];
+    /** P12: the customer-facing assumptions as Ben left them (edit / drop). Absent = unchanged. */
+    assumptions?: string[];
+}
+export interface SendInput {
+    version: string;
+    lines: SendLine[];
+    messageStyle: string | null;
+    /** P12: the message she reads, as Ben left it. Absent = the desk's draft. */
+    message: string | null;
+    messageEdited: boolean;
+    resolutions: Resolution[];
+}
 
 export function validateSendBody(body: unknown, expectedLineIds: string[]): { ok: true; input: SendInput } | { ok: false; errors: string[] } {
     const b = (body ?? {}) as Record<string, any>;
@@ -333,32 +407,94 @@ export function validateSendBody(body: unknown, expectedLineIds: string[]): { ok
         seen.add(lineId);
         if (finalPence == null || finalPence <= 0) { errors.push(`Line ${lineId} needs a price above £0.`); continue; }
         if (finalPence > 5_000_000) { errors.push(`Line ${lineId}: £${(finalPence / 100).toFixed(0)} is above the £50,000 per-line ceiling.`); continue; }
-        lines.push({ lineId, finalPence });
+        const out: SendLine = { lineId, finalPence };
+        if (Array.isArray(l?.materials)) {
+            const mats: SendMaterial[] = [];
+            for (const m of l.materials) {
+                const name = str(m?.name);
+                const qty = int(m?.qty);
+                const unit = int(m?.unitCostPence);
+                if (!name) { errors.push(`Line ${lineId}: a material has no name.`); continue; }
+                if (qty == null || qty < 1 || qty > 500) { errors.push(`Line ${lineId}: "${name}" needs a quantity from 1 to 500.`); continue; }
+                if (unit == null || unit < 0 || unit > 2_000_000) { errors.push(`Line ${lineId}: "${name}" needs a cost from £0 to £20,000.`); continue; }
+                mats.push({ name, qty, unitCostPence: unit, source: str(m?.source) });
+            }
+            if (mats.length > 60) errors.push(`Line ${lineId}: more than 60 materials.`);
+            out.materials = mats;
+        }
+        if (Array.isArray(l?.assumptions)) out.assumptions = l.assumptions.map((a: unknown) => String(a ?? '').trim()).filter(Boolean).slice(0, 12);
+        lines.push(out);
     }
     for (const id of expectedLineIds) if (!seen.has(id)) errors.push(`No price given for line ${id}.`);
     for (const id of Array.from(seen)) if (!expectedLineIds.includes(id)) errors.push(`Line ${id} is not on this draft.`);
+    const message = str(b.message);
+    if (message && message.length > 1500) errors.push('The message is over 1,500 characters.');
+    const resolutions: Resolution[] = [];
+    for (const r of Array.isArray(b.resolutions) ? b.resolutions : []) {
+        const id = str(r?.contradictionId);
+        const choice = r?.choice;
+        if (id && (choice === 'drop_materials' || choice === 'keep_materials')) resolutions.push({ contradictionId: id, choice });
+    }
     if (errors.length) return { ok: false, errors };
-    return { ok: true, input: { version: version!, lines, messageStyle: str(b.messageStyle) } };
+    return { ok: true, input: { version: version!, lines, messageStyle: str(b.messageStyle), message, messageEdited: b.messageEdited === true, resolutions } };
+}
+
+export interface VerdictMeta {
+    /** How Ben resolved each contradiction on this line (P12). */
+    resolutions: Array<{ contradictionId: string; choice: Resolution['choice'] }>;
+    /** Whether the desk's customer message was edited before the send. */
+    messageEdited: boolean;
+    /** Materials as sent, when Ben changed them; assumptions as sent, when he changed them. */
+    materialsChanged: boolean;
+    assumptionsChanged: boolean;
+    contradictionsOnLine: number;
 }
 
 export interface VerdictRowInput {
     slug: string; quoteId: string; lineId: string; category: string | null;
     suggestedPence: number | null; bandLowPence: number | null; bandHighPence: number | null;
     finalPence: number; inBand: boolean; edited: boolean; checkThis: boolean; by: string; at: Date;
+    meta: VerdictMeta;
 }
 
 /** One verdict row per line: in_band needs a band, edited = no suggestion or a different number. */
-export function verdictRowsFor(payload: Pick<PriceScreenPayload, 'slug' | 'quoteId' | 'lines'>, finals: SendInput['lines'], by: string, at: Date): VerdictRowInput[] {
-    const byId = new Map(finals.map((f) => [f.lineId, f.finalPence]));
+export function verdictRowsFor(
+    payload: Pick<PriceScreenPayload, 'slug' | 'quoteId' | 'lines'> & Partial<Pick<PriceScreenPayload, 'contradictions'>>,
+    finals: SendInput['lines'], by: string, at: Date,
+    extra: { messageEdited?: boolean; resolutions?: Resolution[] } = {},
+): VerdictRowInput[] {
+    const byId = new Map(finals.map((f) => [f.lineId, f]));
+    const contradictions = payload.contradictions ?? [];
     return payload.lines.map((l) => {
-        const finalPence = byId.get(l.lineId)!;
+        const f = byId.get(l.lineId)!;
+        const finalPence = f.finalPence;
         const inBand = l.bandLowPence != null && l.bandHighPence != null && finalPence >= l.bandLowPence && finalPence <= l.bandHighPence;
+        const onLine = contradictions.filter((c) => c.lineId === l.lineId);
+        const ids = new Set(onLine.map((c) => c.id));
         return {
             slug: payload.slug, quoteId: payload.quoteId, lineId: l.lineId, category: l.category,
             suggestedPence: l.suggestedPence, bandLowPence: l.bandLowPence, bandHighPence: l.bandHighPence,
             finalPence, inBand, edited: l.suggestedPence == null || finalPence !== l.suggestedPence, checkThis: l.checkThis, by, at,
+            meta: {
+                resolutions: (extra.resolutions ?? []).filter((r) => ids.has(r.contradictionId)).map((r) => ({ contradictionId: r.contradictionId, choice: r.choice })),
+                messageEdited: extra.messageEdited === true,
+                materialsChanged: f.materials != null && !sameMaterials(l.materials, f.materials),
+                assumptionsChanged: f.assumptions != null && JSON.stringify(f.assumptions) !== JSON.stringify(l.assumptions),
+                contradictionsOnLine: onLine.length,
+            },
         };
     });
+}
+
+function sameMaterials(a: PriceScreenMaterial[], b: SendMaterial[]): boolean {
+    if (a.length !== b.length) return false;
+    return a.every((m, i) => m.name === b[i].name && m.qty === b[i].qty && (m.unitCostPence ?? 0) === b[i].unitCostPence);
+}
+
+/** The materials-at-margin a line carries once Ben's edits (if any) are applied. */
+export function materialsPenceFor(line: Pick<PriceScreenLine, 'materialsPence'>, sent: SendLine | undefined, marginPercent: number): number {
+    if (!sent?.materials) return line.materialsPence;
+    return materialsAtMargin(sent.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence })), marginPercent);
 }
 
 /**
@@ -368,15 +504,22 @@ export function verdictRowsFor(payload: Pick<PriceScreenPayload, 'slug' | 'quote
  * the draft-shape readers. Everything else on the existing line (assumptions, scope, materials
  * list) is kept as it was.
  */
-export function confirmedLineItems(existing: any[], payload: Pick<PriceScreenPayload, 'lines'>, finals: SendInput['lines']): any[] {
-    const byId = new Map(finals.map((f) => [f.lineId, f.finalPence]));
+export function confirmedLineItems(existing: any[], payload: Pick<PriceScreenPayload, 'lines'> & Partial<Pick<PriceScreenPayload, 'settings'>>, finals: SendInput['lines']): any[] {
+    const byId = new Map(finals.map((f) => [f.lineId, f]));
+    const margin = payload.settings?.materialsMarginPercent ?? 0;
     return payload.lines.map((l, i) => {
         const prev = existing[i] && typeof existing[i] === 'object' ? existing[i] : {};
-        const finalPence = byId.get(l.lineId)!;
-        const materials = Math.min(l.materialsPence, finalPence);
+        const sent = byId.get(l.lineId)!;
+        const finalPence = sent.finalPence;
+        const materials = Math.min(payload.settings ? materialsPenceFor(l, sent, margin) : l.materialsPence, finalPence);
         const labour = finalPence - materials;
+        // P12: materials and assumptions as Ben left them; the customer-facing list is what he sent.
+        const edits: Record<string, unknown> = {};
+        if (sent.materials) edits.materials = sent.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence, unitPricePence: m.unitCostPence, source: m.source ?? 'manual', supplier: m.source === 'screwfix' || m.source === 'catalog' ? m.source : 'manual' }));
+        if (sent.assumptions) edits.assumptions = sent.assumptions;
         return {
             ...prev,
+            ...edits,
             lineId: l.lineId,
             label: prev.label ?? l.title, title: prev.title ?? l.title, description: prev.description ?? l.title,
             category: l.category ?? prev.category ?? 'general_fixing',
@@ -460,12 +603,16 @@ export async function loadPriceScreen(slug: string): Promise<PriceScreenPayload 
     if (!row) return { available: false, status: 404, reason: 'No quote with that slug' };
     const estimate = await selectEstimateJson(row.id);
     const conversationId = await resolveConversationForQuote(row, estimate);
-    const [readiness, settings] = await Promise.all([readinessFor(conversationId), liveSettings()]);
-    return buildPricePayload({ row, estimate, conversationId, readiness, settings });
+    const { loadThread, loadNextWaiting, businessNumber } = await import('./price-brief');
+    const [readiness, settings, thread, nextWaiting, business] = await Promise.all([
+        readinessFor(conversationId), liveSettings(), loadThread(conversationId).catch(() => buildThread([])),
+        loadNextWaiting(row.id).catch(() => null), businessNumber(),
+    ]);
+    return buildPricePayload({ row, estimate, conversationId, readiness, settings, thread, nextWaiting, businessNumber: business });
 }
 
 export type ConfirmResult =
-    | { ok: true; payload: PriceScreenPayload; totals: Totals; verdicts: number; runId: string; approver: Approver }
+    | { ok: true; payload: PriceScreenPayload; totals: Totals; verdicts: number; runId: string; approver: Approver; message: string | null; nextSteps: (mode: 'sent' | 'queued' | 'template') => string }
     | { ok: false; status: number; errors: string[]; payload?: PriceScreenPayload };
 
 /**
@@ -490,13 +637,16 @@ export async function confirmPrices(slug: string, body: unknown, user: { id?: st
     const approver = humanApprover(user.email ?? user.id ?? 'admin');
     const runId = newRunId('human');
     const now = new Date();
-    const rows = verdictRowsFor(payload, v.input.lines, approver, now);
-    const totals = totalsFor(payload.lines.map((l) => ({ finalPence: v.input.lines.find((f) => f.lineId === l.lineId)!.finalPence, materialsPence: l.materialsPence })), payload.settings.depositPercent);
+    const rows = verdictRowsFor(payload, v.input.lines, approver, now, { messageEdited: v.input.messageEdited, resolutions: v.input.resolutions });
+    const totals = totalsFor(payload.lines.map((l) => {
+        const sent = v.input.lines.find((f) => f.lineId === l.lineId)!;
+        return { finalPence: sent.finalPence, materialsPence: materialsPenceFor(l, sent, payload.settings.materialsMarginPercent) };
+    }), payload.settings.depositPercent);
     const items = confirmedLineItems(await currentLineItems(payload.quoteId), payload, v.input.lines);
 
     const { db } = await import('../db');
     const { personalizedQuotes, quotePriceVerdicts } = await import('@shared/schema');
-    const { and, eq } = await import('drizzle-orm');
+    const { and, eq, sql } = await import('drizzle-orm');
     const { quoteValidityMs } = await import('../quotes');
     // Compare-and-set on is_draft so two taps (or a supersede racing the tap) cannot both write.
     const updated = await db.update(personalizedQuotes).set({
@@ -509,27 +659,38 @@ export async function confirmPrices(slug: string, body: unknown, user: { id?: st
             source: 'spine_route_a', confirmedBy: approver, confirmedAt: now.toISOString(), runId,
             labourPence: totals.labourPence, materialsWithMarginPence: totals.materialsPence, finalPricePence: totals.totalPence,
             materialsMarginPercent: payload.settings.materialsMarginPercent, estimateId: payload.estimate?.id ?? null,
+            messageEdited: v.input.messageEdited, resolutions: v.input.resolutions,
         },
+        // P12: a send clears any hold (Ben decided); the chain's suggestions stay as they were.
+        ...(payload.hold ? { pricingSuggestions: sql`coalesce(${personalizedQuotes.pricingSuggestions}, '{}'::jsonb) - 'hold'` } : {}),
     } as any).where(and(eq(personalizedQuotes.id, payload.quoteId), eq(personalizedQuotes.isDraft, true))).returning({ id: personalizedQuotes.id });
     if (!updated.length) return { ok: false, status: 409, errors: ['This quote is no longer a draft (sent or taken over in the builder).'], payload };
     // A quote is priced once: a retry after a failed send replaces the earlier tap's rows rather
     // than double-counting the quote in the graduation stats.
     await db.delete(quotePriceVerdicts).where(eq(quotePriceVerdicts.slug, slug));
-    await db.insert(quotePriceVerdicts).values(rows.map((r) => ({
+    const values = rows.map((r) => ({
         slug: r.slug, quoteId: r.quoteId, lineId: r.lineId, category: r.category,
         suggestedPence: r.suggestedPence, bandLowPence: r.bandLowPence, bandHighPence: r.bandHighPence,
         finalPence: r.finalPence, inBand: r.inBand, edited: r.edited, checkThis: r.checkThis, by: r.by, at: r.at,
-    })));
+    }));
+    try {
+        await db.insert(quotePriceVerdicts).values(values.map((r, i) => ({ ...r, meta: rows[i].meta })));
+    } catch (error: any) {
+        // 42703 undefined_column: migration 20260905_quote_price_verdicts_meta not applied here. The
+        // verdict still counts; the meta rides in the system event below.
+        if (String(error?.code) !== '42703' && !/meta/.test(String(error?.message))) throw error;
+        await db.insert(quotePriceVerdicts).values(values);
+    }
     try {
         const { logSystemEvent } = await import('../system-events');
         void logSystemEvent({
             kind: 'other',
             summary: `Ben priced quote ${slug}: £${(totals.totalPence / 100).toFixed(0)} across ${rows.length} line(s), ${rows.filter((r) => !r.edited).length} unedited`,
-            detail: { slug, quoteId: payload.quoteId, runId, approver, totals, lines: rows.map((r) => ({ lineId: r.lineId, category: r.category, suggestedPence: r.suggestedPence, finalPence: r.finalPence, inBand: r.inBand, edited: r.edited })) },
+            detail: { slug, quoteId: payload.quoteId, runId, approver, totals, messageEdited: v.input.messageEdited, resolutions: v.input.resolutions, lines: rows.map((r) => ({ lineId: r.lineId, category: r.category, suggestedPence: r.suggestedPence, finalPence: r.finalPence, inBand: r.inBand, edited: r.edited, meta: r.meta })) },
             source: 'spine.price-screen',
         });
     } catch { /* bookkeeping */ }
-    return { ok: true, payload, totals, verdicts: rows.length, runId, approver };
+    return { ok: true, payload, totals, verdicts: rows.length, runId, approver, message: v.input.message, nextSteps: (mode: 'sent' | 'queued' | 'template') => nextStepsAfterSend({ firstName: payload.customer.firstName, depositPence: totals.depositPence, mode }) };
 }
 
 async function currentLineItems(quoteId: string): Promise<any[]> {
