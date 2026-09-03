@@ -652,6 +652,10 @@ export async function runCommsAgent(conversationId: string, trigger: string, run
         // Without these here, a run refused for either and then going silent leaves the customer
         // with a live question and Ben with nothing on his desk.
         'duration_claim', 'policy_commitment',
+        // P17 (3 Sep 2026): the soft commitment — a time window, a fixing method, or "like we
+        // chatted". Four of the 31 Aug sends were this shape and nothing held them; a refusal here
+        // that did not reach Ben would leave the customer waiting on a promise we cannot keep.
+        'soft_commitment',
     ];
     let flaggedThisRun = false;
 

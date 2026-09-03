@@ -442,6 +442,72 @@ export function detectDurationClaim(body: string): string | null {
     return null;
 }
 
+// ---------------------------------------------------------------- the soft commitment
+
+/**
+ * A commitment made in chat that only the quote, the picker or Craig can actually make.
+ *
+ * P17 items 2-5. Four sends from the 31 Aug incident corpus went out unguarded and every text
+ * detector read them as clean, because none carried a price or a date literal:
+ *
+ *   163c5f9b30  "I'll get back to you shortly with the PM time for Craig's visit"
+ *   26b662f923  "What's the best time to schedule after your delivery on 2nd September?"
+ *   e0ee83c869  "we'll attach it to your concrete floor" / "we'll sort a time to pop round"
+ *   8ac0c27f6b  "We'll fit the kit to the first sash window like we chatted"
+ *
+ * The shared shape is a SOFT commitment: no number, no weekday, so the money and date rails miss
+ * it, but we have still bound ourselves to something we cannot honour from here. Three forms, and
+ * each is deliberately narrow, because the same corpus is full of near-misses that are FINE:
+ *
+ *   A  a named time WINDOW pinned to a visit ("the PM time for Craig's visit", "in the AM slot").
+ *      Craig owns his diary and the picker owns the slot. A vague promise to arrange one is NOT
+ *      this: "we'll get a time sorted for someone to pop round" is the office doing its job, and
+ *      is labelled fine in the corpus (guards-legacy-4fd756fb5c, 6c425868ce, c499576d1e).
+ *   A' asking her to NOMINATE the slot in chat ("what's the best time to schedule"), which
+ *      negotiates the booking away from the picker. Arranging a CALL is excluded: Ben rings people,
+ *      and "when would be a good time to call you?" is labelled fine (guards-incident-19427cd2ff).
+ *   B  an appeal to an unrecorded chat as the authority for what we will do ("like we chatted").
+ *      Nobody can check it, and the customer will hold us to their version.
+ *   C  a fixing METHOD onto a substrate nobody has seen ("attach it to your concrete floor").
+ *      "We'll get it fixed" and "we'll pop round and sort the gutter leak" are outcome language
+ *      with no method, and stay fine (guards-incident-cd1196014b, 7a8c7526aa, 9e831975c5).
+ *
+ * Scanned over all 1,024 corpus bodies before it shipped: it fires on 7, and every one is the
+ * shape above. Widening it further starts eating ordinary scoping replies.
+ */
+
+/** A named time window. AM/PM are matched case-SENSITIVELY so "I am" is never a time. */
+const TIME_WINDOW = String.raw`(?:\bmornings?\b|\bafternoons?\b|\bevenings?\b|\bAM\b|\bPM\b|\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\bfirst thing\b)`;
+/** Turning up, or the slot it happens in. */
+const VISIT_NOUN = String.raw`(?:slots?|times?|visits?|appointments?|arriv\w+|be with you|be there|get there|come\s+(?:round|over|out)|pop\s+(?:round|over|by|in)|on ?site|start)`;
+const NOMINATE = String.raw`(?:suits?\b|suit you|works? for you|convenient|best|good)`;
+const BOOKING_VERB = String.raw`(?:schedul\w+|book\w*|arrang\w+|slot you in|fit you in|come\s+(?:round|over|out)|pop\s+(?:round|over)|start)`;
+/** Arranging a phone call is not arranging a visit: Ben rings people, and that reply is fine. */
+const CALL_CONTEXT = /\b(?:call|ring|phone|speak|voicemail)\b/i;
+
+const SOFT_COMMITMENT_PATTERNS: Array<{ form: string; re: RegExp; timeShaped: boolean }> = [
+    { form: 'a named time window for a visit', timeShaped: true, re: new RegExp(String.raw`${TIME_WINDOW}[^.?!\n]{0,40}\b${VISIT_NOUN}|\b${VISIT_NOUN}[^.?!\n]{0,40}${TIME_WINDOW}`) },
+    { form: 'asking her to nominate a slot in chat', timeShaped: true, re: new RegExp(String.raw`\b(?:what|which|when)\b[^.?!\n]{0,30}\b(?:times?|slots?|days?)\b[^.?!\n]{0,30}\b(?:${NOMINATE}|${BOOKING_VERB})|\b(?:${NOMINATE})\s+time\s+(?:to|for)\s+(?:${BOOKING_VERB})`, 'i') },
+    { form: 'an appeal to an unrecorded chat', timeShaped: false, re: /\b(?:like|as) we (?:chatted|discussed|spoke|talked)\b|\bas (?:per )?(?:our|the) (?:chat|conversation|discussion)\b/i },
+    { form: 'a fixing method onto a substrate', timeShaped: false, re: /\b(?:attach|affix|fasten|bolt|screw|anchor|secure|mount)\w*\b[^.?!\n]{0,30}\b(?:on ?to|to|into|through)\b[^.?!\n]{0,20}\b(?:concrete|slab|floor(?:ing|s)?|walls?|brick\w*|block\s?work|joists?|ceilings?|decking|paving|patio|tarmac|render|plasterboard|tiles?)\b/i },
+];
+
+/**
+ * Returns the commitment if the body binds us to a time or a method we cannot honour from chat.
+ * Clause by clause, so a call mentioned in one sentence cannot excuse a visit promised in the next.
+ */
+export function detectSoftCommitment(body: string): string | null {
+    for (const clause of String(body ?? '').split(/(?<=[.!?])\s+|\n+|---/)) {
+        for (const p of SOFT_COMMITMENT_PATTERNS) {
+            const m = clause.match(p.re);
+            if (!m) continue;
+            if (p.timeShaped && CALL_CONTEXT.test(clause)) continue;
+            return m[0].trim();
+        }
+    }
+    return null;
+}
+
 // ---------------------------------------------------------------- credentials we do not hold
 
 /**
@@ -599,7 +665,7 @@ export interface DraftCheckInput {
 export type DraftViolation = {
     code: 'discount_offer' | 'money_figure' | 'implies_unseen' | 'capitulation' | 'date_promise'
         | 'capability_claim' | 'liability_admission' | 'voice_breach' | 'duration_claim'
-        | 'policy_commitment';
+        | 'policy_commitment' | 'soft_commitment';
     message: string;
 };
 
@@ -704,6 +770,16 @@ export function checkDraft(input: DraftCheckInput): DraftViolation | null {
         return {
             code: 'duration_claim',
             message: `This draft asserts job duration or visit count ("${duration}"). ${DURATION_RAIL}`,
+        };
+    }
+
+    // P17: the residual commitment. Last, because it is the catch-all for what the specific rails
+    // miss — a promise with no number and no weekday in it. Four of the 31 Aug sends were this.
+    const soft = detectSoftCommitment(input.body);
+    if (soft) {
+        return {
+            code: 'soft_commitment',
+            message: `This draft commits us to something you cannot commit us to ("${soft}"). A time window belongs to the date picker on their quote and to Craig's own diary, never to a sentence in chat; how the work gets done belongs to the quote; and "like we chatted" is a promise nobody can check. Say what is true instead ("the slots are on your quote, pick whichever suits"), or use flag_for_ben. Never settle a time, a method or a scope in this thread.`,
         };
     }
 

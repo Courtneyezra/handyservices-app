@@ -13,7 +13,7 @@ export const CUSTOMER_DEFAULT: PolicyPack = {
     // P8: offer_survey is the chain's DRAFT-tier paid-survey offer when the clerk says visit_first
     // (server/spine/survey-offer.ts); its fee is a setting cited as price_source=settings.
     allowedIntents: ['ask_gap', 'clarify_scope', 'confirm_received', 'holding', 'faq_from_kb', 'point_to_quote_page', 'closing', 'offer_survey'],
-    guardSet: ['money', 'date_promise', 'discount', 'duration_claim', 'capability_claim', 'liability', 'policy_commitment', 'capitulation', 'voice', 'unseen_implication'],
+    guardSet: ['money', 'date_promise', 'discount', 'duration_claim', 'capability_claim', 'liability', 'policy_commitment', 'capitulation', 'voice', 'unseen_implication', 'soft_commitment'],
     tierByIntent: {},
     defaultTier: 'DRAFT',
     hours: { reactiveAlways: true, proactiveFromHour: 8, proactiveToHour: 20 },

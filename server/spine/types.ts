@@ -41,7 +41,10 @@ export type Intent =
 export type GuardName =
     | 'money' | 'discount' | 'date_promise' | 'duration_claim' | 'capability_claim' | 'liability'
     | 'policy_commitment' | 'capitulation' | 'voice' | 'unseen_implication' | 'price_objection'
-    | 'customer_pii' | 'money_to_customer';
+    | 'customer_pii' | 'money_to_customer'
+    // P17: a commitment with no number and no date literal in it (a time window, a method, an
+    // appeal to an unrecorded chat) — the shape four of the 31 Aug incident sends had.
+    | 'soft_commitment';
 
 export interface PolicyPack {
     id: string;                 // e.g. 'customer.default'

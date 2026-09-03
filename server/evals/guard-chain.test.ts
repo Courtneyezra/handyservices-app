@@ -23,6 +23,6 @@ describe('runGuardChain', () => {
         expect(r.escalating).toBe(false);
     });
     it('escalating set mirrors comms.ts', () => {
-        expect([...ESCALATING_GUARD_CODES].sort()).toEqual(['date_promise', 'discount_offer', 'duration_claim', 'liability_admission', 'money_figure', 'policy_commitment']);
+        expect([...ESCALATING_GUARD_CODES].sort()).toEqual(['date_promise', 'discount_offer', 'duration_claim', 'liability_admission', 'money_figure', 'policy_commitment', 'soft_commitment']);
     });
 });

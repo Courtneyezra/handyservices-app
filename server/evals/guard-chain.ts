@@ -9,7 +9,7 @@
 import {
     checkDraft, detectDiscountOffer, detectPolicyCommitment, detectMoneyFigure, detectLiabilityAdmission,
     detectVoiceBreach, detectCapabilityClaim, detectUnseenImplication, detectCapitulation, detectDatePromise,
-    detectDurationClaim, detectPriceObjection, type DraftViolation,
+    detectDurationClaim, detectPriceObjection, detectSoftCommitment, type DraftViolation,
 } from '../agents/draft-guards';
 import type { GuardName } from '../spine/types';
 
@@ -27,6 +27,7 @@ export const GUARD_CODE_TO_NAME: Record<GuardCode, GuardName> = {
     capitulation: 'capitulation',
     voice_breach: 'voice',
     implies_unseen: 'unseen_implication',
+    soft_commitment: 'soft_commitment',
 };
 
 /**
@@ -36,6 +37,8 @@ export const GUARD_CODE_TO_NAME: Record<GuardCode, GuardName> = {
  */
 export const ESCALATING_GUARD_CODES: readonly GuardCode[] = [
     'money_figure', 'discount_offer', 'date_promise', 'liability_admission', 'duration_claim', 'policy_commitment',
+    // P17: settling a time, a method or a scope in chat is Ben's call, not a redraft.
+    'soft_commitment',
 ];
 
 export interface GuardHit { code: GuardCode; guard: GuardName; match: string }
@@ -73,6 +76,7 @@ export function runGuardChain(body: string, ctx: GuardChainContext = {}): GuardC
     if (ctx.intent === 'price_objection' || detectPriceObjection(ctx.customerText)) push('capitulation', detectCapitulation(body));
     push('date_promise', detectDatePromise(body));
     push('duration_claim', detectDurationClaim(body));
+    push('soft_commitment', detectSoftCommitment(body));
 
     const first = checkDraft({
         body, intent: ctx.intent ?? 'unknown', quoteSeen: !!ctx.quoteSeen, quoteViewCount: ctx.quoteViewCount,

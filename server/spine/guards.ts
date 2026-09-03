@@ -8,14 +8,14 @@
 import {
     detectMoneyFigure, detectDiscountOffer, detectDatePromise, detectDurationClaim, detectCapabilityClaim,
     detectLiabilityAdmission, detectPolicyCommitment, detectCapitulation, detectVoiceBreach,
-    detectUnseenImplication, detectPriceObjection, extractMoneyFigures,
+    detectUnseenImplication, detectPriceObjection, extractMoneyFigures, detectSoftCommitment,
 } from '../agents/draft-guards';
 import { citedSettingsFeePence } from './survey-offer';
 import type { CaseFile, GuardName, GuardVerdict, PolicyPack, Proposal } from './types';
 import { lastInbound } from './triage';
 
 /** Mirrors ESCALATE_CODES (comms.ts): Ben-only families. */
-export const ESCALATE_GUARDS: readonly GuardName[] = ['money', 'discount', 'date_promise', 'liability', 'duration_claim', 'policy_commitment', 'price_objection', 'money_to_customer'];
+export const ESCALATE_GUARDS: readonly GuardName[] = ['money', 'discount', 'date_promise', 'liability', 'duration_claim', 'policy_commitment', 'price_objection', 'money_to_customer', 'soft_commitment'];
 
 // ---------------------------------------------------------------- contractor guards (Phase 4 / C)
 //
@@ -66,6 +66,9 @@ const DETECTORS: Record<GuardName, Detector> = {
     money: ({ body, proposal }) => (moneyAllowedBySettings(proposal, body) ? null : detectMoneyFigure(body)),
     discount: ({ body }) => detectDiscountOffer(body),
     date_promise: ({ body }) => detectDatePromise(body),
+    // P17: the promise with no number and no weekday in it — a time window, a fixing method, or
+    // "like we chatted". Escalating: settling any of those is Ben's call, not a redraft.
+    soft_commitment: ({ body }) => detectSoftCommitment(body),
     duration_claim: ({ body }) => detectDurationClaim(body),
     capability_claim: ({ body }) => detectCapabilityClaim(body),
     liability: ({ body }) => detectLiabilityAdmission(body),
