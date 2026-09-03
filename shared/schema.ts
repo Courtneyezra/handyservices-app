@@ -2087,6 +2087,32 @@ export const quoteEstimates = pgTable("quote_estimates", {
     index("idx_quote_estimates_intake_run").on(table.intakeRunId),
 ]);
 
+/**
+ * P13: the job pack — one live record per quote from clerk to contractor (migration
+ * 20260906_job_packs). Shapes in server/spine/job-pack.ts. Not customer-facing: the quote's
+ * pricing_line_items are derived from lines[]. Locked at dispatch; job.* stays live.
+ */
+export const jobPacks = pgTable("job_packs", {
+    id: text("id").primaryKey().notNull(),
+    quoteId: varchar("quote_id").notNull(),
+    conversationId: varchar("conversation_id"),
+    intakeRunId: text("intake_run_id"),
+    estimateId: text("estimate_id"),
+    lines: jsonb("lines").notNull().default([]),          // PackLine[]
+    job: jsonb("job").notNull().default({}),              // PackJob
+    required: jsonb("required").notNull().default([]),    // string[] field keys
+    missing: text("missing").array().notNull().default([]),
+    changeLog: jsonb("change_log").notNull().default([]), // ChangeLogEntry[]
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    dispatchId: text("dispatch_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex("idx_job_packs_quote").on(table.quoteId),
+    index("idx_job_packs_conversation").on(table.conversationId, table.updatedAt),
+]);
+export type JobPackRow = typeof jobPacks.$inferSelect;
+
 /** Append-only: every promotion / demotion with the evidence that decided it. */
 export const packTierEvents = pgTable("pack_tier_events", {
     id: text("id").primaryKey().notNull(),
