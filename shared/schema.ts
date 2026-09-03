@@ -4063,7 +4063,11 @@ export const jobDispatches = pgTable('job_dispatches', {
 // The unique token is what goes in the URL.
 export const contractorJobLinks = pgTable('contractor_job_links', {
   id: text('id').primaryKey().$defaultFn(() => `cjl_${crypto.randomUUID()}`),
-  dispatchId: text('dispatch_id').notNull().references(() => jobDispatches.id, { onDelete: 'cascade' }),
+  // P15 (3 Sep 2026): a job booked straight off the quote has no job_dispatches row, so a
+  // variation hangs off the booking instead. Migration 20260907 relaxed dispatch_id and added
+  // booking_id, with a check constraint insisting on one of the two.
+  dispatchId: text('dispatch_id').references(() => jobDispatches.id, { onDelete: 'cascade' }),
+  bookingId: text('booking_id'),
   contractorId: varchar('contractor_id').notNull(), // FK to handyman_profiles
   contractorName: text('contractor_name'), // denormalised for display
   contractorPhone: text('contractor_phone'),

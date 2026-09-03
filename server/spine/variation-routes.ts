@@ -110,13 +110,12 @@ variationRouter.post('/api/contractor-app/:token/jobs/:bookingId/variation', asy
         if (!v.ok) return res.status(400).json({ errors: v.errors });
         const extra: ExtraRequest = v.extra;
 
-        // dispatch_variations.dispatch_id is NOT NULL with an FK. A booking with no dispatch row
-        // (booked straight off the quote, the common path) has nowhere to hang the variation, so it
-        // is refused in words rather than 500ing on the constraint.
-        if (!ctx.dispatch) return res.status(422).json({ error: 'This job has no dispatch record, so an extra cannot be raised from here. Ring the office.' });
-
+        // A job booked straight off the quote (the common path: MJ, 3 Sep) has no job_dispatches
+        // row, so the variation hangs off the booking instead. Migration 20260907 relaxed
+        // dispatch_id and added booking_id, with a check constraint insisting on one of the two.
         const row = await insertVariation({
-            dispatchId: ctx.dispatch.id, contractorId: profile.id, extra,
+            dispatchId: ctx.dispatch?.id ?? null, bookingId: ctx.dispatch ? null : ctx.booking.id,
+            contractorId: profile.id, extra,
             adminNotes: writeBrief(null, { quoteId: ctx.quote?.id ?? null, bookingId: ctx.booking.id, lineId: 'pending' }),
         });
 

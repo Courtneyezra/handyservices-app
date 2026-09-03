@@ -398,11 +398,11 @@ export function rowFrom(r: any): VariationRow {
     };
 }
 
-export async function insertVariation(input: { dispatchId: string; contractorId: string; extra: ExtraRequest; adminNotes: string }): Promise<VariationRow> {
+export async function insertVariation(input: { dispatchId: string | null; bookingId: string | null; contractorId: string; extra: ExtraRequest; adminNotes: string }): Promise<VariationRow> {
     const { db } = await import('../db');
     const { dispatchVariations } = await import('@shared/schema');
     const [row] = await db.insert(dispatchVariations).values({
-        dispatchId: input.dispatchId, contractorId: input.contractorId,
+        dispatchId: input.dispatchId, bookingId: input.bookingId, contractorId: input.contractorId,
         description: input.extra.title, reason: input.extra.notes,
         additionalPricePence: 0, additionalTimeMins: 0,
         photoUrls: input.extra.photoUrls, adminNotes: input.adminNotes,
