@@ -6,10 +6,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    buildThread, evidenceForLine, findContradictions, draftCustomerMessage, messageViolations, jobPhrase, withQuoteLink,
+    buildThread, evidenceForLine, evidenceForLines, findContradictions, reusedNouns, mainClause, draftCustomerMessage, messageViolations, jobPhrase, withQuoteLink,
     nextStepsAfterSend, holdOf, cleanQuestion, keywordsOf, sentenceWith, type ThreadMessage,
 } from './price-brief';
-import { buildPricePayload, validateSendBody, verdictRowsFor, confirmedLineItems, materialsPenceFor, e164, type DraftRowShape, type EstimateRowShape } from './price-screen';
+import { buildPricePayload, buildScreenLine, flatBandFromMinutes, validateSendBody, verdictRowsFor, confirmedLineItems, materialsPenceFor, e164, type DraftRowShape, type EstimateRowShape } from './price-screen';
 
 const T = (h: number, m = 0, d = 4) => `2026-09-0${d}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
 const msg = (over: Partial<ThreadMessage> & { id: string; at: string; direction: 'in' | 'out' }): ThreadMessage => ({ channel: 'whatsapp', body: '', media: null, by: null, ...over });
@@ -88,7 +88,7 @@ describe('the desk\'s customer message', () => {
     it('references what she asked, thanks her for the photos, no price, no date, no dash, no link', () => {
         const body = draftCustomerMessage({ firstName: 'Sarah', lines: [{ title: 'Oak panelled doors, hung and finished', qty: 8 }, { title: 'Airing cupboard door', qty: 1 }], sentPhotos: true });
         expect(body).toContain('Hi Sarah, thanks for the photos and the details.');
-        expect(body).toContain('Your quote for 8 oak panelled doors, hung and finished and airing cupboard door is ready');
+        expect(body).toContain('Your quote for the 8 oak panelled doors, hung and finished and the airing cupboard door is ready');
         expect(body).toContain('Any questions, just reply here.');
         expect(messageViolations(body)).toEqual([]);
         expect(body).not.toMatch(/https?:/);
@@ -99,10 +99,18 @@ describe('the desk\'s customer message', () => {
         expect(messageViolations('Thanks for the photos.')).toEqual([]);
     });
     it('jobPhrase: one, two, many; a title that already starts with a count is left alone', () => {
-        expect(jobPhrase([{ title: 'Gutter clean' }])).toBe('gutter clean');
-        expect(jobPhrase([{ title: 'Gutter clean' }, { title: 'Fence panel', qty: 3 }])).toBe('gutter clean and 3 fence panel');
-        expect(jobPhrase([{ title: '8 oak doors', qty: 8 }, { title: 'B' }, { title: 'C' }])).toBe('8 oak doors, b and c');
+        expect(jobPhrase([{ title: 'Gutter clean' }])).toBe('the gutter clean');
+        expect(jobPhrase([{ title: 'Gutter clean' }, { title: 'Fence panel', qty: 3 }])).toBe('the gutter clean and the 3 fence panel');
+        expect(jobPhrase([{ title: '8 oak doors', qty: 8 }, { title: 'B' }, { title: 'C' }])).toBe('the 8 oak doors, the b and the c');
         expect(jobPhrase([])).toBe('the work');
+    });
+    it("P12b: Sarah's real titles lose the clerk's verbs and filler and join naturally", () => {
+        const sarah = [{ title: 'Supply and hang 8 internal oak panelled doors', qty: 8 }, { title: 'Supply and hang airing cupboard storage door', qty: 1 }];
+        expect(jobPhrase(sarah)).toBe('the 8 oak panelled doors and the airing cupboard door');
+        expect(draftCustomerMessage({ firstName: 'Sarah', lines: sarah, sentPhotos: true })).toContain('Your quote for the 8 oak panelled doors and the airing cupboard door is ready');
+        expect(jobPhrase([{ title: 'Replace the kitchen mixer tap' }])).toBe('the kitchen mixer tap');
+        expect(jobPhrase([{ title: 'Fit & finish skirting, hallway', qty: 1 }])).toBe('the skirting, hallway');
+        expect(jobPhrase([{ title: 'Supply and hang', qty: 2 }])).toBe('the work');
     });
     it('withQuoteLink appends the link once, as the last line', () => {
         expect(withQuoteLink('Hi there.', 'https://x/quote/ab')).toBe('Hi there.\n\nhttps://x/quote/ab');
@@ -131,6 +139,82 @@ describe('after send / hold / question', () => {
         expect(e164('+447811346936')).toBe('+447811346936');
         expect(e164('447811346936@c.us')).toBe('+447811346936');
         expect(e164('')).toBeNull();
+    });
+});
+
+describe("P12b: Sarah's REAL payload", () => {
+    // The clerk's assumption on line 1, verbatim from production, beside the materials it listed.
+    const doorsAssumption = 'Assumes new handles/hinges supplied to match existing style unless customer wants existing ironmongery reused';
+    const doorsMaterials = [{ name: 'oak door', qty: 7 }, { name: 'Coniston handle, latch & hinge set', qty: 8 }];
+    it('the real line-1 assumption says NEW handles are supplied: no contradiction (reuse is the unless clause)', () => {
+        expect(mainClause(doorsAssumption)).toBe('Assumes new handles/hinges supplied to match existing style');
+        expect(reusedNouns(doorsAssumption)).toEqual([]);
+        expect(findContradictions([{ lineId: 'card_1', title: 'Supply and hang 8 internal oak panelled doors', assumptions: [doorsAssumption], materials: doorsMaterials }])).toEqual([]);
+    });
+    it('line 2 checked the same way: reuse behind an "unless" / "if" / "or" is never the default, and the doors never match "handles"', () => {
+        const cupboard = 'Standard size assumed; existing frame retained unless it is found to be damaged, or a new frame supplied if the customer prefers';
+        expect(findContradictions([{ lineId: 'card_2', title: 'Supply and hang airing cupboard storage door', assumptions: [cupboard], materials: [{ name: 'oak door, cut to size', qty: 1 }, { name: 'Coniston handle, latch & hinge set', qty: 1 }] }])).toEqual([]);
+        expect(findContradictions([{ lineId: 'x', title: 'Doors', assumptions: ['New ironmongery throughout, or reuse existing handles if the customer prefers'], materials: doorsMaterials }])).toEqual([]);
+        expect(findContradictions([{ lineId: 'x', title: 'Doors', assumptions: ['If the customer prefers to keep the existing handles we will refit them'], materials: doorsMaterials }])).toEqual([]);
+        // the reused noun must be in the material's own name: doors carry no "handle"
+        expect(findContradictions([{ lineId: 'x', title: 'Doors', assumptions: ['Existing handles reused on all doors'], materials: [{ name: 'oak door', qty: 7 }] }])).toEqual([]);
+    });
+    it('the true positive still fires: "Existing handles reused on all doors" beside a handle set', () => {
+        const c = findContradictions([{ lineId: 'card_1', title: 'Doors', assumptions: ['Existing handles reused on all doors'], materials: doorsMaterials }]);
+        expect(c).toHaveLength(1);
+        expect(c[0]).toMatchObject({ id: 'card_1:a0', materialIndexes: [1], materialNames: ['8× Coniston handle, latch & hinge set'] });
+        expect(findContradictions([{ lineId: 'x', title: 'Doors', assumptions: ['Keep the existing handles'], materials: doorsMaterials }])).toHaveLength(1);
+    });
+
+    /** Her six inbound messages (2 Sep), from the owner's interview note. */
+    const real: ThreadMessage[] = [
+        msg({ id: 'm1', at: '2026-09-02T11:49:00.000Z', direction: 'in', body: 'Hi, please can I go ahead with the doors' }),
+        msg({ id: 'o1', at: '2026-09-02T11:52:00.000Z', direction: 'out', body: 'Great, shall we give you a quick call?' }),
+        msg({ id: 'm2', at: '2026-09-02T11:55:00.000Z', direction: 'in', body: "I'm free for a call" }),
+        msg({ id: 'm3', at: '2026-09-02T12:03:00.000Z', direction: 'in', body: "I'm looking for all 9 doors to be replaced, you originally quoted me just 3 downstairs" }),
+        msg({ id: 'o2', at: '2026-09-02T15:01:00.000Z', direction: 'out', body: 'Could you send photos of the other six?' }),
+        msg({ id: 'm4', at: '2026-09-02T17:53:00.000Z', direction: 'in', body: '', media: { url: '/api/media/s1', kind: 'image' } }),
+        msg({ id: 'm5', at: '2026-09-02T17:53:00.000Z', direction: 'in', body: '', media: { url: '/api/media/s2', kind: 'image' } }),
+        msg({ id: 'm6', at: '2026-09-02T17:53:30.000Z', direction: 'in', body: "The door without the panelling stores a few towels… won't be able to do anything with the small door at the top. Please quote for 9 off." }),
+    ];
+    const titles = [
+        { title: 'Supply and hang 8 internal oak panelled doors', notes: 'All 9 doors replaced in oak to match the three done in June' },
+        { title: 'Supply and hang airing cupboard storage door', notes: 'The door without panelling that stores towels; the small door at the top is left as it is' },
+    ];
+    it('line 1 leads with "all 9 doors to be replaced", line 2 with the towels sentence; never the same top quote twice', () => {
+        const [doors, cupboard] = evidenceForLines(titles, buildThread(real));
+        expect(doors.quotes[0]).toMatchObject({ messageId: 'm3', text: "I'm looking for all 9 doors to be replaced, you originally quoted me just 3 downstairs" });
+        expect(cupboard.quotes[0]).toMatchObject({ messageId: 'm6', text: 'The door without the panelling stores a few towels' });
+        expect(doors.basedOnInboundId).toBe('m3');
+        expect(cupboard.basedOnInboundId).toBe('m6');
+        expect(doors.quotes[0].messageId).not.toBe(cupboard.quotes[0].messageId);
+        // the photos came with the towels message: under the cupboard line
+        expect(cupboard.media.map((m) => m.url)).toEqual(['/api/media/s1', '/api/media/s2']);
+    });
+    it('with titles alone (no clerk notes) the tie on "door" is broken so the two lines still lead with different messages', () => {
+        const [doors, cupboard] = evidenceForLines(titles.map((t) => ({ title: t.title })), buildThread(real));
+        expect(cupboard.quotes[0].messageId).toBe('m6');
+        expect(doors.quotes[0].messageId).toBe('m3');
+    });
+    it("the clerk's stored evidence wins over inference (CLERK-EVIDENCE.md shape)", () => {
+        const [doors] = evidenceForLines([{ title: 'Supply and hang 8 internal oak panelled doors', evidence: [{ messageId: 'm1', text: 'please can I go ahead with the doors' }], mediaIds: ['m4'] }], buildThread(real));
+        expect(doors).toEqual({ basedOnInboundId: 'm1', quotes: [{ messageId: 'm1', at: '2026-09-02T11:49:00.000Z', text: 'please can I go ahead with the doors' }], media: [{ messageId: 'm4', url: '/api/media/s1', kind: 'image' }] });
+    });
+
+    it("a pre-fix draft's flat band (194,400 / 194,400 over 640–1,120 min) is recomputed on read, the row untouched", () => {
+        const sug = { lineId: 'card_1', suggestedPence: 194400, bandLowPence: 194400, bandHighPence: 194400, confidence: 'medium' as const, basis: { minutes: 910, minutesLow: 640, minutesHigh: 1120, allowanceMinutes: 30, labourPence: 70000, materialsPence: 97953, materialsWithMarginPence: 124400, ratePencePerHour: 3500, marginPct: 27 } };
+        const est = { lineId: 'card_1', minutesPoint: 880, minutesLow: 640, minutesHigh: 1120, materials: [], confidence: 'medium' as const, timeSource: 'history' as const };
+        const line = buildScreenLine({ index: 0, line: { lineId: 'card_1', title: 'Supply and hang 8 internal oak panelled doors', qty: 8 }, estimateLine: est, suggestion: sug, materialsMarginPercent: 27 });
+        expect(line.bandRecomputed).toBe(true);
+        expect(line.bandLowPence).toBe(Math.round((70000 * 670) / 910) + 124400);
+        expect(line.bandHighPence).toBe(Math.round((70000 * 1150) / 910) + 124400);
+        expect(line.suggestedPence).toBe(194400);
+        // without the stored basis the estimate row's minutes and the suggestion less materials do the same job
+        const bare = flatBandFromMinutes({ suggested: 194400, band: { low: 194400, high: 194400 }, estimateLine: est, suggestion: { ...sug, basis: null } });
+        expect(bare).toEqual({ low: Math.min(194400, Math.round((194400 * 640) / 880)), high: Math.round((194400 * 1120) / 880) });
+        // a real band is left alone; a flat band with no minutes range stays flat
+        expect(flatBandFromMinutes({ suggested: 194400, band: { low: 180000, high: 205000 }, estimateLine: est, suggestion: sug })).toBeNull();
+        expect(flatBandFromMinutes({ suggested: 194400, band: { low: 194400, high: 194400 }, estimateLine: { ...est, minutesLow: 880, minutesHigh: 880 }, suggestion: { ...sug, basis: null } })).toBeNull();
     });
 });
 

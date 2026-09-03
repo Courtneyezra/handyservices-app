@@ -86,13 +86,14 @@ function singular(w: string): string {
     return w;
 }
 
-/** The sentence (or clause) of `body` that carries any of `words`, trimmed to `max` characters. */
-export function sentenceWith(body: string, words: string[], max = 180): string {
-    const parts = body.split(/(?<=[.!?])\s+|\n+/).map((p) => p.trim()).filter(Boolean);
+/** The sentence (or clause) of `body` with the most of `words` (then of `fallbackWords`), trimmed to `max` characters. */
+export function sentenceWith(body: string, words: string[], max = 180, fallbackWords: string[] = []): string {
+    const parts = body.split(/(?<=[.!?])\s+|\n+|…\s*/).map((p) => p.trim()).filter(Boolean);
     let hit = parts[0] ?? body.trim();
     let best = 0;
     for (const p of parts) {
-        const n = keywordsOf(p).filter((k) => words.includes(k)).length;
+        const ks = keywordsOf(p);
+        const n = 3 * ks.filter((k) => words.includes(k)).length + ks.filter((k) => fallbackWords.includes(k)).length;
         if (n > best) { best = n; hit = p; }
     }
     return hit.length > max ? `${hit.slice(0, max - 1).trimEnd()}…` : hit;
@@ -126,49 +127,150 @@ export function buildThread(messages: ThreadMessage[]): PriceScreenThread {
 
 const NEAR_MS = 15 * 60_000;
 
-/**
- * Pure: which of her messages a line came from. Keyword overlap between the line's title (and
- * notes) and each inbound text; the best three carry a quote, and any inbound photo or video sent
- * within fifteen minutes of a matched message (or captioned with the words) sits under the line.
- * A line nothing matches is based on the latest inbound and carries no quotes.
- */
-export function evidenceForLine(line: { title: string; notes?: string | null; category?: string | null }, thread: Pick<PriceScreenThread, 'messages' | 'latestInboundId'>): LineEvidence {
-    const words = keywordsOf(`${line.title} ${line.notes ?? ''}`);
-    const inbound = thread.messages.filter((m) => m.direction === 'in');
-    const all = inbound
-        .map((m) => ({ m, score: words.length ? keywordsOf(m.body).filter((k) => words.includes(k)).length : 0 }))
-        .filter((x) => x.score > 0 && x.m.body.trim())
-        .sort((a, b) => b.score - a.score || b.m.at.localeCompare(a.m.at));
-    // Keep the messages that match about as well as the best one: a one-word overlap beside a
-    // three-word match is noise ("door" in every message on a doors job).
-    const floor = all.length ? Math.max(1, Math.ceil(all[0].score / 2)) : 1;
-    const scored = all.filter((x) => x.score >= floor).slice(0, 3);
-    const matched = scored.map((x) => x.m);
-    const mediaIds = new Set<string>();
+export interface EvidenceLineInput {
+    title: string;
+    notes?: string | null;
+    category?: string | null;
+    /** The clerk's own evidence, when the artifact carries it (docs/comms-build/CLERK-EVIDENCE.md). Wins over inference. */
+    evidence?: Array<{ messageId?: string | null; text?: string | null }> | null;
+    mediaIds?: string[] | null;
+}
+
+/** Distinct first (×3), shared second (×1): "panelling / towels / cupboard" pull to the cupboard line, "door" pulls to no one. */
+function overlapScore(body: string, distinct: string[], shared: string[]): number {
+    const ks = keywordsOf(body);
+    return 3 * ks.filter((k) => distinct.includes(k)).length + ks.filter((k) => shared.includes(k)).length;
+}
+
+function mediaFor(inbound: ThreadMessage[], matched: ThreadMessage[], words: string[]): LineEvidence['media'] {
+    const seen = new Set<string>();
     const media: LineEvidence['media'] = [];
     for (const m of inbound) {
         if (!m.media) continue;
         const captioned = words.length > 0 && keywordsOf(m.body).some((k) => words.includes(k));
         const near = matched.some((t) => Math.abs(new Date(t.at).getTime() - new Date(m.at).getTime()) <= NEAR_MS);
-        if ((captioned || near) && !mediaIds.has(m.id)) { mediaIds.add(m.id); media.push({ messageId: m.id, url: m.media.url, kind: m.media.kind }); }
+        if ((captioned || near) && !seen.has(m.id)) { seen.add(m.id); media.push({ messageId: m.id, url: m.media.url, kind: m.media.kind }); }
     }
-    return {
-        basedOnInboundId: matched[0]?.id ?? thread.latestInboundId ?? null,
-        quotes: matched.map((m) => ({ messageId: m.id, at: m.at, text: sentenceWith(m.body, words) })),
-        media,
-    };
+    return media;
+}
+
+/** The clerk stored evidence for the line: use it as it is (P12b, CLERK-EVIDENCE.md). */
+function evidenceFromClerk(line: EvidenceLineInput, thread: Pick<PriceScreenThread, 'messages' | 'latestInboundId'>): LineEvidence | null {
+    const stored = (line.evidence ?? []).filter((e) => (e?.text ?? '').trim() || (e?.messageId ?? '').trim());
+    const mediaIds = (line.mediaIds ?? []).filter(Boolean);
+    if (!stored.length && !mediaIds.length) return null;
+    const byId = new Map(thread.messages.map((m) => [m.id, m]));
+    const quotes = stored.map((e) => {
+        const m = e.messageId ? byId.get(e.messageId) : undefined;
+        const text = (e.text ?? '').trim() || (m ? sentenceWith(m.body, keywordsOf(line.title)) : '');
+        return { messageId: e.messageId ?? m?.id ?? '', at: m?.at ?? '', text };
+    }).filter((q) => q.text);
+    const media: LineEvidence['media'] = [];
+    for (const id of mediaIds) {
+        const m = byId.get(id);
+        if (m?.media) media.push({ messageId: m.id, url: m.media.url, kind: m.media.kind });
+    }
+    return { basedOnInboundId: quotes.find((q) => q.messageId)?.messageId ?? thread.latestInboundId ?? null, quotes, media };
+}
+
+/**
+ * Pure: which of her messages each line came from, for ALL the lines at once (P12b). A line's OWN
+ * words are its title + notes minus the words the other lines share, so "9 doors / oak" pulls to
+ * the doors line and "cupboard / towels / panelling" to the cupboard line; the shared words only
+ * break ties. The best three matches carry a quote (the sentence with the most of the line's own
+ * words), and no two lines lead with the identical message when a distinct one exists: the line
+ * that matches it better keeps it, the other takes its next candidate. Photos and videos sent
+ * within fifteen minutes of a matched message (or captioned with the words) sit under the line. A
+ * line nothing matches is based on the latest inbound and carries no quotes. A line whose clerk
+ * artifact carries evidence uses that as it is.
+ */
+export function evidenceForLines(lines: EvidenceLineInput[], thread: Pick<PriceScreenThread, 'messages' | 'latestInboundId'>): LineEvidence[] {
+    const inbound = thread.messages.filter((m) => m.direction === 'in');
+    const wordsOf = lines.map((l) => keywordsOf(`${l.title} ${l.notes ?? ''}`));
+    const counts = new Map<string, number>();
+    for (const ws of wordsOf) for (const w of ws) counts.set(w, (counts.get(w) ?? 0) + 1);
+    type Cand = { m: ThreadMessage; score: number };
+    const candidates: Array<Cand[] | null> = lines.map((l, i) => {
+        if (evidenceFromClerk(l, thread)) return null;
+        const words = wordsOf[i];
+        const distinct = words.filter((w) => (counts.get(w) ?? 0) === 1);
+        const shared = words.filter((w) => (counts.get(w) ?? 0) > 1);
+        const all: Cand[] = inbound
+            .filter((m) => m.body.trim())
+            .map((m) => ({ m, score: words.length ? overlapScore(m.body, distinct.length ? distinct : words, distinct.length ? shared : []) : 0 }))
+            .filter((x) => x.score > 0)
+            .sort((a, b) => b.score - a.score || b.m.at.localeCompare(a.m.at));
+        const floor = all.length ? Math.max(1, Math.ceil(all[0].score / 2)) : 1;
+        return all.filter((x) => x.score >= floor);
+    });
+    // No two lines lead with the same message when another candidate exists: the better match keeps it.
+    for (let pass = 0; pass < lines.length; pass++) {
+        let moved = false;
+        for (let i = 0; i < lines.length; i++) {
+            const a = candidates[i]; if (!a?.length) continue;
+            for (let j = i + 1; j < lines.length; j++) {
+                const b = candidates[j]; if (!b?.length) continue;
+                if (a[0].m.id !== b[0].m.id) continue;
+                // the line with the weaker claim yields, if it has somewhere to go; a tie yields the earlier line (the later line usually names the odd one out)
+                const yieldA = a[0].score < b[0].score || (a[0].score === b[0].score && a.length > 1);
+                const loser = yieldA && a.length > 1 ? a : b.length > 1 ? b : null;
+                if (!loser) continue;
+                const top = loser.shift()!; loser.push(top); moved = true;
+            }
+        }
+        if (!moved) break;
+    }
+    return lines.map((l, i) => {
+        const fromClerk = evidenceFromClerk(l, thread);
+        if (fromClerk) return fromClerk;
+        const words = wordsOf[i];
+        const distinct = words.filter((w) => (counts.get(w) ?? 0) === 1);
+        const matched = (candidates[i] ?? []).slice(0, 3).map((x) => x.m);
+        return {
+            basedOnInboundId: matched[0]?.id ?? thread.latestInboundId ?? null,
+            quotes: matched.map((m) => ({ messageId: m.id, at: m.at, text: sentenceWith(m.body, distinct.length ? distinct : words, 180, words) })),
+            media: mediaFor(inbound, matched, words),
+        };
+    });
+}
+
+/** One line on its own (no other lines to distinguish from). */
+export function evidenceForLine(line: EvidenceLineInput, thread: Pick<PriceScreenThread, 'messages' | 'latestInboundId'>): LineEvidence {
+    return evidenceForLines([line], thread)[0];
 }
 
 // ---------------------------------------------------------------- contradictions
 
 const REUSE = /\b(re-?use[ds]?|re-?using|existing|keep(?:ing|s)?|kept|retain(?:ed|ing|s)?|no new|not new|customer(?:'s)? own|supplied by the customer)\b/i;
 const PREP = new Set(['on', 'by', 'to', 'for', 'in', 'at', 'with', 'from', 'of', 'as', 'onto', 'into']);
-const PAST_FORMS = new Set(['reused', 'kept', 'retained', 'supplied']);
-const REUSE_WORDS = new Set(['reuse', 'reused', 'reusing', 'existing', 'keep', 'keeping', 'kept', 'retain', 'retained', 'retaining', 'own', 'supplied', 'customer']);
+const PAST_FORMS = new Set(['reused', 'kept', 'retained']);
+const REUSE_WORDS = new Set(['reuse', 'reused', 'reusing', 'existing', 'keep', 'keeping', 'kept', 'retain', 'retained', 'retaining']);
+/** Reuse as the EXCEPTION, not the default: everything from here on is dropped before looking (P12b). */
+const SUBORDINATE = /\b(unless|if|or|otherwise|in case|should the|where the customer|except)\b[\s\S]*$/i;
 
-/** The thing said to be reused: the content word directly beside each reuse word ("handles reused", "existing handles"). */
+/** Words a reuse verb can sit beside that name no material ("existing style", "existing layout"). */
+const NOT_A_THING = new Set(['style', 'layout', 'condition', 'colour', 'color', 'finish', 'position', 'size', 'sizes', 'location', 'arrangement', 'look', 'design', 'spec', 'specification', 'pattern', 'level', 'height', 'line', 'run']);
+
+/** The main clause: the assumption with its unless / if / or / otherwise tail cut off. */
+export function mainClause(assumption: string): string {
+    return assumption.replace(SUBORDINATE, '').trim();
+}
+
+/**
+ * The thing said to be reused BY DEFAULT: the content word directly beside each reuse word in the
+ * main clause ("handles reused", "existing handles", "keep the frames"). "New handles" in the same
+ * clause cancels "handles"; "existing style" names no material. Nothing from an unless / if / or
+ * clause counts.
+ */
 export function reusedNouns(assumption: string): string[] {
-    const tokens = assumption.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const clause = mainClause(assumption);
+    const tokens = clause.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const newNouns = new Set<string>();
+    tokens.forEach((t, i) => { if (t === 'new') { for (let k = 1; k <= 3; k++) { const w = tokens[i + k]; if (!w) break; if (STOP.has(w)) continue; newNouns.add(singular(w)); break; } } });
+    // "customer's own X" / "X supplied by the customer" name the thing without a reuse verb.
+    const explicit = new Set<string>();
+    Array.from(clause.matchAll(/customer(?:'s)? own\s+([a-z]+)/gi)).forEach((m) => explicit.add(singular(m[1].toLowerCase())));
+    Array.from(clause.matchAll(/([a-z]+)\s+supplied by the customer/gi)).forEach((m) => explicit.add(singular(m[1].toLowerCase())));
     const out = new Set<string>();
     const content = (w: string | undefined) => (w && w.length >= 3 && !STOP.has(w) && !REUSE_WORDS.has(w) && !/^\d+$/.test(w) ? singular(w) : null);
     const seek = (from: number, step: 1 | -1): string | null => {
@@ -188,7 +290,8 @@ export function reusedNouns(assumption: string): string[] {
         const noun = PAST_FORMS.has(base) ? seek(i, -1) : seek(i, 1) ?? seek(i, -1);
         if (noun) out.add(noun);
     });
-    return Array.from(out);
+    explicit.forEach((n) => out.add(n));
+    return Array.from(out).filter((n) => !newNouns.has(n) && !NOT_A_THING.has(n));
 }
 
 /**
@@ -200,9 +303,10 @@ export function findContradictions(lines: Array<{ lineId: string; title: string;
     const out: Contradiction[] = [];
     for (const line of lines) {
         line.assumptions.forEach((assumption, ai) => {
-            if (!REUSE.test(assumption)) return;
+            if (!REUSE.test(mainClause(assumption))) return;
             const nouns = reusedNouns(assumption);
             if (!nouns.length) return;
+            // The material must carry the reused noun in its OWN name (handle ↔ "handle set"); sharing the line is not enough.
             const idx: number[] = [];
             line.materials.forEach((m, mi) => { if (keywordsOf(m.name).some((k) => nouns.includes(k))) idx.push(mi); });
             if (!idx.length) return;
@@ -234,12 +338,21 @@ export function messageViolations(body: string): string[] {
     return out;
 }
 
-/** "all 9 doors, oak to match" from the lines: what she asked for, in the words the clerk kept. */
+/** Leading verbs the clerk writes titles with ("Supply and hang", "Replace", "Fit and finish"); she asked for the thing, not the verb. */
+const TITLE_VERBS = '(?:supply|hang|fit|refit|install|replace|repair|remove|paint|decorate|build|lay|plaster|fix|refix|service|clean|rehang|re-hang|make good|board|tile|seal|reseal|grout|regrout|mount|assemble|fill|sand|stain|varnish|finish|prime|prep|prepare)';
+const LEADING_VERBS = new RegExp(`^(?:${TITLE_VERBS}(?:\\s*(?:,|and|&|\\+)\\s*${TITLE_VERBS})*)(?:\\s+(?:of|the))?(?:\\s+|$)`, 'i');
+/** Words that describe the job to us, not to her. */
+const FILLER = new Set(['internal', 'storage', 'standard', 'replacement', 'existing', 'supplied', 'labour', 'only']);
+
+/** "the 8 oak panelled doors and the airing cupboard door" from the lines: what she asked for, verbs and filler dropped. */
 export function jobPhrase(lines: Array<{ title: string; qty?: number | null }>): string {
     const items = lines.map((l) => {
-        const t = l.title.trim().replace(/[.]+$/, '');
+        let t = l.title.trim().replace(/[.]+$/, '').replace(LEADING_VERBS, '');
+        t = t.split(/\s+/).filter((w) => !FILLER.has(w.toLowerCase().replace(/[^a-z]/g, ''))).join(' ').trim();
+        if (!t) return '';
         const lower = t.charAt(0).toLowerCase() + t.slice(1);
-        return l.qty && l.qty > 1 && !/^\d/.test(lower) ? `${l.qty} ${lower}` : lower;
+        const counted = l.qty && l.qty > 1 && !/^\d/.test(lower) ? `${l.qty} ${lower}` : lower;
+        return `the ${counted}`;
     }).filter(Boolean);
     if (!items.length) return 'the work';
     if (items.length === 1) return items[0];

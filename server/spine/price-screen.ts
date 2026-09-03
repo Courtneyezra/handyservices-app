@@ -21,9 +21,10 @@
  */
 import type { Approver } from '../approver';
 import {
-    buildThread, evidenceForLine, findContradictions, draftCustomerMessage, holdOf, nextStepsAfterSend, FOLLOW_UP_DAYS,
+    buildThread, evidenceForLines, findContradictions, draftCustomerMessage, holdOf, nextStepsAfterSend, FOLLOW_UP_DAYS,
     type PriceScreenThread, type LineEvidence, type Contradiction, type QuoteHold, type Resolution,
 } from './price-brief';
+import { labourBandFromMinutes } from './pricing-bridge';
 
 // ---------------------------------------------------------------- shapes (pane A's, described)
 
@@ -67,7 +68,11 @@ export interface SuggestionLineShape {
     checkReason?: string | null;
     reason?: string | null;
     confidence?: 'low' | 'medium' | 'high' | null;
-    basis?: { minutes?: number; ratePencePerHour?: number; materialsPence?: number; marginPct?: number; rules?: string[] } | null;
+    basis?: {
+        minutes?: number; ratePencePerHour?: number; materialsPence?: number; marginPct?: number; rules?: string[];
+        /** P12b: what the bridge stores beside the suggestion (pricing-bridge LineSuggestion.basis), read to recompute a flat band. */
+        labourPence?: number; materialsWithMarginPence?: number; minutesLow?: number; minutesHigh?: number; allowanceMinutes?: number;
+    } | null;
 }
 
 export interface SuggestionsShape {
@@ -134,6 +139,8 @@ export interface PriceScreenLine {
     materials: PriceScreenMaterial[];
     /** P12: her words and photos this line came from. */
     evidence: LineEvidence;
+    /** P12b: the stored band was flat (low = high) and was recomputed on read from the minutes range. The row is not rewritten. */
+    bandRecomputed: boolean;
 }
 
 export interface PriceScreenPayload {
@@ -245,7 +252,9 @@ export function buildScreenLine(input: {
     const lineId = str(line?.lineId) ?? str(est?.lineId) ?? `card_${index + 1}`;
     const title = str(line?.title) ?? str(line?.label) ?? str(line?.description) ?? str(est?.title) ?? `Line ${index + 1}`;
     const suggested = int(sug?.suggestedPence) ?? int(line?.suggestedPricePence) ?? null;
-    const band = bandOf(line, sug);
+    const stored = bandOf(line, sug);
+    const recomputed = flatBandFromMinutes({ suggested, band: stored, estimateLine: est, suggestion: sug });
+    const band = recomputed ?? stored;
     const estMaterials = Array.isArray(est?.materials) ? est!.materials! : Array.isArray(line?.materials) ? line.materials : [];
     const materialsPence = int(sug?.basis?.materialsPence) ?? int(line?.materialsWithMarginPence) ?? materialsAtMargin(estMaterials, materialsMarginPercent);
     const checkThis = sug?.checkThis === true || line?.checkThis === true;
@@ -276,7 +285,32 @@ export function buildScreenLine(input: {
         } : null,
         materials,
         evidence: { basedOnInboundId: null, quotes: [], media: [] },
+        bandRecomputed: recomputed != null,
     };
+}
+
+/**
+ * P12b: drafts priced before the band fix carry bandLow = bandHigh = suggested although the
+ * estimate has a minutes range (Sarah: 194400 / 194400 over 640–1,120 min). Read-only: when the
+ * stored band is flat and there is a range, the band the fix would have produced is shown instead
+ * (labour scaled by the minutes range, materials unchanged). The row is never rewritten.
+ */
+export function flatBandFromMinutes(input: { suggested: number | null; band: { low: number | null; high: number | null }; estimateLine: EstimateLineShape | null; suggestion: SuggestionLineShape | null }): { low: number; high: number } | null {
+    const { suggested, band, estimateLine: est, suggestion: sug } = input;
+    if (suggested == null || band.low == null || band.high == null || band.low !== band.high) return null;
+    const b = sug?.basis ?? null;
+    const allowance = int(b?.allowanceMinutes) ?? 0;
+    const point = int(b?.minutes) ?? (int(est?.minutesPoint) != null ? int(est!.minutesPoint)! + allowance : null);
+    const lowOnSite = int(b?.minutesLow) ?? int(est?.minutesLow);
+    const highOnSite = int(b?.minutesHigh) ?? int(est?.minutesHigh);
+    if (point == null || !(point > 0) || lowOnSite == null || highOnSite == null || lowOnSite >= highOnSite) return null;
+    const mats = int(b?.materialsWithMarginPence) ?? 0;
+    const labour = int(b?.labourPence) ?? Math.max(0, suggested - mats);
+    if (!(labour > 0)) return null;
+    const scaled = labourBandFromMinutes({ labourPence: labour, minutes: point, minutesLow: lowOnSite + allowance, minutesHigh: highOnSite + allowance });
+    const low = Math.min(suggested, scaled.low + mats), high = Math.max(suggested, scaled.high + mats);
+    if (low === high) return null;
+    return { low, high };
 }
 
 function matchById<T extends { lineId?: string }>(items: T[] | null | undefined, lineId: string | null, index: number): T | null {
@@ -311,9 +345,15 @@ export function buildPricePayload(input: {
             suggestion: matchById(sugLines, lineId, i),
             materialsMarginPercent: settings.materialsMarginPercent,
         });
-        built.evidence = evidenceForLine({ title: built.title, notes: built.notes, category: built.category }, thread);
         return built;
     });
+    // P12b: evidence for all the lines at once (each line's own words, no shared top quote); the
+    // clerk's stored evidence wins when the line carries it (docs/comms-build/CLERK-EVIDENCE.md).
+    evidenceForLines(lines.map((l, i) => ({
+        title: l.title, notes: l.notes, category: l.category,
+        evidence: Array.isArray(draftLines[i]?.evidence) ? draftLines[i].evidence : null,
+        mediaIds: Array.isArray(draftLines[i]?.mediaIds) ? draftLines[i].mediaIds.map(String) : null,
+    })), thread).forEach((e, i) => { lines[i].evidence = e; });
     const materials: PriceScreenMaterial[] = lines.flatMap((l) => l.materials);
     const contradictions = findContradictions(lines.map((l) => ({ lineId: l.lineId, title: l.title, assumptions: l.assumptions, materials: l.materials.map((m) => ({ name: m.name, qty: m.qty })) })));
     const photos = Array.isArray(row.customer_photo_urls) ? row.customer_photo_urls.filter(Boolean) : [];

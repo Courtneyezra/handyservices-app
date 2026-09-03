@@ -128,7 +128,7 @@ The baseline was run the same way in a throwaway worktree at `1df44a8`.
 No dev server, no database, no `app_settings`, no push. Migration written, not applied.
 
 ## Not done, and why
-- **`based_on` is inferred, not stored.** The clerk's artifact carries no evidence quotes or media
+- **`based_on` is inferred, not stored** (P12b: the clerk's `evidence` / `mediaIds` are now read when present, shape in `docs/comms-build/CLERK-EVIDENCE.md`; ranking uses each line's own words). The clerk's artifact carries no evidence quotes or media
   ids per line (BRIEF-P8-chain's shape has title / category / qty / notes / assumptions), so the
   screen infers each line's inbound by keyword overlap from the thread. Good on Sarah's and Gemma's
   words; a line the customer never named in text (photo-only) shows no quote and is based on the

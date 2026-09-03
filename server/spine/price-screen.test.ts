@@ -55,6 +55,8 @@ describe('buildPricePayload', () => {
         expect(a.flags).toEqual(['first_floor']);
         expect(a.basis?.rules).toEqual(['ends_in_9']);
         expect(b).toMatchObject({ lineId: 'card_2', qty: 3, suggestedPence: 15_900, checkThis: true, checkReason: 'No time history for fencing; reference rate used', confidence: 'low', materialsPence: 0 });
+        expect(a.bandRecomputed).toBe(false);
+        expect(b).toMatchObject({ bandRecomputed: true, bandLowPence: 10_600, bandHighPence: 21_200 }); // P12b: flat stored band, 60–120 min
     });
     it('job allowances once per job, materials list, photos, estimate summary', () => {
         expect(p.job).toEqual({ setupMinutes: 15, cleanupMinutes: 15, accessNotes: 'first floor' });
@@ -151,7 +153,8 @@ describe('verdictRowsFor / confirmedLineItems / totalsFor', () => {
         const rows = verdictRowsFor(p, [{ lineId: 'card_1', finalPence: 24_900 }, { lineId: 'card_2', finalPence: 18_900 }], 'human:ben@handy', at);
         expect(rows).toHaveLength(2);
         expect(rows[0]).toMatchObject({ slug: 'ab12cd34', quoteId: 'quote_1', lineId: 'card_1', category: 'joinery', suggestedPence: 24_900, bandLowPence: 21_000, bandHighPence: 27_000, finalPence: 24_900, inBand: true, edited: false, checkThis: false, by: 'human:ben@handy', at });
-        expect(rows[1]).toMatchObject({ lineId: 'card_2', category: 'fencing', finalPence: 18_900, inBand: false, edited: true, checkThis: true });
+        // P12b: card_2's stored band was flat (15,900 / 15,900) over 60–120 min, so the screen shows the recomputed £106–£212 and £189 is in it.
+        expect(rows[1]).toMatchObject({ lineId: 'card_2', category: 'fencing', finalPence: 18_900, bandLowPence: 10_600, bandHighPence: 21_200, inBand: true, edited: true, checkThis: true });
         const inBandEdited = verdictRowsFor(p, [{ lineId: 'card_1', finalPence: 22_000 }, { lineId: 'card_2', finalPence: 15_900 }], 'human:ben', at);
         expect(inBandEdited[0]).toMatchObject({ inBand: true, edited: true });
         expect(inBandEdited[1]).toMatchObject({ inBand: true, edited: false });
