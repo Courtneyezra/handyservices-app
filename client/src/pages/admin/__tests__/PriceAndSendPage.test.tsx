@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import {
     PriceAndSend, gbp, poundsToPence, penceToPoundsText, bandText, totalsOf, orderByDoubt, doubtScore, visibleMessages, messageWarnings, materialsAtMargin,
-    materialsCostOf, lineMaterialsAtMargin,
+    materialsCostOf, lineMaterialsAtMargin, refusalTitle,
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
 
@@ -474,5 +474,83 @@ describe('P16 items 1 + 2: the money on the screen', () => {
         const cost = within(l1).getByTestId('materials-cost-card_1');
         expect(cost).toHaveTextContent(`Cost ${gbp(108600)}`);
         expect(cost).toHaveTextContent(`she pays ${gbp(137922)} at 27%`);
+    });
+});
+
+describe('P16 item 3: add and delete a line on the screen', () => {
+    it('delete strikes the line out, takes it out of the totals, and Undo puts it back', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000));
+
+        await userEvent.click(screen.getByTestId('line-delete-card_1'));
+        expect(screen.getByTestId('line-deleted-card_1')).toHaveTextContent('Oak panelled doors, hung and finished');
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(30000));
+        expect(screen.getByTestId('deposit')).toHaveTextContent(gbp(9000));
+
+        await userEvent.click(screen.getByTestId('line-undo-card_1'));
+        expect(screen.queryByTestId('line-deleted-card_1')).toBeNull();
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000));
+    });
+
+    it('a deleted line is sent as deleted and carries nothing else', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('line-delete-card_1'));
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const body = f.of('POST', '/send')[0].body;
+        expect(body.lines[0]).toEqual({ lineId: 'card_1', deleted: true });
+        expect(body.lines[1].lineId).toBe('card_2');
+    });
+
+    it('Add a line opens an empty card that blocks Send until it has a title and a price, then reaches the send body', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('add-line'));
+
+        const card = screen.getByTestId('missing-title').closest('[data-testid="totals"]');
+        expect(card).toBeInTheDocument();
+        expect(screen.getByTestId('send-quote')).toBeDisabled();
+
+        const added = screen.getAllByTestId(/^price-line-ben_/)[0];
+        const id = added.getAttribute('data-testid')!.replace('price-line-', '');
+        await userEvent.type(within(added).getByTestId(`added-title-${id}`), 'Refit the loft hatch');
+        await userEvent.selectOptions(within(added).getByTestId(`added-category-${id}`), 'carpentry');
+        fireEvent.change(within(added).getByTestId(`added-minutes-${id}`), { target: { value: '90' } });
+        fireEvent.change(within(added).getByTestId(`price-input-${id}`), { target: { value: '80' } });
+
+        expect(screen.queryByTestId('missing-title')).toBeNull();
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(218000));
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const sent = f.of('POST', '/send')[0].body.lines.find((l: any) => l.lineId === id);
+        expect(sent).toMatchObject({ finalPence: 8000, added: { title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90 } });
+    });
+
+    it('an added card wears check_this with the reason and offers no band', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('add-line'));
+        const added = screen.getAllByTestId(/^price-line-ben_/)[0];
+        expect(within(added).getByTestId('check-this')).toHaveTextContent('added by Ben, not estimated');
+        expect(within(added).getByTestId('band')).toHaveTextContent('No band');
+    });
+
+    it('the send refusal from a locked pack is shown to Ben', async () => {
+        const f = screenFetch(payload(), { send: () => ({ status: 409, json: { ok: false, errors: ['That job is already dispatched, so its lines are locked (Oak panelled doors, hung and finished). Raise a variation instead of changing the quote.'] } }) });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('line-delete-card_1'));
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const banner = await screen.findByTestId('superseded-banner');
+        expect(banner).toHaveTextContent('That job is already dispatched');
+        expect(banner).toHaveTextContent('Raise a variation');
+        expect(refusalTitle('A new scope arrived and this draft was superseded.')).toBe('A new scope arrived');
     });
 });

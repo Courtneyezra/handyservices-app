@@ -208,3 +208,47 @@ describe('P15 part 1: not included, in plain words', () => {
         expect(packFromRow({ id: 'x', quoteId: 'q', lines: [{ lineId: 'card_1', title: 't' }], job: {} }).lines[0].notIncluded).toEqual([]);
     });
 });
+
+// ---------------------------------------------------------------- P16 item 3: lines added and deleted on the price screen
+
+describe('P16 item 3: the pack follows Ben when he adds or removes a line', () => {
+    it('a deleted line leaves the pack, and the change log says so', () => {
+        const p = sarah();
+        const after = commit(p, { lines: applyBenEdits(p.lines, [{ lineId: 'card_1', deleted: true }, { lineId: 'card_2', finalPence: 15_600 }]) }, 'human:ben', 'ben', T2);
+        expect(after.lines.map((l) => l.lineId)).toEqual(['card_2']);
+        expect(after.changeLog.filter((e) => e.field === 'line:card_1').at(-1)).toMatchObject({ to: null, by: 'human:ben', source: 'ben' });
+    });
+
+    it('an added line joins the pack with its title, category and minutes and nothing invented', () => {
+        const p = sarah();
+        const after = commit(p, { lines: applyBenEdits(p.lines, [{ lineId: 'ben_1_x', finalPence: 8_000, materialsPence: 0, added: { title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90 } }]) }, 'human:ben', 'ben', T2);
+        const added = after.lines.find((l) => l.lineId === 'ben_1_x')!;
+        expect(added).toMatchObject({ title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90, pricePence: 8_000 });
+        expect(added.evidence).toEqual([]);
+        expect(added.mediaIds).toEqual([]);
+        expect(added.procedure).toEqual([]);
+        expect(after.changeLog.some((e) => e.field === 'line:ben_1_x')).toBe(true);
+    });
+
+    it('a locked pack refuses the delete: the dispatch already has that line', () => {
+        const locked = lock(sarah(), 'disp_1', 'human:ben', T2);
+        expect(() => commit(locked, { lines: applyBenEdits(locked.lines, [{ lineId: 'card_1', deleted: true }]) }, 'human:ben', 'ben', T3)).toThrow(PackLockedError);
+        try {
+            commit(locked, { lines: applyBenEdits(locked.lines, [{ lineId: 'card_1', deleted: true }]) }, 'human:ben', 'ben', T3);
+        } catch (e) {
+            expect((e as InstanceType<typeof PackLockedError>).fields).toContain('line:card_1');
+        }
+    });
+
+    it('an added line on a locked pack is refused too: the dispatch is priced on what it was sent', () => {
+        const locked = lock(sarah(), 'disp_1', 'human:ben', T2);
+        expect(() => commit(locked, { lines: applyBenEdits(locked.lines, [{ lineId: 'ben_1_x', finalPence: 1, added: { title: 'New' } }]) }, 'human:ben', 'ben', T3)).toThrow(PackLockedError);
+    });
+
+    it('the quote line items derive from the pack after a delete, so the dropped line is gone from both', () => {
+        const p = sarah();
+        const after = commit(p, { lines: applyBenEdits(p.lines, [{ lineId: 'card_1', deleted: true }, { lineId: 'card_2', finalPence: 15_600, materialsPence: 0 }]) }, 'human:ben', 'ben', T2);
+        const items = derivePricingLineItems(after, [{ lineId: 'card_1' }, { lineId: 'card_2' }]);
+        expect(items.map((i) => i.lineId)).toEqual(['card_2']);
+    });
+});

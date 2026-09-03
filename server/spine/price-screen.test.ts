@@ -5,8 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildPricePayload, buildScreenLine, statusOf, versionOf, totalsFor, validateSendBody, verdictRowsFor,
-    confirmedLineItems, materialsAtMargin, materialsCostOf, firstNameOf,
-    type DraftRowShape, type EstimateRowShape, type EstimateLineShape, type SuggestionLineShape,
+    confirmedLineItems, materialsAtMargin, materialsCostOf, firstNameOf, addedScreenLine, ADDED_BY_BEN_REASON,
+    type DraftRowShape, type EstimateRowShape, type EstimateLineShape, type SuggestionLineShape, type SendInput,
 } from './price-screen';
 import { depositFor } from '@shared/pricing-settings';
 
@@ -295,5 +295,73 @@ describe('P16 item 2: one deposit rule, the quote\'s', () => {
         const labourOnly = totalsFor([{ finalPence: 210_000, materialsPence: 0 }], 30);
         expect(heavyMaterials.depositPence).toBe(labourOnly.depositPence);
         expect(heavyMaterials.depositPence).toBe(63_000);
+    });
+});
+
+// ---------------------------------------------------------------- P16 item 3: add and delete a line
+
+describe('P16 item 3: Ben adds and deletes whole lines', () => {
+    const lines = () => (row().pricing_line_items ?? []).map((line, index) => buildScreenLine({ index, line, estimateLine: null, suggestion: null, materialsMarginPercent: 27 }));
+
+    it('a deleted line needs no price, and every other draft line still does', () => {
+        const v = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', deleted: true }, { lineId: 'card_2', finalPence: 15_900 }] }, ['card_1', 'card_2']);
+        if (!v.ok) throw new Error(v.errors.join('; '));
+        expect(v.input.lines[0]).toEqual({ lineId: 'card_1', finalPence: 0, deleted: true });
+        const missing = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', deleted: true }] }, ['card_1', 'card_2']);
+        expect(missing.ok).toBe(false);
+        if (!missing.ok) expect(missing.errors).toContain('No price given for line card_2.');
+    });
+
+    it('deleting every line is refused: a quote needs at least one', () => {
+        const v = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', deleted: true }, { lineId: 'card_2', deleted: true }] }, ['card_1', 'card_2']);
+        expect(v.ok).toBe(false);
+        if (!v.ok) expect(v.errors).toContain('Every line was deleted. A quote needs at least one line.');
+    });
+
+    it('a line not on the draft is accepted when it brings a title, and refused when it does not', () => {
+        const ok = validateSendBody({ version: 'v', lines: [
+            { lineId: 'card_1', finalPence: 24_900 }, { lineId: 'card_2', finalPence: 15_900 },
+            { lineId: 'ben_1_x', finalPence: 8_000, added: { title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90 } },
+        ] }, ['card_1', 'card_2']);
+        if (!ok.ok) throw new Error(ok.errors.join('; '));
+        expect(ok.input.lines[2].added).toEqual({ title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90 });
+        const bad = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', finalPence: 1 }, { lineId: 'card_2', finalPence: 1 }, { lineId: 'ben_1_x', finalPence: 8_000 }] }, ['card_1', 'card_2']);
+        expect(bad.ok).toBe(false);
+        if (!bad.ok) expect(bad.errors[0]).toMatch(/no title, so it cannot be added/);
+    });
+
+    it('an added line is check_this with the reason, has no suggestion, no band and no evidence', () => {
+        const l = addedScreenLine({ lineId: 'ben_1_x', finalPence: 8_000, added: { title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90 } });
+        expect(l).toMatchObject({ title: 'Refit the loft hatch', category: 'carpentry', checkThis: true, checkReason: ADDED_BY_BEN_REASON, suggestedPence: null, bandLowPence: null, bandHighPence: null, confidence: null, timeSource: 'ben' });
+        expect(l.minutes).toEqual({ point: 90, low: 90, high: 90 });
+        expect(l.evidence.quotes).toEqual([]);
+    });
+
+    it('the quote drops a deleted line and gains an added one, in that order', () => {
+        const finals: SendInput['lines'] = [
+            { lineId: 'card_1', deleted: true, finalPence: 0 },
+            { lineId: 'card_2', finalPence: 15_900 },
+            { lineId: 'ben_1_x', finalPence: 8_000, added: { title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90 } },
+        ];
+        const items = confirmedLineItems(row().pricing_line_items!, { lines: lines(), settings }, finals);
+        expect(items.map((i) => i.lineId)).toEqual(['card_2', 'ben_1_x']);
+        expect(items[1]).toMatchObject({ title: 'Refit the loft hatch', category: 'carpentry', pricePence: 8_000, checkThis: true, confirmedBy: 'human' });
+    });
+
+    it('a deleted line gets no verdict row; an added one is edited and out of band by construction', () => {
+        const finals: SendInput['lines'] = [
+            { lineId: 'card_1', deleted: true, finalPence: 0 },
+            { lineId: 'card_2', finalPence: 15_900 },
+            { lineId: 'ben_1_x', finalPence: 8_000, added: { title: 'Loft hatch', category: 'carpentry', minutesPoint: 90 } },
+        ];
+        const rows = verdictRowsFor({ slug: 'ab12cd34', quoteId: 'quote_1', lines: lines() }, finals, 'human:ben', new Date());
+        expect(rows.map((r) => r.lineId)).toEqual(['card_2', 'ben_1_x']);
+        expect(rows[1]).toMatchObject({ edited: true, inBand: false, checkThis: true, suggestedPence: null });
+    });
+
+    it('totals ignore a deleted line and include an added one', () => {
+        const t = totalsFor([{ finalPence: 15_900, materialsPence: 0 }, { finalPence: 8_000, materialsPence: 0 }], 30);
+        expect(t.totalPence).toBe(23_900);
+        expect(t.depositPence).toBe(depositFor(23_900, 30));
     });
 });

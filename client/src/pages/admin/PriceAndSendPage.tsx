@@ -24,6 +24,7 @@ import { useRoute } from 'wouter';
 import { Loader2, AlertTriangle, ChevronDown, ChevronUp, Send, PenLine, RotateCcw, CheckCircle2, Clock, Wrench, RefreshCw, Phone, HelpCircle, Home, X, Check, ArrowRight, Quote as QuoteIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { depositFor } from '@shared/pricing-settings';
+import { CATEGORY_OPTIONS } from '@/lib/quote-categories';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -175,6 +176,14 @@ export function totalsOf(lines: PriceLine[], finals: Record<string, number | nul
     return { totalPence: total, materialsPence: materials, labourPence: labour, depositPence: depositFor(total, depositPercent), missing };
 }
 
+/**
+ * P16: a 409 on send is not always a new scope. It is also the pack refusing a change to a line a
+ * dispatch already holds. The heading follows the reason so Ben reads the right thing first.
+ */
+export function refusalTitle(reason: string): string {
+    return /dispatch|locked|variation/i.test(reason) ? 'That job is already dispatched' : 'A new scope arrived';
+}
+
 /** How much a line needs Ben's eyes: check_this, a contradiction, low confidence, no suggestion. Higher first. */
 export function doubtScore(line: PriceLine, contradictions: Contradiction[]): number {
     let s = 0;
@@ -291,11 +300,36 @@ export interface LineState {
     /** P15: "Not included" in plain words, one entry per item. */
     notIncluded: string[];
     accepted: boolean;
+    /** P16: Ben struck this line out. It leaves the totals and the send; Undo brings it back. */
+    deleted?: boolean;
 }
+
+/** P16: the reason an added line always wears the check_this badge. Mirrors the server. */
+export const ADDED_BY_BEN_REASON = 'added by Ben, not estimated';
+
+/** P16: a blank line for Ben to fill in. No suggestion and no band: nothing estimated it. */
+export function newAddedLine(n: number): PriceLine {
+    return {
+        lineId: `ben_${n}_${Math.random().toString(36).slice(2, 7)}`,
+        title: '', category: null, qty: 1, minutes: null, timeSource: 'ben',
+        materialsCount: 0, materialsPence: 0, materialsCostPence: 0,
+        suggestedPence: null, bandLowPence: null, bandHighPence: null, confidence: null,
+        checkThis: true, checkReason: ADDED_BY_BEN_REASON, flags: [], assumptions: [], notIncluded: [],
+        basis: null, materials: [], evidence: { basedOnInboundId: null, quotes: [], media: [] },
+    };
+}
+
+/** P16: is this a line Ben typed rather than one the chain estimated? */
+export function isAddedLine(line: PriceLine): boolean {
+    return line.lineId.startsWith('ben_');
+}
+
+/** P16: a patch may edit the state (price, materials…) or, on an added line, the line itself. */
+export type LinePatch = Partial<LineState> & { addedTitle?: string; addedCategory?: string | null; addedMinutes?: number | null };
 
 export function PriceLineCard({ line, state, contradictions, resolutions, margin, disabled, onChange, onResolve }: {
     line: PriceLine; state: LineState; contradictions: Contradiction[]; resolutions: Record<string, Resolution>; margin: number; disabled: boolean;
-    onChange: (patch: Partial<LineState>) => void;
+    onChange: (patch: LinePatch) => void;
     onResolve: (c: Contradiction, choice: Resolution) => void;
 }) {
     const [showBasis, setShowBasis] = useState(false);
@@ -310,22 +344,71 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
     const evidence = line.evidence;
     const mine = contradictions.filter((c) => c.lineId === line.lineId);
     const compact = state.accepted && !disabled;
+    const added = isAddedLine(line);
+
+    // P16: struck out and out of the totals, but still here until Send, with one tap back.
+    if (state.deleted) {
+        return (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3" data-testid={`price-line-${line.lineId}`}>
+                <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1 text-[14px] font-bold text-slate-400 line-through" data-testid={`line-deleted-${line.lineId}`}>
+                        {line.title || 'Untitled line'}
+                    </div>
+                    <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-400">Removed</span>
+                    {!disabled && (
+                        <button type="button" onClick={() => onChange({ deleted: false })}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-black text-slate-700"
+                            data-testid={`line-undo-${line.lineId}`}>
+                            <RotateCcw className="h-3.5 w-3.5" /> Undo
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className={cn('rounded-2xl border bg-white p-4 shadow-sm', line.checkThis || mine.some((c) => !resolutions[c.id]) ? 'border-amber-300' : state.accepted ? 'border-emerald-300' : 'border-slate-200')} data-testid={`price-line-${line.lineId}`}>
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                    <div className="text-[15px] font-black leading-snug text-slate-900">{line.qty > 1 ? `${line.qty}× ` : ''}{line.title}</div>
+                    {/* P16: a line Ben added types its own title, category and time. Nothing estimated it. */}
+                    {added ? (
+                        <div className="space-y-1.5" data-testid={`added-fields-${line.lineId}`}>
+                            <input type="text" value={line.title} disabled={disabled} placeholder="What is the job?" aria-label="Line title"
+                                onChange={(e) => onChange({ addedTitle: e.target.value })}
+                                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[15px] font-black text-slate-900" data-testid={`added-title-${line.lineId}`} />
+                            <div className="flex gap-1.5">
+                                <select value={line.category ?? ''} disabled={disabled} aria-label="Category"
+                                    onChange={(e) => onChange({ addedCategory: e.target.value || null })}
+                                    className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-bold text-slate-700" data-testid={`added-category-${line.lineId}`}>
+                                    <option value="">Category</option>
+                                    {CATEGORY_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                </select>
+                                <input type="number" min={1} max={6000} step={15} value={line.minutes?.point ?? ''} disabled={disabled} placeholder="min" aria-label="Minutes"
+                                    onChange={(e) => onChange({ addedMinutes: e.target.value === '' ? null : Math.max(1, Number(e.target.value) || 0) })}
+                                    className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-bold text-slate-700" data-testid={`added-minutes-${line.lineId}`} />
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="text-[15px] font-black leading-snug text-slate-900">{line.qty > 1 ? `${line.qty}× ` : ''}{line.title}</div>
+                    )}
                     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-bold text-slate-500">
-                        {line.category && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700" data-testid="category-chip">{line.category.replace(/_/g, ' ')}</span>}
+                        {line.category && !added && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700" data-testid="category-chip">{line.category.replace(/_/g, ' ')}</span>}
                         {mins && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{mins}</span>}
                         <span className="inline-flex items-center gap-1"><Wrench className="h-3 w-3" />{state.materials.length ? `${state.materials.length} material${state.materials.length === 1 ? '' : 's'}` : 'no materials'}</span>
                         <ConfidenceDot c={line.confidence} />
                     </div>
                 </div>
-                {state.accepted && (
+                {state.accepted && !state.deleted && (
                     <button type="button" onClick={() => onChange({ accepted: false })} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-800" data-testid={`accepted-${line.lineId}`}>
                         <Check className="h-3.5 w-3.5" /> {gbp(pence)}
+                    </button>
+                )}
+                {/* P16: remove a whole line. Struck out with an Undo, never gone until Send. */}
+                {!disabled && !state.deleted && (
+                    <button type="button" onClick={() => onChange({ deleted: true, accepted: false })} aria-label={`Remove ${line.title || 'this line'}`}
+                        className="shrink-0 rounded-md p-1 text-slate-300 hover:text-red-600" data-testid={`line-delete-${line.lineId}`}>
+                        <X className="h-4 w-4" />
                     </button>
                 )}
             </div>
@@ -522,7 +605,7 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
 // ---------------------------------------------------------------- the screen
 
 function initialLineState(l: PriceLine): LineState {
-    return { value: penceToPoundsText(l.suggestedPence), materials: (l.materials ?? []).map((m) => ({ ...m })), assumptions: [...l.assumptions], notIncluded: [...(l.notIncluded ?? [])], accepted: false };
+    return { value: penceToPoundsText(l.suggestedPence), materials: (l.materials ?? []).map((m) => ({ ...m })), assumptions: [...l.assumptions], notIncluded: [...(l.notIncluded ?? [])], accepted: false, deleted: false };
 }
 
 /** P15: the not-included list as it would be sent (trimmed, blanks dropped). */
@@ -545,6 +628,8 @@ export function PriceAndSend({ slug }: { slug: string }) {
     });
 
     const [states, setStates] = useState<Record<string, LineState>>({});
+    /** P16: lines Ben typed on this screen. They live here until Send writes them onto the quote. */
+    const [addedLines, setAddedLines] = useState<PriceLine[]>([]);
     const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
     const [message, setMessage] = useState('');
     const [tab, setTab] = useState<'thread' | 'price'>('price');
@@ -561,6 +646,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
     useEffect(() => {
         if (!data) return;
         setStates(Object.fromEntries(data.lines.map((l) => [l.lineId, initialLineState(l)])));
+        setAddedLines([]);
         setResolutions({});
         setMessage(data.message?.body ?? '');
         setHold(data.hold ?? null);
@@ -568,19 +654,45 @@ export function PriceAndSend({ slug }: { slug: string }) {
     }, [data?.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const contradictions = data?.contradictions ?? [];
-    const ordered = useMemo(() => orderByDoubt(data?.lines ?? [], contradictions), [data, contradictions]);
     const margin = data?.settings?.materialsMarginPercent ?? 0;
-    const finals = useMemo(() => Object.fromEntries((data?.lines ?? []).map((l) => [l.lineId, poundsToPence(states[l.lineId]?.value ?? '')])), [data, states]);
-    const materialsPence = useMemo(() => Object.fromEntries((data?.lines ?? []).map((l) => [l.lineId, lineMaterialsAtMargin(l, states[l.lineId]?.materials, margin)])), [data, states, margin]);
-    const totals = useMemo(() => totalsOf(data?.lines ?? [], finals, data?.settings?.depositPercent ?? 30, materialsPence), [data, finals, materialsPence]);
+    // P16: the draft's lines plus any Ben typed. Added lines sort last: they have no doubt score
+    // worth ranking, and he is still filling them in.
+    const allLines = useMemo(() => [...(data?.lines ?? []), ...addedLines], [data, addedLines]);
+    const ordered = useMemo(() => [...orderByDoubt(data?.lines ?? [], contradictions), ...addedLines], [data, contradictions, addedLines]);
+    const kept = useMemo(() => allLines.filter((l) => !states[l.lineId]?.deleted), [allLines, states]);
+    const finals = useMemo(() => Object.fromEntries(allLines.map((l) => [l.lineId, poundsToPence(states[l.lineId]?.value ?? '')])), [allLines, states]);
+    const materialsPence = useMemo(() => Object.fromEntries(allLines.map((l) => [l.lineId, lineMaterialsAtMargin(l, states[l.lineId]?.materials, margin)])), [allLines, states, margin]);
+    // Deleted lines are out of every total, exactly as they will be out of the quote.
+    const totals = useMemo(() => totalsOf(kept, finals, data?.settings?.depositPercent ?? 30, materialsPence), [kept, finals, materialsPence, data]);
     const messageEdited = !!data && message.trim() !== (data.message?.body ?? '').trim();
     const warnings = useMemo(() => messageWarnings(message), [message]);
 
     const locked = !data || data.status !== 'draft' || !!result?.ok || !!superseded;
-    const canSend = !!data && data.status === 'draft' && !busy && totals.missing === 0 && data.lines.length > 0 && !result?.ok && !superseded;
+    // P16: an added line with no title is not a line yet, so it blocks the send the same way a
+    // missing price does. Send is otherwise blocked only by a kept line without a price.
+    const untitledAdded = addedLines.some((l) => !states[l.lineId]?.deleted && !l.title.trim());
+    const canSend = !!data && data.status === 'draft' && !busy && totals.missing === 0 && !untitledAdded && kept.length > 0 && !result?.ok && !superseded;
 
-    function patch(lineId: string, p: Partial<LineState>) {
-        setStates((s) => ({ ...s, [lineId]: { ...(s[lineId] ?? { value: '', materials: [], assumptions: [], notIncluded: [], accepted: false }), ...p } }));
+    function patch(lineId: string, p: LinePatch) {
+        const { addedTitle, addedCategory, addedMinutes, ...statePatch } = p;
+        if (addedTitle !== undefined || addedCategory !== undefined || addedMinutes !== undefined) {
+            setAddedLines((ls) => ls.map((l) => l.lineId !== lineId ? l : {
+                ...l,
+                ...(addedTitle !== undefined ? { title: addedTitle } : {}),
+                ...(addedCategory !== undefined ? { category: addedCategory } : {}),
+                ...(addedMinutes !== undefined ? { minutes: addedMinutes == null ? null : { point: addedMinutes, low: addedMinutes, high: addedMinutes } } : {}),
+            }));
+        }
+        if (Object.keys(statePatch).length) {
+            setStates((s) => ({ ...s, [lineId]: { ...(s[lineId] ?? { value: '', materials: [], assumptions: [], notIncluded: [], accepted: false }), ...statePatch } }));
+        }
+    }
+
+    /** P16: one more card, empty, for something the estimate never saw. */
+    function addLine() {
+        const line = newAddedLine(addedLines.length + 1);
+        setAddedLines((ls) => [...ls, line]);
+        setStates((s) => ({ ...s, [line.lineId]: { value: '', materials: [], assumptions: [], notIncluded: [], accepted: false, deleted: false } }));
     }
     function resolve(c: Contradiction, choice: Resolution) {
         setResolutions((r) => ({ ...r, [c.id]: choice }));
@@ -594,8 +706,10 @@ export function PriceAndSend({ slug }: { slug: string }) {
         if (!data) return null;
         return {
             version: data.version,
-            lines: data.lines.map((l) => {
+            lines: allLines.map((l) => {
                 const st = states[l.lineId];
+                // P16: a deleted line carries nothing but the fact that it is gone.
+                if (st?.deleted) return { lineId: l.lineId, deleted: true };
                 const original = l.materials ?? [];
                 const materialsChanged = !st || st.materials.length !== original.length || st.materials.some((m, i) => m.name !== original[i]?.name || m.qty !== original[i]?.qty || (m.unitCostPence ?? 0) !== (original[i]?.unitCostPence ?? 0));
                 const assumptionsChanged = !st || JSON.stringify(st.assumptions) !== JSON.stringify(l.assumptions);
@@ -606,6 +720,8 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     ...(st && materialsChanged ? { materials: st.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence ?? 0, source: m.source })) } : {}),
                     ...(st && assumptionsChanged ? { assumptions: st.assumptions } : {}),
                     ...(st && notIncludedChanged ? { notIncluded } : {}),
+                    // P16: a line Ben typed brings its own title, category and time; nothing estimated it.
+                    ...(isAddedLine(l) ? { added: { title: l.title.trim(), category: l.category, minutesPoint: l.minutes?.point ?? null } } : {}),
                 };
             }),
             message: message.trim(), messageEdited,
@@ -705,7 +821,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
             {statusBanner && <div className={cn('rounded-xl border px-3 py-2 text-sm font-bold', statusBanner.cls)} data-testid="status-banner">{statusBanner.text}</div>}
             {superseded && (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="superseded-banner">
-                    <div className="font-black">A new scope arrived</div>
+                    <div className="font-black">{refusalTitle(superseded)}</div>
                     <p className="mt-0.5">{superseded}</p>
                     <button type="button" onClick={() => { setResult(null); void refetch(); }} disabled={isFetching}
                         className="mt-2 inline-flex items-center gap-1 rounded-lg bg-amber-900 px-3 py-2 text-xs font-black text-white" data-testid="reload">
@@ -732,15 +848,25 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     margin={margin} disabled={locked} onChange={(p) => patch(l.lineId, p)} onResolve={resolve} />
             ))}
 
+            {/* P16: something the estimate never saw. The same card, empty. */}
+            {!locked && (
+                <button type="button" onClick={addLine}
+                    className="w-full rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 py-3 text-sm font-black text-slate-600 hover:border-slate-400 hover:text-slate-800"
+                    data-testid="add-line">
+                    + Add a line
+                </button>
+            )}
+
             {/* Totals */}
             <div className="rounded-2xl bg-slate-900 p-4 text-white" data-testid="totals">
                 <div className="grid grid-cols-2 gap-y-1 text-sm">
                     <span className="text-slate-300">Labour</span><span className="text-right font-bold">{gbp(totals.labourPence)}</span>
                     <span className="text-slate-300">Materials at {data.settings.materialsMarginPercent}%</span><span className="text-right font-bold">{gbp(totals.materialsPence)}</span>
                     <span className="mt-1 text-base font-black">Total</span><span className="mt-1 text-right text-base font-black" data-testid="total">{gbp(totals.totalPence)}</span>
-                    <span className="text-slate-300">Deposit ({data.settings.depositPercent}% labour + materials)</span><span className="text-right font-bold" data-testid="deposit">{gbp(totals.depositPence)}</span>
+                    <span className="text-slate-300">Deposit ({data.settings.depositPercent}% of the total)</span><span className="text-right font-bold" data-testid="deposit">{gbp(totals.depositPence)}</span>
                 </div>
                 {totals.missing > 0 && <div className="mt-2 text-xs font-bold text-amber-300" data-testid="missing-prices">{totals.missing} line{totals.missing === 1 ? '' : 's'} still need{totals.missing === 1 ? 's' : ''} a price</div>}
+                {untitledAdded && <div className="mt-2 text-xs font-bold text-amber-300" data-testid="missing-title">An added line still needs a title</div>}
             </div>
 
             {/* The message she reads */}

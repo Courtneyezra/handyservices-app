@@ -443,6 +443,10 @@ export function totalsFor(lines: Array<{ finalPence: number; materialsPence: num
 }
 
 export interface SendMaterial { name: string; qty: number; unitCostPence: number; source: string | null }
+
+/** P16: a line Ben typed himself. Nothing estimated it, so it carries its own title and time. */
+export interface AddedLine { title: string; category: string | null; minutesPoint: number | null }
+
 export interface SendLine {
     lineId: string;
     finalPence: number;
@@ -452,7 +456,14 @@ export interface SendLine {
     assumptions?: string[];
     /** P15: the customer-facing "Not included" list as Ben left it (edit / add / drop). Absent = unchanged. */
     notIncluded?: string[];
+    /** P16: Ben removed this line. It leaves the quote, the totals and the pack; it needs no price. */
+    deleted?: boolean;
+    /** P16: Ben added this line by hand. Nothing estimated it, so there is no suggestion and no band. */
+    added?: AddedLine;
 }
+
+/** P16: the reason an added line always wears the check_this badge. */
+export const ADDED_BY_BEN_REASON = 'added by Ben, not estimated';
 export interface SendInput {
     version: string;
     lines: SendLine[];
@@ -477,9 +488,21 @@ export function validateSendBody(body: unknown, expectedLineIds: string[]): { ok
         if (!lineId) { errors.push('A line is missing its lineId.'); continue; }
         if (seen.has(lineId)) { errors.push(`Line ${lineId} appears twice.`); continue; }
         seen.add(lineId);
+        // P16: a deleted line leaves the quote. It needs no price and nothing else on it matters.
+        if (l?.deleted === true) { lines.push({ lineId, finalPence: 0, deleted: true }); continue; }
+        // P16: a line Ben typed himself. It is not on the draft, so it must bring its own title.
+        let added: AddedLine | undefined;
+        if (!expectedLineIds.includes(lineId)) {
+            const title = str(l?.added?.title);
+            if (!title) { errors.push(`Line ${lineId} is not on this draft and has no title, so it cannot be added.`); continue; }
+            if (title.length > 160) { errors.push(`Line ${lineId}: the title is over 160 characters.`); continue; }
+            const minutes = int(l?.added?.minutesPoint);
+            if (minutes != null && (minutes <= 0 || minutes > 6_000)) { errors.push(`Line ${lineId}: minutes must be between 1 and 6,000.`); continue; }
+            added = { title, category: str(l?.added?.category), minutesPoint: minutes };
+        }
         if (finalPence == null || finalPence <= 0) { errors.push(`Line ${lineId} needs a price above £0.`); continue; }
         if (finalPence > 5_000_000) { errors.push(`Line ${lineId}: £${(finalPence / 100).toFixed(0)} is above the £50,000 per-line ceiling.`); continue; }
-        const out: SendLine = { lineId, finalPence };
+        const out: SendLine = { lineId, finalPence, ...(added ? { added } : {}) };
         if (Array.isArray(l?.materials)) {
             const mats: SendMaterial[] = [];
             for (const m of l.materials) {
@@ -502,8 +525,11 @@ export function validateSendBody(body: unknown, expectedLineIds: string[]): { ok
         }
         lines.push(out);
     }
-    for (const id of expectedLineIds) if (!seen.has(id)) errors.push(`No price given for line ${id}.`);
-    for (const id of Array.from(seen)) if (!expectedLineIds.includes(id)) errors.push(`Line ${id} is not on this draft.`);
+    // P16: every line on the draft must be accounted for — priced or deleted. A line NOT on the
+    // draft is Ben's own addition and was validated above; only a kept line needs a price.
+    const decided = new Set(lines.map((l) => l.lineId));
+    for (const id of expectedLineIds) if (!decided.has(id)) errors.push(`No price given for line ${id}.`);
+    if (lines.length && lines.every((l) => l.deleted)) errors.push('Every line was deleted. A quote needs at least one line.');
     const message = str(b.message);
     if (message && message.length > 1500) errors.push('The message is over 1,500 characters.');
     const resolutions: Resolution[] = [];
@@ -514,6 +540,43 @@ export function validateSendBody(body: unknown, expectedLineIds: string[]): { ok
     }
     if (errors.length) return { ok: false, errors };
     return { ok: true, input: { version: version!, lines, messageStyle: str(b.messageStyle), message, messageEdited: b.messageEdited === true, resolutions } };
+}
+
+/**
+ * P16: a line Ben typed on the screen, as a PriceScreenLine. Nothing estimated it, so there is no
+ * suggestion, no band, no evidence and no confidence — and it always wears check_this, because a
+ * price with nothing behind it is exactly the line a reader should look at twice.
+ */
+export function addedScreenLine(f: SendLine): PriceScreenLine {
+    const materials: PriceScreenMaterial[] = (f.materials ?? []).map((m, index) => ({
+        lineId: f.lineId, index, name: m.name, qty: m.qty, unitCostPence: m.unitCostPence, source: m.source,
+    }));
+    const minutes = f.added?.minutesPoint ?? null;
+    return {
+        lineId: f.lineId,
+        title: f.added?.title ?? 'Added line',
+        category: f.added?.category ?? null,
+        notes: null,
+        qty: 1,
+        minutes: minutes != null ? { point: minutes, low: minutes, high: minutes } : null,
+        timeSource: 'ben',
+        materialsCount: materials.length,
+        materialsPence: 0,
+        materialsCostPence: materialsCostOf(materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence ?? 0 }))),
+        suggestedPence: null,
+        bandLowPence: null,
+        bandHighPence: null,
+        confidence: null,
+        checkThis: true,
+        checkReason: ADDED_BY_BEN_REASON,
+        flags: [],
+        assumptions: f.assumptions ?? [],
+        notIncluded: f.notIncluded ?? [],
+        basis: null,
+        materials,
+        evidence: { basedOnInboundId: null, quotes: [], media: [] },
+        bandRecomputed: false,
+    };
 }
 
 export interface VerdictMeta {
@@ -544,7 +607,12 @@ export function verdictRowsFor(
 ): VerdictRowInput[] {
     const byId = new Map(finals.map((f) => [f.lineId, f]));
     const contradictions = payload.contradictions ?? [];
-    return payload.lines.map((l) => {
+    // P16: a deleted line was never priced, so it has no verdict; a line Ben added is one he priced
+    // by hand with nothing to compare against, and counts as edited and out of band by construction.
+    const added: PriceScreenLine[] = finals
+        .filter((f) => f.added && !payload.lines.some((l) => l.lineId === f.lineId))
+        .map((f) => addedScreenLine(f));
+    return [...payload.lines, ...added].filter((l) => !byId.get(l.lineId)?.deleted).map((l) => {
         const f = byId.get(l.lineId)!;
         const finalPence = f.finalPence;
         const inBand = l.bandLowPence != null && l.bandHighPence != null && finalPence >= l.bandLowPence && finalPence <= l.bandHighPence;
@@ -587,8 +655,13 @@ export function materialsPenceFor(line: Pick<PriceScreenLine, 'materialsPence'>,
 export function confirmedLineItems(existing: any[], payload: Pick<PriceScreenPayload, 'lines'> & Partial<Pick<PriceScreenPayload, 'settings'>>, finals: SendInput['lines']): any[] {
     const byId = new Map(finals.map((f) => [f.lineId, f]));
     const margin = payload.settings?.materialsMarginPercent ?? 0;
-    return payload.lines.map((l, i) => {
-        const prev = existing[i] && typeof existing[i] === 'object' ? existing[i] : {};
+    const prevById = new Map((existing ?? []).filter((x) => x && typeof x === 'object').map((x: any, i: number) => [String(x.lineId ?? `card_${i + 1}`), x]));
+    // P16: deleted lines leave the quote entirely; lines Ben added join it at the end.
+    const added: PriceScreenLine[] = finals
+        .filter((f) => f.added && !payload.lines.some((l) => l.lineId === f.lineId))
+        .map((f) => addedScreenLine(f));
+    return [...payload.lines, ...added].filter((l) => !byId.get(l.lineId)?.deleted).map((l, i) => {
+        const prev = prevById.get(l.lineId) ?? (existing[i] && typeof existing[i] === 'object' && !added.includes(l) ? existing[i] : {});
         const sent = byId.get(l.lineId)!;
         const finalPence = sent.finalPence;
         const materials = Math.min(payload.settings ? materialsPenceFor(l, sent, margin) : l.materialsPence, finalPence);
@@ -720,7 +793,10 @@ export async function confirmPrices(slug: string, body: unknown, user: { id?: st
     const runId = newRunId('human');
     const now = new Date();
     const rows = verdictRowsFor(payload, v.input.lines, approver, now, { messageEdited: v.input.messageEdited, resolutions: v.input.resolutions });
-    const totals = totalsFor(payload.lines.map((l) => {
+    // P16: deleted lines are out of every total; lines Ben added are in, at the price he typed.
+    const keptScreenLines = [...payload.lines, ...v.input.lines.filter((f) => f.added && !payload.lines.some((l) => l.lineId === f.lineId)).map(addedScreenLine)]
+        .filter((l) => !v.input.lines.find((f) => f.lineId === l.lineId)?.deleted);
+    const totals = totalsFor(keptScreenLines.map((l) => {
         const sent = v.input.lines.find((f) => f.lineId === l.lineId)!;
         return { finalPence: sent.finalPence, materialsPence: materialsPenceFor(l, sent, payload.settings.materialsMarginPercent) };
     }), payload.settings.depositPercent);
@@ -735,11 +811,25 @@ export async function confirmPrices(slug: string, body: unknown, user: { id?: st
         const { packEditsFromSend } = await import('./job-pack-writers');
         const pack = await getPackForQuote(payload.quoteId).catch((e: any) => { if (isMissingTable(e)) return null; throw e; });
         if (pack) {
-            const edits = packEditsFromSend(v.input.lines, (lineId) => { const l = payload.lines.find((x) => x.lineId === lineId)!; return Math.min(materialsPenceFor(l, v.input.lines.find((f) => f.lineId === lineId), payload.settings.materialsMarginPercent), v.input.lines.find((f) => f.lineId === lineId)!.finalPence); });
+            const edits = packEditsFromSend(v.input.lines, (lineId) => {
+                const sent = v.input.lines.find((f) => f.lineId === lineId)!;
+                const l = keptScreenLines.find((x) => x.lineId === lineId);
+                return l ? Math.min(materialsPenceFor(l, sent, payload.settings.materialsMarginPercent), sent.finalPence) : 0;
+            });
             packAfter = commit(pack, { lines: applyBenEdits(pack.lines, edits) }, approver, 'ben', now);
             items = derivePricingLineItems(packAfter, items);
         }
     } catch (error: any) {
+        // P16: a line the dispatch already locked cannot be deleted. That is a refusal Ben must
+        // see and act on (the variation path), not a warning swallowed behind a successful send.
+        const { PackLockedError } = await import('./job-pack');
+        if (error instanceof PackLockedError) {
+            const titles = error.fields.map((f) => payload.lines.find((l) => `line:${l.lineId}` === f || f.startsWith(`line:${l.lineId}.`))?.title).filter(Boolean);
+            return {
+                ok: false, status: 409, payload,
+                errors: [`That job is already dispatched, so its lines are locked${titles.length ? ` (${titles.join(', ')})` : ''}. Raise a variation instead of changing the quote.`],
+            };
+        }
         console.warn('[PriceScreen] job pack edit failed (quote write proceeds from the screen):', error?.message ?? error);
         packAfter = null;
     }
