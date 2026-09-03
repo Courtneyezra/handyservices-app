@@ -378,7 +378,7 @@ export function jobPhrase(lines: Array<{ title: string; qty?: number | null }>):
  * (short bursts, no dashes, no prices, no dates, no address). The quote link is added at send,
  * as its own line, so the words here never have to carry it.
  */
-export function draftCustomerMessage(input: { firstName: string | null; lines: Array<{ title: string; qty?: number | null }>; sentPhotos: boolean; sentVideo?: boolean }): string {
+export function draftCustomerMessage(input: { firstName: string | null; lines: Array<{ title: string; qty?: number | null }>; sentPhotos: boolean; sentVideo?: boolean; quoteUrl?: string | null }): string {
     const hi = input.firstName ? `Hi ${input.firstName}, ` : '';
     const thanks = input.sentVideo ? 'thanks for the video and the details.' : input.sentPhotos ? 'thanks for the photos and the details.' : 'thanks for the details.';
     const job = jobPhrase(input.lines);
@@ -388,13 +388,24 @@ export function draftCustomerMessage(input: { firstName: string | null; lines: A
         'It is itemised so you can see exactly what is included, and you can pick a date that suits you on the same page.',
         'Any questions, just reply here.',
     ];
-    return toChatVoice(lines.join('\n'));
+    // P16: the link is part of the drafted message, on its own last line, so what Ben reads in the
+    // editor is what she receives. It used to be bolted on at send time, invisibly.
+    const body = toChatVoice(lines.join('\n'));
+    return input.quoteUrl ? `${body}\n\n${input.quoteUrl}` : body;
 }
 
-/** The link goes on at send, once, as the last line, so Ben's words never have to carry it. */
+/**
+ * The belt at send time. Since P16 the drafted message already carries the link, so this normally
+ * no-ops; it still catches the case where Ben deleted it, and it must never append a second copy.
+ */
 export function withQuoteLink(body: string, quoteUrl: string): string {
     const b = body.trim();
     return b.includes(quoteUrl) ? b : `${b}\n\n${quoteUrl}`;
+}
+
+/** Pure: does this message give her a way to open the quote? */
+export function hasQuoteLink(body: string, quoteUrl: string): boolean {
+    return body.includes(quoteUrl);
 }
 
 // ---------------------------------------------------------------- after send

@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import {
     PriceAndSend, gbp, poundsToPence, penceToPoundsText, bandText, totalsOf, orderByDoubt, doubtScore, visibleMessages, messageWarnings, materialsAtMargin,
-    materialsCostOf, lineMaterialsAtMargin, refusalTitle,
+    materialsCostOf, lineMaterialsAtMargin, refusalTitle, hasQuoteLink, insertAt,
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
 
@@ -41,7 +41,9 @@ const handles: Contradiction = {
     sentence: 'The estimate assumes "Existing handles reused on all doors" but lists 7× Handle set, brushed as materials.',
     options: [{ id: 'drop_materials', label: 'Drop it from the quote' }, { id: 'keep_materials', label: 'Keep it, drop the assumption' }],
 };
-const DESK = 'Hi Sarah, thanks for the photos and the details.\nYour quote for 8 oak panelled doors, hung and finished and airing cupboard door is ready, link below.\nAny questions, just reply here.';
+// P16: the desk's draft now carries the link on its own last line, exactly as she receives it.
+const QUOTE_URL = 'https://handyservices.app/quote/z4p6t9mw';
+const DESK = `Hi Sarah, thanks for the photos and the details.\nYour quote for 8 oak panelled doors, hung and finished and airing cupboard door is ready, link below.\nAny questions, just reply here.\n\n${QUOTE_URL}`;
 
 const payload = (over: Partial<PricePayload> = {}): PricePayload => ({
     available: true, slug: 'z4p6t9mw', quoteId: 'quote_s', conversationId: 'conv_s', version: 'est_s|2026-09-04T19:26:00Z|-|draft|card_1,card_2', status: 'draft',
@@ -552,5 +554,70 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         expect(banner).toHaveTextContent('That job is already dispatched');
         expect(banner).toHaveTextContent('Raise a variation');
         expect(refusalTitle('A new scope arrived and this draft was superseded.')).toBe('A new scope arrived');
+    });
+});
+
+describe('P16 item 4: the quote link is in the message Ben reads', () => {
+    it('the editor shows the link the desk put there, and says nothing about it going on later', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const box = await screen.findByTestId('message-body');
+        expect((box as HTMLTextAreaElement).value).toContain(QUOTE_URL);
+        expect(screen.queryByTestId('no-link-warning')).toBeNull();
+        expect(screen.queryByTestId('insert-link')).toBeNull();
+    });
+
+    it('an edited body keeps exactly one link, and it reaches the send body unchanged', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const box = await screen.findByTestId('message-body');
+        fireEvent.change(box, { target: { value: `Hi Sarah, all priced up.\n\n${QUOTE_URL}` } });
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const sent = f.of('POST', '/send')[0].body.message as string;
+        expect(sent.match(new RegExp(QUOTE_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
+        expect(sent).toBe(`Hi Sarah, all priced up.\n\n${QUOTE_URL}`);
+    });
+
+    it('a link mid-text is left where he put it', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const mid = `Hi Sarah, here it is ${QUOTE_URL} and any questions just reply.`;
+        fireEvent.change(await screen.findByTestId('message-body'), { target: { value: mid } });
+        expect(screen.queryByTestId('no-link-warning')).toBeNull();
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        expect(f.of('POST', '/send')[0].body.message).toBe(mid);
+    });
+
+    it('deleting the link warns without blocking, and the chip puts it back', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const box = await screen.findByTestId('message-body');
+        fireEvent.change(box, { target: { value: 'Hi Sarah, all priced up.' } });
+        expect(screen.getByTestId('no-link-warning')).toHaveTextContent('no way to open the quote');
+        expect(screen.getByTestId('send-quote')).toBeEnabled();
+
+        await userEvent.click(screen.getByTestId('insert-link'));
+        await waitFor(() => expect(screen.queryByTestId('no-link-warning')).toBeNull());
+        expect((box as HTMLTextAreaElement).value).toContain(QUOTE_URL);
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        expect(f.of('POST', '/send')[0].body.message).toContain(QUOTE_URL);
+    });
+});
+
+describe('P16 item 4: the link helpers', () => {
+    it('hasQuoteLink finds it anywhere, and nowhere when it is gone', () => {
+        expect(hasQuoteLink(`a ${QUOTE_URL} b`, QUOTE_URL)).toBe(true);
+        expect(hasQuoteLink('no link here', QUOTE_URL)).toBe(false);
+        expect(hasQuoteLink('anything', '')).toBe(false);
+    });
+    it('insertAt puts the link on its own line and never glues it to a word', () => {
+        expect(insertAt('Hello', 'L', 5)).toBe('Hello\nL');
+        expect(insertAt('Hello\n', 'L', 6)).toBe('Hello\nL');
+        expect(insertAt('a\nb', 'L', 2)).toBe('a\nL\nb');
+        expect(insertAt('', 'L', 0)).toBe('L');
+        expect(insertAt('abc', 'L', 99)).toBe('abc\nL');
     });
 });

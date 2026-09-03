@@ -413,7 +413,7 @@ export function buildPricePayload(input: {
         quoteUrl: `${baseUrl}/quote/${row.short_slug}`,
         thread,
         contradictions,
-        message: { body: draftCustomerMessage({ firstName: row.customer_name ? firstNameOf(row.customer_name) : null, lines: lines.map((l) => ({ title: l.title, qty: l.qty })), sentPhotos, sentVideo }), source: 'desk' },
+        message: { body: draftCustomerMessage({ firstName: row.customer_name ? firstNameOf(row.customer_name) : null, lines: lines.map((l) => ({ title: l.title, qty: l.qty })), sentPhotos, sentVideo, quoteUrl: `${baseUrl}/quote/${row.short_slug}` }), source: 'desk' },
         hold: holdOf(row.pricing_suggestions as any),
         nextWaiting: input.nextWaiting ?? null,
         call: { customerPhone: e164(row.phone), businessNumber: input.businessNumber ?? null },

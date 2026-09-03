@@ -18,7 +18,7 @@
  *   - phone: Thread · Price tabs; desktop: side by side
  * Data: GET /api/spine/price/:slug. Send: POST …/send; the other exits POST …/ask, …/call, …/visit.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute } from 'wouter';
 import { Loader2, AlertTriangle, ChevronDown, ChevronUp, Send, PenLine, RotateCcw, CheckCircle2, Clock, Wrench, RefreshCw, Phone, HelpCircle, Home, X, Check, ArrowRight, Quote as QuoteIcon } from 'lucide-react';
@@ -216,6 +216,23 @@ export function messageWarnings(body: string): string[] {
     if (/\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\btomorrow\b|\bnext week\b|\b\d{1,2}(st|nd|rd|th)\b/i.test(body)) out.push('has a date in it');
     if (/[—–]/.test(body)) out.push('has a dash (the house voice has none)');
     return out;
+}
+
+/** P16: does the message give her a way to open the quote? Mirrors the server's hasQuoteLink. */
+export function hasQuoteLink(body: string, quoteUrl: string): boolean {
+    return !!quoteUrl && body.includes(quoteUrl);
+}
+
+/**
+ * P16: put the link back at the cursor, on its own line, without gluing it to a word. Ben deleted
+ * it by accident far more often than on purpose.
+ */
+export function insertAt(body: string, text: string, at: number): string {
+    const i = Math.max(0, Math.min(at, body.length));
+    const before = body.slice(0, i), after = body.slice(i);
+    const lead = before && !before.endsWith('\n') ? '\n' : '';
+    const tail = after && !after.startsWith('\n') ? '\n' : '';
+    return `${before}${lead}${text}${tail}${after}`;
 }
 
 export function whenText(iso: string): string {
@@ -630,6 +647,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
     const [states, setStates] = useState<Record<string, LineState>>({});
     /** P16: lines Ben typed on this screen. They live here until Send writes them onto the quote. */
     const [addedLines, setAddedLines] = useState<PriceLine[]>([]);
+    const messageRef = useRef<HTMLTextAreaElement | null>(null);
     const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
     const [message, setMessage] = useState('');
     const [tab, setTab] = useState<'thread' | 'price'>('price');
@@ -666,6 +684,16 @@ export function PriceAndSend({ slug }: { slug: string }) {
     const totals = useMemo(() => totalsOf(kept, finals, data?.settings?.depositPercent ?? 30, materialsPence), [kept, finals, materialsPence, data]);
     const messageEdited = !!data && message.trim() !== (data.message?.body ?? '').trim();
     const warnings = useMemo(() => messageWarnings(message), [message]);
+    // P16: the link lives in the message Ben reads. If he deletes it, say so and offer it back.
+    const linkPresent = !data || hasQuoteLink(message, data.quoteUrl);
+
+    function insertLink() {
+        if (!data) return;
+        const el = messageRef.current;
+        const at = el ? el.selectionStart : message.length;
+        setMessage(insertAt(message, data.quoteUrl, at));
+        requestAnimationFrame(() => el?.focus());
+    }
 
     const locked = !data || data.status !== 'draft' || !!result?.ok || !!superseded;
     // P16: an added line with no title is not a line yet, so it blocks the send the same way a
@@ -873,14 +901,24 @@ export function PriceAndSend({ slug }: { slug: string }) {
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What {first} reads</span>
-                    {messageEdited && !locked && (
-                        <button type="button" onClick={() => setMessage(data.message?.body ?? '')} className="inline-flex items-center gap-1 text-xs font-bold text-slate-600" data-testid="message-reset"><RotateCcw className="h-3 w-3" /> desk's draft</button>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {/* P16: he can put the link back where he wants it, at the cursor. */}
+                        {!locked && !linkPresent && (
+                            <button type="button" onClick={insertLink} className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-black text-white" data-testid="insert-link">
+                                + link
+                            </button>
+                        )}
+                        {messageEdited && !locked && (
+                            <button type="button" onClick={() => setMessage(data.message?.body ?? '')} className="inline-flex items-center gap-1 text-xs font-bold text-slate-600" data-testid="message-reset"><RotateCcw className="h-3 w-3" /> desk's draft</button>
+                        )}
+                    </div>
                 </div>
-                <textarea value={message} disabled={locked} onChange={(e) => setMessage(e.target.value)} rows={5}
+                <textarea value={message} disabled={locked} onChange={(e) => setMessage(e.target.value)} rows={6}
+                    ref={messageRef}
                     className="mt-1 w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm leading-snug text-slate-900 outline-none focus:border-slate-900"
                     aria-label={`Message ${first} reads`} data-testid="message-body" />
-                <div className="mt-1 text-[11px] text-slate-500">The quote link goes on as the last line when you send.{messageEdited ? ' Edited.' : ''}</div>
+                <div className="mt-1 text-[11px] text-slate-500">This is exactly what she receives, link and all.{messageEdited ? ' Edited.' : ''}</div>
+                {!linkPresent && <div className="mt-1 text-[11px] font-bold text-amber-700" data-testid="no-link-warning">No quote link in the message, so the customer will have no way to open the quote. You can still send.</div>}
                 {warnings.length > 0 && <div className="mt-1 text-[11px] font-bold text-amber-700" data-testid="message-warnings">Careful: the message {warnings.join('; ')}.</div>}
             </div>
             <div className="h-2" />
