@@ -115,6 +115,36 @@ describe('helpers', () => {
         expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30, { card_1: 121920, card_2: 19050 }).materialsPence).toBe(121920 + 19050);
         expect(materialsAtMargin([{ qty: 8, unitCostPence: 12000 }], 27)).toBe(121920);
     });
+    // P16b (Gemma c1u0wkt8, 3 Sep 2026): the owner's complaint was that the summary did not add up
+    // from the line items. It did not: the page recomputed every line's materials from the item list
+    // instead of using the figure the engine priced with, so labour and materials each drifted by
+    // 60p against the six lines they are supposed to total. This is that invariant, permanently.
+    it('the summary equals the sum of the lines: labour and materials both add up', () => {
+        const p = payload();
+        const finals = Object.fromEntries(p.lines.map((l) => [l.lineId, l.suggestedPence])) as Record<string, number>;
+        const perLine = Object.fromEntries(p.lines.map((l) => [l.lineId, lineMaterialsAtMargin(l, undefined, 27)]));
+        const t = totalsOf(p.lines, finals, 30, perLine);
+
+        const sumTotals = p.lines.reduce((s, l) => s + (l.suggestedPence ?? 0), 0);
+        const sumMaterials = p.lines.reduce((s, l) => s + lineMaterialsAtMargin(l, undefined, 27), 0);
+        const sumLabour = p.lines.reduce((s, l) => s + ((l.suggestedPence ?? 0) - lineMaterialsAtMargin(l, undefined, 27)), 0);
+
+        expect(t.totalPence).toBe(sumTotals);
+        expect(t.materialsPence).toBe(sumMaterials);
+        expect(t.labourPence).toBe(sumLabour);
+        expect(t.labourPence + t.materialsPence).toBe(t.totalPence);
+    });
+
+    // An untouched materials list must NOT be recomputed: the engine's figure is the one it priced with.
+    it('lineMaterialsAtMargin keeps the engine figure until Ben actually changes the list', () => {
+        const line = { ...doors, materialsPence: 35_200, materials: [{ index: 0, name: 'Board', qty: 2, unitCostPence: 1000, source: null }] } as PriceLine;
+        expect(lineMaterialsAtMargin(line, undefined, 27)).toBe(35_200);
+        expect(lineMaterialsAtMargin(line, [{ qty: 2, unitCostPence: 1000 }], 27)).toBe(35_200);   // same list, untouched
+        expect(lineMaterialsAtMargin(line, [{ qty: 3, unitCostPence: 1000 }], 27)).toBe(3_810);    // quantity changed → recompute
+        expect(lineMaterialsAtMargin(line, [{ qty: 2, unitCostPence: 1500 }], 27)).toBe(3_810);    // cost changed → recompute
+        expect(lineMaterialsAtMargin(line, [], 27)).toBe(0);                                        // all removed
+    });
+
     it('orderByDoubt: check_this and low confidence first, then a contradiction, stable otherwise', () => {
         const a = { ...doors, lineId: 'a', checkThis: false, confidence: 'high' as const };
         const b = { ...doors, lineId: 'b', checkThis: false, confidence: 'medium' as const };
@@ -155,7 +185,9 @@ describe('PriceAndSend (phone)', () => {
         expect(within(l1).getByTestId('contradiction-card_1:a0')).toHaveTextContent('assumes "Existing handles reused on all doors" but lists 7× Handle set, brushed');
         expect(within(l1).getByTestId('price-input-card_1')).toHaveValue(1800);
         expect(within(l1).getByTestId('band')).toHaveTextContent('Band £1,600–£2,050');
-        expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent('incl. £1,379.22 materials');
+        expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent('£1,379.22');
+        // P16b: the line shows its own split so the parts can be checked against the price.
+        expect(within(l1).getByTestId('split-card_1')).toHaveTextContent('labour £420.78 + materials £1,379.22');
 
         const l2 = screen.getByTestId('price-line-card_2');
         expect(within(l2).getByTestId('check-this')).toHaveTextContent('low confidence: unusual size');
@@ -178,7 +210,7 @@ describe('PriceAndSend (phone)', () => {
         await userEvent.click(within(l1).getByTestId('resolve-card_1:a0-drop_materials'));
         expect(within(l1).getByTestId('contradiction-card_1:a0')).toHaveTextContent('Dropped 7× Handle set, brushed.');
         expect(within(l1).queryByTestId('resolve-card_1:a0-drop_materials')).toBeNull();
-        expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent('incl. £1,219.20 materials');
+        expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent('£1,219.20');
         expect(within(l1).getByText('1 material')).toBeInTheDocument();
         // the assumption stays (it is now true)
         expect(within(l1).getByTestId('assumption-card_1-0')).toHaveValue('Existing handles reused on all doors');
@@ -220,7 +252,7 @@ describe('PriceAndSend (phone)', () => {
         fireEvent.change(cost, { target: { value: '12' } });
         // remove the doors (she is supplying them)
         await userEvent.click(within(l1).getByTestId('material-remove-card_1-0'));
-        expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent(`incl. ${gbp(Math.round(7 * 1200 * 1.27))} materials`);
+        expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent(gbp(Math.round(7 * 1200 * 1.27)));
         // drop the second assumption
         await userEvent.click(within(l1).getByTestId('assumption-drop-card_1-1'));
         expect(within(l1).queryByTestId('assumption-card_1-1')).toBeNull();
