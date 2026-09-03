@@ -23,6 +23,7 @@ export type Intent =
     // rules layer (content-free, template only)
     | 'ack_enquiry' | 'ack_photos' | 'ack_returning' | 'ask_media' | 'ask_postcode' | 'ask_name'
     | 'holding' | 'quote_on_its_way' | 'quote_unviewed' | 'promise_overdue_holding' | 'sla_chase'
+    | 'job_pack_ask'            // P13: one delivery question after the deposit (rules layer, fixed wording)
     // scoper (customer.default)
     | 'ask_gap' | 'clarify_scope' | 'confirm_received' | 'faq_from_kb' | 'point_to_quote_page' | 'closing'
     // scoper (customer.post_quote)

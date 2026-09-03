@@ -682,7 +682,25 @@ export async function confirmPrices(slug: string, body: unknown, user: { id?: st
         const sent = v.input.lines.find((f) => f.lineId === l.lineId)!;
         return { finalPence: sent.finalPence, materialsPence: materialsPenceFor(l, sent, payload.settings.materialsMarginPercent) };
     }), payload.settings.depositPercent);
-    const items = confirmedLineItems(await currentLineItems(payload.quoteId), payload, v.input.lines);
+    let items = confirmedLineItems(await currentLineItems(payload.quoteId), payload, v.input.lines);
+
+    // P13: Ben's edits (prices, materials as sent, assumptions as sent) go onto the job pack, and
+    // the quote's line items are DERIVED from the pack from here on, never the other way round. A
+    // quote with no pack (pre-P13 draft, or the table absent) keeps the P8 write above.
+    let packAfter: import('./job-pack').JobPack | null = null;
+    try {
+        const { getPackForQuote, applyBenEdits, commit, derivePricingLineItems, isMissingTable } = await import('./job-pack');
+        const { packEditsFromSend } = await import('./job-pack-writers');
+        const pack = await getPackForQuote(payload.quoteId).catch((e: any) => { if (isMissingTable(e)) return null; throw e; });
+        if (pack) {
+            const edits = packEditsFromSend(v.input.lines, (lineId) => { const l = payload.lines.find((x) => x.lineId === lineId)!; return Math.min(materialsPenceFor(l, v.input.lines.find((f) => f.lineId === lineId), payload.settings.materialsMarginPercent), v.input.lines.find((f) => f.lineId === lineId)!.finalPence); });
+            packAfter = commit(pack, { lines: applyBenEdits(pack.lines, edits) }, approver, 'ben', now);
+            items = derivePricingLineItems(packAfter, items);
+        }
+    } catch (error: any) {
+        console.warn('[PriceScreen] job pack edit failed (quote write proceeds from the screen):', error?.message ?? error);
+        packAfter = null;
+    }
 
     const { db } = await import('../db');
     const { personalizedQuotes, quotePriceVerdicts } = await import('@shared/schema');
@@ -705,6 +723,9 @@ export async function confirmPrices(slug: string, body: unknown, user: { id?: st
         ...(payload.hold ? { pricingSuggestions: sql`coalesce(${personalizedQuotes.pricingSuggestions}, '{}'::jsonb) - 'hold'` } : {}),
     } as any).where(and(eq(personalizedQuotes.id, payload.quoteId), eq(personalizedQuotes.isDraft, true))).returning({ id: personalizedQuotes.id });
     if (!updated.length) return { ok: false, status: 409, errors: ['This quote is no longer a draft (sent or taken over in the builder).'], payload };
+    if (packAfter) {
+        try { const { savePack } = await import('./job-pack'); await savePack(packAfter); } catch (error: any) { console.warn('[PriceScreen] job pack save failed after the quote write:', error?.message ?? error); }
+    }
     // A quote is priced once: a retry after a failed send replaces the earlier tap's rows rather
     // than double-counting the quote in the graduation stats.
     await db.delete(quotePriceVerdicts).where(eq(quotePriceVerdicts.slug, slug));

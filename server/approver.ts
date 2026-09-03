@@ -31,6 +31,7 @@ export const AUTOMATED_APPROVERS = [
     'rules.holding',          // rules layer: content-free holding line (silence-breaker, flag/draft expiry)
     'rules.ask',              // rules layer: content-free ask (media, postcode)
     'rules.followup',         // spine: rules.followup pack (quote_unviewed, promise_overdue_holding, sla_chase)
+    'rules.job_pack',         // P13: the job-pack delivery asks after the deposit, and the contractor pack notifications
     // System — a direct caller that is neither agent nor rule: the job itself needs the message.
     'system.invoice',
     'system.notification',

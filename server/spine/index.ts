@@ -118,6 +118,20 @@ async function runOnceInner(
     const caseFile = await buildCaseFile(conversationId, { parentRunId: runId });
     const triage = await runTriage(caseFile, { parentRunId: runId });
     await refreshTierOverlay(); // Phase 3: earned tiers, cached a minute, never throws
+
+    // P13: live filing. A customer message after the quote that answers a delivery field files
+    // into the job pack silently (change_log source `customer`); a rescope is never filed (triage
+    // tagged it; the Scoper lanes it). Internal, so it runs in every mode; never blocks the pass.
+    let packFiling: import('./job-pack-filing').FilingOutcome = null;
+    if ((trigger === 'inbound_message' || trigger === 'media_received') && caseFile.quote && !agentsOverride) {
+        try {
+            const { fileInboundIntoPack, liveFilingDeps } = await import('./job-pack-filing');
+            const last = [...caseFile.timeline].reverse().find((t) => t.kind === 'message_in');
+            packFiling = await fileInboundIntoPack({ conversationId, text: last?.body ?? null }, await liveFilingDeps());
+        } catch (e: any) {
+            console.warn(`[Spine] job pack filing failed for ${conversationId}:`, e?.message ?? e);
+        }
+    }
     const pack = resolvePack(caseFile, triage);
     const agentName = agentForLane(triage.lane);
     const agent = agentName ? agents[agentName] : undefined;
@@ -193,7 +207,7 @@ async function runOnceInner(
 
     await finishAgentRun(runId, { agent: recordedAgent, conversationId, phone: caseFile.phone }, {
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,
-        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(routeA ? { routeA } : {}) },
+        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(routeA ? { routeA } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
         guardsHit: guards?.guardsHit ?? [],
         ...(opts.shadow ? { shadowDecision: decision.kind } : {}),
     });

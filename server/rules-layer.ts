@@ -43,7 +43,9 @@ import type { Approver } from './approver';
 
 export type HoldingKind = 'silence' | 'flag_expiry' | 'draft_expiry';
 export type AskKind = 'ask_media' | 'ask_postcode' | 'ask_name';
-export type RulesKind = HoldingKind | AskKind;
+/** P13: one delivery question for the job pack after the deposit (server/spine/job-pack-asks.ts). */
+export type JobPackAskKind = 'job_pack_ask';
+export type RulesKind = HoldingKind | AskKind | JobPackAskKind;
 
 /** One holding line per wait: nothing from this module twice inside this window. */
 export const HOLDING_SUPPRESS_WINDOW_MS = 2 * 60 * 60_000;
@@ -107,7 +109,10 @@ export const ASK_TEMPLATE_PREFERENCE: Record<AskKind, string[]> = {
     ask_name: [],
 };
 
+export const JOB_PACK_ASK_TEMPLATE_PREFERENCE: string[] = ['job_pack_ask_v1', 'job_pack_ask'];
+
 export const RULES_APPROVER: Record<RulesKind, Approver> = {
+    job_pack_ask: 'rules.job_pack',
     silence: 'rules.holding',
     flag_expiry: 'rules.holding',
     draft_expiry: 'rules.holding',
@@ -339,6 +344,42 @@ const ASK_WHY: Record<AskKind, string> = {
     ask_postcode: 'Content-free postcode ask.',
     ask_name: 'Content-free name ask.',
 };
+
+/**
+ * P13: ONE job-pack delivery question (fixed wording, no price, no date) through the same pipe as
+ * every rules send: window / template / SMS, else queued for Ben with the reason. The field asked
+ * is stamped in the draft reason (`[job_pack_ask:job.pets]`) so the next sweep and the filing pass
+ * can read it back.
+ */
+export async function sendJobPackAsk(conversationId: string, field: string, body: string, runId: string): Promise<RulesSendResult> {
+    return deliver({
+        conversationId, kind: 'job_pack_ask', runId, body,
+        templateNames: JOB_PACK_ASK_TEMPLATE_PREFERENCE,
+        why: `Job pack: ${field} still unknown after the deposit.`,
+    });
+}
+
+/** P13: the newest job-pack ask on a thread within `withinMs` (default 24h): which field, when. */
+export async function lastJobPackAsk(conversationId: string, withinMs: number = 24 * 3600_000): Promise<{ field: string; at: Date } | null> {
+    const since = new Date(Date.now() - withinMs);
+    const [conv] = await db.select({ phoneNumber: conversations.phoneNumber }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    if (!conv) return null;
+    const digits = (conv.phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+    if (!digits) return null;
+    const rows = await db.select({ reason: messageDrafts.reason, at: messageDrafts.sentAt, createdAt: messageDrafts.createdAt, status: messageDrafts.status }).from(messageDrafts)
+        .where(and(
+            eq(messageDrafts.source, 'rules_layer'),
+            sql`regexp_replace(${messageDrafts.phone}, '[^0-9]', '', 'g') = ${digits}`,
+            gte(messageDrafts.createdAt, since),
+        )).orderBy(desc(messageDrafts.createdAt)).limit(10);
+    for (const r of rows) {
+        // A pending one counts too: a question queued for Ben must not be asked again tomorrow by another route.
+        if (r.status !== 'sent' && r.status !== 'pending' && r.status !== 'approved') continue;
+        const m = /^\[job_pack_ask\] Job pack: (\S+) still unknown/.exec(r.reason ?? '');
+        if (m) return { field: m[1], at: new Date(r.at ?? r.createdAt) };
+    }
+    return null;
+}
 
 /** "We have got it" — the send that means a customer can never be waiting in silence. */
 /** Newest rules-layer ASK on a thread within `withinMs` (default 24h), for the one-ask-per-day rule. */

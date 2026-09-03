@@ -151,6 +151,7 @@ export function foldEstimateLines(
             name: String(m.name ?? ''), qty: Number(m.qty) || 1, unitCostPence: Math.max(0, Math.round(Number(m.unitPricePence) || 0)),
             source: (['catalog', 'screwfix', 'web', 'model'] as const).includes(m.supplier) ? m.supplier : 'model',
             needsReview: !!m.needsReview, supplierUrl: m.supplierUrl ?? null, supplierItemNumber: m.supplierItemNumber ?? null, catalogId: m.catalogId ?? null,
+            ...(typeof m.size === 'string' && m.size.trim() ? { size: m.size.trim().slice(0, 80) } : {}),
         })).filter((m: EstimateMaterial) => m.name);
         const flags = Array.isArray(bl?.flags) ? bl!.flags!.map(String) : [];
         const conf = (bl?.time?.confidence === 'high' || bl?.time?.confidence === 'medium' || bl?.time?.confidence === 'low') ? bl.time.confidence : 'low';

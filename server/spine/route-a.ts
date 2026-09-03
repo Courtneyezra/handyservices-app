@@ -25,6 +25,7 @@ import type { IntakeLineForEstimate } from './agents/estimator';
 import { intakeFromArtifact, createPricedDraft } from './quote-intake';
 import { buildSurveyOfferProposal, surveyWhyFrom } from './survey-offer';
 import { newRunId } from '../approver';
+import { writePackFromChain } from './job-pack-writers';
 
 export interface RouteAOutcome {
     ran: boolean;
@@ -45,7 +46,8 @@ export interface RouteADeps {
     createDraft?: typeof createPricedDraft;
     supersede?: typeof supersedeEstimatesForConversation;
     notify?: (alert: { conversationId: string; customerName?: string | null; postcode?: string | null; slug: string; lines: string[]; checkThis: number; suggestedTotalPence?: number | null; estimatorFailed?: string | null }) => Promise<void>;
-    log?: (e: { kind: 'other' | 'hold'; summary: string; detail: Record<string, unknown>; conversationId: string; source: string }) => Promise<void>;
+    log?: (e: { kind: 'other' | 'hold'; summary: string; detail: Record<string, unknown>; conversationId: string; source: string }) => Promise<void>;    /** P13: the job pack writer (job-pack-writers.ts); injectable for tests. */
+    writePack?: (input: import('./job-pack-writers').ChainPackInput) => Promise<unknown>;
 }
 
 /**
@@ -135,6 +137,9 @@ export async function runRouteAChain(input: {
             await finishEstimate(estimate.id, { status: 'failed', error: estimatorFailed, draftQuoteId: draft.id });
         } catch { /* bookkeeping */ }
     }
+    // P13: the job pack — the clerk's lines with evidence and the estimator's judgement onto ONE
+    // record for this quote. Internal; never blocks the chain; absent table = logged and skipped.
+    await (deps.writePack ?? writePackFromChain)({ quoteId: draft.id, conversationId: caseFile.conversationId, intakeRunId: clerkRunId, intake, estimate, intakeLines }).catch((e: any) => console.warn('[RouteA] job pack write failed (draft stands):', e?.message ?? e));
     const checkThis = suggestions.lines.filter((l) => l.checkThis).length;
     await log({
         kind: 'other', source: 'route-a', conversationId: caseFile.conversationId,
@@ -184,6 +189,7 @@ export async function runFallbackDraftForOrphan(estimateId: string, deps: RouteA
     const draft = await (deps.createDraft ?? createPricedDraft)({ conversationId: est.conversationId, intake, estimate, suggestions });
     if (!draft.ok) return { ok: false, reason: draft.errors.join('; ') };
     try { await finishEstimate(est.id, { status: 'failed', error, draftQuoteId: draft.id }); } catch { /* bookkeeping */ }
+    await (deps.writePack ?? writePackFromChain)({ quoteId: draft.id, conversationId: est.conversationId, intakeRunId: est.intakeRunId, intake, estimate, intakeLines }).catch((e: any) => console.warn('[RouteA] job pack write failed (orphan draft stands):', e?.message ?? e));
     const checkThis = suggestions.lines.filter((l) => l.checkThis).length;
     const log = deps.log ?? (async (e) => { const { logSystemEvent } = await import('../system-events'); await logSystemEvent(e); });
     await log({ kind: 'other', source: 'route-a', conversationId: est.conversationId, summary: `Route A (janitor): draft ${draft.slug} from reference rates for orphaned estimate ${est.id}`, detail: { estimateId: est.id, draftId: draft.id, slug: draft.slug, error, totals: suggestions.totals } }).catch(() => undefined);

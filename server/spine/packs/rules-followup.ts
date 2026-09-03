@@ -6,7 +6,7 @@ export const RULES_FOLLOWUP: PolicyPack = {
     version: 1,
     audience: 'customer',
     city: 'nottingham',
-    allowedIntents: ['quote_unviewed', 'promise_overdue_holding', 'sla_chase'],
+    allowedIntents: ['quote_unviewed', 'promise_overdue_holding', 'sla_chase', 'job_pack_ask'],
     guardSet: ['voice'],
     tierByIntent: {},
     defaultTier: 'SEND',
@@ -17,5 +17,8 @@ export const RULES_FOLLOWUP: PolicyPack = {
     templates: {
         promise_overdue_holding: 'holding_line',
         sla_chase: 'holding_line',
+        // P13: business-initiated after the deposit; outside 24 h it needs this approved template
+        // (docs/comms-build/TEMPLATES-JOB-PACK.md). Until approved: SMS, else Ben's queue.
+        job_pack_ask: 'job_pack_ask_v1',
     },
 };

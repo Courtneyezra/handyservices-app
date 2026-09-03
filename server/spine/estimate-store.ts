@@ -23,6 +23,8 @@ export interface EstimateMaterial {
     supplierUrl?: string | null;
     supplierItemNumber?: string | null;
     catalogId?: string | null;
+    /** P13: the size the item was chosen at ("762 × 1981 mm"), for the job pack. */
+    size?: string | null;
 }
 
 export interface EstimateLine {

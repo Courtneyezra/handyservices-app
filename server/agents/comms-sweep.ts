@@ -69,6 +69,15 @@ async function sweepOnce(): Promise<void> {
         } catch (e: any) {
             console.warn('[CommsSweep] untriggered-quote sweep failed:', e?.message ?? e);
         }
+        // P13: the job-pack delivery asks after the deposit (one per thread per day, fixed wording,
+        // proactive hours only, UK numbers only). Never throws; table absent = quiet.
+        try {
+            const { runJobPackAskSweep } = await import('../spine/job-pack-asks');
+            const r = await runJobPackAskSweep();
+            if (r && r.asked.length) console.log(`[CommsSweep] job pack asks: ${r.asked.map((a) => `${a.conversationId}:${a.field}:${a.reason}`).join(', ')}`);
+        } catch (e: any) {
+            console.warn('[CommsSweep] job pack ask sweep failed:', e?.message ?? e);
+        }
     }
     const { getCommsAgentConfig, runCommsAgent } = await import('./comms');
     const config = await getCommsAgentConfig();

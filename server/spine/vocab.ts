@@ -19,7 +19,7 @@ export const EXCEPTIONS = [
 
 export const RULES_INTENTS = [
     'ack_enquiry', 'ack_photos', 'ack_returning', 'ask_media', 'ask_postcode', 'ask_name',
-    'holding', 'quote_on_its_way', 'quote_unviewed', 'promise_overdue_holding', 'sla_chase',
+    'holding', 'quote_on_its_way', 'quote_unviewed', 'promise_overdue_holding', 'sla_chase', 'job_pack_ask',
 ] as const satisfies readonly Intent[];
 export const SCOPER_INTENTS = ['ask_gap', 'clarify_scope', 'confirm_received', 'faq_from_kb', 'point_to_quote_page', 'closing'] as const satisfies readonly Intent[];
 export const POST_QUOTE_INTENTS = ['answer_from_quote', 'point_to_picker'] as const satisfies readonly Intent[];

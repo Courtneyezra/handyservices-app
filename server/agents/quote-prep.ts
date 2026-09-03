@@ -34,6 +34,25 @@ export interface IntakeLine {
     detail: string;
     /** Caveats THIS line's price is based on (customer-visible on the quote page). */
     assumptions: string[];
+    // ---- P13: the job pack's clerk-owned fields (docs/comms-build/CLERK-EVIDENCE.md, BRIEF-P13 part 2)
+    /** The customer's messages this line was scoped from: message ids from get_thread + the sentence, verbatim. */
+    evidence?: Array<{ messageId: string; text: string }>;
+    /** Ids of the photo / video messages that show this line's work. */
+    mediaIds?: string[];
+    /** What this line does NOT include, in the customer's terms. */
+    exclusions?: string[];
+    /** Sizes the work depends on, when we supply something sized ("762 × 1981 mm"). null = not known. */
+    sizes?: string | null;
+    /** Spec / finish / model ("oak veneer, 4 panel, unfinished"). */
+    spec?: string | null;
+    /** Who supplies the materials for this line. */
+    supplyBy?: 'us' | 'customer' | 'none' | null;
+    /** What could go wrong on the day (asbestos, height, live wiring, unknown substrate). */
+    hazards?: string[];
+    /** Where the waste goes. */
+    disposal?: string | null;
+    /** A supplier lead time the date depends on. */
+    leadTime?: string | null;
 }
 
 /** Can we price this from the thread, do we need an answer first, do we need eyes on it —
@@ -109,6 +128,26 @@ export interface IntakeGap {
     impact: GapImpact;
 }
 
+/** Words in a title that mean what we supply has a size and a spec the price rests on (server/spine/job-pack.ts keeps the same list). */
+const SIZED_SUPPLY_WORDS = /\b(door|doors|window|windows|worktop|unit|units|radiator|blind|blinds|panel|panels|fence|gate|shelf|shelves|flooring|laminate|tiles?)\b/i;
+
+/**
+ * P13: the gaps the job pack needs answered before a price. Deterministic, from the clerk's own
+ * lines: when the clerk says WE supply a sized item and left sizes or spec empty, that is a
+ * customer question with a large impact. Nothing is inferred when supplyBy is not given.
+ */
+export function packGapsFor(lines: IntakeLine[]): IntakeGap[] {
+    const out: IntakeGap[] = [];
+    lines.forEach((l, i) => {
+        if (l.supplyBy !== 'us' || !SIZED_SUPPLY_WORDS.test(l.title)) return;
+        const what = (SIZED_SUPPLY_WORDS.exec(l.title)?.[1] ?? 'item').toLowerCase();
+        const plural = what.endsWith('s') ? what : `${what}s`;
+        if (!l.sizes) out.push({ question: `What size are the ${plural} we are supplying? Width, height and thickness if you can.`, audience: 'customer', lineIndex: i + 1, impact: 'large' });
+        if (!l.spec) out.push({ question: `Which finish or style do you want for the ${plural} we are supplying?`, audience: 'customer', lineIndex: i + 1, impact: 'large' });
+    });
+    return out;
+}
+
 export interface QuoteIntake {
     customerName: string | null;
     phone: string;
@@ -163,11 +202,23 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
         if (/£\s*\d/.test(title)) throw new Error(`Line ${i + 1} title contains a price. Pricing is not your job.`);
         const detail = String(l?.detail ?? '').trim().slice(0, 1200);
         if (/£\s*\d/.test(detail)) throw new Error(`Line ${i + 1} detail contains a price. Pricing is not your job.`);
+        const strList = (v: any, max: number, len = 200) => (Array.isArray(v) ? v : []).slice(0, max).map((x: any) => String(x).trim().slice(0, len)).filter(Boolean);
+        const optStr = (v: any, len = 300): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, len) : null);
+        const supplyRaw = String(l?.supplyBy ?? '').toLowerCase();
+        const supplyBy = supplyRaw === 'us' || supplyRaw === 'customer' || supplyRaw === 'none' ? (supplyRaw as 'us' | 'customer' | 'none') : null;
         return {
             title,
             detail,
             assumptions: (Array.isArray(l?.assumptions) ? l.assumptions : [])
                 .slice(0, 6).map((s: any) => String(s).trim().slice(0, 200)).filter(Boolean),
+            // P13: the pack fields. Absent = not given; the pack treats an empty field as unknown.
+            evidence: (Array.isArray(l?.evidence) ? l.evidence : []).slice(0, 3)
+                .map((e: any) => ({ messageId: String(e?.messageId ?? '').trim(), text: String(e?.text ?? '').trim().slice(0, 180) }))
+                .filter((e: { messageId: string; text: string }) => e.text || e.messageId),
+            mediaIds: strList(l?.mediaIds, 12, 80),
+            exclusions: strList(l?.exclusions, 6),
+            sizes: optStr(l?.sizes), spec: optStr(l?.spec), supplyBy,
+            hazards: strList(l?.hazards, 6, 120), disposal: optStr(l?.disposal, 200), leadTime: optStr(l?.leadTime, 120),
         };
     });
 
@@ -244,6 +295,10 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
         throw new Error('declineReason is only valid with readiness decline. For a mixed job, keep the reason on the excluded[] entry instead and pick the honest lane for the in-scope work.');
     }
 
+    // P13: price-critical pack fields the clerk left empty become customer gaps, and a quote_ready
+    // verdict with such a gap is needs_info: Route A must not price a supplied door with no size.
+    const packGaps = packGapsFor(lines).filter((g) => !gaps.some((x) => x.question === g.question));
+    const readinessAfterPack: IntakeReadiness = readiness === 'quote_ready' && packGaps.length ? 'needs_info' : readiness;
     return {
         // Both candidates pass the placeholder gate: the stored contactName starts life as the
         // WhatsApp pushname ("Just Me", an emoji, a business in caps) and the model occasionally
@@ -256,10 +311,10 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
             .includes(input?.customerType) ? input.customerType : 'homeowner',
         lines,
         assumptions: (input?.assumptions ?? []).slice(0, 8).map((s: any) => String(s).trim().slice(0, 200)).filter(Boolean),
-        readiness,
+        readiness: readinessAfterPack,
         declineReason: readiness === 'decline' ? declineReason : null,
         excluded,
-        gaps,
+        gaps: [...gaps, ...packGaps],
         urgency: ['low', 'med', 'high'].includes(input?.urgency) ? input.urgency : 'med',
     };
 }
@@ -291,7 +346,8 @@ export async function runQuotePrep(
 
                 const timeline = [
                     ...recent.map((m) => ({
-                        kind: 'message', at: m.createdAt?.toISOString(), direction: m.direction,
+                        // P13: the id is what a line's evidence / mediaIds cite (a media message's id IS its media id).
+                        id: m.id, kind: 'message', at: m.createdAt?.toISOString(), direction: m.direction,
                         content: (m.content ?? '').slice(0, 400), hasMedia: !!m.mediaUrl,
                     })),
                     ...callRows.map((c) => ({
@@ -358,6 +414,19 @@ export async function runQuotePrep(
                                     items: { type: 'string' },
                                     description: 'Caveats THIS line\'s price depends on, from what the media cannot confirm (e.g. "assumes the existing isolation valve still works").',
                                 },
+                                evidence: {
+                                    type: 'array',
+                                    description: 'JOB PACK. The customer messages this line came from: up to 3 of {messageId, text}. messageId = the id from get_thread; text = the customer\'s own sentence, verbatim (no paraphrase, max 180 chars). Empty when the line comes from a photo alone.',
+                                    items: { type: 'object', properties: { messageId: { type: 'string' }, text: { type: 'string' } }, required: ['messageId', 'text'] },
+                                },
+                                mediaIds: { type: 'array', items: { type: 'string' }, description: 'JOB PACK. Ids (from get_thread, hasMedia: true) of the photos / video that show THIS line\'s work.' },
+                                exclusions: { type: 'array', items: { type: 'string' }, description: 'JOB PACK. What this line does NOT include, in the customer\'s terms ("not the decorating", "old doors left for the customer to dispose of").' },
+                                sizes: { type: ['string', 'null'], description: 'JOB PACK. Sizes the work depends on when WE supply something sized (doors, windows, units, blinds…): "762 × 1981 mm, 35 mm". null when not stated; never guess.' },
+                                spec: { type: ['string', 'null'], description: 'JOB PACK. Spec / finish / model of what we supply ("oak veneer, 4 panel, unfinished"). null when not stated.' },
+                                supplyBy: { type: ['string', 'null'], enum: ['us', 'customer', 'none', null], description: 'JOB PACK. Who supplies the materials for this line: us, the customer, or none (labour only). null when unclear.' },
+                                hazards: { type: 'array', items: { type: 'string' }, description: 'JOB PACK. What could go wrong on the day, from the thread: asbestos / artex, working at height, live wiring, gas nearby, unknown substrate, damp. Empty when nothing is visible.' },
+                                disposal: { type: ['string', 'null'], description: 'JOB PACK. Where the waste goes ("customer\'s skip", "we take the old doors", "none"). null when not stated.' },
+                                leadTime: { type: ['string', 'null'], description: 'JOB PACK. A supplier lead time the customer mentioned or the work implies ("made-to-measure blinds, 2 weeks"). null when none.' },
                             },
                             required: ['title', 'detail', 'assumptions'],
                         },
@@ -478,6 +547,18 @@ THE LINE SPLIT (this is the part that goes wrong):
 - assumptions = what THIS line's price has to take on trust because the media cannot confirm it.
 - Quote-level assumptions (the top-level field) are for things that span the job: access,
   parking, power, someone being in.
+
+THE JOB PACK (per line, for the contractor at the door — carried unchanged to the job sheet):
+- evidence = the customer's own sentences this line came from, with the message ids from
+  get_thread, verbatim. mediaIds = the ids of the photos / video that show THIS line's work.
+- exclusions = what the line does not include, in their words.
+- sizes and spec = when WE supply something sized (doors, windows, units, blinds, panels,
+  worktops, radiators, flooring), the measurements and the finish / model. Never guess: if the
+  customer has not said, leave them null and the tool turns them into customer gaps, because a
+  supplied door with no size cannot be priced. supplyBy = us | customer | none.
+- hazards (asbestos / artex, height, live wiring, gas nearby, unknown substrate, damp), disposal
+  (where the old material goes) and leadTime (a supplier wait the date depends on) when the
+  thread shows them.
 
 READINESS, judged for the whole conversation:
 - quote_ready — everything needed to price it honestly is in the thread. No customer gaps allowed.
