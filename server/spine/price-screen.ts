@@ -25,6 +25,7 @@ import {
     type PriceScreenThread, type LineEvidence, type Contradiction, type QuoteHold, type Resolution,
 } from './price-brief';
 import { labourBandFromMinutes } from './pricing-bridge';
+import { notIncludedFrom } from './job-pack';
 
 // ---------------------------------------------------------------- shapes (pane A's, described)
 
@@ -134,6 +135,8 @@ export interface PriceScreenLine {
     checkReason: string | null;
     flags: string[];
     assumptions: string[];
+    /** P15: the customer-facing "Not included" list Ben edits (derived from the clerk's exclusions + assumptions when the line has none). */
+    notIncluded: string[];
     basis: { minutes: number | null; ratePencePerHour: number | null; marginPct: number | null; rules: string[] } | null;
     /** P12: this line's materials (qty, cost; margin applied on the screen), swap or remove per line. */
     materials: PriceScreenMaterial[];
@@ -264,6 +267,10 @@ export function buildScreenLine(input: {
         lineId, index: mi, name: String(m?.name ?? 'Material'), qty: Math.max(1, int(m?.qty) ?? 1),
         unitCostPence: int(m?.unitCostPence) ?? int(m?.unitPricePence), source: str(m?.source) ?? str(m?.supplier),
     }));
+    const assumptions: string[] = Array.isArray(line?.assumptions) ? line.assumptions.map(String) : Array.isArray(est?.assumptions) ? est!.assumptions!.map(String) : [];
+    const notIncluded: string[] = Array.isArray(line?.notIncluded) && line.notIncluded.length
+        ? line.notIncluded.map(String)
+        : notIncludedFrom(Array.isArray(line?.exclusions) ? line.exclusions.map(String) : [], assumptions);
     return {
         lineId, title,
         category: str(line?.category) ?? str(est?.category) ?? null,
@@ -278,7 +285,8 @@ export function buildScreenLine(input: {
         confidence: conf(sug?.confidence) ?? conf(est?.confidence) ?? conf(line?.confidence),
         checkThis, checkReason: checkThis ? checkReason : null,
         flags,
-        assumptions: Array.isArray(line?.assumptions) ? line.assumptions.map(String) : Array.isArray(est?.assumptions) ? est!.assumptions!.map(String) : [],
+        assumptions,
+        notIncluded,
         basis: sug?.basis ? {
             minutes: int(sug.basis.minutes), ratePencePerHour: int(sug.basis.ratePencePerHour), marginPct: num(sug.basis.marginPct),
             rules: Array.isArray(sug.basis.rules) ? sug.basis.rules.map(String) : [],
@@ -420,6 +428,8 @@ export interface SendLine {
     materials?: SendMaterial[];
     /** P12: the customer-facing assumptions as Ben left them (edit / drop). Absent = unchanged. */
     assumptions?: string[];
+    /** P15: the customer-facing "Not included" list as Ben left it (edit / add / drop). Absent = unchanged. */
+    notIncluded?: string[];
 }
 export interface SendInput {
     version: string;
@@ -463,6 +473,11 @@ export function validateSendBody(body: unknown, expectedLineIds: string[]): { ok
             out.materials = mats;
         }
         if (Array.isArray(l?.assumptions)) out.assumptions = l.assumptions.map((a: unknown) => String(a ?? '').trim()).filter(Boolean).slice(0, 12);
+        if (Array.isArray(l?.notIncluded)) {
+            const items: string[] = l.notIncluded.map((a: unknown) => String(a ?? '').trim()).filter(Boolean).slice(0, 8);
+            for (const n of items) if (n.length > 120) errors.push(`Line ${lineId}: "${n.slice(0, 30)}…" is over 120 characters; keep "not included" to plain words.`);
+            out.notIncluded = items;
+        }
         lines.push(out);
     }
     for (const id of expectedLineIds) if (!seen.has(id)) errors.push(`No price given for line ${id}.`);
@@ -487,6 +502,8 @@ export interface VerdictMeta {
     /** Materials as sent, when Ben changed them; assumptions as sent, when he changed them. */
     materialsChanged: boolean;
     assumptionsChanged: boolean;
+    /** P15: the not-included list as sent differs from what the screen showed. */
+    notIncludedChanged: boolean;
     contradictionsOnLine: number;
 }
 
@@ -520,6 +537,7 @@ export function verdictRowsFor(
                 messageEdited: extra.messageEdited === true,
                 materialsChanged: f.materials != null && !sameMaterials(l.materials, f.materials),
                 assumptionsChanged: f.assumptions != null && JSON.stringify(f.assumptions) !== JSON.stringify(l.assumptions),
+                notIncludedChanged: f.notIncluded != null && JSON.stringify(f.notIncluded) !== JSON.stringify(l.notIncluded),
                 contradictionsOnLine: onLine.length,
             },
         };
@@ -557,6 +575,8 @@ export function confirmedLineItems(existing: any[], payload: Pick<PriceScreenPay
         const edits: Record<string, unknown> = {};
         if (sent.materials) edits.materials = sent.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence, unitPricePence: m.unitCostPence, source: m.source ?? 'manual', supplier: m.source === 'screwfix' || m.source === 'catalog' ? m.source : 'manual' }));
         if (sent.assumptions) edits.assumptions = sent.assumptions;
+        // P15: the not-included list the customer sees is what Ben sent, else what the screen showed.
+        edits.notIncluded = sent.notIncluded ?? (Array.isArray(prev.notIncluded) && prev.notIncluded.length ? prev.notIncluded : l.notIncluded);
         return {
             ...prev,
             ...edits,

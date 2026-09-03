@@ -181,3 +181,41 @@ describe('verdictRowsFor / confirmedLineItems / totalsFor', () => {
         expect(totalsFor([{ finalPence: 10_000, materialsPence: 0 }], 50).depositPence).toBe(5_000);
     });
 });
+
+// ---------------------------------------------------------------- P15 part 1: "Not included" on the price screen
+
+describe('P15 part 1: not included on the price screen', () => {
+    const screenLines = (items: any[]) => items.map((line, index) => buildScreenLine({ index, line, estimateLine: null, suggestion: null, materialsMarginPercent: 27 }));
+
+    it("buildScreenLine derives the list from the clerk's exclusions + assumptions when the draft line has none, and reads it when it does", () => {
+        const derived = buildScreenLine({ index: 0, line: { lineId: 'card_1', title: 'Doors', exclusions: ['Decorating'], assumptions: ['Frames reused', 'Frames are sound'] }, estimateLine: null, suggestion: null, materialsMarginPercent: 27 });
+        expect(derived.notIncluded).toEqual(['decorating not included', 'frames reused']);
+        expect(derived.assumptions).toEqual(['Frames reused', 'Frames are sound']);
+        const given = buildScreenLine({ index: 0, line: { lineId: 'card_1', title: 'Doors', exclusions: ['Decorating'], notIncluded: ['small top door not included'] }, estimateLine: null, suggestion: null, materialsMarginPercent: 27 });
+        expect(given.notIncluded).toEqual(['small top door not included']);
+        expect(buildScreenLine({ index: 0, line: { lineId: 'card_1', title: 'Doors' }, estimateLine: null, suggestion: null, materialsMarginPercent: 27 }).notIncluded).toEqual([]);
+    });
+
+    it('validateSendBody carries the list trimmed and capped; confirmedLineItems writes what Ben sent (else what the screen showed); the verdict meta says it changed', () => {
+        const items = row().pricing_line_items!;
+        items[0].exclusions = ['Decorating'];
+        const lines = screenLines(items);
+        expect(lines[0].notIncluded).toEqual(['decorating not included']);
+        const v = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', finalPence: 24900, notIncluded: [' small top door not included ', '', 'frames reused'] }, { lineId: 'card_2', finalPence: 15900 }] }, ['card_1', 'card_2']);
+        if (!v.ok) throw new Error(v.errors.join('; '));
+        expect(v.input.lines[0].notIncluded).toEqual(['small top door not included', 'frames reused']);
+        expect(v.input.lines[1].notIncluded).toBeUndefined();
+        const written = confirmedLineItems(items, { lines, settings }, v.input.lines);
+        expect(written[0].notIncluded).toEqual(['small top door not included', 'frames reused']);
+        expect(written[1].notIncluded).toEqual([]);
+        const rows = verdictRowsFor({ slug: 'ab12cd34', quoteId: 'quote_1', lines }, v.input.lines, 'human:ben', new Date('2026-09-05T09:00:00Z'));
+        expect(rows[0].meta.notIncludedChanged).toBe(true);
+        expect(rows[1].meta.notIncludedChanged).toBe(false);
+    });
+
+    it('an item over 120 characters is refused: keep "not included" to plain words', () => {
+        const v = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', finalPence: 24900, notIncluded: ['x'.repeat(121)] }] }, ['card_1']);
+        expect(v.ok).toBe(false);
+        if (!v.ok) expect(v.errors[0]).toMatch(/plain words/);
+    });
+});

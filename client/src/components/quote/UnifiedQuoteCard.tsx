@@ -136,7 +136,7 @@ function MaterialThumb({ url, isDark }: { url?: string; isDark: boolean }) {
  * scannable. SKU lines read as solid product tiles (green icon), custom lines
  * as a "made-to-order" neutral icon.
  */
-function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = false, onCross, crossed = false }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number; collapsible?: boolean; onCross?: () => void; crossed?: boolean }) {
+export function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = false, onCross, crossed = false }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number; collapsible?: boolean; onCross?: () => void; crossed?: boolean }) {
   const anyItem = item as any;
   const isSku = anyItem.source === 'sku';
   const title = anyItem.skuName || item.description;
@@ -150,6 +150,12 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
   const assumptions: string[] | null =
     Array.isArray(anyItem.assumptions) && anyItem.assumptions.length > 0
       ? anyItem.assumptions.filter((a: unknown) => typeof a === 'string' && (a as string).trim())
+      : null;
+  // P15 part 1: what this line does NOT include, in plain words, as Ben sent it. Shown under the
+  // line so "is this included?" is answered on the quote, not on a call to the office.
+  const notIncluded: string[] | null =
+    Array.isArray(anyItem.notIncluded) && anyItem.notIncluded.length > 0
+      ? anyItem.notIncluded.filter((a: unknown) => typeof a === 'string' && (a as string).trim())
       : null;
   const [expanded, setExpanded] = useState(false);
   // Crossed-off ("saved for later") rows collapse their steps and dim in place.
@@ -189,7 +195,7 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
   // Static rows with nothing beyond the badge to show (no description, no
   // materials split) skip the content block entirely — a lone badge under a
   // bare title is chrome, not information.
-  const hasContent = Boolean(customerDesc) || Boolean(scopeSteps) || Boolean(assumptions) || (hasMaterials && labourDisplayPence > 0);
+  const hasContent = Boolean(customerDesc) || Boolean(scopeSteps) || Boolean(assumptions) || Boolean(notIncluded) || (hasMaterials && labourDisplayPence > 0);
   // A cross-off (onCross) puts a real <button> in the header, so the header
   // itself can't be a <button> (no nested buttons) — use a div with role/keys
   // when it also needs to toggle expand.
@@ -322,6 +328,21 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
                 </p>
                 <ul className="flex flex-col gap-0.5">
                   {assumptions.map((a, i) => (
+                    <li key={i} className={`text-[11.5px] leading-snug flex items-start gap-1.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <span className="shrink-0 mt-[3px] w-1 h-1 rounded-full bg-current opacity-60" />
+                      <span>{a}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {notIncluded && (
+              <div className={`mt-1 rounded-md px-2 py-1.5 border ${isDarkTheme ? 'bg-white/[0.03] border-white/10' : 'bg-slate-50 border-slate-200'}`} data-testid="line-not-included">
+                <p className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Not included
+                </p>
+                <ul className="flex flex-col gap-0.5">
+                  {notIncluded.map((a, i) => (
                     <li key={i} className={`text-[11.5px] leading-snug flex items-start gap-1.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                       <span className="shrink-0 mt-[3px] w-1 h-1 rounded-full bg-current opacity-60" />
                       <span>{a}</span>

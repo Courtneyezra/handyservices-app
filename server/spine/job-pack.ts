@@ -49,6 +49,12 @@ export interface PackLine {
     assumptions: string[];
     /** What this line does NOT include, in the customer's terms. */
     exclusions: string[];
+    /**
+     * P15 part 1: the customer-facing "Not included: …" in plain words. The clerk derives it from
+     * the exclusions and the assumptions that exclude something ("small top door not included",
+     * "frames reused"); Ben edits it on the price screen; the quote page and the pack task render it.
+     */
+    notIncluded: string[];
     /** Sizes the work depends on ("762 × 1981 mm, 35 mm thick"), when the line supplies something sized. */
     sizes: string | null;
     /** Spec / finish / model ("oak veneer, 4 panel, unfinished"). */
@@ -143,7 +149,7 @@ export function emptyJob(): PackJob {
 
 export function emptyLine(lineId: string, title: string): PackLine {
     return {
-        lineId, title, evidence: [], mediaIds: [], detail: null, assumptions: [], exclusions: [], sizes: null, spec: null, supplyBy: null,
+        lineId, title, evidence: [], mediaIds: [], detail: null, assumptions: [], exclusions: [], notIncluded: [], sizes: null, spec: null, supplyBy: null,
         procedure: [], category: null, minutesLow: null, minutesPoint: null, minutesHigh: null, materials: [], hazards: [], disposal: null,
         leadTime: null, pricePence: null, labourPence: null, materialsPence: null,
     };
@@ -190,7 +196,7 @@ export function normaliseLine(l: any, index = 0): PackLine {
         ...base,
         evidence: Array.isArray(l.evidence) ? l.evidence.map((e: any) => ({ messageId: String(e?.messageId ?? ''), text: String(e?.text ?? '').trim() })).filter((e: PackEvidence) => e.text || e.messageId).slice(0, 3) : [],
         mediaIds: strs(l.mediaIds, 12),
-        detail: str(l.detail), assumptions: strs(l.assumptions, 8), exclusions: strs(l.exclusions, 8),
+        detail: str(l.detail), assumptions: strs(l.assumptions, 8), exclusions: strs(l.exclusions, 8), notIncluded: strs(l.notIncluded, 8),
         sizes: str(l.sizes), spec: str(l.spec), supplyBy: normaliseSupplyBy(l.supplyBy),
         procedure: strs(l.procedure, 8), category: str(l.category),
         minutesLow: int(l.minutesLow), minutesPoint: int(l.minutesPoint), minutesHigh: int(l.minutesHigh),
@@ -282,7 +288,7 @@ function same(a: unknown, b: unknown): boolean {
     return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
-const LINE_FIELDS: Array<keyof PackLine> = ['title', 'evidence', 'mediaIds', 'detail', 'assumptions', 'exclusions', 'sizes', 'spec', 'supplyBy', 'procedure', 'category', 'minutesLow', 'minutesPoint', 'minutesHigh', 'materials', 'hazards', 'disposal', 'leadTime', 'pricePence', 'labourPence', 'materialsPence'];
+const LINE_FIELDS: Array<keyof PackLine> = ['title', 'evidence', 'mediaIds', 'detail', 'assumptions', 'exclusions', 'notIncluded', 'sizes', 'spec', 'supplyBy', 'procedure', 'category', 'minutesLow', 'minutesPoint', 'minutesHigh', 'materials', 'hazards', 'disposal', 'leadTime', 'pricePence', 'labourPence', 'materialsPence'];
 const JOB_FIELDS: Array<keyof PackJob> = ['accessMethod', 'accessCodes', 'onSiteContact', 'floor', 'hasLift', 'parkingDistance', 'occupied', 'pets', 'parkingPermit', 'prep', 'utilities', 'deliverySlot', 'doneLooksLike', 'accessNotes'];
 
 /** Pure: every field that differs between two packs, as change-log rows. */
@@ -332,6 +338,35 @@ export interface ClerkLineInput {
     evidence?: PackEvidence[] | null; mediaIds?: string[] | null;
     exclusions?: string[] | null; sizes?: string | null; spec?: string | null; supplyBy?: string | null;
     hazards?: string[] | null; disposal?: string | null; leadTime?: string | null;
+    /** P15: given explicitly (a human card), else derived from exclusions + assumptions. */
+    notIncluded?: string[] | null;
+}
+
+/** An assumption that takes something OUT of the line ("frames reused", "customer disposes of the old doors"). */
+const EXCLUDING_ASSUMPTION = /\b(not included|excluded|reuse[ds]?|re-use[ds]?|kept|left in place|left as is|stays? as (it is|they are)|customer (to )?(supply|supplies|supplied|dispose|disposes|remove|removes|clear|clears)|no (decorating|painting|making good|plastering|electrics|plumbing|disposal))\b/i;
+
+function plainWords(s: string): string {
+    // One clause, no trailing stop, no dashes (shared/chat-voice.ts rule), first letter lower unless it is a name or a size.
+    let t = s.replace(/\s*[–—]\s*/g, ', ').replace(/\s+-\s+/g, ', ').replace(/\s+/g, ' ').trim().replace(/[.;:,]+$/, '');
+    if (/^[A-Z][a-z]/.test(t) && !/^[A-Z][a-z]+\s[A-Z]/.test(t)) t = t[0].toLowerCase() + t.slice(1);
+    return t;
+}
+
+/**
+ * P15 part 1, pure: the customer-facing "Not included" list from the clerk's exclusions and the
+ * assumptions that exclude something. Exclusions are stated as "… not included" unless they
+ * already say so; excluding assumptions are carried in their own words. De-duplicated, max 8.
+ */
+export function notIncludedFrom(exclusions: string[] | null | undefined, assumptions: string[] | null | undefined): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (s: string) => { const key = s.toLowerCase(); if (s && !seen.has(key)) { seen.add(key); out.push(s); } };
+    for (const e of strs(exclusions, 8)) {
+        const p = plainWords(e);
+        push(/\b(not included|excluded|not (part of|in) (this|the) (quote|price|job))\b/i.test(p) ? p : `${p} not included`);
+    }
+    for (const a of strs(assumptions, 8)) if (EXCLUDING_ASSUMPTION.test(a)) push(plainWords(a));
+    return out.slice(0, 8);
 }
 
 /**
@@ -342,15 +377,19 @@ export function linesFromClerk(existing: PackLine[], input: ClerkLineInput[]): P
     const byId = new Map(existing.map((l) => [l.lineId, l]));
     return input.map((c, i) => {
         const prev = byId.get(c.lineId) ?? emptyLine(c.lineId, c.title);
+        const assumptions = c.assumptions ? strs(c.assumptions, 8) : prev.assumptions;
+        const exclusions = c.exclusions ? strs(c.exclusions, 8) : prev.exclusions;
         return {
             ...prev,
             lineId: c.lineId, title: str(c.title) ?? prev.title,
             detail: str(c.detail) ?? prev.detail,
-            assumptions: c.assumptions ? strs(c.assumptions, 8) : prev.assumptions,
+            assumptions,
             category: str(c.category) ?? prev.category,
             evidence: c.evidence ? normaliseLine({ evidence: c.evidence }, i).evidence : prev.evidence,
             mediaIds: c.mediaIds ? strs(c.mediaIds, 12) : prev.mediaIds,
-            exclusions: c.exclusions ? strs(c.exclusions, 8) : prev.exclusions,
+            exclusions,
+            // P15: the clerk writes the customer-facing list every time it writes the line; a human card may give it outright.
+            notIncluded: c.notIncluded ? strs(c.notIncluded, 8) : notIncludedFrom(exclusions, assumptions),
             sizes: c.sizes !== undefined ? str(c.sizes) : prev.sizes,
             spec: c.spec !== undefined ? str(c.spec) : prev.spec,
             supplyBy: c.supplyBy !== undefined ? normaliseSupplyBy(c.supplyBy) : prev.supplyBy,
@@ -388,9 +427,9 @@ export function mergeEstimate(lines: PackLine[], est: EstimateLineInput[], job?:
     return { lines: merged, accessNotes: strs(job?.accessNotes, 12) };
 }
 
-export interface BenLineEdit { lineId: string; finalPence?: number; materialsPence?: number; materials?: Array<{ name: string; qty: number; unitCostPence: number; source?: string | null }>; assumptions?: string[] }
+export interface BenLineEdit { lineId: string; finalPence?: number; materialsPence?: number; materials?: Array<{ name: string; qty: number; unitCostPence: number; source?: string | null }>; assumptions?: string[]; /** P15 */ notIncluded?: string[] }
 
-/** Pure: Ben's price-screen edits onto the lines. Prices, materials and assumptions are his. */
+/** Pure: Ben's price-screen edits onto the lines. Prices, materials, assumptions and the not-included list are his. */
 export function applyBenEdits(lines: PackLine[], edits: BenLineEdit[]): PackLine[] {
     const byId = new Map(edits.map((e) => [e.lineId, e]));
     return lines.map((l) => {
@@ -402,6 +441,7 @@ export function applyBenEdits(lines: PackLine[], edits: BenLineEdit[]): PackLine
         return {
             ...l, materials,
             assumptions: e.assumptions ? strs(e.assumptions, 8) : l.assumptions,
+            notIncluded: e.notIncluded ? strs(e.notIncluded.map(plainWords), 8) : l.notIncluded,
             pricePence, materialsPence,
             labourPence: pricePence != null && materialsPence != null ? Math.max(0, pricePence - materialsPence) : l.labourPence,
         };
@@ -464,6 +504,7 @@ export function derivePricingLineItems(pack: Pick<JobPack, 'lines'>, existing: a
             materials,
             assumptions: l.assumptions,
             exclusions: l.exclusions,
+            notIncluded: l.notIncluded,
             source: prev.source ?? 'job_pack',
         };
         if (l.pricePence != null) {

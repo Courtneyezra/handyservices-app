@@ -21,6 +21,8 @@ export interface PackTaskView {
     procedure: string[];
     assumptions: string[];
     exclusions: string[];
+    /** P15 part 1: the customer-facing "Not included" list, as Ben sent it; shown beside her words. */
+    notIncluded?: string[];
     sizes: string | null;
     spec: string | null;
     supplyBy: string | null;
@@ -108,6 +110,7 @@ function Unknown({ what }: { what: string }) {
 
 export function JobPackTask({ task, onPhoto }: { task: PackTaskView; onPhoto?: (url: string) => void }) {
     const supply = supplyLine(task.supplyBy);
+    const notIncluded = task.notIncluded ?? [];
     return (
         <div className="mt-3 rounded-xl border border-[#E6E8EC] bg-[#FAFAF8] p-3" data-testid={`pack-task-${task.lineId}`}>
             {task.customerWords.length > 0 && (
@@ -118,6 +121,13 @@ export function JobPackTask({ task, onPhoto }: { task: PackTaskView; onPhoto?: (
                         </div>
                     ))}
                     <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9AA3AE]">The customer's words</div>
+                </div>
+            )}
+            {/* P15 part 1: what the customer was told is NOT in this line, right beside her words, so "is this included?" is answered before the call. */}
+            {notIncluded.length > 0 && (
+                <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-[#FBEAEA] px-2.5 py-1.5 text-[12.5px] leading-snug text-[#5A1F1F]" data-testid={`pack-not-included-${task.lineId}`}>
+                    <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#9C2F2F]" />
+                    <span><span className="font-semibold">Not included:</span> {notIncluded.join(', ')}</span>
                 </div>
             )}
             {task.mediaUrls.length > 0 && (
@@ -149,7 +159,7 @@ export function JobPackTask({ task, onPhoto }: { task: PackTaskView; onPhoto?: (
                     <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] leading-snug text-[#0E1116]">{task.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul>
                 </div>
             )}
-            {task.exclusions.length > 0 && (
+            {task.exclusions.length > 0 && notIncluded.length === 0 && (
                 <div className="mt-2" data-testid={`pack-exclusions-${task.lineId}`}>
                     <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9C2F2F]"><Ban className="h-3.5 w-3.5" /> Not included</div>
                     <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] leading-snug text-[#0E1116]">{task.exclusions.map((a, i) => <li key={i}>{a}</li>)}</ul>

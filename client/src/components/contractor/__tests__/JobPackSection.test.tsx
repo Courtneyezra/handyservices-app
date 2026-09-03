@@ -105,3 +105,21 @@ describe('ChangedSinceStrip / PackChip / valueText', () => {
         expect(screen.queryByTestId('pack-chip')).toBeNull();
     });
 });
+
+describe('P15 part 1: "Not included" beside the customer\'s words', () => {
+    it('renders the customer-facing list right under her words and drops the raw exclusions block', () => {
+        render(<JobPackTask task={{ ...doors, notIncluded: ['decorating the frames not included', 'frames reused'] }} />);
+        const t = screen.getByTestId('pack-task-card_1');
+        const strip = within(t).getByTestId('pack-not-included-card_1');
+        expect(strip).toHaveTextContent('Not included: decorating the frames not included, frames reused');
+        expect(within(t).queryByTestId('pack-exclusions-card_1')).toBeNull();
+        // Beside her words: the strip follows the words block in document order.
+        const words = within(t).getByTestId('pack-words-card_1');
+        expect(words.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+    it('without a list the raw exclusions still show, as before', () => {
+        render(<JobPackTask task={{ ...doors, notIncluded: [] }} />);
+        expect(screen.queryByTestId('pack-not-included-card_1')).toBeNull();
+        expect(screen.getByTestId('pack-exclusions-card_1')).toHaveTextContent('Decorating the frames');
+    });
+});

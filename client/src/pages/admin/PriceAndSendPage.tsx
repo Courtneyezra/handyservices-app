@@ -62,6 +62,8 @@ export interface PriceLine {
     checkReason: string | null;
     flags: string[];
     assumptions: string[];
+    /** P15: the customer-facing "Not included" list; Ben edits, adds or drops. */
+    notIncluded?: string[];
     basis?: { minutes: number | null; ratePencePerHour: number | null; marginPct: number | null; rules: string[] } | null;
     materials?: Material[];
     evidence?: LineEvidence;
@@ -267,6 +269,8 @@ export interface LineState {
     value: string;
     materials: Material[];
     assumptions: string[];
+    /** P15: "Not included" in plain words, one entry per item. */
+    notIncluded: string[];
     accepted: boolean;
 }
 
@@ -458,6 +462,32 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
                             </ul>
                         </div>
                     )}
+
+                    {/* P15 part 1: "Not included", customer-facing plain words Ben edits, adds or drops. Renders on the quote page and in the contractor's pack. */}
+                    <div className="mt-3" data-testid={`not-included-${line.lineId}`}>
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">On the quote as not included</div>
+                        {state.notIncluded.length > 0 && (
+                            <ul className="mt-1 space-y-1">
+                                {state.notIncluded.map((a, i) => (
+                                    <li key={i} className="flex items-center gap-2">
+                                        <input type="text" value={a} disabled={disabled} aria-label={`Not included ${i + 1}`} placeholder="e.g. small top door not included"
+                                            onChange={(e) => onChange({ notIncluded: state.notIncluded.map((x, j) => j === i ? e.target.value : x) })}
+                                            className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700" data-testid={`not-included-${line.lineId}-${i}`} />
+                                        {!disabled && (
+                                            <button type="button" aria-label="Drop this not-included item" onClick={() => onChange({ notIncluded: state.notIncluded.filter((_, j) => j !== i) })} className="rounded-md p-1 text-slate-400 hover:text-red-600" data-testid={`not-included-drop-${line.lineId}-${i}`}>
+                                                <X className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {!disabled && state.notIncluded.length < 8 && (
+                            <button type="button" onClick={() => onChange({ notIncluded: [...state.notIncluded, ''] })} className="mt-1 text-xs font-bold text-slate-700 underline decoration-dotted" data-testid={`not-included-add-${line.lineId}`}>
+                                + add something that is not included
+                            </button>
+                        )}
+                    </div>
                 </>
             )}
         </div>
@@ -467,7 +497,12 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
 // ---------------------------------------------------------------- the screen
 
 function initialLineState(l: PriceLine): LineState {
-    return { value: penceToPoundsText(l.suggestedPence), materials: (l.materials ?? []).map((m) => ({ ...m })), assumptions: [...l.assumptions], accepted: false };
+    return { value: penceToPoundsText(l.suggestedPence), materials: (l.materials ?? []).map((m) => ({ ...m })), assumptions: [...l.assumptions], notIncluded: [...(l.notIncluded ?? [])], accepted: false };
+}
+
+/** P15: the not-included list as it would be sent (trimmed, blanks dropped). */
+export function cleanNotIncluded(items: string[]): string[] {
+    return items.map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 8);
 }
 
 export function PriceAndSend({ slug }: { slug: string }) {
@@ -520,7 +555,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
     const canSend = !!data && data.status === 'draft' && !busy && totals.missing === 0 && data.lines.length > 0 && !result?.ok && !superseded;
 
     function patch(lineId: string, p: Partial<LineState>) {
-        setStates((s) => ({ ...s, [lineId]: { ...(s[lineId] ?? { value: '', materials: [], assumptions: [], accepted: false }), ...p } }));
+        setStates((s) => ({ ...s, [lineId]: { ...(s[lineId] ?? { value: '', materials: [], assumptions: [], notIncluded: [], accepted: false }), ...p } }));
     }
     function resolve(c: Contradiction, choice: Resolution) {
         setResolutions((r) => ({ ...r, [c.id]: choice }));
@@ -539,10 +574,13 @@ export function PriceAndSend({ slug }: { slug: string }) {
                 const original = l.materials ?? [];
                 const materialsChanged = !st || st.materials.length !== original.length || st.materials.some((m, i) => m.name !== original[i]?.name || m.qty !== original[i]?.qty || (m.unitCostPence ?? 0) !== (original[i]?.unitCostPence ?? 0));
                 const assumptionsChanged = !st || JSON.stringify(st.assumptions) !== JSON.stringify(l.assumptions);
+                const notIncluded = st ? cleanNotIncluded(st.notIncluded) : [];
+                const notIncludedChanged = !st || JSON.stringify(notIncluded) !== JSON.stringify(l.notIncluded ?? []);
                 return {
                     lineId: l.lineId, finalPence: finals[l.lineId],
                     ...(st && materialsChanged ? { materials: st.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence ?? 0, source: m.source })) } : {}),
                     ...(st && assumptionsChanged ? { assumptions: st.assumptions } : {}),
+                    ...(st && notIncludedChanged ? { notIncluded } : {}),
                 };
             }),
             message: message.trim(), messageEdited,
