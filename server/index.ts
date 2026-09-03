@@ -492,6 +492,8 @@ app.use('/api/agent-questions', requireAdmin, agentQuestionsRouter); // Comms ag
 app.use('/api/agents', requireAdmin, agentStaffRouter); // AI staff directory (/admin/staff)
 import { spineRouter } from './spine/routes';
 app.use('/api/spine', requireAdmin, spineRouter); // Phase 4: in-chat quote card + rules-layer asks; P6: switch controls, go-live check, shadow report, tiers
+import { variationRouter } from './spine/variation-routes';
+app.use(variationRouter); // P15/3: an extra found at the door → dispatch_variations + Route A + Ben's one-line price screen (auth per route inside)
 import { commsAgentConfigRouter } from './comms-agent-config-routes';
 app.use('/api/comms-agent', requireAdmin, commsAgentConfigRouter); // P6: legacy autosend / onInbound flips from /admin/staff (owner-only autosend)
 app.use('/api/verdicts', requireAdmin, verdictsRouter); // Phase 1: Ben's verdicts on drafts (promotion evidence)

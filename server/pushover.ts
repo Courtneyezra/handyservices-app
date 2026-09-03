@@ -947,6 +947,52 @@ export async function notifyQuoteReadyToPrice(alert: QuoteReadyToPriceAlert): Pr
     });
 }
 
+export interface VariationToPriceAlert {
+    variationId: string;
+    contractorName: string | null;
+    customerName: string | null;
+    jobTitle: string | null;
+    title: string;
+    notes: string | null;
+    photos: number;
+    suggestedPence: number | null;
+    bandLowPence: number | null;
+    bandHighPence: number | null;
+    checkThis: boolean;
+    estimatorFailed: string | null;
+}
+
+/**
+ * P15/3 (server/spine/variation-routes.ts): a contractor found an extra at the door. Route A has
+ * measured and priced the one line; nothing has reached the customer. Ben accepts, edits or drops
+ * it on the one-line screen. Reuses the quote_prep_ready category — it is the same instinct
+ * ("something is waiting on your price"), so it inherits Ben's existing routing and quiet hours.
+ */
+export async function notifyVariationToPrice(alert: VariationToPriceAlert): Promise<void> {
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const link = `${baseUrl}/admin/price/variation/${alert.variationId}`;
+    const who = alert.contractorName?.trim() || 'A contractor';
+    const lines = [`${who} on site${alert.customerName ? ` at ${alert.customerName}` : ''}${alert.jobTitle ? ` · ${truncate(alert.jobTitle, 40)}` : ''}`];
+    lines.push(`"${truncate(alert.title, 120)}"`);
+    if (alert.notes) lines.push(truncate(alert.notes, 160));
+    if (alert.photos > 0) lines.push(`${alert.photos} photo${alert.photos === 1 ? '' : 's'}.`);
+    if (alert.suggestedPence != null) {
+        const band = alert.bandLowPence != null && alert.bandHighPence != null && alert.bandHighPence > alert.bandLowPence
+            ? ` (£${(alert.bandLowPence / 100).toFixed(0)}–£${(alert.bandHighPence / 100).toFixed(0)})` : '';
+        lines.push(`Suggested £${(alert.suggestedPence / 100).toFixed(0)}${band}, yours to change.`);
+    }
+    if (alert.estimatorFailed) lines.push(`⚠️ Priced from reference rates, estimator failed (${truncate(alert.estimatorFailed, 100)}).`);
+    else if (alert.checkThis) lines.push('⚠️ Marked check this.');
+    lines.push('Nothing has been sent. He has been told not to start it.');
+    await dispatch({
+        event: 'quote_prep_ready',
+        title: `🛠 Variation to price: ${truncate(alert.title, 40)}`,
+        message: lines.join('\n'),
+        linkUrl: link,
+        linkUrlTitle: '💷 Price the extra',
+    });
+}
+
 export interface AutonomyChangeAlert {
     packId: string;
     intent: string;

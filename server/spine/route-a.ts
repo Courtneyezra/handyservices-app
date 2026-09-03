@@ -18,7 +18,10 @@
  * system_events row; the ledger has no estimate event type and is not extended).
  */
 import type { CaseFile, PolicyPack, Proposal, TriageResult } from './types';
-import { estimateProposal, intakeLinesFromArtifact } from './agents/estimator';
+// P15/3: the estimator is imported lazily (both call sites are async). It drags the whole model +
+// db graph in at module load, which put `fallbackEstimate` — pure, and reused by the variation path
+// — out of reach of anything without a DATABASE_URL. The default behaviour is unchanged.
+import type { estimateProposal as EstimateProposalFn } from './agents/estimator';
 import { supersedeEstimatesForConversation, type QuoteEstimate } from './estimate-store';
 import { priceEstimate, defaultPricingDeps, ESTIMATOR_FAILED_PREFIX, type PriceEstimateDeps, type PricingSuggestions } from './pricing-bridge';
 import type { IntakeLineForEstimate } from './agents/estimator';
@@ -42,7 +45,7 @@ export interface RouteAOutcome {
 export interface RouteADeps {
     pricing?: PriceEstimateDeps;
     settings?: () => Promise<{ materialsMarginPercent: number; depositPercent: number; surveyFeePence: number }>;
-    estimate?: typeof estimateProposal;
+    estimate?: typeof EstimateProposalFn;
     createDraft?: typeof createPricedDraft;
     supersede?: typeof supersedeEstimatesForConversation;
     notify?: (alert: { conversationId: string; customerName?: string | null; postcode?: string | null; slug: string; lines: string[]; checkThis: number; suggestedTotalPence?: number | null; estimatorFailed?: string | null }) => Promise<void>;
@@ -84,6 +87,7 @@ export async function runRouteAChain(input: {
 }, deps: RouteADeps = {}): Promise<RouteAOutcome> {
     const { caseFile, pack, triage, clerkRunId, artifact } = input;
     const log = deps.log ?? (async (e) => { const { logSystemEvent } = await import('../system-events'); await logSystemEvent({ ...e, phone: caseFile.phone }); });
+    const { intakeLinesFromArtifact } = await import('./agents/estimator');
     const intake = intakeFromArtifact(artifact);
     const intakeLines = intakeLinesFromArtifact(artifact);
     if (!intake || !intakeLines.length) return { ran: false, reason: 'intake has no lines' };
@@ -100,7 +104,8 @@ export async function runRouteAChain(input: {
     let estimate: QuoteEstimate | null = null;
     let estimatorFailed: string | null = null;
     try {
-        const proposal = await (deps.estimate ?? estimateProposal)({ caseFile, pack: { id: pack.id, version: pack.version }, triage, runId: estimatorRunId, intakeRunId: clerkRunId, intakeLines, parentRunId: clerkRunId });
+        const estimateFn = deps.estimate ?? (await import('./agents/estimator')).estimateProposal;
+        const proposal = await estimateFn({ caseFile, pack: { id: pack.id, version: pack.version }, triage, runId: estimatorRunId, intakeRunId: clerkRunId, intakeLines, parentRunId: clerkRunId });
         estimate = proposal?.artifact?.kind === 'quote_estimate' ? (proposal.artifact.data as QuoteEstimate) : null;
         if (!estimate) estimatorFailed = 'estimator returned nothing';
     } catch (error: any) {
@@ -176,6 +181,7 @@ export async function runFallbackDraftForOrphan(estimateId: string, deps: RouteA
     const { eq } = await import('drizzle-orm');
     const [run] = await db.select({ proposal: agentRuns.proposal }).from(agentRuns).where(eq(agentRuns.id, est.intakeRunId)).limit(1);
     const artifact = ((run?.proposal as any)?.artifact ?? (run?.proposal as any)?.proposal?.artifact ?? null) as Proposal['artifact'];
+    const { intakeLinesFromArtifact } = await import('./agents/estimator');
     const intake = intakeFromArtifact(artifact);
     const intakeLines = intakeLinesFromArtifact(artifact);
     if (!intake || !intakeLines.length) return { ok: false, reason: 'intake artifact unreadable' };
