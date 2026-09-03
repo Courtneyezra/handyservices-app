@@ -131,9 +131,9 @@ describe('priceEstimate', () => {
         const s = await priceEstimate(estimate([line({ confidence: 'low', reasoning: 'unsure of the pipework' })]), settings({ depositPercent: 30 }), { engine: fakeEngine(27).engine, reference });
         expect(s.lines[0]).toMatchObject({ checkThis: true, reason: 'low confidence: unsure of the pipework' });
         expect(s.totals.suggestedPence).toBe(14080);
-        // P16: one deposit rule, rounded to the pound (14,080 × 30 % = 4,224 → £42).
-        expect(s.totals.depositPence).toBe(depositFor(14080, 30));
-        expect(s.totals.depositPence).toBe(4_200);
+        // P16: one deposit rule — materials in full plus 30 % of labour, to the pound.
+        expect(s.totals.depositPence).toBe(depositFor(14080, s.totals.materialsWithMarginPence, 30));
+        expect(s.totals.depositPence).toBe(7_800);
     });
     it('unknown categories map to other', () => {
         expect(toJobCategory('plumbing_minor')).toBe('plumbing_minor');

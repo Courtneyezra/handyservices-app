@@ -109,8 +109,8 @@ describe('helpers', () => {
     });
     it('totalsOf mirrors the server rule and takes edited materials', () => {
         const p = payload();
-        // P16 item 2: deposit = 30 % of the total to the pound (210,000 → £630), never a function of the materials split.
-        expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30)).toEqual({ totalPence: 210000, materialsPence: 137922 + 19050, labourPence: 210000 - 137922 - 19050, depositPence: 63000, missing: 0 });
+        // P16 item 2: deposit = materials in full plus 30 % of labour, to the pound — the rule the card already charges.
+        expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30)).toEqual({ totalPence: 210000, materialsPence: 137922 + 19050, labourPence: 210000 - 137922 - 19050, depositPence: 172900, missing: 0 });
         expect(totalsOf(p.lines, { card_1: 180000, card_2: null }, 30).missing).toBe(1);
         expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30, { card_1: 121920, card_2: 19050 }).materialsPence).toBe(121920 + 19050);
         expect(materialsAtMargin([{ qty: 8, unitCostPence: 12000 }], 27)).toBe(121920);
@@ -459,14 +459,14 @@ describe('P16 items 1 + 2: the money on the screen', () => {
         expect(lineMaterialsAtMargin(doors, [], 27)).toBe(0);
         expect(materialsCostOf([{ qty: 8, unitCostPence: 12000 }])).toBe(96000);
     });
-    it('the summary reads labour and materials at margin, and a deposit that is a share of the total', async () => {
+    it('the summary reads labour and materials at margin, and the deposit the card charges', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
         const summary = screen.getByTestId('totals');
         expect(summary).toHaveTextContent(gbp(210000));
-        expect(summary).toHaveTextContent(gbp(63000));
-        expect(summary).not.toHaveTextContent(gbp(172900));
+        expect(summary).toHaveTextContent(gbp(172900));   // materials £1,569.72 in full + 30 % of £530.28 labour
+        expect(summary).not.toHaveTextContent(gbp(63000)); // never a flat 30 % of the total: the card does not charge that
     });
     it('the materials editor shows the cost beside what she pays', async () => {
         screenFetch(payload());
@@ -489,7 +489,7 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         await userEvent.click(screen.getByTestId('line-delete-card_1'));
         expect(screen.getByTestId('line-deleted-card_1')).toHaveTextContent('Oak panelled doors, hung and finished');
         expect(screen.getByTestId('total')).toHaveTextContent(gbp(30000));
-        expect(screen.getByTestId('deposit')).toHaveTextContent(gbp(9000));
+        expect(screen.getByTestId('deposit')).toHaveTextContent(gbp(22300));
 
         await userEvent.click(screen.getByTestId('line-undo-card_1'));
         expect(screen.queryByTestId('line-deleted-card_1')).toBeNull();

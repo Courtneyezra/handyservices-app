@@ -177,11 +177,11 @@ describe('verdictRowsFor / confirmedLineItems / totalsFor', () => {
         const items = confirmedLineItems(row().pricing_line_items!, p, [{ lineId: 'card_1', finalPence: 3_000 }, { lineId: 'card_2', finalPence: 100 }]);
         expect(items[0]).toMatchObject({ pricePence: 3_000, guardedPricePence: 0, materialsWithMarginPence: 3_000 });
     });
-    // P16 item 2: the deposit is a share of HER TOTAL (shared/pricing-settings depositFor), not
-    // materials plus a slice of labour. 43,800 × 30 % = 13,140 → £131 to the pound.
-    it('totals: labour, materials, total, deposit = depositPercent of the total to the pound', () => {
+    // P16 item 2: ONE deposit rule, the one the business already runs on — materials in full plus
+    // depositPercent of labour (shared/pricing-settings depositFor). 5,080 + 30 % of 38,720 = 16,696 → £167.
+    it('totals: labour, materials, total, deposit = materials in full plus depositPercent of labour', () => {
         const t = totalsFor([{ finalPence: 24_900, materialsPence: 5_080 }, { finalPence: 18_900, materialsPence: 0 }], 30);
-        expect(t).toEqual({ labourPence: 38_720, materialsPence: 5_080, totalPence: 43_800, depositPence: 13_100 });
+        expect(t).toEqual({ labourPence: 38_720, materialsPence: 5_080, totalPence: 43_800, depositPence: 16_700 });
         expect(totalsFor([{ finalPence: 10_000, materialsPence: 0 }], 50).depositPence).toBe(5_000);
     });
 });
@@ -276,25 +276,27 @@ describe('P16 item 1: materials at margin is the only figure a total uses', () =
     });
 });
 
-describe('P16 item 2: one deposit rule, the quote\'s', () => {
-    it("Sarah's deposit is 30 % of her total, to the pound: £630, not the £1,341 the screen used to show", () => {
-        expect(depositFor(210_000, 30)).toBe(63_000);
-        expect(totalsFor([{ finalPence: 194_400, materialsPence: 122_448 }, { finalPence: 15_600, materialsPence: 6_552 }], 30).depositPence).toBe(63_000);
+describe('P16 item 2: one deposit rule, the one the card already charges', () => {
+    it("Sarah's deposit is materials in full plus 30 % of labour: £1,533", () => {
+        expect(depositFor(210_000, 129_000, 30)).toBe(153_300); // materials £1,290 + 30% of £810 labour
+        expect(totalsFor([{ finalPence: 194_400, materialsPence: 122_448 }, { finalPence: 15_600, materialsPence: 6_552 }], 30).depositPence).toBe(153_300);
     });
 
     it('rounds to the pound and survives a nonsense total or percent', () => {
-        expect(depositFor(99_999, 30)).toBe(30_000);   // 29,999.7 → £300
-        expect(depositFor(10_050, 30)).toBe(3_000);    // 3,015 → £30
-        expect(depositFor(0, 30)).toBe(0);
-        expect(depositFor(-1, 30)).toBe(0);
-        expect(depositFor(210_000, Number.NaN)).toBe(63_000); // falls back to the default 30 %
+        expect(depositFor(99_999, 0, 30)).toBe(30_000);   // no materials: 30% of labour
+        expect(depositFor(10_050, 0, 30)).toBe(3_000);
+        expect(depositFor(0, 0, 30)).toBe(0);
+        expect(depositFor(-1, 0, 30)).toBe(0);
+        expect(depositFor(10_000, 20_000, 30)).toBe(10_000); // materials above the total never exceed it
+        expect(depositFor(210_000, 129_000, Number.NaN)).toBe(153_300); // falls back to the default 30 %
     });
 
-    it('the deposit never depends on the materials split: two lines with the same total agree', () => {
+    it('the deposit follows the materials split, because we buy the materials up front', () => {
         const heavyMaterials = totalsFor([{ finalPence: 210_000, materialsPence: 180_000 }], 30);
         const labourOnly = totalsFor([{ finalPence: 210_000, materialsPence: 0 }], 30);
-        expect(heavyMaterials.depositPence).toBe(labourOnly.depositPence);
-        expect(heavyMaterials.depositPence).toBe(63_000);
+        expect(heavyMaterials.depositPence).toBe(189_000); // 180,000 + 30 % of 30,000
+        expect(labourOnly.depositPence).toBe(63_000);      // 30 % of 210,000
+        expect(heavyMaterials.depositPence).toBeGreaterThan(labourOnly.depositPence);
     });
 });
 
@@ -362,6 +364,6 @@ describe('P16 item 3: Ben adds and deletes whole lines', () => {
     it('totals ignore a deleted line and include an added one', () => {
         const t = totalsFor([{ finalPence: 15_900, materialsPence: 0 }, { finalPence: 8_000, materialsPence: 0 }], 30);
         expect(t.totalPence).toBe(23_900);
-        expect(t.depositPence).toBe(depositFor(23_900, 30));
+        expect(t.depositPence).toBe(depositFor(23_900, t.materialsPence, 30));
     });
 });

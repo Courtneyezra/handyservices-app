@@ -439,7 +439,7 @@ export function totalsFor(lines: Array<{ finalPence: number; materialsPence: num
     const totalPence = lines.reduce((s, l) => s + l.finalPence, 0);
     const materialsPence = lines.reduce((s, l) => s + Math.min(l.materialsPence, l.finalPence), 0);
     const labourPence = totalPence - materialsPence;
-    return { labourPence, materialsPence, totalPence, depositPence: depositFor(totalPence, depositPercent) };
+    return { labourPence, materialsPence, totalPence, depositPence: depositFor(totalPence, materialsPence, depositPercent) };
 }
 
 export interface SendMaterial { name: string; qty: number; unitCostPence: number; source: string | null }

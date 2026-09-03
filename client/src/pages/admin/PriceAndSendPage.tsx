@@ -173,7 +173,7 @@ export function totalsOf(lines: PriceLine[], finals: Record<string, number | nul
         materials += Math.min(materialsPence?.[l.lineId] ?? l.materialsPence, f);
     }
     const labour = total - materials;
-    return { totalPence: total, materialsPence: materials, labourPence: labour, depositPence: depositFor(total, depositPercent), missing };
+    return { totalPence: total, materialsPence: materials, labourPence: labour, depositPence: depositFor(total, materials, depositPercent), missing };
 }
 
 /**
