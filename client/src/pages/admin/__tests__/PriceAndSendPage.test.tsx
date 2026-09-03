@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import {
     PriceAndSend, gbp, poundsToPence, penceToPoundsText, bandText, totalsOf, orderByDoubt, doubtScore, visibleMessages, messageWarnings, materialsAtMargin,
-    materialsCostOf, lineMaterialsAtMargin, refusalTitle, hasQuoteLink, insertAt,
+    materialsCostOf, lineMaterialsAtMargin, refusalTitle, hasQuoteLink, insertAt, moneyBoxToPence, suggestedHalves, lineTotalPence,
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
 
@@ -183,11 +183,14 @@ describe('PriceAndSend (phone)', () => {
         expect(within(l1).getByTestId('evidence-card_1')).toHaveTextContent('Can you do all 9 doors now, oak to match the ones you did?');
         expect(within(l1).getByTestId('evidence-card_1').querySelectorAll('img')).toHaveLength(2);
         expect(within(l1).getByTestId('contradiction-card_1:a0')).toHaveTextContent('assumes "Existing handles reused on all doors" but lists 7× Handle set, brushed');
-        expect(within(l1).getByTestId('price-input-card_1')).toHaveValue(1800);
+        // P18: labour and materials are the two boxes; the price beside them is their sum.
+        expect(within(l1).getByTestId('labour-input-card_1')).toHaveValue(420.78);
+        expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1379.22);
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,800');
         expect(within(l1).getByTestId('band')).toHaveTextContent('Band £1,600–£2,050');
         expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent('£1,379.22');
-        // P16b: the line shows its own split so the parts can be checked against the price.
-        expect(within(l1).getByTestId('split-card_1')).toHaveTextContent('labour £420.78 + materials £1,379.22');
+        // P16b's read-only split chip is now the two boxes above; the chip keeps the materials figure.
+        expect(within(l1).getByTestId('split-card_1')).toHaveTextContent('incl. £1,379.22 materials');
 
         const l2 = screen.getByTestId('price-line-card_2');
         expect(within(l2).getByTestId('check-this')).toHaveTextContent('low confidence: unusual size');
@@ -203,7 +206,7 @@ describe('PriceAndSend (phone)', () => {
         expect(within(l1).getByTestId('basis-card_1')).toHaveTextContent('batch discount 10%');
     });
 
-    it('resolving the contradiction by dropping the handles removes them from the line, lowers the materials and reaches the send body', async () => {
+    it('resolving the contradiction by dropping the handles lowers the materials AND the line price, instead of labour silently absorbing it', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         const l1 = await screen.findByTestId('price-line-card_1');
@@ -212,6 +215,11 @@ describe('PriceAndSend (phone)', () => {
         expect(within(l1).queryByTestId('resolve-card_1:a0-drop_materials')).toBeNull();
         expect(within(l1).getByTestId('materials-pence-card_1')).toHaveTextContent('£1,219.20');
         expect(within(l1).getByText('1 material')).toBeInTheDocument();
+        // P18: labour is untouched at £420.78 and the price falls by the handles, 1,800 → 1,639.98.
+        // Before P18 the price stayed at £1,800 and labour silently rose to cover the gap.
+        expect(within(l1).getByTestId('labour-input-card_1')).toHaveValue(420.78);
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,639.98');
+        expect(screen.getByTestId('total')).toHaveTextContent('£1,939.98');
         // the assumption stays (it is now true)
         expect(within(l1).getByTestId('assumption-card_1-0')).toHaveValue('Existing handles reused on all doors');
 
@@ -219,8 +227,9 @@ describe('PriceAndSend (phone)', () => {
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
         const body = f.of('POST', '/send')[0].body;
         expect(body.resolutions).toEqual([{ contradictionId: 'card_1:a0', choice: 'drop_materials' }]);
-        expect(body.lines[0]).toEqual({ lineId: 'card_1', finalPence: 180000, materials: [{ name: 'Oak panelled door', qty: 8, unitCostPence: 12000, source: 'screwfix' }] });
-        expect(body.lines[1]).toEqual({ lineId: 'card_2', finalPence: 30000 });
+        expect(body.lines[0]).toEqual({ lineId: 'card_1', finalPence: 163998, labourPence: 42078, materialsPence: 121920, materials: [{ name: 'Oak panelled door', qty: 8, unitCostPence: 12000, source: 'screwfix' }] });
+        expect(body.lines[0].labourPence + body.lines[0].materialsPence).toBe(body.lines[0].finalPence);
+        expect(body.lines[1]).toEqual({ lineId: 'card_2', finalPence: 30000, labourPence: 10950, materialsPence: 19050 });
         expect(body.messageEdited).toBe(false);
         expect(body.message).toBe(DESK);
     });
@@ -353,20 +362,23 @@ describe('PriceAndSend (phone)', () => {
         expect(screen.getByTestId('price-pane')).toBeInTheDocument();
     });
 
-    it('accept is one tap and folds the line; editing the price reopens it; empty price blocks the send', async () => {
+    it('accept is one tap and folds the line; editing labour reopens it; empty labour blocks the send', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         const l1 = await screen.findByTestId('price-line-card_1');
         await userEvent.click(within(l1).getByTestId('accept-card_1'));
         expect(within(l1).getByTestId('accepted-card_1')).toHaveTextContent('£1,800');
-        expect(within(l1).queryByTestId('price-input-card_1')).toBeNull();
+        expect(within(l1).queryByTestId('labour-input-card_1')).toBeNull();
         await userEvent.click(within(l1).getByTestId('accepted-card_1'));
-        const input = within(l1).getByTestId('price-input-card_1');
-        await userEvent.clear(input); await userEvent.type(input, '2500');
+        const input = within(l1).getByTestId('labour-input-card_1');
+        // P18: labour moves the line price, and the band still describes the price.
+        fireEvent.change(input, { target: { value: '1200' } });
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£2,579.22');
         expect(within(l1).getByTestId('out-of-band')).toBeInTheDocument();
         await userEvent.click(within(l1).getByTestId('reset-card_1'));
-        expect(input).toHaveValue(1800);
-        await userEvent.clear(input);
+        expect(input).toHaveValue(420.78);
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,800');
+        fireEvent.change(input, { target: { value: '' } });
         expect(screen.getByTestId('missing-prices')).toHaveTextContent('1 line still needs a price');
         expect(screen.getByTestId('send-quote')).toBeDisabled();
     });
@@ -404,7 +416,8 @@ describe('PriceAndSend (phone)', () => {
         expect(screen.getByTestId('ask-first')).toBeDisabled();
         expect(screen.getByTestId('call-her')).toBeDisabled();
         expect(screen.getByTestId('needs-visit')).toBeDisabled();
-        expect(screen.getByTestId('price-input-card_1')).toBeDisabled();
+        expect(screen.getByTestId('labour-input-card_1')).toBeDisabled();
+        expect(screen.getByTestId('materials-input-card_1')).toBeDisabled();
         expect(screen.getByTestId('message-body')).toBeDisabled();
     });
 
@@ -428,7 +441,8 @@ describe('PriceAndSend (phone)', () => {
         expect(screen.getByTestId('call-her')).toBeDisabled();
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
-        expect(f.of('POST', '/send')[0].body.lines).toEqual([{ lineId: 'card_1', finalPence: 180000 }]);
+        // P18: both halves ride on every line and sum to the price.
+        expect(f.of('POST', '/send')[0].body.lines).toEqual([{ lineId: 'card_1', finalPence: 180000, labourPence: 42078, materialsPence: 137922 }]);
     });
 });
 
@@ -555,7 +569,7 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         await userEvent.type(within(added).getByTestId(`added-title-${id}`), 'Refit the loft hatch');
         await userEvent.selectOptions(within(added).getByTestId(`added-category-${id}`), 'carpentry');
         fireEvent.change(within(added).getByTestId(`added-minutes-${id}`), { target: { value: '90' } });
-        fireEvent.change(within(added).getByTestId(`price-input-${id}`), { target: { value: '80' } });
+        fireEvent.change(within(added).getByTestId(`labour-input-${id}`), { target: { value: '80' } });
 
         expect(screen.queryByTestId('missing-title')).toBeNull();
         expect(screen.getByTestId('total')).toHaveTextContent(gbp(218000));
@@ -685,5 +699,147 @@ describe('P16 item 5: the line cards read as cards', () => {
         await screen.findByTestId('price-line-card_1');
         expect(screen.getByTestId('price-and-send')).toHaveAttribute('data-layout', 'desktop');
         expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-100');
+    });
+});
+
+describe('P18: labour and materials are the two inputs', () => {
+    it('editing labour moves the line price and the running total; materials do not move', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,100');
+
+        fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '520.78' } });
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,900');
+        expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1379.22);
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,200');
+    });
+
+    it("editing a material's cost moves materials, the line price and the total, and leaves labour alone", async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        // the doors go from £120 to £130 each: cost 8×13000 + 7×1800 = 116,600 → 148,082 at 27 %
+        fireEvent.change(within(l1).getByTestId('material-cost-card_1-0'), { target: { value: '130' } });
+        expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1480.82);
+        expect(within(l1).getByTestId('labour-input-card_1')).toHaveValue(420.78);
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,901.60');
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,201.60');
+    });
+
+    it('adding a material raises materials, the line price and the total', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        await userEvent.click(within(l1).getByTestId('material-add-card_1'));
+        await userEvent.type(within(l1).getByTestId('material-name-card_1-2'), 'Hinges');
+        fireEvent.change(within(l1).getByTestId('material-cost-card_1-2'), { target: { value: '10' } });
+        fireEvent.change(within(l1).getByTestId('material-qty-card_1-2'), { target: { value: '8' } });
+        // + 8 × £10 cost = £80 → £101.60 at margin
+        expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1480.82);
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,901.60');
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,201.60');
+    });
+
+    it('removing the last material leaves labour standing and the line priced at labour alone', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l2 = await screen.findByTestId('price-line-card_2');
+        await userEvent.click(within(l2).getByTestId('materials-toggle-card_2'));
+        await userEvent.click(within(l2).getByTestId('material-remove-card_2-0'));
+        expect(within(l2).getByTestId('materials-input-card_2')).toHaveValue(0);
+        expect(within(l2).getByTestId('labour-input-card_2')).toHaveValue(109.5);
+        expect(within(l2).getByTestId('line-total-card_2')).toHaveTextContent('£109.50');
+    });
+
+    it('typing in the materials box marks it by hand and the items stop driving it; revert restores the list', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        fireEvent.change(within(l1).getByTestId('materials-input-card_1'), { target: { value: '1500' } });
+        expect(within(l1).getByTestId('materials-by-hand-card_1')).toHaveTextContent('advisory');
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,920.78');
+
+        // an item edit must NOT overwrite the figure he typed
+        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        fireEvent.change(within(l1).getByTestId('material-cost-card_1-0'), { target: { value: '130' } });
+        expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1500);
+
+        await userEvent.click(within(l1).getByTestId('materials-revert-card_1'));
+        expect(screen.queryByTestId('materials-by-hand-card_1')).toBeNull();
+        expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1480.82);
+    });
+
+    it('accept as suggested restores BOTH halves from the basis, not just the price', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '900' } });
+        fireEvent.change(within(l1).getByTestId('materials-input-card_1'), { target: { value: '50' } });
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£950');
+
+        await userEvent.click(within(l1).getByTestId('reset-card_1'));
+        expect(within(l1).getByTestId('labour-input-card_1')).toHaveValue(420.78);
+        expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1379.22);
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,800');
+        expect(screen.queryByTestId('materials-by-hand-card_1')).toBeNull();
+    });
+
+    it('negative labour is refused at the input rather than clamped, and blocks the send', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '-50' } });
+        expect(within(l1).getByTestId('labour-invalid-card_1')).toHaveTextContent('£0 or more');
+        expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('—');
+        expect(screen.getByTestId('send-quote')).toBeDisabled();
+    });
+
+    it('the summary is EXACTLY the sum of the lines on labour, materials and total', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        // doors 420.78 + 1,379.22 = 1,800; cupboard 109.50 + 190.50 = 300
+        const totals = screen.getByTestId('totals');
+        expect(totals).toHaveTextContent(gbp(42078 + 10950));      // labour £530.28
+        expect(totals).toHaveTextContent(gbp(137922 + 19050));     // materials £1,569.72
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,100');
+    });
+
+    it('the send body carries both halves on every line and they sum to the price', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '500' } });
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        for (const l of f.of('POST', '/send')[0].body.lines) {
+            expect(l.labourPence + l.materialsPence).toBe(l.finalPence);
+        }
+        expect(f.of('POST', '/send')[0].body.lines[0]).toMatchObject({ labourPence: 50000, materialsPence: 137922, finalPence: 187922 });
+    });
+});
+
+describe('P18: the money helpers', () => {
+    it('moneyBoxToPence takes zero, refuses negatives and blanks', () => {
+        expect(moneyBoxToPence('0')).toBe(0);
+        expect(moneyBoxToPence('420.78')).toBe(42078);
+        expect(moneyBoxToPence('£1,379.22')).toBe(137922);
+        expect(moneyBoxToPence('')).toBeNull();
+        expect(moneyBoxToPence('-1')).toBeNull();
+        expect(moneyBoxToPence('abc')).toBeNull();
+    });
+    it('suggestedHalves reads the basis, else falls back to the suggestion less materials', () => {
+        expect(suggestedHalves({ ...doors, basis: { minutes: 1, ratePencePerHour: 1, marginPct: 27, labourPence: 42078, rules: [] } })).toEqual({ labourPence: 42078, materialsPence: 137922 });
+        expect(suggestedHalves({ ...doors, basis: undefined })).toEqual({ labourPence: 180000 - 137922, materialsPence: 137922 });
+        expect(suggestedHalves({ ...doors, basis: undefined, suggestedPence: null })).toEqual({ labourPence: null, materialsPence: 137922 });
+    });
+    it('lineTotalPence is the sum of the two boxes, and null while labour is unanswered', () => {
+        const st = { labour: '100', materialsByHand: null, materials: [], assumptions: [], notIncluded: [], accepted: false };
+        expect(lineTotalPence({ ...doors, materials: [], materialsPence: 5000 }, st, 27)).toBe(15000);
+        expect(lineTotalPence(doors, { ...st, labour: '' }, 27)).toBeNull();
+        expect(lineTotalPence({ ...doors, materials: [] }, { ...st, materialsByHand: '25' }, 27)).toBe(12500);
     });
 });

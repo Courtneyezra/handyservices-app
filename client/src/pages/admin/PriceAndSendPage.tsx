@@ -69,7 +69,7 @@ export interface PriceLine {
     assumptions: string[];
     /** P15: the customer-facing "Not included" list; Ben edits, adds or drops. */
     notIncluded?: string[];
-    basis?: { minutes: number | null; ratePencePerHour: number | null; marginPct: number | null; rules: string[] } | null;
+    basis?: { minutes: number | null; ratePencePerHour: number | null; marginPct: number | null; labourPence?: number | null; rules: string[] } | null;
     materials?: Material[];
     evidence?: LineEvidence;
 }
@@ -173,6 +173,56 @@ export function lineMaterialsAtMargin(line: PriceLine, edited: Array<{ qty: numb
     if (unchanged) return line.materialsPence;
     if (!edited.length) return 0; // he removed them all
     return materialsAtMargin(edited, marginPercent);
+}
+
+/**
+ * P18: pounds to pence for the two money boxes, where ZERO is a real answer (a line can be all
+ * labour, or all materials). Blank or negative is null, which reads as "not answered yet" and
+ * blocks the send — negative labour is refused at the input rather than clamped in the display.
+ */
+/** P18: the next free index for a material Ben adds; the list is keyed by index, not position. */
+export function nextMaterialIndex(list: Array<{ index: number }>): number {
+    return list.reduce((n, m) => Math.max(n, m.index + 1), 0);
+}
+
+export function moneyBoxToPence(text: string): number | null {
+    const t = (text ?? '').replace(/[£,\s]/g, '');
+    if (!t) return null;
+    const n = Number(t);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.round(n * 100);
+}
+
+/** P18: what the customer pays for this line's materials — Ben's typed box, else his item list. */
+export function stateMaterialsPence(line: PriceLine, state: LineState | undefined, marginPercent: number): number {
+    if (!state) return line.materialsPence;
+    if (state.materialsByHand != null) return moneyBoxToPence(state.materialsByHand) ?? 0;
+    return lineMaterialsAtMargin(line, state.materials, marginPercent);
+}
+
+/** P18: labour as typed. null = the box is empty or negative, so this line has no price yet. */
+export function stateLabourPence(state: LineState | undefined): number | null {
+    return state ? moneyBoxToPence(state.labour) : null;
+}
+
+/** P18: the line price. It is the sum of the two boxes, never a number Ben types. */
+export function lineTotalPence(line: PriceLine, state: LineState | undefined, marginPercent: number): number | null {
+    const labour = stateLabourPence(state);
+    if (labour == null) return null;
+    return labour + stateMaterialsPence(line, state, marginPercent);
+}
+
+/**
+ * P18: the halves as the engine priced them, for seeding a box and for "accept as suggested".
+ * A draft priced before P18 has no stored labour, so it falls back to the suggestion less the
+ * materials the engine costed. Never written back on read.
+ */
+export function suggestedHalves(line: PriceLine): { labourPence: number | null; materialsPence: number } {
+    const materialsPence = line.materialsPence;
+    const fromBasis = line.basis?.labourPence;
+    if (fromBasis != null) return { labourPence: fromBasis, materialsPence };
+    if (line.suggestedPence != null) return { labourPence: Math.max(0, line.suggestedPence - materialsPence), materialsPence };
+    return { labourPence: null, materialsPence };
 }
 
 /** Same rule as the server (totalsFor): labour = final − materials at margin; deposit = depositFor. */
@@ -323,7 +373,19 @@ export function ThreadPane({ thread, firstName, expanded, onExpand, highlightIds
 // ---------------------------------------------------------------- line card
 
 export interface LineState {
-    value: string;
+    /**
+     * P18: labour, in pounds as typed. Labour and materials are the two INPUTS; the line price is
+     * their sum and is never typed. Before P18 this was `value`, the line total, and labour existed
+     * nowhere: it was re-derived as price minus materials at every read, so editing a material moved
+     * money between the columns without changing what the customer pays.
+     */
+    labour: string;
+    /**
+     * P18: materials in pounds when Ben typed the box directly, overriding the item list. null = the
+     * box follows the list. A figure he typed must never be silently overwritten by an item edit,
+     * so the items become advisory until he reverts.
+     */
+    materialsByHand: string | null;
     materials: Material[];
     assumptions: string[];
     /** P15: "Not included" in plain words, one entry per item. */
@@ -363,12 +425,17 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
 }) {
     const [showBasis, setShowBasis] = useState(false);
     const [showMaterials, setShowMaterials] = useState(false);
-    const pence = poundsToPence(state.value);
+    // P18: the two boxes are the inputs; the price is their sum. `pence` stays the line TOTAL so the
+    // band, check_this and "edited" keep describing the number the engine suggested.
+    const labourPence = stateLabourPence(state);
+    const materialsPence = stateMaterialsPence(line, state, margin);
+    const pence = lineTotalPence(line, state, margin);
+    const suggested = suggestedHalves(line);
     const band = bandText(line.bandLowPence, line.bandHighPence);
     const edited = line.suggestedPence != null && pence !== line.suggestedPence;
     const outOfBand = pence != null && line.bandLowPence != null && line.bandHighPence != null && (pence < line.bandLowPence || pence > line.bandHighPence);
     const mins = minutesText(line.minutes);
-    const materialsPence = lineMaterialsAtMargin(line, state.materials, margin);
+    const materialsByHand = state.materialsByHand != null;
     const materialsCostPence = state.materials.length ? materialsCostOf(state.materials) : (line.materialsCostPence ?? 0);
     const evidence = line.evidence;
     const mine = contradictions.filter((c) => c.lineId === line.lineId);
@@ -488,23 +555,62 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
 
             {!compact && (
                 <>
-                    <div className="mt-3 flex items-end gap-2">
-                        <label className="block flex-1">
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Price</span>
-                            <div className={cn('mt-1 flex items-center rounded-xl border-2 bg-white px-3', outOfBand ? 'border-amber-400' : edited ? 'border-slate-900' : 'border-slate-300')}>
-                                <span className="text-xl font-black text-slate-500">£</span>
+                    {/* P18: labour and materials are the two inputs. The price below is their sum. */}
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                        <label className="block">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Labour</span>
+                            <div className={cn('mt-1 flex items-center rounded-xl border-2 bg-white px-2.5', labourPence == null && state.labour !== '' ? 'border-red-400' : 'border-slate-300')}>
+                                <span className="text-lg font-black text-slate-500">£</span>
                                 <input
                                     type="number" inputMode="decimal" min={0} step={1}
-                                    className="w-full bg-transparent py-2.5 pl-1 text-2xl font-black text-slate-900 outline-none"
-                                    value={state.value} disabled={disabled}
-                                    onChange={(e) => onChange({ value: e.target.value, accepted: false })}
-                                    aria-label={`Price for ${line.title}`}
-                                    data-testid={`price-input-${line.lineId}`}
+                                    className="w-full bg-transparent py-2 pl-1 text-xl font-black text-slate-900 outline-none"
+                                    value={state.labour} disabled={disabled}
+                                    onChange={(e) => onChange({ labour: e.target.value, accepted: false })}
+                                    aria-label={`Labour for ${line.title}`}
+                                    data-testid={`labour-input-${line.lineId}`}
                                 />
                             </div>
                         </label>
-                        {edited && !disabled && (
-                            <button type="button" onClick={() => onChange({ value: penceToPoundsText(line.suggestedPence) })}
+                        <label className="block">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Materials</span>
+                            <div className={cn('mt-1 flex items-center rounded-xl border-2 bg-white px-2.5', materialsByHand ? 'border-slate-900' : 'border-slate-300')}>
+                                <span className="text-lg font-black text-slate-500">£</span>
+                                <input
+                                    type="number" inputMode="decimal" min={0} step={1}
+                                    className="w-full bg-transparent py-2 pl-1 text-xl font-black text-slate-900 outline-none"
+                                    value={materialsByHand ? state.materialsByHand! : penceToPoundsText(materialsPence)}
+                                    disabled={disabled}
+                                    onChange={(e) => onChange({ materialsByHand: e.target.value, accepted: false })}
+                                    aria-label={`Materials for ${line.title}`}
+                                    data-testid={`materials-input-${line.lineId}`}
+                                />
+                            </div>
+                        </label>
+                    </div>
+                    {state.labour !== '' && labourPence == null && (
+                        <div className="mt-1 text-[11px] font-bold text-red-600" data-testid={`labour-invalid-${line.lineId}`}>Labour must be £0 or more.</div>
+                    )}
+                    {materialsByHand && (
+                        <div className="mt-1 flex items-center gap-2 text-[11px] font-bold text-slate-600" data-testid={`materials-by-hand-${line.lineId}`}>
+                            <span>Materials set by hand. The items below are advisory.</span>
+                            {!disabled && (
+                                <button type="button" onClick={() => onChange({ materialsByHand: null, accepted: false })}
+                                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-1.5 py-0.5 text-slate-700"
+                                    data-testid={`materials-revert-${line.lineId}`}>
+                                    <RotateCcw className="h-3 w-3" /> use the list
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    <div className="mt-2 flex items-end gap-2">
+                        <div className={cn('flex-1 rounded-xl border-2 px-3 py-2', outOfBand ? 'border-amber-400 bg-amber-50' : edited ? 'border-slate-900 bg-white' : 'border-slate-300 bg-white')}>
+                            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Line price</div>
+                            <div className="text-2xl font-black text-slate-900" data-testid={`line-total-${line.lineId}`}>
+                                {pence == null ? '—' : gbp(pence)}
+                            </div>
+                        </div>
+                        {edited && !disabled && suggested.labourPence != null && (
+                            <button type="button" onClick={() => onChange({ labour: penceToPoundsText(suggested.labourPence), materialsByHand: null, materials: (line.materials ?? []).map((m) => ({ ...m })) })}
                                 className="mb-1 inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-bold text-slate-700"
                                 data-testid={`reset-${line.lineId}`}>
                                 <RotateCcw className="h-3.5 w-3.5" /> {gbp(line.suggestedPence)}
@@ -523,12 +629,12 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
                         {line.suggestedPence == null && <span className="text-amber-700">No suggestion, price by hand</span>}
                         {edited && <span className="inline-flex items-center gap-1 text-slate-900"><PenLine className="h-3 w-3" /> edited</span>}
                         {outOfBand && <span className="text-amber-700" data-testid="out-of-band">outside the band</span>}
-                        {/* P16b: the split, on the line. Ben could see the job's labour and materials in the
-                            summary but never the line's, so he could not check that the parts add up to the price
-                            he is about to send (Gemma c1u0wkt8, 3 Sep 2026). */}
+                        {/* P16b put the split here as a read-only chip because the line showed only its
+                            total. P18 made both halves editable boxes above, so the chip would repeat them
+                            word for word; what is left is the materials figure the item list feeds. */}
                         {pence != null && materialsPence > 0 && (
                             <span data-testid={`split-${line.lineId}`}>
-                                labour {gbp(Math.max(0, pence - materialsPence))} + materials <span data-testid={`materials-pence-${line.lineId}`}>{gbp(materialsPence)}</span>
+                                incl. <span data-testid={`materials-pence-${line.lineId}`}>{gbp(materialsPence)}</span> materials
                             </span>
                         )}
                         {pence != null && materialsPence === 0 && <span data-testid={`split-${line.lineId}`}>all labour</span>}
@@ -579,9 +685,19 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
                                     ))}
                                 </ul>
                             )}
+                            {showMaterials && !disabled && (
+                                <div className="border-t border-slate-100 px-3 py-2">
+                                    {/* P18: the missing control. Cost in, margin applied for her. */}
+                                    <button type="button" onClick={() => onChange({ materials: [...state.materials, { lineId: line.lineId, index: nextMaterialIndex(state.materials), name: '', qty: 1, unitCostPence: 0, source: 'ben' }] })}
+                                        className="text-xs font-black text-slate-700 underline decoration-dotted" data-testid={`material-add-${line.lineId}`}>
+                                        + add a material
+                                    </button>
+                                </div>
+                            )}
                             {showMaterials && (
                                 <div className="border-t border-slate-100 px-3 py-2 text-[11px] font-bold text-slate-500" data-testid={`materials-cost-${line.lineId}`}>
                                     Cost {gbp(materialsCostPence)} · she pays {gbp(materialsPence)} at {margin}%
+                                    {materialsByHand && <span className="text-slate-400"> · the box is set by hand, so this is advisory</span>}
                                 </div>
                             )}
                         </div>
@@ -642,7 +758,15 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
 // ---------------------------------------------------------------- the screen
 
 function initialLineState(l: PriceLine): LineState {
-    return { value: penceToPoundsText(l.suggestedPence), materials: (l.materials ?? []).map((m) => ({ ...m })), assumptions: [...l.assumptions], notIncluded: [...(l.notIncluded ?? [])], accepted: false, deleted: false };
+    // P18: seed the labour box from what the engine costed as labour; the materials box follows the
+    // item list until Ben types in it.
+    const { labourPence } = suggestedHalves(l);
+    return {
+        labour: labourPence == null ? '' : penceToPoundsText(labourPence),
+        materialsByHand: null,
+        materials: (l.materials ?? []).map((m) => ({ ...m })),
+        assumptions: [...l.assumptions], notIncluded: [...(l.notIncluded ?? [])], accepted: false, deleted: false,
+    };
 }
 
 /** P15: the not-included list as it would be sent (trimmed, blanks dropped). */
@@ -698,8 +822,10 @@ export function PriceAndSend({ slug }: { slug: string }) {
     const allLines = useMemo(() => [...(data?.lines ?? []), ...addedLines], [data, addedLines]);
     const ordered = useMemo(() => [...orderByDoubt(data?.lines ?? [], contradictions), ...addedLines], [data, contradictions, addedLines]);
     const kept = useMemo(() => allLines.filter((l) => !states[l.lineId]?.deleted), [allLines, states]);
-    const finals = useMemo(() => Object.fromEntries(allLines.map((l) => [l.lineId, poundsToPence(states[l.lineId]?.value ?? '')])), [allLines, states]);
-    const materialsPence = useMemo(() => Object.fromEntries(allLines.map((l) => [l.lineId, lineMaterialsAtMargin(l, states[l.lineId]?.materials, margin)])), [allLines, states, margin]);
+    // P18: the line price is the sum of its two boxes, and the summary is the sum of the lines.
+    const finals = useMemo(() => Object.fromEntries(allLines.map((l) => [l.lineId, lineTotalPence(l, states[l.lineId], margin)])), [allLines, states, margin]);
+    const labourPence = useMemo(() => Object.fromEntries(allLines.map((l) => [l.lineId, stateLabourPence(states[l.lineId]) ?? 0])), [allLines, states]);
+    const materialsPence = useMemo(() => Object.fromEntries(allLines.map((l) => [l.lineId, stateMaterialsPence(l, states[l.lineId], margin)])), [allLines, states, margin]);
     // Deleted lines are out of every total, exactly as they will be out of the quote.
     const totals = useMemo(() => totalsOf(kept, finals, data?.settings?.depositPercent ?? 30, materialsPence), [kept, finals, materialsPence, data]);
     const messageEdited = !!data && message.trim() !== (data.message?.body ?? '').trim();
@@ -732,7 +858,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
             }));
         }
         if (Object.keys(statePatch).length) {
-            setStates((s) => ({ ...s, [lineId]: { ...(s[lineId] ?? { value: '', materials: [], assumptions: [], notIncluded: [], accepted: false }), ...statePatch } }));
+            setStates((s) => ({ ...s, [lineId]: { ...(s[lineId] ?? { labour: '', materialsByHand: null, materials: [], assumptions: [], notIncluded: [], accepted: false }), ...statePatch } }));
         }
     }
 
@@ -740,7 +866,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
     function addLine() {
         const line = newAddedLine(addedLines.length + 1);
         setAddedLines((ls) => [...ls, line]);
-        setStates((s) => ({ ...s, [line.lineId]: { value: '', materials: [], assumptions: [], notIncluded: [], accepted: false, deleted: false } }));
+        setStates((s) => ({ ...s, [line.lineId]: { labour: '', materialsByHand: null, materials: [], assumptions: [], notIncluded: [], accepted: false, deleted: false } }));
     }
     function resolve(c: Contradiction, choice: Resolution) {
         setResolutions((r) => ({ ...r, [c.id]: choice }));
@@ -765,6 +891,10 @@ export function PriceAndSend({ slug }: { slug: string }) {
                 const notIncludedChanged = !st || JSON.stringify(notIncluded) !== JSON.stringify(l.notIncluded ?? []);
                 return {
                     lineId: l.lineId, finalPence: finals[l.lineId],
+                    // P18: both halves, always, so the server never has to re-derive labour. They sum
+                    // to finalPence by construction here, and validateSendBody refuses it if they do not.
+                    labourPence: labourPence[l.lineId],
+                    materialsPence: materialsPence[l.lineId],
                     ...(st && materialsChanged ? { materials: st.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence ?? 0, source: m.source })) } : {}),
                     ...(st && assumptionsChanged ? { assumptions: st.assumptions } : {}),
                     ...(st && notIncludedChanged ? { notIncluded } : {}),
