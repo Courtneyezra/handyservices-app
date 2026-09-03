@@ -23,6 +23,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute } from 'wouter';
 import { Loader2, AlertTriangle, ChevronDown, ChevronUp, Send, PenLine, RotateCcw, CheckCircle2, Clock, Wrench, RefreshCw, Phone, HelpCircle, Home, X, Check, ArrowRight, Quote as QuoteIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { depositFor } from '@shared/pricing-settings';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -53,7 +54,10 @@ export interface PriceLine {
     minutes: { point: number; low: number; high: number } | null;
     timeSource: string | null;
     materialsCount: number;
+    /** At margin: what the customer pays. The only figure any total uses. */
     materialsPence: number;
+    /** P16: at cost, what we pay the merchant. Shown inside the materials editor, never in a total. */
+    materialsCostPence?: number;
     suggestedPence: number | null;
     bandLowPence: number | null;
     bandHighPence: number | null;
@@ -137,12 +141,28 @@ export function minutesText(m: PriceLine['minutes']): string | null {
 }
 
 /** Materials at the live margin from a (possibly edited) list. Same rule as the server. */
-export function materialsAtMargin(list: Array<{ qty: number; unitCostPence: number | null }>, marginPercent: number): number {
-    const cost = list.reduce((s, m) => s + (m.unitCostPence ?? 0) * Math.max(1, m.qty), 0);
-    return Math.round(cost * (1 + marginPercent / 100));
+export function materialsCostOf(list: Array<{ qty: number; unitCostPence: number | null }>): number {
+    return list.reduce((s, m) => s + (m.unitCostPence ?? 0) * Math.max(1, m.qty), 0);
 }
 
-/** Same rule as the server (totalsFor): labour = final − materials; deposit = materials + X % of labour, to the pound. */
+export function materialsAtMargin(list: Array<{ qty: number; unitCostPence: number | null }>, marginPercent: number): number {
+    const cost = materialsCostOf(list);
+    return cost ? Math.round(cost * (1 + marginPercent / 100)) : 0;
+}
+
+/**
+ * P16: what the customer pays for a line's materials. An edited list is costed at the live margin;
+ * an empty list falls back to the server's at-margin figure (the bridge's
+ * `basis.materialsWithMarginPence`), because a line priced with no itemised list still has
+ * materials in its price. Never the raw cost: that is `materialsCostPence`, editor-only.
+ */
+export function lineMaterialsAtMargin(line: PriceLine, edited: Array<{ qty: number; unitCostPence: number | null }> | undefined, marginPercent: number): number {
+    if (edited && edited.length) return materialsAtMargin(edited, marginPercent);
+    if (edited && !edited.length && (line.materials?.length ?? 0) > 0) return 0; // he removed them all
+    return line.materialsPence;
+}
+
+/** Same rule as the server (totalsFor): labour = final − materials at margin; deposit = depositFor. */
 export function totalsOf(lines: PriceLine[], finals: Record<string, number | null>, depositPercent: number, materialsPence?: Record<string, number>) {
     let total = 0, materials = 0, missing = 0;
     for (const l of lines) {
@@ -152,8 +172,7 @@ export function totalsOf(lines: PriceLine[], finals: Record<string, number | nul
         materials += Math.min(materialsPence?.[l.lineId] ?? l.materialsPence, f);
     }
     const labour = total - materials;
-    const deposit = Math.round((materials + Math.round(labour * (depositPercent / 100))) / 100) * 100;
-    return { totalPence: total, materialsPence: materials, labourPence: labour, depositPence: deposit, missing };
+    return { totalPence: total, materialsPence: materials, labourPence: labour, depositPence: depositFor(total, depositPercent), missing };
 }
 
 /** How much a line needs Ben's eyes: check_this, a contradiction, low confidence, no suggestion. Higher first. */
@@ -286,7 +305,8 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
     const edited = line.suggestedPence != null && pence !== line.suggestedPence;
     const outOfBand = pence != null && line.bandLowPence != null && line.bandHighPence != null && (pence < line.bandLowPence || pence > line.bandHighPence);
     const mins = minutesText(line.minutes);
-    const materialsPence = materialsAtMargin(state.materials, margin);
+    const materialsPence = lineMaterialsAtMargin(line, state.materials, margin);
+    const materialsCostPence = state.materials.length ? materialsCostOf(state.materials) : (line.materialsCostPence ?? 0);
     const evidence = line.evidence;
     const mine = contradictions.filter((c) => c.lineId === line.lineId);
     const compact = state.accepted && !disabled;
@@ -439,6 +459,11 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
                                     ))}
                                 </ul>
                             )}
+                            {showMaterials && (
+                                <div className="border-t border-slate-100 px-3 py-2 text-[11px] font-bold text-slate-500" data-testid={`materials-cost-${line.lineId}`}>
+                                    Cost {gbp(materialsCostPence)} · she pays {gbp(materialsPence)} at {margin}%
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -546,7 +571,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
     const ordered = useMemo(() => orderByDoubt(data?.lines ?? [], contradictions), [data, contradictions]);
     const margin = data?.settings?.materialsMarginPercent ?? 0;
     const finals = useMemo(() => Object.fromEntries((data?.lines ?? []).map((l) => [l.lineId, poundsToPence(states[l.lineId]?.value ?? '')])), [data, states]);
-    const materialsPence = useMemo(() => Object.fromEntries((data?.lines ?? []).map((l) => [l.lineId, states[l.lineId] ? materialsAtMargin(states[l.lineId].materials, margin) : l.materialsPence])), [data, states, margin]);
+    const materialsPence = useMemo(() => Object.fromEntries((data?.lines ?? []).map((l) => [l.lineId, lineMaterialsAtMargin(l, states[l.lineId]?.materials, margin)])), [data, states, margin]);
     const totals = useMemo(() => totalsOf(data?.lines ?? [], finals, data?.settings?.depositPercent ?? 30, materialsPence), [data, finals, materialsPence]);
     const messageEdited = !!data && message.trim() !== (data.message?.body ?? '').trim();
     const warnings = useMemo(() => messageWarnings(message), [message]);

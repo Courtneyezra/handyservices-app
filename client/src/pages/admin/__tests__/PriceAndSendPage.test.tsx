@@ -12,6 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import {
     PriceAndSend, gbp, poundsToPence, penceToPoundsText, bandText, totalsOf, orderByDoubt, doubtScore, visibleMessages, messageWarnings, materialsAtMargin,
+    materialsCostOf, lineMaterialsAtMargin,
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
 
@@ -19,7 +20,7 @@ const T = (h: number, m = 0, d = 4) => `2026-09-0${d}T${String(h).padStart(2, '0
 
 const doors: PriceLine = {
     lineId: 'card_1', title: 'Oak panelled doors, hung and finished', category: 'joinery', qty: 8, minutes: { point: 880, low: 640, high: 1120 }, timeSource: 'history',
-    materialsCount: 2, materialsPence: 137922, suggestedPence: 180000, bandLowPence: 160000, bandHighPence: 205000, confidence: 'medium', checkThis: false, checkReason: null, flags: [],
+    materialsCount: 2, materialsPence: 137922, materialsCostPence: 108600, suggestedPence: 180000, bandLowPence: 160000, bandHighPence: 205000, confidence: 'medium', checkThis: false, checkReason: null, flags: [],
     assumptions: ['Existing handles reused on all doors', 'Frames are sound'],
     basis: { minutes: 910, ratePencePerHour: 3000, marginPct: 27, rules: ['batch discount 10% (engine)'] },
     materials: [
@@ -30,7 +31,7 @@ const doors: PriceLine = {
 };
 const cupboard: PriceLine = {
     lineId: 'card_2', title: 'Airing cupboard door', category: 'joinery', qty: 1, minutes: { point: 120, low: 90, high: 180 }, timeSource: 'model',
-    materialsCount: 1, materialsPence: 19050, suggestedPence: 30000, bandLowPence: 27000, bandHighPence: 34000, confidence: 'low', checkThis: true, checkReason: 'low confidence: unusual size', flags: [],
+    materialsCount: 1, materialsPence: 19050, materialsCostPence: 15000, suggestedPence: 30000, bandLowPence: 27000, bandHighPence: 34000, confidence: 'low', checkThis: true, checkReason: 'low confidence: unusual size', flags: [],
     assumptions: [], basis: null,
     materials: [{ lineId: 'card_2', index: 0, name: 'Oak door, cut to size', qty: 1, unitCostPence: 15000, source: 'web' }],
     evidence: { basedOnInboundId: 's4', quotes: [{ messageId: 's4', at: T(17, 55), text: 'The airing cupboard door is a different size, photo attached' }], media: [{ messageId: 's4', url: '/api/media/p3', kind: 'image' }] },
@@ -75,7 +76,7 @@ const payload = (over: Partial<PricePayload> = {}): PricePayload => ({
 function screenFetch(json: PricePayload, replies: Partial<Record<'send' | 'ask' | 'call' | 'visit', (call: { body: any }) => { status?: number; json?: unknown }>> = {}) {
     const ok = (extra: Record<string, unknown>) => ({ json: { ok: true, ...extra } });
     return mockFetch([
-        { url: '/api/spine/price/z4p6t9mw/send', method: 'POST', reply: (c) => replies.send ? replies.send(c) : ok({ sent: true, mode: 'freeform', priced: true, verdicts: 2, quoteUrl: json.quoteUrl, totals: { labourPence: 81000, materialsPence: 129000, totalPence: 210000, depositPence: 153300 }, nextSteps: 'Sent to Sarah. Deposit £1,533. Follow-up in 2 days if unviewed.', nextWaiting: json.nextWaiting }) },
+        { url: '/api/spine/price/z4p6t9mw/send', method: 'POST', reply: (c) => replies.send ? replies.send(c) : ok({ sent: true, mode: 'freeform', priced: true, verdicts: 2, quoteUrl: json.quoteUrl, totals: { labourPence: 81000, materialsPence: 129000, totalPence: 210000, depositPence: 63000 }, nextSteps: 'Sent to Sarah. Deposit £630. Follow-up in 2 days if unviewed.', nextWaiting: json.nextWaiting }) },
         { url: '/api/spine/price/z4p6t9mw/ask', method: 'POST', reply: (c) => replies.ask ? replies.ask(c) : ok({ hold: { reason: 'ask_first', at: T(20), by: 'human:ben', question: c.body.question }, draftId: 'd1' }) },
         { url: '/api/spine/price/z4p6t9mw/call', method: 'POST', reply: (c) => replies.call ? replies.call(c) : ok({ hold: { reason: 'call', at: T(20), by: 'human:ben' }, tel: '+447811346936' }) },
         { url: '/api/spine/price/z4p6t9mw/visit', method: 'POST', reply: (c) => replies.visit ? replies.visit(c) : ok({ hold: { reason: 'visit', at: T(20), by: 'human:ben' }, draftId: 'd2' }) },
@@ -106,7 +107,8 @@ describe('helpers', () => {
     });
     it('totalsOf mirrors the server rule and takes edited materials', () => {
         const p = payload();
-        expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30)).toEqual({ totalPence: 210000, materialsPence: 137922 + 19050, labourPence: 210000 - 137922 - 19050, depositPence: 172900, missing: 0 });
+        // P16 item 2: deposit = 30 % of the total to the pound (210,000 → £630), never a function of the materials split.
+        expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30)).toEqual({ totalPence: 210000, materialsPence: 137922 + 19050, labourPence: 210000 - 137922 - 19050, depositPence: 63000, missing: 0 });
         expect(totalsOf(p.lines, { card_1: 180000, card_2: null }, 30).missing).toBe(1);
         expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30, { card_1: 121920, card_2: 19050 }).materialsPence).toBe(121920 + 19050);
         expect(materialsAtMargin([{ qty: 8, unitCostPence: 12000 }], 27)).toBe(121920);
@@ -240,7 +242,7 @@ describe('PriceAndSend (phone)', () => {
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await userEvent.click(await screen.findByTestId('send-quote'));
         expect(await screen.findByTestId('confirm-screen')).toHaveTextContent('Sent on WhatsApp');
-        expect(screen.getByTestId('next-steps')).toHaveTextContent('Sent to Sarah. Deposit £1,533. Follow-up in 2 days if unviewed.');
+        expect(screen.getByTestId('next-steps')).toHaveTextContent('Sent to Sarah. Deposit £630. Follow-up in 2 days if unviewed.');
         expect(screen.getByTestId('next-waiting')).toHaveTextContent('Next quote waiting: Gemma');
         expect(screen.getByTestId('next-waiting')).toHaveAttribute('href', '/admin/price/c1u0wkt8');
     });
@@ -441,5 +443,36 @@ describe('P15 part 1: "Not included" on the price screen', () => {
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
         expect(f.of('POST', '/send')[0].body.lines[0].notIncluded).toEqual([]);
+    });
+});
+
+describe('P16 items 1 + 2: the money on the screen', () => {
+    it('a line with no itemised list still shows the materials it was priced with', () => {
+        const bare: PriceLine = { ...cupboard, materials: [], materialsCount: 0, materialsPence: 19050, materialsCostPence: 15000 };
+        expect(lineMaterialsAtMargin(bare, [], 27)).toBe(19050);
+        expect(lineMaterialsAtMargin(bare, undefined, 27)).toBe(19050);
+    });
+    it('an edited list is costed at the live margin, and clearing a list that had items means zero', () => {
+        expect(lineMaterialsAtMargin(doors, [{ qty: 8, unitCostPence: 12000 }], 27)).toBe(121920);
+        expect(lineMaterialsAtMargin(doors, [], 27)).toBe(0);
+        expect(materialsCostOf([{ qty: 8, unitCostPence: 12000 }])).toBe(96000);
+    });
+    it('the summary reads labour and materials at margin, and a deposit that is a share of the total', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        const summary = screen.getByTestId('totals');
+        expect(summary).toHaveTextContent(gbp(210000));
+        expect(summary).toHaveTextContent(gbp(63000));
+        expect(summary).not.toHaveTextContent(gbp(172900));
+    });
+    it('the materials editor shows the cost beside what she pays', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        const cost = within(l1).getByTestId('materials-cost-card_1');
+        expect(cost).toHaveTextContent(`Cost ${gbp(108600)}`);
+        expect(cost).toHaveTextContent(`she pays ${gbp(137922)} at 27%`);
     });
 });
