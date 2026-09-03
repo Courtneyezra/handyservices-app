@@ -53,3 +53,13 @@ Craig (`hp_aa21264a-…`). Build in this order.
 
 ## Not in scope
 Pay changes, bonds, the prize wheel, kit lists (owner: none), taking the balance on site (owner: no).
+
+## Split across three panes (3 Sep, orchestrator)
+- **Top-right (`v6-wt-exit`, `p15-contractor-loop`)**: Parts 1 and 2 ONLY.
+- **Bottom-left (`v6-wt-worker`, `p15-part3-variations`)**: Part 3 ONLY.
+- **Bottom-right (`v6-wt-config`, `p15-part4-completion`)**: Part 4 ONLY.
+Rules so the three merge cleanly: each pane owns its files; anything added to the My Week / dashboard
+job drawer goes in a NEW component file under `client/src/components/contractor/` with a one-line
+mount, never an edit of another part's block; new server routes live in new files mounted from
+`server/index.ts` with one line; shared types on `PackLine` are ADDITIVE fields only (no renames);
+the pack store (`job-pack.ts`) is read, not restructured. Each pane writes `P15-part<N>-DONE.md`.
