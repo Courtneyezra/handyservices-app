@@ -157,10 +157,22 @@ export function materialsAtMargin(list: Array<{ qty: number; unitCostPence: numb
  * `basis.materialsWithMarginPence`), because a line priced with no itemised list still has
  * materials in its price. Never the raw cost: that is `materialsCostPence`, editor-only.
  */
+/**
+ * The line's materials, at margin. `line.materialsPence` is the figure the ENGINE priced the line
+ * with; recomputing it from the item list rounds differently and drifts (Gemma c1u0wkt8, 3 Sep 2026:
+ * the six lines summed to £352.00 stored but £352.60 recomputed, so the page's labour and materials
+ * both read 60p away from the line items they are supposed to add up to). So the stored figure wins
+ * unless Ben has actually CHANGED the list — swapped an item, edited a cost or a quantity, removed
+ * one — in which case his list is the truth and we recompute.
+ */
 export function lineMaterialsAtMargin(line: PriceLine, edited: Array<{ qty: number; unitCostPence: number | null }> | undefined, marginPercent: number): number {
-    if (edited && edited.length) return materialsAtMargin(edited, marginPercent);
-    if (edited && !edited.length && (line.materials?.length ?? 0) > 0) return 0; // he removed them all
-    return line.materialsPence;
+    if (!edited) return line.materialsPence;
+    const original = line.materials ?? [];
+    const unchanged = edited.length === original.length
+        && edited.every((m, i) => m.qty === original[i]?.qty && (m.unitCostPence ?? null) === (original[i]?.unitCostPence ?? null));
+    if (unchanged) return line.materialsPence;
+    if (!edited.length) return 0; // he removed them all
+    return materialsAtMargin(edited, marginPercent);
 }
 
 /** Same rule as the server (totalsFor): labour = final − materials at margin; deposit = depositFor. */
@@ -511,7 +523,15 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
                         {line.suggestedPence == null && <span className="text-amber-700">No suggestion, price by hand</span>}
                         {edited && <span className="inline-flex items-center gap-1 text-slate-900"><PenLine className="h-3 w-3" /> edited</span>}
                         {outOfBand && <span className="text-amber-700" data-testid="out-of-band">outside the band</span>}
-                        {materialsPence > 0 && <span data-testid={`materials-pence-${line.lineId}`}>incl. {gbp(materialsPence)} materials</span>}
+                        {/* P16b: the split, on the line. Ben could see the job's labour and materials in the
+                            summary but never the line's, so he could not check that the parts add up to the price
+                            he is about to send (Gemma c1u0wkt8, 3 Sep 2026). */}
+                        {pence != null && materialsPence > 0 && (
+                            <span data-testid={`split-${line.lineId}`}>
+                                labour {gbp(Math.max(0, pence - materialsPence))} + materials <span data-testid={`materials-pence-${line.lineId}`}>{gbp(materialsPence)}</span>
+                            </span>
+                        )}
+                        {pence != null && materialsPence === 0 && <span data-testid={`split-${line.lineId}`}>all labour</span>}
                         {line.basis && (
                             <button type="button" onClick={() => setShowBasis((s) => !s)} className="inline-flex items-center gap-0.5 text-slate-700 underline decoration-dotted" data-testid={`basis-toggle-${line.lineId}`}>
                                 basis {showBasis ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -891,7 +911,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     <span className="text-slate-300">Labour</span><span className="text-right font-bold">{gbp(totals.labourPence)}</span>
                     <span className="text-slate-300">Materials at {data.settings.materialsMarginPercent}%</span><span className="text-right font-bold">{gbp(totals.materialsPence)}</span>
                     <span className="mt-1 text-base font-black">Total</span><span className="mt-1 text-right text-base font-black" data-testid="total">{gbp(totals.totalPence)}</span>
-                    <span className="text-slate-300">Deposit ({data.settings.depositPercent}% of the total)</span><span className="text-right font-bold" data-testid="deposit">{gbp(totals.depositPence)}</span>
+                    <span className="text-slate-300">Deposit (materials in full + {data.settings.depositPercent}% of labour)</span><span className="text-right font-bold" data-testid="deposit">{gbp(totals.depositPence)}</span>
                 </div>
                 {totals.missing > 0 && <div className="mt-2 text-xs font-bold text-amber-300" data-testid="missing-prices">{totals.missing} line{totals.missing === 1 ? '' : 's'} still need{totals.missing === 1 ? 's' : ''} a price</div>}
                 {untitledAdded && <div className="mt-2 text-xs font-bold text-amber-300" data-testid="missing-title">An added line still needs a title</div>}
