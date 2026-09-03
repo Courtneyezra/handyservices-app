@@ -434,12 +434,35 @@ export function mergeEstimate(lines: PackLine[], est: EstimateLineInput[], job?:
     return { lines: merged, accessNotes: strs(job?.accessNotes, 12) };
 }
 
-export interface BenLineEdit { lineId: string; finalPence?: number; materialsPence?: number; materials?: Array<{ name: string; qty: number; unitCostPence: number; source?: string | null }>; assumptions?: string[]; /** P15 */ notIncluded?: string[] }
+export interface BenLineEdit {
+    lineId: string; finalPence?: number; materialsPence?: number;
+    materials?: Array<{ name: string; qty: number; unitCostPence: number; source?: string | null }>;
+    assumptions?: string[]; /** P15 */ notIncluded?: string[];
+    /** P16: Ben deleted this line on the price screen. It leaves the pack with the quote. */
+    deleted?: boolean;
+    /** P16: Ben added this line by hand. It joins the pack with no evidence and no estimate. */
+    added?: { title: string; category?: string | null; minutesPoint?: number | null };
+}
 
-/** Pure: Ben's price-screen edits onto the lines. Prices, materials, assumptions and the not-included list are his. */
+/**
+ * Pure: Ben's price-screen edits onto the lines. Prices, materials, assumptions and the
+ * not-included list are his, and since P16 so are the lines themselves: an edit may add a line he
+ * typed or remove one he deleted.
+ *
+ * A removal on a LOCKED pack is not refused here — `commit` is the one place that knows about the
+ * lock, and a dropped line shows up in its diff as a frozen `line:<id>` change, so the
+ * PackLockedError comes from there with the field named.
+ */
 export function applyBenEdits(lines: PackLine[], edits: BenLineEdit[]): PackLine[] {
     const byId = new Map(edits.map((e) => [e.lineId, e]));
-    return lines.map((l) => {
+    const known = new Set(lines.map((l) => l.lineId));
+    const appended: PackLine[] = edits
+        .filter((e) => e.added && !known.has(e.lineId) && !e.deleted)
+        .map((e) => {
+            const base = emptyLine(e.lineId, e.added!.title);
+            return { ...base, category: str(e.added!.category) ?? null, minutesPoint: int(e.added!.minutesPoint), minutesLow: int(e.added!.minutesPoint), minutesHigh: int(e.added!.minutesPoint) };
+        });
+    return [...lines, ...appended].filter((l) => !byId.get(l.lineId)?.deleted).map((l) => {
         const e = byId.get(l.lineId);
         if (!e) return l;
         const materials = e.materials ? e.materials.map((m) => normaliseMaterial({ ...m, supplier: m.source ?? null, unitPricePence: m.unitCostPence })).filter((m): m is PackMaterial => !!m) : l.materials;

@@ -464,19 +464,28 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
 
 /**
  * P16 — THE deposit rule. One definition, used by Ben's price screen, the confirm line, the quote
- * row the chain writes, and the customer's quote page.
+ * row the chain writes, the customer's quote page and Stripe.
  *
- * `depositPercent` of the customer total, rounded to the pound. It replaced a second rule that took
- * 100 % of materials plus a percentage of labour: on Sarah's £2,100 quote the two disagreed by
- * £711 (£1,341 against £630), and the number Ben was shown on the screen was not the number the
- * customer's page quoted her. A deposit is a share of the price, not a reimbursement of our costs.
+ * 100 % of materials (at margin, what the customer pays for them) plus `depositPercent` of labour,
+ * rounded to the pound. We buy the materials before anyone turns up, so the deposit covers them in
+ * full and takes a share of the labour on top.
  *
- * NOTE (open, flagged in docs/comms-build/P16-DONE.md): `server/stripe-routes.ts calculateDeposit`
- * still charges the older materials-plus-labour figure. Until that is pointed here too, the card is
- * charged more than this function returns.
+ * This is the rule the business already runs on, confirmed against production on 3 Sep 2026: six of
+ * the eight most recent paid quotes match it to the pound (ao502s1y £179, m44nd9z0 £756, 9weuajqj
+ * £202, 59urxtlo £2,333, dles0479 £1,684, ml8cyy2z £135); the two that do not were small jobs paid
+ * in full. `client/src/pages/PersonalizedQuotePage.tsx calculateDeposit` and
+ * `server/stripe-routes.ts calculateDeposit` both compute it, so it is what the customer is shown
+ * and what the card is charged.
+ *
+ * P16 first shipped this as `depositPercent` of the total, which is what the Route A chain had been
+ * storing on the quote row. That was the outlier, not the rule: on Sarah's £2,100 quote it would
+ * have shown Ben £630 while the card took £1,533. Ben's screen and the chain's quote row now agree
+ * with the page and the card instead. Nothing a customer pays changed.
  */
-export function depositFor(totalPence: number, depositPercent: number): number {
+export function depositFor(totalPence: number, materialsPence: number, depositPercent: number): number {
     if (!Number.isFinite(totalPence) || totalPence <= 0) return 0;
     const pct = Number.isFinite(depositPercent) ? depositPercent : DEFAULT_PRICING_SETTINGS.depositPercent;
-    return Math.round((totalPence * (pct / 100)) / 100) * 100;
+    const mats = Number.isFinite(materialsPence) ? Math.max(0, Math.min(materialsPence, totalPence)) : 0;
+    const labour = totalPence - mats;
+    return Math.round((mats + Math.round(labour * (pct / 100))) / 100) * 100;
 }

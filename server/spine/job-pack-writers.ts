@@ -57,10 +57,23 @@ export async function writePackFromChain(input: ChainPackInput): Promise<JobPack
 }
 
 /** Pure: Ben's send body (price-screen validateSendBody) → pack edits. */
-export function packEditsFromSend(lines: Array<{ lineId: string; finalPence: number; materials?: Array<{ name: string; qty: number; unitCostPence: number; source: string | null }>; assumptions?: string[]; notIncluded?: string[] }>, materialsPenceFor: (lineId: string) => number): BenLineEdit[] {
-    return lines.map((l) => ({
-        lineId: l.lineId, finalPence: l.finalPence, materialsPence: materialsPenceFor(l.lineId),
-        ...(l.materials ? { materials: l.materials } : {}), ...(l.assumptions ? { assumptions: l.assumptions } : {}),
-        ...(l.notIncluded ? { notIncluded: l.notIncluded } : {}),
-    }));
+export function packEditsFromSend(
+    lines: Array<{
+        lineId: string; finalPence: number;
+        materials?: Array<{ name: string; qty: number; unitCostPence: number; source: string | null }>;
+        assumptions?: string[]; notIncluded?: string[];
+        deleted?: boolean; added?: { title: string; category: string | null; minutesPoint: number | null };
+    }>,
+    materialsPenceFor: (lineId: string) => number,
+): BenLineEdit[] {
+    return lines.map((l) => {
+        // P16: a deleted line carries nothing else; the pack drops it (and refuses if a dispatch locked it).
+        if (l.deleted) return { lineId: l.lineId, deleted: true };
+        return {
+            lineId: l.lineId, finalPence: l.finalPence, materialsPence: materialsPenceFor(l.lineId),
+            ...(l.materials ? { materials: l.materials } : {}), ...(l.assumptions ? { assumptions: l.assumptions } : {}),
+            ...(l.notIncluded ? { notIncluded: l.notIncluded } : {}),
+            ...(l.added ? { added: l.added } : {}),
+        };
+    });
 }

@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import {
     PriceAndSend, gbp, poundsToPence, penceToPoundsText, bandText, totalsOf, orderByDoubt, doubtScore, visibleMessages, messageWarnings, materialsAtMargin,
-    materialsCostOf, lineMaterialsAtMargin,
+    materialsCostOf, lineMaterialsAtMargin, refusalTitle, hasQuoteLink, insertAt,
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
 
@@ -41,7 +41,9 @@ const handles: Contradiction = {
     sentence: 'The estimate assumes "Existing handles reused on all doors" but lists 7× Handle set, brushed as materials.',
     options: [{ id: 'drop_materials', label: 'Drop it from the quote' }, { id: 'keep_materials', label: 'Keep it, drop the assumption' }],
 };
-const DESK = 'Hi Sarah, thanks for the photos and the details.\nYour quote for 8 oak panelled doors, hung and finished and airing cupboard door is ready, link below.\nAny questions, just reply here.';
+// P16: the desk's draft now carries the link on its own last line, exactly as she receives it.
+const QUOTE_URL = 'https://handyservices.app/quote/z4p6t9mw';
+const DESK = `Hi Sarah, thanks for the photos and the details.\nYour quote for 8 oak panelled doors, hung and finished and airing cupboard door is ready, link below.\nAny questions, just reply here.\n\n${QUOTE_URL}`;
 
 const payload = (over: Partial<PricePayload> = {}): PricePayload => ({
     available: true, slug: 'z4p6t9mw', quoteId: 'quote_s', conversationId: 'conv_s', version: 'est_s|2026-09-04T19:26:00Z|-|draft|card_1,card_2', status: 'draft',
@@ -107,8 +109,8 @@ describe('helpers', () => {
     });
     it('totalsOf mirrors the server rule and takes edited materials', () => {
         const p = payload();
-        // P16 item 2: deposit = 30 % of the total to the pound (210,000 → £630), never a function of the materials split.
-        expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30)).toEqual({ totalPence: 210000, materialsPence: 137922 + 19050, labourPence: 210000 - 137922 - 19050, depositPence: 63000, missing: 0 });
+        // P16 item 2: deposit = materials in full plus 30 % of labour, to the pound — the rule the card already charges.
+        expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30)).toEqual({ totalPence: 210000, materialsPence: 137922 + 19050, labourPence: 210000 - 137922 - 19050, depositPence: 172900, missing: 0 });
         expect(totalsOf(p.lines, { card_1: 180000, card_2: null }, 30).missing).toBe(1);
         expect(totalsOf(p.lines, { card_1: 180000, card_2: 30000 }, 30, { card_1: 121920, card_2: 19050 }).materialsPence).toBe(121920 + 19050);
         expect(materialsAtMargin([{ qty: 8, unitCostPence: 12000 }], 27)).toBe(121920);
@@ -457,14 +459,14 @@ describe('P16 items 1 + 2: the money on the screen', () => {
         expect(lineMaterialsAtMargin(doors, [], 27)).toBe(0);
         expect(materialsCostOf([{ qty: 8, unitCostPence: 12000 }])).toBe(96000);
     });
-    it('the summary reads labour and materials at margin, and a deposit that is a share of the total', async () => {
+    it('the summary reads labour and materials at margin, and the deposit the card charges', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
         const summary = screen.getByTestId('totals');
         expect(summary).toHaveTextContent(gbp(210000));
-        expect(summary).toHaveTextContent(gbp(63000));
-        expect(summary).not.toHaveTextContent(gbp(172900));
+        expect(summary).toHaveTextContent(gbp(172900));   // materials £1,569.72 in full + 30 % of £530.28 labour
+        expect(summary).not.toHaveTextContent(gbp(63000)); // never a flat 30 % of the total: the card does not charge that
     });
     it('the materials editor shows the cost beside what she pays', async () => {
         screenFetch(payload());
@@ -474,5 +476,182 @@ describe('P16 items 1 + 2: the money on the screen', () => {
         const cost = within(l1).getByTestId('materials-cost-card_1');
         expect(cost).toHaveTextContent(`Cost ${gbp(108600)}`);
         expect(cost).toHaveTextContent(`she pays ${gbp(137922)} at 27%`);
+    });
+});
+
+describe('P16 item 3: add and delete a line on the screen', () => {
+    it('delete strikes the line out, takes it out of the totals, and Undo puts it back', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000));
+
+        await userEvent.click(screen.getByTestId('line-delete-card_1'));
+        expect(screen.getByTestId('line-deleted-card_1')).toHaveTextContent('Oak panelled doors, hung and finished');
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(30000));
+        expect(screen.getByTestId('deposit')).toHaveTextContent(gbp(22300));
+
+        await userEvent.click(screen.getByTestId('line-undo-card_1'));
+        expect(screen.queryByTestId('line-deleted-card_1')).toBeNull();
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000));
+    });
+
+    it('a deleted line is sent as deleted and carries nothing else', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('line-delete-card_1'));
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const body = f.of('POST', '/send')[0].body;
+        expect(body.lines[0]).toEqual({ lineId: 'card_1', deleted: true });
+        expect(body.lines[1].lineId).toBe('card_2');
+    });
+
+    it('Add a line opens an empty card that blocks Send until it has a title and a price, then reaches the send body', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('add-line'));
+
+        const card = screen.getByTestId('missing-title').closest('[data-testid="totals"]');
+        expect(card).toBeInTheDocument();
+        expect(screen.getByTestId('send-quote')).toBeDisabled();
+
+        const added = screen.getAllByTestId(/^price-line-ben_/)[0];
+        const id = added.getAttribute('data-testid')!.replace('price-line-', '');
+        await userEvent.type(within(added).getByTestId(`added-title-${id}`), 'Refit the loft hatch');
+        await userEvent.selectOptions(within(added).getByTestId(`added-category-${id}`), 'carpentry');
+        fireEvent.change(within(added).getByTestId(`added-minutes-${id}`), { target: { value: '90' } });
+        fireEvent.change(within(added).getByTestId(`price-input-${id}`), { target: { value: '80' } });
+
+        expect(screen.queryByTestId('missing-title')).toBeNull();
+        expect(screen.getByTestId('total')).toHaveTextContent(gbp(218000));
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const sent = f.of('POST', '/send')[0].body.lines.find((l: any) => l.lineId === id);
+        expect(sent).toMatchObject({ finalPence: 8000, added: { title: 'Refit the loft hatch', category: 'carpentry', minutesPoint: 90 } });
+    });
+
+    it('an added card wears check_this with the reason and offers no band', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('add-line'));
+        const added = screen.getAllByTestId(/^price-line-ben_/)[0];
+        expect(within(added).getByTestId('check-this')).toHaveTextContent('added by Ben, not estimated');
+        expect(within(added).getByTestId('band')).toHaveTextContent('No band');
+    });
+
+    it('the send refusal from a locked pack is shown to Ben', async () => {
+        const f = screenFetch(payload(), { send: () => ({ status: 409, json: { ok: false, errors: ['That job is already dispatched, so its lines are locked (Oak panelled doors, hung and finished). Raise a variation instead of changing the quote.'] } }) });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        await userEvent.click(screen.getByTestId('line-delete-card_1'));
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const banner = await screen.findByTestId('superseded-banner');
+        expect(banner).toHaveTextContent('That job is already dispatched');
+        expect(banner).toHaveTextContent('Raise a variation');
+        expect(refusalTitle('A new scope arrived and this draft was superseded.')).toBe('A new scope arrived');
+    });
+});
+
+describe('P16 item 4: the quote link is in the message Ben reads', () => {
+    it('the editor shows the link the desk put there, and says nothing about it going on later', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const box = await screen.findByTestId('message-body');
+        expect((box as HTMLTextAreaElement).value).toContain(QUOTE_URL);
+        expect(screen.queryByTestId('no-link-warning')).toBeNull();
+        expect(screen.queryByTestId('insert-link')).toBeNull();
+    });
+
+    it('an edited body keeps exactly one link, and it reaches the send body unchanged', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const box = await screen.findByTestId('message-body');
+        fireEvent.change(box, { target: { value: `Hi Sarah, all priced up.\n\n${QUOTE_URL}` } });
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const sent = f.of('POST', '/send')[0].body.message as string;
+        expect(sent.match(new RegExp(QUOTE_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
+        expect(sent).toBe(`Hi Sarah, all priced up.\n\n${QUOTE_URL}`);
+    });
+
+    it('a link mid-text is left where he put it', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const mid = `Hi Sarah, here it is ${QUOTE_URL} and any questions just reply.`;
+        fireEvent.change(await screen.findByTestId('message-body'), { target: { value: mid } });
+        expect(screen.queryByTestId('no-link-warning')).toBeNull();
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        expect(f.of('POST', '/send')[0].body.message).toBe(mid);
+    });
+
+    it('deleting the link warns without blocking, and the chip puts it back', async () => {
+        const f = screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const box = await screen.findByTestId('message-body');
+        fireEvent.change(box, { target: { value: 'Hi Sarah, all priced up.' } });
+        expect(screen.getByTestId('no-link-warning')).toHaveTextContent('no way to open the quote');
+        expect(screen.getByTestId('send-quote')).toBeEnabled();
+
+        await userEvent.click(screen.getByTestId('insert-link'));
+        await waitFor(() => expect(screen.queryByTestId('no-link-warning')).toBeNull());
+        expect((box as HTMLTextAreaElement).value).toContain(QUOTE_URL);
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        expect(f.of('POST', '/send')[0].body.message).toContain(QUOTE_URL);
+    });
+});
+
+describe('P16 item 4: the link helpers', () => {
+    it('hasQuoteLink finds it anywhere, and nowhere when it is gone', () => {
+        expect(hasQuoteLink(`a ${QUOTE_URL} b`, QUOTE_URL)).toBe(true);
+        expect(hasQuoteLink('no link here', QUOTE_URL)).toBe(false);
+        expect(hasQuoteLink('anything', '')).toBe(false);
+    });
+    it('insertAt puts the link on its own line and never glues it to a word', () => {
+        expect(insertAt('Hello', 'L', 5)).toBe('Hello\nL');
+        expect(insertAt('Hello\n', 'L', 6)).toBe('Hello\nL');
+        expect(insertAt('a\nb', 'L', 2)).toBe('a\nL\nb');
+        expect(insertAt('', 'L', 0)).toBe('L');
+        expect(insertAt('abc', 'L', 99)).toBe('abc\nL');
+    });
+});
+
+describe('P16 item 5: the line cards read as cards', () => {
+    it('the page has a ground and the cards sit on it in white, with the status borders kept', async () => {
+        // No contradictions, so card_1 is an ordinary line and card_2 is the check_this one.
+        screenFetch(payload({ contradictions: [] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-100');
+
+        // card_2 is check_this: amber. card_1 is ordinary: white on a slate border, with a shadow.
+        const plain = screen.getByTestId('price-line-card_1').className;
+        expect(plain).toContain('bg-white');
+        expect(plain).toContain('border-slate-300');
+        expect(plain).toContain('shadow-md');
+        expect(screen.getByTestId('price-line-card_2').className).toContain('border-amber-300');
+    });
+
+    it('an accepted line keeps its green edge', async () => {
+        screenFetch(payload({ contradictions: [] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        await userEvent.click(within(l1).getByTestId('accept-card_1'));
+        expect(screen.getByTestId('price-line-card_1').className).toContain('border-emerald-300');
+    });
+
+    it('the layout still switches between phone and desktop', async () => {
+        stubViewport(true);
+        screenFetch(payload({ contradictions: [] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        expect(screen.getByTestId('price-and-send')).toHaveAttribute('data-layout', 'desktop');
+        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-100');
     });
 });

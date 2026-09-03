@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildThread, evidenceForLine, evidenceForLines, findContradictions, reusedNouns, mainClause, draftCustomerMessage, messageViolations, jobPhrase, withQuoteLink,
-    nextStepsAfterSend, holdOf, cleanQuestion, keywordsOf, sentenceWith, type ThreadMessage,
+    nextStepsAfterSend, holdOf, cleanQuestion, keywordsOf, sentenceWith, hasQuoteLink, type ThreadMessage,
 } from './price-brief';
 import { buildPricePayload, buildScreenLine, flatBandFromMinutes, validateSendBody, verdictRowsFor, confirmedLineItems, materialsPenceFor, e164, type DraftRowShape, type EstimateRowShape } from './price-screen';
 
@@ -316,5 +316,35 @@ describe('reusedNouns: causal and descriptive "existing" (P12b real-data follow-
     it('a bare "existing handles" still counts, and "existing handles reused" still fires', () => {
         expect(reusedNouns('Existing handles throughout')).toEqual(['handle']);
         expect(reusedNouns('Existing handles reused on all doors')).toEqual(['handle']);
+    });
+});
+
+describe('P16 item 4: the quote link is in the drafted message', () => {
+    const URL = 'https://handyservices.app/quote/z4p6t9mw';
+    const lines = [{ title: 'Oak panelled doors, hung and finished', qty: 8 }];
+
+    it('the desk drafts the link as the last line, so the editor shows what she receives', () => {
+        const body = draftCustomerMessage({ firstName: 'Sarah', lines, sentPhotos: true, quoteUrl: URL });
+        expect(body.endsWith(`\n\n${URL}`)).toBe(true);
+        expect(body.split(URL)).toHaveLength(2);
+    });
+
+    it('without a url the draft is unchanged (the belt still adds it at send)', () => {
+        const body = draftCustomerMessage({ firstName: 'Sarah', lines, sentPhotos: true });
+        expect(body).not.toContain('http');
+        expect(withQuoteLink(body, URL).endsWith(`\n\n${URL}`)).toBe(true);
+    });
+
+    it('withQuoteLink never appends a second copy, wherever the link already sits', () => {
+        const last = `Hi Sarah.\n\n${URL}`;
+        expect(withQuoteLink(last, URL)).toBe(last);
+        const mid = `Hi Sarah, here it is ${URL} and any questions just reply.`;
+        expect(withQuoteLink(mid, URL)).toBe(mid);
+        expect(withQuoteLink(`  ${last}  `, URL)).toBe(last);
+    });
+
+    it('hasQuoteLink is the guard the screen warns on', () => {
+        expect(hasQuoteLink(`a ${URL} b`, URL)).toBe(true);
+        expect(hasQuoteLink('Hi Sarah, all priced up.', URL)).toBe(false);
     });
 });
