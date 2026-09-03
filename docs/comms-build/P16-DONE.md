@@ -165,9 +165,11 @@ Not run: anything against a database, and the flake below.
 
 ## Notes
 
-- The server suite intermittently reports 43–44 failures across 4 files instead of 42 across 3. It
-  did so on P15 too and did not reproduce in three consecutive runs here. It is not in a file this
-  branch touched.
+- **Both suites are intermittently flaky on this machine**, in files this branch does not touch.
+  The server suite occasionally reports 43–44 failures across 4 files instead of 42 across 3 (it did
+  so on P15 too); the client suite showed 1 failure once and would not name it on the next run.
+  Re-run counts here: server 42 on five consecutive runs, client 117 on four. Worth a look
+  independently of this work, since a flaky gate is a gate nobody reads.
 - `PriceScreenLine` gained two required fields (`materialsCostPence`, `notIncluded` was P15's). Any
   other pane building that type by hand will need them.
 - `SendLine.deleted` and `SendLine.added` are additive and optional, so an older client that knows
