@@ -72,7 +72,7 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 
 ## Current Work in Progress
 
-### Comms desk — "the spine" (Phases 0–4 shipped 2–3 Sep 2026; production in SHADOW)
+### Comms desk — "the spine" (Phases 0–11 shipped 2–4 Sep 2026; production LIVE since 3 Sep 00:31 UK, autonomy + sampler still off)
 - One pipeline for customer messaging under `server/spine/`: case file → triage → policy pack → agent (Scoper / Quote clerk / Recovery / Contractor liaison) → guards → decision → exit. The exit is the only sender; every send carries an `Approver` and a run id.
 - Ships behind `app_settings.spine` (`enabled` / `shadow` / `mode`, plus `asks`, `autonomy`, `sampler`, `video`), all fail-closed off. Flip with `scripts/_spine-mode.ts`. Legacy `server/agents/comms.ts` keeps drafting until Phase 5 deletes it (7 live days, zero unsafe).
 - Ben's approve / edit / reject with reason chips (`draft_verdicts`) plus eval families (`eval-cases/`, `scripts/eval-comms.ts`) are what promote an intent DRAFT → SEND (`server/spine/autonomy.ts`); the 10% sampler and any `unsafe` verdict demote.

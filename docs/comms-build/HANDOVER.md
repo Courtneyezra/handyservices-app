@@ -5,11 +5,14 @@ in `docs/COMMS_AGENTS_V3_DESIGN.md` (why and what), `docs/comms-build/CUTOVER.md
 on and off), `docs/RUNBOOK.md` → "Comms desk" (where things live), and the `P*-DONE.md` reports in
 this folder (what each build pane did).
 
-## 1. Where we are right now (production, 3 Sep 2026)
+## 1. Where we are right now (production, 3 Sep 2026, after the flip)
 
-- **The spine is in SHADOW mode** since about 00:15 UK on 3 Sep. It reads every customer thread,
-  triages it, drafts what it *would* say, and records the run — but nothing it does reaches a
-  customer. The legacy comms agent still drafts for Ben exactly as before.
+- **The spine is LIVE** since 00:31 UK on 3 Sep (owner's call, after `scripts/_golive-check.ts`
+  came back GO on every precondition). It reads every customer thread, triages it and drafts for
+  Ben; the rules layer (first-contact ack, asks, silence-breaker, holding line) is the only thing
+  that sends by itself. Autonomy and the sampler are still off, so no agent-written text reaches a
+  customer without Ben. The legacy comms agent no longer drafts on inbound (one brain per thread).
+  It ran in shadow from 00:15 UK on 3 Sep until the flip.
 - **Legacy autosend is OFF** (since the 2 Sep hotfix after the 31 Aug incident). Every legacy reply
   queues for Ben's approval. Only the rules layer sends by itself: the first-contact ack, the
   10-minute silence-breaker and the holding line when a draft or flag passes its due time.
