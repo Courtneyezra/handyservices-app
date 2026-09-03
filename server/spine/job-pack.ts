@@ -75,6 +75,12 @@ export interface PackLine {
     pricePence: number | null;
     labourPence: number | null;
     materialsPence: number | null;
+    /**
+     * P15/3: the dispatch_variations row this line came from, when the line was added to a LOCKED
+     * pack through the variation path (an extra the contractor found at the door, priced by Route A
+     * and confirmed by Ben). Null on every line the clerk wrote. Additive: nothing else reads it.
+     */
+    variationId?: string | null;
 }
 
 export interface OnSiteContact { name: string | null; phone: string | null; role: string | null }
@@ -151,7 +157,7 @@ export function emptyLine(lineId: string, title: string): PackLine {
     return {
         lineId, title, evidence: [], mediaIds: [], detail: null, assumptions: [], exclusions: [], notIncluded: [], sizes: null, spec: null, supplyBy: null,
         procedure: [], category: null, minutesLow: null, minutesPoint: null, minutesHigh: null, materials: [], hazards: [], disposal: null,
-        leadTime: null, pricePence: null, labourPence: null, materialsPence: null,
+        leadTime: null, pricePence: null, labourPence: null, materialsPence: null, variationId: null,
     };
 }
 
@@ -203,6 +209,7 @@ export function normaliseLine(l: any, index = 0): PackLine {
         materials: (Array.isArray(l.materials) ? l.materials : []).map(normaliseMaterial).filter((m: PackMaterial | null): m is PackMaterial => !!m).slice(0, 60),
         hazards: strs(l.hazards, 8), disposal: str(l.disposal), leadTime: str(l.leadTime),
         pricePence: int(l.pricePence), labourPence: int(l.labourPence), materialsPence: int(l.materialsPence),
+        variationId: str(l.variationId),
     };
 }
 

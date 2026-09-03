@@ -72,6 +72,7 @@ const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
 const DeskPage = lazy(() => import("@/pages/admin/DeskPage"));
 const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
 const PriceAndSendPage = lazy(() => import("@/pages/admin/PriceAndSendPage")); // P8: Ben's phone-first price-and-send screen
+const VariationPricePage = lazy(() => import("@/pages/admin/VariationPricePage")); // P15/3: the one-line price screen for an extra found at the door
 const ActivityPage = lazy(() => import("@/pages/admin/ActivityPage"));
 const VaTasksPage = lazy(() => import("@/pages/admin/VaTasksPage"));
 const PortalInboxPage = lazy(() => import("@/pages/admin/PortalInboxPage"));
@@ -741,6 +742,14 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <AgentStaffPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* P15/3: before /admin/price/:slug, or wouter reads "variation" as a quote slug. */}
+                <Route path="/admin/price/variation/:id">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <VariationPricePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

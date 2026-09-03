@@ -19,6 +19,8 @@ import type { QuoteMaterial } from '@shared/materials';
 import { JobPackPanel } from '@/components/contractor/JobPackPanel';
 import { PackChip, type ContractorPackView } from '@/components/contractor/JobPackSection';
 import { MessageCustomerPanel } from '@/components/contractor/MessageCustomerPanel';
+// P15/3: "Customer wants something extra" — its own component, one-line mount below.
+import { JobExtraButton } from '@/components/contractor/JobExtraButton';
 import { sharePartnerBragCard } from '@/lib/partner-brag-card';
 import CompletionSheet from './CompletionSheet';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
@@ -2069,6 +2071,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                     >
                       <CalendarDays size={16} /> Move to another day
                     </button>
+                    <JobExtraButton token={token} bookingId={jobDetail.id} readOnly={readOnly} />
                   </div>
                 )}
                 </>
