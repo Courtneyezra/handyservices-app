@@ -246,7 +246,11 @@ const PREP = new Set(['on', 'by', 'to', 'for', 'in', 'at', 'with', 'from', 'of',
 const PAST_FORMS = new Set(['reused', 'kept', 'retained']);
 const REUSE_WORDS = new Set(['reuse', 'reused', 'reusing', 'existing', 'keep', 'keeping', 'kept', 'retain', 'retained', 'retaining']);
 /** Reuse as the EXCEPTION, not the default: everything from here on is dropped before looking (P12b). */
-const SUBORDINATE = /\b(unless|if|or|otherwise|in case|should the|where the customer|except)\b[\s\S]*$/i;
+// Causal tails ("since the existing door has no panel detailing") describe the current state to
+// justify a NEW item; they never assert reuse (Sarah line 2, P12b real-data check, 3 Sep 2026).
+const SUBORDINATE = /\b(unless|if|or|otherwise|in case|should the|where the customer|except|since|because|given that|so that|as the)\b[\s\S]*$/i;
+/** "existing door HAS no panelling": a description of the thing, not a claim that it is kept. */
+const DESCRIPTIVE = new Set(['has', 'have', 'had', 'is', 'are', 'was', 'were', 'looks', 'look', 'appears', 'appear', 'seems', 'seem', 'with', 'shows', 'show']);
 
 /** Words a reuse verb can sit beside that name no material ("existing style", "existing layout"). */
 const NOT_A_THING = new Set(['style', 'layout', 'condition', 'colour', 'color', 'finish', 'position', 'size', 'sizes', 'location', 'arrangement', 'look', 'design', 'spec', 'specification', 'pattern', 'level', 'height', 'line', 'run']);
@@ -288,7 +292,16 @@ export function reusedNouns(assumption: string): string[] {
         // A past participle names the thing before it ("handles reused", "handles kept"); the
         // adjective / verb forms name the thing after ("existing handles", "keep the handles").
         const noun = PAST_FORMS.has(base) ? seek(i, -1) : seek(i, 1) ?? seek(i, -1);
-        if (noun) out.add(noun);
+        if (!noun) return;
+        if (base === 'existing') {
+            // "existing door has no panel detailing" describes the door; only "existing handles" as
+            // a bare statement (or beside a reuse verb) asserts that it stays.
+            const after = tokens.slice(i + 1, i + 5).find((w) => singular(w) === noun);
+            const idx = after ? tokens.indexOf(after, i + 1) : -1;
+            const next = idx >= 0 ? tokens[idx + 1] : undefined;
+            if (next && DESCRIPTIVE.has(next)) return;
+        }
+        out.add(noun);
     });
     explicit.forEach((n) => out.add(n));
     return Array.from(out).filter((n) => !newNouns.has(n) && !NOT_A_THING.has(n));

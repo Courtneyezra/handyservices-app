@@ -302,3 +302,18 @@ describe('the payload with the briefing', () => {
         expect(rows[0].inBand).toBe(true);
     });
 });
+
+describe('reusedNouns: causal and descriptive "existing" (P12b real-data follow-up, Sarah line 2)', () => {
+    const SARAH_LINE_2 = 'Assumes a flush oak-effect door (no panelling) supplied to match the informal storage-cupboard look, since the existing door has no panel detailing';
+    it('a causal tail describing the existing door is not a reuse claim', () => {
+        expect(reusedNouns(SARAH_LINE_2)).toEqual([]);
+        expect(findContradictions([{ lineId: 'card_2', title: 'Supply and hang airing cupboard storage door', assumptions: [SARAH_LINE_2], materials: [{ name: 'Wickes Flush Primed Paint Grade Internal Door 1981x762mm', qty: 1 }, { name: 'Smith & Locke 2000 Series Latch Door Handle Set Pair', qty: 1 }] } as any])).toEqual([]);
+    });
+    it('"existing door has no panelling" in the main clause is description, not reuse', () => {
+        expect(reusedNouns('The existing door has no panelling and looks tired')).toEqual([]);
+    });
+    it('a bare "existing handles" still counts, and "existing handles reused" still fires', () => {
+        expect(reusedNouns('Existing handles throughout')).toEqual(['handle']);
+        expect(reusedNouns('Existing handles reused on all doors')).toEqual(['handle']);
+    });
+});
