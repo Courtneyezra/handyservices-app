@@ -51,9 +51,16 @@ export const AUTOMATED_APPROVERS = [
 export type AutomatedApprover = (typeof AUTOMATED_APPROVERS)[number];
 /** A person. `<id>` is their email or user id — whatever the request carried. */
 export type HumanApprover = `human:${string}`;
-export type Approver = AutomatedApprover | HumanApprover;
+/**
+ * P15 part 2: a CONTRACTOR's own words, relayed to the customer from his job screen. He is a person,
+ * not an agent, so the automated holds do not apply to him — but he is not staff either, so his
+ * sends are their own class and are greppable as such. `<id>` is his handyman_profiles id.
+ */
+export type ContractorApprover = `contractor:${string}`;
+export type Approver = AutomatedApprover | HumanApprover | ContractorApprover;
 
 const HUMAN_PREFIX = 'human:';
+const CONTRACTOR_PREFIX = 'contractor:';
 
 /**
  * Prefixes the pre-Phase-0 code stamped on `message_drafts.approved_by`. Rows written before
@@ -68,7 +75,13 @@ const AUTOMATED_SET: ReadonlySet<string> = new Set(AUTOMATED_APPROVERS);
 export function isApprover(value: unknown): value is Approver {
     if (typeof value !== 'string') return false;
     if (AUTOMATED_SET.has(value)) return true;
+    if (value.startsWith(CONTRACTOR_PREFIX) && value.length > CONTRACTOR_PREFIX.length) return true;
     return value.startsWith(HUMAN_PREFIX) && value.length > HUMAN_PREFIX.length;
+}
+
+/** P15: a contractor's own relayed words (server/contractor-relay.ts). */
+export function isContractorApprover(approver: string): approver is ContractorApprover {
+    return approver.startsWith(CONTRACTOR_PREFIX) && approver.length > CONTRACTOR_PREFIX.length;
 }
 
 /**
@@ -78,6 +91,8 @@ export function isApprover(value: unknown): value is Approver {
  */
 export function isAutomatedApprover(approver: string): boolean {
     if (approver.startsWith(HUMAN_PREFIX)) return false;
+    // A contractor typed it. The near-duplicate / malformed-reason holds are for code, not people.
+    if (approver.startsWith(CONTRACTOR_PREFIX)) return false;
     if (AUTOMATED_SET.has(approver)) return true;
     if (approver.startsWith('agent.') || approver.startsWith('rules.') || approver.startsWith('system.')) return true;
     return LEGACY_AUTOMATED_PREFIXES.some((p) => approver.startsWith(p));
@@ -102,6 +117,7 @@ export function humanApprover(id: string): HumanApprover {
 /** Short display form: 'ben' for `human:ben@handyservices.app`, the enum string otherwise. */
 export function approverLabel(approver: string): string {
     if (approver.startsWith(HUMAN_PREFIX)) return approver.slice(HUMAN_PREFIX.length).split('@')[0] || 'human';
+    if (approver.startsWith(CONTRACTOR_PREFIX)) return `contractor ${approver.slice(CONTRACTOR_PREFIX.length).slice(0, 8)}`;
     return approver;
 }
 

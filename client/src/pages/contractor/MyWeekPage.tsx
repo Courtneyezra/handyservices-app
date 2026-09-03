@@ -18,6 +18,7 @@ import type { QuoteMaterial } from '@shared/materials';
 // P13c: the job pack on the schedule (drawer + card chip), the same components the dashboard uses.
 import { JobPackPanel } from '@/components/contractor/JobPackPanel';
 import { PackChip, type ContractorPackView } from '@/components/contractor/JobPackSection';
+import { MessageCustomerPanel } from '@/components/contractor/MessageCustomerPanel';
 import { sharePartnerBragCard } from '@/lib/partner-brag-card';
 import CompletionSheet from './CompletionSheet';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
@@ -1968,6 +1969,11 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                 {/* P13c: THE JOB PACK — her words, the photos for each task, how, not included,
                   * bring / buy, and the delivery fields with the missing ones marked. */}
                 <JobPackPanel pack={jobDetail.jobPack} onPhoto={(u) => setLightbox({ urls: [u], index: 0 })} />
+
+                {/* P15 part 2: message the customer from here, on the business number. */}
+                {!readOnly && jobDetail.kind !== 'diary' && jobDetail.status === 'booked' && jobDetail.id && !jobDetail.completed && (
+                  <MessageCustomerPanel token={token} bookingId={jobDetail.id} accepted />
+                )}
 
                 {/* COMPLETION PROOF — history only: what Craig handed over (finished-work photos + customer signature) */}
                 {jobDetail.completed && (jobDetail.evidenceUrls?.length || jobDetail.signatureDataUrl) && (

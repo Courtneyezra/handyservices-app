@@ -14,7 +14,7 @@ export type Trigger = 'inbound_message' | 'media_received' | 'call_ended' | 'cad
 export type AgentName = 'triage' | 'rules' | 'scoper' | 'quote_clerk' | 'recovery' | 'verifier' | 'contractor_liaison' | 'vision' | 'estimator';
 
 /** Fixed vocabularies. Routing is by lane and exception, never by a confidence score (§2.3). */
-export type Lane = 'dropped' | 'rules' | 'scoper' | 'post_quote' | 'ben' | 'quote_clerk' | 'contractor';
+export type Lane = 'dropped' | 'rules' | 'scoper' | 'post_quote' | 'ben' | 'quote_clerk' | 'contractor' | 'contractor_relay';
 export type ExceptionKind =
     | 'complaint' | 'trust_concern' | 'refund' | 'out_of_scope' | 'regulated_trade'
     | 'money_question' | 'date_question' | 'callback_requested' | 'spam' | 'opted_out';
