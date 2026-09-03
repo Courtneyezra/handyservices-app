@@ -366,9 +366,9 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
     // P16: struck out and out of the totals, but still here until Send, with one tap back.
     if (state.deleted) {
         return (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3" data-testid={`price-line-${line.lineId}`}>
+            <div className="rounded-2xl border border-dashed border-slate-400 bg-slate-200/60 px-4 py-3" data-testid={`price-line-${line.lineId}`}>
                 <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1 text-[14px] font-bold text-slate-400 line-through" data-testid={`line-deleted-${line.lineId}`}>
+                    <div className="min-w-0 flex-1 text-[14px] font-bold text-slate-500 line-through" data-testid={`line-deleted-${line.lineId}`}>
                         {line.title || 'Untitled line'}
                     </div>
                     <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-400">Removed</span>
@@ -385,7 +385,7 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
     }
 
     return (
-        <div className={cn('rounded-2xl border bg-white p-4 shadow-sm', line.checkThis || mine.some((c) => !resolutions[c.id]) ? 'border-amber-300' : state.accepted ? 'border-emerald-300' : 'border-slate-200')} data-testid={`price-line-${line.lineId}`}>
+        <div className={cn('rounded-2xl border bg-white p-4 shadow-md shadow-slate-900/5', line.checkThis || mine.some((c) => !resolutions[c.id]) ? 'border-amber-300' : state.accepted ? 'border-emerald-300' : 'border-slate-300')} data-testid={`price-line-${line.lineId}`}>
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                     {/* P16: a line Ben added types its own title, category and time. Nothing estimated it. */}
@@ -837,7 +837,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
                         Next quote waiting: {next.firstName} <ArrowRight className="h-5 w-5" />
                     </a>
                 ) : (
-                    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-center text-sm font-bold text-slate-600" data-testid="nothing-waiting">Nothing else waiting to be priced.</div>
+                    <div className="mt-4 rounded-2xl border border-slate-300 bg-white p-4 text-center text-sm font-bold text-slate-600 shadow-md shadow-slate-900/5" data-testid="nothing-waiting">Nothing else waiting to be priced.</div>
                 )}
                 {data.conversationId && <a href={`/admin/comms?conversation=${encodeURIComponent(data.conversationId)}`} className="mt-3 block text-center text-sm font-bold text-slate-600 underline">Open {first}'s thread</a>}
             </div>
@@ -870,7 +870,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
             )}
             {actionError && <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-900" data-testid="action-error">{actionError}</div>}
 
-            {data.lines.length === 0 && <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">This draft has no lines. Open the full builder.</div>}
+            {data.lines.length === 0 && <div className="rounded-xl border border-slate-300 bg-white p-4 text-sm text-slate-600 shadow-md shadow-slate-900/5">This draft has no lines. Open the full builder.</div>}
             {ordered.map((l) => (
                 <PriceLineCard key={l.lineId} line={l} state={states[l.lineId] ?? initialLineState(l)} contradictions={contradictions} resolutions={resolutions}
                     margin={margin} disabled={locked} onChange={(p) => patch(l.lineId, p)} onResolve={resolve} />
@@ -879,7 +879,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
             {/* P16: something the estimate never saw. The same card, empty. */}
             {!locked && (
                 <button type="button" onClick={addLine}
-                    className="w-full rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 py-3 text-sm font-black text-slate-600 hover:border-slate-400 hover:text-slate-800"
+                    className="w-full rounded-2xl border-2 border-dashed border-slate-400 bg-white/70 py-3 text-sm font-black text-slate-600 hover:border-slate-500 hover:bg-white hover:text-slate-900"
                     data-testid="add-line">
                     + Add a line
                 </button>
@@ -898,7 +898,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
             </div>
 
             {/* The message she reads */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="rounded-2xl border border-slate-300 bg-white p-4 shadow-md shadow-slate-900/5">
                 <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What {first} reads</span>
                     <div className="flex items-center gap-2">
@@ -928,7 +928,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
     const threadPane = <ThreadPane thread={data.thread} firstName={first} expanded={threadExpanded} onExpand={() => setThreadExpanded(true)} />;
 
     return (
-        <div className={cn('mx-auto pb-44', desktop ? 'max-w-6xl' : 'max-w-md')} data-testid="price-and-send" data-layout={desktop ? 'desktop' : 'phone'}>
+        <div className={cn('mx-auto min-h-screen bg-slate-100 pb-44', desktop ? 'max-w-6xl' : 'max-w-md')} data-testid="price-and-send" data-layout={desktop ? 'desktop' : 'phone'}>
             {/* Header: who, where, what kind, how ready */}
             <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
                 <div className="flex items-baseline justify-between gap-2">

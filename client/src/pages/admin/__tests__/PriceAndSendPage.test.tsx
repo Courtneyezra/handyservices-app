@@ -621,3 +621,37 @@ describe('P16 item 4: the link helpers', () => {
         expect(insertAt('abc', 'L', 99)).toBe('abc\nL');
     });
 });
+
+describe('P16 item 5: the line cards read as cards', () => {
+    it('the page has a ground and the cards sit on it in white, with the status borders kept', async () => {
+        // No contradictions, so card_1 is an ordinary line and card_2 is the check_this one.
+        screenFetch(payload({ contradictions: [] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-100');
+
+        // card_2 is check_this: amber. card_1 is ordinary: white on a slate border, with a shadow.
+        const plain = screen.getByTestId('price-line-card_1').className;
+        expect(plain).toContain('bg-white');
+        expect(plain).toContain('border-slate-300');
+        expect(plain).toContain('shadow-md');
+        expect(screen.getByTestId('price-line-card_2').className).toContain('border-amber-300');
+    });
+
+    it('an accepted line keeps its green edge', async () => {
+        screenFetch(payload({ contradictions: [] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        await userEvent.click(within(l1).getByTestId('accept-card_1'));
+        expect(screen.getByTestId('price-line-card_1').className).toContain('border-emerald-300');
+    });
+
+    it('the layout still switches between phone and desktop', async () => {
+        stubViewport(true);
+        screenFetch(payload({ contradictions: [] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-line-card_1');
+        expect(screen.getByTestId('price-and-send')).toHaveAttribute('data-layout', 'desktop');
+        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-100');
+    });
+});
