@@ -108,6 +108,7 @@ import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
 import contractorHubRouter from './contractor-hub-routes';
 import contractorAppRouter from './contractor-app-routes';
+import contractorCompletionRouter from './contractor-completion-routes'; // P15 part 4: the close (photo plan, materials claim)
 import myWeekPreviewRouter from './my-week-preview-routes';
 import diaryItemsRouter from './diary-items-routes';
 import materialsRouter from './materials-routes';
@@ -534,6 +535,7 @@ app.use('/api/admin/availability', requireAdmin, adminAvailabilityRouter); // Ma
 app.use('/api/admin/contractors', requireAdmin, adminContractorsRouter); // Admin contractors management
 app.use('/api/admin/contractor-hub', requireAdmin, contractorHubRouter); // Contractor Hub (Admin OS v1)
 app.use('/api/contractor-app', contractorAppRouter); // Tokenised contractor availability app (/my-week/:token)
+app.use('/api/contractor-completion', contractorCompletionRouter); // P15 part 4: photo plan, receipt upload, materials claim
 app.use('/api/admin/my-week-preview', myWeekPreviewRouter); // P13c: owner's read-only preview of a contractor's My Week (requireAdmin inside)
 app.use('/api/admin/diary-items', requireAdmin, diaryItemsRouter); // Contractor diary items (quote visits etc.)
 app.use('/api/admin/os', requireAdmin, osRouter); // Admin OS — Pipeline + Send workspaces
