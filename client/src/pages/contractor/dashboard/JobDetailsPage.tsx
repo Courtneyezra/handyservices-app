@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { JobPackTask, JobPackJob, ChangedSinceStrip } from "@/components/contractor/JobPackSection";
 import { useRoute, useLocation } from "wouter";
 import { Loader2, ArrowLeft, MapPin, Calendar, Clock, CheckCircle2, Upload, Camera, ImageIcon, PenTool, Play, Pause, Timer, PoundSterling, XCircle, ThumbsUp, Video, Square, CircleDot } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,8 @@ import SignatureCapture from "@/components/SignatureCapture";
 
 interface Job {
     id: string;
+    /** P13: the live job pack (gated: codes + contact after accept). */
+    jobPack?: import('@/components/contractor/JobPackSection').ContractorPackView | null;
     customerName: string;
     customerPhone: string;
     customerEmail: string | null;
@@ -532,6 +535,23 @@ export default function JobDetailsPage() {
                                 {job.declineReason && <span className="capitalize">{job.declineReason.replace(/_/g, ' ')}</span>}
                                 {job.declineNotes && <span> — {job.declineNotes}</span>}
                             </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* P13: the job pack — per task and per job */}
+                {job.jobPack && (
+                    <div className="space-y-3" data-testid="pack-job-section">
+                        {job.jobPack.changes.length > 0 && <ChangedSinceStrip changes={job.jobPack.changes} />}
+                        {job.jobPack.tasks.length > 0 && (
+                            <div className="bg-white border border-slate-200 rounded-xl p-4">
+                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">What to do</h3>
+                                {job.jobPack.tasks.map((t) => <JobPackTask key={t.lineId} task={t} />)}
+                            </div>
+                        )}
+                        <div>
+                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">On the day</h3>
+                            <JobPackJob job={job.jobPack.job} missingLabels={job.jobPack.missingLabels} />
                         </div>
                     </div>
                 )}

@@ -257,6 +257,21 @@ async function privacyGated(dispatch: any, linkStatus: string) {
   };
 }
 
+/** P13: the contractor's view of the job pack for a dispatch (by the dispatch's quote), media signed. Null when there is none. */
+async function jobPackForContractor(dispatch: any, accepted: boolean, acceptedAt: string | null) {
+  try {
+    const { loadPackForQuote, contractorPackView } = await import('./spine/job-pack-readers');
+    const loaded = await loadPackForQuote(dispatch.quoteId);
+    if (!loaded) return null;
+    const view = contractorPackView(loaded.pack, { accepted, acceptedAt, mediaUrlsFor: loaded.mediaUrlsFor });
+    view.tasks = await Promise.all(view.tasks.map(async (t) => ({ ...t, mediaUrls: await signMediaArray(t.mediaUrls) })));
+    return view;
+  } catch (e: any) {
+    console.warn('[ContractorDispatch] job pack view failed:', e?.message ?? e);
+    return null;
+  }
+}
+
 async function findActiveBondForLink(linkId: string) {
   const rows = await db.select().from(dispatchBonds)
     .where(and(eq(dispatchBonds.linkId, linkId)))
@@ -300,6 +315,8 @@ contractorDispatchRouter.get('/api/dispatch-link/:token', async (req, res) => {
 
     res.json({
       dispatch: await privacyGated(dispatch, 'pending'),
+      // P13: the pack, pre-accept: no codes, no contact.
+      jobPack: await jobPackForContractor(dispatch, false, null),
       isLocked,
       // Scarcity signals shown near the sticky CTA: total view count + last-view age.
       viewCount: (dispatch.viewCount || 0) + (isLocked ? 0 : 1),
@@ -500,6 +517,9 @@ contractorDispatchRouter.get('/api/contractor-job/:token', async (req, res) => {
       } : null,
       broadcastCount,
       onboardingBoost,
+      // P13: the live job pack, gated like the address: codes and contact after acceptance only;
+      // "changed since you accepted" from the change log.
+      jobPack: await jobPackForContractor(dispatch, displayStatus === 'accepted', link.acceptedAt ? new Date(link.acceptedAt).toISOString() : null),
     });
   } catch (err) {
     console.error('[ContractorDispatch] GET error:', err);
@@ -1431,6 +1451,18 @@ contractorDispatchRouter.post('/api/admin/dispatch', async (req, res) => {
       createdBy: createdBy || null,
     }).returning();
 
+    // P13: lock the job pack at dispatch. Line / price / date fields freeze (the variation path
+    // is the only way to change them now); job.* stays live for the contractor's page.
+    if (quoteId) {
+      try {
+        const { lockPack } = await import('./spine/job-pack');
+        await lockPack({ quoteId, dispatchId: dispatch.id, by: createdBy ? `human:${createdBy}` : 'system.staff' });
+      } catch (e: any) {
+        const { isMissingTable } = await import('./spine/job-pack');
+        if (!isMissingTable(e)) console.warn('[ContractorDispatch] job pack lock failed:', e?.message ?? e);
+      }
+    }
+
     // Fetch contractor names + phones via handyman_profiles → users join
     const profileRows = await db.select({
       id: handymanProfiles.id,
@@ -1670,17 +1702,42 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
       return Math.max(30, Math.min(ceiling, m || 60));
     }
 
-    const validLines = lineItems.map((l) => {
-      if (l.category && l.timeEstimateMinutes) return l;
-      const labour = l.guardedPricePence || 0;
-      return {
-        ...l,
-        category: l.category || inferCategory(l.description || ''),
-        timeEstimateMinutes: l.timeEstimateMinutes || inferMinutes(labour),
-      };
-    });
-    // Only truly empty lines (no description AND no price) are skipped.
-    const skippedLines = lineItems.filter((l) => !l.description && !l.guardedPricePence).length;
+    // P13: the job pack is READ, never inferred. When the quote has one, the tasks come from its
+    // lines (category, minutes point, labour, materials with supplier / size / price) and a missing
+    // dispatch-critical field is a loud 422. The regex / £50-an-hour fallback below stays ONLY for
+    // quotes with no pack (pre-P13), and says so in the log.
+    const { loadPackForQuote, dispatchBlockers, blockersInWords, dispatchLinesFromPack, contractorPackView } = await import('./spine/job-pack-readers');
+    const loadedPack = await loadPackForQuote(quote.id).catch((e: any) => { console.warn('[ContractorDispatch] job pack read failed; falling back to the quote lines:', e?.message ?? e); return null; });
+    let validLines: Array<any>;
+    let skippedLines = 0;
+    let packView: import('./spine/job-pack-readers').ContractorPackView | null = null;
+    if (loadedPack) {
+      const blockers = dispatchBlockers(loadedPack.pack);
+      if (blockers.length) {
+        return res.status(422).json({
+          error: 'JOB_PACK_INCOMPLETE',
+          message: `The job pack is missing what the contractor needs: ${blockersInWords(loadedPack.pack, blockers).join('; ')}. Fill them on the thread (or the price screen) rather than guessing here.`,
+          missing: blockers,
+          missingLabels: blockersInWords(loadedPack.pack, blockers),
+          quoteId: quote.id,
+        });
+      }
+      validLines = dispatchLinesFromPack(loadedPack.pack);
+      packView = contractorPackView(loadedPack.pack, { accepted: true, acceptedAt: null, mediaUrlsFor: loadedPack.mediaUrlsFor });
+    } else {
+      console.warn(`[ContractorDispatch] no job pack for quote ${quote.id} (${quote.shortSlug}); using the regex / £50-an-hour fallback on the quote lines`);
+      validLines = lineItems.map((l) => {
+        if (l.category && l.timeEstimateMinutes) return l;
+        const labour = l.guardedPricePence || 0;
+        return {
+          ...l,
+          category: l.category || inferCategory(l.description || ''),
+          timeEstimateMinutes: l.timeEstimateMinutes || inferMinutes(labour),
+        };
+      });
+      // Only truly empty lines (no description AND no price) are skipped.
+      skippedLines = lineItems.filter((l) => !l.description && !l.guardedPricePence).length;
+    }
 
     // Run engine with batch-discount applied to labour (matches CLI script).
     // LABOUR-ONLY: materials pass through — the contractor never earns on them
@@ -1742,6 +1799,10 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
         // Structured items → job sheet renders thumbnails + buy links.
         materialsDetailed: original.materials || [],
       };
+      // P13: the pack's per-task context rides on the task (the photo for THIS task, her words,
+      // procedure, assumptions, exclusions, hazards, disposal). The live view is joined at read time.
+      const pv = packView?.tasks.find((t) => t.lineId === original.lineId);
+      if (pv) Object.assign(task, { lineId: original.lineId, mediaUrls: pv.mediaUrls, pack: { customerWords: pv.customerWords, procedure: pv.procedure, assumptions: pv.assumptions, exclusions: pv.exclusions, hazards: pv.hazards, disposal: pv.disposal, sizes: pv.sizes, spec: pv.spec, supplyBy: pv.supplyBy, leadTime: pv.leadTime } });
       return task;
     });
     const materialsBudgetPence = validLines.reduce((s, l) => s + (l.materialsCostPence || 0), 0);
@@ -1855,6 +1916,9 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
         mediaUrls: (quote.customerPhotoUrls as string[] | null) || [],
         tasks,
         skippedLines,
+        // P13: the source of the tasks, and the job-level pack for the admin to see before sending.
+        source: packView ? 'job_pack' : 'quote_lines_fallback',
+        jobPack: packView ? { job: packView.job, missing: packView.missing, missingLabels: packView.missingLabels } : null,
       },
       contractors,
     });

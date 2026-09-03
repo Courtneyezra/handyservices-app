@@ -14,6 +14,7 @@
  */
 
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { JobPackTask, JobPackJob } from "@/components/contractor/JobPackSection";
 import { useParams, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useMemo, useEffect } from "react";
@@ -54,6 +55,8 @@ interface PublicDispatch {
 
 interface OpenDispatchData {
     dispatch: PublicDispatch;
+    /** P13: the job pack, pre-accept (no codes, no contact). */
+    jobPack?: import('@/components/contractor/JobPackSection').ContractorPackView | null;
     isLocked: boolean;
     lockedToContractorName: string | null;
     viewCount: number;
@@ -397,6 +400,12 @@ export default function DispatchLinkPage() {
                 {/* Walkthrough media — videos FIRST in their own section (a video
                     walk-round is the highest-signal item for pricing a job by eye),
                     then the photo strip. */}
+                {data.jobPack && (
+                    <div className="mb-4" data-testid="pack-job-section">
+                        <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470] mb-2.5">On the day</p>
+                        <JobPackJob job={data.jobPack.job} />
+                    </div>
+                )}
                 {dispatch.mediaUrls && dispatch.mediaUrls.length > 0 && (() => {
                     const videos = dispatch.mediaUrls.filter(isVideo);
                     const photos = dispatch.mediaUrls.filter((u) => !isVideo(u));
@@ -513,6 +522,7 @@ export default function DispatchLinkPage() {
                                                     {t.description && (
                                                         <p className="text-[14px] leading-relaxed text-[#5C6470]">{t.description}</p>
                                                     )}
+                                                    {(() => { const pt = data.jobPack?.tasks.find((x) => x.lineId === (t as any).lineId) ?? data.jobPack?.tasks[t.num - 1]; return pt ? <JobPackTask task={pt} /> : null; })()}
                                                     {t.warning && (
                                                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                                                             <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700 mb-1 flex items-center gap-1.5">

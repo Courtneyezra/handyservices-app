@@ -289,13 +289,21 @@ export async function reserveSlot(params: {
         .where(eq(personalizedQuotes.id, quoteId))
         .limit(1);
 
-    // Quote context: cross-cutting time variables (floor, lift, parking, presence)
-    const quoteContext = {
+    // Quote context: cross-cutting time variables (floor, lift, parking, presence).
+    // P13: the job pack's delivery fields win over the quote's (empty) columns when a pack exists.
+    let quoteContext = {
         floorNumber: (quoteRow as any)?.floorNumber ?? null,
         hasLift: (quoteRow as any)?.hasLift ?? null,
         parkingDistanceCategory: (quoteRow as any)?.parkingDistanceCategory ?? null,
         customerPresent: (quoteRow as any)?.customerPresent ?? null,
     };
+    try {
+        const { loadPackForQuote, siteContextFromPack } = await import('./spine/job-pack-readers');
+        const loaded = await loadPackForQuote(quoteId);
+        if (loaded) quoteContext = siteContextFromPack(loaded.pack, quoteContext);
+    } catch (e: any) {
+        console.warn('[BookingEngine] job pack site context failed; using the quote columns:', e?.message ?? e);
+    }
 
     let customerCoords: { lat: number; lng: number } | null = null;
     const c = quoteRow?.coordinates as any;

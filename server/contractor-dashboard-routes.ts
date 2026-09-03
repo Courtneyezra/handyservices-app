@@ -53,6 +53,15 @@ router.get('/bookings', requireContractorAuth, async (req: Request, res: Respons
         const quoteIds = bookings.map(b => b.quoteId).filter(Boolean) as string[];
         const bookingIds = bookings.map(b => b.id);
 
+        // P13: the job pack chip per booking ("Pack complete" / "N missing"), one query.
+        let packChips: Record<string, { complete: boolean; missing: number; label: string }> = {};
+        try {
+            const { packChipsForQuotes } = await import('./spine/job-pack-readers');
+            packChips = await packChipsForQuotes(quoteIds);
+        } catch (e: any) {
+            console.warn('[ContractorDashboard] job pack chips failed:', e?.message ?? e);
+        }
+
         // Get customer payment info from quotes
         let quotePaymentMap: Record<string, { paidAt: Date | null }> = {};
         if (quoteIds.length > 0) {
@@ -107,6 +116,8 @@ router.get('/bookings', requireContractorAuth, async (req: Request, res: Respons
                 payoutStatus: payout?.status || null,
                 payoutPaidAt: payout?.paidAt || null,
                 payoutNetPence: payout?.netPence || null,
+                // P13: the job pack chip; null when the quote has no pack.
+                pack: b.quoteId ? (packChips[b.quoteId] ?? null) : null,
             };
         });
 

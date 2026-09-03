@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { PackChip } from "@/components/contractor/JobPackSection";
 import { useLocation } from "wouter";
 import { Loader2, Briefcase, Clock, Wrench, CheckCircle2, Calendar, MapPin, PoundSterling, ChevronRight, CreditCard, Banknote, TrendingUp } from "lucide-react";
 import { format, startOfWeek, startOfMonth, subWeeks } from "date-fns";
@@ -25,6 +26,8 @@ interface Booking {
   payoutStatus?: string | null; // 'pending' | 'processing' | 'paid' | 'failed' | 'held'
   payoutPaidAt?: string | null;
   payoutNetPence?: number | null;
+  /** P13: "Pack complete" / "N missing"; null when the quote has no job pack. */
+  pack?: { complete: boolean; missing: number; label: string } | null;
 }
 
 type JobDisplayStatus = 'payment_pending' | 'confirmed' | 'in_progress' | 'completed_unpaid' | 'completed_paid';
@@ -101,7 +104,7 @@ function JobCard({ job, displayStatus }: { job: Booking; displayStatus: JobDispl
     >
       <div className="flex justify-between items-start mb-2">
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-white text-sm truncate">{job.customerName}</p>
+          <p className="font-semibold text-white text-sm truncate">{job.customerName} {job.pack ? <PackChip pack={job.pack} /> : null}</p>
           {job.scheduledDate && (
             <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
               <Calendar className="w-3 h-3" />

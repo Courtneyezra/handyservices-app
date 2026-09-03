@@ -183,10 +183,25 @@ jobAssignmentRouter.get('/api/jobs/:id', async (req, res) => {
             }
         }
 
+        // P13: the live job pack for the dashboard job page, gated like the dispatch sheet: codes
+        // and contact only once the booking is accepted; "changed since you accepted" from the log.
+        let jobPack: unknown = null;
+        try {
+            const { loadPackForQuote, contractorPackView } = await import('./spine/job-pack-readers');
+            const loaded = await loadPackForQuote(booking.quoteId);
+            if (loaded) {
+                const accepted = !!booking.acceptedAt || ['accepted', 'in_progress', 'completed'].includes(String((booking as any).assignmentStatus ?? ''));
+                jobPack = contractorPackView(loaded.pack, { accepted, acceptedAt: booking.acceptedAt ? new Date(booking.acceptedAt).toISOString() : null, mediaUrlsFor: loaded.mediaUrlsFor });
+            }
+        } catch (e: any) {
+            console.warn('[JobAssignment] job pack view failed:', e?.message ?? e);
+        }
+
         res.json({
             ...booking,
             payoutPence,
             estimatedDurationMinutes,
+            jobPack,
         });
     } catch (error: any) {
         res.status(500).json({ error: "Failed to fetch job" });

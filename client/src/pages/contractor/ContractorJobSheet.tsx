@@ -27,6 +27,7 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import type { QuoteMaterial } from "@shared/materials";
 import { ExternalLink } from "lucide-react";
+import { JobPackTask, JobPackJob, ChangedSinceStrip, type ContractorPackView } from "@/components/contractor/JobPackSection";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -48,6 +49,8 @@ interface Task {
     /** Real structured shopping list from the quote — thumbnails + buy links. */
     materialsDetailed?: QuoteMaterial[];
     mediaUrls?: string[];
+    /** P13: the pack line this task came from (joined live via jobPack). */
+    lineId?: string;
 }
 
 interface JobSheetData {
@@ -91,6 +94,8 @@ interface JobSheetData {
         refundReason: string | null;
     } | null;
     broadcastCount: number;
+    /** P13: the live job pack (server/spine/job-pack-readers.ts), gated: codes + contact after accept. */
+    jobPack?: ContractorPackView | null;
     /** Expiring launch bonus for this contractor — shown as a separate line */
     onboardingBoost: {
         percent: number;
@@ -538,6 +543,9 @@ export default function ContractorJobSheet() {
                 </AnimatePresence>
 
                 {/* ─── Hero — contractor-focused: title, price, summary, dates, skills ─── */}
+                {isAccepted && data.jobPack && data.jobPack.changes.length > 0 && (
+                    <div className="mb-3" data-testid="pack-changed-top"><ChangedSinceStrip changes={data.jobPack.changes} /></div>
+                )}
                 <motion.div {...fadeInUp}>
                     <div className="rounded-2xl p-6 sm:p-7 shadow-[0_12px_40px_rgba(27,42,74,0.18)] relative overflow-hidden bg-gradient-to-br from-[#1B2A4A] via-[#152340] to-[#0E1933]">
                         <div className="absolute -top-24 -right-24 w-80 h-80 bg-[#F5A623]/15 rounded-full blur-3xl pointer-events-none" />
@@ -799,6 +807,10 @@ export default function ContractorJobSheet() {
                                                         )}
                                                     </div>
 
+ 
+                                                    {/* P13: the job pack for THIS task — her words, the photo for it, how, what is not included, what to buy */}
+                                                    {(() => { const pt = data.jobPack?.tasks.find((x) => x.lineId === t.lineId) ?? data.jobPack?.tasks[t.num - 1]; return pt ? <JobPackTask task={pt} onPhoto={setLightboxUrl} /> : null; })()}
+
                                                     {t.mediaUrls && t.mediaUrls.length > 0 && (
                                                         <div>
                                                             <p className="text-[11px] uppercase tracking-[0.08em] text-[#8B92A0] font-semibold mb-1.5 flex items-center gap-1.5">
@@ -820,6 +832,14 @@ export default function ContractorJobSheet() {
                         })}
                     </div>
                 </motion.div>
+
+                {/* ─── P13: the job pack, per job — access, contact, parking, pets, prep, delivery ─── */}
+                {data.jobPack && (
+                    <motion.div {...fadeInUp} data-testid="pack-job-section">
+                        <SectionEyebrow>On the day</SectionEyebrow>
+                        <JobPackJob job={data.jobPack.job} missingLabels={data.jobPack.missingLabels.filter((l) => !/^sizes|^spec|^disposal|^hazards|^lead time/.test(l))} />
+                    </motion.div>
+                )}
 
                 {/* ─── Bond timeline — number-only pre-accept ─── */}
                 {dispatch.bondRequired && !isAccepted && !isDeclined && (
