@@ -5,8 +5,10 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildPricePayload, buildScreenLine, statusOf, versionOf, totalsFor, validateSendBody, verdictRowsFor,
-    confirmedLineItems, materialsAtMargin, firstNameOf, type DraftRowShape, type EstimateRowShape,
+    confirmedLineItems, materialsAtMargin, materialsCostOf, firstNameOf,
+    type DraftRowShape, type EstimateRowShape, type EstimateLineShape, type SuggestionLineShape,
 } from './price-screen';
+import { depositFor } from '@shared/pricing-settings';
 
 const settings = { materialsMarginPercent: 27, depositPercent: 30 };
 
@@ -175,9 +177,11 @@ describe('verdictRowsFor / confirmedLineItems / totalsFor', () => {
         const items = confirmedLineItems(row().pricing_line_items!, p, [{ lineId: 'card_1', finalPence: 3_000 }, { lineId: 'card_2', finalPence: 100 }]);
         expect(items[0]).toMatchObject({ pricePence: 3_000, guardedPricePence: 0, materialsWithMarginPence: 3_000 });
     });
-    it('totals: labour, materials, total, deposit = materials + 30% labour to the pound (stripe rule)', () => {
+    // P16 item 2: the deposit is a share of HER TOTAL (shared/pricing-settings depositFor), not
+    // materials plus a slice of labour. 43,800 × 30 % = 13,140 → £131 to the pound.
+    it('totals: labour, materials, total, deposit = depositPercent of the total to the pound', () => {
         const t = totalsFor([{ finalPence: 24_900, materialsPence: 5_080 }, { finalPence: 18_900, materialsPence: 0 }], 30);
-        expect(t).toEqual({ labourPence: 38_720, materialsPence: 5_080, totalPence: 43_800, depositPence: 16_700 });
+        expect(t).toEqual({ labourPence: 38_720, materialsPence: 5_080, totalPence: 43_800, depositPence: 13_100 });
         expect(totalsFor([{ finalPence: 10_000, materialsPence: 0 }], 50).depositPence).toBe(5_000);
     });
 });
@@ -217,5 +221,79 @@ describe('P15 part 1: not included on the price screen', () => {
         const v = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', finalPence: 24900, notIncluded: ['x'.repeat(121)] }] }, ['card_1']);
         expect(v.ok).toBe(false);
         if (!v.ok) expect(v.errors[0]).toMatch(/plain words/);
+    });
+});
+
+// ---------------------------------------------------------------- P16 items 1 + 2: the money
+
+/**
+ * Sarah's real draft z4p6t9mw, read from production 3 Sep 2026: line 1 raw materials 96,416, at
+ * margin 122,448; both lines raw 101,580, at margin 129,000; total £2,100.
+ */
+describe('P16 item 1: materials at margin is the only figure a total uses', () => {
+    const sarah = (over: Partial<SuggestionLineShape['basis']> = {}) => ({
+        lineId: 'card_1', suggestedPence: 194_400, bandLowPence: 160_000, bandHighPence: 205_000, confidence: 'medium' as const,
+        basis: { minutes: 880, ratePencePerHour: 3_000, materialsPence: 96_416, materialsWithMarginPence: 122_448, marginPct: 27, labourPence: 71_952, rules: [], ...over },
+    });
+
+    it('reads materialsWithMarginPence for the customer figure and materialsPence as the cost, never the other way round', () => {
+        const line = buildScreenLine({ index: 0, line: { lineId: 'card_1', title: 'Doors' }, estimateLine: null, suggestion: sarah(), materialsMarginPercent: 27 });
+        expect(line.materialsPence).toBe(122_448);      // what she pays
+        expect(line.materialsCostPence).toBe(96_416);   // what we pay
+    });
+
+    it('with no stored basis it costs the list at the live margin and keeps the raw cost beside it', () => {
+        const est: EstimateLineShape = { lineId: 'card_1', materials: [{ name: 'Oak door', qty: 8, unitCostPence: 12_000, source: 'screwfix' }] };
+        const line = buildScreenLine({ index: 0, line: { lineId: 'card_1', title: 'Doors' }, estimateLine: est, suggestion: null, materialsMarginPercent: 27 });
+        expect(line.materialsCostPence).toBe(96_000);
+        expect(line.materialsPence).toBe(Math.round(96_000 * 1.27));
+        expect(line.materialsPence).toBe(121_920);
+    });
+
+    it('a line with no materials anywhere is zero on both, not undefined', () => {
+        const line = buildScreenLine({ index: 0, line: { lineId: 'card_2', title: 'Labour only' }, estimateLine: null, suggestion: null, materialsMarginPercent: 27 });
+        expect(line.materialsPence).toBe(0);
+        expect(line.materialsCostPence).toBe(0);
+    });
+
+    it("Sarah's summary: £810 labour and £1,290 materials on a £2,100 quote, not £1,084.20 / £1,015.80", () => {
+        const totals = totalsFor([{ finalPence: 194_400, materialsPence: 122_448 }, { finalPence: 15_600, materialsPence: 6_552 }], 30);
+        expect(totals.totalPence).toBe(210_000);
+        expect(totals.materialsPence).toBe(129_000);
+        expect(totals.labourPence).toBe(81_000);
+        // The old bug, for the record: the raw cost read as the customer figure.
+        const wrong = totalsFor([{ finalPence: 194_400, materialsPence: 96_416 }, { finalPence: 15_600, materialsPence: 5_164 }], 30);
+        expect(wrong.materialsPence).toBe(101_580);
+        expect(wrong.labourPence).toBe(108_420);
+    });
+
+    it('materialsCostOf never applies a margin and materialsAtMargin always does', () => {
+        const list = [{ name: 'a', qty: 2, unitCostPence: 1_000 }, { name: 'b', qty: 1, unitCostPence: 500 }];
+        expect(materialsCostOf(list)).toBe(2_500);
+        expect(materialsAtMargin(list, 27)).toBe(3_175);
+        expect(materialsCostOf([])).toBe(0);
+        expect(materialsAtMargin([], 27)).toBe(0);
+    });
+});
+
+describe('P16 item 2: one deposit rule, the quote\'s', () => {
+    it("Sarah's deposit is 30 % of her total, to the pound: £630, not the £1,341 the screen used to show", () => {
+        expect(depositFor(210_000, 30)).toBe(63_000);
+        expect(totalsFor([{ finalPence: 194_400, materialsPence: 122_448 }, { finalPence: 15_600, materialsPence: 6_552 }], 30).depositPence).toBe(63_000);
+    });
+
+    it('rounds to the pound and survives a nonsense total or percent', () => {
+        expect(depositFor(99_999, 30)).toBe(30_000);   // 29,999.7 → £300
+        expect(depositFor(10_050, 30)).toBe(3_000);    // 3,015 → £30
+        expect(depositFor(0, 30)).toBe(0);
+        expect(depositFor(-1, 30)).toBe(0);
+        expect(depositFor(210_000, Number.NaN)).toBe(63_000); // falls back to the default 30 %
+    });
+
+    it('the deposit never depends on the materials split: two lines with the same total agree', () => {
+        const heavyMaterials = totalsFor([{ finalPence: 210_000, materialsPence: 180_000 }], 30);
+        const labourOnly = totalsFor([{ finalPence: 210_000, materialsPence: 0 }], 30);
+        expect(heavyMaterials.depositPence).toBe(labourOnly.depositPence);
+        expect(heavyMaterials.depositPence).toBe(63_000);
     });
 });

@@ -20,7 +20,7 @@
  */
 import type { MultiLineRequest, MultiLineResult, JobCategory, ContextualSignals } from '@shared/contextual-pricing-types';
 import { JobCategoryValues } from '@shared/contextual-pricing-types';
-import type { PricingSettings } from '@shared/pricing-settings';
+import { depositFor, type PricingSettings } from '@shared/pricing-settings';
 import type { QuoteMaterial } from '@shared/materials';
 import { DEFAULT_SETUP_MIN, DEFAULT_CLEANUP_MIN } from '@shared/schedule-composition';
 import type { EstimateLine, EstimateJob, QuoteEstimate } from './estimate-store';
@@ -238,7 +238,9 @@ export async function priceEstimate(estimate: QuoteEstimate, settings: PricingSe
         materialsWithMarginPence: t.materialsWithMarginPence + l.basis.materialsWithMarginPence,
         suggestedPence: t.suggestedPence + l.suggestedPence, bandLowPence: t.bandLowPence + l.bandLowPence, bandHighPence: t.bandHighPence + l.bandHighPence, depositPence: 0,
     }), { labourPence: 0, materialsPence: 0, materialsWithMarginPence: 0, suggestedPence: 0, bandLowPence: 0, bandHighPence: 0, depositPence: 0 });
-    totals.depositPence = Math.round(totals.suggestedPence * (settings.depositPercent / 100));
+    // P16: the one deposit rule (shared/pricing-settings.ts), so the chain's quote row, Ben's
+    // screen and her quote page all quote the same number.
+    totals.depositPence = depositFor(totals.suggestedPence, settings.depositPercent);
     return {
         estimateId: estimate.id, at: now.toISOString(), lines: out, totals,
         settings: { materialsMarginPercent: marginPct, depositPercent: settings.depositPercent, setupMinutes: setup, cleanupMinutes: cleanup },

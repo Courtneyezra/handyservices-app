@@ -461,3 +461,22 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
   welcomeGiftMinQuotePence: 20000,     // gift only on quotes ≥ £200
   welcomeGiftMaxMinutes: 45,           // gift pool = addonMenu items ≤ 45 min
 };
+
+/**
+ * P16 — THE deposit rule. One definition, used by Ben's price screen, the confirm line, the quote
+ * row the chain writes, and the customer's quote page.
+ *
+ * `depositPercent` of the customer total, rounded to the pound. It replaced a second rule that took
+ * 100 % of materials plus a percentage of labour: on Sarah's £2,100 quote the two disagreed by
+ * £711 (£1,341 against £630), and the number Ben was shown on the screen was not the number the
+ * customer's page quoted her. A deposit is a share of the price, not a reimbursement of our costs.
+ *
+ * NOTE (open, flagged in docs/comms-build/P16-DONE.md): `server/stripe-routes.ts calculateDeposit`
+ * still charges the older materials-plus-labour figure. Until that is pointed here too, the card is
+ * charged more than this function returns.
+ */
+export function depositFor(totalPence: number, depositPercent: number): number {
+    if (!Number.isFinite(totalPence) || totalPence <= 0) return 0;
+    const pct = Number.isFinite(depositPercent) ? depositPercent : DEFAULT_PRICING_SETTINGS.depositPercent;
+    return Math.round((totalPence * (pct / 100)) / 100) * 100;
+}

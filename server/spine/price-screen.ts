@@ -26,6 +26,7 @@ import {
 } from './price-brief';
 import { labourBandFromMinutes } from './pricing-bridge';
 import { notIncludedFrom } from './job-pack';
+import { depositFor } from '@shared/pricing-settings';
 
 // ---------------------------------------------------------------- shapes (pane A's, described)
 
@@ -125,8 +126,18 @@ export interface PriceScreenLine {
     minutes: { point: number; low: number; high: number } | null;
     timeSource: string | null;
     materialsCount: number;
-    /** Materials at the live margin — what the customer pays for the line's materials. */
+    /**
+     * Materials AT MARGIN — what the customer pays for this line's materials, and the only figure
+     * any total may use. From the stored basis (`materialsWithMarginPence`) when the bridge priced
+     * the line, else the list costed at the live margin.
+     */
     materialsPence: number;
+    /**
+     * P16: materials at COST — what we pay the merchant, before margin. Shown only inside the
+     * materials editor. Never a total: `basis.materialsPence` is this number, and reading it as the
+     * customer-facing figure is the bug this field exists to make impossible.
+     */
+    materialsCostPence: number;
     suggestedPence: number | null;
     bandLowPence: number | null;
     bandHighPence: number | null;
@@ -219,11 +230,16 @@ export function versionOf(row: DraftRowShape, estimate: EstimateRowShape | null)
     ].join('|');
 }
 
+/** Materials at COST from a list: qty × unit, no margin. What we pay the merchant. */
+export function materialsCostOf(materials: EstimateLineShape['materials'] | undefined): number {
+    if (!Array.isArray(materials) || !materials.length) return 0;
+    return materials.reduce((s, m) => s + (num(m?.unitCostPence) ?? 0) * (num(m?.qty) ?? 1), 0);
+}
+
 /** Materials at the live margin from an estimate line's cost list. Never hardcodes the margin. */
 export function materialsAtMargin(materials: EstimateLineShape['materials'] | undefined, marginPercent: number): number {
-    if (!Array.isArray(materials) || !materials.length) return 0;
-    const cost = materials.reduce((s, m) => s + (num(m?.unitCostPence) ?? 0) * (num(m?.qty) ?? 1), 0);
-    return Math.round(cost * (1 + marginPercent / 100));
+    const cost = materialsCostOf(materials);
+    return cost ? Math.round(cost * (1 + marginPercent / 100)) : 0;
 }
 
 function minutesOf(line: any, est: EstimateLineShape | null, sug: SuggestionLineShape | null): PriceScreenLine['minutes'] {
@@ -259,7 +275,13 @@ export function buildScreenLine(input: {
     const recomputed = flatBandFromMinutes({ suggested, band: stored, estimateLine: est, suggestion: sug });
     const band = recomputed ?? stored;
     const estMaterials = Array.isArray(est?.materials) ? est!.materials! : Array.isArray(line?.materials) ? line.materials : [];
-    const materialsPence = int(sug?.basis?.materialsPence) ?? int(line?.materialsWithMarginPence) ?? materialsAtMargin(estMaterials, materialsMarginPercent);
+    // P16 — the money bug. `basis.materialsPence` is the RAW cost (pricing-bridge writes
+    // `li.materialsCostPence` there); `basis.materialsWithMarginPence` is what the customer pays.
+    // Reading the raw one here made every total wrong: on Sarah, £1,015.80 of materials instead of
+    // £1,290.00, and a labour figure £274.20 too high to compensate. At-margin is the only figure a
+    // total may use; the cost rides alongside for the materials editor.
+    const materialsPence = int(sug?.basis?.materialsWithMarginPence) ?? int(line?.materialsWithMarginPence) ?? materialsAtMargin(estMaterials, materialsMarginPercent);
+    const materialsCostPence = materialsCostOf(estMaterials) || (int(sug?.basis?.materialsPence) ?? int(line?.materialsCostPence) ?? 0);
     const checkThis = sug?.checkThis === true || line?.checkThis === true;
     const checkReason = str(sug?.checkReason) ?? str(sug?.reason) ?? str(line?.checkReason) ?? (checkThis ? 'Fallback price, no history for this line' : null);
     const flags = Array.isArray(est?.flags) ? est!.flags!.map(String) : Array.isArray(line?.flags) ? line.flags.map(String) : [];
@@ -280,6 +302,7 @@ export function buildScreenLine(input: {
         timeSource: str(est?.timeSource) ?? str(line?.timeSource) ?? null,
         materialsCount: estMaterials.length,
         materialsPence,
+        materialsCostPence,
         suggestedPence: suggested != null && suggested > 0 ? suggested : null,
         bandLowPence: band.low, bandHighPence: band.high,
         confidence: conf(sug?.confidence) ?? conf(est?.confidence) ?? conf(line?.confidence),
@@ -408,16 +431,15 @@ export function e164(phone: string | null | undefined): string | null {
 }
 
 /**
- * Totals the screen shows and the send writes: labour = final − materials per line, materials at
- * the live margin, deposit = 100 % materials + depositPercent of labour, rounded to the pound —
- * the same rule as server/stripe-routes.ts calculateDeposit, so what Ben sees is what Stripe asks.
+ * Totals the screen shows and the send writes. Materials are AT MARGIN (what she pays), labour is
+ * the remainder, and the deposit is the one rule in shared/pricing-settings.ts — a share of her
+ * total, which is what her own quote page quotes her.
  */
 export function totalsFor(lines: Array<{ finalPence: number; materialsPence: number }>, depositPercent: number): Totals {
     const totalPence = lines.reduce((s, l) => s + l.finalPence, 0);
     const materialsPence = lines.reduce((s, l) => s + Math.min(l.materialsPence, l.finalPence), 0);
     const labourPence = totalPence - materialsPence;
-    const depositPence = Math.round((materialsPence + Math.round(labourPence * (depositPercent / 100))) / 100) * 100;
-    return { labourPence, materialsPence, totalPence, depositPence };
+    return { labourPence, materialsPence, totalPence, depositPence: depositFor(totalPence, depositPercent) };
 }
 
 export interface SendMaterial { name: string; qty: number; unitCostPence: number; source: string | null }
