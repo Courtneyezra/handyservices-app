@@ -32,6 +32,8 @@ export function clerkLinesFor(intake: QuoteIntakeCardPayload['intake'], intakeLi
         title: l.title, detail: l.notes ?? null, assumptions: l.assumptions ?? [], category: l.category ?? null,
         evidence: l.evidence ?? null, mediaIds: l.mediaIds ?? null, exclusions: l.exclusions ?? null,
         sizes: l.sizes, spec: l.spec, supplyBy: l.supplyBy, hazards: l.hazards ?? null, disposal: l.disposal, leadTime: l.leadTime,
+        // P15: a card may carry the list outright; absent, the pack derives it from exclusions + assumptions.
+        notIncluded: l.notIncluded ?? null,
     }));
 }
 
@@ -55,9 +57,10 @@ export async function writePackFromChain(input: ChainPackInput): Promise<JobPack
 }
 
 /** Pure: Ben's send body (price-screen validateSendBody) → pack edits. */
-export function packEditsFromSend(lines: Array<{ lineId: string; finalPence: number; materials?: Array<{ name: string; qty: number; unitCostPence: number; source: string | null }>; assumptions?: string[] }>, materialsPenceFor: (lineId: string) => number): BenLineEdit[] {
+export function packEditsFromSend(lines: Array<{ lineId: string; finalPence: number; materials?: Array<{ name: string; qty: number; unitCostPence: number; source: string | null }>; assumptions?: string[]; notIncluded?: string[] }>, materialsPenceFor: (lineId: string) => number): BenLineEdit[] {
     return lines.map((l) => ({
         lineId: l.lineId, finalPence: l.finalPence, materialsPence: materialsPenceFor(l.lineId),
         ...(l.materials ? { materials: l.materials } : {}), ...(l.assumptions ? { assumptions: l.assumptions } : {}),
+        ...(l.notIncluded ? { notIncluded: l.notIncluded } : {}),
     }));
 }

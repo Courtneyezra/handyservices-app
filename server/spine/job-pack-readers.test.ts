@@ -77,3 +77,13 @@ describe('the contractor view', () => {
         expect(siteContextFromPack(null, quote)).toBe(quote);
     });
 });
+
+describe('P15 part 1: the contractor view carries "not included" beside her words', () => {
+    it('the task view has the list and a change to it is day-relevant', () => {
+        const view = contractorPackView(priced(), { accepted: true, acceptedAt: T2.toISOString() });
+        expect(view.tasks[0].notIncluded).toEqual(['decorating not included']);
+        expect(view.tasks[1].notIncluded).toEqual([]);
+        const rows = dayRelevantChanges([{ at: 'x', field: 'line:card_1.notIncluded', from: [], to: ['decorating not included'], by: 'human:ben', source: 'ben' }]);
+        expect(rows.map((r) => r.field)).toEqual(['line:card_1.notIncluded']);
+    });
+});

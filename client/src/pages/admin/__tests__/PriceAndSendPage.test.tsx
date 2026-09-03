@@ -416,3 +416,30 @@ describe('PriceAndSend (desktop)', () => {
         expect(screen.getByTestId('tabs')).toBeInTheDocument();
     });
 });
+
+describe('P15 part 1: "Not included" on the price screen', () => {
+    it('shows the list per line, lets Ben edit, add and drop, and only a changed list reaches the send body', async () => {
+        const f = screenFetch(payload({ lines: [{ ...doors, notIncluded: ['frames reused'] }, cupboard] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        expect(within(l1).getByTestId('not-included-card_1-0')).toHaveValue('frames reused');
+        await userEvent.click(within(l1).getByTestId('not-included-add-card_1'));
+        await userEvent.type(within(l1).getByTestId('not-included-card_1-1'), '  decorating the frames not included ');
+        const l2 = screen.getByTestId('price-line-card_2');
+        expect(within(l2).queryByTestId('not-included-card_2-0')).toBeNull();
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        const body = f.of('POST', '/send')[0].body;
+        expect(body.lines[0].notIncluded).toEqual(['frames reused', 'decorating the frames not included']);
+        expect(body.lines[1].notIncluded).toBeUndefined();
+    });
+    it('dropping the only item sends an empty list (Ben cleared it on purpose)', async () => {
+        const f = screenFetch(payload({ lines: [{ ...doors, notIncluded: ['frames reused'] }, cupboard] }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await screen.findByTestId('price-line-card_1');
+        await userEvent.click(within(l1).getByTestId('not-included-drop-card_1-0'));
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+        expect(f.of('POST', '/send')[0].body.lines[0].notIncluded).toEqual([]);
+    });
+});

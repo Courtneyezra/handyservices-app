@@ -11,7 +11,7 @@ export const STAGES = ['enquiry', 'scoping', 'quote_sent', 'booked', 'closed', '
 export const TIERS = ['READ', 'PROPOSE', 'DRAFT', 'SEND'] as const satisfies readonly Tier[];
 export const TRIGGERS = ['inbound_message', 'media_received', 'call_ended', 'cadence', 'flag_expiry', 'manual'] as const satisfies readonly Trigger[];
 export const AGENT_NAMES = ['triage', 'rules', 'scoper', 'quote_clerk', 'recovery', 'verifier', 'contractor_liaison', 'vision', 'estimator'] as const satisfies readonly AgentName[];
-export const LANES = ['dropped', 'rules', 'scoper', 'post_quote', 'ben', 'quote_clerk', 'contractor'] as const satisfies readonly Lane[];
+export const LANES = ['dropped', 'rules', 'scoper', 'post_quote', 'ben', 'quote_clerk', 'contractor', 'contractor_relay'] as const satisfies readonly Lane[];
 export const EXCEPTIONS = [
     'complaint', 'trust_concern', 'refund', 'out_of_scope', 'regulated_trade',
     'money_question', 'date_question', 'callback_requested', 'spam', 'opted_out',

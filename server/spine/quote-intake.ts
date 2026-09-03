@@ -41,6 +41,8 @@ export interface CardLine {
     hazards?: string[];
     disposal?: string | null;
     leadTime?: string | null;
+    /** P15: customer-facing "Not included" in plain words; derived by the pack when absent. */
+    notIncluded?: string[];
 }
 
 export interface ThreadMediaItem {
@@ -132,11 +134,12 @@ export function intakeFromArtifact(artifact: ProposalArtifact | null | undefined
 }
 
 /** P13: the clerk's job-pack fields off an artifact line, unknown-tolerant. Absent fields stay absent. */
-export function packFieldsOf(l: any): Pick<CardLine, 'evidence' | 'mediaIds' | 'exclusions' | 'sizes' | 'spec' | 'supplyBy' | 'hazards' | 'disposal' | 'leadTime'> {
+export function packFieldsOf(l: any): Pick<CardLine, 'evidence' | 'mediaIds' | 'exclusions' | 'notIncluded' | 'sizes' | 'spec' | 'supplyBy' | 'hazards' | 'disposal' | 'leadTime'> {
     const out: any = {};
     if (Array.isArray(l?.evidence)) out.evidence = l.evidence.map((e: any) => ({ messageId: String(e?.messageId ?? ''), text: String(e?.text ?? '') })).filter((e: any) => e.text || e.messageId);
     if (Array.isArray(l?.mediaIds)) out.mediaIds = l.mediaIds.map(String).filter(Boolean);
     if (Array.isArray(l?.exclusions)) out.exclusions = l.exclusions.map(String).filter(Boolean);
+    if (Array.isArray(l?.notIncluded)) out.notIncluded = l.notIncluded.map(String).filter(Boolean);
     if (Array.isArray(l?.hazards)) out.hazards = l.hazards.map(String).filter(Boolean);
     for (const k of ['sizes', 'spec', 'disposal', 'leadTime'] as const) if (l && typeof l === 'object' && k in l) out[k] = typeof l[k] === 'string' && l[k].trim() ? l[k].trim() : null;
     if (l && typeof l === 'object' && 'supplyBy' in l) out.supplyBy = l.supplyBy === 'us' || l.supplyBy === 'customer' || l.supplyBy === 'none' ? l.supplyBy : null;

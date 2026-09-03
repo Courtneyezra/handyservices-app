@@ -86,6 +86,8 @@ export interface PackTaskView {
     procedure: string[];
     assumptions: string[];
     exclusions: string[];
+    /** P15: the customer-facing "Not included" list, as Ben sent it. */
+    notIncluded: string[];
     sizes: string | null;
     spec: string | null;
     supplyBy: string | null;
@@ -136,7 +138,7 @@ export function contractorPackView(pack: JobPack, opts: { accepted: boolean; acc
             lineId: l.lineId,
             customerWords: l.evidence.map((e) => e.text).filter(Boolean),
             mediaUrls: media(l),
-            procedure: l.procedure, assumptions: l.assumptions, exclusions: l.exclusions,
+            procedure: l.procedure, assumptions: l.assumptions, exclusions: l.exclusions, notIncluded: l.notIncluded,
             sizes: l.sizes, spec: l.spec, supplyBy: l.supplyBy,
             materials: l.materials.map((m) => ({ name: m.name, qty: m.qty, supplier: m.supplier, sku: m.sku, size: m.size, unitPricePence: m.unitPricePence })),
             hazards: l.hazards, disposal: l.disposal, leadTime: l.leadTime,
@@ -171,7 +173,7 @@ export function packChip(pack: Pick<JobPack, 'missing' | 'lines'> | null): { com
 
 /** Pure: which change-log rows are worth telling the contractor about (Part 4 uses the same rule). */
 export function dayRelevantChanges(entries: ChangeLogEntry[]): ChangeLogEntry[] {
-    return entries.filter((e) => /^job\.(accessMethod|accessCodes|onSiteContact|parkingDistance|parkingPermit|pets|prep|deliverySlot|utilities|occupied|floor|hasLift)$/.test(e.field) || /^line:[^.]+\.(materials|procedure|hazards|disposal|sizes|spec|exclusions)$/.test(e.field));
+    return entries.filter((e) => /^job\.(accessMethod|accessCodes|onSiteContact|parkingDistance|parkingPermit|pets|prep|deliverySlot|utilities|occupied|floor|hasLift)$/.test(e.field) || /^line:[^.]+\.(materials|procedure|hazards|disposal|sizes|spec|exclusions|notIncluded)$/.test(e.field));
 }
 
 // ---------------------------------------------------------------- booking engine

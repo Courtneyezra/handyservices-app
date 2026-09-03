@@ -21,6 +21,7 @@ import { eq } from 'drizzle-orm';
 import { detectOptOut } from '../opt-out';
 import { looksLikeSpam } from '../first-contact-ack';
 import { AUDIENCES, EXCEPTIONS, INTENTS, LANES, STAGES, isIntent } from './vocab';
+import { RELAY_TAG } from '../contractor-relay';
 import type { CaseFile, TriageResult, TimelineItem, ExceptionKind, Lane, Intent } from './types';
 import type { TokenUsage } from '../agent-cost';
 
@@ -138,6 +139,15 @@ export function triageRules(cf: CaseFile): TriageResult {
         return { ...base, intent: 'unknown', lane: 'contractor', exceptions };
     }
 
+    // P15 part 2: a contractor is mid-conversation with this customer from his job screen ("which
+    // door?"). Her reply belongs to HIM, not to an agent: it is relayed to his phone and shown in
+    // his drawer, and nothing here answers it. Sits AFTER the exception checks on purpose — a reply
+    // that also asks about money or a date still goes to Ben, and he still gets the relay notice.
+    if (cf.tags.includes(RELAY_TAG) && last?.kind === 'message_in') {
+        reasons.push('a contractor is mid-relay on this job: the reply goes to him, not to an agent');
+        return { ...base, intent: 'unknown', lane: 'contractor_relay', exceptions };
+    }
+
     // First contact: we have never said anything to this person → the rules layer answers.
     if (!hasOutbound(cf)) {
         const withMedia = !!(last?.mediaIds?.length);
@@ -203,6 +213,9 @@ export interface TriageDeps {
     persist?: boolean;
     /** P6: the spine run this triage belongs to; stamped on the triage row as parent_run_id. */
     parentRunId?: string | null;
+    /** P15 part 2: push a customer reply to the contractor who is mid-relay. Default true; tests pass false. */
+    notifyRelay?: boolean;
+    relayDeps?: import('../contractor-relay').NotifyReplyDeps;
     now?: () => Date;
 }
 
@@ -307,6 +320,21 @@ export async function triage(cf: CaseFile, deps: TriageDeps = {}): Promise<Triag
             }
         } catch (e: any) {
             console.warn('[Spine] triage could not write tags/stage:', e?.message ?? e);
+        }
+    }
+
+    // P15 part 2: her reply reaches the contractor who asked. Fired off the RELAY TAG rather than
+    // the final lane, so an answer that also mentions money (which routes to Ben above) still gets
+    // to the man at the door. Never answers her, never blocks the pass, never throws.
+    if (deps.notifyRelay !== false && cf.tags.includes(RELAY_TAG)) {
+        const lastIn = lastInbound(cf);
+        if (lastIn?.kind === 'message_in' && (lastIn.body ?? '').trim()) {
+            try {
+                const { notifyContractorOfReply, liveNotifyReplyDeps } = await import('../contractor-relay');
+                await notifyContractorOfReply(cf.conversationId, lastIn.body!, deps.relayDeps ?? await liveNotifyReplyDeps());
+            } catch (e: any) {
+                console.warn('[Spine] contractor relay notice failed:', e?.message ?? e);
+            }
         }
     }
 

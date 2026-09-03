@@ -158,3 +158,53 @@ describe('derived quote lines and rows', () => {
         expect(diffPacks(sarah(), sarah(), 'x', 'system', T1)).toEqual([]);
     });
 });
+
+// ---------------------------------------------------------------- P15 part 1: "Not included", customer-facing and in the pack
+
+import { notIncludedFrom } from './job-pack';
+
+describe('P15 part 1: not included, in plain words', () => {
+    it('notIncludedFrom: exclusions become "… not included", excluding assumptions ride in their own words, de-duplicated, no dashes, no stops', () => {
+        expect(notIncludedFrom(
+            ['Decorating the frames.', 'The small top door — not included', 'decorating the frames'],
+            ['Frames reused', 'Frames are sound', 'Customer disposes of the old doors', 'Existing handles reused on all doors'],
+        )).toEqual([
+            'decorating the frames not included',
+            'the small top door, not included',
+            'frames reused',
+            'customer disposes of the old doors',
+            'existing handles reused on all doors',
+        ]);
+        expect(notIncludedFrom([], ['Frames are sound'])).toEqual([]);
+        expect(notIncludedFrom(null, undefined)).toEqual([]);
+        expect(notIncludedFrom(Array.from({ length: 12 }, (_, i) => `thing ${i}`), [])).toHaveLength(8);
+    });
+
+    it('the clerk derives it every time it writes the line; a human card may hand it over outright', () => {
+        const p = sarah();
+        expect(p.lines[0].notIncluded).toEqual(['decorating the frames not included']);
+        expect(p.lines[1].notIncluded).toEqual([]);
+        const given = linesFromClerk(p.lines, [{ lineId: 'card_1', title: p.lines[0].title, notIncluded: ['Small top door not included'] }]);
+        expect(given[0].notIncluded).toEqual(['Small top door not included']);
+        // A re-run without the field re-derives from the line's own exclusions and assumptions, and the change is logged by field.
+        const rerun = linesFromClerk(given, [{ lineId: 'card_1', title: p.lines[0].title, exclusions: ['Painting'], assumptions: ['Frames reused'] }]);
+        expect(rerun[0].notIncluded).toEqual(['painting not included', 'frames reused']);
+        const again = commit(p, { lines: rerun }, 'agent.quote_clerk', 'clerk', T1);
+        expect(again.changeLog.filter((e) => e.field === 'line:card_1.notIncluded').at(-1)).toMatchObject({ from: ['decorating the frames not included'], to: ['painting not included', 'frames reused'], source: 'clerk' });
+    });
+
+    it("Ben's price-screen list replaces the clerk's, in plain words, and the quote's line item carries it", () => {
+        const p = sarah();
+        const lines = applyBenEdits(p.lines, [{ lineId: 'card_1', finalPence: 194400, materialsPence: 121920, notIncluded: ['Decorating the frames not included.', 'Frames reused'] }]);
+        expect(lines[0].notIncluded).toEqual(['decorating the frames not included', 'frames reused']);
+        expect(lines[1].notIncluded).toEqual([]);
+        const priced = commit(p, { lines }, 'human:ben', 'ben', T2);
+        expect(priced.changeLog.filter((e) => e.field === 'line:card_1.notIncluded').at(-1)).toMatchObject({ to: ['decorating the frames not included', 'frames reused'], by: 'human:ben', source: 'ben' });
+        const items = derivePricingLineItems(priced, [{ lineId: 'card_1' }, { lineId: 'card_2' }]);
+        expect(items[0].notIncluded).toEqual(['decorating the frames not included', 'frames reused']);
+        expect(items[1].notIncluded).toEqual([]);
+        // The stored row round-trips the field; an old row without it reads as an empty list.
+        expect(packFromRow({ id: 'x', quoteId: 'q', lines: priced.lines, job: priced.job }).lines[0].notIncluded).toEqual(['decorating the frames not included', 'frames reused']);
+        expect(packFromRow({ id: 'x', quoteId: 'q', lines: [{ lineId: 'card_1', title: 't' }], job: {} }).lines[0].notIncluded).toEqual([]);
+    });
+});

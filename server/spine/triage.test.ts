@@ -206,3 +206,25 @@ describe('P9 rescope pre-check', () => {
         expect(TRIAGE_SYSTEM).toMatch(/tags "rescope" and "needs_quote", no exception/);
     });
 });
+
+describe('P15 part 2: the contractor relay lane', () => {
+    it('a customer reply on a thread a contractor is mid-relay on goes to him, not to an agent', () => {
+        const r = triageRules(cf({ tags: ['contractor_relay_open'] }, [outbound('Craig here, I\'m outside. Which door?'), inbound('Side door, the blue one')]));
+        expect(r.lane).toBe('contractor_relay');
+        expect(r.exceptions).toEqual([]);
+        expect(r.reasons.join(' ')).toMatch(/mid-relay/);
+    });
+    it('an exception still wins: a reply that also asks about money goes to Ben (he gets the notice anyway)', () => {
+        const r = triageRules(cf({ tags: ['contractor_relay_open'] }, [outbound('Craig here, i\'m outside.'), inbound('side door, and how much for the extra socket?')]));
+        expect(r.lane).toBe('ben');
+        expect(r.exceptions).toContain('money_question');
+    });
+    it('without the tag nothing changes, and the lane never fires on our own outbound', () => {
+        expect(triageRules(cf({}, [outbound('hi'), inbound('side door, the blue one')])).lane).not.toBe('contractor_relay');
+        expect(triageRules(cf({ tags: ['contractor_relay_open'] }, [outbound('hi')])).lane).not.toBe('contractor_relay');
+    });
+    it('no agent runs the relay lane, so nothing is auto-answered', async () => {
+        const { agentForLane } = await import('./index');
+        expect(agentForLane('contractor_relay')).toBeNull();
+    });
+});
