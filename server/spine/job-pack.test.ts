@@ -252,3 +252,29 @@ describe('P16 item 3: the pack follows Ben when he adds or removes a line', () =
         expect(items.map((i) => i.lineId)).toEqual(['card_2']);
     });
 });
+
+describe('P18: the pack stores the three numbers Ben saw', () => {
+    it("populates price, labour and materials from Ben's own halves, not just the price", () => {
+        const p = sarah();
+        const after = commit(p, { lines: applyBenEdits(p.lines, [
+            { lineId: 'card_1', finalPence: 194_400, labourPence: 72_000, materialsPence: 122_400 },
+            { lineId: 'card_2', finalPence: 15_600, labourPence: 15_600, materialsPence: 0 },
+        ]) }, 'human:ben', 'ben', T2);
+        expect(after.lines[0]).toMatchObject({ pricePence: 194_400, labourPence: 72_000, materialsPence: 122_400 });
+        expect(after.lines[0].labourPence! + after.lines[0].materialsPence!).toBe(after.lines[0].pricePence);
+        expect(after.lines[1]).toMatchObject({ pricePence: 15_600, labourPence: 15_600, materialsPence: 0 });
+    });
+
+    it('without a labour figure it still derives the remainder, as before', () => {
+        const p = sarah();
+        const after = commit(p, { lines: applyBenEdits(p.lines, [{ lineId: 'card_1', finalPence: 194_400, materialsPence: 121_920 }]) }, 'human:ben', 'ben', T2);
+        expect(after.lines[0]).toMatchObject({ labourPence: 72_480, materialsPence: 121_920 });
+    });
+
+    it("a labour figure that disagrees with the price is stored as Ben sent it: the screen already refused a mismatch", () => {
+        const p = sarah();
+        const after = commit(p, { lines: applyBenEdits(p.lines, [{ lineId: 'card_1', finalPence: 100_000, labourPence: 40_000, materialsPence: 60_000 }]) }, 'human:ben', 'ben', T2);
+        expect(after.lines[0]).toMatchObject({ pricePence: 100_000, labourPence: 40_000, materialsPence: 60_000 });
+        expect(after.changeLog.some((e) => e.field === 'line:card_1.labourPence')).toBe(true);
+    });
+});

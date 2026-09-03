@@ -297,8 +297,9 @@ describe('the payload with the briefing', () => {
             { lineId: 'card_2', finalPence: 30000, assumptions: ['Frame checked on the day'] },
         ], 'human:ben', new Date(T(20)), { messageEdited: true, resolutions: [{ contradictionId: 'card_1:a0', choice: 'drop_materials' }] });
         // P15 part 1 added notIncludedChanged to the meta; neither line sent a list here.
-        expect(rows[0].meta).toEqual({ resolutions: [{ contradictionId: 'card_1:a0', choice: 'drop_materials' }], messageEdited: true, materialsChanged: true, assumptionsChanged: false, notIncludedChanged: false, contradictionsOnLine: 1 });
-        expect(rows[1].meta).toEqual({ resolutions: [], messageEdited: true, materialsChanged: false, assumptionsChanged: true, notIncludedChanged: false, contradictionsOnLine: 0 });
+        // P18 added labourEdited / materialsEdited; neither line sent a half here.
+        expect(rows[0].meta).toEqual({ resolutions: [{ contradictionId: 'card_1:a0', choice: 'drop_materials' }], messageEdited: true, materialsChanged: true, assumptionsChanged: false, notIncludedChanged: false, labourEdited: false, materialsEdited: false, contradictionsOnLine: 1 });
+        expect(rows[1].meta).toEqual({ resolutions: [], messageEdited: true, materialsChanged: false, assumptionsChanged: true, notIncludedChanged: false, labourEdited: false, materialsEdited: false, contradictionsOnLine: 0 });
         expect(rows[0].edited).toBe(false);
         expect(rows[0].inBand).toBe(true);
     });

@@ -148,7 +148,11 @@ export interface PriceScreenLine {
     assumptions: string[];
     /** P15: the customer-facing "Not included" list Ben edits (derived from the clerk's exclusions + assumptions when the line has none). */
     notIncluded: string[];
-    basis: { minutes: number | null; ratePencePerHour: number | null; marginPct: number | null; rules: string[] } | null;
+    /**
+     * P18: the engine's own split for this line. `labourPence` seeds Ben's labour box on a draft
+     * that has never been priced; `rules` and the rest are the basis panel as before.
+     */
+    basis: { minutes: number | null; ratePencePerHour: number | null; marginPct: number | null; labourPence: number | null; rules: string[] } | null;
     /** P12: this line's materials (qty, cost; margin applied on the screen), swap or remove per line. */
     materials: PriceScreenMaterial[];
     /** P12: her words and photos this line came from. */
@@ -312,6 +316,8 @@ export function buildScreenLine(input: {
         notIncluded,
         basis: sug?.basis ? {
             minutes: int(sug.basis.minutes), ratePencePerHour: int(sug.basis.ratePencePerHour), marginPct: num(sug.basis.marginPct),
+            // P18: what the engine costed as labour, before Ben touched anything.
+            labourPence: int(sug.basis.labourPence),
             rules: Array.isArray(sug.basis.rules) ? sug.basis.rules.map(String) : [],
         } : null,
         materials,
@@ -460,6 +466,13 @@ export interface SendLine {
     deleted?: boolean;
     /** P16: Ben added this line by hand. Nothing estimated it, so there is no suggestion and no band. */
     added?: AddedLine;
+    /**
+     * P18: the two halves, as Ben left them. The line price is their sum, not a third number he
+     * types, so when both are present `finalPence` must equal `labourPence + materialsPence` and
+     * validateSendBody refuses the body if it does not. Absent = unchanged, as with the lists.
+     */
+    labourPence?: number;
+    materialsPence?: number;
 }
 
 /** P16: the reason an added line always wears the check_this badge. */
@@ -518,6 +531,23 @@ export function validateSendBody(body: unknown, expectedLineIds: string[]): { ok
             out.materials = mats;
         }
         if (Array.isArray(l?.assumptions)) out.assumptions = l.assumptions.map((a: unknown) => String(a ?? '').trim()).filter(Boolean).slice(0, 12);
+        // P18: the two halves. Either may arrive alone (only one was touched); when BOTH arrive they
+        // must add up to the price, because the price IS their sum on the screen. A mismatch is a
+        // client bug, and a client bug about money is refused rather than trusted.
+        const labourPence = int(l?.labourPence);
+        const materialsHalf = int(l?.materialsPence);
+        if (labourPence != null) {
+            if (labourPence < 0) { errors.push(`Line ${lineId}: labour cannot be negative.`); continue; }
+            out.labourPence = labourPence;
+        }
+        if (materialsHalf != null) {
+            if (materialsHalf < 0) { errors.push(`Line ${lineId}: materials cannot be negative.`); continue; }
+            out.materialsPence = materialsHalf;
+        }
+        if (labourPence != null && materialsHalf != null && labourPence + materialsHalf !== finalPence) {
+            errors.push(`Line ${lineId}: labour £${(labourPence / 100).toFixed(2)} plus materials £${(materialsHalf / 100).toFixed(2)} is £${((labourPence + materialsHalf) / 100).toFixed(2)}, but the line price says £${(finalPence / 100).toFixed(2)}. Reload the screen.`);
+            continue;
+        }
         if (Array.isArray(l?.notIncluded)) {
             const items: string[] = l.notIncluded.map((a: unknown) => String(a ?? '').trim()).filter(Boolean).slice(0, 8);
             for (const n of items) if (n.length > 120) errors.push(`Line ${lineId}: "${n.slice(0, 30)}…" is over 120 characters; keep "not included" to plain words.`);
@@ -587,6 +617,12 @@ export interface VerdictMeta {
     /** Materials as sent, when Ben changed them; assumptions as sent, when he changed them. */
     materialsChanged: boolean;
     assumptionsChanged: boolean;
+    /**
+     * P18: WHICH half Ben moved. The pricing trust loop needs to know whether he is correcting the
+     * estimator's labour or its materials; "the price was edited" cannot tell those apart.
+     */
+    labourEdited: boolean;
+    materialsEdited: boolean;
     /** P15: the not-included list as sent differs from what the screen showed. */
     notIncludedChanged: boolean;
     contradictionsOnLine: number;
@@ -627,6 +663,8 @@ export function verdictRowsFor(
                 messageEdited: extra.messageEdited === true,
                 materialsChanged: f.materials != null && !sameMaterials(l.materials, f.materials),
                 assumptionsChanged: f.assumptions != null && JSON.stringify(f.assumptions) !== JSON.stringify(l.assumptions),
+                labourEdited: f.labourPence != null && f.labourPence !== (l.basis?.labourPence ?? (l.suggestedPence == null ? null : Math.max(0, l.suggestedPence - l.materialsPence))),
+                materialsEdited: f.materialsPence != null && f.materialsPence !== l.materialsPence,
                 notIncludedChanged: f.notIncluded != null && JSON.stringify(f.notIncluded) !== JSON.stringify(l.notIncluded),
                 contradictionsOnLine: onLine.length,
             },
@@ -639,10 +677,20 @@ function sameMaterials(a: PriceScreenMaterial[], b: SendMaterial[]): boolean {
     return a.every((m, i) => m.name === b[i].name && m.qty === b[i].qty && (m.unitCostPence ?? 0) === b[i].unitCostPence);
 }
 
-/** The materials-at-margin a line carries once Ben's edits (if any) are applied. */
+/**
+ * The materials-at-margin a line carries once Ben's edits (if any) are applied. P18 puts his own
+ * figure first: the materials box is an input now, so a number he typed (or that his item list
+ * produced on screen) beats anything recomputed here. Then his list, then the engine's figure.
+ */
 export function materialsPenceFor(line: Pick<PriceScreenLine, 'materialsPence'>, sent: SendLine | undefined, marginPercent: number): number {
+    if (sent?.materialsPence != null) return sent.materialsPence;
     if (!sent?.materials) return line.materialsPence;
     return materialsAtMargin(sent.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence })), marginPercent);
+}
+
+/** P18: the labour a line carries — Ben's figure when he sent one, else the line total less materials. */
+export function labourPenceFor(sent: SendLine, materialsPence: number): number {
+    return sent.labourPence ?? Math.max(0, sent.finalPence - materialsPence);
 }
 
 /**
@@ -664,8 +712,10 @@ export function confirmedLineItems(existing: any[], payload: Pick<PriceScreenPay
         const prev = prevById.get(l.lineId) ?? (existing[i] && typeof existing[i] === 'object' && !added.includes(l) ? existing[i] : {});
         const sent = byId.get(l.lineId)!;
         const finalPence = sent.finalPence;
-        const materials = Math.min(payload.settings ? materialsPenceFor(l, sent, margin) : l.materialsPence, finalPence);
-        const labour = finalPence - materials;
+        // P18: the two halves as Ben left them. Materials is his figure (box or list), labour is his
+        // when he typed one and the remainder otherwise; the line price is already their sum.
+        const materials = Math.min(payload.settings ? materialsPenceFor(l, sent, margin) : (sent.materialsPence ?? l.materialsPence), finalPence);
+        const labour = labourPenceFor(sent, materials);
         // P12: materials and assumptions as Ben left them; the customer-facing list is what he sent.
         const edits: Record<string, unknown> = {};
         if (sent.materials) edits.materials = sent.materials.map((m) => ({ name: m.name, qty: m.qty, unitCostPence: m.unitCostPence, unitPricePence: m.unitCostPence, source: m.source ?? 'manual', supplier: m.source === 'screwfix' || m.source === 'catalog' ? m.source : 'manual' }));

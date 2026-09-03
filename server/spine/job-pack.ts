@@ -436,6 +436,8 @@ export function mergeEstimate(lines: PackLine[], est: EstimateLineInput[], job?:
 
 export interface BenLineEdit {
     lineId: string; finalPence?: number; materialsPence?: number;
+    /** P18: the labour half as Ben left it. Absent = derived from the price less materials, as before. */
+    labourPence?: number;
     materials?: Array<{ name: string; qty: number; unitCostPence: number; source?: string | null }>;
     assumptions?: string[]; /** P15 */ notIncluded?: string[];
     /** P16: Ben deleted this line on the price screen. It leaves the pack with the quote. */
@@ -468,12 +470,15 @@ export function applyBenEdits(lines: PackLine[], edits: BenLineEdit[]): PackLine
         const materials = e.materials ? e.materials.map((m) => normaliseMaterial({ ...m, supplier: m.source ?? null, unitPricePence: m.unitCostPence })).filter((m): m is PackMaterial => !!m) : l.materials;
         const pricePence = int(e.finalPence) ?? l.pricePence;
         const materialsPence = int(e.materialsPence) ?? (pricePence != null ? l.materialsPence : null);
+        // P18: labour is Ben's own figure when he sent one. It is only derived when he did not,
+        // which keeps the pack's three numbers (price, labour, materials) the ones he actually saw.
+        const labourPence = int(e.labourPence)
+            ?? (pricePence != null && materialsPence != null ? Math.max(0, pricePence - materialsPence) : l.labourPence);
         return {
             ...l, materials,
             assumptions: e.assumptions ? strs(e.assumptions, 8) : l.assumptions,
             notIncluded: e.notIncluded ? strs(e.notIncluded.map(plainWords), 8) : l.notIncluded,
-            pricePence, materialsPence,
-            labourPence: pricePence != null && materialsPence != null ? Math.max(0, pricePence - materialsPence) : l.labourPence,
+            pricePence, materialsPence, labourPence,
         };
     });
 }

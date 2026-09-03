@@ -30,7 +30,15 @@ describe('chain writer mappings', () => {
     });
     it('Ben\'s send body → pack edits with the materials-at-margin per line', () => {
         const edits = packEditsFromSend([{ lineId: 'a', finalPence: 1000, materials: [{ name: 'n', qty: 1, unitCostPence: 100, source: null }] }, { lineId: 'b', finalPence: 500, assumptions: ['x'] }], (id) => (id === 'a' ? 127 : 0));
-        expect(edits).toEqual([{ lineId: 'a', finalPence: 1000, materialsPence: 127, materials: [{ name: 'n', qty: 1, unitCostPence: 100, source: null }] }, { lineId: 'b', finalPence: 500, materialsPence: 0, assumptions: ['x'] }]);
+        // P18: the edit now carries labour too, derived here when Ben did not type one (1000 - 127).
+        expect(edits).toEqual([
+            { lineId: 'a', finalPence: 1000, materialsPence: 127, labourPence: 873, materials: [{ name: 'n', qty: 1, unitCostPence: 100, source: null }] },
+            { lineId: 'b', finalPence: 500, materialsPence: 0, labourPence: 500, assumptions: ['x'] },
+        ]);
+    });
+    it("P18: Ben's own labour figure rides through instead of the derived remainder", () => {
+        const edits = packEditsFromSend([{ lineId: 'a', finalPence: 1000, labourPence: 600, materialsPence: 400 }], () => 400);
+        expect(edits[0]).toMatchObject({ finalPence: 1000, labourPence: 600, materialsPence: 400 });
     });
 });
 

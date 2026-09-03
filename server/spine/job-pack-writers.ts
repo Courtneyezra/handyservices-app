@@ -63,14 +63,19 @@ export function packEditsFromSend(
         materials?: Array<{ name: string; qty: number; unitCostPence: number; source: string | null }>;
         assumptions?: string[]; notIncluded?: string[];
         deleted?: boolean; added?: { title: string; category: string | null; minutesPoint: number | null };
+        /** P18: the two halves as Ben left them, so the pack stores what he saw. */
+        labourPence?: number; materialsPence?: number;
     }>,
     materialsPenceFor: (lineId: string) => number,
 ): BenLineEdit[] {
     return lines.map((l) => {
         // P16: a deleted line carries nothing else; the pack drops it (and refuses if a dispatch locked it).
         if (l.deleted) return { lineId: l.lineId, deleted: true };
+        const materialsPence = materialsPenceFor(l.lineId);
         return {
-            lineId: l.lineId, finalPence: l.finalPence, materialsPence: materialsPenceFor(l.lineId),
+            lineId: l.lineId, finalPence: l.finalPence, materialsPence,
+            // P18: his labour when he typed one, else the remainder the pack would have derived anyway.
+            labourPence: l.labourPence ?? Math.max(0, l.finalPence - materialsPence),
             ...(l.materials ? { materials: l.materials } : {}), ...(l.assumptions ? { assumptions: l.assumptions } : {}),
             ...(l.notIncluded ? { notIncluded: l.notIncluded } : {}),
             ...(l.added ? { added: l.added } : {}),

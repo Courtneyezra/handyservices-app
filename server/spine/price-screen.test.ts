@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildPricePayload, buildScreenLine, statusOf, versionOf, totalsFor, validateSendBody, verdictRowsFor,
-    confirmedLineItems, materialsAtMargin, materialsCostOf, firstNameOf, addedScreenLine, ADDED_BY_BEN_REASON,
+    confirmedLineItems, materialsAtMargin, materialsCostOf, materialsPenceFor, labourPenceFor, firstNameOf, addedScreenLine, ADDED_BY_BEN_REASON,
     type DraftRowShape, type EstimateRowShape, type EstimateLineShape, type SuggestionLineShape, type SendInput,
 } from './price-screen';
 import { depositFor } from '@shared/pricing-settings';
@@ -365,5 +365,124 @@ describe('P16 item 3: Ben adds and deletes whole lines', () => {
         const t = totalsFor([{ finalPence: 15_900, materialsPence: 0 }, { finalPence: 8_000, materialsPence: 0 }], 30);
         expect(t.totalPence).toBe(23_900);
         expect(t.depositPence).toBe(depositFor(23_900, t.materialsPence, 30));
+    });
+});
+
+// ---------------------------------------------------------------- P18: labour and materials are two inputs
+
+/**
+ * Sarah z4p6t9mw: £2,100 = £810 labour + £1,290 materials.
+ * Gemma c1u0wkt8: £953 = £601 labour + £352 materials, over six lines.
+ */
+describe('P18: the two halves on the wire', () => {
+    const lines = () => (row().pricing_line_items ?? []).map((line, index) => buildScreenLine({ index, line, estimateLine: null, suggestion: null, materialsMarginPercent: 27 }));
+
+    it('the basis carries the engine\'s labour, so a never-priced draft can seed the box', () => {
+        const l = buildScreenLine({
+            index: 0, line: { lineId: 'card_1', title: 'Doors' }, estimateLine: null, materialsMarginPercent: 27,
+            suggestion: { lineId: 'card_1', suggestedPence: 194_400, basis: { minutes: 880, labourPence: 72_000, materialsPence: 96_416, materialsWithMarginPence: 122_448, marginPct: 27 } },
+        });
+        expect(l.basis?.labourPence).toBe(72_000);
+        expect(l.materialsPence).toBe(122_448);
+        // The two the engine priced add up to what it suggested.
+        expect(l.basis!.labourPence! + l.materialsPence).toBe(194_448);
+    });
+
+    it('both halves ride on the send line and must add up to the price', () => {
+        const ok = validateSendBody({ version: 'v', lines: [
+            { lineId: 'card_1', finalPence: 210_000, labourPence: 81_000, materialsPence: 129_000 },
+            { lineId: 'card_2', finalPence: 15_900 },
+        ] }, ['card_1', 'card_2']);
+        if (!ok.ok) throw new Error(ok.errors.join('; '));
+        expect(ok.input.lines[0]).toMatchObject({ finalPence: 210_000, labourPence: 81_000, materialsPence: 129_000 });
+        expect(ok.input.lines[1].labourPence).toBeUndefined();
+    });
+
+    it('a mismatch is refused in pounds Ben can read, not trusted', () => {
+        const v = validateSendBody({ version: 'v', lines: [
+            { lineId: 'card_1', finalPence: 210_000, labourPence: 81_000, materialsPence: 100_000 },
+            { lineId: 'card_2', finalPence: 15_900 },
+        ] }, ['card_1', 'card_2']);
+        expect(v.ok).toBe(false);
+        if (!v.ok) expect(v.errors[0]).toBe('Line card_1: labour £810.00 plus materials £1000.00 is £1810.00, but the line price says £2100.00. Reload the screen.');
+    });
+
+    it('either half may arrive alone, and neither may be negative', () => {
+        const labourOnly = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', finalPence: 24_900, labourPence: 19_820 }, { lineId: 'card_2', finalPence: 1 }] }, ['card_1', 'card_2']);
+        expect(labourOnly.ok).toBe(true);
+        const negative = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', finalPence: 24_900, labourPence: -1 }, { lineId: 'card_2', finalPence: 1 }] }, ['card_1', 'card_2']);
+        expect(negative.ok).toBe(false);
+        if (!negative.ok) expect(negative.errors[0]).toBe('Line card_1: labour cannot be negative.');
+        const negMats = validateSendBody({ version: 'v', lines: [{ lineId: 'card_1', finalPence: 24_900, materialsPence: -5 }, { lineId: 'card_2', finalPence: 1 }] }, ['card_1', 'card_2']);
+        expect(negMats.ok).toBe(false);
+        if (!negMats.ok) expect(negMats.errors[0]).toBe('Line card_1: materials cannot be negative.');
+    });
+
+    it("Ben's own materials figure beats his list, and his list beats the engine's", () => {
+        const l = lines()[0];
+        expect(materialsPenceFor(l, { lineId: 'card_1', finalPence: 24_900, materialsPence: 7_000 }, 27)).toBe(7_000);
+        expect(materialsPenceFor(l, { lineId: 'card_1', finalPence: 24_900, materials: [{ name: 'Sill', qty: 1, unitCostPence: 4_000, source: 'screwfix' }] }, 27)).toBe(5_080);
+        expect(materialsPenceFor(l, { lineId: 'card_1', finalPence: 24_900 }, 27)).toBe(l.materialsPence);
+    });
+
+    it('labourPenceFor takes his figure, else the remainder, and never goes below zero', () => {
+        expect(labourPenceFor({ lineId: 'a', finalPence: 210_000, labourPence: 81_000 }, 129_000)).toBe(81_000);
+        expect(labourPenceFor({ lineId: 'a', finalPence: 210_000 }, 129_000)).toBe(81_000);
+        expect(labourPenceFor({ lineId: 'a', finalPence: 1_000 }, 5_000)).toBe(0);
+    });
+
+    it('the quote line stores both halves as Ben left them, and the total is their sum', () => {
+        const finals: SendInput['lines'] = [
+            { lineId: 'card_1', finalPence: 210_000, labourPence: 81_000, materialsPence: 129_000 },
+            { lineId: 'card_2', finalPence: 15_900, labourPence: 15_900, materialsPence: 0 },
+        ];
+        const items = confirmedLineItems(row().pricing_line_items!, { lines: lines(), settings }, finals);
+        expect(items[0]).toMatchObject({ pricePence: 210_000, labourPence: 81_000, materialsPence: 129_000, guardedPricePence: 81_000, materialsWithMarginPence: 129_000 });
+        expect(items[0].labourPence + items[0].materialsPence).toBe(items[0].pricePence);
+        expect(items[1]).toMatchObject({ pricePence: 15_900, labourPence: 15_900, materialsPence: 0 });
+    });
+
+    it('the verdict meta says WHICH half he moved', () => {
+        // card_1 as the engine priced it: labour 19,820 + materials 5,080 = 24,900.
+        const withBasis = lines().map((l, i) => i === 0
+            ? { ...l, materialsPence: 5_080, basis: { minutes: 120, ratePencePerHour: 4_500, marginPct: 27, labourPence: 19_820, rules: [] } }
+            // card_2 as priced: all labour, no materials. A line with NO baseline at all reads as
+            // edited by construction, the same rule the price's own `edited` flag uses.
+            : { ...l, materialsPence: 0, basis: { minutes: 90, ratePencePerHour: 4_500, marginPct: 27, labourPence: 15_900, rules: [] } });
+        const rows = verdictRowsFor({ slug: 'ab12cd34', quoteId: 'quote_1', lines: withBasis }, [
+            { lineId: 'card_1', finalPence: 30_000, labourPence: 24_920, materialsPence: 5_080 },   // labour moved, materials as priced
+            { lineId: 'card_2', finalPence: 15_900, labourPence: 15_900, materialsPence: 0 },        // neither moved
+        ], 'human:ben', new Date());
+        expect(rows[0].meta).toMatchObject({ labourEdited: true, materialsEdited: false });
+        expect(rows[1].meta).toMatchObject({ labourEdited: false, materialsEdited: false });
+    });
+
+    it('a line the engine never costed reads as edited: he set both halves himself', () => {
+        const bare = lines().map((l) => ({ ...l, materialsPence: 0, basis: null, suggestedPence: null }));
+        const rows = verdictRowsFor({ slug: 'ab12cd34', quoteId: 'quote_1', lines: bare }, [
+            { lineId: 'card_1', finalPence: 24_900, labourPence: 24_900, materialsPence: 0 },
+            { lineId: 'card_2', finalPence: 15_900 },
+        ], 'human:ben', new Date());
+        expect(rows[0].meta).toMatchObject({ labourEdited: true, materialsEdited: false });
+        // Nothing sent for the second line's halves, so nothing is claimed about them.
+        expect(rows[1].meta).toMatchObject({ labourEdited: false, materialsEdited: false });
+    });
+
+    it("Gemma's six lines: the summary is the sum of the halves, exactly", () => {
+        const gemma = [
+            { finalPence: 13_300, labourPence: 6_900, materialsPence: 6_400 },
+            { finalPence: 21_000, labourPence: 15_000, materialsPence: 6_000 },
+            { finalPence: 18_000, labourPence: 12_000, materialsPence: 6_000 },
+            { finalPence: 15_000, labourPence: 10_200, materialsPence: 4_800 },
+            { finalPence: 16_000, labourPence: 9_000, materialsPence: 7_000 },
+            { finalPence: 12_000, labourPence: 7_000, materialsPence: 5_000 },
+        ];
+        const t = totalsFor(gemma, 30);
+        expect(t.totalPence).toBe(95_300);
+        expect(t.materialsPence).toBe(35_200);
+        expect(t.labourPence).toBe(60_100);
+        expect(t.labourPence + t.materialsPence).toBe(t.totalPence);
+        // £953 = £601 + £352, and the deposit is materials in full plus 30 % of labour.
+        expect(t.depositPence).toBe(depositFor(95_300, 35_200, 30));
     });
 });
