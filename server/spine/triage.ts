@@ -22,6 +22,7 @@ import { detectOptOut } from '../opt-out';
 import { looksLikeSpam } from '../first-contact-ack';
 import { AUDIENCES, EXCEPTIONS, INTENTS, LANES, STAGES, isIntent } from './vocab';
 import { RELAY_TAG } from '../contractor-relay';
+import { looksLikeDateQuestion } from './date-lexicon';
 import type { CaseFile, TriageResult, TimelineItem, ExceptionKind, Lane, Intent } from './types';
 import type { TokenUsage } from '../agent-cost';
 
@@ -31,7 +32,12 @@ import type { TokenUsage } from '../agent-cost';
 // "hourly rate", "do you charge" and "what time" / "another day" / "AM or PM" / "between 11 and 12"
 // were real customer lines that reached the scoper. Widening only ever sends more to Ben.
 export const RE_MONEY = /(how much|price|cost|£|cheap|expensive|budget|discount|deposit|invoice|pay|too? much|hourly|\brate\b|charge|steep|pricey)/i;
-export const RE_DATE = /(when can|what day|which day|what time|another day|other day|reschedule|am or pm|pm or am|between \d{1,2}(:\d{2})?\s?(am|pm)? and \d{1,2}|available|availability|book|slot|next week|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i;
+/**
+ * The date lexicon lives in its own PURE module (server/spine/date-lexicon.ts) so the rule can be
+ * tested without this file's database import. Re-exported so every existing caller is unchanged.
+ */
+export { RE_DATE, RE_DATE_ASKING, RE_DAY_WORD, RE_ASKING_SHAPE, looksLikeDateQuestion } from './date-lexicon';
+
 export const RE_COMPLAINT = /(complain|unhappy|disappoint|not happy|terrible|awful|rubbish|shocking|trading standards)/i;
 export const RE_REFUND = /(refund|money back|charge ?back)/i;
 export const RE_CALLBACK = /(call me|ring me|give me a (call|ring)|phone me)/i;
@@ -127,7 +133,7 @@ export function triageRules(cf: CaseFile): TriageResult {
         else if (RE_COMPLAINT.test(text)) { exceptions.push('complaint'); reasons.push('complaint lexicon'); }
         if (RE_CALLBACK.test(text)) { exceptions.push('callback_requested'); reasons.push('callback lexicon'); tags.push('callback_requested'); }
         if (RE_MONEY.test(text)) { exceptions.push('money_question'); reasons.push('money lexicon'); }
-        if (RE_DATE.test(text)) { exceptions.push('date_question'); reasons.push('date lexicon'); }
+        if (looksLikeDateQuestion(text)) { exceptions.push('date_question'); reasons.push('date lexicon'); }
         if (RE_REGULATED.test(text)) { exceptions.push('regulated_trade'); reasons.push('regulated-trade lexicon'); }
     }
     if (exceptions.length) {
