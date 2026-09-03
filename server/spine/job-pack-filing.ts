@@ -161,7 +161,12 @@ export async function liveFilingDeps(): Promise<FilingDeps> {
     return {
         pack: (conversationId) => getPackForConversation(conversationId),
         lastAsk: async (conversationId) => (await import('../rules-layer')).lastJobPackAsk(conversationId),
-        file: (quoteId, answer) => fileAnswerForQuote({ quoteId, field: answer.field, value: answer.value, by: 'customer', source: 'customer' }),
+        file: async (quoteId, answer) => {
+            const after = await fileAnswerForQuote({ quoteId, field: answer.field, value: answer.value, by: 'customer', source: 'customer' });
+            // P13 part 4: a day-relevant change after dispatch reaches the accepted contractor (one an hour, batched).
+            if (after?.dispatchId) { const { afterPackChange } = await import('./job-pack-notify'); await afterPackChange(after); }
+            return after;
+        },
         clerk: modelConfigured ? clerkClassifier : null,
         log: async (e) => { const { logSystemEvent } = await import('../system-events'); await logSystemEvent(e as any); },
     };

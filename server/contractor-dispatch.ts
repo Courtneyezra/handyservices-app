@@ -804,6 +804,14 @@ contractorDispatchRouter.post('/api/contractor-job/:token/accept', async (req, r
       .set({ status: 'accepted', acceptedAt: now, updatedAt: now, boostAppliedPence })
       .where(eq(contractorJobLinks.id, link.id));
 
+    // P13 part 4: the accepting contractor gets the pack link (the address and codes are now open to them).
+    try {
+      const { notifyJobPackReady } = await import('./spine/job-pack-notify');
+      await notifyJobPackReady({ dispatchId: dispatch.id, title: dispatch.title, postcode: dispatch.postcode, scheduledDate: dispatch.scheduledDate, customer: { firstName: dispatch.customerFirstName, fullName: dispatch.customerFullName }, onlyContractorId: link.contractorId });
+    } catch (e: any) {
+      console.warn('[ContractorDispatch] job pack ready notice on accept failed:', e?.message ?? e);
+    }
+
     // Mark all OTHER links as locked_taken
     const allLinks = await db.select().from(contractorJobLinks).where(eq(contractorJobLinks.dispatchId, dispatch.id));
     for (const l of allLinks) {
@@ -1490,9 +1498,23 @@ contractorDispatchRouter.post('/api/admin/dispatch', async (req, res) => {
       links.push(link);
     }
 
+    // P13 part 4: "Job pack for <title>, <postcode>, <date>: link" to every contractor it was
+    // sent to, through the one exit under rules.job_pack; outside a window with no approved
+    // template it queues for Ben with the reason. Never blocks the response.
+    let packNotices: unknown = null;
+    if (links.length) {
+      try {
+        const { notifyJobPackReady } = await import('./spine/job-pack-notify');
+        packNotices = await notifyJobPackReady({ dispatchId: dispatch.id, title, postcode, scheduledDate: dispatch.scheduledDate, customer: { firstName: customerFirstName, fullName: customerFullName ?? null } });
+      } catch (e: any) {
+        console.warn('[ContractorDispatch] job pack ready notice failed:', e?.message ?? e);
+      }
+    }
+
     res.json({
       ok: true,
       dispatch,
+      packNotices,
       // The shareable open-link URL — admin pastes this into WhatsApp / group chat
       publicUrl: `/dispatch-link/${dispatch.publicToken}`,
       links: links.map((l) => ({
