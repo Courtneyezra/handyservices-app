@@ -15,6 +15,8 @@ interface RunItem {
   supplierUrl?: string;
   supplier?: string;
   supplierItemNumber?: string;
+  /** P13c: the size the job pack chose the item at ("600 × 400 mm"), when a pack exists. */
+  size?: string;
   unitPriceIncVatPence?: number;
   unitPricePence?: number;
   qty: number;
@@ -131,6 +133,7 @@ export default function ContractorMaterialsRunPage() {
                     <p className="text-sm font-semibold leading-snug line-clamp-2">{it.name}</p>
                     <p className="text-[11px] text-slate-400 mt-0.5 tabular-nums">
                       {gbp((it.unitPriceIncVatPence ?? it.unitPricePence ?? 0))} each
+                      {it.size ? ` · ${it.size}` : ''}
                       {it.jobCount > 1 ? ` · ${it.jobCount} jobs` : ''}
                     </p>
                   </div>

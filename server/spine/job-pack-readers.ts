@@ -237,3 +237,101 @@ export async function packChipsForQuotes(quoteIds: string[]): Promise<Record<str
     }
     return out;
 }
+
+// ---------------------------------------------------------------- P13c: My Week (the tokenised schedule) and the materials run
+
+export interface LoadedPack { pack: JobPack; mediaUrlsFor: (line: PackLine) => string[] }
+
+export interface LoadPacksDeps {
+    rows: (quoteIds: string[]) => Promise<any[]>;
+    media: (messageIds: string[]) => Promise<Map<string, string>>;
+}
+
+async function livePackDeps(): Promise<LoadPacksDeps> {
+    return {
+        rows: async (ids) => {
+            const { db } = await import('../db');
+            const { jobPacks } = await import('@shared/schema');
+            const { inArray } = await import('drizzle-orm');
+            return db.select().from(jobPacks).where(inArray(jobPacks.quoteId, ids));
+        },
+        media: (ids) => mediaUrlsByMessageId(ids),
+    };
+}
+
+/**
+ * The packs for MANY quotes at once: one query for the rows, one for the media, however many
+ * jobs are on the page. Quotes without a pack are simply absent from the map; a missing table is
+ * an empty map (the pack is optional everywhere it is read).
+ */
+export async function loadPacksForQuotes(quoteIds: Array<string | null | undefined>, deps?: LoadPacksDeps): Promise<Map<string, LoadedPack>> {
+    const out = new Map<string, LoadedPack>();
+    const ids = Array.from(new Set(quoteIds.filter((q): q is string => !!q)));
+    if (!ids.length) return out;
+    const d = deps ?? await livePackDeps();
+    let rows: any[];
+    try {
+        rows = await d.rows(ids);
+    } catch (error: any) {
+        const { isMissingTable } = await import('./job-pack');
+        if (isMissingTable(error)) return out;
+        throw error;
+    }
+    const { packFromRow } = await import('./job-pack');
+    const packs = rows.map(packFromRow);
+    const byId = await d.media(packs.flatMap((p) => p.lines.flatMap((l) => l.mediaIds))).catch(() => new Map<string, string>());
+    for (const pack of packs) {
+        out.set(pack.quoteId, { pack, mediaUrlsFor: (line) => line.mediaIds.map((id) => byId.get(id)).filter((u): u is string => !!u) });
+    }
+    return out;
+}
+
+export interface BookingAcceptance { acceptedAt?: Date | string | null; assignmentStatus?: string | null; status?: string | null }
+
+/** Pure: is the booking accepted, so codes and the contact may show? Same rule as the dashboard job page. */
+export function bookingAccepted(b: BookingAcceptance): boolean {
+    return !!b.acceptedAt || b.status === 'accepted' || ['accepted', 'in_progress', 'completed'].includes(String(b.assignmentStatus ?? ''));
+}
+
+/** Pure: the two pack fields a booked job on the schedule carries: the full view and the list chip. Both null without a pack. */
+export function bookingPackFields(loaded: LoadedPack | null | undefined, booking: BookingAcceptance): { jobPack: ContractorPackView | null; packChip: ReturnType<typeof packChip> } {
+    if (!loaded) return { jobPack: null, packChip: null };
+    const accepted = bookingAccepted(booking);
+    const acceptedAt = booking.acceptedAt ? new Date(booking.acceptedAt).toISOString() : null;
+    return {
+        jobPack: contractorPackView(loaded.pack, { accepted, acceptedAt, mediaUrlsFor: loaded.mediaUrlsFor }),
+        packChip: packChip(loaded.pack),
+    };
+}
+
+export interface RunMaterial {
+    name: string; qty: number; supplier?: string; supplierItemNumber?: string; size?: string;
+    unitPricePence?: number; unitPriceIncVatPence?: number; imageUrl?: string; supplierUrl?: string;
+}
+
+/**
+ * Pure: the materials run reads the PACK's materials when the pack has any (supplier, size, price
+ * as Ben confirmed them), borrowing the image and the buy link from the quote's own line materials
+ * where the SKU (else the name) matches. A pack with no materials falls back to the quote's.
+ */
+export function runMaterialsFromPack(pack: Pick<JobPack, 'lines'> | null | undefined, quoteMaterials: any[]): RunMaterial[] {
+    const fromQuote: RunMaterial[] = (quoteMaterials ?? []).filter((m) => m && typeof m === 'object' && m.name).map((m) => ({ ...m }));
+    const packMaterials = pack?.lines.flatMap((l) => l.materials) ?? [];
+    if (!packMaterials.length) return fromQuote;
+    const key = (sku: string | null | undefined, name: string) => (sku ? `sku:${sku}` : `name:${name.toLowerCase().trim()}`);
+    const byKey = new Map<string, RunMaterial>();
+    for (const q of fromQuote) { byKey.set(key(q.supplierItemNumber, q.name), q); if (q.supplierItemNumber) byKey.set(key(null, q.name), q); }
+    return packMaterials.map((m) => {
+        const q = byKey.get(key(m.sku, m.name)) ?? byKey.get(key(null, m.name));
+        return {
+            name: m.name, qty: Math.max(1, m.qty),
+            ...(m.supplier ? { supplier: m.supplier } : q?.supplier ? { supplier: q.supplier } : {}),
+            ...(m.sku ? { supplierItemNumber: m.sku } : q?.supplierItemNumber ? { supplierItemNumber: q.supplierItemNumber } : {}),
+            ...(m.size ? { size: m.size } : {}),
+            ...(m.unitPricePence != null ? { unitPricePence: m.unitPricePence } : q?.unitPricePence != null ? { unitPricePence: q.unitPricePence } : {}),
+            ...(q?.unitPriceIncVatPence != null && m.unitPricePence == null ? { unitPriceIncVatPence: q.unitPriceIncVatPence } : {}),
+            ...(q?.imageUrl ? { imageUrl: q.imageUrl } : {}),
+            ...(q?.supplierUrl ? { supplierUrl: q.supplierUrl } : {}),
+        };
+    });
+}

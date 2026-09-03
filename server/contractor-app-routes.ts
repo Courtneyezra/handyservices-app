@@ -43,6 +43,18 @@ import { sendVisitRescheduledEmail } from './email-service';
 import { availabilityDayUTC } from './lib/availability-date';
 import { generateBalanceInvoice } from './invoice-generator';
 import { storageService } from './storage';
+// P13c: the job pack on the schedule (one query per page) and on the materials run.
+import { loadPacksForQuotes, bookingPackFields, runMaterialsFromPack, type LoadedPack } from './spine/job-pack-readers';
+
+/** The packs for a page of quote ids; an empty map when the table is absent or the read fails (the pack is optional). */
+async function packsForQuotes(quoteIds: Array<string | null | undefined>): Promise<Map<string, LoadedPack>> {
+  try {
+    return await loadPacksForQuotes(quoteIds);
+  } catch (err) {
+    console.warn('[ContractorApp] job packs unavailable:', err instanceof Error ? err.message : err);
+    return new Map();
+  }
+}
 
 // Customer-facing gross of one priced line (guarded labour + materials +
 // structural share) — matches computeSplitScope's `rawPence`. Used to show a
@@ -323,6 +335,7 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
       scheduledDates: contractorBookingRequests.scheduledDates,
       status: contractorBookingRequests.status,
       assignmentStatus: contractorBookingRequests.assignmentStatus,
+      acceptedAt: contractorBookingRequests.acceptedAt,
       contractorId: contractorBookingRequests.contractorId,
       assignedContractorId: contractorBookingRequests.assignedContractorId,
     })
@@ -350,6 +363,8 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
   ]);
   const quoteById = new Map(quoteRows.map((q) => [q.id, q]));
   const payoutByBooking = new Map(payoutRows.map((p: any) => [p.bookingId, p.payoutPence]));
+  // P13c: the job packs for every booked quote on the page, one query.
+  const packByQuote = await packsForQuotes(quoteIds);
 
   // Multi-day bookings are ONE row → expand each booking across its ACTUAL
   // span dates (may skip a weekend; legacy rows expand consecutively). Span
@@ -466,6 +481,8 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
         payLines: pay ? pay.lines : null,
         // Composed work minutes — drives the packing ceilings (canCoexist).
         minutes: totalScheduleMinutes(active, {}),
+        // P13c: the job pack (codes + contact only once accepted) and the list chip; null without a pack.
+        ...bookingPackFields(b.quoteId ? packByQuote.get(b.quoteId) : null, b),
       };
     });
 
@@ -622,6 +639,10 @@ router.get('/:token/materials-run', async (req: Request, res: Response) => {
         isNotNull(contractorBookingRequests.quoteId),
       ));
 
+    // P13c: where a job pack exists, its materials (supplier, size, price as Ben confirmed
+    // them) replace the quote line names; the image and buy link come from the quote's match.
+    const packByQuote = await packsForQuotes(rows.map((r) => r.quoteId));
+
     // Keep active/booked jobs, expand span dates, filter to the day (or upcoming).
     type RunJob = { quoteId: string; dates: string[]; area: string | null; desc: string | null; materials: any[] };
     const jobs: RunJob[] = [];
@@ -634,7 +655,8 @@ router.get('/:token/materials-run', async (req: Request, res: Response) => {
       // Kept scope only — deferred lines aren't this booking's work, so their
       // materials shouldn't land on the run-list.
       const lines = activeLineItems(r.pricingLineItems, r.deferredLineItems);
-      const materials = (lines as any[]).flatMap((l) => Array.isArray(l?.materials) ? l.materials : []);
+      const quoteMaterials = (lines as any[]).flatMap((l) => Array.isArray(l?.materials) ? l.materials : []);
+      const materials = runMaterialsFromPack(packByQuote.get(r.quoteId as string)?.pack ?? null, quoteMaterials);
       if (materials.length === 0) continue;
       jobs.push({ quoteId: r.quoteId as string, dates: relevantDates, area: outwardPostcode(r.postcode), desc: trimDescription(r.jobDescription), materials });
     }
@@ -642,7 +664,7 @@ router.get('/:token/materials-run', async (req: Request, res: Response) => {
     // Aggregate: dedupe by supplier SKU (else name), sum qty, sum inc-VAT spend
     // (inc-VAT = what the contractor actually pays on the Handy card).
     const byKey = new Map<string, {
-      name: string; imageUrl?: string; supplierUrl?: string; supplier?: string; supplierItemNumber?: string;
+      name: string; imageUrl?: string; supplierUrl?: string; supplier?: string; supplierItemNumber?: string; size?: string;
       unitPriceIncVatPence?: number; unitPricePence?: number; qty: number; jobCount: number;
     }>();
     for (const j of jobs) {
@@ -660,7 +682,7 @@ router.get('/:token/materials-run', async (req: Request, res: Response) => {
         } else {
           byKey.set(key, {
             name: m.name, imageUrl: m.imageUrl, supplierUrl: m.supplierUrl, supplier: m.supplier,
-            supplierItemNumber: m.supplierItemNumber, unitPriceIncVatPence: m.unitPriceIncVatPence,
+            supplierItemNumber: m.supplierItemNumber, size: m.size, unitPriceIncVatPence: m.unitPriceIncVatPence,
             unitPricePence: m.unitPricePence, qty, jobCount: 1,
           });
         }

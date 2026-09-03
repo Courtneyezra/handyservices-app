@@ -15,6 +15,9 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Phone, Play, ChevronLeft, LogOut, Share2, Check, ShoppingBasket, ExternalLink } from 'lucide-react';
 import type { QuoteMaterial } from '@shared/materials';
+// P13c: the job pack on the schedule (drawer + card chip), the same components the dashboard uses.
+import { JobPackPanel } from '@/components/contractor/JobPackPanel';
+import { PackChip, type ContractorPackView } from '@/components/contractor/JobPackSection';
 import { sharePartnerBragCard } from '@/lib/partner-brag-card';
 import CompletionSheet from './CompletionSheet';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
@@ -82,6 +85,9 @@ interface BookedJob {
   payoutPence: number | null;
   materialsAllowancePence: number | null;
   payLines: PayLine[] | null;
+  /** P13c: the job pack (codes + contact only once accepted) and the card chip; null without a pack. */
+  jobPack?: ContractorPackView | null;
+  packChip?: { complete: boolean; missing: number; label: string } | null;
 }
 
 interface FlexJob {
@@ -211,6 +217,8 @@ interface JobDetail {
   kind?: 'diary';
   phone?: string | null;
   diaryId?: string;
+  // P13c: the job pack for a booked job (null when the quote has none).
+  jobPack?: ContractorPackView | null;
 }
 
 // Candidate days to move a booked visit onto (server-validated feasibility).
@@ -283,6 +291,7 @@ const bookedToDetail = (b: BookedJob): JobDetail => ({
   payoutPence: b.payoutPence,
   materialsAllowancePence: b.materialsAllowancePence,
   payLines: b.payLines,
+  jobPack: b.jobPack ?? null,
 });
 const flexToDetail = (f: FlexJob): JobDetail => ({
   id: '',
@@ -331,16 +340,26 @@ const isVideo = (url: string) => /\.(mp4|mov|webm|m4v|ogg)(\?|$)/i.test(url);
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function MyWeekPage() {
+export const PREVIEW_READ_ONLY = 'Preview only: nothing is sent from here.';
+
+/**
+ * Props are for the owner's preview (P13c, /admin/my-week-preview/:contractorId): the token comes
+ * from the admin endpoint instead of the URL, and `readOnly` makes every mutation refuse. The
+ * contractor's own link passes nothing and reads the token off the route as before.
+ */
+export default function MyWeekPage({ token: tokenProp, readOnly = false }: { token?: string; readOnly?: boolean } = {}) {
   const [, params] = useRoute('/my-week/:token');
-  const token = params?.token ?? '';
+  const token = tokenProp ?? params?.token ?? '';
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  // Read-only preview: no POST leaves this page. Every mutationFn calls this first.
+  const guard = () => { if (readOnly) throw new Error(PREVIEW_READ_ONLY); };
 
   // Log out → drop to the contractor login screen. Clearing any account session
   // is best-effort and fire-and-forget: navigation must never hang on it (the
   // field app itself is token-based, so there may be no session at all).
   const handleLogout = () => {
+    if (readOnly) { setLocation('/admin/dispatch'); return; }
     fetch('/api/contractor/logout', { method: 'POST' }).catch(() => { /* no session is fine */ });
     setLocation('/partner/login');
   };
@@ -433,6 +452,7 @@ export default function MyWeekPage() {
   // Diary item (quote visit) done-tick — optimistic so the card dims instantly.
   const diaryDoneMutation = useMutation({
     mutationFn: async (id: string) => {
+      guard();
       const res = await fetch(`/api/contractor-app/${token}/diary/${id}/done`, { method: 'POST' });
       if (!res.ok) throw new Error('update failed');
     },
@@ -481,6 +501,7 @@ export default function MyWeekPage() {
 
   const lockMutation = useMutation({
     mutationFn: async (placements: DayPlan['placements']) => {
+      guard();
       const res = await fetch(`/api/contractor-app/${token}/day-plans/lock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -508,6 +529,7 @@ export default function MyWeekPage() {
   // Book a multi-day block starting on a chosen day.
   const blockMutation = useMutation({
     mutationFn: async ({ quoteId, startDate }: { quoteId: string; startDate: string }) => {
+      guard();
       const res = await fetch(`/api/contractor-app/${token}/flex/${quoteId}/place-block`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -532,6 +554,7 @@ export default function MyWeekPage() {
   // Self-place a flex job onto one of his own open days.
   const placeMutation = useMutation({
     mutationFn: async ({ quoteId, date, slot }: { quoteId: string; date: string; slot: string }) => {
+      guard();
       const res = await fetch(`/api/contractor-app/${token}/flex/${quoteId}/place`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -566,6 +589,7 @@ export default function MyWeekPage() {
   });
   const moveMutation = useMutation({
     mutationFn: async ({ bookingId, date }: { bookingId: string; date: string }) => {
+      guard();
       const res = await fetch(`/api/contractor-app/${token}/jobs/${bookingId}/move`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date }),
       });
@@ -584,6 +608,7 @@ export default function MyWeekPage() {
   // ── Day override mutation (optimistic) ──
   const dayMutation = useMutation({
     mutationFn: async ({ date, mode }: { date: string; mode: DayMode }) => {
+      guard();
       const res = await fetch(`/api/contractor-app/${token}/day`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -622,6 +647,7 @@ export default function MyWeekPage() {
   // ── Usual-week pattern mutation ──
   const patternMutation = useMutation({
     mutationFn: async (days: PatternDay[]) => {
+      guard();
       const res = await fetch(`/api/contractor-app/${token}/pattern`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -949,7 +975,7 @@ export default function MyWeekPage() {
                   <div className="min-w-0 flex-1">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-blue-400/70">Next job</div>
                     <div className="text-sm font-bold text-blue-200 truncate">{nextBooked.customerName}{nextBooked.postcodeArea ? ` · ${nextBooked.postcodeArea}` : ''}</div>
-                    <div className="text-xs text-slate-400">£{Math.round((nextBooked.payoutPence ?? 0) / 100)} you earn</div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400">£{Math.round((nextBooked.payoutPence ?? 0) / 100)} you earn <PackChip pack={nextBooked.packChip} /></div>
                   </div>
                   <ChevronRight size={18} className="text-blue-400/60 shrink-0" />
                 </button>
@@ -1371,7 +1397,10 @@ export default function MyWeekPage() {
                                 <span className="text-xs font-bold text-blue-300 truncate">
                                   {b.job.customerName.trim()}{b.job.postcodeArea ? ` · ${b.job.postcodeArea}` : ''}
                                 </span>
-                                <Lock size={11} className="text-blue-400 shrink-0" />
+                                <span className="flex items-center gap-1.5 shrink-0">
+                                  {b.firstDay && <PackChip pack={b.job.packChip} />}
+                                  <Lock size={11} className="text-blue-400 shrink-0" />
+                                </span>
                               </div>
                               {b.firstDay ? (
                                 <div className="flex items-baseline gap-1.5 mt-1">
@@ -1936,6 +1965,10 @@ export default function MyWeekPage() {
                   </div>
                 )}
 
+                {/* P13c: THE JOB PACK — her words, the photos for each task, how, not included,
+                  * bring / buy, and the delivery fields with the missing ones marked. */}
+                <JobPackPanel pack={jobDetail.jobPack} onPhoto={(u) => setLightbox({ urls: [u], index: 0 })} />
+
                 {/* COMPLETION PROOF — history only: what Craig handed over (finished-work photos + customer signature) */}
                 {jobDetail.completed && (jobDetail.evidenceUrls?.length || jobDetail.signatureDataUrl) && (
                   <div className="mb-4 p-3 rounded-2xl bg-emerald-500/8 border border-emerald-500/25">
@@ -2019,7 +2052,7 @@ export default function MyWeekPage() {
                 {jobDetail.kind !== 'diary' && jobDetail.status === 'booked' && jobDetail.id && !jobDetail.completed && (
                   <div className="mt-5 space-y-2">
                     <button
-                      onClick={() => { setCompleteJob({ id: jobDetail.id, name: jobDetail.title, payoutPence: jobDetail.payoutPence }); closeJobDetail(); }}
+                      onClick={() => { if (readOnly) return; setCompleteJob({ id: jobDetail.id, name: jobDetail.title, payoutPence: jobDetail.payoutPence }); closeJobDetail(); }}
                       className="w-full py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
                     >
                       <Check size={18} strokeWidth={3} /> Mark complete

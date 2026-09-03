@@ -186,6 +186,7 @@ const ContractorMaterialsRunPage = lazy(() => import("@/pages/contractor/Contrac
 const WeekPlannerPreview = lazy(() => import("@/pages/contractor/WeekPlannerPreview")); // design mock, frontend-only
 const ScorecardPreview = lazy(() => import("@/pages/contractor/ScorecardPreview")); // design mock, frontend-only
 const DispatchPreviewPage = lazy(() => import("@/pages/contractor/DispatchPreviewPage"));
+const MyWeekPreviewPage = lazy(() => import("@/pages/admin/MyWeekPreviewPage")); // P13c: owner's read-only view of a contractor's My Week
 const AdminDispatchDashboard = lazy(() => import("@/pages/admin/AdminDispatchDashboard"));
 const AdminGenerateDispatch = lazy(() => import("@/pages/admin/AdminGenerateDispatch"));
 
@@ -454,6 +455,13 @@ function Router() {
                   * contractor. See DispatchPreviewPage.tsx for seed data. */}
                 <Route path="/dispatch-preview">
                     <DispatchPreviewPage />
+                </Route>
+                {/* P13c: the owner sees a contractor's My Week (job pack included) exactly as
+                  * they do, without a contractor login. Admin session; read-only, nothing posts. */}
+                <Route path="/admin/my-week-preview/:contractorId">
+                    <ProtectedRoute role="admin">
+                        <MyWeekPreviewPage />
+                    </ProtectedRoute>
                 </Route>
                 {/* Two-lane booking sandbox — frontend-only demo, no backend.
                   * Restyled mock of UnifiedQuoteCard's scheduling: Lane A (flexible
