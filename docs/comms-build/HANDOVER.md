@@ -106,6 +106,10 @@ Rollback, any time, one command (`docs/comms-build/CUTOVER.md` §4):
 
 ## 6. Owner actions still open
 
+- **Submit two contractor WhatsApp templates to Meta** (P13, 3 Sep): `job_pack_ready_v1` and
+  `job_pack_changed_v1`, bodies and sample values in `docs/comms-build/TEMPLATES-JOB-PACK.md`.
+  Until approved, an out-of-window contractor notice queues for Ben with the reason.
+
 | Action | How | Why it matters |
 |---|---|---|
 | Submit the holding-line Meta template | `npx tsx scripts/_submit-holding-template.ts` (prints), then `--submit` | Customers outside the 24h window get the holding line by template; until approval they get SMS or a queued draft |
