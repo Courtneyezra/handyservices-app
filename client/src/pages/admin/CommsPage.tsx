@@ -20,7 +20,7 @@ import {
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     Loader2, MessageCircle, AlertTriangle, Clock, Search, Send, X, Zap,
-    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, HelpCircle, Mic, Square, FileText, User, Hourglass,
+    Phone, Smartphone, Globe, Check, CheckCheck, AlertCircle, Bot, Mic, Square, FileText, User, Hourglass,
     ShieldCheck, Ban, EyeOff, ClipboardList, Trash2, HardHat, RefreshCw, PoundSterling,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -974,60 +974,20 @@ export function DraftApprovalCard({ draft, windowOpen, onDone }: {
  * question-and-options card when the ask-Ben relay retired (21 Aug 2026); a legacy 'answered' row
  * still renders as a small info line while in-flight questions drain.
  */
-function FlagNoteCard({ card, q, onDone }: { card: BoardCard; q: AgentQuestion; onDone: () => void }) {
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    async function dismiss() {
-        setBusy(true); setError(null);
-        try {
-            // A legacy open question is closed via its own route so the sweeps stop treating the
-            // thread as parked; a flag row is a log and stays — the needs_ben tag is the state.
-            if (q.status === 'open') {
-                await fetch(`/api/agent-questions/${q.id}/dismiss`, { method: 'POST', headers: getAuthHeaders() });
-            }
-            const res = await fetch(`/api/inbox/conversations/${card.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ tags: card.tags.filter((t) => t !== 'needs_ben') }),
-            });
-            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed');
-            onDone();
-        } catch (e: any) {
-            setError(e.message);
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    if (q.status === 'answered') {
-        return (
-            <div className="rounded-lg border-l-4 border-indigo-300 bg-indigo-50/60 p-3 text-xs text-indigo-700">
-                <span className="font-bold">Answered:</span> {q.question} → <em>{q.answer}</em>
-                <span className="ml-1 text-indigo-400">(agent will draft from this on its next pass)</span>
-            </div>
-        );
-    }
-
+function FlagNoteCard({ q }: { q: AgentQuestion }) {
+    // 3 Sep 2026: the amber "Agent flagged this for you" banner is gone at the owner's request — it
+    // sat above the composer on every flagged thread and said nothing the needs_ben tag and the
+    // thread itself did not already say. Only an ANSWERED question still renders, because that
+    // carries something new (what Ben told the agent, which it drafts from next pass).
+    //
+    // The banner's Dismiss button was the only thing that cleared needs_ben, so that now happens
+    // when Ben replies in the thread — which is what the banner told him to do. See clearNeedsBen
+    // in ThreadPanel.
+    if (q.status !== 'answered') return null;
     return (
-        <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3">
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase text-amber-800">
-                <HelpCircle className="h-3.5 w-3.5" /> Agent flagged this for you
-                <DueChip dueAt={q.dueAt} />
-            </div>
-            <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-900">{q.question}</p>
-            {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
-            <div className="mt-2 flex items-center justify-between gap-2">
-                <span className="text-[11px] text-amber-700">Reply in the thread below — the agent picks it up from there.</span>
-                <button
-                    onClick={dismiss}
-                    disabled={busy}
-                    title="Clear the flag from this thread"
-                    className="rounded px-2 py-1 text-xs text-slate-500 hover:text-red-700 disabled:opacity-40"
-                >
-                    {busy ? 'Dismissing…' : 'Dismiss'}
-                </button>
-            </div>
+        <div className="rounded-lg border-l-4 border-indigo-300 bg-indigo-50/60 p-3 text-xs text-indigo-700">
+            <span className="font-bold">Answered:</span> {q.question} → <em>{q.answer}</em>
+            <span className="ml-1 text-indigo-400">(agent will draft from this on its next pass)</span>
         </div>
     );
 }
@@ -1319,6 +1279,19 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         setChannel(defaultChannel(card));
     }, [card.id]);
 
+    // The flag banner used to carry the only Dismiss button for needs_ben. With the banner gone,
+    // replying in the thread clears it — the agent picks the reply up on its next pass either way.
+    async function clearNeedsBen() {
+        if (!card.tags.includes('needs_ben')) return;
+        try {
+            await fetch(`/api/inbox/conversations/${card.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ tags: card.tags.filter((t) => t !== 'needs_ben') }),
+            });
+        } catch { /* the send worked; a stuck tag is not worth failing it */ }
+    }
+
     const sendFreeform = useMutation({
         mutationFn: async (body: string) => {
             const res = await fetch('/api/whatsapp/send', {
@@ -1332,7 +1305,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Send failed (${res.status})`);
             return res.json();
         },
-        onSuccess: () => { setInput(''); setError(null); refresh(); },
+        onSuccess: () => { setInput(''); setError(null); void clearNeedsBen(); refresh(); },
         onError: (e: Error) => setError(e.message),
     });
 
@@ -1347,7 +1320,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             if (!res.ok) throw new Error(detail.error === 'OUTSIDE_WINDOW' ? detail.message : detail.error || 'Send failed');
             return detail;
         },
-        onSuccess: () => { setShowQuick(false); setInput(''); setError(null); refresh(); },
+        onSuccess: () => { setShowQuick(false); setInput(''); setError(null); void clearNeedsBen(); refresh(); },
         onError: (e: Error) => setError(e.message),
     });
 
@@ -1614,16 +1587,9 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 are audit history, not work. */}
             {((data?.questions?.length ?? 0) > 0 || (data?.drafts?.length ?? 0) > 0) && (
                 <div className="space-y-2 border-t border-slate-200 bg-slate-50 p-3">
-                    {(() => {
-                        const qs = data!.questions ?? [];
-                        const latestFlag = card.tags.includes('needs_ben')
-                            ? qs.find((q) => q.status === 'flagged') ?? null
-                            : null;
-                        const legacy = qs.filter((q) => q.status !== 'flagged');
-                        return [...(latestFlag ? [latestFlag] : []), ...legacy].map((q) => (
-                            <FlagNoteCard key={q.id} card={card} q={q} onDone={refresh} />
-                        ));
-                    })()}
+                    {(data!.questions ?? []).filter((q) => q.status === 'answered').map((q) => (
+                        <FlagNoteCard key={q.id} q={q} />
+                    ))}
                     {data!.drafts?.map((d) => (
                         <DraftApprovalCard key={d.id} draft={d} windowOpen={card.windowOpen} onDone={refresh} />
                     ))}
