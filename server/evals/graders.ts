@@ -35,7 +35,8 @@ export function gradeObserved(expected: EvalExpected, o: ObservedRun): GraderRes
     const benInLoop = !!o.flagged || escalating.length > 0 || exceptions.length > 0;
 
     if (expected.lane) {
-        out.push({ grader: 'lane', pass: o.lane === expected.lane, note: `got ${o.lane ?? 'none'}, want ${expected.lane}` });
+        const wanted = Array.isArray(expected.lane) ? expected.lane : [expected.lane];
+        out.push({ grader: 'lane', pass: !!o.lane && wanted.includes(o.lane as any), note: `got ${o.lane ?? 'none'}, want ${wanted.length === 1 ? wanted[0] : `one of ${wanted.join('|')}`}` });
     }
     if (expected.intent != null) {
         const allowed = (Array.isArray(expected.intent) ? expected.intent : [expected.intent]).map(String);

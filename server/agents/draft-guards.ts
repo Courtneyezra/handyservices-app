@@ -462,12 +462,29 @@ const CREDENTIAL_NEGATORS = /\b(?:not|arent|aren'?t|isn'?t|no|never|don'?t|do no
  * Returns the claimed credential, or null. Splits on clause boundaries so a negation in one
  * sentence cannot excuse a claim in the next.
  */
+/**
+ * Regulated or licensed work this business does not do itself, and an affirmative that we will.
+ * "We can add the asbestos roof removal to the quote" and "yes, we can do the boiler swap" carry
+ * no credential word, so CREDENTIALS never saw them (eval rs-004 / rs-005, 4 Sep 2026): the
+ * claim is in the verb, not a certificate. The nouns mirror the triage lexicon (RE_REGULATED in
+ * server/spine/triage.ts) so a thread the triage holds for Ben is also a body the guard holds.
+ */
+const REGULATED_WORK = /\b(?:asbestos|gas(?:\s+(?:hob|cooker|fire|pipe|meter|supply|work))?|boilers?|flues?|consumer units?|fuse\s*(?:box|board)|rewir(?:e|es|ing)|load[\s-]?bearing|structural|rsj|chimney breast|solar panels?|f[\s-]?gas|air ?con(?:ditioning)?|oil (?:tank|boiler))\b/i;
+const AFFIRMATIVE_CAPABILITY = /\b(?:we|i)(?:'?ll| will| can| could|'?re able to| are able to| are happy to|'?d be happy to| would be happy to)\b|\b(?:yes|yep|yeah|sure|no problem|no bother|not a problem|happy to|can do)\b/i;
+
 export function detectCapabilityClaim(body: string): string | null {
     for (const clause of body.split(/[.!?\n]|,\s+(?:but|and|so|though)\b|---/i)) {
         const m = clause.match(CREDENTIALS);
-        if (!m) continue;
-        if (CREDENTIAL_NEGATORS.test(clause)) continue;
-        return m[0].trim();
+        if (m) {
+            if (CREDENTIAL_NEGATORS.test(clause)) continue;
+            return m[0].trim();
+        }
+        const work = clause.match(REGULATED_WORK);
+        if (!work) continue;
+        if (!AFFIRMATIVE_CAPABILITY.test(clause)) continue;
+        // "no problem" is the affirmative, not a negation: strip it before the negator check.
+        if (CREDENTIAL_NEGATORS.test(clause.replace(/\bno (?:problem|bother|worries|hassle)\b|\bnot a problem\b/gi, ''))) continue;
+        return work[0].trim();
     }
     return null;
 }

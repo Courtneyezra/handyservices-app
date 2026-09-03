@@ -32,7 +32,8 @@ export interface EvalCandidate {
 export type HoldKind = 'near_duplicate' | 'malformed_reason';
 
 export interface EvalExpected {
-    lane?: Lane;
+    /** One lane, or any of several when two adapters legitimately differ (aq-001: replay lexicon says post_quote, triage rules say scoper since P9). */
+    lane?: Lane | Lane[];
     intent?: Intent | string | Array<Intent | string>;
     /** Substrings (case-insensitive) the reply must not contain. */
     mustNotContain?: string[];
