@@ -65,6 +65,18 @@ UPDATE app_settings SET value = value || '{"enabled": false}'::jsonb, updated_at
 ```
 Other switches (`asks`, `autonomy`, `sampler`, `video`, per-agent) are fields on the same row; see HANDOVER §3.
 
+### A flagged thread that is also ready to price (P19)
+A thread on the Ben lane (`decision=flag`) that carries `needs_quote` or `rescope` now runs the
+Quote clerk too, and its Route A chain, so Ben gets the "Quote ready to price" Pushover and a draft
+at `/admin/price/<slug>` while the flag is still open. Nothing goes to the customer: the clerk's
+words are dropped, the decision is still the same flag with the same exception and due time, and
+the flag row is unchanged. It runs once — the next pass sees the live estimate or the draft and
+does not re-run the estimator. Expect a flag and a priced draft on the same thread; that is
+correct. To see what a thread would do without touching anything:
+```bash
+npx tsx scripts/_p19-replay-thread.ts <conversationId>   # read-only: no writes, no sends
+```
+
 ### Where things live
 | What | Where |
 |---|---|

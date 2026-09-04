@@ -321,7 +321,7 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
 
 export async function runQuotePrep(
     conversationId: string,
-    runOpts: { runId?: string; trigger?: string; parentRunId?: string | null } = {},
+    runOpts: { runId?: string; trigger?: string; parentRunId?: string | null; persist?: boolean } = {},
 ): Promise<{ intake: QuoteIntake | null; summary: string; turns: number; runId: string }> {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
     if (!conv) throw new Error(`Conversation ${conversationId} not found`);
@@ -506,6 +506,9 @@ export async function runQuotePrep(
         // transcript ref keeps the old `parent:` marker so rows written before the column still read.
         transcriptRef: runOpts.parentRunId ? `parent:${runOpts.parentRunId}` : undefined,
         parentRunId: runOpts.parentRunId ?? null,
+        // P19: false for a read-only replay (scripts/_p19-replay-thread.ts) — the clerk still runs,
+        // it just leaves no agent_runs / ledger rows behind. Default true: every real pass records.
+        ...(runOpts.persist === false ? { persist: false as const } : {}),
         system: SYSTEM,
         goal: `Prepare the quote intake for conversation ${conv.id} (customer: ${realNameOrNull(conv.contactName) || e164}).`,
         tools,

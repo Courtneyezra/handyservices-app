@@ -241,9 +241,12 @@ export async function exit(run: SpineRun, overrides: Partial<ExitDeps> = {}): Pr
                 const urgent = decision.exception === 'callback_requested';
                 const id = `aq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 const question = `[${decision.exception}] ${decision.note}`.slice(0, 2000);
+                // P19: an artifact-only proposal (the Ben-lane clerk prepares, it never speaks) has
+                // no body, and "Proposed (not sent): " with nothing after it is not a note.
+                const proposed = (run.proposal?.body ?? []).join(' / ').trim();
                 const questionId = await deps.insertFlag({
                     id, conversationId: caseFile.conversationId, phone: caseFile.phone, question,
-                    context: run.proposal ? `Proposed (not sent): ${run.proposal.body.join(' / ').slice(0, 600)}` : null,
+                    context: proposed ? `Proposed (not sent): ${proposed.slice(0, 600)}` : null,
                     source: `spine:${run.agent}`, status: 'flagged', dueAt: new Date(decision.dueAt), runId: run.runId,
                 }, { urgent });
                 void ledgerFlagRaised({ questionId, phone: caseFile.phone, conversationId: caseFile.conversationId, note: question, source: `spine:${run.agent}`, runId: run.runId, actor: `agent:${run.agent}` });

@@ -161,14 +161,20 @@ export interface EnsureQuoteRunDeps {
     now?: () => Date;
 }
 
-async function defaultQuoteRunState(conversationId: string): Promise<QuoteRunState | null> {
-    const [conv] = await db.select({ tags: conversations.tags, metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
-    if (!conv) return null;
-    const meta = (conv.metadata ?? {}) as Record<string, any>;
+/** P19: the two "something is already coming" halves of QuoteRunState, on their own. */
+export type QuoteWorkInFlight = Pick<QuoteRunState, 'liveEstimate' | 'liveDraft'>;
+
+/**
+ * P19: is a quote already on its way for this thread — a live estimate, or a Route A draft that
+ * has not been superseded? The re-run guard both the scheduler (shouldRequestQuoteRun) and the
+ * in-pass Ben-lane clerk (server/spine/index.ts) read, so one answer governs both. Read-only.
+ */
+export async function quoteWorkInFlight(conversationId: string, metadata?: Record<string, any> | null): Promise<QuoteWorkInFlight> {
+    const meta = metadata ?? (await db.select({ metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, conversationId)).limit(1))[0]?.metadata as Record<string, any> | undefined ?? {};
     const { latestEstimateForConversation } = await import('./estimate-store');
     const liveEstimate = isLiveEstimate(await latestEstimateForConversation(conversationId).catch(() => null));
     let liveDraft = false;
-    const draftId = meta.quoteDraft?.quoteId;
+    const draftId = meta?.quoteDraft?.quoteId;
     if (typeof draftId === 'string' && draftId) {
         try {
             const { personalizedQuotes } = await import('@shared/schema');
@@ -176,7 +182,15 @@ async function defaultQuoteRunState(conversationId: string): Promise<QuoteRunSta
             liveDraft = !!q && !q.supersededAt && !!q.isDraft;
         } catch { liveDraft = false; }
     }
-    return { tags: (conv.tags as string[] | null) ?? [], nextTriageAt: typeof meta.nextTriageAt === 'string' ? meta.nextTriageAt : null, liveEstimate, liveDraft };
+    return { liveEstimate, liveDraft };
+}
+
+async function defaultQuoteRunState(conversationId: string): Promise<QuoteRunState | null> {
+    const [conv] = await db.select({ tags: conversations.tags, metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    if (!conv) return null;
+    const meta = (conv.metadata ?? {}) as Record<string, any>;
+    const inFlight = await quoteWorkInFlight(conversationId, meta);
+    return { tags: (conv.tags as string[] | null) ?? [], nextTriageAt: typeof meta.nextTriageAt === 'string' ? meta.nextTriageAt : null, ...inFlight };
 }
 
 /**

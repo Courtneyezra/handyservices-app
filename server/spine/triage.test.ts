@@ -228,3 +228,22 @@ describe('P15 part 2: the contractor relay lane', () => {
         expect(agentForLane('contractor_relay')).toBeNull();
     });
 });
+
+// ------------------------------------------- P19: the lane is unchanged; only the clerk moved
+
+describe('P19: a needs_quote thread that asks for a call still belongs to Ben', () => {
+    it('the callback exception beats the needs_quote tag, exactly as before', () => {
+        // f7ebd4f6, 4 Sep: photos, postcode and needs_quote on the thread, and "Feel free to call
+        // me". The clerk now prepares on this run (server/spine/index.ts), but the LANE is what
+        // decide() reads, and it must keep saying Ben.
+        const r = triageRules(cf({ tags: ['photos_received', 'needs_quote'] }, [outbound('Could you send a photo?'), inbound('Fell free to call me')]));
+        expect(r.lane).toBe('ben');
+        expect(r.exceptions).toContain('callback_requested');
+    });
+    it('the model may not take a Ben-lane exception thread back off Ben', () => {
+        const rules = triageRules(cf({ tags: ['needs_quote'] }, [outbound('hi'), inbound('Please call me')]));
+        const merged = mergeTriage(rules, { audience: 'customer', intent: 'unknown', lane: 'quote_clerk', exceptions: [], stage: 'scoping', tags: ['needs_quote'], reasons: [] } as any, 'm');
+        expect(merged.lane).toBe('ben');
+        expect(merged.exceptions).toContain('callback_requested');
+    });
+});
