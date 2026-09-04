@@ -106,3 +106,35 @@ describe('decide — waiting for a promised item (P7)', () => {
         expect(decide({ proposal: prop(), guards: ok, pack, triage: tri({ lane: 'dropped', exceptions: ['opted_out'], customerPromisedMore: true }), caseFile: cf(), now: DAY_NOW }).kind).toBe('drop');
     });
 });
+
+// ------------------------------------------- P19: the clerk prepares while the thread stays Ben's
+
+describe("decide — the Ben lane is unmoved by what the clerk prepared (P19)", () => {
+    const pack = getPack('customer.exception');
+    const benTriage = tri({ lane: 'ben', exceptions: ['callback_requested', 'date_question'], tags: ['needs_quote'], reasons: ['callback lexicon', 'date lexicon'] });
+    const intake: Proposal = {
+        intent: 'propose_intake', body: [], reasons: ['3 line(s), readiness quote_ready'],
+        artifact: { kind: 'quote_intake', summary: '3 line(s), readiness quote_ready, 0 gap(s)', data: { readiness: 'quote_ready' } },
+    };
+
+    it('is byte-for-byte the same decision with the clerk artifact as without it', () => {
+        const without = decide({ proposal: null, guards: null, pack, triage: benTriage, caseFile: cf({ tags: ['needs_quote'] }), now: DAY_NOW });
+        const with_ = decide({ proposal: intake, guards: ok, pack, triage: benTriage, caseFile: cf({ tags: ['needs_quote'] }), now: DAY_NOW });
+        expect(with_).toEqual(without);
+        expect(with_).toMatchObject({ kind: 'flag', exception: 'callback_requested' });
+    });
+
+    it('a visit_first survey offer on the Ben lane still flags: the exceptions branch sits above every tier', () => {
+        // The runner skips this branch on the Ben lane (server/spine/index.ts); this pins that even
+        // if a customer-facing DRAFT proposal reached decide there, nothing would be drafted.
+        const offer: Proposal = { intent: 'offer_survey', body: ['We do a paid survey visit at £49. Shall I send the booking link?'], reasons: ['visit_first'], citations: ['price_source=settings surveyFeePence=4900'] };
+        const d = decide({ proposal: offer, guards: ok, pack: getPack('customer.default'), triage: benTriage, caseFile: cf({ tags: ['needs_quote'] }), now: DAY_NOW });
+        expect(d).toEqual(decide({ proposal: null, guards: null, pack: getPack('customer.default'), triage: benTriage, caseFile: cf({ tags: ['needs_quote'] }), now: DAY_NOW }));
+        expect(d.kind).toBe('flag');
+    });
+
+    it('a decline body the clerk proposed cannot send on the Ben lane either', () => {
+        const decline: Proposal = { intent: 'closing', body: ['That one is gas work, so we have to pass.'], reasons: ['decline'], artifact: { kind: 'quote_intake', summary: 'decline', data: { readiness: 'decline' } } };
+        expect(decide({ proposal: decline, guards: ok, pack, triage: benTriage, caseFile: cf({ tags: ['needs_quote'] }), now: DAY_NOW }).kind).toBe('flag');
+    });
+});

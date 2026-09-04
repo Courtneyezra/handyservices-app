@@ -53,3 +53,28 @@ describe('P8 architecture', () => {
         expect(comms).toMatch(/quotePrep: \{ enabled: false/);
     });
 });
+
+// ---------------------------------------------------------------- P19
+
+describe('P19 architecture: the Ben lane still speaks for nobody', () => {
+    const read2 = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+
+    it('agentForLane names no agent for ben or dropped', () => {
+        const src = read2('server/spine/index.ts');
+        const fn = src.slice(src.indexOf('export function agentForLane'), src.indexOf('// ------------------------------------------------- P19'));
+        expect(fn).not.toMatch(/case 'ben'|case 'dropped'/);
+        expect(fn).toMatch(/default: return null;/);
+    });
+    it("decide() settles the Ben lane before it looks at a proposal, so a clerk artifact cannot move it", () => {
+        const src = read2('server/spine/decide.ts');
+        const benBranch = src.indexOf("if (triage.lane === 'ben' || exception)");
+        const firstProposalRead = src.indexOf('if (!proposal)');
+        expect(benBranch).toBeGreaterThan(0);
+        expect(firstProposalRead).toBeGreaterThan(benBranch);
+    });
+    it('triage is untouched: nothing hands the Ben lane to the clerk', () => {
+        const src = read2('server/spine/triage.ts');
+        expect(src).toMatch(/if \(exceptions\.length\) lane = 'ben';/);
+        expect(src).not.toMatch(/benLaneClerk|artifactOnly/);
+    });
+});

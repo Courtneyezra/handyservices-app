@@ -17,9 +17,9 @@ import { resolvePack, refreshTierOverlay } from './packs';
 import { checkProposal } from './guards';
 import { decide } from './decide';
 import { exit as runExit, type ExitOutcome } from './exit';
-import { requestRun, runDue } from './request-run';
+import { requestRun, runDue, quoteWorkInFlight, QUOTE_TAGS, type QuoteWorkInFlight } from './request-run';
 import { runRouteAChain, surveyOfferFor, artifactReadiness, type RouteAOutcome } from './route-a';
-import type { AgentName, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, Trigger } from './types';
+import type { AgentName, CaseFile, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, TriageResult, Trigger } from './types';
 
 /** P7: how long the spine waits for something the customer said was coming before it looks again. */
 export const PROMISED_MORE_FOLLOWUP_MS = 15 * 60_000;
@@ -60,6 +60,74 @@ export function agentForLane(lane: Lane): AgentName | null {
     }
 }
 
+// ------------------------------------------------- P19: the clerk works while the thread is Ben's
+//
+// One rule was doing two jobs: "Ben must be the one who talks to this customer" (right) and
+// "therefore no agent may do any internal work on this thread" (wrong). The Quote clerk's product
+// is an ARTIFACT — Route A turns it into an unsent draft with every customer-visible price null
+// and a Pushover for Ben. Nothing reaches the customer. That is exactly the work that should carry
+// on while a thread sits with Ben, so he gets a priced draft on his phone instead of finding out
+// when she rings (f7ebd4f6, 4 Sep 2026: photos, postcode and needs_quote by 09:16; she rang at
+// 09:59 and the agent still had no price).
+//
+// The LANE is untouched: triage still says `ben`, decide() still returns `flag` before it looks at
+// any proposal, and the exception and its due time are what they were. This only decides whether
+// the clerk PREPARES.
+
+export interface BenLaneClerkDecision { run: boolean; reason: string }
+
+/**
+ * Pure: does this Ben-lane thread want the clerk at all? Lane, audience and tags only — the
+ * "is something already on the way" half is `benLaneClerkVerdict`.
+ */
+export function benLaneClerkWanted(input: { caseFile: CaseFile; triage: TriageResult }): BenLaneClerkDecision {
+    const { caseFile, triage } = input;
+    if (triage.lane !== 'ben') return { run: false, reason: `lane ${triage.lane} is not Ben's` };
+    if ((triage.audience ?? caseFile.audience) !== 'customer') return { run: false, reason: 'not a customer thread' };
+    // Belt and braces: these lane to `dropped`, never to `ben`. If one ever arrives here, nothing runs.
+    if (triage.exceptions.some((e) => e === 'spam' || e === 'opted_out')) return { run: false, reason: 'spam / opted out' };
+    const tags = new Set([...caseFile.tags, ...triage.tags]);
+    if (!QUOTE_TAGS.some((t) => tags.has(t))) return { run: false, reason: 'no needs_quote / rescope tag' };
+    return { run: true, reason: 'ready to price: the clerk prepares while the thread stays Ben\'s' };
+}
+
+/**
+ * Pure: …and nothing is already on its way. This thread re-runs on the untriggered-quote sweep's
+ * five-minute cadence, and Route A supersedes the previous estimate before it claims a new one, so
+ * without this the estimator chain would run again every five minutes. Same two conditions and the
+ * same words as shouldRequestQuoteRun (server/spine/request-run.ts): once the first pass has
+ * produced a draft, both the sweep and this stop asking.
+ */
+export function benLaneClerkVerdict(input: { caseFile: CaseFile; triage: TriageResult; inFlight: QuoteWorkInFlight }): BenLaneClerkDecision {
+    const wanted = benLaneClerkWanted(input);
+    if (!wanted.run) return wanted;
+    if (input.inFlight.liveEstimate) return { run: false, reason: 'a live estimate already exists' };
+    if (input.inFlight.liveDraft) return { run: false, reason: 'a Route A draft already exists' };
+    return wanted;
+}
+
+/**
+ * Pure: what the Ben lane keeps of a clerk proposal — the artifact, never the words. The clerk
+ * proposes a body on exactly one path (readiness `decline`, the fixed polite-no template); on
+ * Ben's lane that is his sentence to write, and an empty body keeps the flag row byte-for-byte
+ * what it is today (server/spine/exit.ts writes the proposal into the flag's context).
+ */
+export function benLaneArtifactOnly(proposal: Proposal): Proposal {
+    return { ...proposal, body: [], flag: null };
+}
+
+/** Read the re-run guard's state; any failure means the clerk does not run (fail closed). */
+async function benLaneClerkDecisionFor(caseFile: CaseFile, triage: TriageResult): Promise<BenLaneClerkDecision> {
+    const wanted = benLaneClerkWanted({ caseFile, triage });
+    if (!wanted.run) return wanted;
+    try {
+        const inFlight = await quoteWorkInFlight(caseFile.conversationId);
+        return benLaneClerkVerdict({ caseFile, triage, inFlight });
+    } catch (e: any) {
+        return { run: false, reason: `could not read the thread's quote work: ${e?.message ?? e}` };
+    }
+}
+
 // ---------------------------------------------------------------- one run
 
 export interface RunOnceOpts {
@@ -74,6 +142,8 @@ export interface RunOnceResult extends SpineRun {
     outcome?: ExitOutcome;
     /** P8: what the Route A chain did after a quote_ready clerk artifact (estimate id, draft slug, supersessions). */
     routeA?: RouteAOutcome;
+    /** P19: whether the Quote clerk prepared on a lane that runs no agent, and why (or why not). */
+    benLaneClerk?: BenLaneClerkDecision;
 }
 
 /**
@@ -133,9 +203,16 @@ async function runOnceInner(
         }
     }
     const pack = resolvePack(caseFile, triage);
-    const agentName = agentForLane(triage.lane);
+    const laneAgentName = agentForLane(triage.lane);
+    // P19: nobody speaks on Ben's lane, but a thread that is ready to price still gets the clerk —
+    // for its artifact only (see above). Costs one read, and only on a lane that runs no agent.
+    const benLaneClerk = !laneAgentName && triage.lane === 'ben' ? await benLaneClerkDecisionFor(caseFile, triage) : null;
+    const agentName: AgentName | null = laneAgentName ?? (benLaneClerk?.run ? 'quote_clerk' : null);
     const agent = agentName ? agents[agentName] : undefined;
-    const recordedAgent: AgentName = agentName ?? 'triage';
+    // The run is still recorded as the lane's own (`triage` on Ben's lane): the exit stamps the
+    // flag row's source with it, and that row must not move.
+    const recordedAgent: AgentName = laneAgentName ?? 'triage';
+    if (benLaneClerk) console.log(`[Spine] run ${runId} ${conversationId} Ben-lane clerk: ${benLaneClerk.run ? 'preparing' : 'no'} — ${benLaneClerk.reason}`);
 
     await startAgentRun({
         id: runId, agent: recordedAgent, trigger, conversationId, phone: caseFile.phone,
@@ -146,7 +223,7 @@ async function runOnceInner(
     let guards: GuardVerdict | null = null;
     let error: string | null = null;
     if (agentName && !agent) {
-        error = `no agent registered for lane ${triage.lane} (${agentName})`;
+        error = `no agent registered for lane ${triage.lane} (${agentName})${benLaneClerk?.run ? ' — the Ben-lane clerk could not prepare' : ''}`;
         console.warn(`[Spine] ${error}; run ${runId} decides on triage alone`);
     } else if (agent) {
         try {
@@ -155,6 +232,9 @@ async function runOnceInner(
             error = `agent ${agent.name} failed: ${e?.message ?? e}`;
             console.error(`[Spine] ${error}`);
         }
+        // P19: on Ben's lane the clerk prepares, it never speaks. Drop the words before anything
+        // else sees the proposal, so the guards, the decision and the flag row are unchanged.
+        if (proposal && benLaneClerk?.run) proposal = benLaneArtifactOnly(proposal);
         if (proposal) guards = checkProposal(proposal, pack, caseFile);
     }
 
@@ -173,7 +253,12 @@ async function runOnceInner(
                 routeA = { ran: true, reason: `chain failed: ${e?.message ?? e}` };
                 console.error(`[Spine] Route A chain failed for ${conversationId}:`, e?.message ?? e);
             }
-        } else if (readiness === 'visit_first') {
+        } else if (readiness === 'visit_first' && !benLaneClerk?.run) {
+            // P19: `visit_first` REPLACES the proposal with a customer-facing survey offer, which
+            // is a DRAFT for Ben to approve. On Ben's lane the thread is already his and the clerk
+            // is here for its artifact alone, so the branch is skipped: no offer is ever built.
+            // (decide() would flag it anyway — pinned in decide.test.ts — but nothing composed for
+            // the customer should exist on a run that was never going to speak.)
             try {
                 const offer = await surveyOfferFor({ caseFile, clerkRunId: runId, artifact: proposal.artifact });
                 if (offer) { proposal = offer; guards = checkProposal(offer, pack, caseFile); }
@@ -189,6 +274,7 @@ async function runOnceInner(
         caseFile, triage, proposal, guards: guards ?? undefined, decision,
         durationMs: Date.now() - startedAt,
         ...(routeA ? { routeA } : {}),
+        ...(benLaneClerk ? { benLaneClerk } : {}),
     };
     const dryRun = !!(opts.dryRun || opts.shadow);
     if (!dryRun) run.outcome = await runExit(run);
@@ -207,7 +293,7 @@ async function runOnceInner(
 
     await finishAgentRun(runId, { agent: recordedAgent, conversationId, phone: caseFile.phone }, {
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,
-        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(routeA ? { routeA } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
+        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(routeA ? { routeA } : {}), ...(benLaneClerk ? { benLaneClerk } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
         guardsHit: guards?.guardsHit ?? [],
         ...(opts.shadow ? { shadowDecision: decision.kind } : {}),
     });
