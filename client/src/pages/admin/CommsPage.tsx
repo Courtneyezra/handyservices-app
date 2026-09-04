@@ -29,7 +29,7 @@ import { FirstContactPanel } from '@/components/comms/FirstContactPanel';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
 import { AgentRunsDrawer } from '@/components/comms/AgentRunsDrawer';
 import { SampleReviewStrip } from '@/components/comms/SampleReviewStrip';
-import { QuoteIntakeCard } from '@/components/comms/QuoteIntakeCard';
+import { IntakeAskChips } from '@/components/comms/IntakeAskChips';
 import { VerdictReasonChips, type VerdictReason } from '@/components/comms/VerdictReasonChips';
 import { dueLabel } from '@/lib/due-label';
 import { READINESS_UI, type IntakeReadiness } from '@shared/intake-readiness';
@@ -1270,8 +1270,8 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
     };
 
     // P8 / C: the legacy quote-prep slide-over, its stored-intake fetch and the manual "Prep quote"
-    // run are gone. The spine's QuoteIntakeCard below is the single entry into a quote: readiness,
-    // lines, gaps, media, and "Price and send" once the chain has priced a draft.
+    // run are gone; 4 Sep 2026 the in-chat quote card went with them. The entry into a quote from
+    // a thread is the header's readiness pill and "Price and send" → /admin/price/<slug>.
     // ThreadPanel is one instance across card switches, so per-thread panel state (template picker,
     // channel) has to follow the card or it leaks between customers.
     useEffect(() => {
@@ -1445,6 +1445,10 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                             {READINESS_UI[card.intakeReadiness].label}
                         </span>
                     ) : null}
+                    {/* The clerk has an intake but no name or postcode: the rules layer's
+                        content-free ask, approved by the signed-in human. All that survives of
+                        the in-chat quote card — quote editing lives on /admin/price/<slug>. */}
+                    <IntakeAskChips conversationId={card.id} />
                     {card.windowOpen ? (
                         <span className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-bold uppercase text-white">
                             {card.windowHoursLeft}h window
@@ -1576,10 +1580,13 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 <LiveRunPanel conversationId={card.id} />
             </div>
 
-            {/* The ONE quote entry on a thread (P8 / C): the spine's in-chat quote card — readiness
-                lane, lines, gaps, media, "Price and send" once the chain has priced a draft.
-                Renders nothing until the clerk has left an intake for this thread. */}
-            <QuoteIntakeCard conversationId={card.id} />
+            {/* The in-chat quote card is GONE (4 Sep 2026). Quote editing happens on
+                /admin/price/<slug>, which does strictly more than the card's inline editor did
+                (add, retitle and remove lines, plus labour and materials per line since P18).
+                The card's own "Price and send" duplicated the header's button above; its line
+                editor had no save path; "Open full builder" forked a second competing quote from
+                edits that were never saved. The only piece with no other home — the missing
+                name / postcode ask — is <IntakeAskChips> in the header. See IntakeAskChips.tsx. */}
 
             {/* The agent's pending work on this thread: the flag note when it needs Ben, then
                 drafts awaiting approval. Above the composer so a decision is never below the fold.
