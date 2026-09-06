@@ -26,6 +26,7 @@ import { randomUUID } from 'crypto';
 import { PACKS, tierFor, assertPromotable, isForbiddenIntent, applyTierOverlay, refreshTierOverlay, tierSourceFor, currentTierOverlay } from './packs';
 import { TIERS } from './vocab';
 import type { PolicyPack, Tier } from './types';
+import { notSandboxRunSql } from './sandbox';
 
 // ---------------------------------------------------------------- the gate, as numbers
 
@@ -251,31 +252,36 @@ export async function gatherEvidence(opts: GatherOpts = {}): Promise<IntentEvide
     // The intent a verdict belongs to: the spine run's proposal, else the draft reason's [intent] prefix.
     const INTENT_EXPR = sql`COALESCE(ar.proposal->'proposal'->>'intent', substring(md.reason from '^\\s*\\[([a-z0-9_]+)\\]'))`;
 
+    // T5: a comms-sandbox pass (server/spine/sandbox.ts) is never evidence. The draft-joined
+    // queries already cannot see one (a dry run queues no draft); the two that read agent_runs
+    // alone would count its flag / send decisions, so every query carries the same exclusion.
+    const NOT_SANDBOX_AR = notSandboxRunSql('ar');
+    const NOT_SANDBOX = notSandboxRunSql();
     const [verdicts30, unsafeEver, escalations14, incidents30, tierRows, lastEvents] = await Promise.all([
         rowsOf<VerdictRow>(sql`
             SELECT ar.pack_id, ${INTENT_EXPR} AS intent, dv.verdict, dv.reason, count(*)::int AS n, min(dv.created_at)::text AS first_at
             FROM draft_verdicts dv
             JOIN message_drafts md ON md.id = dv.draft_id
             JOIN agent_runs ar ON ar.id = COALESCE(dv.run_id, md.run_id)
-            WHERE ar.pack_id IS NOT NULL AND dv.created_at >= ${since30}
+            WHERE ar.pack_id IS NOT NULL AND dv.created_at >= ${since30} AND ${NOT_SANDBOX_AR}
             GROUP BY 1, 2, 3, 4`),
         rowsOf<CountRow>(sql`
             SELECT ar.pack_id, ${INTENT_EXPR} AS intent, count(*)::int AS n
             FROM draft_verdicts dv
             JOIN message_drafts md ON md.id = dv.draft_id
             JOIN agent_runs ar ON ar.id = COALESCE(dv.run_id, md.run_id)
-            WHERE ar.pack_id IS NOT NULL AND dv.reason = 'unsafe' AND dv.verdict <> 'sample_fine'
+            WHERE ar.pack_id IS NOT NULL AND dv.reason = 'unsafe' AND dv.verdict <> 'sample_fine' AND ${NOT_SANDBOX_AR}
             GROUP BY 1, 2`),
         rowsOf<CountRow>(sql`
             SELECT pack_id, proposal->'proposal'->>'intent' AS intent, count(*)::int AS n
             FROM agent_runs
-            WHERE pack_id IS NOT NULL AND started_at >= ${since14} AND decision = 'flag' AND cardinality(guards_hit) > 0
+            WHERE pack_id IS NOT NULL AND started_at >= ${since14} AND decision = 'flag' AND cardinality(guards_hit) > 0 AND ${NOT_SANDBOX}
             GROUP BY 1, 2`),
         rowsOf<CountRow>(sql`
             SELECT ar.pack_id, ar.proposal->'proposal'->>'intent' AS intent, count(*)::int AS n
             FROM agent_runs ar
             JOIN conversations c ON c.id = ar.conversation_id
-            WHERE ar.pack_id IS NOT NULL AND ar.started_at >= ${since30} AND ar.decision = 'send'
+            WHERE ar.pack_id IS NOT NULL AND ar.started_at >= ${since30} AND ar.decision = 'send' AND ${NOT_SANDBOX_AR}
               AND c.tags && ${sql.raw(`ARRAY[${INCIDENT_TAGS.map((t) => `'${t}'`).join(',')}]::text[]`)}
             GROUP BY 1, 2`),
         rowsOf<{ pack_id: string; intent: string; tier: string; reason: string | null; changed_by: string | null; changed_at: string }>(sql`

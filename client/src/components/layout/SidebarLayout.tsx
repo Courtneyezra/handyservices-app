@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, ChevronDown, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity, ListTodo } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, ChevronDown, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity, ListTodo, FlaskConical } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import InstallPrompt from "@/components/InstallPrompt";
@@ -162,6 +162,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
+                                { icon: FlaskConical, label: "Sandbox", href: "/admin/sandbox", badge: "NEW" },
                                 { icon: Bot, label: "AI Staff", href: "/admin/staff", badge: "NEW" },
                                 { icon: Activity, label: "Activity", href: "/admin/activity", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },

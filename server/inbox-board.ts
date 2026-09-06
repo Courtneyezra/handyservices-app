@@ -15,6 +15,7 @@ import { callMessageId, classificationLine, readCallClassification } from './cal
 import { neverSentMeta } from './message-quarantine';
 import { inboundSince } from './draft-freshness';
 import { loadIntakeReadinessMap } from './intake';
+import { notSandboxPhoneSql } from './spine/sandbox';
 import type { IntakeReadiness } from '@shared/intake-readiness';
 import {
     loadAutoAckSends, autoAckSpansByConversation, insideAnyAutoAckSpan, notWrittenByAnyAutoAck,
@@ -604,6 +605,8 @@ export async function loadBoardCards(opts: { limit?: number; lane?: 'customer' |
                 lane === 'contractor'
                     ? eq(conversations.roleProfile, 'contractor')
                     : ne(conversations.roleProfile, 'contractor'),
+                // T5: the comms sandbox thread is never a card (and so never a desk 'reply' item).
+                notSandboxPhoneSql(conversations.phoneNumber),
             ))
             .orderBy(desc(conversations.lastMessageAt))
             .limit(limit))

@@ -70,6 +70,7 @@ const OfferDecisionsPage = lazy(() => import("@/pages/admin/OfferDecisionsPage")
 const NudgeQueuePage = lazy(() => import("@/pages/admin/NudgeQueuePage"));
 const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
 const DeskPage = lazy(() => import("@/pages/admin/DeskPage"));
+const SandboxPage = lazy(() => import("@/pages/admin/SandboxPage"));
 const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
 const PriceAndSendPage = lazy(() => import("@/pages/admin/PriceAndSendPage")); // P8: Ben's phone-first price-and-send screen
 const VariationPricePage = lazy(() => import("@/pages/admin/VariationPricePage")); // P15/3: the one-line price screen for an extra found at the door
@@ -735,6 +736,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <DeskPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/sandbox">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <SandboxPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

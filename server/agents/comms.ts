@@ -66,6 +66,7 @@ import { runAgent, type AgentTool, type AgentRunResult, type AgentTranscriptEven
 import { newRunId } from '../approver';
 import { ledgerFlagRaised, ledgerFlagClosedForConversation } from '../ledger';
 import { emitCommsEvent } from '../comms-events';
+import { leanTranscriptEvent } from '../spine/run-events';
 import { buildMediaBlocks } from './media-context';
 import { queueDraft, approveAndSendDraft } from '../message-drafts';
 import { canSendFreeform } from '../meta-whatsapp';
@@ -568,34 +569,9 @@ export async function flagThreadForBen(opts: {
 
 // ---------------------------------------------------------------- per-conversation run
 
-/**
- * Shrink a transcript event for the live SSE stream. Tool inputs/results can carry whole thread
- * timelines and quote payloads; the UI only needs the tool name and a glimpse of the data, so
- * every string anywhere in the detail is truncated to 500 chars. The full, untruncated event
- * still lands in the run transcript — this lean copy exists only for the wire.
- */
-function leanTranscriptEvent(evt: AgentTranscriptEvent): unknown {
-    const MAX = 500;
-    const seen = new WeakSet<object>();
-    const trunc = (v: unknown, depth: number): unknown => {
-        if (typeof v === 'string') return v.length > MAX ? `${v.slice(0, MAX)}… [truncated]` : v;
-        if (!v || typeof v !== 'object' || depth > 6) return v;
-        if (seen.has(v)) return '[circular]';
-        seen.add(v);
-        if (Array.isArray(v)) return v.slice(0, 20).map((x) => trunc(x, depth + 1));
-        return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, trunc(x, depth + 1)]));
-    };
-    switch (evt.type) {
-        case 'tool_call':
-            return { at: evt.at, type: evt.type, tool: evt.detail?.tool, input: trunc(evt.detail?.input, 0) };
-        case 'tool_result':
-            return { at: evt.at, type: evt.type, tool: evt.detail?.tool, result: trunc(evt.detail?.result, 0) };
-        case 'tool_error':
-            return { at: evt.at, type: evt.type, tool: evt.detail?.tool, error: trunc(evt.detail?.error, 0) };
-        default:
-            return { at: evt.at, type: evt.type, detail: trunc(evt.detail, 0) };
-    }
-}
+// T5: the lean per-step wire shape now lives in server/spine/run-events.ts (`leanTranscriptEvent`),
+// shared with the spine's own live feed, so the Phase 5 delete of this file takes nothing the
+// LiveRunPanel needs.
 
 export interface CommsAgentOutcome {
     conversationId: string;

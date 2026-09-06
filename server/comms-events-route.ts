@@ -62,39 +62,20 @@ commsEventsRouter.get('/api/comms/events', tokenFromQuery, requireAdmin, (req, r
 });
 
 // ---------------------------------------------------------------------------------------------
-// TEMP (dev only, DELETE BEFORE COMMIT): replays a canned run-event sequence onto the bus so the
-// LiveRunPanel animation can be reviewed without burning a real agent run (or losing the ticker
-// race to the production process on the shared DB). Emits view-only events; persists nothing.
+// Dev-only board-animation demo (kept on purpose, T5 6 Sep 2026: it is still the only way to
+// review the board animation without a real customer; the canned run replay that used to sit
+// beside it is gone — real spine runs now drive the LiveRunPanel, and the comms sandbox at
+// /admin/sandbox is the place to watch one). A bare board_delta only makes the client refetch —
+// for a card to visibly appear/move/re-badge the DB row must actually change first, and the emit
+// must happen IN-PROCESS (a script's bus is not the server's bus). So each action mutates the
+// DEMO conversation and then emits the matching event.
+//
+// HARD SAFETY RULE: every action operates ONLY on the conversation whose phone_number is the
+// Ofcom drama number below (no real subscriber). An arbitrary conversation id is never accepted
+// for mutation. The demo conversation is created WITHOUT metadata.nextTriageAt, so no real agent
+// run ever fires on it. The comms sandbox (server/spine/sandbox.ts) uses the NEXT number in the
+// range, …942, so this demo's cleanup and a sandbox session can never touch each other's thread.
 if (process.env.NODE_ENV !== 'production') {
-    commsEventsRouter.post('/api/comms/events/dev-replay-run', tokenFromQuery, requireAdmin, (req, res) => {
-        const conversationId = String(req.query.conversation ?? '');
-        if (!conversationId) { res.status(400).json({ error: 'conversation query param required' }); return; }
-        const runId = `demo-${Date.now()}`;
-        const at = () => new Date().toISOString();
-        const steps: Array<[number, () => void]> = [
-            [0, () => emitCommsEvent({ type: 'run_started', runId, conversationId, at: at() })],
-            [800, () => emitCommsEvent({ type: 'run_event', runId, conversationId, at: at(), event: { at: at(), type: 'tool_call', tool: 'get_thread', input: {} } })],
-            [2000, () => emitCommsEvent({ type: 'run_event', runId, conversationId, at: at(), event: { at: at(), type: 'tool_result', tool: 'get_thread', result: 'ok' } })],
-            [2600, () => emitCommsEvent({ type: 'run_event', runId, conversationId, at: at(), event: { at: at(), type: 'tool_call', tool: 'check_date', input: {} } })],
-            [4100, () => emitCommsEvent({ type: 'run_event', runId, conversationId, at: at(), event: { at: at(), type: 'tool_result', tool: 'check_date', result: 'ok' } })],
-            [4600, () => emitCommsEvent({ type: 'run_event', runId, conversationId, at: at(), event: { at: at(), type: 'assistant_text', detail: { text: 'Tuesday morning is free on the calendar — drafting a reply offering it.' } } })],
-            [5300, () => emitCommsEvent({ type: 'run_event', runId, conversationId, at: at(), event: { at: at(), type: 'tool_call', tool: 'queue_draft', input: {} } })],
-            [7100, () => emitCommsEvent({ type: 'run_event', runId, conversationId, at: at(), event: { at: at(), type: 'tool_result', tool: 'queue_draft', result: 'ok' } })],
-            [7500, () => emitCommsEvent({ type: 'run_finished', runId, conversationId, ok: true, at: at() })],
-        ];
-        for (const [delay, fire] of steps) setTimeout(fire, delay);
-        res.json({ ok: true, runId, durationMs: 7500 });
-    });
-
-    // TEMP (dev only, DELETE BEFORE COMMIT): board-animation demo. A bare board_delta only makes
-    // the client refetch — for a card to visibly appear/move/re-badge the DB row must actually
-    // change first, and the emit must happen IN-PROCESS (a script's bus is not the server's bus).
-    // So each action mutates the DEMO conversation and then emits the matching event.
-    //
-    // HARD SAFETY RULE: every action operates ONLY on the conversation whose phone_number is the
-    // Ofcom drama number below (no real subscriber — see scripts/_demo-live-run-panel.ts). An
-    // arbitrary conversation id is never accepted for mutation. The demo conversation is created
-    // WITHOUT metadata.nextTriageAt, so no real agent run ever fires on it.
     //
     //   POST /api/comms/events/dev-board-demo?action=<action>&token=<admin>
     //     action=new-card                                  create demo conv + inbound msg → board_delta:inbound

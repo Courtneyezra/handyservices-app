@@ -19,6 +19,8 @@ import { decide } from './decide';
 import { exit as runExit, type ExitOutcome } from './exit';
 import { requestRun, runDue, quoteWorkInFlight, QUOTE_TAGS, type QuoteWorkInFlight } from './request-run';
 import { runRouteAChain, surveyOfferFor, artifactReadiness, type RouteAOutcome } from './route-a';
+import { runEmitter, leanTranscriptEvent, wouldHaveHappened, type RunEmitter } from './run-events';
+import { isSandboxPhone } from './sandbox';
 import type { AgentLoopUsage, AgentName, CaseFile, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, TriageResult, Trigger } from './types';
 
 /** P7: how long the spine waits for something the customer said was coming before it looks again. */
@@ -136,6 +138,14 @@ export interface RunOnceOpts {
     dryRun?: boolean;
     /** Phase 3 shadow mode: implies dryRun and stamps agent_runs.shadow_decision with what would have happened. */
     shadow?: boolean;
+    /**
+     * T5: the comms sandbox (server/spine/sandbox.ts). Implies dryRun — the exit is never reached
+     * whatever the caller passed; refuses a case file whose phone is not the sandbox number; skips
+     * the two internal side-chains that reach outside the thread (job pack filing, Route A: draft
+     * quotes + a Pushover to Ben); stamps `proposal.sandbox = true` on the agent_runs row so the
+     * sampler and the autonomy job can exclude it.
+     */
+    sandbox?: boolean;
 }
 
 export interface RunOnceResult extends SpineRun {
@@ -144,6 +154,16 @@ export interface RunOnceResult extends SpineRun {
     routeA?: RouteAOutcome;
     /** P19: whether the Quote clerk prepared on a lane that runs no agent, and why (or why not). */
     benLaneClerk?: BenLaneClerkDecision;
+    /** T5: true when the exit was skipped (dryRun / shadow / sandbox) — nothing touched the world. */
+    dryRun?: boolean;
+    /** T5: stamped on sandbox passes. */
+    sandbox?: boolean;
+    /** T5: the exit boundary's one line — what the exit did, or on a dry run what it WOULD have done. */
+    exitNote?: string;
+    /** T5: the agent's failure, if it threw (the row records it too). */
+    error?: string | null;
+    /** T5: side-chains a sandbox pass deliberately did not run. */
+    skipped?: string[];
 }
 
 /**
@@ -178,22 +198,65 @@ async function runOnceInner(
     agentsOverride?: Partial<Record<AgentName, SpineAgent>>,
     opts: RunOnceOpts = {},
 ): Promise<RunOnceResult> {
+    const runId = opts.runId ?? newRunId('run');
+    // T5: the live feed (server/spine/run-events.ts). run_started before anything else,
+    // run_finished whatever happens in between; every emit is fail-safe, so a broken bus can
+    // never fail a pass. Emitted for EVERY run: this is LiveRunPanel's replacement feed once
+    // Phase 5 deletes the legacy emitter, not a sandbox-only courtesy.
+    const ev = runEmitter(runId, conversationId);
+    ev.started();
+    let ok = false;
+    try {
+        const run = await runOnceBody(conversationId, trigger, agentsOverride, { ...opts, runId }, ev);
+        ok = !run.error;
+        return run;
+    } finally {
+        ev.finished(ok);
+    }
+}
+
+async function runOnceBody(
+    conversationId: string,
+    trigger: Trigger,
+    agentsOverride: Partial<Record<AgentName, SpineAgent>> | undefined,
+    opts: RunOnceOpts & { runId: string },
+    ev: RunEmitter,
+): Promise<RunOnceResult> {
     if (!agentsOverride) await ensureDefaultAgents();
     const agents: Partial<Record<AgentName, SpineAgent>> = agentsOverride ?? (Object.fromEntries(registry) as Partial<Record<AgentName, SpineAgent>>);
-    const runId = opts.runId ?? newRunId('run');
+    const runId = opts.runId;
     const startedAt = Date.now();
+    const sandbox = !!opts.sandbox;
+    const skipped: string[] = [];
 
     // P6: every child row this pass writes (triage model call, vision, a wrapped legacy runner)
     // carries this run id as parent_run_id, so the drawer shows one pass as one group.
     const caseFile = await buildCaseFile(conversationId, { parentRunId: runId });
+    // T5 layer 2, at the seam itself: a sandbox pass on anything but the sandbox number does not
+    // exist. The route checks the same thing; this is the check the route cannot forget.
+    if (sandbox && !isSandboxPhone(caseFile.phone)) {
+        throw new Error(`sandbox run refused: ${conversationId} is not on the sandbox number`);
+    }
+    ev.stage('case_file', `Case file: ${caseFile.timeline.length} timeline item${caseFile.timeline.length === 1 ? '' : 's'}, stage ${caseFile.stage}, ${caseFile.quote ? `quote ${caseFile.quote.slug} (${caseFile.quote.paid ? 'paid' : 'unpaid'})` : 'no quote'}${caseFile.tags.length ? `, tags ${caseFile.tags.join(', ')}` : ''}`, {
+        stage: caseFile.stage, tags: caseFile.tags, quote: caseFile.quote ?? null, window: caseFile.window,
+        openFlags: caseFile.openFlags, openPromises: caseFile.openPromises, timelineItems: caseFile.timeline.length,
+        lastInboundPromisedMore: !!caseFile.lastInboundPromisedMore,
+    });
     const triage = await runTriage(caseFile, { parentRunId: runId });
+    ev.stage('triage', `Triage (${triage.source}${triage.model ? ` ${triage.model}` : ''}): lane ${triage.lane}, intent ${triage.intent}${triage.exceptions.length ? `, exceptions ${triage.exceptions.join(', ')}` : ', no exceptions'}${triage.tags.length ? `, tags ${triage.tags.join(', ')}` : ''}`, {
+        lane: triage.lane, intent: triage.intent, exceptions: triage.exceptions, tags: triage.tags, source: triage.source,
+        model: triage.model ?? null, reasons: triage.reasons, customerPromisedMore: !!triage.customerPromisedMore, dateAsked: !!triage.dateAsked,
+    });
     await refreshTierOverlay(); // Phase 3: earned tiers, cached a minute, never throws
 
     // P13: live filing. A customer message after the quote that answers a delivery field files
     // into the job pack silently (change_log source `customer`); a rescope is never filed (triage
     // tagged it; the Scoper lanes it). Internal, so it runs in every mode; never blocks the pass.
+    // T5: not in the sandbox — it writes job packs, which live outside the sandbox thread.
     let packFiling: import('./job-pack-filing').FilingOutcome = null;
-    if ((trigger === 'inbound_message' || trigger === 'media_received') && caseFile.quote && !agentsOverride) {
+    if (sandbox && caseFile.quote && (trigger === 'inbound_message' || trigger === 'media_received')) {
+        skipped.push('job pack filing (writes job packs; skipped in the sandbox)');
+    } else if ((trigger === 'inbound_message' || trigger === 'media_received') && caseFile.quote && !agentsOverride) {
         try {
             const { fileInboundIntoPack, liveFilingDeps } = await import('./job-pack-filing');
             const last = [...caseFile.timeline].reverse().find((t) => t.kind === 'message_in');
@@ -213,6 +276,10 @@ async function runOnceInner(
     // flag row's source with it, and that row must not move.
     const recordedAgent: AgentName = laneAgentName ?? 'triage';
     if (benLaneClerk) console.log(`[Spine] run ${runId} ${conversationId} Ben-lane clerk: ${benLaneClerk.run ? 'preparing' : 'no'} — ${benLaneClerk.reason}`);
+    ev.stage('pack', `Pack ${pack.id} v${pack.version} → ${agentName ? `agent ${agentName}${agent ? '' : ' (not registered)'}` : `no agent on lane ${triage.lane}`}${benLaneClerk ? ` — Ben-lane clerk: ${benLaneClerk.run ? 'preparing' : 'no'} (${benLaneClerk.reason})` : ''}`, {
+        packId: pack.id, packVersion: pack.version, lane: triage.lane, agent: agentName, registered: !!agent,
+        allowedIntents: pack.allowedIntents, defaultTier: pack.defaultTier, tierByIntent: pack.tierByIntent, benLaneClerk: benLaneClerk ?? null,
+    });
 
     await startAgentRun({
         id: runId, agent: recordedAgent, trigger, conversationId, phone: caseFile.phone,
@@ -229,15 +296,32 @@ async function runOnceInner(
         console.warn(`[Spine] ${error}; run ${runId} decides on triage alone`);
     } else if (agent) {
         try {
-            proposal = await agent.run({ caseFile, pack, triage, runId, reportUsage: (u) => { loopUsage = u; } });
+            proposal = await agent.run({
+                caseFile, pack, triage, runId, reportUsage: (u) => { loopUsage = u; },
+                // T5: the agent's own belt (tool calls, results, assistant text) rides the live feed.
+                onEvent: (evt) => ev.step(leanTranscriptEvent(evt as import('../agents/runner').AgentTranscriptEvent)),
+            });
         } catch (e: any) {
             error = `agent ${agent.name} failed: ${e?.message ?? e}`;
             console.error(`[Spine] ${error}`);
+            ev.stage('note', error);
         }
         // P19: on Ben's lane the clerk prepares, it never speaks. Drop the words before anything
         // else sees the proposal, so the guards, the decision and the flag row are unchanged.
         if (proposal && benLaneClerk?.run) proposal = benLaneArtifactOnly(proposal);
         if (proposal) guards = checkProposal(proposal, pack, caseFile);
+        ev.stage('proposal', proposal
+            ? `Proposed ${proposal.intent}: ${proposal.body.length} bubble${proposal.body.length === 1 ? '' : 's'}${proposal.flag ? `, flag ${proposal.flag.exception}` : ''}${proposal.artifact ? `, artifact ${proposal.artifact.kind}` : ''}${proposal.tags?.length ? `, tags ${proposal.tags.join(', ')}` : ''}`
+            : `Agent ${agent.name} proposed nothing`, proposal ? {
+            intent: proposal.intent, body: proposal.body, reasons: proposal.reasons, citations: proposal.citations ?? [], flag: proposal.flag ?? null,
+            tags: proposal.tags ?? [], contactName: proposal.contactName ?? null, recontactAt: proposal.recontactAt ?? null,
+            artifact: proposal.artifact ? { kind: proposal.artifact.kind, summary: proposal.artifact.summary } : null,
+        } : null);
+        if (guards) {
+            ev.stage('guards', guards.ok
+                ? 'Guards: clear'
+                : `Guards: ${guards.guardsHit.join(', ')}${guards.escalate ? ' — escalates to Ben' : ''}`, guards);
+        }
     }
 
     // P8 Route A — the chain runs INLINE after the Quote clerk (see route-a.ts for why not a
@@ -246,7 +330,14 @@ async function runOnceInner(
     // nothing here reaches a customer. A chain failure is recorded on the run and never blocks the
     // decision the clerk's pass would have taken.
     let routeA: RouteAOutcome | undefined;
-    if (proposal?.artifact?.kind === 'quote_intake') {
+    if (sandbox && proposal?.artifact?.kind === 'quote_intake') {
+        // T5: Route A writes draft quotes and pushes Ben's phone — neither belongs to a play session.
+        const readiness = artifactReadiness(proposal.artifact);
+        const reason = `sandbox: Route A skipped (readiness ${readiness}; live, it would run the estimator chain and push Ben)`;
+        routeA = { ran: false, reason };
+        skipped.push(reason);
+        ev.stage('note', reason);
+    } else if (proposal?.artifact?.kind === 'quote_intake') {
         const readiness = artifactReadiness(proposal.artifact);
         if (readiness === 'quote_ready') {
             try {
@@ -271,15 +362,24 @@ async function runOnceInner(
     }
 
     const decision = decide({ proposal, guards, pack, triage, caseFile });
+    ev.stage('decision', `Decision: ${decision.kind}${decision.kind === 'send' ? ` (${decision.approver})` : decision.kind === 'flag' ? ` (${decision.exception})` : 'reason' in decision ? ` — ${decision.reason}` : ''}`, decision);
+    // T5 layer 1: a sandbox pass is a dry run whatever else the caller passed.
+    const dryRun = !!(opts.dryRun || opts.shadow || sandbox);
     const run: RunOnceResult = {
         runId, agent: recordedAgent, trigger, pack: { id: pack.id, version: pack.version },
         caseFile, triage, proposal, guards: guards ?? undefined, decision,
-        durationMs: Date.now() - startedAt,
+        durationMs: Date.now() - startedAt, dryRun, error,
+        ...(sandbox ? { sandbox: true } : {}),
+        ...(skipped.length ? { skipped } : {}),
         ...(routeA ? { routeA } : {}),
         ...(benLaneClerk ? { benLaneClerk } : {}),
     };
-    const dryRun = !!(opts.dryRun || opts.shadow);
     if (!dryRun) run.outcome = await runExit(run);
+    // The exit boundary, in one line: what the exit did, or — dry run — what it WOULD have done.
+    run.exitNote = dryRun
+        ? `DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: ${wouldHaveHappened(run)}`
+        : `Exit ${run.outcome?.kind ?? decision.kind}${run.outcome?.detail ? ` — ${run.outcome.detail}` : ''}`;
+    ev.stage('exit', run.exitNote, { dryRun, decision: decision.kind, outcome: run.outcome ?? null });
 
     // P7: the customer promised more ("back soon with the measurement"). Nothing goes out; come
     // back in 15 minutes unless the promised item lands first (its inbound path runs sooner and
@@ -300,7 +400,8 @@ async function runOnceInner(
     await finishAgentRun(runId, { agent: recordedAgent, conversationId, phone: caseFile.phone }, {
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,
         ...(usagePatch ? { usage: usagePatch.usage, model: usagePatch.model, turns: usagePatch.turns } : {}),
-        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(routeA ? { routeA } : {}), ...(benLaneClerk ? { benLaneClerk } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
+        // T5: `sandbox: true` is the mark the sampler and the autonomy job exclude on (server/spine/sandbox.ts).
+        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(sandbox ? { sandbox: true, skipped } : {}), ...(routeA ? { routeA } : {}), ...(benLaneClerk ? { benLaneClerk } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
         guardsHit: guards?.guardsHit ?? [],
         ...(opts.shadow ? { shadowDecision: decision.kind } : {}),
     });
