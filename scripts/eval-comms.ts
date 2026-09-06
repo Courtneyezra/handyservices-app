@@ -105,7 +105,8 @@ async function replayAdapter(c: EvalCaseV2): Promise<AdapterResult> {
         customerText, intent: c.candidate.intent ?? intentFromReason(c.candidate.reason) ?? null,
         quoteSeen: c.quote?.seen, quoteViewCount: c.quote?.viewCount, offeredDates: c.quote?.offeredDates, quoteTotalPence: c.quote?.totalPence ?? null,
     });
-    const exceptions = lexiconExceptions(customerText);
+    // B3 / PRD §7: a date question raises date_question only after booking (quote.paid), the §13 interim.
+    const exceptions = lexiconExceptions(customerText, { afterBooking: !!c.quote?.paid });
     let holds: ObservedRun['holds'];
     if (c.expected.mustHold?.length) {
         const h = await loadHolds();

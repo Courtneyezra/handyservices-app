@@ -7,7 +7,8 @@ export const CUSTOMER_POST_QUOTE: PolicyPack = {
     id: 'customer.post_quote',
     version: 1,
     stage: 'quote_sent',
-    allowedIntents: [...CUSTOMER_DEFAULT.allowedIntents, 'answer_from_quote', 'point_to_picker'],
+    // B3: point_to_picker now lives on customer.default too (PRD §7); the set keeps it once.
+    allowedIntents: Array.from(new Set([...CUSTOMER_DEFAULT.allowedIntents, 'answer_from_quote', 'point_to_picker'] as const)),
     guardSet: [...CUSTOMER_DEFAULT.guardSet, 'price_objection'],
     tierByIntent: {},
     templates: { ...CUSTOMER_DEFAULT.templates },

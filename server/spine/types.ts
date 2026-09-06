@@ -112,6 +112,12 @@ export interface TriageResult {
     model?: string;
     /** P7 (additive): the customer's last message promised more is coming; decide waits instead of drafting. */
     customerPromisedMore?: boolean;
+    /**
+     * B3 / PRD §7 (additive): the customer's last message asks about a date, time or availability.
+     * A signal for the Scoper ("dates come with your quote" / point at the picker), never a lane:
+     * `date_question` is an exception only on the §13 interim path (a booked job).
+     */
+    dateAsked?: boolean;
 }
 
 /** What an agent returns. It never sends (§3.6). */

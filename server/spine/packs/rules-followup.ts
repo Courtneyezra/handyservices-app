@@ -12,7 +12,8 @@ export const RULES_FOLLOWUP: PolicyPack = {
     defaultTier: 'SEND',
     // Follow-ups are proactive by nature: never outside 08–20 UK.
     hours: { reactiveAlways: false, proactiveFromHour: 8, proactiveToHour: 20 },
-    exceptionsToBen: ['complaint', 'trust_concern', 'refund', 'out_of_scope', 'regulated_trade', 'money_question', 'date_question', 'callback_requested'],
+    // B3 / PRD §7: date_question retired as a Ben trigger (mirrors customer.default).
+    exceptionsToBen: ['complaint', 'trust_concern', 'refund', 'out_of_scope', 'regulated_trade', 'money_question', 'callback_requested'],
     voiceFile: 'brand-voice/whatsapp-comms.md',
     templates: {
         promise_overdue_holding: 'holding_line',

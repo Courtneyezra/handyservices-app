@@ -16,7 +16,8 @@ export const RULES_FIRST_CONTACT: PolicyPack = {
     tierByIntent: {},
     defaultTier: 'SEND',
     hours: { reactiveAlways: true, proactiveFromHour: 8, proactiveToHour: 20 },
-    exceptionsToBen: ['complaint', 'trust_concern', 'refund', 'out_of_scope', 'regulated_trade', 'money_question', 'date_question', 'callback_requested'],
+    // B3 / PRD §7: date_question retired as a Ben trigger (mirrors customer.default).
+    exceptionsToBen: ['complaint', 'trust_concern', 'refund', 'out_of_scope', 'regulated_trade', 'money_question', 'callback_requested'],
     voiceFile: 'brand-voice/whatsapp-comms.md',
     templates: {
         ack_enquiry: 'web_enquiry_ack_context',
