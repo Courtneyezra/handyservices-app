@@ -192,8 +192,13 @@ export interface SpineAgent {
      * `onEvent` (optional, T5): the live observer for the agent's own loop (tool calls, results,
      * assistant text) — an agent that runs a model belt passes it straight to the runner so the
      * pass is watchable step by step. Purely additive; a listener error never breaks a run.
+     * `reportFailure` (optional, T6): an agent that catches its own belt failure so its structural
+     * post-conditions can still run (the Scoper: a Ben exception is always a flag) calls this with
+     * the message, so the pass is recorded as failed (row `error`, feed `note`, `run_finished`
+     * ok=false) instead of as a clean "no proposal". The proposal it returns is still used as
+     * returned; no decision changes.
      */
-    run(input: { caseFile: CaseFile; pack: PolicyPack; triage: TriageResult; runId: string; reportUsage?: (usage: AgentLoopUsage) => void; onEvent?: (evt: { at: string; type: string; detail: any }) => void }): Promise<Proposal | null>;
+    run(input: { caseFile: CaseFile; pack: PolicyPack; triage: TriageResult; runId: string; reportUsage?: (usage: AgentLoopUsage) => void; onEvent?: (evt: { at: string; type: string; detail: any }) => void; reportFailure?: (message: string) => void }): Promise<Proposal | null>;
     /**
      * Phase 2 / C (additive, optional): should this agent run for this trigger on this case?
      * The runner asks every registered agent; absent means "only when triage lanes to me".

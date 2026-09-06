@@ -300,6 +300,14 @@ async function runOnceBody(
                 caseFile, pack, triage, runId, reportUsage: (u) => { loopUsage = u; },
                 // T5: the agent's own belt (tool calls, results, assistant text) rides the live feed.
                 onEvent: (evt) => ev.step(leanTranscriptEvent(evt as import('../agents/runner').AgentTranscriptEvent)),
+                // T6: an agent that swallows its own belt failure (so its post-conditions still run)
+                // reports it here; the pass is then recorded as failed exactly as if it had thrown,
+                // while whatever it returned still drives the decision.
+                reportFailure: (message) => {
+                    error = `agent ${agent.name} failed: ${message}`;
+                    console.error(`[Spine] ${error}`);
+                    ev.stage('note', error);
+                },
             });
         } catch (e: any) {
             error = `agent ${agent.name} failed: ${e?.message ?? e}`;

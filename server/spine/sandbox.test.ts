@@ -132,6 +132,47 @@ describe('sandbox predicates', () => {
     });
 });
 
+// ---------------------------------------------------------------- T6: a reported belt failure
+
+describe('T6 — an agent that reports its belt failure is recorded as a failed pass', () => {
+    /** The Scoper's real shape on a refused API call: catches, reports, returns null. */
+    const refused: SpineAgent = {
+        name: 'scoper', tier: 'DRAFT',
+        async run({ reportFailure }) {
+            reportFailure?.('400 Your credit balance is too low to access the Anthropic API');
+            return null;
+        },
+    };
+    it('run.error names the agent and the message; the feed carries a note and run_finished ok=false; the decision is still none', async () => {
+        const run = await runOnce(SANDBOX_CONV, 'inbound_message', agents(refused), { sandbox: true, runId: 'run_refused' });
+        expect(run.error).toBe('agent scoper failed: 400 Your credit balance is too low to access the Anthropic API');
+        expect(run.decision.kind).toBe('none');
+        expect(run.proposal).toBeNull();
+        const finished = events().find((e) => e.type === 'run_finished');
+        expect(finished?.ok).toBe(false);
+        const notes = events().filter((e) => e.type === 'run_event' && e.event?.type === 'stage' && e.event.stage === 'note').map((e) => e.event.label);
+        expect(notes).toContain('agent scoper failed: 400 Your credit balance is too low to access the Anthropic API');
+        expect(exitFn).not.toHaveBeenCalled();
+    });
+    it('a reported failure with a flag-only proposal still flags — the report changes no decision', async () => {
+        const flagged: SpineAgent = {
+            name: 'scoper', tier: 'DRAFT',
+            async run({ reportFailure }) {
+                reportFailure?.('api down');
+                return { intent: 'holding', body: [], reasons: ['flag only: refund'], flag: { exception: 'refund', note: 'customer asked for money back' } };
+            },
+        };
+        const run = await runOnce(SANDBOX_CONV, 'inbound_message', agents(flagged), { sandbox: true, runId: 'run_refused_flag' });
+        expect(run.error).toBe('agent scoper failed: api down');
+        expect(run.decision.kind).toBe('flag');
+    });
+    it('the control: a quiet agent has no error and finishes ok', async () => {
+        const run = await runOnce(SANDBOX_CONV, 'inbound_message', agents(proposing), { sandbox: true, runId: 'run_fine' });
+        expect(run.error).toBeNull();
+        expect(events().find((e) => e.type === 'run_finished')?.ok).toBe(true);
+    });
+});
+
 // ---------------------------------------------------------------- layer 1: never the exit
 
 describe('layer 1 — a sandbox pass never reaches the exit', () => {

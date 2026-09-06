@@ -51,6 +51,19 @@ export interface SandboxRun {
     caseFile: { stage: string; tags: string[]; quote: { slug: string; total?: number | null; paid: boolean } | null; window: { canFreeform: boolean; templateRequired: boolean } };
     benLaneClerk: { run: boolean; reason: string } | null;
     routeA: { ran: boolean; reason?: string } | null;
+    /**
+     * T6: set when the pass was first contact and the sandbox mirrored the rules layer's ack onto
+     * the thread (server/spine/sandbox-routes.ts). Rides on the run so the detail can say why the
+     * desk was quiet and what the customer would actually have received.
+     */
+    mirrored?: SandboxMirror | null;
+}
+export interface SandboxMirror { kind: 'first_contact_ack'; intent: string; body: string; messageId: string; note: string }
+
+/** T6: the mirrored rules-layer ack carries this sender name (server/spine/sandbox-routes.ts). */
+export const RULES_ACK_SENDER_MARK = 'rules layer ack';
+export function isMirroredAck(m: { direction: string; senderName: string | null }): boolean {
+    return m.direction === 'outbound' && !!m.senderName && m.senderName.toLowerCase().includes(RULES_ACK_SENDER_MARK);
 }
 
 function authHeaders(): Record<string, string> {
@@ -144,6 +157,14 @@ export function RunDetail({ run }: { run: SandboxRun }) {
                 Decision: {d.text}
             </div>
 
+            {run.mirrored && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900" data-testid="sandbox-mirrored">
+                    <div className="font-semibold">First contact — the rules layer answers, not the desk</div>
+                    <p className="mt-1">{run.mirrored.note}</p>
+                    <div className="mt-2 whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-dashed border-sky-300 bg-white px-3 py-2 text-sm text-slate-800">{run.mirrored.body}</div>
+                </div>
+            )}
+
             {run.proposal ? (
                 <div className="rounded-lg border p-3">
                     <div className="mb-2 flex items-center justify-between">
@@ -166,7 +187,15 @@ export function RunDetail({ run }: { run: SandboxRun }) {
                     {run.proposal.artifact && <div className="mt-2 text-xs text-slate-600">Artifact: {run.proposal.artifact.kind} — {run.proposal.artifact.summary}</div>}
                 </div>
             ) : (
-                <div className="rounded-lg border p-3 text-sm text-muted-foreground">No proposal: the agent chose to say nothing{run.error ? ` (it failed: ${run.error})` : ''}.</div>
+                <div className="rounded-lg border p-3 text-sm text-muted-foreground" data-testid="sandbox-no-proposal">
+                    {run.error
+                        ? <><span className="font-medium text-red-700">No proposal: the agent failed.</span> {run.error}</>
+                        : run.triage.lane === 'rules'
+                            ? 'No proposal from the desk: this pass landed on the rules lane, which runs no agent.'
+                            : run.agent === 'triage'
+                                ? `No proposal: lane ${run.triage.lane} runs no agent; triage decided alone.`
+                                : 'No proposal: the agent chose to say nothing.'}
+                </div>
             )}
 
             <div className="space-y-2 rounded-lg border p-3">
@@ -236,13 +265,14 @@ export default function SandboxPage() {
     });
     const seedQuote = useMutation({
         mutationFn: () => api<{ ok: true }>('/quote', { method: 'POST', body: JSON.stringify({ totalPence: Math.round(Number(amount) * 100) }) }),
-        onSuccess: () => { setError(null); refresh(); },
+        // T6: the previous pass's proposed bubble would otherwise sit under the new quote bubble.
+        onSuccess: () => { setError(null); setLastRun(null); refresh(); },
         onError: (e: Error) => setError(e.message),
     });
     const send = useMutation({
-        mutationFn: (t: string) => api<{ ok: true; run: SandboxRun }>('/message', { method: 'POST', body: JSON.stringify({ text: t }) }),
+        mutationFn: (t: string) => api<{ ok: true; run: SandboxRun; mirrored?: SandboxMirror | null }>('/message', { method: 'POST', body: JSON.stringify({ text: t }) }),
         onMutate: () => { setError(null); setLastRun(null); },
-        onSuccess: (r) => { setLastRun(r.run); setText(''); refresh(); },
+        onSuccess: (r) => { setLastRun({ ...r.run, mirrored: r.mirrored ?? null }); setText(''); refresh(); },
         onError: (e: Error) => setError(e.message),
     });
 
@@ -308,7 +338,11 @@ export default function SandboxPage() {
                             return (
                                 <div key={m.id} className={cn('flex', inbound ? 'justify-start' : 'justify-end')}>
                                     <div className={cn('max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm', inbound ? 'rounded-tl-sm bg-white' : 'rounded-tr-sm bg-emerald-100')}>
-                                        {!inbound && <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">synthetic · never sent</div>}
+                                        {!inbound && (
+                                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                                                {isMirroredAck(m) ? 'rules layer ack · mirrored · never sent' : 'synthetic · never sent'}
+                                            </div>
+                                        )}
                                         {m.content}
                                     </div>
                                 </div>
@@ -329,7 +363,9 @@ export default function SandboxPage() {
                                         ? lastRun.proposal.body.map((b, i) => (
                                             <div key={i} className="mb-1 whitespace-pre-wrap rounded-2xl rounded-tr-sm border-2 border-dashed border-amber-400 bg-amber-50 px-3 py-2 text-sm">{b}</div>
                                         ))
-                                        : <div className="rounded-2xl rounded-tr-sm border-2 border-dashed border-slate-300 bg-white px-3 py-2 text-sm italic text-muted-foreground">(no reply proposed — {decisionLabel(lastRun.decision).text})</div>}
+                                        : lastRun.mirrored
+                                            ? <div className="rounded-2xl rounded-tr-sm border-2 border-dashed border-slate-300 bg-white px-3 py-2 text-sm italic text-muted-foreground">(first contact: the rules layer's ack above is what the customer gets; the desk answers from the next message)</div>
+                                            : <div className="rounded-2xl rounded-tr-sm border-2 border-dashed border-slate-300 bg-white px-3 py-2 text-sm italic text-muted-foreground">(no reply proposed — {decisionLabel(lastRun.decision).text})</div>}
                                 </div>
                             </div>
                         )}

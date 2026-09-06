@@ -9,7 +9,15 @@
  *   GET  /            the sandbox thread as it stands: messages, quote, recent runs
  *   POST /reset       delete everything on the sandbox number and start a clean thread
  *   POST /message     { text } → inbound message on the thread, then runOnce(..., { dryRun, sandbox })
- *                     returns the whole pass (triage, pack, proposal, guards, decision, exit note, cost)
+ *                     returns the whole pass (triage, pack, proposal, guards, decision, exit note, cost).
+ *                     T6: when that pass was FIRST CONTACT (triage lane `rules`, the first-contact
+ *                     pack), the rules layer — not the desk — answers it live, and its ack is the
+ *                     outbound that makes the NEXT message the desk's. The sandbox has no rules layer
+ *                     (inbounds are inserted, never ingested), so nothing ever wrote that outbound and
+ *                     a clean thread stayed "first contact" forever: the Scoper was unreachable without
+ *                     Seed quote. Now the ack the rules layer would have composed is MIRRORED onto the
+ *                     thread as a synthetic outbound (composeFirstContactAck, pure; the ack module's
+ *                     behaviour is untouched) and reported as `mirrored` so the page can say so.
  *   POST /quote       { totalPence?, title? } → a synthetic UNPAID quote on the thread plus the
  *                     "here's your quote" outbound that would have carried it, so the post-quote
  *                     pack and the four quote-dependent wrong-move shapes are reachable
@@ -33,6 +41,10 @@ export const commsSandboxRouter = Router();
 // ---------------------------------------------------------------- pure helpers (tested)
 
 export const SANDBOX_CONTACT_NAME = 'Sandbox customer (not real)';
+/** Sender name on the ordinary synthetic outbound (the "here's your quote" bubble). */
+export const SANDBOX_SYNTHETIC_SENDER = 'Sandbox (synthetic, never sent)';
+/** Sender name on a mirrored rules-layer ack — the page labels the bubble off this. */
+export const SANDBOX_RULES_ACK_SENDER = 'Sandbox (rules layer ack, mirrored, never sent)';
 export const SANDBOX_QUOTE_MARK = 'SANDBOX (synthetic quote, not a customer)';
 export const SANDBOX_DEFAULT_TOTAL_PENCE = 48_000;
 export const MAX_MESSAGE_CHARS = 2_000;
@@ -54,6 +66,31 @@ export function validateQuoteSeed(body: unknown): { ok: true; totalPence: number
     const title = typeof b.title === 'string' && b.title.trim() ? b.title.trim().slice(0, 120) : 'Replace bathroom extractor fan';
     return { ok: true, totalPence, title };
 }
+
+/**
+ * T6: did this pass land on the rules layer's first-contact answer? If so the sandbox must do what
+ * the rules layer does live — put the ack on the thread — or the desk never gets a turn. Pure:
+ * reads the pass alone. Only the two intents the ack can carry on a message; a missed call or a
+ * returning customer cannot arise from typing into the sandbox.
+ */
+export function firstContactMirrorFor(run: Pick<RunOnceResult, 'triage' | 'pack' | 'decision'>): { intent: 'ack_enquiry' | 'ack_photos' } | null {
+    if (run.triage.lane !== 'rules') return null;
+    if (run.pack.id !== 'rules.first_contact') return null;
+    if (run.decision.kind !== 'none') return null;
+    const intent = run.triage.intent;
+    if (intent !== 'ack_enquiry' && intent !== 'ack_photos') return null;
+    return { intent };
+}
+
+export interface SandboxMirror {
+    kind: 'first_contact_ack';
+    intent: 'ack_enquiry' | 'ack_photos';
+    body: string;
+    messageId: string;
+    note: string;
+}
+
+export const MIRROR_NOTE = 'First contact is answered by the rules layer (the first-contact ack), not by the desk. Live, the customer would have received the line below. The sandbox has placed it on the thread so your next message reaches the desk, as it would live.';
 
 /** The slug is 8 chars max on the column; `sbx` marks it at a glance. */
 export function sandboxSlug(): string {
@@ -155,12 +192,12 @@ async function insertInbound(conversationId: string, content: string): Promise<s
     return id;
 }
 
-async function insertOutbound(conversationId: string, content: string): Promise<string> {
+async function insertOutbound(conversationId: string, content: string, senderName: string = SANDBOX_SYNTHETIC_SENDER): Promise<string> {
     const id = `msg_sbx_${randomUUID().slice(0, 13)}`;
     const now = new Date();
     await db.insert(messages).values({
         id, conversationId, direction: 'outbound', channel: 'whatsapp', content, status: 'sent',
-        senderName: 'Sandbox (synthetic, never sent)', createdAt: now,
+        senderName, createdAt: now,
     });
     await db.update(conversations).set({ lastMessageAt: now, lastMessagePreview: content.slice(0, 200), updatedAt: now })
         .where(eq(conversations.id, conversationId));
@@ -271,7 +308,16 @@ commsSandboxRouter.post('/message', async (req, res) => {
         // Layer 1 at the call site AND inside runOnce (sandbox implies dryRun): the exit never runs.
         const run = await runOnce(conversationId, 'inbound_message', undefined, { dryRun: true, sandbox: true });
         const summary = summariseRun(run, await costOf(run.runId));
-        res.json({ ok: true, messageId, run: summary, state: await loadState() });
+        // T6: first contact — mirror the rules layer's ack so the thread can leave the rules lane.
+        let mirrored: SandboxMirror | null = null;
+        const mirror = firstContactMirrorFor(run);
+        if (mirror) {
+            const { composeFirstContactAck } = await import('../first-contact-ack');
+            const ack = composeFirstContactAck({ intent: mirror.intent, contactName: null });
+            const ackId = await insertOutbound(conversationId, ack.body, SANDBOX_RULES_ACK_SENDER);
+            mirrored = { kind: 'first_contact_ack', intent: mirror.intent, body: ack.body, messageId: ackId, note: MIRROR_NOTE };
+        }
+        res.json({ ok: true, messageId, run: summary, mirrored, state: await loadState() });
     } catch (error: any) {
         console.error('[Sandbox] message failed:', error);
         res.status(500).json({ error: error?.message ?? 'sandbox message failed' });

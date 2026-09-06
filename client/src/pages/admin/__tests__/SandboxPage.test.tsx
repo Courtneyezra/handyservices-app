@@ -69,6 +69,27 @@ describe('<RunDetail>', () => {
         expect(screen.getByText(/No proposal: the agent chose to say nothing/)).toBeTruthy();
         expect(screen.queryByText('Which room is the fan in?')).toBeNull();
     });
+    it('T6: a failed agent is never painted as choosing silence', () => {
+        render(<RunDetail run={run({ proposal: null, decision: { kind: 'none', reason: 'no proposal' }, error: 'agent scoper failed: 400 credit balance is too low' })} />);
+        const box = screen.getByTestId('sandbox-no-proposal');
+        expect(box.textContent).toContain('the agent failed');
+        expect(box.textContent).toContain('credit balance is too low');
+        expect(box.textContent).not.toContain('chose to say nothing');
+    });
+    it('T6: a rules-lane pass explains that no agent runs there, and shows the mirrored ack', () => {
+        const rules = run({
+            agent: 'rules', pack: { id: 'rules.first_contact', version: 1 },
+            triage: { lane: 'rules', intent: 'ack_enquiry', exceptions: [], tags: [], reasons: ['no outbound on the thread: first contact'], source: 'rules' },
+            proposal: null, decision: { kind: 'none', reason: 'no proposal' },
+            mirrored: { kind: 'first_contact_ack', intent: 'ack_enquiry', body: 'Hi, thanks for getting in touch. Someone will be with you shortly.', messageId: 'm_ack', note: 'First contact is answered by the rules layer. The sandbox has placed it on the thread so your next message reaches the desk.' },
+        });
+        render(<RunDetail run={rules} />);
+        expect(screen.getByTestId('sandbox-no-proposal').textContent).toContain('rules lane, which runs no agent');
+        const mirrored = screen.getByTestId('sandbox-mirrored');
+        expect(mirrored.textContent).toContain('the rules layer answers, not the desk');
+        expect(mirrored.textContent).toContain('Hi, thanks for getting in touch.');
+        expect(mirrored.textContent).toContain('next message reaches the desk');
+    });
 });
 
 describe('<SandboxPage>', () => {
@@ -104,5 +125,35 @@ describe('<SandboxPage>', () => {
         expect(post?.url).not.toMatch(/sbx-1/);
         expect(screen.getByTestId('sandbox-proposed-bubble').textContent).toContain('NOT SENT');
         expect(screen.getByTestId('sandbox-exit-note').textContent).toContain('NOT SENT — dry run');
+    });
+
+    it('T6: a first-contact pass shows the mirrored ack in the thread, labelled, and in the detail', async () => {
+        const ackBody = 'Hi, thanks for getting in touch. Someone will be with you shortly.';
+        const withAck: SandboxState = {
+            ...started,
+            messages: [
+                { id: 'm1', direction: 'inbound', content: 'Hi, do you fit extractor fans?', createdAt: '2026-09-06T10:00:01Z', senderName: 'Sandbox customer (not real)' },
+                { id: 'm_ack', direction: 'outbound', content: ackBody, createdAt: '2026-09-06T10:00:05Z', senderName: 'Sandbox (rules layer ack, mirrored, never sent)' },
+            ],
+        };
+        const rulesRun = run({
+            agent: 'rules', pack: { id: 'rules.first_contact', version: 1 },
+            triage: { lane: 'rules', intent: 'ack_enquiry', exceptions: [], tags: [], reasons: ['no outbound on the thread: first contact'], source: 'rules' },
+            proposal: null, decision: { kind: 'none', reason: 'no proposal' },
+        });
+        let posted = false;
+        mockFetch([
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: posted ? withAck : started }) },
+            { method: 'POST', url: '/api/comms-sandbox/message', reply: () => { posted = true; return { json: { ok: true, messageId: 'm1', run: rulesRun, mirrored: { kind: 'first_contact_ack', intent: 'ack_enquiry', body: ackBody, messageId: 'm_ack', note: 'First contact is answered by the rules layer.' }, state: withAck } }; } },
+        ]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
+        await userEvent.type(screen.getByTestId('sandbox-input'), 'Hi, do you fit extractor fans?');
+        await userEvent.click(screen.getByTestId('sandbox-send'));
+        await waitFor(() => expect(screen.getByTestId('sandbox-mirrored')).toBeTruthy());
+        expect(screen.getByTestId('sandbox-mirrored').textContent).toContain(ackBody);
+        await waitFor(() => expect(screen.getByText(/rules layer ack · mirrored · never sent/i)).toBeTruthy());
+        expect(screen.getByTestId('sandbox-proposed-bubble').textContent).toContain('first contact');
+        expect(screen.getByTestId('sandbox-proposed-bubble').textContent).not.toContain('no reply proposed');
     });
 });

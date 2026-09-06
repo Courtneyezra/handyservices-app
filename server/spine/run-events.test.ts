@@ -71,6 +71,18 @@ describe('wouldHaveHappened — the exit boundary, in one line', () => {
         expect(wouldHaveHappened({ decision: { kind: 'drop', reason: 'spam' }, proposal: null, caseFile: cf() })).toContain('dropped — spam');
         expect(wouldHaveHappened({ decision: { kind: 'none', reason: 'no proposal' }, proposal: null, caseFile: cf() })).toBe('nothing sent — no proposal');
     });
+    it('T6: a none on the rules lane says the rules layer answers first contact, not "nothing sent"', () => {
+        const none = { kind: 'none' as const, reason: 'no proposal' };
+        const triage = { audience: 'customer', intent: 'ack_enquiry', lane: 'rules', exceptions: [], stage: 'enquiry', tags: [], reasons: ['no outbound on the thread: first contact'], source: 'rules' } as any;
+        const s = wouldHaveHappened({ decision: none, proposal: null, caseFile: cf({ stage: 'enquiry' }), triage, pack: { id: 'rules.first_contact', version: 1 } });
+        expect(s).not.toMatch(/^nothing sent/);
+        expect(s).toContain('rules layer');
+        expect(s).toContain('first-contact ack');
+        // The pack alone is enough (the sandbox summary always has both; the desk's feed may not).
+        expect(wouldHaveHappened({ decision: none, proposal: null, caseFile: cf(), pack: { id: 'rules.first_contact', version: 1 } })).toContain('rules layer');
+        // Any other lane keeps the plain line.
+        expect(wouldHaveHappened({ decision: none, proposal: null, caseFile: cf(), triage: { ...triage, lane: 'post_quote' }, pack: { id: 'customer.post_quote', version: 1 } })).toBe('nothing sent — no proposal');
+    });
 });
 
 describe('runEmitter', () => {
