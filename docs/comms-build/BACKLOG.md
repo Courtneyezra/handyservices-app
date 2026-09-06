@@ -99,6 +99,14 @@ one of these on its own.
 | `autonomy.enabled: true` — 14 days of verdicts, rate ≥ 50% of drafts | first intent DRAFT → SEND | **≥ 17 Sep** |
 | 7 live days, zero unsafe | all of Lane 4 | **≥ 10 Sep** |
 
+## Lane 6 — T5 follow-ups (the comms sandbox, `T5-DONE.md`, 6 Sep)
+
+| # | Step | Entry point | Blocked by | Done when |
+|---|---|---|---|---|
+| **T5-a** | A sandbox-safe Route A. The sandbox skips Route A because the live chain writes draft quotes and pushes Ben's phone. A variant that writes only rows on the sandbox number and never notifies would let the owner watch clerk → estimator → priced draft too. | `server/spine/index.ts` (`sandbox` branch), `route-a.ts` | T5 merged | A sandbox pass laning to the clerk shows the chain on the page; no Pushover; reset deletes what it wrote |
+| **T5-b** | Replay a real thread in the sandbox: copy one conversation's messages (and its quote, if any) onto the sandbox number, then carry on typing. This is how a live wrong move gets reproduced with the exact wording rather than a paraphrase. Read-only on the source thread. | `server/spine/sandbox-routes.ts` | T5 merged | `POST /api/comms-sandbox/replay { conversationId }` copies read-only and the page shows the copied history |
+| **T5-c** | Shadow rows in `gatherEvidence`. The two `agent_runs`-only queries (escalations 14d, incidents 30d) count `proposal.shadow = true` rows — the same leak T5 closed for sandbox rows, pre-existing for shadow. Decide whether a shadow pass is evidence; if not, add the same one-line predicate. | `server/spine/autonomy.ts`, `sandbox.ts` (`notSandboxRunSql` is the shape) | — | A written decision, and the predicate if the answer is no |
+
 ---
 
 ## Order to run

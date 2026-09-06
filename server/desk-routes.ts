@@ -34,6 +34,7 @@ import { loadBoardCards } from './inbox-board';
 import { listVaCallTasks } from './agents/va-call-tasks';
 import { detectSlaLane, getSlaSweepConfig } from './agents/sla-sweep';
 import { addWorkingHours } from './agents/promise-tracker';
+import { isTestNumber } from './phone-utils';
 
 export const deskRouter = Router();
 
@@ -211,6 +212,8 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             .limit(100);
 
         for (const conv of candidates) {
+            // T5: the drama range (the comms sandbox lives on it) is never a desk item.
+            if (isTestNumber(conv.phoneNumber)) continue;
             const det = await detectSlaLane(conv);
             if (!det) continue;
             if (now.getTime() - det.enteredAt.getTime() > cfg.maxLaneAgeDays * 86_400_000) continue; // fossil

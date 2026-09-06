@@ -26,6 +26,7 @@ import { commsPhoneKey } from '../phone-utils';
 import { nextWorkingSlot, OFFICE_HOURS, ukParts } from '../working-hours';
 import { logSystemEvent } from '../system-events';
 import { notQuarantined } from '../message-quarantine';
+import { isSandboxRunProposal } from './sandbox';
 
 export const SAMPLER_APPROVER = 'agent.verifier';
 export const SAMPLE_QUESTION_PREFIX = 'aq_sample_';
@@ -117,6 +118,9 @@ async function yesterdaysAutomaticSends(now: Date): Promise<SendCandidate[]> {
     const out: SendCandidate[] = [];
     for (const r of runs) {
         const p = (r.proposal ?? {}) as any;
+        // T5: a sandbox pass never reaches the exit, so it never has a sent draft and falls out
+        // below anyway; the explicit exclusion is the belt to that brace (server/spine/sandbox.ts).
+        if (isSandboxRunProposal(p)) continue;
         const approver: string | null = p?.decision?.approver ?? null;
         if (!approver || !approver.startsWith('agent.')) continue;
         const [draft] = await db.select({ id: messageDrafts.id, phone: messageDrafts.phone, body: messageDrafts.body, sentAt: messageDrafts.sentAt, reason: messageDrafts.reason })

@@ -56,6 +56,7 @@ import { and, eq, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { addWorkingHours } from './promise-tracker';
 import { isOutOfHours, ukHour as ukHourOf, formatUk } from '../working-hours';
 import { emitCommsEvent } from '../comms-events';
+import { isTestNumber } from '../phone-utils';
 
 /** Live-board push for an SLA breach/reminder — fire-and-forget, never breaks the sweep. */
 function emitSlaBoardDelta(conversationId: string): void {
@@ -524,6 +525,9 @@ export async function sweepSlaBreaches(opts?: {
     let acted = 0;
     for (const conv of candidates) {
         if (acted >= 3) break;
+        // T5: the drama range (the comms sandbox lives on it) never pings Ben — the same skip the
+        // cadence sweep and requestRun already apply.
+        if (isTestNumber(conv.phoneNumber)) continue;
         try {
             const det = await detectSlaLane(conv);
             if (!det) continue;

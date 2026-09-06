@@ -17,22 +17,31 @@ import { useCommsEvents, type CommsEvent } from '@/hooks/useCommsEvents';
 
 // ---------------------------------------------------------------- types
 
-/** The lean transcript event inside a run_event — see leanTranscriptEvent in server/agents/comms.ts. */
-interface LeanRunStep {
+/**
+ * The lean transcript event inside a run_event — see leanTranscriptEvent / stageEvent in
+ * server/spine/run-events.ts. `stage` steps (T5) are the spine's own milestones: case file,
+ * triage, pack, proposal, guards, decision, exit.
+ */
+export interface LeanRunStep {
     type?: string;
     tool?: string;
-    detail?: { text?: string };
+    detail?: { text?: string } | unknown;
+    /** type === 'stage' only */
+    stage?: string;
+    label?: string;
 }
 
-interface RunLine {
+export interface RunLine {
     key: string;
     label: string;
-    kind: 'tool' | 'text' | 'error';
+    kind: 'tool' | 'text' | 'error' | 'stage';
+    /** type === 'stage' only — which milestone, so a consumer can style the exit line loudly. */
+    stage?: string;
     /** Still spinning (a tool_call whose tool_result has not arrived yet). */
     pending: boolean;
 }
 
-interface LiveRun {
+export interface LiveRun {
     runId: string;
     lines: RunLine[];
     finished: null | { ok: boolean };
@@ -63,7 +72,20 @@ const FADE_OUT_MS = 500;
 
 // ---------------------------------------------------------------- state transitions
 
-function applyRunStep(prev: LiveRun, step: LeanRunStep, nextKey: () => string): LiveRun {
+export function applyRunStep(prev: LiveRun, step: LeanRunStep, nextKey: () => string): LiveRun {
+    if (step.type === 'stage') {
+        // T5: a spine milestone. Settles any tool still spinning (the belt is over by the time
+        // the proposal stage arrives) and adds the milestone as its own line.
+        const label = String(step.label ?? step.stage ?? '').trim();
+        if (!label) return prev;
+        return {
+            ...prev,
+            lines: [
+                ...prev.lines.map((l) => ({ ...l, pending: false })),
+                { key: nextKey(), label, kind: 'stage', stage: step.stage, pending: false },
+            ],
+        };
+    }
     if (step.type === 'tool_call') {
         return {
             ...prev,
@@ -91,7 +113,7 @@ function applyRunStep(prev: LiveRun, step: LeanRunStep, nextKey: () => string): 
         };
     }
     if (step.type === 'assistant_text') {
-        const text = String(step.detail?.text ?? '').trim();
+        const text = String((step.detail as { text?: string } | undefined)?.text ?? '').trim();
         if (!text) return prev;
         return {
             ...prev,
@@ -109,7 +131,16 @@ function applyRunStep(prev: LiveRun, step: LeanRunStep, nextKey: () => string): 
 
 // ---------------------------------------------------------------- component
 
-export function LiveRunPanel({ conversationId }: { conversationId: string }) {
+export interface LiveRunPanelProps {
+    conversationId: string;
+    /**
+     * T5 (sandbox): keep the finished run on screen instead of fading it out after a few seconds,
+     * so the operator can read the whole pass. The next run_started replaces it as before.
+     */
+    keepFinished?: boolean;
+}
+
+export function LiveRunPanel({ conversationId, keepFinished = false }: LiveRunPanelProps) {
     const [run, setRun] = useState<LiveRun | null>(null);
     const [clearing, setClearing] = useState(false);
     const lineSeq = useRef(0);
@@ -146,7 +177,7 @@ export function LiveRunPanel({ conversationId }: { conversationId: string }) {
 
     // Brief done state, then fade out and clear — unless a new run has started meanwhile.
     useEffect(() => {
-        if (!run?.finished) return;
+        if (!run?.finished || keepFinished) return;
         const finishedRunId = run.runId;
         // Stale timers are impossible: this effect cleans up whenever the run changes.
         const fadeTimer = setTimeout(() => setClearing(true), CLEAR_AFTER_MS);
@@ -155,7 +186,7 @@ export function LiveRunPanel({ conversationId }: { conversationId: string }) {
             setClearing(false);
         }, CLEAR_AFTER_MS + FADE_OUT_MS);
         return () => { clearTimeout(fadeTimer); clearTimeout(clearTimer); };
-    }, [run?.finished, run?.runId]);
+    }, [run?.finished, run?.runId, keepFinished]);
 
     if (!run) return null;
 
@@ -199,16 +230,18 @@ export function LiveRunPanel({ conversationId }: { conversationId: string }) {
                         <li
                             key={line.key}
                             className={cn(
-                                'flex items-center gap-1.5 text-xs animate-in fade-in slide-in-from-left-1 duration-200',
+                                'flex items-start gap-1.5 text-xs animate-in fade-in slide-in-from-left-1 duration-200',
                                 line.kind === 'error' ? 'text-red-500'
                                     : line.kind === 'text' ? 'italic text-slate-500'
-                                        : 'text-slate-600',
+                                        : line.kind === 'stage' ? (line.stage === 'exit' ? 'font-semibold text-amber-800' : 'font-medium text-slate-700')
+                                            : 'text-slate-600',
                             )}
+                            data-stage={line.stage}
                         >
                             {line.pending
-                                ? <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-500" />
-                                : <Check className={cn('h-3 w-3 shrink-0', line.kind === 'error' ? 'text-red-400' : 'text-slate-400')} />}
-                            <span className="truncate">{line.label}{line.pending ? '…' : ''}</span>
+                                ? <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin text-blue-500" />
+                                : <Check className={cn('mt-0.5 h-3 w-3 shrink-0', line.kind === 'error' ? 'text-red-400' : line.kind === 'stage' ? 'text-blue-500' : 'text-slate-400')} />}
+                            <span className={line.kind === 'stage' ? 'whitespace-pre-wrap break-words' : 'truncate'}>{line.label}{line.pending ? '…' : ''}</span>
                         </li>
                     ))}
                 </ul>

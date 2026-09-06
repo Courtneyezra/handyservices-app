@@ -189,8 +189,11 @@ export interface SpineAgent {
      * Return null when there is nothing to propose. Must not send, price, or book.
      * `reportUsage` (optional, B2): call it once with the agent loop's own usage so the run row
      * carries a real cost; an agent whose model calls live on child rows does not call it.
+     * `onEvent` (optional, T5): the live observer for the agent's own loop (tool calls, results,
+     * assistant text) — an agent that runs a model belt passes it straight to the runner so the
+     * pass is watchable step by step. Purely additive; a listener error never breaks a run.
      */
-    run(input: { caseFile: CaseFile; pack: PolicyPack; triage: TriageResult; runId: string; reportUsage?: (usage: AgentLoopUsage) => void }): Promise<Proposal | null>;
+    run(input: { caseFile: CaseFile; pack: PolicyPack; triage: TriageResult; runId: string; reportUsage?: (usage: AgentLoopUsage) => void; onEvent?: (evt: { at: string; type: string; detail: any }) => void }): Promise<Proposal | null>;
     /**
      * Phase 2 / C (additive, optional): should this agent run for this trigger on this case?
      * The runner asks every registered agent; absent means "only when triage lanes to me".

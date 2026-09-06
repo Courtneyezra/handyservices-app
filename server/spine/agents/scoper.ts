@@ -462,7 +462,7 @@ export function createScoperAgent(deps: ScoperDeps = {}): SpineAgent & { deps: S
         name: SCOPER_NAME,
         tier: 'DRAFT',
         deps,
-        async run({ caseFile, pack, triage, runId, reportUsage }): Promise<Proposal | null> {
+        async run({ caseFile, pack, triage, runId, reportUsage, onEvent }): Promise<Proposal | null> {
             // ---- structural pre-checks, no model call
             if (triage.exceptions.includes('opted_out') || caseFile.tags.includes('opted_out') || caseFile.tags.includes('do_not_contact')) return null;
             if (!pack.allowedIntents.length) return null; // an exception pack: Ben only
@@ -492,6 +492,8 @@ export function createScoperAgent(deps: ScoperDeps = {}): SpineAgent & { deps: S
                     caseFileRef: caseFile.hash,
                     promptHash: promptHashOf(system),
                     persist: deps.persist ?? true,
+                    // T5: the belt is watchable live; the runner already isolates a throwing listener.
+                    ...(onEvent ? { onEvent } : {}),
                 });
                 // B2: the belt's own spend goes back to the spine, which closes the run row last.
                 reportUsage?.({ usage: result.usage, model: result.model, turns: result.turns });
