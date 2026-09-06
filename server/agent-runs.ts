@@ -39,6 +39,8 @@ export interface StartAgentRunInput {
 }
 
 export interface FinishAgentRunInput {
+    /** B2: `undefined` leaves the row's usage and cost_pence as they are (a runner that shares
+     *  this run id has already written them); `null` clears them. */
     usage?: TokenUsage | null;
     model?: string | null;
     error?: string | null;
@@ -111,8 +113,7 @@ export async function finishAgentRun(
     try {
         await db.update(agentRuns).set({
             finishedAt: new Date(),
-            usage: patch.usage ?? null,
-            costPence,
+            ...(patch.usage !== undefined ? { usage: patch.usage, costPence } : {}),
             durationMs: patch.durationMs ?? null,
             error: patch.error ?? null,
             ...(patch.model ? { model: patch.model, modelSnapshot: patch.model } : {}),

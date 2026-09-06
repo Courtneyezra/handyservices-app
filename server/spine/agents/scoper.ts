@@ -442,7 +442,7 @@ export function createScoperAgent(deps: ScoperDeps = {}): SpineAgent & { deps: S
         name: SCOPER_NAME,
         tier: 'DRAFT',
         deps,
-        async run({ caseFile, pack, triage, runId }): Promise<Proposal | null> {
+        async run({ caseFile, pack, triage, runId, reportUsage }): Promise<Proposal | null> {
             // ---- structural pre-checks, no model call
             if (triage.exceptions.includes('opted_out') || caseFile.tags.includes('opted_out') || caseFile.tags.includes('do_not_contact')) return null;
             if (!pack.allowedIntents.length) return null; // an exception pack: Ben only
@@ -473,6 +473,8 @@ export function createScoperAgent(deps: ScoperDeps = {}): SpineAgent & { deps: S
                     promptHash: promptHashOf(system),
                     persist: deps.persist ?? true,
                 });
+                // B2: the belt's own spend goes back to the spine, which closes the run row last.
+                reportUsage?.({ usage: result.usage, model: result.model, turns: result.turns });
             } catch (error: any) {
                 console.error(`[Scoper] run ${runId} failed on ${caseFile.conversationId}:`, error?.message ?? error);
             }

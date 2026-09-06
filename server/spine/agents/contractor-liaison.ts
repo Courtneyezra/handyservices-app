@@ -175,7 +175,7 @@ export function createContractorLiaisonAgent(deps: LiaisonDeps = {}): SpineAgent
         tier: 'DRAFT',
         deps,
         accepts: liaisonAccepts,
-        async run({ caseFile, pack, triage, runId }): Promise<Proposal | null> {
+        async run({ caseFile, pack, triage, runId, reportUsage }): Promise<Proposal | null> {
             if (triage.audience !== 'contractor' || caseFile.audience !== 'contractor') return null;
             if (pack.audience !== 'contractor' || !pack.allowedIntents.length) return null;
             if (caseFile.tags.includes('opted_out') || caseFile.tags.includes('do_not_contact')) return null;
@@ -197,6 +197,7 @@ export function createContractorLiaisonAgent(deps: LiaisonDeps = {}): SpineAgent
                     packId: pack.id, packVersion: pack.version, caseFileRef: caseFile.hash, promptHash: promptHashOf(system),
                     persist: deps.persist ?? true,
                 });
+                reportUsage?.({ usage: result.usage, model: result.model, turns: result.turns }); // B2
             } catch (error: any) {
                 console.error(`[Liaison] run ${runId} failed on ${caseFile.conversationId}:`, error?.message ?? error);
             }

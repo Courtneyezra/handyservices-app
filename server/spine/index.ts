@@ -19,7 +19,7 @@ import { decide } from './decide';
 import { exit as runExit, type ExitOutcome } from './exit';
 import { requestRun, runDue, quoteWorkInFlight, QUOTE_TAGS, type QuoteWorkInFlight } from './request-run';
 import { runRouteAChain, surveyOfferFor, artifactReadiness, type RouteAOutcome } from './route-a';
-import type { AgentName, CaseFile, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, TriageResult, Trigger } from './types';
+import type { AgentLoopUsage, AgentName, CaseFile, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, TriageResult, Trigger } from './types';
 
 /** P7: how long the spine waits for something the customer said was coming before it looks again. */
 export const PROMISED_MORE_FOLLOWUP_MS = 15 * 60_000;
@@ -222,12 +222,14 @@ async function runOnceInner(
     let proposal: Proposal | null = null;
     let guards: GuardVerdict | null = null;
     let error: string | null = null;
+    // B2: the agent loop's own usage, reported back so this row records a real cost_pence.
+    let loopUsage: AgentLoopUsage | null = null;
     if (agentName && !agent) {
         error = `no agent registered for lane ${triage.lane} (${agentName})${benLaneClerk?.run ? ' — the Ben-lane clerk could not prepare' : ''}`;
         console.warn(`[Spine] ${error}; run ${runId} decides on triage alone`);
     } else if (agent) {
         try {
-            proposal = await agent.run({ caseFile, pack, triage, runId });
+            proposal = await agent.run({ caseFile, pack, triage, runId, reportUsage: (u) => { loopUsage = u; } });
         } catch (e: any) {
             error = `agent ${agent.name} failed: ${e?.message ?? e}`;
             console.error(`[Spine] ${error}`);
@@ -291,8 +293,13 @@ async function runOnceInner(
         }
     }
 
+    // B2: only the agent loop's own usage lands on this row (child rows keep theirs). When no
+    // usage was reported the keys are left out, so a runner that already persisted its usage on
+    // this id (the Scoper runs under the spine's run id) is not wiped by the close.
+    const usagePatch = loopUsage as AgentLoopUsage | null;
     await finishAgentRun(runId, { agent: recordedAgent, conversationId, phone: caseFile.phone }, {
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,
+        ...(usagePatch ? { usage: usagePatch.usage, model: usagePatch.model, turns: usagePatch.turns } : {}),
         proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(routeA ? { routeA } : {}), ...(benLaneClerk ? { benLaneClerk } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
         guardsHit: guards?.guardsHit ?? [],
         ...(opts.shadow ? { shadowDecision: decision.kind } : {}),
