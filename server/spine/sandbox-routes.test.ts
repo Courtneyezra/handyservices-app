@@ -12,8 +12,7 @@ vi.mock('./index', () => ({ runOnce: vi.fn() }));
 
 import {
     commsSandboxRouter, validateCustomerText, validateQuoteSeed, sandboxSlug, summariseRun,
-    MAX_MESSAGE_CHARS, SANDBOX_DEFAULT_TOTAL_PENCE, SANDBOX_QUOTE_MARK,
-} from './sandbox-routes';
+    MAX_MESSAGE_CHARS, SANDBOX_DEFAULT_TOTAL_PENCE, SANDBOX_QUOTE_MARK, firstContactMirrorFor, SANDBOX_RULES_ACK_SENDER, MIRROR_NOTE } from './sandbox-routes';
 import type { RunOnceResult } from './index';
 
 describe('router shape', () => {
@@ -52,6 +51,31 @@ describe('validateQuoteSeed', () => {
     });
     it('the seeded quote is marked SANDBOX in words', () => {
         expect(SANDBOX_QUOTE_MARK).toMatch(/SANDBOX/);
+    });
+});
+
+describe('T6: firstContactMirrorFor — the rules layer answers first contact, the sandbox mirrors it', () => {
+    const tri = (over: Record<string, unknown> = {}) => ({ audience: 'customer', intent: 'ack_enquiry', lane: 'rules', exceptions: [], stage: 'enquiry', tags: [], reasons: [], source: 'rules', ...over }) as any;
+    const none = { kind: 'none', reason: 'no proposal' } as any;
+    const firstContact = { id: 'rules.first_contact', version: 1 };
+    it('a rules-lane first-contact none mirrors the ack, with the intent triage chose', () => {
+        expect(firstContactMirrorFor({ triage: tri(), pack: firstContact, decision: none })).toEqual({ intent: 'ack_enquiry' });
+        expect(firstContactMirrorFor({ triage: tri({ intent: 'ack_photos' }), pack: firstContact, decision: none })).toEqual({ intent: 'ack_photos' });
+    });
+    it('anything the desk (or Ben) handles is never mirrored', () => {
+        expect(firstContactMirrorFor({ triage: tri({ lane: 'scoper', intent: 'unknown' }), pack: { id: 'customer.pre_quote', version: 1 }, decision: none })).toBeNull();
+        expect(firstContactMirrorFor({ triage: tri({ lane: 'post_quote', intent: 'unknown' }), pack: { id: 'customer.post_quote', version: 1 }, decision: none })).toBeNull();
+        expect(firstContactMirrorFor({ triage: tri({ lane: 'ben', intent: 'unknown', exceptions: ['money_question'] }), pack: { id: 'customer.exception', version: 1 }, decision: { kind: 'flag', exception: 'money_question' } as any })).toBeNull();
+        // Rules lane but not the first-contact pack, or not a quiet decision: leave it alone.
+        expect(firstContactMirrorFor({ triage: tri(), pack: { id: 'rules.followup', version: 1 }, decision: none })).toBeNull();
+        expect(firstContactMirrorFor({ triage: tri(), pack: firstContact, decision: { kind: 'drop', reason: 'spam' } as any })).toBeNull();
+        expect(firstContactMirrorFor({ triage: tri({ intent: 'holding' }), pack: firstContact, decision: none })).toBeNull();
+    });
+    it('the mirrored bubble is named so the page can label it, and the note says who answers', () => {
+        expect(SANDBOX_RULES_ACK_SENDER.toLowerCase()).toContain('rules layer ack');
+        expect(SANDBOX_RULES_ACK_SENDER.toLowerCase()).toContain('never sent');
+        expect(MIRROR_NOTE).toMatch(/rules layer/);
+        expect(MIRROR_NOTE).toMatch(/next message reaches the desk/);
     });
 });
 

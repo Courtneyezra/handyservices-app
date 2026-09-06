@@ -347,6 +347,27 @@ describe('tool boundary', () => {
         const p = await agent.run({ caseFile: cf, pack: DEFAULT_PACK, triage: triage({ exceptions: ['refund'] }), runId: 'r' });
         expect(p?.flag?.exception).toBe('refund');
     });
+    it('T6: a runner failure is REPORTED, not swallowed — and the return value is exactly as before', async () => {
+        const cf = caseFile({ timeline: [msg('message_in', 'hi')] });
+        const boom = vi.fn(async () => { throw new Error('400 credit balance is too low'); });
+        const agent = createScoperAgent({ runAgent: boom as any, persist: false });
+        const reportFailure = vi.fn();
+        expect(await agent.run({ caseFile: cf, pack: DEFAULT_PACK, triage: triage(), runId: 'r', reportFailure })).toBeNull();
+        expect(reportFailure).toHaveBeenCalledTimes(1);
+        expect(reportFailure.mock.calls[0][0]).toContain('credit balance is too low');
+        // The structural post-condition still runs after the report: a Ben exception is still a flag.
+        const p = await agent.run({ caseFile: cf, pack: DEFAULT_PACK, triage: triage({ exceptions: ['refund'] }), runId: 'r', reportFailure });
+        expect(p?.flag?.exception).toBe('refund');
+        expect(reportFailure).toHaveBeenCalledTimes(2);
+        // A listener that throws cannot break the run.
+        const angry = vi.fn(() => { throw new Error('listener broke'); });
+        expect(await agent.run({ caseFile: cf, pack: DEFAULT_PACK, triage: triage(), runId: 'r', reportFailure: angry })).toBeNull();
+        // A successful belt never reports.
+        const quiet = vi.fn();
+        const ok = vi.fn(async (): Promise<AgentRunResult> => ({ finalText: '', transcript: [], turns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, runId: 'r', model: 'stub', costPence: 0, durationMs: 1 }));
+        await createScoperAgent({ runAgent: ok as any, persist: false }).run({ caseFile: cf, pack: DEFAULT_PACK, triage: triage(), runId: 'r', reportFailure: quiet });
+        expect(quiet).not.toHaveBeenCalled();
+    });
 });
 
 describe('prompts and contract', () => {

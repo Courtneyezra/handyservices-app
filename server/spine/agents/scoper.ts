@@ -462,7 +462,7 @@ export function createScoperAgent(deps: ScoperDeps = {}): SpineAgent & { deps: S
         name: SCOPER_NAME,
         tier: 'DRAFT',
         deps,
-        async run({ caseFile, pack, triage, runId, reportUsage, onEvent }): Promise<Proposal | null> {
+        async run({ caseFile, pack, triage, runId, reportUsage, onEvent, reportFailure }): Promise<Proposal | null> {
             // ---- structural pre-checks, no model call
             if (triage.exceptions.includes('opted_out') || caseFile.tags.includes('opted_out') || caseFile.tags.includes('do_not_contact')) return null;
             if (!pack.allowedIntents.length) return null; // an exception pack: Ben only
@@ -499,6 +499,11 @@ export function createScoperAgent(deps: ScoperDeps = {}): SpineAgent & { deps: S
                 reportUsage?.({ usage: result.usage, model: result.model, turns: result.turns });
             } catch (error: any) {
                 console.error(`[Scoper] run ${runId} failed on ${caseFile.conversationId}:`, error?.message ?? error);
+                // T6: the catch stays (the post-conditions below must still run) but the failure
+                // is no longer invisible: the spine records the pass as failed, the feed shows
+                // why, and the sandbox / desk stop painting a refused API call as "the Scoper
+                // chose to say nothing". Nothing about the return value changes.
+                try { reportFailure?.(error?.message ?? String(error)); } catch { /* observability only */ }
             }
 
             // ---- structural post-conditions: a Ben exception is ALWAYS a flag on the proposal.

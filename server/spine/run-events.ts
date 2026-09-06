@@ -83,9 +83,13 @@ function bubbles(n: number): string {
  * what the exit WOULD have done with this decision — the one line the sandbox exists to show, so
  * it names the customer-facing consequence plainly and never softens `send`.
  */
-export function wouldHaveHappened(run: Pick<SpineRun, 'decision' | 'proposal' | 'caseFile'>): string {
+export function wouldHaveHappened(run: Pick<SpineRun, 'decision' | 'proposal' | 'caseFile'> & Partial<Pick<SpineRun, 'triage' | 'pack'>>): string {
     const d: Decision = run.decision;
     const p: Proposal | null | undefined = run.proposal;
+    // T6: on the rules lane the spine's pass is quiet BY DESIGN — the rules layer (the
+    // first-contact ack, server/first-contact-ack.ts) answers outside it. "nothing sent" was true
+    // of the pass and false of what the customer gets; say which is which.
+    const rulesLane = run.triage?.lane === 'rules' || !!run.pack?.id?.startsWith('rules.');
     switch (d.kind) {
         case 'send': {
             const n = p?.body?.length ?? 0;
@@ -105,7 +109,9 @@ export function wouldHaveHappened(run: Pick<SpineRun, 'decision' | 'proposal' | 
         case 'drop':
             return `dropped — ${d.reason}; nothing to the customer`;
         case 'none':
-            return `nothing sent — ${d.reason}`;
+            return rulesLane
+                ? `nothing from this pass — ${d.reason}. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has`
+                : `nothing sent — ${d.reason}`;
         default:
             return 'no decision';
     }
