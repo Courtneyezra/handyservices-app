@@ -6,6 +6,7 @@
  * Keep it dependency-free (types only) so any module can import it without cycles.
  */
 import type { Approver } from '../approver';
+import type { TokenUsage } from '../agent-cost';
 
 export type Audience = 'customer' | 'contractor' | 'supplier' | 'internal';
 export type Stage = 'enquiry' | 'scoping' | 'quote_sent' | 'booked' | 'closed' | 'won';
@@ -164,11 +165,26 @@ export interface SpineRun {
     durationMs?: number;
 }
 
+/**
+ * B2: what an agent's OWN model loop cost — the runner's summed usage, the model it ran on and
+ * the turn count. Reported back through `reportUsage` so the spine's `agent_runs` row records a
+ * real `cost_pence`. Child rows (triage, vision, a wrapped legacy runner) are never rolled in.
+ */
+export interface AgentLoopUsage {
+    usage: TokenUsage;
+    model: string;
+    turns: number;
+}
+
 export interface SpineAgent {
     name: AgentName;
     tier: Tier;
-    /** Return null when there is nothing to propose. Must not send, price, or book. */
-    run(input: { caseFile: CaseFile; pack: PolicyPack; triage: TriageResult; runId: string }): Promise<Proposal | null>;
+    /**
+     * Return null when there is nothing to propose. Must not send, price, or book.
+     * `reportUsage` (optional, B2): call it once with the agent loop's own usage so the run row
+     * carries a real cost; an agent whose model calls live on child rows does not call it.
+     */
+    run(input: { caseFile: CaseFile; pack: PolicyPack; triage: TriageResult; runId: string; reportUsage?: (usage: AgentLoopUsage) => void }): Promise<Proposal | null>;
     /**
      * Phase 2 / C (additive, optional): should this agent run for this trigger on this case?
      * The runner asks every registered agent; absent means "only when triage lanes to me".
