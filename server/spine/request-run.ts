@@ -128,6 +128,12 @@ export interface QuoteRunState {
     liveEstimate: boolean;
     /** metadata.quoteDraft points at a Route A draft that is not superseded. */
     liveDraft: boolean;
+    /**
+     * D7 (6 Sep 2026): a pending agent draft the customer has not written past — the desk has
+     * already spoken for this turn and is waiting on Ben. Loaded by the untriggered-quote NET only
+     * (see sweepQuoteRunState): the direct requesters fire once per cause and leave it unset.
+     */
+    pendingDraft?: boolean;
 }
 
 /** Pure: does this thread need a spine pass for its quote tag? */
@@ -148,6 +154,13 @@ export function shouldRequestQuoteRun(state: QuoteRunState, now: Date = new Date
     if (!state.tags.some((t) => QUOTE_TAGS.includes(t))) return { ok: false, reason: 'no needs_quote / rescope tag' };
     if (state.liveEstimate) return { ok: false, reason: 'a live estimate already exists' };
     if (state.liveDraft) return { ok: false, reason: 'a Route A draft already exists' };
+    // D7: the runaway cadence loop (561 Scoper runs on one thread in 7 days, 591 refused at the
+    // draft queue). A pass that produces no estimate and no Route A draft leaves the thread exactly
+    // as it found it, so a clock that only asks "is something on the way?" asks again every five
+    // minutes. A pending agent draft the customer has not written past is the cheapest proof that
+    // nothing has changed: the desk already spoke for this turn, and the answer is Ben's, not a
+    // re-run's. Same rule the legacy slow sweep applies before line 154 (comms-sweep.ts:128).
+    if (state.pendingDraft) return { ok: false, reason: 'a pending draft already answers this turn (waiting on Ben, nothing new from the customer)' };
     if (state.nextTriageAt) {
         const due = new Date(state.nextTriageAt).getTime();
         if (Number.isFinite(due) && now.getTime() - due < STALE_PENDING_MINUTES * 60_000) return { ok: false, reason: `a pass is already pending (due ${state.nextTriageAt})` };
@@ -218,6 +231,57 @@ export async function ensureQuoteRun(conversationId: string, reason: string, dep
     }
 }
 
+// ---------------------------------------------------------------- D7: has the desk already spoken for this turn?
+
+export interface PendingDraftRef { createdAt: Date | string; basedOnInboundId?: string | null }
+
+/**
+ * Pure. Does one of these pending agent drafts answer the customer's latest inbound (or a thread
+ * that has no inbound at all)? Identity first (the draft names the inbound it answered), then the
+ * clock: a draft written at or after the latest inbound was written for it. A draft the customer
+ * has since written past does not count — P7 supersedes it on the inbound path, and the next
+ * agent run's queueDraft retires it anyway.
+ */
+export function pendingDraftAnswersLatestInbound(drafts: readonly PendingDraftRef[], latestInbound: { id: string; at: Date } | null | undefined): boolean {
+    return drafts.some((d) => {
+        if (!latestInbound) return true;
+        if (d.basedOnInboundId) return d.basedOnInboundId === latestInbound.id;
+        const created = new Date(d.createdAt).getTime();
+        return Number.isFinite(created) && created >= latestInbound.at.getTime();
+    });
+}
+
+/**
+ * DB: is a pending spine / comms_agent draft standing on this thread that the customer has not
+ * written past? Matched on the thread id and on the E.164 phone (the case file's `+digits`), the
+ * two keys queueDraft writes. Throws are the caller's: the net's loader fails closed (no run).
+ */
+export async function pendingAgentDraftAwaitsBen(conversationId: string, phoneNumber: string | null | undefined): Promise<boolean> {
+    const { messageDrafts } = await import('@shared/schema');
+    const { and, desc, inArray, or } = await import('drizzle-orm');
+    const { AGENT_DRAFT_SOURCES, latestInboundFor } = await import('../draft-freshness');
+    const digits = (phoneNumber ?? '').replace('@c.us', '').replace(/\D/g, '');
+    const byThread = eq(messageDrafts.conversationId, conversationId);
+    const drafts = await db.select({ createdAt: messageDrafts.createdAt, basedOnInboundId: messageDrafts.basedOnInboundId })
+        .from(messageDrafts)
+        .where(and(
+            eq(messageDrafts.status, 'pending'),
+            inArray(messageDrafts.source, Array.from(AGENT_DRAFT_SOURCES)),
+            digits ? or(byThread, eq(messageDrafts.phone, `+${digits}`)) : byThread,
+        ))
+        .orderBy(desc(messageDrafts.createdAt)).limit(5);
+    if (!drafts.length) return false;
+    return pendingDraftAnswersLatestInbound(drafts, await latestInboundFor(conversationId));
+}
+
+/** The net's loader: the default state plus the D7 pending-draft check. */
+async function sweepQuoteRunState(conversationId: string): Promise<QuoteRunState | null> {
+    const state = await defaultQuoteRunState(conversationId);
+    if (!state) return null;
+    const [conv] = await db.select({ phoneNumber: conversations.phoneNumber }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    return { ...state, pendingDraft: await pendingAgentDraftAwaitsBen(conversationId, conv?.phoneNumber) };
+}
+
 export interface SweepUntriggeredDeps {
     /** Customer threads carrying a quote tag, oldest first; the sweep decides per thread. */
     candidates: () => Promise<string[]>;
@@ -239,10 +303,15 @@ async function defaultQuoteTagCandidates(): Promise<string[]> {
 /**
  * The net (worker slow sweep, every 5 min): up to N customer threads tagged needs_quote / rescope
  * with nothing on the way get a pass requested. Runs in shadow too — Route A is internal.
+ *
+ * D7: this is the only requester of a cadence run that fires on a clock, so it is the only one
+ * that reads the pending-draft state (sweepQuoteRunState). A thread whose last pass left a
+ * pending draft the customer has not written past is not asked again until Ben acts on the draft
+ * or the customer writes — either of which reaches the spine on its own trigger.
  */
 export async function sweepUntriggeredQuotes(deps: Partial<SweepUntriggeredDeps> = {}): Promise<{ checked: number; requested: string[] }> {
     const candidates = deps.candidates ?? defaultQuoteTagCandidates;
-    const ensure = deps.ensure ?? ((id: string, why: string) => ensureQuoteRun(id, why));
+    const ensure = deps.ensure ?? ((id: string, why: string) => ensureQuoteRun(id, why, { loadState: sweepQuoteRunState }));
     const limit = deps.limit ?? UNTRIGGERED_SWEEP_LIMIT;
     const requested: string[] = [];
     let checked = 0;
