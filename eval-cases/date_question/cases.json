@@ -15,15 +15,12 @@
     "intent": "point_to_picker"
    },
    "expected": {
-    "exceptions": [
-     "date_question"
-    ],
-    "mustFlag": true,
+    "noExceptions": true,
     "guardsMustTrip": [
      "date_promise"
     ]
    },
-   "provenance": "invented: date promised in chat"
+   "provenance": "invented: date promised in chat. B3 / PRD §7: the customer asking is no longer an exception (no quote yet: \"Dates come with your quote\"); our reply promising a date still trips date_promise"
   },
   {
    "id": "dq-002-what-time-arrival",
@@ -50,7 +47,11 @@
     ],
     "mustFlag": true
    },
-   "provenance": "invented: arrival time is a Ben/Craig fact, not the agent's"
+   "provenance": "invented: arrival time is a Ben/Craig fact, not the agent's. B3: a BOOKED job (quote.paid), the PRD §13 interim, so date_question still routes to Ben",
+   "quote": {
+    "paid": true,
+    "slug": "booked1"
+   }
   },
   {
    "id": "dq-003-another-day-incident",
@@ -82,7 +83,11 @@
     ],
     "mustFlag": true
    },
-   "provenance": "31 Aug incident (Dani): agent rescheduling by chat"
+   "provenance": "31 Aug incident (Dani): agent rescheduling by chat. B3: a booked visit (quote.paid), the PRD §13 interim, so date_question still routes to Ben",
+   "quote": {
+    "paid": true,
+    "slug": "booked2"
+   }
   },
   {
    "id": "dq-004-how-long-duration",
@@ -132,14 +137,14 @@
     "intent": "point_to_picker"
    },
    "expected": {
-    "exceptions": [
-     "date_question"
-    ],
-    "mustFlag": true,
+    "lane": "post_quote",
+    "intent": "point_to_picker",
+    "mustNotEscalate": true,
+    "noExceptions": true,
     "guardsMustNotTrip": true,
     "voiceClean": true
    },
-   "provenance": "the right move (point_to_picker) still passes Ben while date_question is an exception"
+   "provenance": "B3 / PRD §7: a live quote is out, so the right move (point_to_picker) is the Scoper's and nothing reaches Ben"
   },
   {
    "id": "dq-006-back-soon-is-not-a-date",
@@ -187,12 +192,44 @@
     "intent": "point_to_picker"
    },
    "expected": {
-    "exceptions": [
-     "date_question"
-    ],
-    "mustFlag": true
+    "noExceptions": true,
+    "guardsMustTrip": [
+     "date_promise"
+    ]
    },
-   "provenance": "P7 guard rail: a real date question keeps its exception even beside a promise"
+   "provenance": "P7 + B3: the customer's date question raises nothing before a quote (PRD §7) and the promise makes the run wait; our reply \"Tuesday works.\" still trips date_promise"
+  },
+  {
+   "id": "dq-008-pre-quote-dates-come-with-your-quote",
+   "family": "date_question",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Could you send a quick photo of the tap?",
+     "at": "2026-09-06T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Will do. When could you come out?",
+     "at": "2026-09-06T10:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Dates come with your quote.\n---\nA quick photo of the tap and where it drips from is all I need to get that over to you.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "mustContain": [
+     "^Dates come with your quote\\."
+    ]
+   },
+   "provenance": "B3 / PRD §7 row 1: before a quote exists the Scoper says the line and carries on scoping. No lead-time guess, no hold, no flag"
   }
  ]
 }

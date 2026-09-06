@@ -20,7 +20,9 @@
  *   - opted-out threads return null before any model call;
  *   - a triage exception the pack routes to Ben ALWAYS comes back as a flag on the proposal,
  *     even if the model forgot (and a run that produced nothing else becomes a flag-only proposal);
- *   - a date question with no live quote is a flag, never point_to_picker;
+ *   - a date question is never a flag (PRD v3 §7, B3): with no live unpaid quote point_to_picker
+ *     is refused at the tool and the reply is "Dates come with your quote"; the one exception is
+ *     a booked job (the §13 interim), which triage keeps on Ben's lane before this agent runs;
  *   - the model's own flag/name/recontact calls are carried on the Proposal, never written by
  *     this module — the one exception is schedule_recontact, which PROPOSES a nudge_queue row
  *     exactly as the legacy tool does (status 'proposed', Ben approves).
@@ -77,7 +79,7 @@ function readPromptFile(name: string, fallback: string): string {
     }
 }
 
-const CORE_FALLBACK = 'You are Handy Services\' reply on WhatsApp. Never write a money figure, a date, a duration or a discount. Flag money, dates, complaints and refunds to Ben. Ask for a photo or video first. Short bubbles, plain UK English, no em dashes. One propose_reply call ends your run.';
+const CORE_FALLBACK = 'You are Handy Services\' reply on WhatsApp. Never write a money figure, a date, a duration or a discount. Flag money, complaints and refunds to Ben. Dates are not Ben\'s: before a quote say "Dates come with your quote." and carry on scoping; with a live unpaid quote point at the date picker on the quote page (intent point_to_picker). Ask for a photo or video first. Short bubbles, plain UK English, no em dashes. One propose_reply call ends your run.';
 
 export function loadScoperCore(): string {
     return readPromptFile('scoper.core.md', CORE_FALLBACK);
@@ -115,8 +117,10 @@ function loadVoice(pack: PolicyPack): string {
 }
 
 export function isPostQuotePack(pack: PolicyPack): boolean {
+    // B3: point_to_picker is on customer.default too now (PRD §7), so it no longer marks a
+    // post-quote pack; answer_from_quote still does.
     return pack.id === 'customer.post_quote' || pack.stage === 'quote_sent'
-        || pack.allowedIntents.includes('answer_from_quote') || pack.allowedIntents.includes('point_to_picker');
+        || pack.allowedIntents.includes('answer_from_quote');
 }
 
 /**
@@ -176,6 +180,7 @@ export function renderCaseFile(cf: CaseFile, triage: TriageResult, trigger?: str
         `Tags: [${cf.tags.join(', ') || 'none'}].`,
         cf.openPromises.length ? `Open promises we made: ${cf.openPromises.map((p) => `"${clip(p.text, 120)}" (due ${p.dueAt})`).join('; ')}.` : 'Open promises: none.',
         cf.openFlags.length ? `Open flags for Ben: ${cf.openFlags.map((f) => `${f.exception}: ${clip(f.note, 120)} (due ${f.dueAt})`).join('; ')}.` : 'Open flags: none.',
+        ...(triage.dateAsked ? [dateAskedLine(cf)] : []),
         cf.lastRun ? `Last agent run: ${cf.lastRun.agent} ${cf.lastRun.decision} at ${cf.lastRun.at}.` : 'Last agent run: none.',
         cf.media.length ? `Media on file: ${cf.media.map((m) => `${m.id} (${m.kind}${m.description ? `: ${clip(m.description, 160)}` : ''})`).join('; ')}.` : 'Media on file: none.',
         '',
@@ -185,6 +190,16 @@ export function renderCaseFile(cf: CaseFile, triage: TriageResult, trigger?: str
         'Decide, act with the tools, then stop.',
     ];
     return lines.join('\n');
+}
+
+/**
+ * B3 / PRD §7: the customer's last message asks about a date. Which row of the table applies is a
+ * fact of the case file, so it is stated here rather than left for the model to work out.
+ */
+function dateAskedLine(cf: CaseFile): string {
+    const q = cf.quote;
+    if (q && !q.paid) return `DATE ASKED: their last message asks about a date or time. A live quote is out: point them at the date picker on /quote/${q.slug} (intent point_to_picker). Never a date, time or lead time of your own; no flag.`;
+    return 'DATE ASKED: their last message asks about a date or time. No quote is out yet: say "Dates come with your quote." and carry on scoping. No lead-time guess, no hold, no flag.';
 }
 
 function lastInboundText(cf: CaseFile): string | null {
@@ -265,7 +280,12 @@ function benExceptions(triage: TriageResult, pack: PolicyPack): ExceptionKind[] 
     return triage.exceptions.filter((e) => pack.exceptionsToBen.includes(e));
 }
 
-/** A date question is Ben's unless a live quote exists AND the pack can point at its picker. */
+/**
+ * Is there NO picker to point at: no live unpaid quote, or a pack without point_to_picker. The
+ * name predates PRD v3 §7 (B3): a date question is no longer Ben's, so a `true` here now means
+ * "say dates come with your quote and carry on", never "flag". The tool gate on point_to_picker
+ * is the belt that keeps the picker line to threads that actually have a picker.
+ */
 export function dateQuestionNeedsBen(caseFile: CaseFile, pack: PolicyPack): boolean {
     return !(caseFile.quote && !caseFile.quote.paid && pack.allowedIntents.includes('point_to_picker'));
 }
@@ -281,7 +301,7 @@ export function buildScoperTools(ctx: BeltContext, state: BeltState): AgentTool[
     return [
         {
             name: 'propose_reply',
-            description: `The reply, as a proposal. ONE call ends your run; make it the whole reply. body is 1 to 3 short bubbles (each its own WhatsApp message). intent must be one of: ${pack.allowedIntents.join(', ')}. Never a money figure, discount, date, time, duration or fee terms: the tool refuses them. If money or a date is the answer, call flag first and propose the content-free half here. reasons: one or two lines for the human who may review it. citations: quote slug, template or quick-reply label you leaned on. tags: 'needs_quote' when the thread now has what a quote needs (use intent quote_on_its_way), 'trust_concern' when they doubt the channel.`,
+            description: `The reply, as a proposal. ONE call ends your run; make it the whole reply. body is 1 to 3 short bubbles (each its own WhatsApp message). intent must be one of: ${pack.allowedIntents.join(', ')}. Never a money figure, discount, date, time, duration or fee terms: the tool refuses them. If money is the answer, call flag first and propose the content-free half here. Dates are not Ben's: with no quote out say "Dates come with your quote." and carry on scoping (no flag); with a live unpaid quote use intent point_to_picker. reasons: one or two lines for the human who may review it. citations: quote slug, template or quick-reply label you leaned on. tags: 'needs_quote' when the thread now has what a quote needs (use intent quote_on_its_way), 'trust_concern' when they doubt the channel.`,
             input_schema: {
                 type: 'object' as const,
                 properties: {
@@ -300,7 +320,7 @@ export function buildScoperTools(ctx: BeltContext, state: BeltState): AgentTool[
                     throw new Error(`intent "${intent}" is not in this pack. Allowed: ${pack.allowedIntents.join(', ')}.`);
                 }
                 if (intent === 'point_to_picker' && dateQuestionNeedsBen(caseFile, pack)) {
-                    throw new Error('point_to_picker needs a live, unpaid quote with a date picker. There is none: flag("date_question", …) and propose a holding reply without a date.');
+                    throw new Error('point_to_picker needs a live, unpaid quote with a date picker. There is none: say "Dates come with your quote." and carry on scoping. Do not flag a date.');
                 }
                 if (intent === 'quote_on_its_way' && caseFile.quote && !caseFile.quote.paid) {
                     throw new Error('A live quote is already out; quote_on_its_way would promise a second one. Answer from the quote or flag.');
@@ -321,7 +341,7 @@ export function buildScoperTools(ctx: BeltContext, state: BeltState): AgentTool[
         },
         {
             name: 'flag',
-            description: `Hand this thread to Ben. exception is one of: ${EXCEPTION_KINDS.join(', ')}. Use it for money decisions, dates, complaints or liability, refunds, trust concerns, out-of-scope or regulated work, or a callback request. NOT for scoping judgement or material questions. note is the whole briefing he reads on his phone: why he is needed, what the customer wants, what you already told them. Ben replies in the thread himself. Then still propose_reply the content-free half unless silence is genuinely right.`,
+            description: `Hand this thread to Ben. exception is one of: ${EXCEPTION_KINDS.join(', ')}. Use it for money decisions, complaints or liability, refunds, trust concerns, out-of-scope or regulated work, or a callback request. NOT for dates (dates come with the quote, or the quote page's picker answers them), and NOT for scoping judgement or material questions. date_question is only for a BOOKED job whose date the customer wants to change. note is the whole briefing he reads on his phone: why he is needed, what the customer wants, what you already told them. Ben replies in the thread himself. Then still propose_reply the content-free half unless silence is genuinely right.`,
             input_schema: {
                 type: 'object' as const,
                 properties: {
@@ -477,8 +497,10 @@ export function createScoperAgent(deps: ScoperDeps = {}): SpineAgent & { deps: S
                 console.error(`[Scoper] run ${runId} failed on ${caseFile.conversationId}:`, error?.message ?? error);
             }
 
-            // ---- structural post-conditions: a Ben exception is ALWAYS a flag on the proposal
-            const forBen = benExceptions(triage, pack).filter((e) => !(e === 'date_question' && !dateQuestionNeedsBen(caseFile, pack)));
+            // ---- structural post-conditions: a Ben exception is ALWAYS a flag on the proposal.
+            // B3 / PRD §7: date_question is no longer in a customer pack's exceptionsToBen, so a
+            // date question never becomes a flag here; the picker gate lives on the tool.
+            const forBen = benExceptions(triage, pack);
             if (forBen.length && !state.flag) state.flag = { exception: forBen[0], note: autoFlagNote(triage, forBen) };
 
             const extras: Partial<Proposal> = {

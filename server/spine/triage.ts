@@ -2,8 +2,10 @@
  * Triage (design §3.3) — rung 4, not an agent. Deterministic first, then ONE schema-validated
  * Haiku call, then the write of tags/stage (the autonomous tier) and an agent_runs row.
  *
- *   rules   opt-out → dropped; spam → dropped; money / date / complaint / refund / callback /
+ *   rules   opt-out → dropped; spam → dropped; money / complaint / refund / callback /
  *           regulated lexicons → Ben lane with the exception named; trust_concern tag → Ben;
+ *           a date question is a SIGNAL (dateAsked), not Ben's (PRD §7) — except on a booked
+ *           job, the §13 interim, where it is still the date_question exception;
  *           no outbound ever → rules lane (first contact); quote out and unpaid → post_quote;
  *           needs_quote tag → quote clerk; contractor audience → contractor; else scoper.
  *   model   only when the rules found no exception: {audience, intent, lane, exceptions, stage,
@@ -73,6 +75,16 @@ export function customerPromisedMore(text: string | null | undefined): boolean {
     return !!t && RE_PROMISED_MORE.test(t);
 }
 
+/**
+ * B3 / PRD §7 row 3, the §13 interim: a customer who has already BOOKED (deposit paid, or the
+ * thread is at stage booked / won) and asks about a date wants to change a booked date. That row
+ * is OPEN in the PRD, so today's behaviour is kept: it is still Ben's. Everything before booking
+ * is the Scoper's ("dates come with your quote" / the picker).
+ */
+export function afterBooking(cf: Pick<CaseFile, 'quote' | 'stage'>): boolean {
+    return !!cf.quote?.paid || cf.stage === 'booked' || cf.stage === 'won';
+}
+
 /** Pure: clamp what the model returned so a long reason or too many tags fails soft, not to rules. */
 export function clampTriageModelOutput(raw: unknown): unknown {
     if (!raw || typeof raw !== 'object') return raw;
@@ -108,7 +120,11 @@ export function triageRules(cf: CaseFile): TriageResult {
     // P7: only a customer's own words can promise more; a call transcript or an internal thread cannot.
     const promised = last?.kind === 'message_in' && audience === 'customer' && customerPromisedMore(last?.body);
     if (promised) reasons.push('customer promised more is coming');
-    const base = { audience, stage, tags, reasons, source: 'rules' as const, customerPromisedMore: promised };
+    // B3 / PRD §7: a date question is a signal the Scoper answers, not a reason for Ben. Read off
+    // the same text the old exception used (a message body or a call transcript), so the §13
+    // interim below is exactly the old trigger, narrowed to booked jobs.
+    const dateAsked = !!text && looksLikeDateQuestion(text);
+    const base = { audience, stage, tags, reasons, source: 'rules' as const, customerPromisedMore: promised, dateAsked };
 
     if (audience === 'internal') {
         reasons.push('internal thread');
@@ -133,7 +149,13 @@ export function triageRules(cf: CaseFile): TriageResult {
         else if (RE_COMPLAINT.test(text)) { exceptions.push('complaint'); reasons.push('complaint lexicon'); }
         if (RE_CALLBACK.test(text)) { exceptions.push('callback_requested'); reasons.push('callback lexicon'); tags.push('callback_requested'); }
         if (RE_MONEY.test(text)) { exceptions.push('money_question'); reasons.push('money lexicon'); }
-        if (looksLikeDateQuestion(text)) { exceptions.push('date_question'); reasons.push('date lexicon'); }
+        // B3 / PRD §7: dates are not Ben's. Before a quote the Scoper says "dates come with your
+        // quote"; with a live quote it points at the picker. The exception survives on ONE path,
+        // the §13 interim: a booked job whose date the customer wants to change.
+        if (dateAsked) {
+            if (afterBooking(cf)) { exceptions.push('date_question'); reasons.push('date lexicon on a booked job (PRD §13 open: still Ben\'s)'); }
+            else reasons.push('date lexicon: a signal for the Scoper, not Ben\'s (PRD §7)');
+        }
         if (RE_REGULATED.test(text)) { exceptions.push('regulated_trade'); reasons.push('regulated-trade lexicon'); }
     }
     if (exceptions.length) {
@@ -199,7 +221,8 @@ You read a case file and classify the thread. You never write to the customer. O
 - audience: one of ${JSON.stringify(AUDIENCES)}
 - intent: what the customer needs next, one of ${JSON.stringify(INTENTS)} or "unknown"
 - lane: one of ${JSON.stringify(LANES)} — "ben" whenever any exception applies; "rules" only for a first contact or a content-free acknowledgement; "post_quote" when a quote is out and unpaid; "quote_clerk" when the job is ready to price; else "scoper"
-- exceptions: array from ${JSON.stringify(EXCEPTIONS)}. Include one whenever the customer raises money, prices or discounts (money_question), dates or availability (date_question), a complaint or unhappiness (complaint), a refund (refund), asks for a call (callback_requested), work needing certification such as gas, structural or major electrical (regulated_trade), or work we do not do (out_of_scope). When in doubt about THOSE, add the exception: Ben would rather see one thread too many than one too few.
+- exceptions: array from ${JSON.stringify(EXCEPTIONS)}. Include one whenever the customer raises money, prices or discounts (money_question), a complaint or unhappiness (complaint), a refund (refund), asks for a call (callback_requested), work needing certification such as gas, structural or major electrical (regulated_trade), or work we do not do (out_of_scope). When in doubt about THOSE, add the exception: Ben would rather see one thread too many than one too few.
+- date_question is NOT yours to add. A question about dates, times or availability is ordinary scoping: before a quote the Scoper says dates come with the quote, after a quote it points at the date picker on the quote page. The rules decide the one case that is Ben's (a booked job); anything you add is dropped.
 - out_of_scope means, precisely: a trade we do not cover (roofing at height, asbestos, large groundworks, full rewires), a job outside our service area, or regulated work (which is regulated_trade). It NEVER means "more work than the quote covered". A customer adding to, extending or changing the scope of an existing or expired quote ("all 9 doors now, not 3", "another two lights", "instead of the shelf, the wardrobe", new photos of more of the same job) is ordinary SCOPING: lane "scoper", tags "rescope" and "needs_quote", no exception. The quote is redone and Ben prices it; money stays with Ben through the quote, not through a flag.
 - stage: one of ${JSON.stringify(STAGES)}. Never "won" (that means the deposit is paid and only a payment can set it).
 - tags: up to 8 short lowercase labels (e.g. "photos_received", "needs_quote", "callback_requested")
@@ -246,13 +269,14 @@ async function defaultLlm(args: TriageLlmArgs): Promise<TriageLlmResult> {
 
 /** Merge the model's answer over the rules' — the model may only ADD exceptions, never remove one. */
 export function mergeTriage(rules: TriageResult, model: TriageModelOutput, modelId: string): TriageResult {
-    // P7: "back soon with measurement" is a promise, not a date question. The rules lexicon
-    // (RE_DATE) does not fire on it; the model did, and routed the thread to Ben. When the
-    // customer has promised more and the rules found no date, a model-only date_question is
-    // dropped: the run waits for the promised item instead (decide → waiting_for_promised).
-    let modelExceptions = rules.customerPromisedMore && !rules.exceptions.includes('date_question')
-        ? model.exceptions.filter((e) => e !== 'date_question')
-        : model.exceptions;
+    // B3 / PRD §7: dates are not Ben's, so the model may never add date_question on its own. The
+    // rules raise it on exactly one path (a booked job, the §13 interim) and a rules exception is
+    // never removed. This subsumes P7: "back soon with measurement" is a promise, not a date
+    // question; the model used to raise date_question on it and route the thread to Ben, and now
+    // the run waits for the promised item instead (decide → waiting_for_promised).
+    let modelExceptions = rules.exceptions.includes('date_question')
+        ? model.exceptions
+        : model.exceptions.filter((e) => e !== 'date_question');
     // P9: on a rescope (rules tagged it: a quote exists and the customer added or changed scope),
     // a model-only out_of_scope is the misreading Sarah's thread got. Drop it; a real exception
     // the rules found (regulated trade, money, a complaint) still wins.
@@ -274,6 +298,7 @@ export function mergeTriage(rules: TriageResult, model: TriageModelOutput, model
         reasons: [...model.reasons, ...rules.reasons],
         source: 'model', model: modelId,
         customerPromisedMore: rules.customerPromisedMore,
+        dateAsked: rules.dateAsked,
     };
 }
 

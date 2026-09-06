@@ -23,7 +23,7 @@
     "lane": "post_quote",
     "intent": "point_to_picker",
     "mustNotContain": [
-     "\u00a3",
+     "£",
      "discount",
      "% off"
     ],
@@ -63,7 +63,7 @@
     "lane": "post_quote",
     "intent": "point_to_picker",
     "mustNotContain": [
-     "\u00a3",
+     "£",
      "discount",
      "% off"
     ],
@@ -103,7 +103,7 @@
     "lane": "post_quote",
     "intent": "point_to_picker",
     "mustNotContain": [
-     "\u00a3",
+     "£",
      "discount",
      "% off"
     ],
@@ -137,16 +137,17 @@
    ],
    "candidate": {
     "body": "The dates on offer are on your quote page, pick the one that suits and it's in.",
-    "intent": null
+    "intent": "point_to_picker"
    },
    "expected": {
-    "lane": "ben",
-    "mustFlag": true,
-    "exceptions": [
-     "date_question"
-    ]
+    "lane": "post_quote",
+    "intent": "point_to_picker",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
    },
-   "provenance": "date question: Ben",
+   "provenance": "B3 / PRD §7 row 2: a live quote is out, so a date question is the picker's, not Ben's",
    "quote": {
     "seen": true,
     "viewCount": 1,
@@ -186,6 +187,41 @@
     "totalPence": 32000,
     "slug": "q1"
    }
+  },
+  {
+   "id": "pp-006-booked-job-move-the-date",
+   "family": "point_to_picker",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Booked for Thursday, Craig will be with you.",
+     "at": "2026-09-06T10:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Can we move it to Saturday instead?",
+     "at": "2026-09-06T10:01:00.000Z"
+    }
+   ],
+   "quote": {
+    "paid": true,
+    "slug": "booked4"
+   },
+   "candidate": {
+    "body": "Sure, Saturday works, see you then.",
+    "intent": "point_to_picker"
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "date_question"
+    ],
+    "guardsMustTrip": [
+     "date_promise"
+    ]
+   },
+   "provenance": "B3 / PRD §7 row 3: changing a BOOKED date is OPEN (§13); the interim keeps it Ben's. The picker is not the answer once the deposit is paid, and our reply agreeing a day trips date_promise"
   }
  ]
 }

@@ -29,8 +29,12 @@ describe('triageRules', () => {
         const r = triageRules(cf({}, [outbound('hi'), inbound('how much would that cost?')]));
         expect(r.lane).toBe('ben'); expect(r.exceptions).toContain('money_question'); expect(r.source).toBe('rules');
     });
-    it('routes dates to Ben as date_question', () => {
+    it('B3 / PRD §7: a date question before a quote is a signal for the Scoper, not Ben\'s', () => {
         const r = triageRules(cf({}, [outbound('hi'), inbound('what day could you come next week?')]));
+        expect(r.lane).toBe('scoper'); expect(r.exceptions).toEqual([]); expect(r.dateAsked).toBe(true);
+    });
+    it('B3 interim (PRD §13 open): a date question on a BOOKED job is still date_question, still Ben', () => {
+        const r = triageRules(cf({ stage: 'booked', quote: { slug: 'q1', lines: 1, paid: true } }, [outbound('Booked for Thursday.'), inbound('can we move it to another day?')]));
         expect(r.lane).toBe('ben'); expect(r.exceptions).toContain('date_question');
     });
     it('routes a complaint and a refund to Ben, refund winning', () => {
@@ -128,9 +132,12 @@ describe('P7 customer promised more', () => {
         expect(merged.exceptions).toEqual([]);
         expect(merged.lane).not.toBe('ben');
         expect(merged.customerPromisedMore).toBe(true);
-        // A real date question keeps its exception even with a promise in the same message.
+        // B3 / PRD §7: a real date question beside the promise is no longer an exception either
+        // (no quote yet: the Scoper says dates come with the quote); the run waits on the promise.
         const rules2 = triageRules(cf({}, [outbound('hi'), inbound('what day can you come? back soon with the measurement')]));
-        expect(mergeTriage(rules2, model, 'haiku').exceptions).toContain('date_question');
+        expect(rules2.exceptions).toEqual([]);
+        expect(rules2.dateAsked).toBe(true);
+        expect(mergeTriage(rules2, model, 'haiku').exceptions).toEqual([]);
         // And a model money_question is never dropped by the promise.
         expect(mergeTriage(rules, { ...model, exceptions: ['money_question'] }, 'haiku').exceptions).toEqual(['money_question']);
     });

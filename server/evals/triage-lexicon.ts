@@ -36,17 +36,32 @@ const RULES: Array<[ExceptionKind, RegExp[]]> = [
     ['trust_concern', TRUST],
     ['regulated_trade', REGULATED],
     ['money_question', MONEY],
-    ['date_question', DATE],
     ['callback_requested', CALLBACK],
 ];
 
+export interface LexiconContext {
+    /**
+     * B3 / PRD v3 §7: a date question is Ben's only after booking (a paid quote), the §13 interim.
+     * Before that it is the Scoper's ("dates come with your quote" / the picker) and raises nothing.
+     * Mirrors `afterBooking` in server/spine/triage.ts.
+     */
+    afterBooking?: boolean;
+}
+
 /** Exceptions the customer's own words raise. Empty = nothing for Ben in the text itself. */
-export function lexiconExceptions(customerText: string | null | undefined): ExceptionKind[] {
+export function lexiconExceptions(customerText: string | null | undefined, ctx: LexiconContext = {}): ExceptionKind[] {
     const text = (customerText ?? '').trim();
     if (!text) return [];
     const out: ExceptionKind[] = [];
     for (const [kind, res] of RULES) if (res.some((re) => re.test(text))) out.push(kind);
+    if (ctx.afterBooking && DATE.some((re) => re.test(text))) out.push('date_question');
     return out;
+}
+
+/** Pure: does the customer's text ask about a date at all? A signal, not an exception (PRD §7). */
+export function lexiconDateAsked(customerText: string | null | undefined): boolean {
+    const text = (customerText ?? '').trim();
+    return !!text && DATE.some((re) => re.test(text));
 }
 
 /** The lane the pre-checks alone would choose. Any exception → Ben; otherwise the scoper. */

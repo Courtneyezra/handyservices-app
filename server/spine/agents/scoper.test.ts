@@ -3,7 +3,7 @@
  *
  * The stub plays the model: each case scripts the tool calls a competent model would make, and
  * what is asserted is the BELT and the STRUCTURE around it — intents ∈ allowedIntents, bodies pass
- * the draft-guard detectors, money/complaint/date exceptions come back as flags whatever the model
+ * the draft-guard detectors, money/complaint exceptions come back as flags whatever the model
  * did, opted-out threads never reach the model, placeholder names are refused, and the tool
  * boundary rejects what it must.
  */
@@ -26,7 +26,8 @@ const DEFAULT_PACK: PolicyPack = {
     guardSet: ['money', 'discount', 'date_promise', 'duration_claim', 'capability_claim', 'liability', 'policy_commitment', 'capitulation', 'voice', 'unseen_implication'],
     tierByIntent: {}, defaultTier: 'DRAFT',
     hours: { reactiveAlways: true, proactiveFromHour: 8, proactiveToHour: 20 },
-    exceptionsToBen: ['complaint', 'trust_concern', 'refund', 'out_of_scope', 'regulated_trade', 'money_question', 'date_question', 'callback_requested'],
+    // B3 / PRD §7: date_question is no longer a Ben trigger (mirrors server/spine/packs/customer-default.ts).
+    exceptionsToBen: ['complaint', 'trust_concern', 'refund', 'out_of_scope', 'regulated_trade', 'money_question', 'callback_requested'],
     voiceFile: 'whatsapp-comms.md',
     templates: {},
 };
@@ -175,19 +176,21 @@ describe('Scoper on eight synthetic case files (stubbed runner)', () => {
         expect(proposal!.flag?.exception).toBe('money_question');
     });
 
-    it('4. date question → point_to_picker only with a live quote, else a flag', async () => {
+    it('4. date question (B3 / PRD §7) → "Dates come with your quote" with no quote, point_to_picker with a live one, never a flag', async () => {
         const noQuote = caseFile({ timeline: [msg('message_in', 'Can you come Tuesday morning?')] });
-        expect(dateQuestionNeedsBen(noQuote, POST_QUOTE_PACK)).toBe(true);
+        expect(dateQuestionNeedsBen(noQuote, POST_QUOTE_PACK)).toBe(true); // no picker to point at
         const a = await runCase({
-            cf: noQuote, tri: triage({ exceptions: ['date_question'] }), pack: POST_QUOTE_PACK,
+            cf: noQuote, tri: triage({ dateAsked: true, reasons: ['date lexicon: a signal for the Scoper, not Ben\'s (PRD §7)'] }), pack: POST_QUOTE_PACK,
             script: async (t) => {
-                await expect(t.propose_reply.run({ intent: 'point_to_picker', body: ['Pick a date on your quote page.'], reasons: ['x'] })).rejects.toThrow(/live, unpaid quote/);
+                await expect(t.propose_reply.run({ intent: 'point_to_picker', body: ['Pick a date on your quote page.'], reasons: ['x'] })).rejects.toThrow(/live, unpaid quote.*Dates come with your quote/);
                 await expect(t.propose_reply.run({ intent: 'holding', body: ['Tuesday morning works, see you then.'], reasons: ['x'] })).rejects.toThrow(/date_promise/);
-                await t.propose_reply.run({ intent: 'holding', body: ['Let me check the diary and come straight back to you.'], reasons: ['date is Ben\'s'] });
+                await t.propose_reply.run({ intent: 'ask_gap', body: ['Dates come with your quote.', 'Could you send a quick photo of the tap and where it drips from?'], reasons: ['dates come with the quote; carry on scoping'] });
             },
         });
         assertWellFormed(a.proposal, POST_QUOTE_PACK);
-        expect(a.proposal!.flag?.exception).toBe('date_question');
+        expect(a.proposal!.body[0]).toBe('Dates come with your quote.');
+        expect(a.proposal!.flag ?? null).toBeNull(); // §7 row 1: no hold, no flag
+        expect(a.stub.calls[0].goal).toMatch(/DATE ASKED: .*No quote is out yet/);
 
         const withQuote = caseFile({
             quote: { slug: 'q9', total: 22000, lines: 1, viewedAt: '2026-09-01T12:00:00.000Z', expiresAt: null, paid: false },
@@ -195,7 +198,7 @@ describe('Scoper on eight synthetic case files (stubbed runner)', () => {
         });
         expect(dateQuestionNeedsBen(withQuote, POST_QUOTE_PACK)).toBe(false);
         const b = await runCase({
-            cf: withQuote, tri: triage({ exceptions: ['date_question'] }), pack: POST_QUOTE_PACK,
+            cf: withQuote, tri: triage({ dateAsked: true }), pack: POST_QUOTE_PACK,
             script: async (t) => {
                 await t.propose_reply.run({ intent: 'point_to_picker', body: ['You can pick the day that suits on your quote page, the booking goes in there with the deposit.'], reasons: ['live quote has a picker'], citations: ['q9'] });
             },
@@ -203,6 +206,12 @@ describe('Scoper on eight synthetic case files (stubbed runner)', () => {
         assertWellFormed(b.proposal, POST_QUOTE_PACK);
         expect(b.proposal!.intent).toBe('point_to_picker');
         expect(b.proposal!.flag ?? null).toBeNull(); // no flag needed: the picker answers it
+        expect(b.stub.calls[0].goal).toMatch(/DATE ASKED: .*date picker on \/quote\/q9/);
+
+        // Belt: even if a triage result still carried date_question (it cannot, pre-quote), the
+        // customer packs no longer route it to Ben, so no flag is attached structurally.
+        const c = await runCase({ cf: noQuote, tri: triage({ exceptions: ['date_question'] }), pack: DEFAULT_PACK, script: async () => {} });
+        expect(c.proposal).toBeNull();
     });
 
     it('5. complaint → flag, and no apology that admits fault', async () => {

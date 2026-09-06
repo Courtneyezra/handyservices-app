@@ -1,14 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { lexiconExceptions, lexiconLane } from './triage-lexicon';
+import { lexiconExceptions, lexiconLane, lexiconDateAsked } from './triage-lexicon';
 
 describe('lexiconExceptions', () => {
     it('money', () => {
         for (const t of ['Tell me price', 'How much would that be?', "It's sounding too expensive already mate", 'Soory it\'s to much', 'Any discount for cash?', 'what do you charge per hour', 'Is the £450 including materials?'])
             expect(lexiconExceptions(t), t).toContain('money_question');
     });
-    it('dates', () => {
-        for (const t of ['Ok so is another day better?', 'What time works for you?', 'Between 11 and 12 please', 'Can we reschedule the visit', 'are you available on Saturday?', 'Is it AM or PM? I need to know for work'])
-            expect(lexiconExceptions(t), t).toContain('date_question');
+    it('dates: a signal before booking (B3 / PRD §7), the date_question exception only after booking (§13 interim)', () => {
+        for (const t of ['Ok so is another day better?', 'What time works for you?', 'Between 11 and 12 please', 'Can we reschedule the visit', 'are you available on Saturday?', 'Is it AM or PM? I need to know for work']) {
+            expect(lexiconExceptions(t), t).toEqual([]);
+            expect(lexiconDateAsked(t), t).toBe(true);
+            expect(lexiconExceptions(t, { afterBooking: true }), t).toContain('date_question');
+        }
+        expect(lexiconDateAsked('the tap is in the kitchen')).toBe(false);
+        expect(lexiconExceptions('the tap is in the kitchen', { afterBooking: true })).toEqual([]);
     });
     it('callback, complaint, refund, opt-out, trust', () => {
         expect(lexiconExceptions('Happy with quote. Can someone call me to discuss before I pay?')).toContain('callback_requested');

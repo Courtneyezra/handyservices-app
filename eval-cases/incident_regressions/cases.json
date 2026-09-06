@@ -164,7 +164,11 @@
     ],
     "mustFlag": true
    },
-   "provenance": "14 Aug Harbans: AM/PM dead loop; the slot is a booking fact, not the agent's to assert"
+   "provenance": "14 Aug Harbans: AM/PM dead loop; the slot is a booking fact, not the agent's to assert. B3: a booked job (quote.paid), the PRD §13 interim, so date_question still routes to Ben",
+   "quote": {
+    "paid": true,
+    "slug": "booked3"
+   }
   }
  ]
 }
