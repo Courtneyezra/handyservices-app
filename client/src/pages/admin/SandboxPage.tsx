@@ -257,22 +257,32 @@ export default function SandboxPage() {
         refetchOnWindowFocus: false,
     });
     const refresh = () => queryClient.invalidateQueries({ queryKey: ['comms-sandbox'] });
+    /**
+     * T6: every POST answers with the thread as it now stands. Paint that at once rather than
+     * waiting for a refetch — seen live, the proposed-reply bubble landed before the customer's
+     * own line was back, so the chat read out of order for a beat. A response without state
+     * (an older server) falls back to the refetch.
+     */
+    const applyState = (next: SandboxState | undefined) => {
+        if (next) queryClient.setQueryData(['comms-sandbox'], next);
+        else refresh();
+    };
 
     const reset = useMutation({
-        mutationFn: () => api<{ ok: true }>('/reset', { method: 'POST' }),
-        onSuccess: () => { setLastRun(null); setError(null); refresh(); },
+        mutationFn: () => api<{ ok: true; state?: SandboxState }>('/reset', { method: 'POST' }),
+        onSuccess: (r) => { setLastRun(null); setError(null); applyState(r.state); },
         onError: (e: Error) => setError(e.message),
     });
     const seedQuote = useMutation({
-        mutationFn: () => api<{ ok: true }>('/quote', { method: 'POST', body: JSON.stringify({ totalPence: Math.round(Number(amount) * 100) }) }),
+        mutationFn: () => api<{ ok: true; state?: SandboxState }>('/quote', { method: 'POST', body: JSON.stringify({ totalPence: Math.round(Number(amount) * 100) }) }),
         // T6: the previous pass's proposed bubble would otherwise sit under the new quote bubble.
-        onSuccess: () => { setError(null); setLastRun(null); refresh(); },
+        onSuccess: (r) => { setError(null); setLastRun(null); applyState(r.state); },
         onError: (e: Error) => setError(e.message),
     });
     const send = useMutation({
-        mutationFn: (t: string) => api<{ ok: true; run: SandboxRun; mirrored?: SandboxMirror | null }>('/message', { method: 'POST', body: JSON.stringify({ text: t }) }),
+        mutationFn: (t: string) => api<{ ok: true; run: SandboxRun; mirrored?: SandboxMirror | null; state?: SandboxState }>('/message', { method: 'POST', body: JSON.stringify({ text: t }) }),
         onMutate: () => { setError(null); setLastRun(null); },
-        onSuccess: (r) => { setLastRun({ ...r.run, mirrored: r.mirrored ?? null }); setText(''); refresh(); },
+        onSuccess: (r) => { applyState(r.state); setLastRun({ ...r.run, mirrored: r.mirrored ?? null }); setText(''); },
         onError: (e: Error) => setError(e.message),
     });
 
@@ -348,6 +358,12 @@ export default function SandboxPage() {
                                 </div>
                             );
                         })}
+                        {send.isPending && send.variables && (
+                            // T6: the line just sent, shown at once — the row exists server-side before the pass starts.
+                            <div className="flex justify-start" data-testid="sandbox-pending-inbound">
+                                <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-sm shadow-sm">{send.variables}</div>
+                            </div>
+                        )}
                         {send.isPending && (
                             <div className="flex justify-end">
                                 <div className="flex items-center gap-2 rounded-2xl rounded-tr-sm border border-dashed border-amber-300 bg-white px-3 py-2 text-sm text-muted-foreground">

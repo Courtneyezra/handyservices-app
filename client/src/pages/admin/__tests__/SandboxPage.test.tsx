@@ -141,16 +141,18 @@ describe('<SandboxPage>', () => {
             triage: { lane: 'rules', intent: 'ack_enquiry', exceptions: [], tags: [], reasons: ['no outbound on the thread: first contact'], source: 'rules' },
             proposal: null, decision: { kind: 'none', reason: 'no proposal' },
         });
-        let posted = false;
+        // The GET keeps answering with the EMPTY thread: the page must paint the POST's own
+        // `state` (the thread as it now stands) rather than wait for a refetch.
         mockFetch([
-            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: posted ? withAck : started }) },
-            { method: 'POST', url: '/api/comms-sandbox/message', reply: () => { posted = true; return { json: { ok: true, messageId: 'm1', run: rulesRun, mirrored: { kind: 'first_contact_ack', intent: 'ack_enquiry', body: ackBody, messageId: 'm_ack', note: 'First contact is answered by the rules layer.' }, state: withAck } }; } },
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: started }) },
+            { method: 'POST', url: '/api/comms-sandbox/message', reply: () => ({ json: { ok: true, messageId: 'm1', run: rulesRun, mirrored: { kind: 'first_contact_ack', intent: 'ack_enquiry', body: ackBody, messageId: 'm_ack', note: 'First contact is answered by the rules layer.' }, state: withAck } }) },
         ]);
         renderWithQuery(<SandboxPage />);
         await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
         await userEvent.type(screen.getByTestId('sandbox-input'), 'Hi, do you fit extractor fans?');
         await userEvent.click(screen.getByTestId('sandbox-send'));
         await waitFor(() => expect(screen.getByTestId('sandbox-mirrored')).toBeTruthy());
+        expect(screen.getByText('Hi, do you fit extractor fans?', { selector: 'div' })).toBeTruthy();
         expect(screen.getByTestId('sandbox-mirrored').textContent).toContain(ackBody);
         await waitFor(() => expect(screen.getByText(/rules layer ack · mirrored · never sent/i)).toBeTruthy());
         expect(screen.getByTestId('sandbox-proposed-bubble').textContent).toContain('first contact');
