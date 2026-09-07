@@ -589,6 +589,70 @@ leadsRouter.get('/api/admin/leads/by-stage', async (req, res) => {
     }
 });
 
+// T8 (7 Sep 2026): registered here, ahead of GET /api/admin/leads/:id, on purpose. Express matches in
+// registration order; this literal path used to sit at the bottom of the file, so /:id swallowed it
+// and answered 404 "Lead not found" on every sidebar poll. `by-stage` above follows the same rule.
+// Pinned by server/leads-route-order.test.ts.
+/**
+ * GET /api/admin/leads/needs-review
+ * Returns leads with status "needs_review" for VA segment approval
+ */
+leadsRouter.get('/api/admin/leads/needs-review', async (req, res) => {
+    try {
+        // Fetch all leads with needs_review status
+        const reviewLeads = await db.select()
+            .from(leads)
+            .where(eq(leads.status, 'needs_review'))
+            .orderBy(desc(leads.createdAt));
+
+        // Get related calls for transcript snippets
+        const phones = reviewLeads.map(l => l.phone);
+        const relatedCalls = phones.length > 0 ? await db.select({
+            phoneNumber: calls.phoneNumber,
+            transcription: calls.transcription,
+            jobSummary: calls.jobSummary,
+        }).from(calls)
+        .where(inArray(calls.phoneNumber, phones))
+        .orderBy(desc(calls.startTime)) : [];
+
+        // Build call lookup by phone
+        const callsByPhone = new Map<string, typeof relatedCalls[number]>();
+        for (const call of relatedCalls) {
+            if (!callsByPhone.has(call.phoneNumber)) {
+                callsByPhone.set(call.phoneNumber, call);
+            }
+        }
+
+        // Build response
+        const results = reviewLeads.map(lead => {
+            const call = callsByPhone.get(lead.phone);
+            return {
+                id: lead.id,
+                customerName: lead.customerName,
+                phone: lead.phone,
+                email: lead.email,
+                segment: lead.segment,
+                segmentConfidence: lead.segmentConfidence,
+                segmentSignals: lead.segmentSignals as string[] || [],
+                jobDescription: lead.jobDescription,
+                jobSummary: lead.jobSummary || call?.jobSummary,
+                transcriptSnippet: call?.transcription?.substring(0, 300) || null,
+                source: lead.source,
+                createdAt: lead.createdAt,
+            };
+        });
+
+        res.json({
+            leads: results,
+            count: results.length,
+        });
+
+    } catch (error) {
+        console.error('[SegmentReview] Error fetching leads:', error);
+        res.status(500).json({ error: 'Failed to fetch leads needing review' });
+    }
+});
+
 /**
  * GET /api/admin/leads/:id
  * Get a single lead with enriched data
@@ -2304,66 +2368,6 @@ leadsRouter.get('/api/admin/pipeline/station-counts', async (req, res) => {
 // ==========================================
 // SEGMENT REVIEW QUEUE API
 // ==========================================
-
-/**
- * GET /api/admin/leads/needs-review
- * Returns leads with status "needs_review" for VA segment approval
- */
-leadsRouter.get('/api/admin/leads/needs-review', async (req, res) => {
-    try {
-        // Fetch all leads with needs_review status
-        const reviewLeads = await db.select()
-            .from(leads)
-            .where(eq(leads.status, 'needs_review'))
-            .orderBy(desc(leads.createdAt));
-
-        // Get related calls for transcript snippets
-        const phones = reviewLeads.map(l => l.phone);
-        const relatedCalls = phones.length > 0 ? await db.select({
-            phoneNumber: calls.phoneNumber,
-            transcription: calls.transcription,
-            jobSummary: calls.jobSummary,
-        }).from(calls)
-        .where(inArray(calls.phoneNumber, phones))
-        .orderBy(desc(calls.startTime)) : [];
-
-        // Build call lookup by phone
-        const callsByPhone = new Map<string, typeof relatedCalls[number]>();
-        for (const call of relatedCalls) {
-            if (!callsByPhone.has(call.phoneNumber)) {
-                callsByPhone.set(call.phoneNumber, call);
-            }
-        }
-
-        // Build response
-        const results = reviewLeads.map(lead => {
-            const call = callsByPhone.get(lead.phone);
-            return {
-                id: lead.id,
-                customerName: lead.customerName,
-                phone: lead.phone,
-                email: lead.email,
-                segment: lead.segment,
-                segmentConfidence: lead.segmentConfidence,
-                segmentSignals: lead.segmentSignals as string[] || [],
-                jobDescription: lead.jobDescription,
-                jobSummary: lead.jobSummary || call?.jobSummary,
-                transcriptSnippet: call?.transcription?.substring(0, 300) || null,
-                source: lead.source,
-                createdAt: lead.createdAt,
-            };
-        });
-
-        res.json({
-            leads: results,
-            count: results.length,
-        });
-
-    } catch (error) {
-        console.error('[SegmentReview] Error fetching leads:', error);
-        res.status(500).json({ error: 'Failed to fetch leads needing review' });
-    }
-});
 
 /**
  * PUT /api/admin/leads/:id/approve-segment
