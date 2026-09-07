@@ -467,14 +467,24 @@ export async function loadThread(conversationId: string | null): Promise<PriceSc
     })));
 }
 
+/**
+ * T9: THE definition of "a Route A draft waiting to be priced", as a WHERE clause over
+ * `personalized_quotes q`: an unsent draft, not superseded or revoked, that the chain priced
+ * (suggestions exist), and that Ben has not parked with Ask / Call / Visit (P12 hold). Both the
+ * confirm screen's "next waiting" button (loadNextWaiting) and the price queue
+ * (server/spine/price-queue.ts) read this one string; there is no second definition. Change it
+ * here and both move together. Oldest first is the order everywhere it is used.
+ */
+export const WAITING_DRAFT_WHERE = `q.is_draft = true and q.superseded_at is null and q.revoked_at is null and q.pricing_suggestions is not null
+          and coalesce(q.pricing_suggestions->'hold', 'null'::jsonb) = 'null'::jsonb`;
+
 /** The next Route A draft waiting for Ben, oldest first, never this one. */
 export async function loadNextWaiting(excludeQuoteId: string): Promise<{ slug: string; firstName: string } | null> {
     const { db } = await import('../db');
     const { sql } = await import('drizzle-orm');
-    const r: any = await db.execute(sql`select short_slug, customer_name from personalized_quotes
-        where is_draft = true and superseded_at is null and revoked_at is null and pricing_suggestions is not null and id <> ${excludeQuoteId}
-          and coalesce(pricing_suggestions->'hold', 'null'::jsonb) = 'null'::jsonb
-        order by created_at asc limit 1`);
+    const r: any = await db.execute(sql`select q.short_slug, q.customer_name from personalized_quotes q
+        where ${sql.raw(WAITING_DRAFT_WHERE)} and q.id <> ${excludeQuoteId}
+        order by q.created_at asc limit 1`);
     const rows: any[] = Array.isArray(r) ? r : (r?.rows ?? []);
     if (!rows[0]?.short_slug) return null;
     const name = String(rows[0].customer_name ?? '').trim();
