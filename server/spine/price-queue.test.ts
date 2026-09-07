@@ -32,7 +32,7 @@ const sarahEstimate: EstimateRowShape = { id: 'est_s', status: 'complete', lines
 /** Gemma's shelf: one line with no suggestion at all (the estimator failed). Two hours old. */
 const gemma: DraftRowShape = {
     id: 'quote_g', short_slug: 'c1u0wkt8', customer_name: 'Gemma Price', postcode: 'NG7 2DP', customer_type: 'homeowner', is_draft: true, created_at: hoursAgo(2),
-    pricing_line_items: [{ lineId: 'card_1', title: 'Build a bedside table', qty: 1 }],
+    pricing_line_items: [{ lineId: 'card_1', title: 'Bedside table, flat-pack build', qty: 1 }],
     pricing_suggestions: { estimateId: 'est_g', at: hoursAgo(2), lines: [{ lineId: 'card_1', suggestedPence: null }] },
 };
 const gemmaEstimate: EstimateRowShape = { id: 'est_g', status: 'failed', lines: [] };
@@ -61,7 +61,7 @@ describe('buildQueueItem', () => {
     it('Gemma: a line with no suggestion counts as unpriced and the failed estimator is named', () => {
         const item = buildQueueItem(gemma, gemmaEstimate, NOW);
         expect(item.signals).toEqual({ checkThis: 0, unpriced: 1, contradictions: 0, lowConfidence: 0, estimateStatus: 'failed' });
-        expect(item.job).toBe('the build a bedside table'.replace('the build a ', 'the ')); // jobPhrase strips the leading verb
+        expect(item.job).toBe('the bedside table, flat-pack build');
         expect(item.waitingMs).toBe(2 * 3_600_000);
     });
     it("Tom: no lines, so the row's own description is the job; no estimate row is null status; no created_at is 0 waiting", () => {

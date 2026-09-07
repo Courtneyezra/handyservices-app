@@ -74,6 +74,7 @@ const SandboxPage = lazy(() => import("@/pages/admin/SandboxPage"));
 const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
 const PriceAndSendPage = lazy(() => import("@/pages/admin/PriceAndSendPage")); // P8: Ben's phone-first price-and-send screen
 const VariationPricePage = lazy(() => import("@/pages/admin/VariationPricePage")); // P15/3: the one-line price screen for an extra found at the door
+const PriceQueuePage = lazy(() => import("@/pages/admin/PriceQueuePage")); // T9: every quote waiting to be priced, oldest first
 const ActivityPage = lazy(() => import("@/pages/admin/ActivityPage"));
 const VaTasksPage = lazy(() => import("@/pages/admin/VaTasksPage"));
 const PortalInboxPage = lazy(() => import("@/pages/admin/PortalInboxPage"));
@@ -750,6 +751,15 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <AgentStaffPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* T9: the queue index. Wouter matches "/admin/price" exactly, so it cannot shadow the two
+                  * routes below; it still sits first so the order in this block reads as intended. */}
+                <Route path="/admin/price">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PriceQueuePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

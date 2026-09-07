@@ -15,6 +15,8 @@
  *   - four exits in the thumb bar, none of which leave the screen: Send now · Ask her first · Call
  *     her · Needs a visit. The full builder stays a secondary link.
  *   - after Send: what happened and what happens next, then the next quote waiting
+ *   - T9: a one-line strip in the sticky header says how many more are waiting and who is next, from
+ *     the shared price-queue query (/admin/price is the whole list); a send or a hold refreshes it
  *   - phone: Thread · Price tabs; desktop: side by side
  * Data: GET /api/spine/price/:slug. Send: POST …/send; the other exits POST …/ask, …/call, …/visit.
  */
@@ -25,6 +27,7 @@ import { Loader2, AlertTriangle, ChevronDown, ChevronUp, Send, PenLine, RotateCc
 import { cn } from '@/lib/utils';
 import { depositFor } from '@shared/pricing-settings';
 import { CATEGORY_OPTIONS } from '@/lib/quote-categories';
+import { usePriceQueue, invalidatePriceQueue, queueExcluding, ageLabel } from '@/hooks/usePriceQueue';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -787,6 +790,8 @@ export function PriceAndSend({ slug }: { slug: string }) {
             return res.json();
         },
     });
+    // T9: the queue behind the strip and the confirm screen; the sidebar badge reads the same cache.
+    const { data: queue } = usePriceQueue();
 
     const [states, setStates] = useState<Record<string, LineState>>({});
     /** P16: lines Ben typed on this screen. They live here until Send writes them onto the quote. */
@@ -920,7 +925,10 @@ export function PriceAndSend({ slug }: { slug: string }) {
             const { status, json } = await post('send', sendBody());
             if (status === 409) { setSuperseded(json.errors?.[0] ?? 'This draft changed since it loaded.'); return; }
             setResult({ ...json, ok: status >= 200 && status < 300 && json.ok !== false });
-            if (status >= 200 && status < 300) void qc.invalidateQueries({ queryKey: ['spine-price', data.slug] });
+            if (status >= 200 && status < 300) {
+                void qc.invalidateQueries({ queryKey: ['spine-price', data.slug] });
+                void invalidatePriceQueue(qc); // T9: this one has left the queue
+            }
         } catch (e: any) {
             setResult({ ok: false, errors: [e?.message ?? 'Send failed'] });
         } finally { setBusy(null); }
@@ -935,6 +943,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
             if (status === 409) { setSuperseded(json.errors?.[0] ?? 'This draft changed since it loaded.'); return; }
             if (!json.ok) { setActionError(json.errors?.[0] ?? `${kind} failed`); return; }
             setHold(json.hold ?? null);
+            void invalidatePriceQueue(qc); // T9: a held quote is out of the queue until she answers
             setSheet(null); setSheetText('');
             if (kind === 'call') {
                 const tel = json.tel ?? data.call?.customerPhone;
@@ -972,7 +981,11 @@ export function PriceAndSend({ slug }: { slug: string }) {
 
     // After Send: confirm and say what happens next, then the next quote waiting.
     if (result?.ok) {
-        const next = result.nextWaiting ?? data.nextWaiting ?? null;
+        // T9: the refetched queue (less this quote) is the truth; the send's own nextWaiting is the
+        // fallback while it loads.
+        const fresh = queueExcluding(queue, data.slug);
+        const next = fresh.next ? { slug: fresh.next.slug, firstName: fresh.next.firstName, waitingMs: fresh.next.waitingMs } : (result.nextWaiting ?? data.nextWaiting ?? null);
+        const left = queue ? fresh.count : null;
         return (
             <div className="mx-auto max-w-md px-4 py-10" data-testid="confirm-screen">
                 <div className="rounded-3xl border border-emerald-300 bg-emerald-50 p-6 text-emerald-950">
@@ -984,15 +997,37 @@ export function PriceAndSend({ slug }: { slug: string }) {
                 </div>
                 {next ? (
                     <a href={`/admin/price/${next.slug}`} className="mt-4 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 text-lg font-black text-white" data-testid="next-waiting">
-                        Next quote waiting: {next.firstName} <ArrowRight className="h-5 w-5" />
+                        Next quote waiting: {next.firstName}{'waitingMs' in next && next.waitingMs != null ? ` · ${ageLabel(next.waitingMs)}` : ''} <ArrowRight className="h-5 w-5" />
                     </a>
                 ) : (
                     <div className="mt-4 rounded-2xl border border-slate-300 bg-white p-4 text-center text-sm font-bold text-slate-600 shadow-md shadow-slate-900/5" data-testid="nothing-waiting">Nothing else waiting to be priced.</div>
                 )}
+                {left != null && left > 0 && <a href="/admin/price" className="mt-2 block text-center text-xs font-bold text-slate-500 underline" data-testid="queue-left">{left} left in the queue</a>}
                 {data.conversationId && <a href={`/admin/comms?conversation=${encodeURIComponent(data.conversationId)}`} className="mt-3 block text-center text-sm font-bold text-slate-600 underline">Open {first}'s thread</a>}
             </div>
         );
     }
+
+    // T9: the strip. Count and next exclude this quote; the payload's nextWaiting stands in until the
+    // queue has loaded. One line in the sticky header, never over the lines or in the thumb bar.
+    const stripQueue = queueExcluding(queue, data.slug);
+    const stripNext = stripQueue.next ? { slug: stripQueue.next.slug, firstName: stripQueue.next.firstName, waitingMs: stripQueue.next.waitingMs as number | null } : data.nextWaiting ? { ...data.nextWaiting, waitingMs: null } : null;
+    const stripCount: number | null = queue ? stripQueue.count : (data.nextWaiting ? null : 0);
+    const queueStrip = (
+        <div className="mt-2 flex h-8 items-center justify-between gap-2 rounded-lg bg-slate-100 px-2.5 text-xs font-bold text-slate-700" data-testid="queue-strip">
+            <span className="truncate" data-testid="queue-strip-count">
+                {stripCount === 0 && !stripNext ? 'Nothing else waiting' : stripCount == null ? 'More waiting' : `${stripCount} more waiting`}
+            </span>
+            <span className="flex shrink-0 items-center gap-3">
+                {stripNext && (
+                    <a href={`/admin/price/${encodeURIComponent(stripNext.slug)}`} className="inline-flex items-center gap-1 text-slate-900 underline" data-testid="queue-strip-next">
+                        Next: {stripNext.firstName}{stripNext.waitingMs != null ? `, ${ageLabel(stripNext.waitingMs)}` : ''} <ArrowRight className="h-3 w-3" />
+                    </a>
+                )}
+                <a href="/admin/price" className="text-slate-500 underline" data-testid="queue-strip-all">All</a>
+            </span>
+        </div>
+    );
 
     const pricePane = (
         <div className="space-y-3" data-testid="price-pane">
@@ -1092,6 +1127,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     {data.job && (data.job.setupMinutes || data.job.cleanupMinutes) ? <span className="text-slate-500">+{data.job.setupMinutes + data.job.cleanupMinutes} min setup/cleanup</span> : null}
                     {contradictions.length > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800" data-testid="contradiction-count">{contradictions.length} to check</span>}
                 </div>
+                {queueStrip}
                 {!desktop && (
                     <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 text-sm font-black" role="tablist" data-testid="tabs">
                         <button type="button" role="tab" aria-selected={tab === 'thread'} onClick={() => setTab('thread')} className={cn('rounded-lg py-1.5', tab === 'thread' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')} data-testid="tab-thread">Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</button>
