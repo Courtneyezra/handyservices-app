@@ -14,6 +14,7 @@
  *   POST /price/:slug/{ask|call|visit}             P12: the exits that are not a send (hold the quote, ledger under Ben)
  *   GET  /price-stats?days=90                       P8: Route B graduation metrics per category (design §6), read-only
  *   GET  /price-queue                               T9: every Route A draft waiting to be priced, oldest first, read-only
+ *   GET  /vision-health                             T14: is the describer (Gemini) working? newest vision rows → verdict, read-only
  *   POST /tiers { packId, intent, tier, reason }    P6: a person promotes / demotes one intent on the ladder
  *                                                   (pack_intent_tiers + pack_tier_events, changed_by human:<id>);
  *                                                   refuses SEND for intents outside the pack or any money/date name
@@ -274,6 +275,21 @@ spineRouter.post('/ask/:conversationId', async (req, res) => {
  * before /price/:slug on purpose: Express keeps the two apart, but this file has already had one
  * route-order mis-read in this area (the P8 merge fix above), so the order is explicit.
  */
+/**
+ * T14: GET /vision-health — is the describer working? The newest vision rows, read once, judged by
+ * server/spine/vision-health.ts. The sidebar badge, the staff card and the sandbox banner read this
+ * one function. Read-only; never 500s on a database fault (the payload says `unknown`).
+ */
+spineRouter.get('/vision-health', async (_req, res) => {
+    try {
+        const { visionHealth } = await import('./vision-health');
+        res.json(await visionHealth());
+    } catch (error: any) {
+        console.error('[Spine] vision health read failed:', error?.message ?? error);
+        res.status(500).json({ error: error?.message ?? 'Could not read the describer\'s health' });
+    }
+});
+
 spineRouter.get('/price-queue', async (_req, res) => {
     try {
         const { loadPriceQueue } = await import('./price-queue');

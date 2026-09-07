@@ -267,15 +267,20 @@ async function describeCaseFileMedia(
     for (const m of targets) {
         const row = rows.find((r) => r.id === m.id);
         const startedAt = Date.now();
-        let result: Awaited<ReturnType<typeof tools.describeMedia>> = null;
+        // T14: the detailed form, so the row carries the real reason (a retired model, a bad key, a
+        // timeout) instead of "see the log". The contract is unchanged: a failure never throws here.
+        let outcome: Awaited<ReturnType<typeof tools.describeMediaDetailed>>;
         try {
-            result = await tools.describeMedia({
+            outcome = await tools.describeMediaDetailed({
                 url: m.url, kind: m.kind === 'image' ? 'image' : 'video', mediaId: m.id,
                 mimeType: row?.mediaType ?? undefined, customerContext: row?.content ?? null,
             });
         } catch (error: any) {
             console.warn(`[Spine] describe_video threw for ${m.id} (ignored):`, error?.message ?? error);
+            outcome = { ok: false, failure: { kind: 'transient', permanent: false, reason: `describer threw: ${error?.message ?? error}`.slice(0, 300), status: null, attempts: 0 } };
         }
+        const result = outcome.ok ? outcome.result : null;
+        const failure = outcome.ok ? null : outcome.failure;
         if (result) m.description = tools.formatDescription(result.description);
         if (result?.cached) continue; // no call, no cost, no row
         try {
@@ -286,12 +291,14 @@ async function describeCaseFileMedia(
             });
             await finishAgentRun(runId, { agent: 'vision', conversationId: ctx.conversationId, phone: ctx.phone }, {
                 usage: result?.usage ?? null, model: tools.GEMINI_MODEL,
-                error: result ? null : 'no description (see describe_video log)',
+                error: failure ? tools.failureLabel(failure) : null,
                 durationMs: result?.durationMs ?? Date.now() - startedAt,
                 decision: result ? 'described' : 'failed',
                 proposal: {
                     mediaId: m.id, kind: m.kind, bytes: result?.bytes ?? null, hash: result?.hash ?? null,
-                    transport: result?.transport ?? null, attempts: result?.attempts ?? null, description: result?.description ?? null,
+                    transport: result?.transport ?? null, attempts: result?.attempts ?? failure?.attempts ?? null, description: result?.description ?? null,
+                    // T14: the classified failure, for the health read and the sandbox's report.
+                    failure: failure ? { kind: failure.kind, permanent: failure.permanent, status: failure.status, attempts: failure.attempts } : null,
                 },
             });
         } catch (error: any) {

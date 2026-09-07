@@ -190,6 +190,19 @@ describe('T11 pure helpers', () => {
         expect(videoWarning({ ...VIDEO_ON, keyPresent: false })).toMatch(/GEMINI_API_KEY/);
         expect(videoWarning({ ...VIDEO_ON, images: false })).toMatch(/Photos are not described/);
     });
+    it('T14 videoWarning: a failing describer names the reason, says it will not clear on its own, and a healthy one is quiet', () => {
+        const health = { status: 'failing' as const, failing: true, permanent: true, reason: 'config: gemini 404: This model models/gemini-2.5-flash is no longer available to new users.', since: '2026-09-06T17:02:00.000Z', lastAt: '2026-09-07T21:10:00.000Z', window: { runs: 20, failed: 20, described: 0 } };
+        const w = videoWarning({ ...VIDEO_ON, health });
+        expect(w).toMatch(/Every description is FAILING since/);
+        expect(w).toMatch(/configuration failure that will not clear on its own/);
+        expect(w).toMatch(/gemini 404: This model models\/gemini-2\.5-flash/);
+        const transient = videoWarning({ ...VIDEO_ON, health: { ...health, permanent: false, reason: 'transient: timed out after 60000 ms', window: { runs: 3, failed: 3, described: 0 } } });
+        expect(transient).toMatch(/3 of the last 3 vision runs failed/);
+        expect(videoWarning({ ...VIDEO_ON, health: { ...health, status: 'ok', failing: false, permanent: false, reason: null, since: null } })).toBeNull();
+        expect(videoWarning({ ...VIDEO_ON, health: null })).toBeNull();
+        // The switch and the key still come first: a failing describer on a keyless server is the key's line.
+        expect(videoWarning({ ...VIDEO_ON, keyPresent: false, health })).toMatch(/GEMINI_API_KEY/);
+    });
     it('attachmentsOverBound: the count above maxPerRun, none when description is off', () => {
         expect(attachmentsOverBound(8, VIDEO_ON)).toBe(2);
         expect(attachmentsOverBound(6, VIDEO_ON)).toBe(0);

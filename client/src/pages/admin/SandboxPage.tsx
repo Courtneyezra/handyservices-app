@@ -30,7 +30,9 @@ import { cn } from '@/lib/utils';
 
 interface SandboxMessage { id: string; direction: 'inbound' | 'outbound' | string; content: string | null; createdAt: string | null; senderName: string | null; type?: string | null; mediaUrl?: string | null; mediaType?: string | null }
 /** T11: this server's description switch and key, read-only (server/spine/sandbox-routes.ts videoStatus). */
-export interface SandboxVideoStatus { enabled: boolean; images: boolean; maxPerRun: number; keyPresent: boolean }
+/** T14: the describer's verdict from the newest vision rows (server/spine/vision-health.ts), the same one the sidebar badge shows. */
+export interface SandboxVisionHealth { status: 'ok' | 'failing' | 'idle' | 'unknown'; failing: boolean; permanent: boolean; reason: string | null; since: string | null; lastAt: string | null; window: { runs: number; failed: number; described: number } }
+export interface SandboxVideoStatus { enabled: boolean; images: boolean; maxPerRun: number; keyPresent: boolean; health?: SandboxVisionHealth | null }
 export type SandboxMediaStatus = 'described' | 'cached' | 'failed' | 'over_bound' | 'off' | 'images_off' | 'no_key' | 'unsupported' | 'missing';
 /** T11: one media item on the case file — what the Scoper read of it, or why it read nothing (mediaReportFor). */
 export interface SandboxMediaReport { id: string; kind: 'image' | 'video' | 'audio' | 'document'; url: string | null; description: string | null; status: SandboxMediaStatus; note: string; vision: { runId: string; costPence: number | null; error: string | null } | null }
@@ -151,6 +153,13 @@ export function videoWarning(v: SandboxVideoStatus | null | undefined): string |
     if (!v) return null;
     if (!v.enabled) return 'Photo and video description is OFF on this server (spine.video.enabled is false). A photo will reach the desk as bare media with no description — that is what the Scoper sees live when the switch is off.';
     if (!v.keyPresent) return 'GEMINI_API_KEY is not set on this server, so every description will FAIL. The desk will see bare media. (Production has the key; your local .env needs it too.)';
+    // T14: the describer is failing on every item, and this is why. Same verdict as the sidebar badge.
+    const h = v.health;
+    if (h?.failing) {
+        const since = h.since ? ` since ${new Date(h.since).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : '';
+        const kind = h.permanent ? 'a configuration failure that will not clear on its own' : `${h.window.failed} of the last ${h.window.runs} vision runs failed`;
+        return `Every description is FAILING${since}: ${kind}. Reason: ${h.reason ?? 'no reason recorded'}. A photo attached now reaches the desk as bare media until this is fixed; a pass that describes it clears this banner.`;
+    }
     if (!v.images) return 'Photos are not described on this server (spine.video.images is false); only videos are. A photo will reach the desk as bare media.';
     return null;
 }

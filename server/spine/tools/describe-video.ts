@@ -4,10 +4,19 @@
  *
  *   describeMedia({ path | url, kind }) → { whatIsShown, whatIsMissing[], defects[], textFound[], confidence } | null
  *
- * Calls Gemini 2.5 Flash DIRECTLY over HTTPS with `GEMINI_API_KEY` (already on Railway). No
- * OpenRouter, nothing from server/llm/openrouter.ts. Video goes as native bytes: inline base64
- * up to 20 MB, the Files API resumable upload above that. 60 s timeout, one retry, then `null`
- * with a logged reason: this tool NEVER throws into a case file build.
+ * Calls Gemini 3.6 Flash DIRECTLY over HTTPS (`generateContent`, v1beta) with `GEMINI_API_KEY`
+ * (already on Railway). No OpenRouter, nothing from server/llm/openrouter.ts. Video goes as native
+ * bytes: inline base64 up to 20 MB, the Files API resumable upload above that. 60 s timeout, one
+ * retry for a transient failure, then `null` with a logged reason: this tool NEVER throws into a
+ * case file build.
+ *
+ * T14 (7 Sep 2026): `gemini-2.5-flash` answered 404 "no longer available to new users" on every
+ * call for this account, and every description failed silently for 30 hours. The model is now the
+ * one Google's own error named; `temperature` is gone (Google's Gemini 3 guide: keep it at the
+ * default 1.0, low values loop); thinking tokens count as output for the cost; and a failure is
+ * CLASSIFIED — `describeMediaDetailed` says whether it was a configuration failure (a retired
+ * model, a bad key: permanent, not retried, worth telling a person) or a transient one — so the
+ * vision row and the pages can carry the real reason instead of "see the log".
  *
  * Cached by the bytes' sha256 under server/storage/media/.descriptions/<hash>.json (gitignored):
  * a media item is described once, however many runs read it. The prompt and the extraction
@@ -23,7 +32,12 @@ import path from 'path';
 import { createHash } from 'crypto';
 import type { TokenUsage } from '../../agent-cost';
 
-export const GEMINI_MODEL = 'gemini-2.5-flash';
+/**
+ * The model Google named as the replacement for gemini-2.5-flash in its 404 to this account
+ * (docs/comms-build/BRIEF-T14-gemini-model.md). Stable, takes image and video, structured output.
+ * Paid tier $0.75 / M input, $3.75 / M output to 31 Dec 2026 (server/agent-cost.ts).
+ */
+export const GEMINI_MODEL = 'gemini-3.6-flash';
 export const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com';
 /** Above this the bytes go through the Files API instead of inline base64 (Gemini's inline cap). */
 export const INLINE_LIMIT_BYTES = 20 * 1024 * 1024;
@@ -158,9 +172,74 @@ export function formatDescription(d: MediaDescription): string {
     return parts.join(' ');
 }
 
+// ---------------------------------------------------------------- failures (T14, pure)
+
+export type DescribeFailureKind = 'config' | 'input' | 'transient' | 'reply';
+
+/**
+ * Why a description did not happen, classified so a caller can tell a retired model (`config`:
+ * the same on every item until a person changes a constant or a key) from a slow night
+ * (`transient`), a bad file (`input`) or a model that answered off-schema (`reply`).
+ */
+export interface DescribeFailure {
+    kind: DescribeFailureKind;
+    /** The same call will fail the same way until someone changes something. Not retried. */
+    permanent: boolean;
+    /** One line for a person: the HTTP status and Google's own message when there is one. */
+    reason: string;
+    status: number | null;
+    attempts: number;
+}
+
+export type DescribeOutcome = { ok: true; result: DescribeMediaResult } | { ok: false; failure: DescribeFailure };
+
+export class GeminiHttpError extends Error {
+    constructor(public readonly status: number, public readonly where: string, detail: string) {
+        super(`${where} ${status}: ${detail}`);
+        this.name = 'GeminiHttpError';
+    }
+}
+
+/** Google's error bodies are `{ "error": { "code", "message", "status" } }`; the message is the line worth keeping. */
+export function geminiErrorDetail(body: string): string {
+    const raw = body.trim();
+    try {
+        const parsed: any = JSON.parse(raw);
+        const msg = parsed?.error?.message ?? parsed?.message;
+        if (typeof msg === 'string' && msg.trim()) return msg.replace(/\s+/g, ' ').trim().slice(0, 300);
+    } catch { /* not JSON: keep the raw text */ }
+    return raw.replace(/\s+/g, ' ').slice(0, 300);
+}
+
+async function httpError(where: string, res: Response): Promise<GeminiHttpError> {
+    const body = await res.text().catch(() => '');
+    return new GeminiHttpError(res.status, where, geminiErrorDetail(body));
+}
+
+/** 400 the request itself, 401/403 the key, 404 the model: none of these change between two attempts. */
+const PERMANENT_HTTP = new Set([400, 401, 403, 404]);
+
+/** One attempt's error → its class. Exported so the rule is tested on its own. */
+export function classifyFailure(error: unknown, timeoutMs: number): Omit<DescribeFailure, 'attempts'> {
+    const e = error as any;
+    if (e?.name === 'AbortError') return { kind: 'transient', permanent: false, reason: `timed out after ${timeoutMs} ms`, status: null };
+    if (e instanceof GeminiHttpError) {
+        const permanent = PERMANENT_HTTP.has(e.status);
+        return { kind: permanent ? 'config' : 'transient', permanent, reason: e.message, status: e.status };
+    }
+    const message = String(e?.message ?? e ?? 'unknown');
+    if (/^(reply failed schema|gemini returned no text|no JSON object)/.test(message)) return { kind: 'reply', permanent: false, reason: message, status: null };
+    return { kind: 'transient', permanent: false, reason: message, status: null };
+}
+
+/** The vision row's `error` column: the class first, so a query can tell a retired model from a timeout. */
+export function failureLabel(f: DescribeFailure): string {
+    return `${f.kind}: ${f.reason}`.slice(0, 400);
+}
+
 // ---------------------------------------------------------------- Gemini over HTTPS
 
-interface GeminiUsage { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }
+interface GeminiUsage { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number; totalTokenCount?: number }
 
 async function fetchWithTimeout(f: typeof fetch, url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
     const ctrl = new AbortController();
@@ -187,7 +266,7 @@ async function uploadToFilesApi(
         },
         body: JSON.stringify({ file: { display_name: displayName } }),
     }, timeoutMs);
-    if (!start.ok) throw new Error(`files api start ${start.status}: ${(await start.text()).slice(0, 200)}`);
+    if (!start.ok) throw await httpError('files api start', start);
     const uploadUrl = start.headers.get('x-goog-upload-url');
     if (!uploadUrl) throw new Error('files api start returned no upload url');
 
@@ -196,7 +275,7 @@ async function uploadToFilesApi(
         headers: { 'Content-Length': String(bytes.length), 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' },
         body: new Uint8Array(bytes),
     }, timeoutMs);
-    if (!up.ok) throw new Error(`files api upload ${up.status}: ${(await up.text()).slice(0, 200)}`);
+    if (!up.ok) throw await httpError('files api upload', up);
     const uploaded: any = await up.json();
     const file = uploaded?.file ?? uploaded;
     if (!file?.uri || !file?.name) throw new Error('files api upload returned no file uri');
@@ -208,7 +287,7 @@ async function uploadToFilesApi(
         if (now() > deadline) throw new Error('files api processing timed out');
         await sleep(2000);
         const poll = await fetchWithTimeout(f, `${GEMINI_BASE_URL}/v1beta/${file.name}?key=${encodeURIComponent(apiKey)}`, { method: 'GET' }, timeoutMs);
-        if (!poll.ok) throw new Error(`files api poll ${poll.status}`);
+        if (!poll.ok) throw await httpError('files api poll', poll);
         state = ((await poll.json()) as any)?.state ?? 'PROCESSING';
     }
     return { uri: file.uri, name: file.name };
@@ -223,17 +302,21 @@ async function callGemini(
         body: JSON.stringify({
             systemInstruction: { parts: [{ text: VISION_SYSTEM_PROMPT }] },
             contents: [{ role: 'user', parts: [mediaPart, { text: userPrompt }] }],
-            generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 1024 },
+            // T14: no `temperature`. Google's Gemini 3 guide: keep the default (1.0); values below it can
+            // loop or degrade. The JSON shape is held by responseMimeType and the zod schema, not by it.
+            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1024 },
         }),
     }, timeoutMs);
-    if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) throw await httpError('gemini', res);
     const json: any = await res.json();
     const parts: any[] = json?.candidates?.[0]?.content?.parts ?? [];
     const text = parts.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('');
     if (!text.trim()) throw new Error(`gemini returned no text (finishReason ${json?.candidates?.[0]?.finishReason ?? 'unknown'})`);
     const u: GeminiUsage = json?.usageMetadata ?? {};
+    // T14: Gemini 3 Flash thinks on every call and cannot be told not to; Google bills thinking
+    // tokens at the output rate ("output price includes thinking tokens"), so they are output here.
     const usage: TokenUsage | null = u.promptTokenCount != null
-        ? { inputTokens: u.promptTokenCount ?? 0, outputTokens: u.candidatesTokenCount ?? 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+        ? { inputTokens: u.promptTokenCount ?? 0, outputTokens: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0), cacheReadTokens: 0, cacheWriteTokens: 0 }
         : null;
     return { text, usage };
 }
@@ -266,7 +349,20 @@ async function defaultResolvePath(input: DescribeMediaInput): Promise<string | n
 
 // ---------------------------------------------------------------- the tool
 
+/** The Phase 4 contract: a description, or `null` for any failure. Never throws. */
 export async function describeMedia(input: DescribeMediaInput, deps: DescribeDeps = {}): Promise<DescribeMediaResult | null> {
+    const outcome = await describeMediaDetailed(input, deps);
+    return outcome.ok ? outcome.result : null;
+}
+
+/**
+ * T14: the same call, with the failure when there is one. A configuration failure (HTTP 400 / 401 /
+ * 403 / 404: the model, the key, the request) is not retried — a retired model answers the same
+ * 404 twice and costs a second timeout's wait — and is marked `permanent` so the row and the pages
+ * can say so. Transient failures (429, 5xx, network, timeout) and off-schema replies keep the one
+ * retry. Never throws.
+ */
+export async function describeMediaDetailed(input: DescribeMediaInput, deps: DescribeDeps = {}): Promise<DescribeOutcome> {
     const log = deps.log ?? ((line: string) => console.warn(`[describe_video] ${line}`));
     const now = deps.now ?? Date.now;
     const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -276,24 +372,26 @@ export async function describeMedia(input: DescribeMediaInput, deps: DescribeDep
     const retries = deps.retries ?? DEFAULT_RETRIES;
     const inlineLimit = deps.inlineLimitBytes ?? INLINE_LIMIT_BYTES;
     const label = input.mediaId ?? input.path ?? input.url ?? 'media';
+    const fail = (kind: DescribeFailureKind, permanent: boolean, reason: string, attempts = 0, status: number | null = null): DescribeOutcome => {
+        log(`${label}: ${reason}`);
+        return { ok: false, failure: { kind, permanent, reason, status, attempts } };
+    };
 
     let filePath: string | null;
     try {
         filePath = await (deps.resolvePath ?? defaultResolvePath)(input);
     } catch (error: any) {
-        log(`${label}: could not resolve media path: ${error?.message ?? error}`);
-        return null;
+        return fail('input', false, `could not resolve media path: ${error?.message ?? error}`);
     }
-    if (!filePath) { log(`${label}: media file not found locally or in S3`); return null; }
+    if (!filePath) return fail('input', true, 'media file not found locally or in S3');
 
     let bytes: Buffer;
     try {
         bytes = await fs.readFile(filePath);
     } catch (error: any) {
-        log(`${label}: could not read ${filePath}: ${error?.message ?? error}`);
-        return null;
+        return fail('input', true, `could not read ${filePath}: ${error?.message ?? error}`);
     }
-    if (!bytes.length) { log(`${label}: empty file`); return null; }
+    if (!bytes.length) return fail('input', true, 'empty file');
     const hash = hashBytes(bytes);
     const mimeType = mimeTypeFor(filePath, input.kind, input.mimeType);
 
@@ -303,19 +401,19 @@ export async function describeMedia(input: DescribeMediaInput, deps: DescribeDep
             cached.mediaIds.push(input.mediaId);
             await writeCache(cacheDir, cached).catch(() => undefined);
         }
-        return { description: cached.description, cached: true, hash, bytes: bytes.length, mimeType, transport: 'cache', usage: null, model: cached.model, durationMs: now() - startedAt, attempts: 0 };
+        return { ok: true, result: { description: cached.description, cached: true, hash, bytes: bytes.length, mimeType, transport: 'cache', usage: null, model: cached.model, durationMs: now() - startedAt, attempts: 0 } };
     }
 
     const apiKey = deps.apiKey === undefined ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null) : deps.apiKey;
-    if (!apiKey) { log(`${label}: GEMINI_API_KEY is not set; no description`); return null; }
+    if (!apiKey) return fail('config', true, 'GEMINI_API_KEY is not set; no description');
     const f = deps.fetch ?? globalThis.fetch;
-    if (typeof f !== 'function') { log(`${label}: no fetch available`); return null; }
+    if (typeof f !== 'function') return fail('config', true, 'no fetch available');
 
     const userPrompt = (input.customerContext ? `Customer said: "${input.customerContext.slice(0, 500)}"\n\n` : '')
         + `Describe this ${input.kind} for a handyman quote. Reply with the JSON object only.`;
     const transport: 'inline' | 'files_api' = bytes.length <= inlineLimit ? 'inline' : 'files_api';
 
-    let lastError = 'unknown';
+    let last: Omit<DescribeFailure, 'attempts'> = { kind: 'transient', permanent: false, reason: 'unknown', status: null };
     let attempts = 0;
     for (let attempt = 0; attempt <= retries; attempt++) {
         attempts++;
@@ -337,12 +435,13 @@ export async function describeMedia(input: DescribeMediaInput, deps: DescribeDep
                 describedAt: new Date(now()).toISOString(), usage, description: parsed.data,
             };
             await writeCache(cacheDir, entry).catch((e: any) => log(`${label}: cache write failed (description still returned): ${e?.message ?? e}`));
-            return { description: parsed.data, cached: false, hash, bytes: bytes.length, mimeType, transport, usage, model: GEMINI_MODEL, durationMs: now() - startedAt, attempts };
+            return { ok: true, result: { description: parsed.data, cached: false, hash, bytes: bytes.length, mimeType, transport, usage, model: GEMINI_MODEL, durationMs: now() - startedAt, attempts } };
         } catch (error: any) {
-            lastError = error?.name === 'AbortError' ? `timed out after ${timeoutMs} ms` : (error?.message ?? String(error));
-            if (attempt < retries) log(`${label}: attempt ${attempt + 1} failed (${lastError}); retrying once`);
+            last = classifyFailure(error, timeoutMs);
+            if (last.permanent) { log(`${label}: attempt ${attempts} failed (${last.reason}); ${last.kind} failure, not retried`); break; }
+            if (attempt < retries) log(`${label}: attempt ${attempt + 1} failed (${last.reason}); retrying once`);
         }
     }
-    log(`${label}: no description after ${attempts} attempt(s): ${lastError}`);
-    return null;
+    log(`${label}: no description after ${attempts} attempt(s): ${last.reason}`);
+    return { ok: false, failure: { ...last, attempts } };
 }

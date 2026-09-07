@@ -13,7 +13,7 @@ export interface TokenUsage {
 }
 
 export interface ModelPrice {
-    family: 'haiku-4-5' | 'sonnet-5' | 'opus-5' | 'gemini-2.5-flash';
+    family: 'haiku-4-5' | 'sonnet-5' | 'opus-5' | 'gemini-3.6-flash';
     match: RegExp;
     /** USD per million input tokens. */
     input: number;
@@ -25,10 +25,13 @@ export const MODEL_PRICES_USD_PER_MTOK: readonly ModelPrice[] = [
     { family: 'haiku-4-5', match: /haiku/i, input: 1, output: 5 },
     { family: 'sonnet-5', match: /sonnet/i, input: 2, output: 10 },
     { family: 'opus-5', match: /opus/i, input: 5, output: 25 },
-    // Phase 4 describe_video. The repo carried no Gemini price, so this is the brief's working
-    // assumption ($0.10/M input for video tokens; output set proportionally). Correct it here when
-    // the bill arrives; every vision run's cost_pence is derived from these two numbers.
-    { family: 'gemini-2.5-flash', match: /gemini.*flash/i, input: 0.10, output: 0.40 },
+    // Phase 4 describe_video, on Gemini 3.6 Flash since T14 (7 Sep 2026). Google's pricing page,
+    // paid tier, read that day: $0.75 / M input (text, image and video alike), $3.75 / M output
+    // "through December 31, 2026", then $1.50 / $7.50 "starting January 1, 2027" — raise these two
+    // numbers then. Output includes the model's thinking tokens (describe-video.ts counts them as
+    // output). The old row ($0.10 / $0.40) was a working assumption and was wrong even for 2.5 Flash
+    // ($0.30 / $2.50). Every vision run's cost_pence is derived from these two numbers.
+    { family: 'gemini-3.6-flash', match: /gemini.*flash/i, input: 0.75, output: 3.75 },
 ];
 
 export const CACHE_READ_MULTIPLIER = 0.10;

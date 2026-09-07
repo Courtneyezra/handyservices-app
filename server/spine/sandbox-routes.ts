@@ -154,8 +154,11 @@ export interface SandboxMediaReport {
     vision: { runId: string; costPence: number | null; error: string | null } | null;
 }
 
-/** `spine.video` as this server reads it, plus whether GEMINI_API_KEY (or GOOGLE_API_KEY) is set on THIS server — the one running the sandbox. */
-export type SandboxVideoStatus = SpineConfig['video'] & { keyPresent: boolean };
+/**
+ * `spine.video` as this server reads it, plus whether GEMINI_API_KEY (or GOOGLE_API_KEY) is set on THIS
+ * server — the one running the sandbox — and (T14) the describer's health from the newest vision rows.
+ */
+export type SandboxVideoStatus = SpineConfig['video'] & { keyPresent: boolean; health?: import('./vision-health').VisionHealth | null };
 
 export const MEDIA_STATUS_NOTE: Record<SandboxMediaStatus, string> = {
     described: 'Described on this pass by Gemini. This is the description on the case file; the Scoper\'s case-file summary carries its first 160 characters (scoper.ts clip).',
@@ -330,7 +333,9 @@ async function loadState() {
 async function videoStatus(): Promise<SandboxVideoStatus> {
     const cfg = await getSpineConfig().catch(() => DEFAULT_SPINE_CONFIG);
     const video = { ...DEFAULT_SPINE_CONFIG.video, ...(cfg.video ?? {}) };
-    return { ...video, keyPresent: geminiKeyPresent() };
+    // T14: the same verdict the sidebar badge and the staff card read, so the banner names the reason.
+    const health = await import('./vision-health').then((m) => m.visionHealth()).catch(() => null);
+    return { ...video, keyPresent: geminiKeyPresent(), health };
 }
 
 interface InboundMedia { id: string; url: string; mimeType: string; kind: 'image' | 'video' }

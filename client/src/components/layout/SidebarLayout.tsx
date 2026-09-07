@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, ChevronDown, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity, ListTodo, FlaskConical } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { usePriceQueue, hasAdminToken } from "@/hooks/usePriceQueue";
+import { useVisionHealth, visionBadge } from "@/hooks/useVisionHealth";
 
 import InstallPrompt from "@/components/InstallPrompt";
 import OpsDock from "@/components/ops/OpsDock";
@@ -74,6 +75,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     // Skipped entirely when there is no admin token (the endpoint would only answer 401).
     const { data: priceQueue } = usePriceQueue({ enabled: hasAdminToken() });
     const priceQueueCount = priceQueue?.count ?? 0;
+
+    // T14: is the describer (Gemini) failing on every photo? A red badge on AI Staff, a minute
+    // apart like the badges above, so a retired model is seen from any admin page and not only
+    // in a server console. The staff card and the sandbox banner show the same verdict with the reason.
+    const { data: visionHealth } = useVisionHealth({ enabled: hasAdminToken() });
+    const visionFailing = visionBadge(visionHealth);
 
     // Persist collapse state
     useEffect(() => {
@@ -172,7 +179,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
                                 { icon: PoundSterling, label: "Price queue", href: "/admin/price", badge: priceQueueCount > 0 ? String(priceQueueCount) : null },
                                 { icon: FlaskConical, label: "Sandbox", href: "/admin/sandbox", badge: "NEW" },
-                                { icon: Bot, label: "AI Staff", href: "/admin/staff", badge: "NEW" },
+                                { icon: Bot, label: "AI Staff", href: "/admin/staff", badge: visionFailing ?? "NEW", alarm: !!visionFailing },
                                 { icon: Activity, label: "Activity", href: "/admin/activity", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
                                 { icon: Map, label: "Dispatch Console", href: "/admin/dispatch-console" },
@@ -284,12 +291,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                             {!isCollapsed && item.label}
                                         </div>
                                         {!isCollapsed && item.badge && (
-                                            <span className={`${isLive && item.href.includes('live') ? 'bg-red-500' : 'bg-amber-500'} text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse`}>
+                                            <span data-testid={(item as any).alarm ? 'sidebar-alarm-badge' : undefined} className={`${(isLive && item.href.includes('live')) || (item as any).alarm ? 'bg-red-500' : 'bg-amber-500'} text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse`}>
                                                 {item.badge}
                                             </span>
                                         )}
                                         {isCollapsed && item.badge && (
-                                            <span className={`absolute -top-1 -right-1 w-2 h-2 ${isLive && item.href.includes('live') ? 'bg-red-500' : 'bg-amber-500'} rounded-full animate-pulse`} />
+                                            <span className={`absolute -top-1 -right-1 w-2 h-2 ${(isLive && item.href.includes('live')) || (item as any).alarm ? 'bg-red-500' : 'bg-amber-500'} rounded-full animate-pulse`} />
                                         )}
                                     </Link>
                                 ))}
