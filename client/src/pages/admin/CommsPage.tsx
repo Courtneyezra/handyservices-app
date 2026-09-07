@@ -89,6 +89,11 @@ interface BoardCard {
     callbackDue: boolean;
     /** conversations.role_profile — 'contractor' threads run the contractor pack (Phase 4). */
     roleProfile?: string | null;
+    /** T17: the newest unanswered flag's note while needs_ben stands; absent on an older payload. */
+    flagNote?: string | null;
+    /** T17: that flag's due time, for the due chip. */
+    flagDueAt?: string | null;
+    flagRaisedAt?: string | null;
 }
 
 interface BoardResponse {
@@ -210,7 +215,7 @@ export interface PendingDraft {
  * here. 'open'/'answered' are the retired tap-question relay, still shown while in-flight rows
  * drain.
  */
-interface AgentQuestion {
+export interface AgentQuestion {
     id: string;
     conversationId: string;
     question: string;
@@ -550,6 +555,36 @@ function WhoseMoveChip({ card }: { card: BoardCard }) {
     );
 }
 
+/**
+ * T17: the exception a flag note opens with ("[money_question] …") as words, or "Flagged" when
+ * the note carries none (a legacy flag). Pure; exported for the suite.
+ */
+export function flagExceptionLabel(note: string | null | undefined): string {
+    const m = /^\[([a-z_]+)\]/.exec(note ?? '');
+    if (!m) return 'Flagged';
+    return m[1].replace(/_/g, ' ');
+}
+
+/**
+ * T17: the flag's pill on the board card — its exception and its clock. Until T17 a flagged row
+ * drew nothing here: the due chip was on drafts only, and a twelve-hour-old flagged thread sat
+ * uncoloured with no note (S15 review §7.1). The full note is the pill's title and the one-line
+ * FlagNoteCard above the composer.
+ */
+export function FlagPill({ card }: { card: Pick<BoardCard, 'flagNote' | 'flagDueAt'> }) {
+    if (!card.flagNote) return null;
+    return (
+        <span
+            className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-900"
+            title={card.flagNote}
+            data-testid="flag-pill"
+        >
+            🚩 {flagExceptionLabel(card.flagNote)}
+            <DueChip dueAt={card.flagDueAt} />
+        </span>
+    );
+}
+
 /** The card's signal pills — capped at three so a card never becomes a dashboard. */
 function CardBadges({ card }: { card: BoardCard }) {
     const pills: JSX.Element[] = [];
@@ -567,6 +602,8 @@ function CardBadges({ card }: { card: BoardCard }) {
             </span>
         );
     }
+    // T17: the flag and its clock, ahead of the to-do pills so the cap of three never hides it.
+    if (card.flagNote) pills.push(<FlagPill key="flag" card={card} />);
     // Intake badges are a TO-DO ("this thread is priceable — go build the quote"). Once a
     // quote exists the to-do is done, so past quote_sent they're stale noise and hidden.
     const quoteOut = ['quote_sent', 'won', 'closed'].includes(card.stage) || (card.quoteViewCount ?? 0) > 0;
@@ -967,6 +1004,19 @@ export function DraftApprovalCard({ draft, windowOpen, onDone }: {
 }
 
 /**
+ * T17: which rows FlagNoteCard gets — every answered row (the retired relay draining), plus the
+ * NEWEST flagged row, only while needs_ben stands. Pure; exported for the suite.
+ */
+export function flagNotesFor(questions: AgentQuestion[], tags: string[]): AgentQuestion[] {
+    const answered = questions.filter((q) => q.status === 'answered');
+    if (!tags.includes('needs_ben')) return answered;
+    const newestFlag = [...questions]
+        .filter((q) => q.status === 'flagged')
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    return newestFlag ? [newestFlag, ...answered] : answered;
+}
+
+/**
  * The agent flagged this thread for Ben. There is nothing to tap and nothing to type here: Ben
  * answers by REPLYING IN THE THREAD, and the agent builds on his words. This card is just the
  * agent's note (why he is needed, what the customer wants, what it already said) plus a dismiss
@@ -974,15 +1024,29 @@ export function DraftApprovalCard({ draft, windowOpen, onDone }: {
  * question-and-options card when the ask-Ben relay retired (21 Aug 2026); a legacy 'answered' row
  * still renders as a small info line while in-flight questions drain.
  */
-function FlagNoteCard({ q }: { q: AgentQuestion }) {
+export function FlagNoteCard({ q }: { q: AgentQuestion }) {
     // 3 Sep 2026: the amber "Agent flagged this for you" banner is gone at the owner's request — it
     // sat above the composer on every flagged thread and said nothing the needs_ben tag and the
-    // thread itself did not already say. Only an ANSWERED question still renders, because that
-    // carries something new (what Ben told the agent, which it drafts from next pass).
+    // thread itself did not already say. An ANSWERED question still renders, because that carries
+    // something new (what Ben told the agent, which it drafts from next pass).
     //
-    // The banner's Dismiss button was the only thing that cleared needs_ben, so that now happens
-    // when Ben replies in the thread — which is what the banner told him to do. See clearNeedsBen
-    // in ThreadPanel.
+    // T17 (7 Sep 2026): a FLAGGED row renders again, as one line, not the banner: the agent's
+    // briefing and its due chip are the two things the tag and the thread do not say, and the
+    // review found them on his phone and on the portal thread page and nowhere on this desk.
+    // Only the newest flag is passed in, and only while needs_ben stands (see ThreadPanel).
+    //
+    // Clearing needs_ben is the SERVER's job since T17 (server/handover.ts, on any human send
+    // through the gate), so nothing here or in ThreadPanel touches the tags.
+    if (q.status === 'flagged') {
+        return (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border-l-4 border-blue-500 bg-blue-50 px-3 py-2 text-xs text-blue-900" data-testid="flag-note">
+                <span className="font-bold uppercase text-[11px]">🚩 Flagged for you · {flagExceptionLabel(q.question)}</span>
+                <DueChip dueAt={q.dueAt} />
+                <span className="text-blue-800">{q.question.replace(/^\[[a-z_]+\]\s*/, '')}</span>
+                <span className="text-blue-500">Reply in the thread and it clears.</span>
+            </div>
+        );
+    }
     if (q.status !== 'answered') return null;
     return (
         <div className="rounded-lg border-l-4 border-indigo-300 bg-indigo-50/60 p-3 text-xs text-indigo-700">
@@ -1279,18 +1343,10 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
         setChannel(defaultChannel(card));
     }, [card.id]);
 
-    // The flag banner used to carry the only Dismiss button for needs_ben. With the banner gone,
-    // replying in the thread clears it — the agent picks the reply up on its next pass either way.
-    async function clearNeedsBen() {
-        if (!card.tags.includes('needs_ben')) return;
-        try {
-            await fetch(`/api/inbox/conversations/${card.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ tags: card.tags.filter((t) => t !== 'needs_ben') }),
-            });
-        } catch { /* the send worked; a stuck tag is not worth failing it */ }
-    }
+    // needs_ben used to be cleared HERE, by a client-side PATCH after the composer's two send
+    // buttons — and nowhere else, so a reply from any other surface left the thread Ben's for
+    // ever. Since T17 the server clears it inside the send itself (server/handover.ts, on any
+    // human send through the gate), so `refresh()` after a send already sees the tag gone.
 
     const sendFreeform = useMutation({
         mutationFn: async (body: string) => {
@@ -1305,7 +1361,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Send failed (${res.status})`);
             return res.json();
         },
-        onSuccess: () => { setInput(''); setError(null); void clearNeedsBen(); refresh(); },
+        onSuccess: () => { setInput(''); setError(null); refresh(); },
         onError: (e: Error) => setError(e.message),
     });
 
@@ -1320,7 +1376,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
             if (!res.ok) throw new Error(detail.error === 'OUTSIDE_WINDOW' ? detail.message : detail.error || 'Send failed');
             return detail;
         },
-        onSuccess: () => { setShowQuick(false); setInput(''); setError(null); void clearNeedsBen(); refresh(); },
+        onSuccess: () => { setShowQuick(false); setInput(''); setError(null); refresh(); },
         onError: (e: Error) => setError(e.message),
     });
 
@@ -1594,7 +1650,7 @@ function ThreadPanel({ card, onClose }: { card: BoardCard; onClose: () => void }
                 are audit history, not work. */}
             {((data?.questions?.length ?? 0) > 0 || (data?.drafts?.length ?? 0) > 0) && (
                 <div className="space-y-2 border-t border-slate-200 bg-slate-50 p-3">
-                    {(data!.questions ?? []).filter((q) => q.status === 'answered').map((q) => (
+                    {flagNotesFor(data!.questions ?? [], card.tags).map((q) => (
                         <FlagNoteCard key={q.id} q={q} />
                     ))}
                     {data!.drafts?.map((d) => (

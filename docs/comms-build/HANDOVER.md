@@ -87,7 +87,11 @@ Rollback, any time, one command (`docs/comms-build/CUTOVER.md` §4):
    the portal's lane override moves it; **Re-run clerk** on the card asks for a fresh intake.
 5. **What the agent did** — the drawer on any thread shows every run: lane, decision, guards hit,
    the proposal, cost. If a draft looks odd, that is where to look before rejecting.
-6. Reply from the **business number only** (that is how the desk sees your replies and closes flags).
+6. Reply from the **business number only** (that is how the desk sees your replies). Since T17
+   (7 Sep) any reply you send through the desk — the composer, a template, approving a draft —
+   takes the thread off your desk itself: the `needs_ben` tag comes off and the flag closes. A
+   reply typed on the handset is only seen if it lands as an outbound on the thread; then the
+   sweep clears it within its next pass. If a thread stays on your desk after you replied, say so.
 
 ## 5. Courtnee's week
 

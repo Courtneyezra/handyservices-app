@@ -14,7 +14,8 @@
  *   expireDrafts   pending message_drafts past due_at → holding line ('draft_expiry'),
  *                  held_reason = 'due_expired' (the claim). The draft stays pending.
  *   morningDigest  09:00 Europe/London (cron, gated): flags past due, drafts pending > 2h,
- *                  bursts that got only a holding line yesterday.
+ *                  priced drafts waiting (T17), bursts that got only a holding line yesterday —
+ *                  each count followed by the names behind it, oldest first (T17).
  *
  * Ledger: no server/ledger.ts exists yet (pane A owns it); every action lands in system_events
  * via logSystemEvent with a `runId`, which is what the ledger will backfill from.
@@ -27,6 +28,7 @@ import { sendHoldingLine, isTestNumber } from '../rules-layer';
 import { newRunId } from '../approver';
 import { logSystemEvent } from '../system-events';
 import { formatUk } from '../working-hours';
+import { WAITING_DRAFT_WHERE } from '../spine/price-brief';
 
 /** Decided 2 Sep 2026 (design §0b / §3.5): ten minutes, 24/7. */
 export const SILENCE_AFTER_MINUTES = 10;
@@ -332,11 +334,36 @@ export async function runSilenceBreakerTick(now: Date = new Date()): Promise<voi
 
 // ---------------------------------------------------------------- 4. the 09:00 digest
 
+/** T17: one named thread behind a digest count. */
+export interface DigestItem {
+    name: string;
+    phone: string;
+    /** ISO — when it became due (a flag), was written (a draft), or was created (a price draft). */
+    since: string;
+    conversationId: string | null;
+}
+
 export interface DigestCounts {
     flagsPastDue: number;
     draftsPendingOver2h: number;
     holdingOnlyBurstsYesterday: number;
     yesterday: string;
+    /** T17: the threads behind the counts, oldest first, at most DIGEST_NAMES_PER_SECTION each. */
+    flags: DigestItem[];
+    drafts: DigestItem[];
+    /** T17: Route A drafts waiting to be priced (WAITING_DRAFT_WHERE, the price queue's rule). */
+    priceDraftsWaiting: number;
+    priceDrafts: DigestItem[];
+}
+
+/** How many threads a digest section names before "and N more". Pushover bodies cap at 1,024 chars. */
+export const DIGEST_NAMES_PER_SECTION = 4;
+
+function digestName(name: unknown, phone: unknown): { name: string; phone: string } {
+    const digits = String(phone ?? '').replace('@c.us', '').replace(/\D/g, '');
+    const e164 = digits ? `+${digits}` : '';
+    const raw = String(name ?? '').trim();
+    return { name: raw && raw.toLowerCase() !== 'unknown' ? raw.split(/\s+/)[0] : 'Unknown', phone: e164 };
 }
 
 export async function digestCounts(now: Date = new Date()): Promise<DigestCounts> {
@@ -348,6 +375,30 @@ export async function digestCounts(now: Date = new Date()): Promise<DigestCounts
     const [drafts] = await db.select({ n: sql<number>`count(*)::int` }).from(messageDrafts).where(and(
         eq(messageDrafts.status, 'pending'), lte(messageDrafts.createdAt, twoHoursAgo), ne(messageDrafts.source, 'rules_layer'),
     ));
+
+    // T17: the names behind the counts. Oldest first, so the thread that has waited longest is the
+    // first thing read. Joined to conversations for the name; the phone is on the row itself.
+    const flagRows: any = await db.execute(sql`
+        select q.conversation_id, q.phone, q.due_at, c.contact_name
+        from agent_questions q left join conversations c on c.id = q.conversation_id
+        where q.due_at is not null and q.due_at <= ${now.toISOString()}::timestamptz and q.answered_at is null
+          and q.status in ('open', 'flagged')
+        order by q.due_at asc limit ${DIGEST_NAMES_PER_SECTION}`);
+    const draftRows: any = await db.execute(sql`
+        select d.conversation_id, d.phone, d.created_at, c.contact_name
+        from message_drafts d left join conversations c on c.id = d.conversation_id
+        where d.status = 'pending' and d.created_at <= ${twoHoursAgo.toISOString()}::timestamptz and d.source <> 'rules_layer'
+        order by d.created_at asc limit ${DIGEST_NAMES_PER_SECTION}`);
+    const priceRows: any = await db.execute(sql`
+        select q.short_slug, q.phone, q.created_at, q.customer_name, count(*) over () as total
+        from personalized_quotes q
+        where ${sql.raw(WAITING_DRAFT_WHERE)}
+        order by q.created_at asc limit ${DIGEST_NAMES_PER_SECTION}`);
+    const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+    const flagItems: DigestItem[] = rowsOf(flagRows).map((r) => ({ ...digestName(r.contact_name, r.phone), since: new Date(r.due_at).toISOString(), conversationId: r.conversation_id ?? null }));
+    const draftItems: DigestItem[] = rowsOf(draftRows).map((r) => ({ ...digestName(r.contact_name, r.phone), since: new Date(r.created_at).toISOString(), conversationId: r.conversation_id ?? null }));
+    const priceItems: DigestItem[] = rowsOf(priceRows).map((r) => ({ ...digestName(r.customer_name, r.phone), since: new Date(r.created_at).toISOString(), conversationId: null }));
+    const priceDraftsWaiting = Number(rowsOf(priceRows)[0]?.total ?? 0);
     // Yesterday, UK: bursts whose only reply was a rules-layer holding line — the thread got a
     // holding line and nothing human or agent-written after it before midnight.
     const r: any = await db.execute(sql`
@@ -380,16 +431,44 @@ export async function digestCounts(now: Date = new Date()): Promise<DigestCounts
         draftsPendingOver2h: drafts?.n ?? 0,
         holdingOnlyBurstsYesterday: row?.holding_only ?? 0,
         yesterday: row?.label ?? 'yesterday',
+        flags: flagItems,
+        drafts: draftItems,
+        priceDraftsWaiting,
+        priceDrafts: priceItems,
     };
 }
 
-export function formatDigest(c: DigestCounts): { title: string; lines: string[] } {
-    const total = c.flagsPastDue + c.draftsPendingOver2h + c.holdingOnlyBurstsYesterday;
+/** "26h" / "3d" since an instant, for a digest line. Pure. */
+export function digestAge(sinceIso: string, now: Date): string {
+    const ms = now.getTime() - new Date(sinceIso).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return 'now';
+    if (ms < 3_600_000) return 'under 1h';
+    const h = Math.round(ms / 3_600_000);
+    if (h < 48) return `${h}h`;
+    return `${Math.round(h / 24)}d`;
+}
+
+/** "Sam +447700900123 (26h), Jo +447700900456 (3h) and 2 more" — or '' when there is nobody. */
+export function digestNames(items: DigestItem[], total: number, now: Date): string {
+    if (!items.length) return '';
+    const named = items.map((i) => `${i.name}${i.phone ? ` ${i.phone}` : ''} (${digestAge(i.since, now)})`).join(', ');
+    const more = Math.max(0, total - items.length);
+    return more > 0 ? `${named} and ${more} more` : named;
+}
+
+export function formatDigest(c: DigestCounts, now: Date = new Date()): { title: string; lines: string[] } {
+    const priceWaiting = c.priceDraftsWaiting ?? 0;
+    const total = c.flagsPastDue + c.draftsPendingOver2h + c.holdingOnlyBurstsYesterday + priceWaiting;
+    const withNames = (head: string, items: DigestItem[] | undefined, count: number) => {
+        const names = digestNames(items ?? [], count, now);
+        return names ? `${head}: ${names}` : head;
+    };
     return {
         title: total === 0 ? '☀️ Comms digest: all clear' : `☀️ Comms digest: ${total} to look at`,
         lines: [
-            `${c.flagsPastDue} flag${c.flagsPastDue === 1 ? '' : 's'} past due and unanswered`,
-            `${c.draftsPendingOver2h} draft${c.draftsPendingOver2h === 1 ? '' : 's'} pending over 2 hours`,
+            withNames(`${c.flagsPastDue} flag${c.flagsPastDue === 1 ? '' : 's'} past due and unanswered`, c.flags, c.flagsPastDue),
+            withNames(`${c.draftsPendingOver2h} draft${c.draftsPendingOver2h === 1 ? '' : 's'} pending over 2 hours`, c.drafts, c.draftsPendingOver2h),
+            withNames(`${priceWaiting} priced draft${priceWaiting === 1 ? '' : 's'} waiting to be sent`, c.priceDrafts, priceWaiting),
             `${c.holdingOnlyBurstsYesterday} thread${c.holdingOnlyBurstsYesterday === 1 ? '' : 's'} got only a holding line ${c.yesterday}`,
         ],
     };
@@ -398,7 +477,7 @@ export function formatDigest(c: DigestCounts): { title: string; lines: string[] 
 /** The 09:00 Europe/London cron (server/cron.ts, gated to the worker). */
 export async function sendMorningDigest(now: Date = new Date()): Promise<DigestCounts> {
     const counts = await digestCounts(now);
-    const { title, lines } = formatDigest(counts);
+    const { title, lines } = formatDigest(counts, now);
     try {
         const { notifyCommsDigest } = await import('../pushover');
         await notifyCommsDigest({ title, lines });

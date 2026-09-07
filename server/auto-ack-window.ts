@@ -56,9 +56,9 @@
  *
  * ─── WHAT STILL STOPS THE CLOCK ────────────────────────────────────────────────────────────────
  *
- * Ben's own typed reply, a draft Ben approved (including an ack he approved by hand), an agent
- * draft he approved, a quote send, a template send. All of them. Only the machine's own
- * acknowledgement does not.
+ * Ben's own typed reply, a draft Ben approved (including an ack or a holding line he approved by
+ * hand), an agent draft he approved, a quote send, a template send, a rules-layer ask. All of
+ * them. Only the machine's own acknowledgement and (T17) its holding line do not.
  *
  * ─── WHAT THIS DELIBERATELY DOES NOT TOUCH ─────────────────────────────────────────────────────
  *
@@ -78,6 +78,22 @@ export const AUTO_ACK_SOURCE = 'first_contact_ack';
 export const AUTO_ACK_APPROVER: Approver = 'rules.first_contact';
 /** What the lane stamped before Phase 0: `first_contact_ack:<channel>`. Older rows still carry it. */
 export const AUTO_ACK_APPROVER_PREFIX = 'first_contact_ack:';
+/**
+ * T17 (7 Sep 2026): the rules layer's HOLDING LINE is the same class of message — "we've got it,
+ * we'll come back to you" — and it was counting as our reply, so a flagged thread that got the
+ * ten-minute line read as answered, never turned red, and sorted last (S15 review §5.2). Same
+ * discriminator pair: source `rules_layer` with the machine approver `rules.holding`, bounded by
+ * the draft's own [approved_at, sent_at]. A rules-layer ASK (`rules.ask`: photo, postcode) is
+ * deliberately NOT here: after an ask the ball is with the customer.
+ */
+export const HOLDING_LINE_SOURCE = 'rules_layer';
+export const HOLDING_LINE_APPROVER: Approver = 'rules.holding';
+/**
+ * Holding lines are one per customer wait, so unlike acks they are not few: the read is bounded
+ * to the last 60 days (comms-sla's own scan stops at 14). A holding line older than that as the
+ * newest outbound on a thread is a dead thread reading as answered, which is what it read before.
+ */
+export const HOLDING_LINE_LOOKBACK_DAYS = 60;
 
 /**
  * Rounding slack on the interval, in milliseconds. Not a heuristic window: containment is
@@ -99,8 +115,35 @@ export type AutoAckSend = {
 };
 
 /**
- * Every acknowledgement the machine has sent. Small by construction: one row per auto-ack ever
- * sent, and the feature ships disabled. Indexed by (status, created_at).
+ * The drizzle predicate for "a machine receipt": a first-contact ack sent by the machine, or a
+ * rules-layer holding line. Exported so a test can pin the pair without a database.
+ */
+export function machineReceiptPredicate() {
+    return or(
+        and(
+            eq(messageDrafts.source, AUTO_ACK_SOURCE),
+            or(eq(messageDrafts.approvedBy, AUTO_ACK_APPROVER), like(messageDrafts.approvedBy, `${AUTO_ACK_APPROVER_PREFIX}%`)),
+        ),
+        and(
+            eq(messageDrafts.source, HOLDING_LINE_SOURCE),
+            eq(messageDrafts.approvedBy, HOLDING_LINE_APPROVER),
+            sql`${messageDrafts.sentAt} >= now() - make_interval(days => ${HOLDING_LINE_LOOKBACK_DAYS})`,
+        ),
+    );
+}
+
+/** Pure twin of the predicate, for the suite and for any caller holding a row in memory. */
+export function isMachineReceipt(row: { source: string | null; approvedBy: string | null }): boolean {
+    const src = row.source ?? '';
+    const by = row.approvedBy ?? '';
+    if (src === AUTO_ACK_SOURCE) return by === AUTO_ACK_APPROVER || by.startsWith(AUTO_ACK_APPROVER_PREFIX);
+    if (src === HOLDING_LINE_SOURCE) return by === HOLDING_LINE_APPROVER;
+    return false;
+}
+
+/**
+ * Every acknowledgement and holding line the machine has sent. Small by construction: one row
+ * per receipt ever sent. Indexed by (status, created_at).
  *
  * Never throws — a failure here must degrade to the old behaviour (acks counted as replies), not
  * to a board that will not render.
@@ -127,8 +170,7 @@ export async function loadAutoAckSends(): Promise<AutoAckSend[]> {
             .from(messageDrafts)
             .where(and(
                 eq(messageDrafts.status, 'sent'),
-                eq(messageDrafts.source, AUTO_ACK_SOURCE),
-                or(eq(messageDrafts.approvedBy, AUTO_ACK_APPROVER), like(messageDrafts.approvedBy, `${AUTO_ACK_APPROVER_PREFIX}%`)),
+                machineReceiptPredicate(),
                 isNotNull(messageDrafts.approvedAt),
                 isNotNull(messageDrafts.sentAt),
             ));

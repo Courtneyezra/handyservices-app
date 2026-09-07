@@ -31,7 +31,9 @@ export type PushoverEventKey =
     | 'comms_beta'
     | 'va_call_task'
     | 'worker_health'
-    | 'autonomy';
+    | 'autonomy'
+    | 'chase'
+    | 'chase_escalation';
 
 export interface PushoverEventDef {
     key: PushoverEventKey;
@@ -97,6 +99,14 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     // Phase 3 (3 Sep 2026): an agent intent earned SEND, or lost it. Owner-facing (Courtnee);
     // recipients who only want customer traffic can untick it. Low priority, no phone link.
     { key: 'autonomy', label: 'Agent intent promoted to SEND or demoted to DRAFT', short: 'Autonomy', group: 'Dispatch', defaultPriority: 0, defaultSound: 'magic' },
+    // T17 (7 Sep 2026): the chase ladder behind the handover (server/agents/sla-sweep.ts). Work
+    // that has sat with Ben past its due time — a flagged thread, a pending agent draft, an
+    // unpriced Route A draft — is re-pinged every N working hours on THIS key, with its rung in
+    // the title, so a chase is not one of six things sharing 'escalation' and can be tuned alone.
+    { key: 'chase', label: 'Chase: work still sitting with Ben past its due time (every few working hours)', short: 'Chase', group: 'Inbound', defaultPriority: 1, defaultSound: 'intermission' },
+    // Past M working hours with nobody moving, the same chase goes out on this owner-facing key
+    // (Courtnee; the same routing idea as 'autonomy'). Ben can untick it; the owner should not.
+    { key: 'chase_escalation', label: 'Chase escalated to the owner: nobody moved for a working day', short: 'Escalated', group: 'Dispatch', defaultPriority: 1, defaultSound: 'siren' },
 ];
 
 export const PUSHOVER_EVENT_KEYS: PushoverEventKey[] = PUSHOVER_EVENT_DEFS.map((e) => e.key);

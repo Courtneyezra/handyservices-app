@@ -101,9 +101,10 @@ export function wouldHaveHappened(run: Pick<SpineRun, 'decision' | 'proposal' | 
         case 'pending':
             return `queued as a DRAFT for Ben to approve (due ${d.dueAt}) — ${d.reason}`;
         case 'flag': {
-            const already = run.caseFile.tags?.includes('needs_ben') || (run.caseFile.openFlags?.length ?? 0) > 0;
+            // T17: mirrors the exit's rule — a duplicate only when an OPEN flag for the SAME exception stands.
+            const already = (run.caseFile.openFlags ?? []).some((f) => f.exception === d.exception);
             return already
-                ? `flagged for Ben (${d.exception}) — thread already flagged, so no new flag and no new ping`
+                ? `flagged for Ben (${d.exception}) — an open ${d.exception} flag already stands on this thread, so no new flag and no new ping`
                 : `flagged for Ben (${d.exception}), due ${d.dueAt}: a question on his phone, nothing to the customer`;
         }
         case 'drop':

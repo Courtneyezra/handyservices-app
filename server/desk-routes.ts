@@ -22,7 +22,7 @@
 import { Router } from 'express';
 import { db } from './db';
 import { conversations, messageDrafts } from '@shared/schema';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { DeskItem } from '@shared/ops-types';
 import { workingHoursBetween } from './comms-sla';
 import {
@@ -32,8 +32,7 @@ import {
 } from './assignment-proposals';
 import { loadBoardCards } from './inbox-board';
 import { listVaCallTasks } from './agents/va-call-tasks';
-import { detectSlaLane, getSlaSweepConfig } from './agents/sla-sweep';
-import { addWorkingHours } from './agents/promise-tracker';
+import { detectSlaLane, getSlaSweepConfig, laneDueAt, slaCandidateConditions } from './agents/sla-sweep';
 import { isTestNumber } from './phone-utils';
 
 export const deskRouter = Router();
@@ -202,13 +201,8 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             tags: conversations.tags,
             metadata: conversations.metadata,
         }).from(conversations)
-            .where(and(
-                isNull(conversations.archivedAt),
-                sql`(${conversations.stage} IS NULL OR ${conversations.stage} NOT IN ('closed', 'won'))`,
-                // P8: a spine clerk intake lives on agent_runs, not metadata — include those threads too.
-                sql`(${conversations.metadata}->'quotePrepIntake'->>'readiness' IS NOT NULL OR 'needs_ben' = ANY(${conversations.tags})
-                    OR EXISTS (SELECT 1 FROM agent_runs r WHERE r.conversation_id = ${conversations.id} AND r.agent = 'quote_clerk'))`,
-            ))
+            // T17: the sweep's own candidate rule, so the desk and the phone read the same threads.
+            .where(and(...slaCandidateConditions()))
             .limit(100);
 
         for (const conv of candidates) {
@@ -217,11 +211,8 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             const det = await detectSlaLane(conv);
             if (!det) continue;
             if (now.getTime() - det.enteredAt.getTime() > cfg.maxLaneAgeDays * 86_400_000) continue; // fossil
-            const laneCfg = cfg.lanes[det.lane];
-            if (!laneCfg) continue;
-            const dueAt = det.lane === 'needs_info'
-                ? new Date(det.enteredAt.getTime() + cfg.lanes.needs_info.clockHours * 3_600_000)
-                : addWorkingHours(det.enteredAt, (laneCfg as { workingHours: number }).workingHours);
+            // T17: one arithmetic for the sweep and the desk (chase lanes included).
+            const dueAt = laneDueAt(det, cfg);
             if (now.getTime() < dueAt.getTime()) continue; // in lane, not yet breached
 
             mergeItem(byKey, digits10(conv.phoneNumber) || conv.id, {

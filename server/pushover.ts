@@ -533,6 +533,52 @@ export async function notifyEscalation(alert: EscalationAlert): Promise<void> {
     });
 }
 
+/**
+ * T17 (7 Sep 2026): one rung of the chase ladder behind the handover (server/agents/sla-sweep.ts).
+ * A flagged thread, a pending agent draft or an unpriced Route A draft that has sat with Ben past
+ * its due time is re-pinged every N working hours with its rung in the title; from M working
+ * hours on the same ping rides the owner-facing 'chase_escalation' key instead. The link lands on
+ * the work: the thread, or the price screen for a draft to price.
+ */
+export interface ChaseAlert {
+    conversationId: string;
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    /** The distinct title the sweep composed (rung, lane, hours). */
+    title: string;
+    /** What is waiting and since when, one or two lines. */
+    note: string;
+    /** True from M working hours on: goes to the owner's key. */
+    escalated: boolean;
+    /** Where one tap should land. Defaults to the thread on the comms desk. */
+    linkUrl?: string;
+    linkUrlTitle?: string;
+}
+
+export async function notifyChase(alert: ChaseAlert): Promise<void> {
+    const who = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const deepLink = alert.linkUrl ?? `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+
+    const lines = [`${who} — ${number}`];
+    lines.push(truncate(alert.note.trim(), 500));
+    lines.push(alert.escalated
+        ? '🚨 Escalated: this has sat with Ben for a working day with nobody moving. Someone needs to pick it up or ring him.'
+        : '⏳ Still waiting on you. Reply in the thread, approve or reject the draft, or price it — any of those clears this.');
+    lines.push(deepLink);
+
+    await dispatch({
+        event: alert.escalated ? 'chase_escalation' : 'chase',
+        title: alert.title,
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: who,
+        linkUrl: deepLink,
+        linkUrlTitle: alert.linkUrlTitle ?? (alert.escalated ? '🚨 Open it' : '⏳ Open it'),
+    });
+}
+
 interface CommsBetaAlert {
     conversationId: string;
     customerName?: string | null;
