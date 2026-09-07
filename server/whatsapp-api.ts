@@ -95,6 +95,10 @@ whatsappRouter.post('/send', requireAdmin, async (req, res) => {
                 templateComponents,
                 via: via === 'meta' ? 'meta' : 'twilio',
             });
+            // T17: this path bypasses the send gate, so the way back from Ben is taken here. A
+            // person typed this at the composer (requireAdmin above): the thread is answered.
+            const { releaseFromBen } = await import('./handover');
+            await releaseFromBen({ phone: to }, { by: humanApprover((req as any).user?.email || (req as any).user?.id || 'admin'), reason: 'human reply sent (composer, Meta path)' });
             return res.json({ success: true, messageId: result.messages?.[0]?.id, channel: 'whatsapp' });
         }
 

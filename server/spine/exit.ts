@@ -9,7 +9,11 @@
  *   pending  queueDraft with due_at + run_id; a person decides, the rules layer holds the line
  *            if the due time passes.
  *   flag     agent_questions row (status flagged, due_at, run_id) + needs_ben tag + ONE Pushover.
- *            Deduped on the tag, like flagThreadForBen.
+ *            T17: deduped on the OPEN FLAG ROW and its exception, not the tag — an open flag for
+ *            the same exception means Ben already has this ask; the tag alone (no open row), or
+ *            an open row for a different exception, is a genuinely new ask and gets its row and
+ *            its ping. Before T17 a thread tagged needs_ben could never raise a second flag, so a
+ *            new exception on a flagged thread pinged nobody (S15 review §7.2).
  *   drop /   ledger event only.
  *   none
  *
@@ -133,6 +137,15 @@ async function defaultDeps(): Promise<ExitDeps> {
     };
 }
 
+/**
+ * T17: the flag dedupe rule, pure. A flag is a duplicate only when an OPEN flag row for the same
+ * exception already exists on the thread (the case file's openFlags: status flagged, unanswered,
+ * not yet expired). The needs_ben tag on its own is not a reason to stay silent.
+ */
+export function flagAlreadyOpen(openFlags: readonly { exception: string }[], exception: string): boolean {
+    return openFlags.some((f) => f.exception === exception);
+}
+
 /** P9: the tags an agent may put on a thread through its proposal. Anything else is ignored. */
 export const PROPOSAL_TAG_ALLOWLIST: readonly string[] = ['needs_quote', 'trust_concern', 'rescope'];
 
@@ -234,8 +247,8 @@ export async function exit(run: SpineRun, overrides: Partial<ExitDeps> = {}): Pr
                 break;
             }
             case 'flag': {
-                if (caseFile.tags.includes('needs_ben') || caseFile.openFlags.length) {
-                    outcome = { kind: 'flag', questionId: null, deduped: true, detail: 'thread already flagged for Ben' };
+                if (flagAlreadyOpen(caseFile.openFlags, decision.exception)) {
+                    outcome = { kind: 'flag', questionId: null, deduped: true, detail: `thread already flagged for Ben with an open ${decision.exception} flag` };
                     break;
                 }
                 const urgent = decision.exception === 'callback_requested';

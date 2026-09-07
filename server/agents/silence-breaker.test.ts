@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSilentBurst, isExpiredFlag, isExpiredDraft, formatDigest, SILENCE_AFTER_MINUTES, DUE_EXPIRED } from './silence-breaker';
+import { isSilentBurst, isExpiredFlag, isExpiredDraft, formatDigest, digestNames, digestAge, DIGEST_NAMES_PER_SECTION, SILENCE_AFTER_MINUTES, DUE_EXPIRED } from './silence-breaker';
 
 const NOW = new Date('2026-09-02T12:00:00.000Z');
 const min = (n: number) => new Date(NOW.getTime() - n * 60_000);
@@ -53,15 +53,47 @@ describe('isExpiredDraft', () => {
     });
 });
 
+const empty = { flags: [], drafts: [], priceDraftsWaiting: 0, priceDrafts: [] };
+
 describe('formatDigest', () => {
     it('reads as all clear at zero and counts otherwise, with no em dashes', () => {
-        const clear = formatDigest({ flagsPastDue: 0, draftsPendingOver2h: 0, holdingOnlyBurstsYesterday: 0, yesterday: 'Tue 01 Sep' });
+        const clear = formatDigest({ flagsPastDue: 0, draftsPendingOver2h: 0, holdingOnlyBurstsYesterday: 0, yesterday: 'Tue 01 Sep', ...empty }, NOW);
         expect(clear.title).toMatch(/all clear/);
-        const busy = formatDigest({ flagsPastDue: 2, draftsPendingOver2h: 1, holdingOnlyBurstsYesterday: 3, yesterday: 'Tue 01 Sep' });
+        const busy = formatDigest({ flagsPastDue: 2, draftsPendingOver2h: 1, holdingOnlyBurstsYesterday: 3, yesterday: 'Tue 01 Sep', ...empty }, NOW);
         expect(busy.title).toMatch(/6 to look at/);
         expect(busy.lines[0]).toBe('2 flags past due and unanswered');
         expect(busy.lines[1]).toBe('1 draft pending over 2 hours');
-        expect(busy.lines[2]).toBe('3 threads got only a holding line Tue 01 Sep');
+        expect(busy.lines[2]).toBe('0 priced drafts waiting to be sent');
+        expect(busy.lines[3]).toBe('3 threads got only a holding line Tue 01 Sep');
         for (const l of [...busy.lines, busy.title]) expect(l).not.toMatch(/[—–]/);
+    });
+
+    // T17: the digest names threads rather than only counting them.
+    it('names the threads behind each count, oldest first, with how long, and "and N more" past the cap', () => {
+        const c = formatDigest({
+            flagsPastDue: 6, draftsPendingOver2h: 1, holdingOnlyBurstsYesterday: 0, yesterday: 'Sun 06 Sep',
+            flags: [
+                { name: 'Sam', phone: '+447700900123', since: new Date(NOW.getTime() - 26 * 3_600_000).toISOString(), conversationId: 'c1' },
+                { name: 'Jo', phone: '+447700900456', since: new Date(NOW.getTime() - 3 * 3_600_000).toISOString(), conversationId: 'c2' },
+                { name: 'Unknown', phone: '+447700900789', since: new Date(NOW.getTime() - 4 * 86_400_000).toISOString(), conversationId: 'c3' },
+                { name: 'Pat', phone: '', since: new Date(NOW.getTime() - 30 * 60_000).toISOString(), conversationId: 'c4' },
+            ],
+            drafts: [{ name: 'Ali', phone: '+447700900321', since: new Date(NOW.getTime() - 5 * 3_600_000).toISOString(), conversationId: 'c5' }],
+            priceDraftsWaiting: 2,
+            priceDrafts: [
+                { name: 'Kim', phone: '+447700900654', since: new Date(NOW.getTime() - 4 * 86_400_000).toISOString(), conversationId: null },
+                { name: 'Lee', phone: '+447700900987', since: new Date(NOW.getTime() - 40 * 3_600_000).toISOString(), conversationId: null },
+            ],
+        }, NOW);
+        expect(c.title).toBe('☀️ Comms digest: 9 to look at');
+        expect(c.lines[0]).toBe('6 flags past due and unanswered: Sam +447700900123 (26h), Jo +447700900456 (3h), Unknown +447700900789 (4d), Pat (under 1h) and 2 more');
+        expect(c.lines[1]).toBe('1 draft pending over 2 hours: Ali +447700900321 (5h)');
+        expect(c.lines[2]).toBe('2 priced drafts waiting to be sent: Kim +447700900654 (4d), Lee +447700900987 (40h)');
+        expect(digestNames([], 3, NOW)).toBe('');
+        expect(digestAge(new Date(NOW.getTime() + 60_000).toISOString(), NOW)).toBe('now');
+        expect(DIGEST_NAMES_PER_SECTION).toBe(4);
+        // Pushover caps a body at 1,024 characters: four names a section keeps the whole digest under it.
+        expect(c.lines.join('\n').length).toBeLessThan(1024);
+        for (const l of [...c.lines, c.title]) expect(l).not.toMatch(/[—–]/);
     });
 });

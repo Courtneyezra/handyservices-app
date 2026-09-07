@@ -121,6 +121,12 @@ export type BoardCard = {
     complaint: boolean;
     /** Tag callback_due — a promised (or interrupted) call not yet rung back. Ben's move. */
     callbackDue: boolean;
+    /** T17: the newest unanswered flag's note (the agent's briefing), while needs_ben stands. */
+    flagNote: string | null;
+    /** T17: that flag's due time (ISO), for the due chip; null on a legacy flag without one. */
+    flagDueAt: string | null;
+    /** T17: when the flag was raised (ISO). */
+    flagRaisedAt: string | null;
     /** conversations.role_profile — the client shows the contractor pack chip on 'contractor' threads (Phase 4). */
     roleProfile: string | null;
 };
@@ -140,6 +146,8 @@ export type CardDerived = {
     intakeReadiness: IntakeReadiness | null;
     intakeSource: 'spine' | 'legacy' | null;
     priceDraftSlug: string | null;
+    /** T17: the newest unanswered flag on the thread — the agent's note and its clock. */
+    flag: { id: string; note: string; dueAt: string | null; raisedAt: string } | null;
 };
 
 const EMPTY_DERIVED: CardDerived = {
@@ -154,6 +162,7 @@ const EMPTY_DERIVED: CardDerived = {
     intakeReadiness: null,
     intakeSource: null,
     priceDraftSlug: null,
+    flag: null,
 };
 
 /** Last 10 digits of any phone spelling — the same normalisation the agents use
@@ -202,6 +211,27 @@ export async function loadCardDerived(
         questionByConv.set(q.conversationId, {
             count: 1,
             options: Array.isArray(q.options) ? (q.options as unknown[]).length : 0,
+        });
+    }
+
+    // 2b. T17: the newest UNANSWERED flag per conversation. Until T17 a flagged row drew nothing on
+    //     the board (the card counted 'open' rows, the retired tap relay), so a thread that was
+    //     Ben's for twelve hours had no note and no due chip. One grouped read, newest first.
+    const flagByConv = new Map<string, CardDerived['flag']>();
+    const flagRows = await db.select({
+        id: agentQuestions.id, conversationId: agentQuestions.conversationId, question: agentQuestions.question,
+        dueAt: agentQuestions.dueAt, createdAt: agentQuestions.createdAt,
+    })
+        .from(agentQuestions)
+        .where(and(eq(agentQuestions.status, 'flagged'), isNull(agentQuestions.answeredAt), inArray(agentQuestions.conversationId, conversationIds)))
+        .orderBy(desc(agentQuestions.createdAt));
+    for (const f of flagRows) {
+        if (flagByConv.has(f.conversationId)) continue;
+        flagByConv.set(f.conversationId, {
+            id: f.id,
+            note: (f.question ?? '').slice(0, 400),
+            dueAt: f.dueAt ? new Date(f.dueAt).toISOString() : null,
+            raisedAt: f.createdAt ? new Date(f.createdAt).toISOString() : new Date(0).toISOString(),
         });
     }
 
@@ -291,6 +321,7 @@ export async function loadCardDerived(
             intakeReadiness: readiness?.readiness ?? null,
             intakeSource: readiness?.source ?? null,
             priceDraftSlug: readiness?.draftSlug ?? null,
+            flag: flagByConv.get(r.id) ?? null,
         });
     }
     return map;
@@ -342,7 +373,8 @@ export async function loadActivity(conversationIds: string[]): Promise<Map<strin
         });
     }
 
-    // AN AUTO-ACKNOWLEDGEMENT IS NOT A REPLY. See server/auto-ack-window.ts for the whole argument
+    // AN AUTO-ACKNOWLEDGEMENT IS NOT A REPLY, AND (T17) NEITHER IS A HOLDING LINE. See
+    // server/auto-ack-window.ts for the whole argument
     // and for why the discriminator is the message_drafts pair rather than the audit log or the
     // Twilio sid. Same shape as the quarantine rule above: nothing is mutated, the messages stay in
     // the thread, they just stop counting as an answer.
@@ -438,11 +470,14 @@ export function toCard(
     // An open ask-Ben question is an agent ACTION, not agent silence — the first false alarm
     // (20 Aug, a furniture-assembly caller whose window was shut) accused the agent of being
     // down on a thread where it had correctly escalated within minutes and the move was Ben's.
+    // T17: a FLAG is an agent action too. Now that a holding line no longer counts as our reply,
+    // a flagged enquiry with nothing else on it would otherwise read as "agent down".
     const agentDown = stage === 'enquiry'
         && !!lastCustomerAt
         && Date.now() - lastCustomerAt.getTime() > 15 * 60_000
         && !lastMessageOutbound
-        && d.openQuestionCount === 0;
+        && d.openQuestionCount === 0
+        && !(d.flag && tags.includes('needs_ben'));
 
     // The clerk's verdict (P8 / C): resolved once in loadCardDerived through server/intake.ts —
     // spine artifact → human override → legacy fallback — and `quote_pending` is derived from
@@ -499,6 +534,11 @@ export function toCard(
         agentDown,
         complaint: (c.priority || 'normal') === 'urgent' && whoseMove === 'ben',
         callbackDue,
+        // T17: the flag's note and clock ride the card only while the thread is Ben's; once the
+        // tag is off the row is audit history, not work.
+        flagNote: d.flag && tags.includes('needs_ben') ? d.flag.note : null,
+        flagDueAt: d.flag && tags.includes('needs_ben') ? d.flag.dueAt : null,
+        flagRaisedAt: d.flag && tags.includes('needs_ben') ? d.flag.raisedAt : null,
         roleProfile: c.roleProfile ?? null,
     };
 }

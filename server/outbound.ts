@@ -34,6 +34,7 @@ import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './o
 import { logSystemEvent } from './system-events';
 import { type Approver, isApprover } from './approver';
 import { ledgerMessageOut, ledgerDraftSent } from './ledger';
+import { noteHumanSend } from './handover';
 
 export type OutboundChannel = 'whatsapp' | 'sms';
 
@@ -260,6 +261,7 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
         const sms = await trySms(e164, input, attempts);
         if (sms.ok) {
             await recordSendInLedger(input, e164, 'sms', sms.sid ?? null);
+            await releaseBenAfterHumanSend(input, e164);
             return { ok: true, channel: 'sms', sid: sms.sid, attempts, fellBack: false, reason };
         }
         await raiseDroppedMessageAlert(e164, input, attempts);
@@ -277,6 +279,7 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
         });
         attempts.push({ channel: 'whatsapp', ok: true, sid: result?.sid ?? null });
         await recordSendInLedger(input, e164, 'whatsapp', result?.sid ?? null);
+        await releaseBenAfterHumanSend(input, e164);
         return { ok: true, channel: 'whatsapp', sid: result?.sid ?? null, attempts, fellBack: false };
     } catch (error: any) {
         const code = codeOf(error);
@@ -324,11 +327,27 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
                 source: 'outbound',
             });
             await recordSendInLedger(input, e164, 'sms', sms.sid ?? null);
+            await releaseBenAfterHumanSend(input, e164);
             return { ok: true, channel: 'sms', sid: sms.sid, attempts, fellBack: true, reason };
         }
 
         await raiseDroppedMessageAlert(e164, input, attempts);
         return { ok: false, attempts, fellBack: false, reason, error: sms.error ?? error?.message };
+    }
+}
+
+/**
+ * T17: the way back from Ben. A person's successful send to a number is that person answering
+ * the thread, whatever surface they used (composer, template route, a draft Ben approved, a quick
+ * reply), so the needs_ben tag and the open flag come off here, at the one gate, and not in the
+ * page's JavaScript. Automated and contractor approvers do nothing. Never throws: the customer
+ * has the message; this is bookkeeping.
+ */
+async function releaseBenAfterHumanSend(input: SendCustomerMessageInput, e164: string): Promise<void> {
+    try {
+        await noteHumanSend({ to: e164, approver: input.approver, runId: input.runId, context: input.context ?? null });
+    } catch (error: any) {
+        console.warn('[Outbound] handover release failed (the send stands):', error?.message ?? error);
     }
 }
 

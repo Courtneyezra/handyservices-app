@@ -62,10 +62,15 @@ describe('wouldHaveHappened — the exit boundary, in one line', () => {
         expect(wouldHaveHappened({ decision: { kind: 'pending', dueAt: '2026-09-06T10:00:00Z', reason: 'intent ask_gap is at tier DRAFT' }, proposal, caseFile: cf() }))
             .toBe('queued as a DRAFT for Ben to approve (due 2026-09-06T10:00:00Z) — intent ask_gap is at tier DRAFT');
     });
-    it('flag names the exception, and says so when the thread is already flagged', () => {
+    it('flag names the exception, and says so only when an OPEN flag for the same exception already stands (T17)', () => {
         const d = { kind: 'flag' as const, exception: 'callback_requested' as const, dueAt: 'd', note: 'n' };
         expect(wouldHaveHappened({ decision: d, proposal, caseFile: cf() })).toContain('flagged for Ben (callback_requested), due d');
-        expect(wouldHaveHappened({ decision: d, proposal, caseFile: cf({ tags: ['needs_ben'] }) })).toContain('already flagged');
+        // The tag alone is no longer a reason to stay silent: the exit raises a row and a ping.
+        expect(wouldHaveHappened({ decision: d, proposal, caseFile: cf({ tags: ['needs_ben'] }) })).toContain('flagged for Ben (callback_requested), due d');
+        const same = [{ exception: 'callback_requested' as const, note: 'n', dueAt: 'd' }];
+        expect(wouldHaveHappened({ decision: d, proposal, caseFile: cf({ tags: ['needs_ben'], openFlags: same }) })).toContain('already stands on this thread, so no new flag');
+        const other = [{ exception: 'money_question' as const, note: 'n', dueAt: 'd' }];
+        expect(wouldHaveHappened({ decision: d, proposal, caseFile: cf({ tags: ['needs_ben'], openFlags: other }) })).toContain('due d');
     });
     it('drop and none say nothing went out', () => {
         expect(wouldHaveHappened({ decision: { kind: 'drop', reason: 'spam' }, proposal: null, caseFile: cf() })).toContain('dropped — spam');

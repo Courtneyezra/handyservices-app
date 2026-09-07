@@ -2,7 +2,7 @@
  * Phase 2 vitest: exit() routing with injected dependencies. No database, no Pushover.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { exit, type ExitDeps } from './exit';
+import { exit, flagAlreadyOpen, type ExitDeps } from './exit';
 import type { CaseFile, SpineRun, Decision } from './types';
 
 vi.mock('../ledger', () => ({
@@ -75,11 +75,30 @@ describe('exit', () => {
         expect(row.dueAt).toEqual(new Date('2026-09-02T10:20:00Z'));
         expect(out).toMatchObject({ kind: 'flag', questionId: row.id });
     });
-    it('flag on a thread already flagged → deduped, no row, no ping', async () => {
+    // T17: the dedupe is on the OPEN FLAG ROW and its exception, not the tag.
+    it('flag with an OPEN flag for the same exception → deduped, no row, no ping', async () => {
         const d = fakeDeps();
-        const out = await exit(run({ kind: 'flag', exception: 'money_question', dueAt: '2026-09-02T14:00:00Z', note: 'money' }, { caseFile: cf({ tags: ['needs_ben'] }) }), d);
+        const open = [{ exception: 'money_question' as const, note: 'money', dueAt: '2026-09-02T14:00:00Z' }];
+        const out = await exit(run({ kind: 'flag', exception: 'money_question', dueAt: '2026-09-02T14:00:00Z', note: 'money' }, { caseFile: cf({ tags: ['needs_ben'], openFlags: open }) }), d);
         expect(d.calls).toEqual([]);
         expect(out).toMatchObject({ kind: 'flag', deduped: true });
+        expect(flagAlreadyOpen(open, 'money_question')).toBe(true);
+    });
+    it('flag on a thread tagged needs_ben with NO open flag row → a new row and a ping (the tag alone is not silence)', async () => {
+        const d = fakeDeps();
+        const out = await exit(run({ kind: 'flag', exception: 'money_question', dueAt: '2026-09-02T14:00:00Z', note: 'money' }, { caseFile: cf({ tags: ['needs_ben'], openFlags: [] }) }), d);
+        expect(d.calls).toEqual(['flag:flagged:normal', 'notify']);
+        expect(out.kind).toBe('flag');
+        expect(out.deduped).toBeUndefined();
+        expect(out.questionId).toBeTruthy();
+    });
+    it('a genuinely NEW exception on an already-flagged thread → a new row and a ping', async () => {
+        const d = fakeDeps();
+        const open = [{ exception: 'out_of_scope' as const, note: 'roofing', dueAt: '2026-09-02T14:00:00Z' }];
+        const out = await exit(run({ kind: 'flag', exception: 'complaint', dueAt: '2026-09-02T14:00:00Z', note: 'unhappy' }, { caseFile: cf({ tags: ['needs_ben'], openFlags: open }) }), d);
+        expect(d.calls).toEqual(['flag:flagged:normal', 'notify']);
+        expect(out.questionId).toBeTruthy();
+        expect(flagAlreadyOpen(open, 'complaint')).toBe(false);
     });
     it('drop and none → ledger event only', async () => {
         const d = fakeDeps();

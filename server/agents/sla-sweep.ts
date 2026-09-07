@@ -18,6 +18,23 @@
  *   visit_first  12 working hours   (= 1 working day on the 08:00–20:00 clock) no visit
  *                                   arranged → ping Ben
  *
+ * THE CHASE LADDER (T17, 7 Sep 2026, docs/comms-build/BRIEF-T17-after-the-handover.md). Three
+ * more lanes for work that has sat with Ben past its due time. Each has a clock zero chosen so
+ * no rung fires twice with the pings that already exist, and each is re-pinged every
+ * chase.everyWorkingHours (not the daily clock-hour cadence above) with its rung in the title;
+ * from chase.escalateAfterWorkingHours past zero the ping rides the owner-facing
+ * 'chase_escalation' Pushover key instead of Ben's 'chase' key, and keeps going until movement.
+ *
+ *   ben_flag       zero = the flag's due_at (the expiry re-ping's moment); first chase N later
+ *   pending_draft  zero = the agent draft's due_at (nothing pings today); first chase at zero
+ *   price_draft    zero = the Route A draft's created_at (its one Pushover); first chase N later
+ *
+ * N = 4 (the desk's one unit: FLAG_DUE / DRAFT_DUE / DEFAULT_SLA_WORKING_HOURS), M = 12 (one
+ * working day on the 08–20 clock, the figure visit_first already uses), both on BEN_HOURS via
+ * addWorkingHours below. A chase whose zero is older than chase.maxAgeDays is backlog, named in
+ * the 09:00 digest, not chased: the first deploy must not fire the whole history at the phone.
+ * Nothing here reaches a customer; every ping is internal.
+ *
  * Design rules, each load-bearing:
  *   · IDEMPOTENT AND NON-SPAMMY. The sla_alerts row is the claim: one open episode per
  *     (conversation, lane), enforced by a partial unique index, insert-with-onConflictDoNothing
@@ -54,7 +71,8 @@ import {
 } from '@shared/schema';
 import { and, eq, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { addWorkingHours } from './promise-tracker';
-import { isOutOfHours, ukHour as ukHourOf, formatUk } from '../working-hours';
+import { BEN_HOURS, isOutOfHours, ukHour as ukHourOf, formatUk, workingHoursBetween } from '../working-hours';
+import { WAITING_DRAFT_WHERE } from '../spine/price-brief';
 import { emitCommsEvent } from '../comms-events';
 import { isTestNumber } from '../phone-utils';
 
@@ -69,7 +87,17 @@ function emitSlaBoardDelta(conversationId: string): void {
 
 // ---------------------------------------------------------------- config
 
-export type SlaLane = 'quote_ready' | 'needs_ben' | 'needs_info' | 'visit_first' | 'decline';
+export type SlaLane = 'quote_ready' | 'needs_ben' | 'needs_info' | 'visit_first' | 'decline'
+    | 'ben_flag' | 'pending_draft' | 'price_draft';
+
+/** T17: the lanes on the chase ladder — working-hour cadence, rung titles, owner escalation. */
+export const CHASE_LANES: readonly SlaLane[] = ['ben_flag', 'pending_draft', 'price_draft'];
+export function isChaseLane(lane: SlaLane): boolean {
+    return CHASE_LANES.includes(lane);
+}
+
+/** The draft sources that are an agent's reply waiting for Ben (never the rules layer's own lines). */
+export const AGENT_DRAFT_SOURCES: readonly string[] = ['spine', 'comms_agent'];
 
 export interface SlaSweepConfig {
     /** Master switch for the whole sweep (internal pings included). */
@@ -81,6 +109,21 @@ export interface SlaSweepConfig {
         visit_first: { workingHours: number };
         /** T6a seam — becomes real when quote-prep grows the decline verdict. */
         decline?: { workingHours: number };
+        /** T17: working hours after the flag's due time before the first chase. */
+        ben_flag: { workingHours: number };
+        /** T17: working hours after the draft's due time before the first chase (0 = at due). */
+        pending_draft: { workingHours: number };
+        /** T17: working hours after the Route A draft's creation before the first chase. */
+        price_draft: { workingHours: number };
+    };
+    /** T17: the ladder's cadence and its last rung. */
+    chase: {
+        /** Re-ping every this many working hours (BEN_HOURS) while the item stays with Ben. */
+        everyWorkingHours: number;
+        /** From this many working hours past the lane's clock zero, the ping goes to the owner. */
+        escalateAfterWorkingHours: number;
+        /** A chase whose clock zero is older than this is backlog (digest), not a live chase. */
+        maxAgeDays: number;
     };
     customerChase: {
         /** SHIPS OFF. While off, a needs_info breach pings Ben instead of messaging anyone. */
@@ -107,6 +150,14 @@ export const DEFAULT_SLA_SWEEP_CONFIG: SlaSweepConfig = {
         needs_ben: { workingHours: 2 },
         needs_info: { clockHours: 24 },
         visit_first: { workingHours: 12 }, // one working day on the 08:00–20:00 clock
+        ben_flag: { workingHours: 4 },
+        pending_draft: { workingHours: 0 },
+        price_draft: { workingHours: 4 },
+    },
+    chase: {
+        everyWorkingHours: 4,
+        escalateAfterWorkingHours: 12,
+        maxAgeDays: 3,
     },
     customerChase: {
         enabled: false,
@@ -122,6 +173,7 @@ function mergeConfig(base: SlaSweepConfig, patch: Partial<SlaSweepConfig>): SlaS
     return {
         ...base, ...patch,
         lanes: { ...base.lanes, ...(patch.lanes ?? {}) },
+        chase: { ...base.chase, ...(patch.chase ?? {}) },
         customerChase: { ...base.customerChase, ...(patch.customerChase ?? {}) },
     };
 }
@@ -247,6 +299,8 @@ export interface DetectedLane {
     enteredAt: Date;
     /** One line of context for the alert note. */
     detail: string;
+    /** T17: where one tap should land when it is not the thread (the price screen for a draft). */
+    href?: string;
 }
 
 interface ConvRow {
@@ -264,7 +318,16 @@ interface ConvRow {
  * thread is in no lane or the lane already saw movement (which is also how Pass A learns an
  * open episode should resolve).
  */
-export async function detectSlaLane(conv: ConvRow): Promise<DetectedLane | null> {
+export interface DetectHooks {
+    /**
+     * T17: the needs_ben scan finds a HUMAN outbound since the flag — Ben answered from some
+     * surface the send gate never saw. The sweep releases the thread (server/handover.ts); the
+     * desk's read-only callers pass nothing. Best-effort, never awaited into the detection.
+     */
+    humanReplied?: (info: { conversationId: string; phone: string; flagRaisedAt: Date }) => Promise<void> | void;
+}
+
+export async function detectSlaLane(conv: ConvRow, hooks: DetectHooks = {}): Promise<DetectedLane | null> {
     const digits = digitsOf(conv.phoneNumber);
     const phone = `+${digits}`;
     const tags = conv.tags ?? [];
@@ -275,19 +338,66 @@ export async function detectSlaLane(conv: ConvRow): Promise<DetectedLane | null>
     // from the THREAD: Ben replying or a quote going out since the flag means he acted, and the
     // stale flag must not breach — fall through to the verdict lanes instead.
     if (tags.includes('needs_ben')) {
-        const [flag] = await db.select({ createdAt: agentQuestions.createdAt, question: agentQuestions.question, dueAt: agentQuestions.dueAt })
+        const [flag] = await db.select({ createdAt: agentQuestions.createdAt, question: agentQuestions.question, dueAt: agentQuestions.dueAt, answeredAt: agentQuestions.answeredAt })
             .from(agentQuestions)
             .where(and(eq(agentQuestions.conversationId, conv.id), eq(agentQuestions.status, 'flagged')))
             .orderBy(desc(agentQuestions.createdAt)).limit(1);
-        // A flag with a due time is the flag-expiry path's to chase (holding line + one re-ping at
-        // due_at); pinging here too is the double ping. Fall through to the verdict lanes instead.
-        if (flag?.createdAt && !flagOwnedByExpiryPath(flag)) {
-            const enteredAt = new Date(flag.createdAt);
-            const moved = await humanOutboundSince(conv.id, phone, enteredAt)
-                || await quoteWentOutSince(conv.id, digits, enteredAt);
-            if (!moved) {
-                return { lane: 'needs_ben', enteredAt, detail: (flag.question ?? '').slice(0, 160) };
+        if (flag?.createdAt && !flag.answeredAt) {
+            const raisedAt = new Date(flag.createdAt);
+            const humanReplied = await humanOutboundSince(conv.id, phone, raisedAt);
+            if (humanReplied && hooks.humanReplied) {
+                try { await hooks.humanReplied({ conversationId: conv.id, phone, flagRaisedAt: raisedAt }); } catch (e: any) { console.warn('[SlaSweep] humanReplied hook failed (detection stands):', e?.message ?? e); }
             }
+            const moved = humanReplied || await quoteWentOutSince(conv.id, digits, raisedAt);
+            if (!moved) {
+                if (flagOwnedByExpiryPath(flag)) {
+                    // T17: a flag with a due time already got its two rungs (the exit's ping, the
+                    // expiry re-ping at due_at). The ladder starts at the due time, so the first
+                    // chase lands lanes.ben_flag.workingHours after the re-ping, never on top of it.
+                    return { lane: 'ben_flag', enteredAt: new Date(flag.dueAt as Date | string), detail: (flag.question ?? '').slice(0, 160) };
+                }
+                return { lane: 'needs_ben', enteredAt: raisedAt, detail: (flag.question ?? '').slice(0, 160) };
+            }
+        }
+    }
+
+    // 1b) T17: a pending AGENT draft past its due time. Nothing pings for one today (expireDrafts
+    // sends a holding line that the silence line has already suppressed, and no Pushover). Clock
+    // zero is the draft's due_at; movement is the draft leaving 'pending' (approve, reject, send),
+    // which makes the lane vanish and Pass A resolve the episode. Held drafts (stale_by_inbound,
+    // due_expired) are still Ben's to act on, so they count.
+    {
+        const [draft] = await db.select({ id: messageDrafts.id, body: messageDrafts.body, dueAt: messageDrafts.dueAt, source: messageDrafts.source })
+            .from(messageDrafts)
+            .where(and(
+                eq(messageDrafts.phone, phone),
+                eq(messageDrafts.status, 'pending'),
+                inArray(messageDrafts.source, [...AGENT_DRAFT_SOURCES]),
+                sql`${messageDrafts.dueAt} IS NOT NULL`,
+            ))
+            .orderBy(messageDrafts.dueAt).limit(1);
+        if (draft?.dueAt) {
+            return { lane: 'pending_draft', enteredAt: new Date(draft.dueAt), detail: `${draft.source} draft: ${(draft.body ?? '').replace(/\s+/g, ' ').slice(0, 140)}` };
+        }
+    }
+
+    // 1c) T17: a Route A draft waiting to be priced — "waiting" is WAITING_DRAFT_WHERE
+    // (price-brief.ts), the confirm screen's and the price queue's own rule; there is no second
+    // definition. Clock zero is the draft's creation (the one Pushover Route A fires); movement is
+    // the draft leaving the waiting set (sent, superseded, revoked, put on hold).
+    {
+        const [waiting] = await db.select({
+            slug: sql<string>`q.short_slug`, createdAt: sql<string | null>`q.created_at`, customerName: sql<string | null>`q.customer_name`,
+        })
+            .from(sql`personalized_quotes q`)
+            .where(sql`${sql.raw(WAITING_DRAFT_WHERE)} and regexp_replace(q.phone, '[^0-9]', '', 'g') = ${digits}`)
+            .orderBy(sql`q.created_at asc`).limit(1);
+        if (waiting?.slug && waiting.createdAt) {
+            return {
+                lane: 'price_draft', enteredAt: new Date(waiting.createdAt),
+                detail: `Route A draft ${waiting.slug} is priced from suggestions and waiting for you to confirm and send`,
+                href: `/admin/price/${waiting.slug}`,
+            };
         }
     }
 
@@ -348,13 +458,110 @@ export interface SlaBreachAlertArgs {
     phoneNumber?: string | null;
     note: string;
     conversationId: string;
+    /** T17: present on a chase-lane ping — the rung, its distinct title, and where the tap lands. */
+    chase?: {
+        lane: SlaLane;
+        rung: number;
+        escalated: boolean;
+        title: string;
+        linkUrl?: string;
+        linkUrlTitle?: string;
+    };
 }
 
 /** Default Ben ping — the existing escalation event (deep-links the thread; pushover's own
- *  quiet-hours dispatch rules apply). Dynamic import: pushover is T2's file, reuse only. */
+ *  quiet-hours dispatch rules apply). Dynamic import: pushover is T2's file, reuse only.
+ *  T17: a chase-lane ping goes out on notifyChase ('chase' / 'chase_escalation' keys). */
 async function defaultNotify(alert: SlaBreachAlertArgs): Promise<void> {
+    if (alert.chase) {
+        const { notifyChase } = await import('../pushover');
+        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+        await notifyChase({
+            conversationId: alert.conversationId, customerName: alert.customerName, phoneNumber: alert.phoneNumber,
+            title: alert.chase.title, note: alert.note, escalated: alert.chase.escalated,
+            linkUrl: alert.chase.linkUrl ? `${baseUrl}${alert.chase.linkUrl}` : undefined,
+            linkUrlTitle: alert.chase.linkUrlTitle,
+        });
+        return;
+    }
     const { notifyEscalation } = await import('../pushover');
     await notifyEscalation(alert);
+}
+
+// ---------------------------------------------------------------- T17: the ladder, pure
+
+/** When a detected lane is first due for a sweep ping. One arithmetic for the sweep and the desk. */
+export function laneDueAt(det: Pick<DetectedLane, 'lane' | 'enteredAt'>, cfg: SlaSweepConfig): Date {
+    if (det.lane === 'needs_info') return new Date(det.enteredAt.getTime() + cfg.lanes.needs_info.clockHours * 3_600_000);
+    const laneCfg = cfg.lanes[det.lane] as { workingHours: number } | undefined;
+    return addWorkingHours(det.enteredAt, laneCfg?.workingHours ?? 0);
+}
+
+/** When the next reminder on a standing episode is due: chase lanes every N working hours, the rest daily. */
+export function nextReminderAt(lane: SlaLane, lastAlertAt: Date, cfg: SlaSweepConfig): Date {
+    if (isChaseLane(lane)) return addWorkingHours(lastAlertAt, cfg.chase.everyWorkingHours);
+    return new Date(lastAlertAt.getTime() + cfg.reminderEveryClockHours * 3_600_000);
+}
+
+/** A chase whose clock zero is older than chase.maxAgeDays is backlog (digest), not a live chase. */
+export function chaseIsBacklog(lane: SlaLane, enteredAt: Date, now: Date, cfg: SlaSweepConfig): boolean {
+    if (!isChaseLane(lane)) return false;
+    return now.getTime() - enteredAt.getTime() > cfg.chase.maxAgeDays * 86_400_000;
+}
+
+export interface ChaseRung {
+    /** 1 for the first sweep ping on this episode, then 2, 3 … */
+    rung: number;
+    /** Working hours (BEN_HOURS) since the lane's clock zero, one decimal. */
+    hoursPastZero: number;
+    /** From chase.escalateAfterWorkingHours on: the ping goes to the owner. */
+    escalated: boolean;
+    title: string;
+}
+
+const CHASE_LABEL: Record<SlaLane, string> = {
+    ben_flag: 'flagged thread',
+    pending_draft: 'draft waiting for approval',
+    price_draft: 'draft waiting to be priced',
+    needs_ben: 'flagged thread',
+    quote_ready: 'quote ready to price',
+    needs_info: 'customer silent',
+    visit_first: 'visit to arrange',
+    decline: 'decline to confirm',
+};
+
+/**
+ * Which rung this ping is, and its title. Distinct by construction: the rung number and the hours
+ * change every time, and the escalated form reads differently from the chase form, so two pings
+ * on Ben's phone are never the same words. Pure.
+ */
+export function chaseRung(det: Pick<DetectedLane, 'lane' | 'enteredAt'>, alertCount: number, now: Date, cfg: SlaSweepConfig): ChaseRung {
+    const hoursPastZero = workingHoursBetween(det.enteredAt, now, BEN_HOURS);
+    const escalated = hoursPastZero >= cfg.chase.escalateAfterWorkingHours;
+    const rung = Math.max(1, alertCount);
+    const hours = Math.round(hoursPastZero);
+    const label = CHASE_LABEL[det.lane];
+    const title = escalated
+        ? `🚨 Escalated: ${label} — ${hours} working hours with nobody moving (chase ${rung})`
+        : `⏳ Chase ${rung}: ${label} still with you, ${hours} working hours past due`;
+    return { rung, hoursPastZero, escalated, title };
+}
+
+/** The note under a chase title: what is waiting and since when. */
+export function chaseNote(det: DetectedLane, rung: ChaseRung, cfg: SlaSweepConfig): string {
+    const when = formatUk(det.enteredAt);
+    switch (det.lane) {
+        case 'ben_flag':
+            return `Flag due ${when} (UK), still unanswered ${Math.round(rung.hoursPastZero)} working hours later. `
+                + `Reply in the thread and it clears. The flag: "${det.detail}"`;
+        case 'pending_draft':
+            return `Agent draft due ${when} (UK), still pending. Approve, edit or reject it on the thread. ${det.detail}`;
+        case 'price_draft':
+            return `Priced draft waiting since ${when} (UK). ${det.detail}. `
+                + `Escalates to the owner after ${cfg.chase.escalateAfterWorkingHours} working hours.`;
+        default:
+            return laneNote(det, cfg);
+    }
 }
 
 export type ChaseOutcome = 'sent' | 'queued' | 'suppressed';
@@ -396,10 +603,33 @@ function laneNote(det: DetectedLane, cfg: SlaSweepConfig): string {
         case 'visit_first':
             return `Visit-first verdict at ${when} (UK) and no visit has been arranged — past the `
                 + `${cfg.lanes.visit_first.workingHours}-working-hour SLA. Get a survey visit in the diary.`;
+        case 'ben_flag':
+            return `Flag due ${when} (UK) and still unanswered. The flag: "${det.detail}"`;
+        case 'pending_draft':
+            return `Agent draft due ${when} (UK) and still pending. ${det.detail}`;
+        case 'price_draft':
+            return `Route A draft waiting since ${when} (UK). ${det.detail}`;
     }
 }
 
 // ---------------------------------------------------------------- the sweep
+
+/**
+ * Which conversations can be in a lane at all — the sweep's candidate scan, shared with the
+ * portal desk (server/desk-routes.ts) so the two never read different threads. Open, not won or
+ * closed, and carrying something a lane reads: a readiness verdict, the needs_ben tag, a spine
+ * clerk run (P8), or — T17 — a pending agent draft.
+ */
+export function slaCandidateConditions() {
+    return [
+        isNull(conversations.archivedAt),
+        sql`(${conversations.stage} IS NULL OR ${conversations.stage} NOT IN ('closed', 'won'))`,
+        // P8: a spine clerk intake lives on agent_runs, not metadata — include those threads too.
+        sql`(${conversations.metadata}->'quotePrepIntake'->>'readiness' IS NOT NULL OR 'needs_ben' = ANY(${conversations.tags})
+            OR EXISTS (SELECT 1 FROM agent_runs r WHERE r.conversation_id = ${conversations.id} AND r.agent = 'quote_clerk')
+            OR EXISTS (SELECT 1 FROM message_drafts d WHERE d.conversation_id = ${conversations.id} AND d.status = 'pending' AND d.source IN ('spine', 'comms_agent')))`,
+    ];
+}
 
 /** Same tolerance problem as any timestamp round-trip: metadata ISO strings carry millis, DB
  *  timestamps carry micros — treat entries within 1.5s as the same lane entry. */
@@ -415,6 +645,8 @@ export interface SlaSweepResult {
     reminded: number;  // daily reminders on standing breaches
     resolved: number;  // episodes closed (lane changed / re-entered / conversation closed)
     chased: number;    // customer chases attempted (flag ON only)
+    /** T17: chase-lane pings that went to the owner's key (escalated rung). */
+    escalated: number;
 }
 
 // The fast tick fires every 15s; the finest SLA is measured in hours. One pass per 5 minutes
@@ -440,7 +672,7 @@ export async function sweepSlaBreaches(opts?: {
     scopeConversationIds?: string[];
 }): Promise<SlaSweepResult> {
     const res: SlaSweepResult = {
-        deferred: false, throttled: false, scanned: 0, alerted: 0, reminded: 0, resolved: 0, chased: 0,
+        deferred: false, throttled: false, scanned: 0, alerted: 0, reminded: 0, resolved: 0, chased: 0, escalated: 0,
     };
     if (!opts?.now) {
         if (Date.now() - lastPassAt < PASS_MIN_INTERVAL_MS) {
@@ -512,11 +744,7 @@ export async function sweepSlaBreaches(opts?: {
         metadata: conversations.metadata,
     }).from(conversations)
         .where(and(
-            isNull(conversations.archivedAt),
-            sql`(${conversations.stage} IS NULL OR ${conversations.stage} NOT IN ('closed', 'won'))`,
-            // P8: a spine clerk intake lives on agent_runs, not metadata — include those threads too.
-            sql`(${conversations.metadata}->'quotePrepIntake'->>'readiness' IS NOT NULL OR 'needs_ben' = ANY(${conversations.tags})
-                OR EXISTS (SELECT 1 FROM agent_runs r WHERE r.conversation_id = ${conversations.id} AND r.agent = 'quote_clerk'))`,
+            ...slaCandidateConditions(),
             ...(scope ? [inArray(conversations.id, scope)] : []),
         ))
         .limit(100);
@@ -529,13 +757,19 @@ export async function sweepSlaBreaches(opts?: {
         // cadence sweep and requestRun already apply.
         if (isTestNumber(conv.phoneNumber)) continue;
         try {
-            const det = await detectSlaLane(conv);
+            // T17: the belt on the way back. A human outbound since the flag, from ANY surface,
+            // releases the thread here even if the send gate never saw it.
+            const det = await detectSlaLane(conv, {
+                humanReplied: async (info) => {
+                    const { releaseFromBen } = await import('../handover');
+                    await releaseFromBen({ conversationId: info.conversationId }, { by: 'system:human_reply_seen', reason: `a human outbound landed after the flag of ${info.flagRaisedAt.toISOString()}`, runId, now });
+                },
+            });
             if (!det) continue;
             if (now.getTime() - det.enteredAt.getTime() > cfg.maxLaneAgeDays * 86_400_000) continue; // fossil, not a live breach
+            if (chaseIsBacklog(det.lane, det.enteredAt, now, cfg)) continue; // T17: the digest names it; the phone does not
 
-            const dueAt = det.lane === 'needs_info'
-                ? new Date(det.enteredAt.getTime() + cfg.lanes.needs_info.clockHours * 3_600_000)
-                : addWorkingHours(det.enteredAt, cfg.lanes[det.lane].workingHours);
+            const dueAt = laneDueAt(det, cfg);
             if (now.getTime() < dueAt.getTime()) continue;
 
             const digits = digitsOf(conv.phoneNumber);
@@ -548,10 +782,21 @@ export async function sweepSlaBreaches(opts?: {
                     isNull(slaAlerts.resolvedAt),
                 )).limit(1);
 
+            // T17: a chase-lane ping carries its rung, a distinct title and the owner key past M.
+            const chaseFor = (alertCount: number): SlaBreachAlertArgs['chase'] | undefined => {
+                if (!isChaseLane(det.lane)) return undefined;
+                const rung = chaseRung(det, alertCount, now, cfg);
+                return {
+                    lane: det.lane, rung: rung.rung, escalated: rung.escalated, title: rung.title,
+                    linkUrl: det.href, linkUrlTitle: det.href ? '💷 Open the price screen' : undefined,
+                };
+            };
+
             if (openRow && Math.abs(new Date(openRow.laneEnteredAt).getTime() - det.enteredAt.getTime()) <= ENTERED_AT_TOLERANCE_MS) {
-                // Already alerted this episode → at most one reminder per reminderEveryClockHours,
-                // claimed by CAS on last_alert_at so two racing passes cannot both remind.
-                if (now.getTime() - new Date(openRow.lastAlertAt).getTime() < cfg.reminderEveryClockHours * 3_600_000) continue;
+                // Already alerted this episode → at most one reminder per cadence (daily on the
+                // verdict lanes, every chase.everyWorkingHours on the ladder), claimed by CAS on
+                // last_alert_at so two racing passes cannot both remind.
+                if (now.getTime() < nextReminderAt(det.lane as SlaLane, new Date(openRow.lastAlertAt), cfg).getTime()) continue;
                 const [claimed] = await db.update(slaAlerts)
                     .set({ lastAlertAt: now, alertCount: openRow.alertCount + 1 })
                     .where(and(
@@ -564,11 +809,16 @@ export async function sweepSlaBreaches(opts?: {
                 acted++;
                 res.reminded++;
                 emitSlaBoardDelta(conv.id);
+                const chase = chaseFor(openRow.alertCount + 1);
+                if (chase?.escalated) res.escalated++;
                 await notify({
                     customerName: conv.contactName,
                     phoneNumber: phone,
-                    note: `Daily SLA reminder #${openRow.alertCount + 1}: ${laneNote(det, cfg)}`,
+                    note: chase
+                        ? chaseNote(det, chaseRung(det, openRow.alertCount + 1, now, cfg), cfg)
+                        : `Daily SLA reminder #${openRow.alertCount + 1}: ${laneNote(det, cfg)}`,
                     conversationId: conv.id,
+                    ...(chase ? { chase } : {}),
                 });
                 continue;
             }
@@ -611,6 +861,16 @@ export async function sweepSlaBreaches(opts?: {
                         conversationId: conv.id,
                     });
                 }
+            } else if (isChaseLane(det.lane)) {
+                const chase = chaseFor(1)!;
+                if (chase.escalated) res.escalated++;
+                await notify({
+                    customerName: conv.contactName,
+                    phoneNumber: phone,
+                    note: chaseNote(det, chaseRung(det, 1, now, cfg), cfg),
+                    conversationId: conv.id,
+                    chase,
+                });
             } else {
                 const offNote = det.lane === 'needs_info'
                     ? ' The automatic chase is switched off, so nudge them yourself or park the thread.'

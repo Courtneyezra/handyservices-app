@@ -26,7 +26,10 @@ describe('sweeps and the desk skip the drama range before doing anything', () =>
         expect(src).toMatch(/import \{ isTestNumber \} from '\.\.\/phone-utils'/);
         const loop = src.slice(src.indexOf('for (const conv of candidates) {'));
         expect(loop.indexOf('isTestNumber(conv.phoneNumber)')).toBeGreaterThan(-1);
-        expect(loop.indexOf('isTestNumber(conv.phoneNumber)')).toBeLessThan(loop.indexOf('detectSlaLane(conv)'));
+        // T17: the sweep passes the detector its humanReplied hook, so the call is `detectSlaLane(conv, {`.
+        const detectAt = loop.search(/detectSlaLane\(conv[,)]/);
+        expect(detectAt).toBeGreaterThan(-1);
+        expect(loop.indexOf('isTestNumber(conv.phoneNumber)')).toBeLessThan(detectAt);
     });
     it('desk-routes: the SLA candidates loop skips test numbers before detectSlaLane', () => {
         const src = read('desk-routes.ts');
@@ -128,5 +131,25 @@ describe('T16: the price queue and the price screen keep the sandbox out', () =>
     });
     it('the outbound gate has no test-number guard, which is why the refusal above has to exist', () => {
         expect(read('outbound.ts')).not.toMatch(/isTestNumber|7700900/);
+    });
+});
+
+// ---------------------------------------------------------------- T17: the chase ladder and the digest inherit T16's exclusion
+
+describe('T17: the chase lane and the digest read WAITING_DRAFT_WHERE and define no rule of their own', () => {
+    it('sla-sweep.ts (price_draft lane) reads the one string, so a sandbox draft can never enter the ladder', () => {
+        const src = read('agents/sla-sweep.ts');
+        expect(src).toMatch(/import \{ WAITING_DRAFT_WHERE \} from '\.\.\/spine\/price-brief'/);
+        expect(src).toContain('sql.raw(WAITING_DRAFT_WHERE)');
+        expect((src.match(/is_draft = true/g) ?? []).length).toBe(0);
+        // Belt and braces: the drama range is skipped before any lane is read at all.
+        const loop = src.slice(src.indexOf('for (const conv of candidates) {'));
+        expect(loop.indexOf('isTestNumber(conv.phoneNumber)')).toBeLessThan(loop.search(/detectSlaLane\(conv[,)]/));
+    });
+    it('silence-breaker.ts (the digest\'s priced-drafts line) reads the one string too', () => {
+        const src = read('agents/silence-breaker.ts');
+        expect(src).toMatch(/import \{ WAITING_DRAFT_WHERE \} from '\.\.\/spine\/price-brief'/);
+        expect(src).toContain('sql.raw(WAITING_DRAFT_WHERE)');
+        expect((src.match(/is_draft = true/g) ?? []).length).toBe(0);
     });
 });
