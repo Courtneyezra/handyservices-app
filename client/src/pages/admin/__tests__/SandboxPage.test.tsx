@@ -459,6 +459,32 @@ describe('<EntryDetail> and <BenNoticeBox>', () => {
         expect(screen.getByTestId('sandbox-entry-gate').textContent).toContain('production sends exactly this, 60 to 150 s after the message');
         expect(box.textContent).toContain('trigger inbound_message');
     });
+    it('T19: a whatsapp entry says the customer\'s message opened the window, shows the FREEFORM ack plan and what was placed', () => {
+        const entry: EntryReport = {
+            door: 'whatsapp', meaning: { label: 'Inbound WhatsApp', window: 'Every customer WhatsApp opens the 24-hour window.', firstReply: 'Their opening message is the event.' },
+            firstMessage: 'Hi, my extractor fan has died, NG7 2AB', openedWindow: true, firstRunTrigger: 'inbound_message',
+            ack: { door: 'whatsapp', intent: 'ack_enquiry', mode: 'freeform', channel: 'whatsapp', body: 'Hi Sam, thanks for getting in touch.', templateName: null, rungs: [], outOfHours: false, gate: { enabled: true, channelOn: true, askForMedia: false, liveWouldSend: true }, reason: 'window open: the composed ack goes freeform on WhatsApp', holdSeconds: [60, 150] },
+            postCall: null, mirrored: { messageId: 'm2', channel: 'whatsapp', body: 'Hi Sam, thanks for getting in touch.', sender: 'Sandbox (rules layer ack, mirrored, never sent)' },
+        };
+        render(<EntryDetail entry={entry} />);
+        const box = screen.getByTestId('sandbox-entry');
+        expect(box.textContent).toContain('Door: Inbound WhatsApp');
+        const win = screen.getByTestId('sandbox-entry-window');
+        expect(win.textContent).toContain('opened the 24 h window');
+        expect(win.textContent).toContain('Hi, my extractor fan has died, NG7 2AB');
+        expect(win.className).toContain('emerald');
+        expect(screen.getByTestId('sandbox-entry-ack').textContent).toContain('FREEFORM by whatsapp');
+        expect(screen.queryByTestId('sandbox-ladder')).toBeNull();
+        expect(screen.getByTestId('sandbox-entry-gate').textContent).toContain('ON for whatsapp');
+        expect(box.textContent).toContain('Placed on the thread as');
+        expect(screen.queryByTestId('sandbox-entry-nothing')).toBeNull();
+        expect(box.textContent).toContain('trigger inbound_message');
+    });
+    it('T19: a whatsapp entry whose pass did not reach first contact says nothing was placed, and why to read the run', () => {
+        render(<EntryDetail entry={{ door: 'whatsapp', meaning: { label: 'Inbound WhatsApp', window: 'w', firstReply: 'f' }, firstMessage: 'BUY CHEAP WATCHES', openedWindow: true, firstRunTrigger: 'inbound_message', ack: null, postCall: null, mirrored: null }} />);
+        expect(screen.getByTestId('sandbox-entry-nothing').textContent).toMatch(/did not land on the rules layer's first contact/);
+        expect(screen.queryByTestId('sandbox-entry-ack')).toBeNull();
+    });
     it('a post-call entry with no approved template says NOTHING can send, and the gate says so', () => {
         const entry: EntryReport = {
             door: 'post_call', meaning: { label: 'Post-call, WhatsApp agreed on the phone', window: 'A phone call never opens the WhatsApp window.', firstReply: 'x' }, ack: null, mirrored: null, firstRunTrigger: 'call_ended',
@@ -505,7 +531,7 @@ describe('<DoorPicker>, <WindowStrip>, <FunnelStrip>', () => {
         await userEvent.click(screen.getByTestId('sandbox-start'));
         expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ door: 'webform', name: 'Priya Shah', text: 'My gate has come off its hinge' }));
     });
-    it('the post-call door exposes the job phrase, the consent and a transcript; the whatsapp door needs no text', async () => {
+    it('the post-call door exposes the job phrase, the consent and a transcript', async () => {
         const onStart = vi.fn();
         render(<DoorPicker gates={GATES_ON} busy={false} hasThread={false} onStart={onStart} />);
         await userEvent.click(screen.getByTestId('sandbox-door-post_call'));
@@ -513,9 +539,26 @@ describe('<DoorPicker>, <WindowStrip>, <FunnelStrip>', () => {
         await userEvent.selectOptions(screen.getByTestId('sandbox-start-agreed'), 'declined');
         await userEvent.click(screen.getByTestId('sandbox-start'));
         expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ door: 'post_call', whatsappAgreed: 'declined', jobPhrase: 'the bathroom extractor fan' }));
-        await userEvent.click(screen.getByTestId('sandbox-door-whatsapp'));
-        expect(screen.queryByTestId('sandbox-start-text')).toBeNull();
+    });
+    it('T19: the whatsapp door asks for the customer\'s opening message, empty by default, and cannot open without it', async () => {
+        const onStart = vi.fn();
+        render(<DoorPicker gates={GATES_ON} busy={false} hasThread={false} onStart={onStart} />);
+        // whatsapp is the default door: the box is there, empty, and Open is disabled.
+        const box = screen.getByTestId('sandbox-start-text') as HTMLTextAreaElement;
+        expect(box.value).toBe('');
+        expect(box.placeholder).toMatch(/What would the customer send first/);
+        expect(screen.getByText(/Their opening WhatsApp message, in your own words/)).toBeTruthy();
+        expect(screen.queryByText(/A clean thread/)).toBeNull();
+        expect((screen.getByTestId('sandbox-start') as HTMLButtonElement).disabled).toBe(true);
+        await userEvent.type(box, 'Hi, my extractor fan has died, NG7 2AB');
         expect((screen.getByTestId('sandbox-start') as HTMLButtonElement).disabled).toBe(false);
+        await userEvent.click(screen.getByTestId('sandbox-start'));
+        expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ door: 'whatsapp', name: 'Sam', text: 'Hi, my extractor fan has died, NG7 2AB' }));
+        // Switching to the webform door keeps its seeded enquiry; switching back to whatsapp does not invent one.
+        await userEvent.click(screen.getByTestId('sandbox-door-webform'));
+        expect((screen.getByTestId('sandbox-start-text') as HTMLTextAreaElement).value).toMatch(/extractor fan in our bathroom/);
+        await userEvent.click(screen.getByTestId('sandbox-door-whatsapp'));
+        expect((screen.getByTestId('sandbox-start-text') as HTMLTextAreaElement).value).toBe('');
     });
     it('the window strip reads open/shut in the case file\'s words and offers the two honest controls', async () => {
         const onAge = vi.fn(); const onClock = vi.fn();

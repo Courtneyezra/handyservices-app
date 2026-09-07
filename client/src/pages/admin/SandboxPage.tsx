@@ -24,6 +24,11 @@
  * clerk's draft priced by the engine, "Ben would have been pinged" recorded rather than sent, Ben's
  * send, questions before and after, the customer's acceptance. Nothing on this page can send.
  *
+ * T19: the inbound WhatsApp door starts from the customer's own opening message, typed by the
+ * owner with no default, because on that door the customer starts the conversation: the message
+ * creates the thread, opens the window, and is what the first-contact ack answers (freeform). The
+ * door box says the window was opened by it. The other three doors seed their originating event.
+ *
  * Data: GET/POST /api/comms-sandbox (server/spine/sandbox-routes.ts).
  */
 import { useEffect, useRef, useState } from 'react';
@@ -52,7 +57,7 @@ export const SANDBOX_DOORS: readonly SandboxDoor[] = ['whatsapp', 'post_call', '
 export interface LadderRung { name: string; status: string; picked: boolean; note: string }
 export interface AckPlan { door: SandboxDoor; intent: string; mode: 'freeform' | 'template' | 'sms' | 'queued' | 'refused'; channel: 'whatsapp' | 'sms' | null; body: string | null; templateName: string | null; rungs: LadderRung[]; outOfHours: boolean; gate: { enabled: boolean; channelOn: boolean; askForMedia: boolean; liveWouldSend: boolean }; reason: string; holdSeconds: [number, number] }
 export interface PostCallPlan { route: { send: boolean; reason: string; callbackDue: boolean; tagNoAutoMessages: boolean; complaintAlert: boolean }; body: string | null; templateName: string | null; rungs: LadderRung[]; outcome: 'template' | 'no_approved_template' | 'not_agreed'; reason: string; approval: 'auto_first_contact' | 'queued_for_approval'; gate: { continuationEnabled: boolean; ackEnabled: boolean; ackChannelOn: boolean; liveWouldSend: boolean }; spineRun: 'call_ended' | null; spineRunReason: string; call: { id: string; preview: string; durationSeconds: number; transcriptChars: number } }
-export interface EntryReport { door: SandboxDoor; meaning: { label: string; window: string; firstReply: string }; ack: AckPlan | null; postCall: PostCallPlan | null; mirrored: { messageId: string; channel: 'whatsapp' | 'sms'; body: string; sender: string } | null; firstRunTrigger: 'inbound_message' | 'call_ended' | null }
+export interface EntryReport { door: SandboxDoor; meaning: { label: string; window: string; firstReply: string }; ack: AckPlan | null; postCall: PostCallPlan | null; mirrored: { messageId: string; channel: 'whatsapp' | 'sms'; body: string; sender: string } | null; firstRunTrigger: 'inbound_message' | 'call_ended' | null; /** T19: whatsapp — the customer's opening message, the event that created the thread. */ firstMessage?: string | null; /** T19: the door's own event opened the 24 h window (only a customer WhatsApp does). */ openedWindow?: boolean }
 export interface WindowReport { canFreeform: boolean; lastWhatsAppInboundAt: string | null; hoursSince: number | null; channelLastUsed: string | null; summary: string; permits: string }
 export interface SandboxGates { firstContactAck: { enabled: boolean; channels: string[]; askForMedia: boolean }; postCallContinuation: { enabled: boolean }; spineEnabled: boolean; smsSenderConfigured: boolean; templates: Array<{ name: string; status: string }> }
 export interface SandboxEvent { at: string; kind: string; summary: string; detail?: unknown }
@@ -393,6 +398,13 @@ export function EntryDetail({ entry }: { entry: EntryReport }) {
             <div className="flex items-center gap-2 font-semibold text-indigo-900"><DoorOpen className="h-4 w-4" /> Door: {entry.meaning.label}</div>
             <p className="text-indigo-900">{entry.meaning.window}</p>
             <p className="text-slate-700">{entry.meaning.firstReply}</p>
+            {entry.door === 'whatsapp' && (
+                <div className={cn('rounded px-2 py-1 text-xs', entry.openedWindow ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')} data-testid="sandbox-entry-window">
+                    {entry.openedWindow
+                        ? <>The customer's own message{entry.firstMessage ? <> (<span className="italic">"{entry.firstMessage.length > 80 ? `${entry.firstMessage.slice(0, 80)}…` : entry.firstMessage}"</span>)</> : null} created this thread and <span className="font-semibold">opened the 24 h window</span>: the reply may be freeform, no template needed.</>
+                        : 'This thread was opened without a customer message (before T19); the window is shut until one arrives.'}
+                </div>
+            )}
             {pc && (
                 <div className="rounded border bg-white p-2" data-testid="sandbox-entry-call">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">The call, as call-thread.ts writes it</div>
@@ -424,7 +436,9 @@ export function EntryDetail({ entry }: { entry: EntryReport }) {
             )}
             {entry.mirrored
                 ? <div className="text-xs text-muted-foreground">Placed on the thread as <span className="font-mono">{entry.mirrored.sender}</span>, on {entry.mirrored.channel}.</div>
-                : entry.door !== 'whatsapp' && <div className="text-xs font-medium text-amber-900" data-testid="sandbox-entry-nothing">Nothing placed on the thread: the customer would have received nothing.</div>}
+                : entry.door === 'whatsapp'
+                    ? (entry.firstRunTrigger && <div className="text-xs font-medium text-amber-900" data-testid="sandbox-entry-nothing">Nothing placed on the thread: the first pass did not land on the rules layer's first contact (read the run below for why — the screen refused it, the desk answered it, or the belt failed).</div>)
+                    : <div className="text-xs font-medium text-amber-900" data-testid="sandbox-entry-nothing">Nothing placed on the thread: the customer would have received nothing.</div>}
             {entry.firstRunTrigger && <div className="text-xs text-muted-foreground">The desk's first pass ran with trigger <span className="font-mono">{entry.firstRunTrigger}</span> (below).</div>}
         </div>
     );
@@ -573,7 +587,7 @@ export function RunDetail({ run }: { run: SandboxRun }) {
 const DOOR_ICON: Record<SandboxDoor, typeof MessageSquare> = { whatsapp: MessageSquare, post_call: Phone, webform: DoorOpen, sms: Smartphone };
 const DOOR_TITLE: Record<SandboxDoor, string> = { whatsapp: 'Inbound WhatsApp', post_call: 'Post-call (WhatsApp agreed)', webform: 'Webform', sms: 'Inbound SMS' };
 const DOOR_BLURB: Record<SandboxDoor, string> = {
-    whatsapp: 'A customer messages the business number on WhatsApp. Window OPEN. Freeform allowed. First contact gets the rules layer\'s ack; the desk answers from the second message.',
+    whatsapp: 'A customer messages the business number on WhatsApp. Their first message is the event: it creates the thread and opens the 24 h window, so freeform is allowed. Type it in your own words; the rules layer\'s ack answers it, and the desk answers from the second message.',
     post_call: 'They rang, WhatsApp was agreed on the phone. Window SHUT (a call never opens it). The first WhatsApp must be an approved template with the job from the call; the clerk reads the transcript.',
     webform: 'They filled in the website form. Window SHUT. The ack goes as the first approved template on the ladder (web_enquiry_ack_context quotes them back), else by SMS, else it waits for Ben.',
     sms: 'They texted the business number. No window, no templates: everything goes back by SMS. A photo cannot arrive by SMS; the desk asks them to describe it, and may invite a switch to WhatsApp once.',
@@ -596,7 +610,8 @@ export function DoorPicker({ gates, busy, onStart, hasThread }: { gates: Sandbox
     const [transcript, setTranscript] = useState('');
     const pick = (d: SandboxDoor) => { setDoor(d); setName(DEFAULTS[d].name); setText(DEFAULTS[d].text); setJobPhrase(DEFAULTS[d].jobPhrase); };
     const gate = doorGateNote(door, gates);
-    const needsText = door === 'webform' || door === 'sms';
+    // T19: the WhatsApp door needs the customer's opening message too — it is the event. No default: the owner's own words.
+    const needsText = door === 'webform' || door === 'sms' || door === 'whatsapp';
     return (
         <div className="space-y-3 rounded-lg border p-3" data-testid="sandbox-doors">
             <div className="flex items-center gap-2 text-sm font-semibold"><DoorOpen className="h-4 w-4 text-indigo-600" /> {hasThread ? 'Open a new thread through a door (resets this one)' : 'Open a thread through one of the four front doors'}</div>
@@ -621,8 +636,8 @@ export function DoorPicker({ gates, busy, onStart, hasThread }: { gates: Sandbox
                 </label>
                 {needsText && (
                     <label className="text-xs">
-                        <span className="text-muted-foreground">{door === 'webform' ? 'The enquiry, as typed into the form' : 'Their first text'}</span>
-                        <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} className="mt-0.5 text-xs" data-testid="sandbox-start-text" />
+                        <span className="text-muted-foreground">{door === 'webform' ? 'The enquiry, as typed into the form' : door === 'whatsapp' ? 'Their opening WhatsApp message, in your own words (it creates the thread and opens the window; the ack answers it)' : 'Their first text'}</span>
+                        <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} className="mt-0.5 text-xs" placeholder={door === 'whatsapp' ? 'What would the customer send first? e.g. a job, a postcode, a question…' : undefined} data-testid="sandbox-start-text" />
                     </label>
                 )}
                 {door === 'post_call' && (
@@ -645,7 +660,6 @@ export function DoorPicker({ gates, busy, onStart, hasThread }: { gates: Sandbox
                         </label>
                     </div>
                 )}
-                {door === 'whatsapp' && <div className="self-end text-xs text-muted-foreground">A clean thread. Type the first message below as the customer; it is first contact.</div>}
             </div>
             <div className={cn('rounded px-2 py-1 text-xs', gate.tone === 'ok' ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')} data-testid="sandbox-door-gate">{gate.text}</div>
             <Button onClick={() => onStart({ door, name, text, jobPhrase, whatsappAgreed: agreed, ...(transcript.trim() ? { transcript: transcript.trim() } : {}) })} disabled={busy || (needsText && !text.trim())} data-testid="sandbox-start">

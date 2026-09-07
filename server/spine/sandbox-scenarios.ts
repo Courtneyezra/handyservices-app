@@ -43,7 +43,7 @@ export const DOOR_MEANING: Record<SandboxDoor, { label: string; window: string; 
     whatsapp: {
         label: 'Inbound WhatsApp',
         window: 'Every customer WhatsApp opens the 24-hour window. While it is open we may write freely.',
-        firstReply: 'The rules layer acknowledges first contact in its own words (freeform, held 60 to 150 seconds so it does not read as a bot). The desk answers from the next message.',
+        firstReply: 'Their opening message is the event: it creates the thread and opens the window. The rules layer acknowledges it in its own words (freeform, held 60 to 150 seconds so it does not read as a bot). The desk answers from the next message.',
     },
     post_call: {
         label: 'Post-call, WhatsApp agreed on the phone',
@@ -67,7 +67,7 @@ export const SANDBOX_NAME_MAX = 60;
 export const SANDBOX_JOB_PHRASE_MAX = 60;
 export const SANDBOX_TRANSCRIPT_MAX = 8_000;
 
-/** Plausible defaults per door so one click opens a thread that reads like a real one. */
+/** Plausible defaults per door so one click opens a thread that reads like a real one. whatsapp has NONE on purpose (T19): the owner's own first words are the point. */
 export const DOOR_DEFAULTS: Record<SandboxDoor, { name: string; text: string; jobPhrase: string; transcript: string }> = {
     whatsapp: { name: 'Sam', text: '', jobPhrase: '', transcript: '' },
     webform: { name: 'Priya Shah', text: 'Hi, the extractor fan in our bathroom has stopped working and the ceiling is getting damp. Can you replace it? We are in NG7.', jobPhrase: '', transcript: '' },
@@ -84,7 +84,7 @@ export interface StartInput {
     door: SandboxDoor;
     /** The customer's name as the door would know it (pushname, form field, the call's customer_name). Null = unknown. */
     name: string | null;
-    /** The enquiry (webform), the first text (sms), or nothing (whatsapp: the owner types; post_call: the transcript speaks). */
+    /** The enquiry (webform), the first text (sms), the opening WhatsApp message (whatsapp: the owner's own words, no default — T19), or nothing (post_call: the transcript speaks). */
     text: string;
     /** post_call: the classifier's customer-facing job phrase ({{2}} on the continuation template). */
     jobPhrase: string | null;
@@ -106,6 +106,10 @@ export function validateStart(body: unknown): { ok: true; input: StartInput } | 
     const text = (typeof b.text === 'string' ? b.text : defaults.text).replace(/\r\n/g, '\n').trim();
     if (text.length > SANDBOX_START_TEXT_MAX) return { ok: false, error: `text is over ${SANDBOX_START_TEXT_MAX} characters` };
     if ((d === 'webform' || d === 'sms') && !text) return { ok: false, error: `${d} needs the customer's words` };
+    // T19: on WhatsApp the customer starts the conversation. Their first message IS the event (it
+    // creates the thread and opens the window), so the door cannot open without one, and there is
+    // no default: the owner types it, so the ack answers real words.
+    if (d === 'whatsapp' && !text) return { ok: false, error: "whatsapp needs the customer's opening message: it is what creates the thread and opens the 24 h window (type it in your own words)" };
     const jobPhrase = (typeof b.jobPhrase === 'string' ? b.jobPhrase : defaults.jobPhrase).replace(/\s+/g, ' ').trim();
     if (jobPhrase.length > SANDBOX_JOB_PHRASE_MAX * 2) return { ok: false, error: `jobPhrase is over ${SANDBOX_JOB_PHRASE_MAX * 2} characters` };
     const agreedRaw = typeof b.whatsappAgreed === 'string' ? b.whatsappAgreed : 'agreed';

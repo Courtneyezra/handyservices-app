@@ -40,7 +40,11 @@ describe('the doors', () => {
         expect(DOOR_MEANING.sms.window).toMatch(/no window/);
     });
     it('validateStart: defaults per door, the post_call transcript must clear the ladder\'s own bar', () => {
-        expect(validateStart({})).toMatchObject({ ok: true, input: { door: 'whatsapp', name: 'Sam', text: '' } });
+        // T19: the WhatsApp door needs the customer's opening message — it is the event — and has no default text.
+        expect(validateStart({})).toMatchObject({ ok: false, error: expect.stringMatching(/opening message/) });
+        expect(DOOR_DEFAULTS.whatsapp.text).toBe('');
+        expect(validateStart({ door: 'whatsapp', text: '  ' })).toMatchObject({ ok: false });
+        expect(validateStart({ door: 'whatsapp', text: 'Hi, do you fit extractor fans? NG7' })).toMatchObject({ ok: true, input: { door: 'whatsapp', name: 'Sam', text: 'Hi, do you fit extractor fans? NG7' } });
         expect(validateStart({ door: 'webform' })).toMatchObject({ ok: true, input: { door: 'webform', name: 'Priya Shah' } });
         expect((validateStart({ door: 'webform' }) as any).input.text).toBe(DOOR_DEFAULTS.webform.text);
         expect(validateStart({ door: 'webform', text: '   ' })).toMatchObject({ ok: false });
@@ -50,8 +54,8 @@ describe('the doors', () => {
         expect(validateStart({ door: 'post_call', transcript: 'short' })).toMatchObject({ ok: false });
         expect(validateStart({ door: 'post_call', whatsappAgreed: 'maybe' })).toMatchObject({ ok: false });
         expect(validateStart({ door: 'email' })).toMatchObject({ ok: false });
-        expect(validateStart({ door: 'whatsapp', name: '' })).toMatchObject({ ok: true, input: { name: null } });
-        expect(validateStart({ door: 'whatsapp', name: 'x'.repeat(61) })).toMatchObject({ ok: false });
+        expect(validateStart({ door: 'whatsapp', name: '', text: 'hi' })).toMatchObject({ ok: true, input: { name: null } });
+        expect(validateStart({ door: 'whatsapp', name: 'x'.repeat(61), text: 'hi' })).toMatchObject({ ok: false });
     });
 });
 
