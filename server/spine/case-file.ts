@@ -11,7 +11,7 @@ import { db } from '../db';
 import { conversations, messages, calls, agentQuestions, agentRuns, messageDrafts, serviceClients } from '@shared/schema';
 import { and, desc, eq, sql, isNull, inArray } from 'drizzle-orm';
 import { notQuarantined } from '../message-quarantine';
-import { getSpineConfig } from './config';
+import { getSpineConfig, DEFAULT_SPINE_CONFIG } from './config';
 import { isException, isAgentName } from './vocab';
 import { customerPromisedMore } from './triage';
 import type { CaseFile, TimelineItem, MediaItem, Audience, Stage, ExceptionKind } from './types';
@@ -161,7 +161,7 @@ export async function buildCaseFile(conversationId: string, opts: BuildCaseFileO
     // Phase 4: video descriptions (Gemini, direct) on the media items — only when switched on,
     // bounded per run, cached by bytes, and never able to fail the build.
     if (cfg.video?.enabled) {
-        await describeCaseFileMedia(media, msgRows, { conversationId: conv.id, phone, images: !!cfg.video.images, maxPerRun: cfg.video.maxPerRun ?? 3, parentRunId: opts.parentRunId ?? null });
+        await describeCaseFileMedia(media, msgRows, { conversationId: conv.id, phone, images: !!cfg.video.images, maxPerRun: cfg.video.maxPerRun ?? DEFAULT_SPINE_CONFIG.video.maxPerRun, parentRunId: opts.parentRunId ?? null });
     }
 
     // ---- window + channel ----
