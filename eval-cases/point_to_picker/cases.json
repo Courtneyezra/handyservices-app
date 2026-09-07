@@ -23,14 +23,16 @@
     "lane": "post_quote",
     "intent": "point_to_picker",
     "mustNotContain": [
-     "£",
+     "\u00a3",
      "discount",
      "% off"
     ],
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": "point_to_picker:slug_not_in_body",
+    "notes": "B7a: a live quote exists but the recorded reply never names the page (slug q1); at SEND tier that is refused and goes to Ben. The coverage cost of the slug rule, measured."
    },
    "provenance": "invented",
    "quote": {
@@ -63,14 +65,16 @@
     "lane": "post_quote",
     "intent": "point_to_picker",
     "mustNotContain": [
-     "£",
+     "\u00a3",
      "discount",
      "% off"
     ],
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": "point_to_picker:slug_not_in_body",
+    "notes": "B7a: a live quote exists but the recorded reply never names the page (slug q1); at SEND tier that is refused and goes to Ben. The coverage cost of the slug rule, measured."
    },
    "provenance": "invented",
    "quote": {
@@ -103,14 +107,16 @@
     "lane": "post_quote",
     "intent": "point_to_picker",
     "mustNotContain": [
-     "£",
+     "\u00a3",
      "discount",
      "% off"
     ],
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": "point_to_picker:slug_not_in_body",
+    "notes": "B7a: a live quote exists but the recorded reply never names the page (slug q1); at SEND tier that is refused and goes to Ben. The coverage cost of the slug rule, measured."
    },
    "provenance": "invented",
    "quote": {
@@ -145,9 +151,11 @@
     "mustNotEscalate": true,
     "noExceptions": true,
     "guardsMustNotTrip": true,
-    "voiceClean": true
+    "voiceClean": true,
+    "precondition": "point_to_picker:slug_not_in_body",
+    "notes": "B7a: a live quote exists but the recorded reply never names the page (slug q1); at SEND tier that is refused and goes to Ben. The coverage cost of the slug rule, measured."
    },
-   "provenance": "B3 / PRD §7 row 2: a live quote is out, so a date question is the picker's, not Ben's",
+   "provenance": "B3 / PRD \u00a77 row 2: a live quote is out, so a date question is the picker's, not Ben's",
    "quote": {
     "seen": true,
     "viewCount": 1,
@@ -221,7 +229,7 @@
      "date_promise"
     ]
    },
-   "provenance": "B3 / PRD §7 row 3: changing a BOOKED date is OPEN (§13); the interim keeps it Ben's. The picker is not the answer once the deposit is paid, and our reply agreeing a day trips date_promise"
+   "provenance": "B3 / PRD \u00a77 row 3: changing a BOOKED date is OPEN (\u00a713); the interim keeps it Ben's. The picker is not the answer once the deposit is paid, and our reply agreeing a day trips date_promise"
   }
  ]
 }

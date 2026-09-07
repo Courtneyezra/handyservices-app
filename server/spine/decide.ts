@@ -6,6 +6,9 @@
  *            AND hours allow (reactive 24/7 within 45 min of an inbound; proactive only inside
  *                the pack's proactive window, UK time — server/working-hours.ts)
  *            AND the channel can deliver (window open, or an approved template, or SMS thread)
+ *            AND (customer.* packs, B7a, last) the intent is not on the pack's neverSend list and
+ *                the send preconditions accept the move (server/spine/send-preconditions.ts):
+ *                reactive, the customer's turn is newest, and the per-intent structural rule holds
  *   PENDING  with due_at otherwise (a person decides)
  *   FLAG     with due_at for exceptions and Ben-only guard hits
  *   DROP     opted out / spam
@@ -13,11 +16,13 @@
  */
 import type { Approver } from '../approver';
 import { dueAtFor, nextWorkingSlot, ukHour, type WorkingClock } from '../working-hours';
-import { tierFor } from './packs';
+import { isNeverSend, tierFor } from './packs';
+import { isReactive, PRECONDITION_REASON_PREFIX, REACTIVE_WINDOW_MINUTES, sendPrecondition } from './send-preconditions';
 import type { CaseFile, Decision, ExceptionKind, GuardName, GuardVerdict, PolicyPack, Proposal, TriageResult } from './types';
 
-/** How recently the customer must have written for a reply to count as reactive (mirrors comms.ts). */
-export const REACTIVE_WINDOW_MINUTES = 45;
+// B7a: the reactive helper lives with the send preconditions (they read it too); re-exported so
+// every existing caller of decide.ts is unchanged.
+export { isReactive, REACTIVE_WINDOW_MINUTES };
 
 export interface DecideInput {
     proposal: Proposal | null;
@@ -47,11 +52,6 @@ export function exceptionForGuard(guard: GuardName): ExceptionKind {
         case 'date_promise': return 'date_question';
         default: return 'trust_concern';
     }
-}
-
-export function isReactive(caseFile: CaseFile, now: Date): boolean {
-    const at = caseFile.window.lastInboundAt ? new Date(caseFile.window.lastInboundAt).getTime() : NaN;
-    return Number.isFinite(at) && now.getTime() - at <= REACTIVE_WINDOW_MINUTES * 60_000 && now.getTime() >= at;
 }
 
 export function hoursAllow(pack: PolicyPack, caseFile: CaseFile, now: Date): { ok: boolean; nextAt?: Date; reason?: string } {
@@ -132,6 +132,19 @@ export function decide(input: DecideInput): Decision {
     // 8. Deliverability.
     const d = deliverable(pack, caseFile, proposal.intent);
     if (!d.ok) return { kind: 'pending', dueAt: draftDue(), reason: d.reason ?? 'not deliverable' };
+
+    // 9. B7a: the last check before a send. A SEND-tier reply from an agent-facing customer pack
+    //    (customer.*; the rules packs are content-free and SEND by construction) must pass the send
+    //    preconditions — the deterministic gate on the MOVE, read off the case file and triage,
+    //    never the words. DRAFT never gets here, so nothing changes until a person sets a tier.
+    //    neverSend is the belt for a tier act that should already have been refused at the write.
+    if (tier === 'SEND' && pack.audience === 'customer' && pack.id.startsWith('customer.')) {
+        if (isNeverSend(pack, proposal.intent)) {
+            return { kind: 'pending', dueAt: draftDue(), reason: `${PRECONDITION_REASON_PREFIX}never_send:${proposal.intent} (pack ${pack.id})` };
+        }
+        const why = sendPrecondition({ intent: proposal.intent, caseFile, triage, proposal, now });
+        if (why) return { kind: 'pending', dueAt: draftDue(), reason: `${PRECONDITION_REASON_PREFIX}${why}` };
+    }
 
     if (tier === 'SEND') return { kind: 'send', approver: approverFor(pack, proposal.intent) };
     return { kind: 'pending', dueAt: draftDue(), reason: `intent ${proposal.intent} is at tier ${tier} in pack ${pack.id}` };

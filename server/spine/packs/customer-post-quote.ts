@@ -11,5 +11,7 @@ export const CUSTOMER_POST_QUOTE: PolicyPack = {
     allowedIntents: Array.from(new Set([...CUSTOMER_DEFAULT.allowedIntents, 'answer_from_quote', 'point_to_picker'] as const)),
     guardSet: [...CUSTOMER_DEFAULT.guardSet, 'price_objection'],
     tierByIntent: {},
+    // B7a: answer_from_quote reads the quote back in words; the quote page is the numbers channel.
+    neverSend: [...(CUSTOMER_DEFAULT.neverSend ?? []), 'answer_from_quote'],
     templates: { ...CUSTOMER_DEFAULT.templates },
 };

@@ -65,7 +65,7 @@ const OBSERVES: Record<AdapterName, ReadonlySet<ExpectedKey>> = {
     replay: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'mustHold', 'exceptions', 'noExceptions', 'voiceClean']),
     // Lane / flag only. `exceptions` names are the eval lexicon's; the spine's own pre-checks are a
     // different (narrower, then model-widened) list, so only the flag/no-flag outcome is compared.
-    triage: new Set<ExpectedKey>(['lane', 'mustFlag', 'mustNotEscalate']),
+    triage: new Set<ExpectedKey>(['lane', 'mustFlag', 'mustNotEscalate', 'precondition']),
     spine: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean', 'intake']),
     legacy: new Set<ExpectedKey>(['lane', 'intent', 'mustNotContain', 'mustContain', 'mustFlag', 'mustNotEscalate', 'guardsMustTrip', 'guardsMustNotTrip', 'exceptions', 'noExceptions', 'voiceClean']),
 };
@@ -148,7 +148,57 @@ async function triageAdapter(c: EvalCaseV2): Promise<AdapterResult> {
     const tri = triageRules(cf);
     const pack = resolvePack(cf, tri);
     const decision = decide({ proposal: null, guards: null, pack, triage: tri, caseFile: cf });
-    return { observed: { body: null, lane: tri.lane, flagged: decision.kind === 'flag', customerExceptions: tri.exceptions } };
+    const observed: ObservedRun = { body: null, lane: tri.lane, flagged: decision.kind === 'flag', customerExceptions: tri.exceptions };
+    if (c.expected.precondition !== undefined) Object.assign(observed, await preconditionAtSend(c));
+    return { observed };
+}
+
+/** B7a: how often each precondition code fired across the run (the coverage cost, for the DONE report). */
+const preconditionTally = new Map<string, string[]>();
+
+/**
+ * B7a: the real `decide`, no model, with the reply's intent forced to SEND tier through the test
+ * overlay, over the case file as it stood BEFORE the reply (trailing outbound context is the
+ * candidate itself) plus the case's synthetic quote, if any. Observes what the send precondition
+ * said: a refusal code, null (decided `send`), or undefined when the run never reached the tier
+ * step. Restores the overlay whatever happens.
+ */
+async function preconditionAtSend(c: EvalCaseV2): Promise<Pick<ObservedRun, 'precondition' | 'decision'>> {
+    const { triageRules } = await import('../server/spine/triage');
+    const { decide } = await import('../server/spine/decide');
+    const { resolvePack, resolveStaticPack, setTierOverlayForTests } = await import('../server/spine/packs');
+    const { PRECONDITION_REASON_PREFIX } = await import('../server/spine/send-preconditions');
+    const atSend = c.atSend ?? {};
+    const intent = atSend.intent ?? c.candidate?.intent ?? (Array.isArray(c.expected.intent) ? c.expected.intent[0] : c.expected.intent) ?? null;
+    if (!intent) return { precondition: undefined, decision: 'no intent to force to SEND (set atSend.intent, candidate.intent or expected.intent)' };
+    const context = [...(c.context ?? [])];
+    while (context.length && context[context.length - 1].direction === 'outbound') context.pop();
+    const cfNow = new Date();
+    const cf = caseFileFromContext({ ...c, context, quote: atSend.quote ?? c.quote }, cfNow);
+    let tri = triageRules(cf);
+    if (atSend.lexiconOff && tri.lane === 'ben') {
+        tri = { ...tri, exceptions: [], lane: cf.quote && !cf.quote.paid ? 'post_quote' : 'scoper', reasons: [...tri.reasons, 'eval: lexicon off for the precondition run'] };
+    }
+    const bubbles = (c.candidate?.body ?? '').split(/\s*---\s*/).map((b) => b.trim()).filter(Boolean);
+    const proposal = { intent: intent as any, body: bubbles.length ? bubbles : [''], reasons: ['eval: precondition run'] };
+    const staticPack = resolveStaticPack(cf, tri);
+    const lastIn = cf.window.lastInboundAt ? new Date(cf.window.lastInboundAt).getTime() : cfNow.getTime();
+    const now = new Date(lastIn + 60_000);
+    setTierOverlayForTests(new Map([[staticPack.id, { [intent]: 'SEND' as const }]]));
+    try {
+        const pack = resolvePack(cf, tri);
+        const d = decide({ proposal, guards: null, pack, triage: tri, caseFile: cf, now });
+        const summary = d.kind === 'send' ? 'send' : `${d.kind}: ${(d as any).reason ?? (d as any).note ?? (d as any).exception ?? ''}`;
+        const precondition = d.kind === 'send' ? null
+            : d.kind === 'pending' && d.reason.startsWith(PRECONDITION_REASON_PREFIX) ? d.reason.slice(PRECONDITION_REASON_PREFIX.length)
+            : undefined;
+        const key = precondition === null ? '(may send)' : precondition ?? `(not reached: ${d.kind})`;
+        if (!preconditionTally.has(key)) preconditionTally.set(key, []);
+        if (!preconditionTally.get(key)!.includes(c.id)) preconditionTally.get(key)!.push(c.id);
+        return { precondition, decision: summary };
+    } finally {
+        setTierOverlayForTests(null);
+    }
 }
 
 let spineSkip: string | null = null;
@@ -227,9 +277,11 @@ function guardFalseNegatives(cases: EvalCaseV2[], outcomes: CaseOutcome[]): Guar
     const incident = cases.filter((c) => c.family === 'guards' && /incident/.test(c.provenance ?? ''));
     if (!incident.length) return null;
     const by = new Map(outcomes.filter((o) => o.adapter === 'replay').map((o) => [o.id, o]));
+    const replayRan = outcomes.some((o) => o.adapter === 'replay');
     const labels: Record<string, number> = {};
     let shouldHold = 0, caughtText = 0, caughtLexOnly = 0;
     const missedIds: string[] = [];
+    const textRailRegressions: string[] = [];
     for (const c of incident) {
         const label = c.expected.label ?? 'unlabelled';
         labels[label] = (labels[label] ?? 0) + 1;
@@ -243,6 +295,8 @@ function guardFalseNegatives(cases: EvalCaseV2[], outcomes: CaseOutcome[]): Guar
         if (text) caughtText += 1;
         else if (lex) caughtLexOnly += 1;
         else missedIds.push(c.id);
+        // B7a / D2: a case the TEXT rail is expected to hold must be held by a text guard alone.
+        if (!text && (label === 'unsafe_missed' || label === 'caught_by_guard')) textRailRegressions.push(c.id);
     }
     const missed = missedIds.length;
     return {
@@ -250,6 +304,8 @@ function guardFalseNegatives(cases: EvalCaseV2[], outcomes: CaseOutcome[]): Guar
         textGuardFalseNegativeRate: shouldHold ? (shouldHold - caughtText) / shouldHold : null,
         combinedFalseNegativeRate: shouldHold ? missed / shouldHold : null,
         missedIds, labels,
+        // The D2 pin reads the replay adapter's guard chain; without it there is nothing to pin.
+        textRailRegressions: replayRan ? textRailRegressions : undefined,
     };
 }
 
@@ -296,8 +352,14 @@ async function main() {
     const md = scoreboardMarkdown(run, prev && prev.cases ? prev : null);
     fs.writeFileSync(path.join(RESULTS_DIR, 'latest.md'), md);
 
+    if (preconditionTally.size) {
+        console.log(`\nSend preconditions at SEND tier (triage adapter, no model; B7a):`);
+        for (const [code, ids] of Array.from(preconditionTally.entries()).sort()) console.log(`  ${String(ids.length).padStart(3)}  ${code}  ${ids.join(', ')}`);
+    }
     const sum = summarise(outcomes);
-    const regressionRed = outcomes.filter((o) => o.kind === 'regression' && o.passK === false).length;
+    const textRailRed = run.guardFalseNegative?.textRailRegressions?.length ?? 0;
+    if (textRailRed) console.log(`\nD2 text-rail regression: ${run.guardFalseNegative!.textRailRegressions!.join(', ')} no longer held by a text guard with the lexicon disabled`);
+    const regressionRed = outcomes.filter((o) => o.kind === 'regression' && o.passK === false).length + textRailRed;
     const capabilityRed = outcomes.filter((o) => o.kind === 'capability' && o.passAny === false).length;
     console.log(`\n${md.split('\n## Cases')[0]}`);
     console.log(`\nRegression red: ${regressionRed} · capability red (improvement targets): ${capabilityRed} · skipped: ${sum.skipped}`);

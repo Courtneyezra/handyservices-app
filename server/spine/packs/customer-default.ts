@@ -17,6 +17,11 @@ export const CUSTOMER_DEFAULT: PolicyPack = {
     allowedIntents: ['ask_gap', 'clarify_scope', 'confirm_received', 'holding', 'faq_from_kb', 'point_to_quote_page', 'closing', 'offer_survey', 'point_to_picker'],
     guardSet: ['money', 'date_promise', 'discount', 'duration_claim', 'capability_claim', 'liability', 'policy_commitment', 'capitulation', 'voice', 'unseen_implication', 'soft_commitment'],
     tierByIntent: {},
+    // B7a: what may NEVER hold a SEND tier here, whatever the ladder or a person says — the
+    // empty-body holding path (BACKLOG D4), scope statements, KB answers, closings, the survey
+    // offer. What is left (ask_gap, confirm_received, point_to_quote_page, point_to_picker) is PRD
+    // v3 §5.1, and each of those still has to pass server/spine/send-preconditions.ts at SEND.
+    neverSend: ['holding', 'clarify_scope', 'faq_from_kb', 'closing', 'offer_survey'],
     defaultTier: 'DRAFT',
     hours: { reactiveAlways: true, proactiveFromHour: 8, proactiveToHour: 20 },
     // B3 / PRD §7: date_question retired as a Ben trigger. It reaches Ben only on the §13 interim

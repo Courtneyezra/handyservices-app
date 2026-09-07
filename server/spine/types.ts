@@ -62,6 +62,13 @@ export interface PolicyPack {
     exceptionsToBen: ExceptionKind[];
     voiceFile: string;          // path under brand-voice/
     templates: Partial<Record<Intent, string>>; // approved Meta template names by intent
+    /**
+     * B7a (additive): intents that may NEVER hold a SEND tier in this pack, whatever the ladder or
+     * a person says — the empty-body holding path (BACKLOG D4), scope statements, closings. A
+     * subset of allowedIntents (validatePack). assertPromotable, validateHumanTierRequest and
+     * applyTierOverlay refuse SEND for them; decide refuses as a belt.
+     */
+    neverSend?: Intent[];
 }
 
 export interface TimelineItem {
