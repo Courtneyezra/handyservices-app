@@ -16,6 +16,7 @@ import { isException, isAgentName } from './vocab';
 import { customerPromisedMore } from './triage';
 import type { CaseFile, TimelineItem, MediaItem, Audience, Stage, ExceptionKind } from './types';
 import type { MediaBlock } from '../agents/media-context';
+import { selectMediaToDescribe } from './media-selection';
 
 export const CASE_FILE_DIR = process.env.CASE_FILE_DIR || path.join(process.cwd(), 'server', 'storage', 'case-files');
 const TIMELINE_LIMIT = 80;
@@ -253,9 +254,8 @@ async function describeCaseFileMedia(
     rows: { id: string; content: string | null; mediaType: string | null }[],
     ctx: { conversationId: string; phone: string; images: boolean; maxPerRun: number; parentRunId?: string | null },
 ): Promise<void> {
-    const targets = media
-        .filter((m) => !!m.url && (m.kind === 'video' || (ctx.images && m.kind === 'image')))
-        .slice(-Math.max(1, ctx.maxPerRun));
+    // T11: the selection rule lives in media-selection.ts so the sandbox report reads the same one.
+    const targets = selectMediaToDescribe(media, { images: ctx.images, maxPerRun: ctx.maxPerRun });
     if (!targets.length) return;
     let tools: typeof import('./tools/describe-video');
     try {

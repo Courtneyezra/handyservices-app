@@ -298,3 +298,59 @@ describe('the live feed — every run, not only the sandbox', () => {
         warn.mockRestore();
     });
 });
+
+// ---------------------------------------------------------------- T11: the three layers hold with media on the case file
+
+describe('T11 — media on the sandbox thread changes none of the three layers', () => {
+    const withMedia = () => cf({
+        stage: 'enquiry', quote: null,
+        timeline: [
+            { at: '2026-09-07T09:58:00Z', kind: 'message_in', channel: 'whatsapp', body: 'The fan in the bathroom has died', mediaIds: ['msg_sbx_aaaaaaaaaaaaa'] },
+            { at: '2026-09-07T09:58:01Z', kind: 'message_in', channel: 'whatsapp', body: '', mediaIds: ['msg_sbx_bbbbbbbbbbbbb'] },
+        ],
+        media: [
+            { id: 'msg_sbx_aaaaaaaaaaaaa', kind: 'image', url: '/api/media/msg_sbx_aaaaaaaaaaaaa.jpg', description: 'A ceiling extractor fan, grille yellowed, in a tiled bathroom. (confidence high)' },
+            { id: 'msg_sbx_bbbbbbbbbbbbb', kind: 'video', url: '/api/media/msg_sbx_bbbbbbbbbbbbb.mp4' },
+        ],
+    });
+    it('layer 1: a sandbox pass with photos attached never reaches the exit, and is recorded dry', async () => {
+        buildCaseFile.mockResolvedValue(withMedia());
+        const run = await runOnce(SANDBOX_CONV, 'inbound_message', agents(proposing), { sandbox: true, runId: 'run_media' });
+        expect(exitFn).not.toHaveBeenCalled();
+        expect(run.dryRun).toBe(true);
+        expect(run.sandbox).toBe(true);
+        expect(run.caseFile.media).toHaveLength(2);
+        // The media reach the agent unchanged: the sandbox flag touches nothing on the case file.
+        expect(run.caseFile.media[0].description).toContain('extractor fan');
+        expect(run.caseFile.media[1].description).toBeUndefined();
+    });
+    it('layer 2: a case file with media on a real number is refused before triage', async () => {
+        buildCaseFile.mockResolvedValue(withMedia());
+        buildCaseFile.mockResolvedValue({ ...withMedia(), phone: '+447950552830' });
+        await expect(runOnce('real-conv', 'inbound_message', agents(proposing), { sandbox: true, runId: 'run_media_real' })).rejects.toThrow(/sandbox run refused/);
+        expect(triageFn).not.toHaveBeenCalled();
+        expect(exitFn).not.toHaveBeenCalled();
+    });
+    it('layer 3 (evidence): the row still carries proposal.sandbox = true with media on the file', async () => {
+        buildCaseFile.mockResolvedValue(withMedia());
+        await runOnce(SANDBOX_CONV, 'inbound_message', agents(proposing), { sandbox: true, runId: 'run_media_row' });
+        const finish = finishAgentRun.mock.calls.at(-1) as unknown[] | undefined;
+        const patch = (finish?.[2] ?? {}) as { proposal?: { sandbox?: boolean } };
+        expect(patch.proposal?.sandbox).toBe(true);
+    });
+    it('the case_file stage line says how many media there are and how many carry a description', async () => {
+        buildCaseFile.mockResolvedValue(withMedia());
+        await runOnce(SANDBOX_CONV, 'inbound_message', agents(proposing), { sandbox: true, runId: 'run_media_stage' });
+        const stage = events().find((e) => e.type === 'run_event' && e.event?.type === 'stage' && e.event.stage === 'case_file')?.event;
+        expect(stage.label).toContain('2 media (1 described)');
+        expect(stage.detail.media).toEqual([
+            { id: 'msg_sbx_aaaaaaaaaaaaa', kind: 'image', described: true, description: 'A ceiling extractor fan, grille yellowed, in a tiled bathroom. (confidence high)' },
+            { id: 'msg_sbx_bbbbbbbbbbbbb', kind: 'video', described: false, description: null },
+        ]);
+    });
+    it('the control: a file with no media says nothing about media on the line', async () => {
+        await runOnce(SANDBOX_CONV, 'inbound_message', agents(proposing), { sandbox: true, runId: 'run_no_media' });
+        const stage = events().find((e) => e.type === 'run_event' && e.event?.type === 'stage' && e.event.stage === 'case_file')?.event;
+        expect(stage.label).not.toContain('media');
+    });
+});
