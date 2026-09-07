@@ -120,3 +120,9 @@ Lane 2, so it can run in a second pane in parallel from 10 Sep.
 
 Lane 2 and Lane 4 must not share a pane or a branch: one is adding to the price screen, the other
 is deleting the code the old price path still mentions.
+
+## Lane 7 — B6 follow-ups (automatic demotion while autonomy is off, `B6-DONE.md`, 7 Sep)
+
+| # | Row | Where | Blocked by | Done when |
+|---|---|---|---|---|
+| **B6-a** | **Two of the three incident tags have no writer.** `INCIDENT_TAGS` is `incident`, `trust_concern`, `complaint` (`server/spine/autonomy.ts`), but nothing in `server/` writes an `incident` tag and triage raises `complaint` as an exception, not a tag (`server/spine/triage.ts` `RE_COMPLAINT`). With the sampler off, the only demotion signal that can reach a *sent* SEND-tier message is therefore `trust_concern`, and only when a later Scoper run proposes it. Decide whether the complaint lexicon should also write a `complaint` tag on the thread (so a complaint after an automatic send demotes the intent next morning), and whether anything should ever write `incident`. B6 deliberately did not widen the list. | `server/spine/triage.ts`, `server/spine/exit.ts` (`PROPOSAL_TAG_ALLOWLIST`), `server/spine/autonomy.ts` | — | A complaint on a thread an intent sent to is counted by `gatherEvidence` as an incident, proven by test; or the row is closed with a written decision that `trust_concern` alone is enough |

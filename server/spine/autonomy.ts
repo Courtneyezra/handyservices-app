@@ -19,6 +19,19 @@
  * of grouped queries; applying a decision writes pack_intent_tiers + pack_tier_events, refreshes
  * the in-process overlay, and pings the owner. Idempotent: a re-run with the same evidence changes
  * nothing. `dryRun` prints the table and writes nothing.
+ *
+ * B6 (7 Sep 2026, PRD v3 §5.4 — demotion while the autonomy flag is off):
+ *   - `evaluateAutonomy({ mode: 'demote_only' })` decides exactly as above but applies only
+ *     demotions; a promotion is reported and held. The 07:30 job runs in this mode whenever the
+ *     spine is on and `autonomy.enabled` is off (server/spine/config.ts autonomyJobMode), so a
+ *     tier a person set to SEND always has an automatic way back down.
+ *   - The evidence floor: when the newest tier event on a (pack, intent) is a HUMAN promotion to
+ *     SEND, the demotion signals (unsafe verdicts, unsafe samples, incidents, the sampled set) are
+ *     counted only from that moment. A person's SEND means "judged with what was known then";
+ *     anything after it still demotes. A system:autonomy promotion is not floored on purpose.
+ *   - `demoteOnUnsafeVerdict`: the moment an `unsafe` verdict lands (server/verdicts.ts), the
+ *     intent it belongs to drops to DRAFT if it is at SEND, `changed_by system:verdict`, without
+ *     waiting for the morning run.
  */
 import fs from 'fs';
 import path from 'path';
@@ -67,7 +80,7 @@ export interface EvalFamilyStatus {
     runId?: string | null;
     at?: string | null;
 }
-export interface TierChange { tier: Tier; at: string; by: string; reason: string | null }
+export interface TierChange { tier: Tier; at: string; by: string; reason: string | null; /** epoch ms of `at`, when the row carried one (B6 floor) */ atMs?: number | null }
 
 export interface IntentEvidence {
     packId: string;
@@ -83,6 +96,10 @@ export interface IntentEvidence {
     incidents30: number;
     evalFamily: EvalFamilyStatus;
     lastChange: TierChange | null;
+    /** B6: ISO time the demotion signals were counted from (a human SEND), or null when the full 30-day window applies. */
+    evidenceFloor?: string | null;
+    /** B6: set on the minimal evidence a synchronous demotion writes to pack_tier_events — the verdict that caused it. */
+    trigger?: { draftId: string; runId: string | null; verdictBy: string; verdictId: string | null; verdict: string; at: string };
 }
 
 export type AutonomyRule = 'full_gate' | 'fast_track' | 'unsafe_verdict' | 'unsafe_sample' | 'incident' | 'sample_approval' | 'not_promotable' | 'hold' | 'human';
@@ -102,6 +119,46 @@ function emptyVerdicts(): VerdictCounts {
 }
 function emptySamples(): SampleCounts {
     return { fine: 0, notFine: 0, notFineUnsafe: 0, total: 0, approvalPct: null };
+}
+
+// ---------------------------------------------------------------- B6: the evidence floor (pure)
+
+/**
+ * The moment demotion signals count from, as epoch ms, or null for the whole window. Only a HUMAN
+ * promotion to SEND floors the evidence: `by` starts with `human:` and the tier is SEND. Anything
+ * else (a system:autonomy promotion, a demotion, no event) leaves the 30-day window intact, so the
+ * job's own signals keep blocking its own re-promotion.
+ */
+export function evidenceFloorMs(last: TierChange | null | undefined): number | null {
+    if (!last || last.tier !== 'SEND' || !last.by.startsWith('human:')) return null;
+    const ms = last.atMs ?? Date.parse(last.at);
+    return Number.isFinite(ms) ? ms : null;
+}
+
+/** One draft_verdicts row inside the window, with the run's pack and the resolved intent. */
+export type VerdictEventRow = { pack_id: string; intent: string | null; verdict: string; reason: string | null; at_ms: number };
+/** One `send` run on a conversation carrying an incident tag inside the window. */
+export type IncidentEventRow = { pack_id: string; intent: string | null; at_ms: number };
+
+/**
+ * Fold one intent's rows into its 30-day counts, applying the floor to the demotion signals only:
+ * `unsafe`, the sampled set (fine / not fine / not fine: unsafe / approval %) and incidents count
+ * from `floorMs`; the human verdict counts (approve / edit / reject, unedited %, first_at) count
+ * over the whole window as today, because they are promotion evidence and a SEND does not promote.
+ */
+export function foldWindow(verdictRows: VerdictEventRow[], incidentRows: IncidentEventRow[], floorMs: number | null): { verdicts: VerdictCounts; samples: SampleCounts; incidents30: number } {
+    const all = foldVerdicts(verdictRows.map(asGrouped));
+    if (floorMs === null) return { verdicts: all.verdicts, samples: all.samples, incidents30: incidentRows.length };
+    const after = foldVerdicts(verdictRows.filter((r) => Number(r.at_ms) >= floorMs).map(asGrouped));
+    return {
+        verdicts: { ...all.verdicts, unsafe: after.verdicts.unsafe },
+        samples: after.samples,
+        incidents30: incidentRows.filter((r) => Number(r.at_ms) >= floorMs).length,
+    };
+}
+
+function asGrouped(r: VerdictEventRow): VerdictRow {
+    return { pack_id: r.pack_id, intent: r.intent, verdict: r.verdict, reason: r.reason, n: 1, first_at: Number.isFinite(Number(r.at_ms)) ? new Date(Number(r.at_ms)).toISOString() : null };
 }
 
 // ---------------------------------------------------------------- the decision (pure)
@@ -210,6 +267,16 @@ export function ladderPacks(packs: Record<string, PolicyPack> = PACKS): PolicyPa
 type VerdictRow = { pack_id: string; intent: string | null; verdict: string; reason: string | null; n: number; first_at: string | null };
 type CountRow = { pack_id: string; intent: string | null; n: number };
 
+type SqlTag = typeof import('drizzle-orm').sql;
+/**
+ * The intent a verdict belongs to: the spine run's proposal, else the draft reason's [intent]
+ * prefix. Shared by the job's evidence queries and the synchronous demoter (B6) so the two can
+ * never disagree about which intent a verdict is on. Aliases: `ar` = agent_runs, `md` = message_drafts.
+ */
+export function intentExprSql(sql: SqlTag) {
+    return sql`COALESCE(ar.proposal->'proposal'->>'intent', substring(md.reason from '^\\s*\\[([a-z0-9_]+)\\]'))`;
+}
+
 function pct(num: number, den: number): number | null {
     return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
 }
@@ -249,22 +316,22 @@ export async function gatherEvidence(opts: GatherOpts = {}): Promise<IntentEvide
     const { sql } = await import('drizzle-orm');
     const rowsOf = async <T,>(q: any): Promise<T[]> => { const r: any = await db.execute(q); return (r.rows ?? r) as T[]; };
 
-    // The intent a verdict belongs to: the spine run's proposal, else the draft reason's [intent] prefix.
-    const INTENT_EXPR = sql`COALESCE(ar.proposal->'proposal'->>'intent', substring(md.reason from '^\\s*\\[([a-z0-9_]+)\\]'))`;
+    const INTENT_EXPR = intentExprSql(sql);
 
     // T5: a comms-sandbox pass (server/spine/sandbox.ts) is never evidence. The draft-joined
     // queries already cannot see one (a dry run queues no draft); the two that read agent_runs
     // alone would count its flag / send decisions, so every query carries the same exclusion.
     const NOT_SANDBOX_AR = notSandboxRunSql('ar');
     const NOT_SANDBOX = notSandboxRunSql();
+    // B6: the 30-day verdict and incident rows come back ungrouped with their time (the ledger holds
+    // tens of rows, not thousands) so the per-intent evidence floor can be applied in the fold.
     const [verdicts30, unsafeEver, escalations14, incidents30, tierRows, lastEvents] = await Promise.all([
-        rowsOf<VerdictRow>(sql`
-            SELECT ar.pack_id, ${INTENT_EXPR} AS intent, dv.verdict, dv.reason, count(*)::int AS n, min(dv.created_at)::text AS first_at
+        rowsOf<VerdictEventRow>(sql`
+            SELECT ar.pack_id, ${INTENT_EXPR} AS intent, dv.verdict, dv.reason, (extract(epoch from dv.created_at) * 1000)::float8 AS at_ms
             FROM draft_verdicts dv
             JOIN message_drafts md ON md.id = dv.draft_id
             JOIN agent_runs ar ON ar.id = COALESCE(dv.run_id, md.run_id)
-            WHERE ar.pack_id IS NOT NULL AND dv.created_at >= ${since30} AND ${NOT_SANDBOX_AR}
-            GROUP BY 1, 2, 3, 4`),
+            WHERE ar.pack_id IS NOT NULL AND dv.created_at >= ${since30} AND ${NOT_SANDBOX_AR}`),
         rowsOf<CountRow>(sql`
             SELECT ar.pack_id, ${INTENT_EXPR} AS intent, count(*)::int AS n
             FROM draft_verdicts dv
@@ -277,17 +344,16 @@ export async function gatherEvidence(opts: GatherOpts = {}): Promise<IntentEvide
             FROM agent_runs
             WHERE pack_id IS NOT NULL AND started_at >= ${since14} AND decision = 'flag' AND cardinality(guards_hit) > 0 AND ${NOT_SANDBOX}
             GROUP BY 1, 2`),
-        rowsOf<CountRow>(sql`
-            SELECT ar.pack_id, ar.proposal->'proposal'->>'intent' AS intent, count(*)::int AS n
+        rowsOf<IncidentEventRow>(sql`
+            SELECT ar.pack_id, ar.proposal->'proposal'->>'intent' AS intent, (extract(epoch from ar.started_at) * 1000)::float8 AS at_ms
             FROM agent_runs ar
             JOIN conversations c ON c.id = ar.conversation_id
             WHERE ar.pack_id IS NOT NULL AND ar.started_at >= ${since30} AND ar.decision = 'send' AND ${NOT_SANDBOX_AR}
-              AND c.tags && ${sql.raw(`ARRAY[${INCIDENT_TAGS.map((t) => `'${t}'`).join(',')}]::text[]`)}
-            GROUP BY 1, 2`),
-        rowsOf<{ pack_id: string; intent: string; tier: string; reason: string | null; changed_by: string | null; changed_at: string }>(sql`
-            SELECT pack_id, intent, tier, reason, changed_by, changed_at::text FROM pack_intent_tiers`),
-        rowsOf<{ pack_id: string; intent: string; to_tier: string; reason: string | null; by: string; at: string }>(sql`
-            SELECT DISTINCT ON (pack_id, intent) pack_id, intent, to_tier, reason, by, at::text
+              AND c.tags && ${sql.raw(`ARRAY[${INCIDENT_TAGS.map((t) => `'${t}'`).join(',')}]::text[]`)}`),
+        rowsOf<{ pack_id: string; intent: string; tier: string; reason: string | null; changed_by: string | null; changed_at: string; at_ms: number | null }>(sql`
+            SELECT pack_id, intent, tier, reason, changed_by, changed_at::text, (extract(epoch from changed_at) * 1000)::float8 AS at_ms FROM pack_intent_tiers`),
+        rowsOf<{ pack_id: string; intent: string; to_tier: string; reason: string | null; by: string; at: string; at_ms: number | null }>(sql`
+            SELECT DISTINCT ON (pack_id, intent) pack_id, intent, to_tier, reason, by, at::text, (extract(epoch from at) * 1000)::float8 AS at_ms
             FROM pack_tier_events ORDER BY pack_id, intent, at DESC`),
     ]);
     await refreshTierOverlay(true);
@@ -295,7 +361,6 @@ export async function gatherEvidence(opts: GatherOpts = {}): Promise<IntentEvide
     const key = (p: string, i: string | null) => `${p}|${i ?? ''}`;
     const unsafeBy = new Map(unsafeEver.map((r) => [key(r.pack_id, r.intent), Number(r.n)]));
     const escBy = new Map(escalations14.map((r) => [key(r.pack_id, r.intent), Number(r.n)]));
-    const incBy = new Map(incidents30.map((r) => [key(r.pack_id, r.intent), Number(r.n)]));
     const lastBy = new Map(lastEvents.map((r) => [key(r.pack_id, r.intent), r]));
     const tierBy = new Map(tierRows.map((r) => [key(r.pack_id, r.intent), r]));
 
@@ -303,19 +368,27 @@ export async function gatherEvidence(opts: GatherOpts = {}): Promise<IntentEvide
     for (const staticPack of ladderPacks(opts.packs)) {
         const pack = applyTierOverlay(staticPack, currentTierOverlay().get(staticPack.id));
         const packRows = verdicts30.filter((r) => r.pack_id === pack.id);
-        const packVerdicts30 = foldVerdicts(packRows).verdicts;
+        const packVerdicts30 = foldVerdicts(packRows.map(asGrouped)).verdicts;
         for (const intent of pack.allowedIntents) {
             const k = key(pack.id, intent);
-            const { verdicts, samples } = foldVerdicts(packRows.filter((r) => r.intent === intent));
             const last = lastBy.get(k);
             const tierRow = tierBy.get(k);
+            const lastChange: TierChange | null = last ? { tier: last.to_tier as Tier, at: last.at, by: last.by, reason: last.reason, atMs: last.at_ms == null ? null : Number(last.at_ms) }
+                : tierRow ? { tier: tierRow.tier as Tier, at: tierRow.changed_at, by: tierRow.changed_by ?? 'unknown', reason: tierRow.reason, atMs: tierRow.at_ms == null ? null : Number(tierRow.at_ms) } : null;
+            // B6: a human SEND floors the demotion signals at the moment it was set.
+            const floorMs = evidenceFloorMs(lastChange);
+            const { verdicts, samples, incidents30: incidents } = foldWindow(
+                packRows.filter((r) => r.intent === intent),
+                incidents30.filter((r) => r.pack_id === pack.id && r.intent === intent),
+                floorMs,
+            );
             out.push({
                 packId: pack.id, intent, tier: tierFor(pack, intent), tierSource: tierSourceFor(pack.id, intent), allowed: true,
                 packVerdicts30, intentVerdicts30: verdicts,
-                unsafeEver: unsafeBy.get(k) ?? 0, escalations14: escBy.get(k) ?? 0, samples30: samples, incidents30: incBy.get(k) ?? 0,
+                unsafeEver: unsafeBy.get(k) ?? 0, escalations14: escBy.get(k) ?? 0, samples30: samples, incidents30: incidents,
                 evalFamily: evalFamilyFrom(board, intent),
-                lastChange: last ? { tier: last.to_tier as Tier, at: last.at, by: last.by, reason: last.reason }
-                    : tierRow ? { tier: tierRow.tier as Tier, at: tierRow.changed_at, by: tierRow.changed_by ?? 'unknown', reason: tierRow.reason } : null,
+                lastChange,
+                evidenceFloor: floorMs === null ? null : new Date(floorMs).toISOString(),
             });
         }
     }
@@ -474,20 +547,114 @@ async function defaultHumanTierWrite(change: HumanTierChange, evidence: Record<s
     } catch { /* bookkeeping */ }
 }
 
+// ---------------------------------------------------------------- B6: synchronous demotion on an unsafe verdict
+
+export interface UnsafeVerdictInput {
+    draftId: string;
+    runId?: string | null;
+    verdict: string;
+    reason: string | null;
+    /** Who recorded the verdict: human:<id>, or the sampler's judge. */
+    by: string;
+    verdictId?: string | null;
+}
+
+export interface UnsafeVerdictDeps {
+    /** Injected for tests: (pack, intent) of the verdict's run. Default reads agent_runs + message_drafts with the job's own intent expression. */
+    resolve?: (input: UnsafeVerdictInput) => Promise<{ packId: string | null; intent: string | null } | null>;
+    /** Injected for tests: the effective tier now. */
+    currentTier?: (packId: string, intent: string) => Promise<Tier>;
+    /** Injected for tests: the write. Default is applyDecision (same tables, same event log, same ping). */
+    apply?: (d: AutonomyDecision, evidence: IntentEvidence, deps: ApplyDeps) => Promise<void>;
+    notify?: ApplyDeps['notify'];
+    packs?: Record<string, PolicyPack>;
+    now?: Date;
+}
+
+export type UnsafeVerdictOutcome = { demoted: boolean; why: string; decision?: AutonomyDecision };
+
+/** The (pack, intent) a verdict belongs to, resolved exactly as gatherEvidence resolves it. */
+async function resolveVerdictIntent(input: UnsafeVerdictInput): Promise<{ packId: string | null; intent: string | null } | null> {
+    const { db } = await import('../db');
+    const { sql } = await import('drizzle-orm');
+    const r: any = await db.execute(sql`
+        SELECT ar.pack_id, ${intentExprSql(sql)} AS intent
+        FROM message_drafts md
+        JOIN agent_runs ar ON ar.id = COALESCE(${input.runId ?? null}, md.run_id)
+        WHERE md.id = ${input.draftId}
+        LIMIT 1`);
+    const rows = (r.rows ?? r) as { pack_id: string | null; intent: string | null }[];
+    return rows[0] ? { packId: rows[0].pack_id ?? null, intent: rows[0].intent ?? null } : null;
+}
+
+/**
+ * The moment an `unsafe` verdict is recorded (any verdict but `sample_fine`), take the intent it
+ * belongs to down to DRAFT if it is at SEND. Fired from server/verdicts.ts after the verdict row
+ * has landed, outside its transaction: the verdict is never at risk, and a demotion that fails
+ * here is caught by the next 07:30 run, whose `unsafe` query has no author filter either.
+ *
+ * Idempotent: an intent not at SEND (already demoted, or never promoted) writes nothing and pings
+ * nobody. Same tables and event log as the job, `changed_by system:verdict` so the event log says
+ * which mechanism moved the tier. Never throws; every failure is one warning line.
+ */
+export async function demoteOnUnsafeVerdict(input: UnsafeVerdictInput, deps: UnsafeVerdictDeps = {}): Promise<UnsafeVerdictOutcome> {
+    try {
+        if (input.reason !== 'unsafe' || input.verdict === 'sample_fine') return { demoted: false, why: 'not an unsafe verdict' };
+        const resolved = await (deps.resolve ?? resolveVerdictIntent)(input);
+        const packId = resolved?.packId ?? null;
+        const intent = resolved?.intent ?? null;
+        if (!packId || !intent) return { demoted: false, why: `no pack or intent for draft ${input.draftId}` };
+        const pack = ladderPacks(deps.packs).find((p) => p.id === packId);
+        if (!pack) return { demoted: false, why: `pack ${packId} is not on the DRAFT → SEND ladder` };
+        if (!(pack.allowedIntents as readonly string[]).includes(intent)) return { demoted: false, why: `${intent} is not an intent of pack ${packId}` };
+        const tier = await (deps.currentTier ?? effectiveTier)(packId, intent);
+        if (tier !== 'SEND') return { demoted: false, why: `${packId}/${intent} is at ${tier}, nothing to demote` };
+        const at = (deps.now ?? new Date()).toISOString();
+        const decision: AutonomyDecision = {
+            packId, intent, from: 'SEND', to: 'DRAFT', action: 'demote', rule: 'unsafe_verdict',
+            reasons: [`unsafe verdict (${input.verdict}) by ${input.by} on draft ${input.draftId} at ${at}`],
+        };
+        const evidence: IntentEvidence = {
+            packId, intent, tier: 'SEND', tierSource: tierSourceFor(packId, intent), allowed: true,
+            packVerdicts30: emptyVerdicts(), intentVerdicts30: { ...emptyVerdicts(), unsafe: 1 },
+            unsafeEver: 1, escalations14: 0, samples30: emptySamples(), incidents30: 0,
+            evalFamily: { status: 'missing', cases: 0, passed: 0 }, lastChange: null,
+            trigger: { draftId: input.draftId, runId: input.runId ?? null, verdictBy: input.by, verdictId: input.verdictId ?? null, verdict: input.verdict, at },
+        };
+        await (deps.apply ?? applyDecision)(decision, evidence, { by: 'system:verdict', ...(deps.notify ? { notify: deps.notify } : {}) });
+        console.log(`[Autonomy] synchronous demotion: ${packId}/${intent} SEND → DRAFT on ${input.verdict} (unsafe) by ${input.by}, draft ${input.draftId}`);
+        return { demoted: true, why: decision.reasons[0], decision };
+    } catch (error: any) {
+        console.warn(`[Autonomy] synchronous demotion failed for draft ${input.draftId} (the verdict stands; the 07:30 run will re-check):`, error?.message ?? error);
+        return { demoted: false, why: `failed: ${error?.message ?? error}` };
+    }
+}
+
 // ---------------------------------------------------------------- the job
+
+/**
+ * B6: `full` promotes and demotes (the earned ladder, behind spine.autonomy.enabled); `demote_only`
+ * decides identically but applies only demotions — a promotion is reported in `held`, never written.
+ */
+export type AutonomyMode = 'full' | 'demote_only';
 
 export interface AutonomyReport {
     at: string;
     dryRun: boolean;
+    mode: AutonomyMode;
     evidence: IntentEvidence[];
     decisions: AutonomyDecision[];
     applied: AutonomyDecision[];
+    /** B6: promotions the run decided but did not apply because the mode is demote-only. */
+    held: AutonomyDecision[];
     errors: string[];
     table: string;
 }
 
 export interface EvaluateOpts extends GatherOpts, ApplyDeps {
     dryRun?: boolean;
+    /** B6: default 'full' — every existing caller is unchanged. */
+    mode?: AutonomyMode;
     /** Injected for tests: skip the database and decide over these. */
     evidence?: IntentEvidence[];
     apply?: (d: AutonomyDecision, ev: IntentEvidence) => Promise<void>;
@@ -496,9 +663,11 @@ export interface EvaluateOpts extends GatherOpts, ApplyDeps {
 export async function evaluateAutonomy(opts: EvaluateOpts = {}): Promise<AutonomyReport> {
     const now = opts.now ?? new Date();
     const dryRun = opts.dryRun !== false;
+    const mode: AutonomyMode = opts.mode ?? 'full';
     const evidence = opts.evidence ?? await gatherEvidence(opts);
     const decisions: AutonomyDecision[] = [];
     const applied: AutonomyDecision[] = [];
+    const held: AutonomyDecision[] = [];
     const errors: string[] = [];
     for (const ev of evidence) {
         let d: AutonomyDecision;
@@ -509,6 +678,8 @@ export async function evaluateAutonomy(opts: EvaluateOpts = {}): Promise<Autonom
             continue;
         }
         decisions.push(d);
+        // B6: demote-only never promotes. The decision stands in the report; the write does not happen.
+        if (d.action === 'promote' && mode === 'demote_only') { held.push(d); continue; }
         if (d.action === 'hold' || dryRun) continue;
         try {
             await (opts.apply ?? ((dd, e) => applyDecision(dd, e, opts)))(d, ev);
@@ -517,20 +688,22 @@ export async function evaluateAutonomy(opts: EvaluateOpts = {}): Promise<Autonom
             errors.push(`${ev.packId}/${ev.intent}: apply failed: ${error?.message ?? error}`);
         }
     }
-    const report: AutonomyReport = { at: now.toISOString(), dryRun, evidence, decisions, applied, errors, table: '' };
+    const report: AutonomyReport = { at: now.toISOString(), dryRun, mode, evidence, decisions, applied, held, errors, table: '' };
     report.table = renderAutonomyTable(report);
     return report;
 }
 
 export function renderAutonomyTable(report: AutonomyReport): string {
+    const demoteOnly = report.mode === 'demote_only';
     const rows = report.evidence.map((ev) => {
         const d = report.decisions.find((x) => x.packId === ev.packId && x.intent === ev.intent);
+        const heldHere = !!d && demoteOnly && d.action === 'promote';
         return [
             ev.packId.padEnd(20), ev.intent.padEnd(22), ev.tier.padEnd(7),
             String(ev.intentVerdicts30.human).padStart(4), String(ev.intentVerdicts30.uneditedPct ?? '–').padStart(5), String(ev.intentVerdicts30.reject).padStart(3),
             String(ev.unsafeEver).padStart(3), String(ev.escalations14).padStart(3), `${ev.samples30.fine}/${ev.samples30.total}`.padStart(7),
-            ev.evalFamily.status.padEnd(7), (d ? `${d.action}${d.action !== 'hold' ? ` → ${d.to} (${d.rule})` : ''}` : 'n/a').padEnd(28),
-            d?.reasons[0] ?? '',
+            ev.evalFamily.status.padEnd(7), (d ? `${d.action}${d.action !== 'hold' ? ` → ${d.to} (${d.rule})` : ''}${heldHere ? ' [held: demote-only]' : ''}` : 'n/a').padEnd(28),
+            [d?.reasons[0] ?? '', ev.evidenceFloor ? `(signals counted from human SEND at ${ev.evidenceFloor})` : ''].filter(Boolean).join(' '),
         ].join(' ');
     });
     const head = ['pack'.padEnd(20), 'intent'.padEnd(22), 'tier'.padEnd(7), 'verd'.padStart(4), 'uned%'.padStart(5), 'rej'.padStart(3), 'uns'.padStart(3), 'esc'.padStart(3), 'samples'.padStart(7), 'eval'.padEnd(7), 'decision'.padEnd(28), 'why'].join(' ');
@@ -539,10 +712,11 @@ export function renderAutonomyTable(report: AutonomyReport): string {
         return `${p}: ${e.packVerdicts30.human} pack verdicts in ${GATE.verdictWindowDays}d, ${e.packVerdicts30.uneditedPct ?? '–'}% unedited`;
     });
     return [
-        `Autonomy ${report.dryRun ? 'DRY RUN' : 'APPLIED'} at ${report.at}`,
+        `Autonomy ${report.dryRun ? 'DRY RUN' : 'APPLIED'}${demoteOnly ? ' (demote-only: promotions are reported, never applied)' : ''} at ${report.at}`,
         ...pack30,
         head, ...rows,
         ...(report.applied.length ? [`applied: ${report.applied.map((d) => `${d.intent} → ${d.to}`).join(', ')}`] : []),
+        ...(report.held?.length ? [`held (demote-only): ${report.held.map((d) => `${d.intent} → ${d.to} (${d.rule})`).join(', ')}`] : []),
         ...(report.errors.length ? [`errors: ${report.errors.join(' | ')}`] : []),
     ].join('\n');
 }

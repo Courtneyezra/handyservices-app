@@ -2,7 +2,7 @@
  * Phase 3 vitest: the promotion / demotion decision over fake evidence, every branch, no database.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { decideTier, evalFamilyFrom, evaluateAutonomy, GATE, validateHumanTierRequest, setTierByHuman, type IntentEvidence } from './autonomy';
+import { decideTier, evalFamilyFrom, evaluateAutonomy, GATE, validateHumanTierRequest, setTierByHuman, evidenceFloorMs, foldWindow, demoteOnUnsafeVerdict, renderAutonomyTable, FAST_TRACK_INTENTS, INCIDENT_TAGS, type IntentEvidence, type VerdictEventRow, type IncidentEventRow } from './autonomy';
 import { applyTierOverlay, getPack, assertPromotable, setTierOverlayForTests, resolvePack } from './packs';
 import type { CaseFile, TriageResult } from './types';
 
@@ -214,5 +214,173 @@ describe('setTierByHuman', () => {
         await expect(setTierByHuman({ packId: 'customer.default', intent: 'ask_gap', tier: 'SEND', reason: 'x' }, { by: 'system:autonomy', write, currentTier: async () => 'DRAFT' })).rejects.toThrow(/human:<id>/);
         await expect(setTierByHuman({ packId: 'customer.default', intent: 'job_brief', tier: 'SEND', reason: 'x' }, { by: 'human:ben', write, currentTier: async () => 'DRAFT' })).rejects.toThrow(/not an intent of pack/);
         expect(write).not.toHaveBeenCalled();
+    });
+});
+
+// ---------------------------------------------------------------- B6: demotion while the autonomy flag is off
+
+describe('B6 evaluateAutonomy in demote-only mode', () => {
+    const promotable = ev();                                                       // DRAFT, full gate passes
+    const incident = ev({ intent: 'ask_gap', tier: 'SEND', tierSource: 'db', incidents30: 1 }); // SEND with an incident
+    const clean = ev({ intent: 'confirm_received', tier: 'SEND', tierSource: 'db' });        // SEND, nothing wrong
+
+    it('applies exactly the demotion, holds the promotion, and shows both in the table', async () => {
+        const applied: string[] = [];
+        const r = await evaluateAutonomy({ dryRun: false, mode: 'demote_only', now: NOW, evidence: [promotable, incident, clean], apply: async (d) => { applied.push(`${d.intent}:${d.action}:${d.to}`); } });
+        expect(applied).toEqual(['ask_gap:demote:DRAFT']);
+        expect(r.applied.map((d) => d.intent)).toEqual(['ask_gap']);
+        expect(r.held).toHaveLength(1);
+        expect(r.held[0]).toMatchObject({ intent: 'clarify_scope', action: 'promote', to: 'SEND', rule: 'full_gate' });
+        // decideTier ran as in full mode: the promotion is still a decision, not an error.
+        expect(r.decisions.map((d) => d.action)).toEqual(['promote', 'demote', 'hold']);
+        expect(r.errors).toEqual([]);
+        expect(r.mode).toBe('demote_only');
+        expect(r.table).toMatch(/demote-only/);
+        expect(r.table).toMatch(/promote → SEND \(full_gate\) \[held: demote-only\]/);
+        expect(r.table).toMatch(/held \(demote-only\): clarify_scope → SEND \(full_gate\)/);
+        expect(r.table).toMatch(/applied: ask_gap → DRAFT/);
+    });
+    it('never promotes, whatever the evidence says', async () => {
+        const applied: any[] = [];
+        const promotables = [ev(), ev({ intent: 'ask_gap', evalFamily: { status: 'missing', cases: 0, passed: 0 }, packVerdicts30: { human: 12, approve: 12, edit: 0, reject: 0, unsafe: 0, uneditedPct: 100, firstAt: ago(15) } })];
+        const r = await evaluateAutonomy({ dryRun: false, mode: 'demote_only', now: NOW, evidence: promotables, apply: async (d) => { applied.push(d); } });
+        expect(r.decisions.every((d) => d.action === 'promote')).toBe(true);
+        expect(applied).toEqual([]);
+        expect(r.applied).toEqual([]);
+        expect(r.held).toHaveLength(2);
+    });
+    it('a run that changes nothing applies nothing (so it pings nobody)', async () => {
+        const applied: any[] = [];
+        const r = await evaluateAutonomy({ dryRun: false, mode: 'demote_only', now: NOW, evidence: [clean, ev({ intent: 'closing', evalFamily: { status: 'missing', cases: 0, passed: 0 } })], apply: async (d) => { applied.push(d); } });
+        expect(applied).toEqual([]); expect(r.applied).toEqual([]); expect(r.held).toEqual([]);
+    });
+    it('the default mode is full: the same evidence promotes and demotes as before', async () => {
+        const applied: string[] = [];
+        const r = await evaluateAutonomy({ dryRun: false, now: NOW, evidence: [promotable, incident, clean], apply: async (d) => { applied.push(`${d.intent}:${d.to}`); } });
+        expect(r.mode).toBe('full');
+        expect(applied).toEqual(['clarify_scope:SEND', 'ask_gap:DRAFT']);
+        expect(r.held).toEqual([]);
+        expect(r.table).not.toMatch(/demote-only/);
+    });
+    it('dry run in demote-only mode writes nothing and still prints the table', async () => {
+        const applied: any[] = [];
+        const r = await evaluateAutonomy({ dryRun: true, mode: 'demote_only', now: NOW, evidence: [promotable, incident], apply: async (d) => { applied.push(d); } });
+        expect(applied).toEqual([]);
+        expect(r.table).toMatch(/DRY RUN \(demote-only/);
+        expect(r.table).toMatch(/demote → DRAFT \(incident\)/);
+        expect(renderAutonomyTable(r).split('\n').length).toBeGreaterThan(3);
+    });
+    it('the numbers and the signal list are what they were', () => {
+        expect(GATE).toEqual({ verdictWindowDays: 30, minPackVerdicts: 30, minUneditedPct: 90, escalationWindowDays: 14, fastTrackMinDays: 14, fastTrackMinVerdicts: 20, sampleWindowDays: 30, minSamplesForRate: 5, minSampleApprovalPct: 80 });
+        expect(FAST_TRACK_INTENTS).toEqual(['ask_gap', 'confirm_received']);
+        expect(INCIDENT_TAGS).toEqual(['incident', 'trust_concern', 'complaint']);
+    });
+});
+
+describe('B6 evidence floor: a human SEND counts demotion signals from the moment it was set', () => {
+    const T0 = NOW.getTime();
+    const day = 86_400_000;
+    const unsafeAt = (ms: number): VerdictEventRow => ({ pack_id: 'customer.default', intent: 'ask_gap', verdict: 'reject', reason: 'unsafe', at_ms: ms });
+    const humanSend = { tier: 'SEND' as const, at: new Date(T0).toISOString(), by: 'human:ben', reason: 'day one' };
+
+    it('floors only a human SEND', () => {
+        expect(evidenceFloorMs(humanSend)).toBe(T0);
+        expect(evidenceFloorMs({ ...humanSend, atMs: T0 + 5, at: 'garbage' })).toBe(T0 + 5); // the row's epoch wins over the text
+        expect(evidenceFloorMs({ ...humanSend, by: 'system:autonomy' })).toBeNull();
+        expect(evidenceFloorMs({ ...humanSend, by: 'system:verdict' })).toBeNull();
+        expect(evidenceFloorMs({ ...humanSend, tier: 'DRAFT' })).toBeNull();
+        expect(evidenceFloorMs(null)).toBeNull();
+        expect(evidenceFloorMs({ ...humanSend, at: 'not a date' })).toBeNull();
+    });
+    it('an unsafe verdict the day BEFORE the human SEND holds; the same verdict the day AFTER demotes', () => {
+        const floor = evidenceFloorMs(humanSend);
+        const before = foldWindow([unsafeAt(T0 - day)], [], floor);
+        const dBefore = decideTier(ev({ intent: 'ask_gap', tier: 'SEND', tierSource: 'db', intentVerdicts30: before.verdicts, samples30: before.samples, incidents30: before.incidents30, lastChange: humanSend }), NOW);
+        expect(before.verdicts.unsafe).toBe(0);
+        expect(before.verdicts.reject).toBe(1); // the human count still spans the whole window
+        expect(dBefore).toMatchObject({ action: 'hold', to: 'SEND' });
+
+        const after = foldWindow([unsafeAt(T0 + day)], [], floor);
+        const dAfter = decideTier(ev({ intent: 'ask_gap', tier: 'SEND', tierSource: 'db', intentVerdicts30: after.verdicts, samples30: after.samples, incidents30: after.incidents30, lastChange: humanSend }), NOW);
+        expect(after.verdicts.unsafe).toBe(1);
+        expect(dAfter).toMatchObject({ action: 'demote', to: 'DRAFT', rule: 'unsafe_verdict' });
+    });
+    it('a system:autonomy SEND is not floored: the earlier verdict still demotes', () => {
+        const floor = evidenceFloorMs({ ...humanSend, by: 'system:autonomy' });
+        const folded = foldWindow([unsafeAt(T0 - day)], [], floor);
+        expect(folded.verdicts.unsafe).toBe(1);
+        expect(decideTier(ev({ intent: 'ask_gap', tier: 'SEND', tierSource: 'db', intentVerdicts30: folded.verdicts }), NOW)).toMatchObject({ action: 'demote', rule: 'unsafe_verdict' });
+    });
+    it('floors incidents and the sampled set too, and leaves the promotion counts alone', () => {
+        const incidents: IncidentEventRow[] = [{ pack_id: 'customer.default', intent: 'ask_gap', at_ms: T0 - day }, { pack_id: 'customer.default', intent: 'ask_gap', at_ms: T0 + day }];
+        const samples: VerdictEventRow[] = [
+            { pack_id: 'customer.default', intent: 'ask_gap', verdict: 'sample_not_fine', reason: 'unsafe', at_ms: T0 - day },
+            { pack_id: 'customer.default', intent: 'ask_gap', verdict: 'sample_not_fine', reason: 'wrong_move', at_ms: T0 - day },
+            { pack_id: 'customer.default', intent: 'ask_gap', verdict: 'sample_fine', reason: 'fine', at_ms: T0 + day },
+            { pack_id: 'customer.default', intent: 'ask_gap', verdict: 'approve', reason: 'fine', at_ms: T0 - 2 * day },
+            { pack_id: 'customer.default', intent: 'ask_gap', verdict: 'edit', reason: 'tone', at_ms: T0 + 2 * day },
+        ];
+        const floored = foldWindow(samples, incidents, T0);
+        expect(floored.incidents30).toBe(1);
+        expect(floored.samples).toEqual({ fine: 1, notFine: 0, notFineUnsafe: 0, total: 1, approvalPct: 100 });
+        expect(floored.verdicts).toMatchObject({ human: 2, approve: 1, edit: 1, reject: 0, unsafe: 0, uneditedPct: 50 });
+        expect(floored.verdicts.firstAt).toBe(new Date(T0 - 2 * day).toISOString());
+        const whole = foldWindow(samples, incidents, null);
+        expect(whole.incidents30).toBe(2);
+        expect(whole.samples).toEqual({ fine: 1, notFine: 2, notFineUnsafe: 1, total: 3, approvalPct: 33.3 });
+        expect(whole.verdicts.unsafe).toBe(1);
+    });
+});
+
+describe('B6 demoteOnUnsafeVerdict with injected dependencies', () => {
+    const verdict = { draftId: 'd1', runId: 'run1', verdict: 'reject', reason: 'unsafe', by: 'human:ben', verdictId: 'v1' };
+    const onLadder = async () => ({ packId: 'customer.default', intent: 'ask_gap' });
+
+    it('SEND → one demote write with by system:verdict', async () => {
+        const writes: any[] = [];
+        const r = await demoteOnUnsafeVerdict(verdict, { resolve: onLadder, currentTier: async () => 'SEND', now: NOW, apply: async (d, evd, deps) => { writes.push({ d, evd, deps }); } });
+        expect(r.demoted).toBe(true);
+        expect(writes).toHaveLength(1);
+        expect(writes[0].d).toMatchObject({ packId: 'customer.default', intent: 'ask_gap', from: 'SEND', to: 'DRAFT', action: 'demote', rule: 'unsafe_verdict' });
+        expect(writes[0].d.reasons[0]).toMatch(/unsafe verdict \(reject\) by human:ben on draft d1/);
+        expect(writes[0].deps.by).toBe('system:verdict');
+        expect(writes[0].evd).toMatchObject({ tier: 'SEND', intentVerdicts30: { unsafe: 1 }, trigger: { draftId: 'd1', runId: 'run1', verdictBy: 'human:ben', verdictId: 'v1', verdict: 'reject' } });
+    });
+    it('DRAFT → no write (idempotent: a second unsafe on a demoted intent does nothing)', async () => {
+        const apply = vi.fn(async () => undefined);
+        const r = await demoteOnUnsafeVerdict(verdict, { resolve: onLadder, currentTier: async () => 'DRAFT', apply });
+        expect(r.demoted).toBe(false); expect(r.why).toMatch(/at DRAFT/);
+        expect(apply).not.toHaveBeenCalled();
+    });
+    it('an unknown run, a pack off the ladder, or an intent outside the pack → no write', async () => {
+        const apply = vi.fn(async () => undefined);
+        const tier = vi.fn(async () => 'SEND' as const);
+        expect((await demoteOnUnsafeVerdict(verdict, { resolve: async () => null, currentTier: tier, apply })).demoted).toBe(false);
+        expect((await demoteOnUnsafeVerdict(verdict, { resolve: async () => ({ packId: 'customer.default', intent: null }), currentTier: tier, apply })).demoted).toBe(false);
+        expect((await demoteOnUnsafeVerdict(verdict, { resolve: async () => ({ packId: 'rules.first_contact', intent: 'holding' }), currentTier: tier, apply })).demoted).toBe(false);
+        expect((await demoteOnUnsafeVerdict(verdict, { resolve: async () => ({ packId: 'customer.default', intent: 'job_brief' }), currentTier: tier, apply })).demoted).toBe(false);
+        expect(apply).not.toHaveBeenCalled(); expect(tier).not.toHaveBeenCalled();
+    });
+    it('a non-unsafe verdict, and sample_fine even with reason unsafe, never reach the resolver', async () => {
+        const resolve = vi.fn(onLadder);
+        expect((await demoteOnUnsafeVerdict({ ...verdict, reason: 'wrong_move' }, { resolve })).demoted).toBe(false);
+        expect((await demoteOnUnsafeVerdict({ ...verdict, verdict: 'sample_fine' }, { resolve })).demoted).toBe(false);
+        expect(resolve).not.toHaveBeenCalled();
+    });
+    it('the judge\'s sampled unsafe demotes too (parity with the job: no author filter)', async () => {
+        const writes: any[] = [];
+        const r = await demoteOnUnsafeVerdict({ ...verdict, verdict: 'sample_not_fine', by: 'agent.verifier' }, { resolve: onLadder, currentTier: async () => 'SEND', apply: async (d) => { writes.push(d); } });
+        expect(r.demoted).toBe(true); expect(writes).toHaveLength(1);
+    });
+    it('a throwing write, resolver or tier read does not throw out', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        try {
+            await expect(demoteOnUnsafeVerdict(verdict, { resolve: onLadder, currentTier: async () => 'SEND', apply: async () => { throw new Error('db down'); } })).resolves.toMatchObject({ demoted: false, why: /db down/ });
+            await expect(demoteOnUnsafeVerdict(verdict, { resolve: async () => { throw new Error('no db'); } })).resolves.toMatchObject({ demoted: false });
+            await expect(demoteOnUnsafeVerdict(verdict, { resolve: onLadder, currentTier: async () => { throw new Error('overlay'); } })).resolves.toMatchObject({ demoted: false });
+            expect(warn).toHaveBeenCalledTimes(3);
+        } finally {
+            warn.mockRestore();
+        }
     });
 });

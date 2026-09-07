@@ -8,6 +8,11 @@
  *
  * recordVerdict never throws: a missing table (migration not yet applied) or a bad row must not
  * turn a successful send into a 500 for the approver. It logs and returns null instead.
+ *
+ * B6 (PRD v3 §5.4): an `unsafe` verdict (any verdict but `sample_fine`) also fires the synchronous
+ * demoter in server/spine/autonomy.ts, fire-and-forget, AFTER the row has landed and outside its
+ * write: the intent drops SEND → DRAFT within the second instead of at the next 07:30 run. Nothing
+ * the demoter does can change this function's return value, timing, or never-throw contract.
  */
 import { Router } from 'express';
 import { db } from './db';
@@ -30,9 +35,20 @@ export interface RecordVerdictInput {
     by: string;
 }
 
-export async function recordVerdict(input: RecordVerdictInput): Promise<{ id: string } | null> {
+export interface RecordVerdictHooks {
+    /** Injected for tests. Default: demoteOnUnsafeVerdict from server/spine/autonomy.ts. */
+    demote?: (input: { draftId: string; runId: string | null; verdict: DraftVerdict; reason: VerdictReason | null; by: string; verdictId: string | null }) => Promise<unknown>;
+}
+
+/** B6: the verdicts that take a SEND intent down. `sample_fine` with a reason chip is still fine. */
+export function isUnsafeVerdict(v: { verdict: string; reason: string | null }): boolean {
+    return v.reason === 'unsafe' && v.verdict !== 'sample_fine';
+}
+
+export async function recordVerdict(input: RecordVerdictInput, hooks: RecordVerdictHooks = {}): Promise<{ id: string } | null> {
+    let row: { id: string } | null = null;
     try {
-        const [row] = await db.insert(draftVerdicts).values({
+        const [inserted] = await db.insert(draftVerdicts).values({
             draftId: input.draftId,
             runId: input.runId ?? null,
             verdict: input.verdict,
@@ -41,11 +57,21 @@ export async function recordVerdict(input: RecordVerdictInput): Promise<{ id: st
             finalBody: input.finalBody ?? null,
             by: input.by,
         }).returning({ id: draftVerdicts.id });
-        return row ?? null;
+        row = inserted ?? null;
     } catch (error: any) {
         console.error(`[Verdicts] could not record ${input.verdict} for draft ${input.draftId}:`, error?.message ?? error);
         return null;
     }
+    if (row && isUnsafeVerdict(input)) {
+        // Fire and forget, off this call's promise chain: a demoter that throws, rejects, hangs or
+        // has no database changes nothing about the verdict already recorded above.
+        const payload = { draftId: input.draftId, runId: input.runId ?? null, verdict: input.verdict, reason: input.reason, by: input.by, verdictId: row.id };
+        const demote = hooks.demote ?? (async (p) => { const { demoteOnUnsafeVerdict } = await import('./spine/autonomy'); return demoteOnUnsafeVerdict(p); });
+        void Promise.resolve().then(() => demote(payload)).catch((error: any) => {
+            console.warn(`[Verdicts] synchronous demotion hook failed for draft ${input.draftId} (verdict recorded; the 07:30 run will re-check):`, error?.message ?? error);
+        });
+    }
+    return row;
 }
 
 /**
