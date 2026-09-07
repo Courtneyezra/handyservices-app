@@ -13,6 +13,7 @@
  *   POST /price/:slug/send { version, lines }       P8: Ben's tap — writes his prices, records verdicts, sends via the existing path
  *   POST /price/:slug/{ask|call|visit}             P12: the exits that are not a send (hold the quote, ledger under Ben)
  *   GET  /price-stats?days=90                       P8: Route B graduation metrics per category (design §6), read-only
+ *   GET  /price-queue                               T9: every Route A draft waiting to be priced, oldest first, read-only
  *   POST /tiers { packId, intent, tier, reason }    P6: a person promotes / demotes one intent on the ladder
  *                                                   (pack_intent_tiers + pack_tier_events, changed_by human:<id>);
  *                                                   refuses SEND for intents outside the pack or any money/date name
@@ -265,6 +266,23 @@ spineRouter.post('/ask/:conversationId', async (req, res) => {
 });
 
 // ---------------------------------------------------------------- P8 / B: price and send
+
+/**
+ * T9: GET /price-queue — every Route A draft waiting to be priced (the WAITING_DRAFT_WHERE rule the
+ * confirm screen's "next waiting" already uses), oldest first, with how long each has waited and
+ * the price screen's own per-line signals. Read-only; no pence figure in the payload. Registered
+ * before /price/:slug on purpose: Express keeps the two apart, but this file has already had one
+ * route-order mis-read in this area (the P8 merge fix above), so the order is explicit.
+ */
+spineRouter.get('/price-queue', async (_req, res) => {
+    try {
+        const { loadPriceQueue } = await import('./price-queue');
+        res.json(await loadPriceQueue());
+    } catch (error: any) {
+        console.error('[Spine] price queue read failed:', error?.message ?? error);
+        res.status(500).json({ error: error?.message ?? 'Could not load the price queue' });
+    }
+});
 
 /**
  * GET /price/:slug — everything Ben's phone screen renders: the Route A draft, the chain's

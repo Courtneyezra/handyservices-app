@@ -75,9 +75,19 @@ const payload = (over: Partial<PricePayload> = {}): PricePayload => ({
     ...over,
 });
 
-function screenFetch(json: PricePayload, replies: Partial<Record<'send' | 'ask' | 'call' | 'visit', (call: { body: any }) => { status?: number; json?: unknown }>> = {}) {
+/** T9: the queue the strip, the sidebar badge and the confirm screen read. Sarah (on screen) and Gemma by default. */
+const H = 3_600_000;
+const qItem = (slug: string, firstName: string, waitingMs: number) => ({
+    slug, quoteId: `q_${slug}`, firstName, name: firstName, postcode: null, customerType: 'homeowner', job: 'the work', lineCount: 1, createdAt: null, waitingMs, sourceChannel: 'whatsapp',
+    signals: { checkThis: 0, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+});
+const queueOf = (items: ReturnType<typeof qItem>[]) => ({ count: items.length, items, oldestWaitingMs: items[0]?.waitingMs ?? null, at: T(12, 0, 7) });
+const DEFAULT_QUEUE = queueOf([qItem('z4p6t9mw', 'Sarah', 96 * H), qItem('c1u0wkt8', 'Gemma', 48 * H)]);
+
+function screenFetch(json: PricePayload, replies: Partial<Record<'send' | 'ask' | 'call' | 'visit' | 'queue', (call: { body: any }) => { status?: number; json?: unknown }>> = {}) {
     const ok = (extra: Record<string, unknown>) => ({ json: { ok: true, ...extra } });
     return mockFetch([
+        { url: '/api/spine/price-queue', reply: (c) => replies.queue ? replies.queue(c) : ({ json: DEFAULT_QUEUE }) },
         { url: '/api/spine/price/z4p6t9mw/send', method: 'POST', reply: (c) => replies.send ? replies.send(c) : ok({ sent: true, mode: 'freeform', priced: true, verdicts: 2, quoteUrl: json.quoteUrl, totals: { labourPence: 81000, materialsPence: 129000, totalPence: 210000, depositPence: 63000 }, nextSteps: 'Sent to Sarah. Deposit £630. Follow-up in 2 days if unviewed.', nextWaiting: json.nextWaiting }) },
         { url: '/api/spine/price/z4p6t9mw/ask', method: 'POST', reply: (c) => replies.ask ? replies.ask(c) : ok({ hold: { reason: 'ask_first', at: T(20), by: 'human:ben', question: c.body.question }, draftId: 'd1' }) },
         { url: '/api/spine/price/z4p6t9mw/call', method: 'POST', reply: (c) => replies.call ? replies.call(c) : ok({ hold: { reason: 'call', at: T(20), by: 'human:ben' }, tel: '+447811346936' }) },
@@ -443,6 +453,73 @@ describe('PriceAndSend (phone)', () => {
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
         // P18: both halves ride on every line and sum to the price.
         expect(f.of('POST', '/send')[0].body.lines).toEqual([{ lineId: 'card_1', finalPence: 180000, labourPence: 42078, materialsPence: 137922 }]);
+    });
+});
+
+describe('T9: the queue strip and the run through the queue', () => {
+    it('the strip in the header says how many more are waiting and who is next, never counting this quote', async () => {
+        screenFetch(payload(), { queue: () => ({ json: queueOf([qItem('z4p6t9mw', 'Sarah', 96 * H), qItem('a9b8c7d6', 'Tom', 30 * H), qItem('c1u0wkt8', 'Gemma', 2 * H)]) }) });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-and-send');
+        await waitFor(() => expect(screen.getByTestId('queue-strip-count')).toHaveTextContent('2 more waiting'));
+        expect(screen.getByTestId('queue-strip-next')).toHaveTextContent('Next: Tom, 1 day');
+        expect(screen.getByTestId('queue-strip-next')).toHaveAttribute('href', '/admin/price/a9b8c7d6');
+        expect(screen.getByTestId('queue-strip-all')).toHaveAttribute('href', '/admin/price');
+        // the strip lives in the sticky header, not the thumb bar
+        expect(screen.getByTestId('queue-strip').closest('.sticky')).not.toBeNull();
+        expect(screen.getByTestId('send-quote').closest('.fixed')!.contains(screen.getByTestId('queue-strip'))).toBe(false);
+    });
+
+    it('this quote is the last one: the strip says so and still links to the whole list', async () => {
+        screenFetch(payload({ nextWaiting: null }), { queue: () => ({ json: queueOf([qItem('z4p6t9mw', 'Sarah', 96 * H)]) }) });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-and-send');
+        await waitFor(() => expect(screen.getByTestId('queue-strip-count')).toHaveTextContent('Nothing else waiting'));
+        expect(screen.queryByTestId('queue-strip-next')).toBeNull();
+        expect(screen.getByTestId('queue-strip-all')).toHaveAttribute('href', '/admin/price');
+    });
+
+    it("the queue endpoint failing falls back to the payload's own nextWaiting", async () => {
+        screenFetch(payload(), { queue: () => ({ status: 500, json: { error: 'down' } }) });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-and-send');
+        expect(screen.getByTestId('queue-strip-count')).toHaveTextContent('More waiting');
+        expect(screen.getByTestId('queue-strip-next')).toHaveTextContent('Next: Gemma');
+        expect(screen.getByTestId('queue-strip-next')).toHaveAttribute('href', '/admin/price/c1u0wkt8');
+    });
+
+    it('a send refetches the queue: the confirm screen shows the refetched next and how many are left', async () => {
+        let sent = false;
+        const f = screenFetch(payload(), {
+            queue: () => ({ json: sent ? queueOf([qItem('a9b8c7d6', 'Tom', 30 * H)]) : queueOf([qItem('z4p6t9mw', 'Sarah', 96 * H), qItem('c1u0wkt8', 'Gemma', 48 * H), qItem('a9b8c7d6', 'Tom', 30 * H)]) }),
+            send: () => { sent = true; return { json: { ok: true, sent: true, mode: 'freeform', priced: true, nextWaiting: { slug: 'c1u0wkt8', firstName: 'Gemma' } } }; },
+        });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await userEvent.click(await screen.findByTestId('send-quote'));
+        await screen.findByTestId('confirm-screen');
+        const before = f.of('GET', '/api/spine/price-queue').length;
+        // the send's own nextWaiting (Gemma, stale) gives way to the refetched queue (Tom alone)
+        await waitFor(() => expect(screen.getByTestId('next-waiting')).toHaveTextContent('Next quote waiting: Tom · 1 day'));
+        expect(screen.getByTestId('next-waiting')).toHaveAttribute('href', '/admin/price/a9b8c7d6');
+        expect(screen.getByTestId('queue-left')).toHaveTextContent('1 left in the queue');
+        expect(f.of('GET', '/api/spine/price-queue').length).toBeGreaterThanOrEqual(Math.max(2, before));
+    });
+
+    it('a hold (Ask her first) refetches the queue too, so the strip shrinks without a reload', async () => {
+        let held = false;
+        const f = screenFetch(payload(), {
+            queue: () => ({ json: held ? queueOf([qItem('c1u0wkt8', 'Gemma', 48 * H)]) : queueOf([qItem('z4p6t9mw', 'Sarah', 96 * H), qItem('c1u0wkt8', 'Gemma', 48 * H), qItem('a9b8c7d6', 'Tom', 30 * H)]) }),
+            ask: (c) => { held = true; return { json: { ok: true, hold: { reason: 'ask_first', at: T(20), by: 'human:ben', question: c.body.question }, draftId: 'd1' } }; },
+        });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-and-send');
+        await waitFor(() => expect(screen.getByTestId('queue-strip-count')).toHaveTextContent('2 more waiting'));
+        await userEvent.click(screen.getByTestId('ask-first'));
+        await userEvent.type(screen.getByTestId('ask-question'), 'Are the handles staying?');
+        await userEvent.click(screen.getByTestId('ask-submit'));
+        await waitFor(() => expect(screen.getByTestId('queue-strip-count')).toHaveTextContent('1 more waiting'));
+        expect(screen.getByTestId('queue-strip-next')).toHaveTextContent('Next: Gemma, 2 days');
+        expect(f.of('GET', '/api/spine/price-queue').length).toBeGreaterThanOrEqual(2);
     });
 });
 

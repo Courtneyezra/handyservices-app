@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, ChevronDown, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity, ListTodo, FlaskConical } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { usePriceQueue, hasAdminToken } from "@/hooks/usePriceQueue";
 
 import InstallPrompt from "@/components/InstallPrompt";
 import OpsDock from "@/components/ops/OpsDock";
@@ -66,6 +67,13 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
         staleTime: 5000,
     });
     const followUpCount = followUpItems?.length || 0;
+
+    // T9: quotes waiting to be priced, for the Price queue badge. The same cached query the
+    // /admin/price page and the price screen's strip read, so on those pages this is not an extra
+    // request; elsewhere it is one select per mount and one a minute, like the two badges above.
+    // Skipped entirely when there is no admin token (the endpoint would only answer 401).
+    const { data: priceQueue } = usePriceQueue({ enabled: hasAdminToken() });
+    const priceQueueCount = priceQueue?.count ?? 0;
 
     // Persist collapse state
     useEffect(() => {
@@ -162,6 +170,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
+                                { icon: PoundSterling, label: "Price queue", href: "/admin/price", badge: priceQueueCount > 0 ? String(priceQueueCount) : null },
                                 { icon: FlaskConical, label: "Sandbox", href: "/admin/sandbox", badge: "NEW" },
                                 { icon: Bot, label: "AI Staff", href: "/admin/staff", badge: "NEW" },
                                 { icon: Activity, label: "Activity", href: "/admin/activity", badge: "NEW" },
