@@ -11,7 +11,7 @@
  *   quote_pending  quote_ready, but the estimator is still running (system-only, never overridden TO)
  *   needs_info     the agent still has questions the customer must answer (the agent's move)
  *   visit_first    cannot be priced honestly from the thread; a paid survey is offered (DRAFT)
- *   decline        one of the four no-go trades; Ben confirms the polite no (DRAFT, intent closing)
+ *   decline        gas work, the one no-go trade; Ben confirms the polite no (DRAFT, intent closing)
  */
 
 export const INTAKE_READINESS = ['quote_ready', 'quote_pending', 'needs_info', 'visit_first', 'decline'] as const;
@@ -96,7 +96,7 @@ export const READINESS_UI: Record<IntakeReadiness, ReadinessUi> = {
     },
     decline: {
         label: 'Decline proposed',
-        blurb: 'One of the four no-go trades. The polite no is drafted; nothing goes out until you confirm it.',
+        blurb: 'Gas work, the one no-go trade. The polite no is drafted; nothing goes out until you confirm it.',
         tone: 'red',
         chip: 'bg-red-600 text-white',
         pill: 'bg-red-100 text-red-800',

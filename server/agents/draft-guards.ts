@@ -534,8 +534,12 @@ const CREDENTIAL_NEGATORS = /\b(?:not|arent|aren'?t|isn'?t|no|never|don'?t|do no
  * no credential word, so CREDENTIALS never saw them (eval rs-004 / rs-005, 4 Sep 2026): the
  * claim is in the verb, not a certificate. The nouns mirror the triage lexicon (RE_REGULATED in
  * server/spine/triage.ts) so a thread the triage holds for Ben is also a body the guard holds.
+ * T18 (7 Sep 2026): the captain's boundary is gas only, so consumer units, fuse boxes, rewires,
+ * load-bearing walls, RSJs and chimney breasts came out: "yes, we can swap the consumer unit" is
+ * a claim about work we now do. Asbestos and the licensed refrigerant / oil / solar nouns stay:
+ * none of them was among the decline categories he was asked about.
  */
-const REGULATED_WORK = /\b(?:asbestos|gas(?:\s+(?:hob|cooker|fire|pipe|meter|supply|work))?|boilers?|flues?|consumer units?|fuse\s*(?:box|board)|rewir(?:e|es|ing)|load[\s-]?bearing|structural|rsj|chimney breast|solar panels?|f[\s-]?gas|air ?con(?:ditioning)?|oil (?:tank|boiler))\b/i;
+const REGULATED_WORK = /\b(?:asbestos|gas(?:\s+(?:hob|cooker|fire|pipe|pipework|meter|supply|work|leak|engineer|appliance))?|boilers?|combi|flues?|solar panels?|f[\s-]?gas|air ?con(?:ditioning)?|oil (?:tank|boiler))\b/i;
 const AFFIRMATIVE_CAPABILITY = /\b(?:we|i)(?:'?ll| will| can| could|'?re able to| are able to| are happy to|'?d be happy to| would be happy to)\b|\b(?:yes|yep|yeah|sure|no problem|no bother|not a problem|happy to|can do)\b/i;
 
 export function detectCapabilityClaim(body: string): string | null {

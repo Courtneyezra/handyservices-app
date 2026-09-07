@@ -1,0 +1,228 @@
+{
+ "cases": [
+  {
+   "id": "sc-001-water-heater-leak-and-fan",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "The extractor fan in the bathroom is really noisy and the water heater under the kitchen sink is leaking. Can you come and have a look at both?",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Both are ours. Is the water heater dripping from the unit itself or from one of the pipe joints? And is the fan noisy all the time or only when it starts up?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "T18, 7 Sep 2026 (run_5fbca897-177d-4eaa-8a89-47e0156e3fa3, scrubbed): a noisy extractor fan and a leaking water heater went to Ben as out_of_scope with the model's reason 'Water heater leaks are plumbing/regulated trade outside Handy Services scope.' The captain: 'We do handle plumbing.' The Scoper scopes it; nothing for Ben."
+  },
+  {
+   "id": "sc-002-plumbing-tap-and-toilet",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Kitchen tap drips constantly and the toilet upstairs keeps running after you flush it. Plumbing job I think.",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got it. Is the tap a single mixer or two separate taps? And for the toilet, is it a push button or a lever flush?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "T18: plumbing is work we do; it never was regulated_trade and must not become out_of_scope"
+  },
+  {
+   "id": "sc-003-roofing-ridge-tiles",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "The storm took a few ridge tiles off the roof and the chimney stack needs repointing. Three storey townhouse.",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks. Could you send a photo of the roofline from the street so I can see how many tiles are off and where the chimney sits?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "T18: roofing at height was a decline category (roofing_height); the captain moved it in scope on 7 Sep 2026"
+  },
+  {
+   "id": "sc-004-structural-knock-through",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "We want the wall between the kitchen and dining room knocked through. Next door said it is load-bearing so it will need an RSJ.",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks. Roughly how wide is the wall, and what is above it upstairs? A photo from each side would help.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "T18: structural alterations were a decline category (structural) and a regulated_trade lexicon hit (load-bearing, rsj); the captain moved them in scope on 7 Sep 2026"
+  },
+  {
+   "id": "sc-005-electrical-consumer-unit-rewire",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "The survey flagged our old fuse box. We need a new consumer unit and probably a rewire of the upstairs sockets.",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks. Could you send a photo of the fuse box with the cover open, and let me know how many rooms are upstairs?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "guardsMustNotTrip": true,
+    "voiceClean": true
+   },
+   "provenance": "T18: notifiable electrical was a decline category (major_electrical) and a regulated_trade lexicon hit (consumer unit, fuse box, rewire); the captain moved it in scope on 7 Sep 2026"
+  },
+  {
+   "id": "sc-006-gas-boiler-service",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Can you service the boiler? It is due its annual and the pressure keeps dropping.",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Boiler work needs a Gas Safe engineer, so let me check what we can do on that and come back to you.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ]
+   },
+   "provenance": "T18: gas is the one work we do not do, and it reaches Ben by one path: the rules' regulated_trade lexicon, before any model runs"
+  },
+  {
+   "id": "sc-007-gas-smell-at-meter",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "There is a smell of gas near the meter cupboard, can someone come out?",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "That needs a Gas Safe engineer straight away rather than us. Let me come back to you on it.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ]
+   },
+   "provenance": "T18: gas described without the word boiler still hits the gas lexicon"
+  },
+  {
+   "id": "sc-008-mixed-water-heater-and-gas-hob",
+   "family": "scope",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Thanks for getting in touch. What needs doing?",
+     "at": "2026-09-07T09:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "The water heater is leaking and while you are here could you fit the new gas hob?",
+     "at": "2026-09-07T09:01:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "The water heater is no problem. The gas hob needs a Gas Safe engineer, so let me check that one and come back to you.",
+    "intent": null
+   },
+   "expected": {
+    "lane": "ben",
+    "mustFlag": true,
+    "exceptions": [
+     "regulated_trade"
+    ]
+   },
+   "provenance": "T18: a gas item riding on an in-scope job still takes the thread to Ben; the plumbing half does not excuse it"
+  }
+ ]
+}

@@ -1,7 +1,15 @@
 # Decline Criteria — the polite-no rules table
 
 **Status:** agreed 29 Aug 2026 (Courtnee). Governs the `decline` readiness lane being
-added to quote-prep under T6. The clerk APPLIES these rules; it never invents its own.
+added to quote-prep under T6.
+
+> **Narrowed 7 Sep 2026 (T18, the captain's decision): gas only.** "We do handle plumbing so we
+> need to correct the out of scope trigger to gas only. Gas only, the rest is ours." Of the four
+> rows below only `gas_work` remains a decline reason; roofing / work at height, structural
+> alterations and major electrical are work Handy Services does and route through the normal
+> lanes (`visit_first` when they cannot be priced remotely). The table is kept as the record of
+> what was agreed on 29 Aug; the code (`server/agents/quote-prep.ts` `DeclineReason`) is the
+> authority. Report: `docs/comms-build/T18-DONE.md`. The clerk APPLIES these rules; it never invents its own.
 Every decline is a PROPOSAL — nothing reaches the customer until Ben approves it in the
 portal, then the pre-written polite no goes out.
 

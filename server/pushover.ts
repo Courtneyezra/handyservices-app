@@ -627,16 +627,13 @@ interface QuotePrepReadyAlert {
     postcode?: string | null;
     urgency?: 'low' | 'med' | 'high';
     /** Set only with readiness 'decline': why the polite no is proposed. */
-    declineReason?: 'gas_work' | 'roofing_height' | 'structural' | 'major_electrical' | null;
+    declineReason?: 'gas_work' | null;
 }
 
 /** Display labels for decline reason codes. Kept local so the alert layer never imports agent
  *  code — mirror of DECLINE_LABELS in server/agents/quote-prep.ts. */
 const DECLINE_REASON_LABELS: Record<string, string> = {
     gas_work: 'gas work',
-    roofing_height: 'roofing & work at height',
-    structural: 'structural alterations',
-    major_electrical: 'notifiable electrical',
 };
 
 /**

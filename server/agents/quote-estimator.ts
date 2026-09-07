@@ -28,7 +28,7 @@ Rules:
 - You research, Ben prices. Never state a £ total.
 - If you can't find a material, flag it in unresolved — don't guess a price.
 - One search_materials call per distinct material (batch where sensible).
-- If a line is already declined (gas_work, roofing_height), skip it with a note.`;
+- If a line is already declined (gas_work), skip it with a note.`;
 
 /**
  * Convert IntakeLine[] to the minimal shape the estimator works with.

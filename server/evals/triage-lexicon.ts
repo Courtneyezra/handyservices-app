@@ -26,8 +26,12 @@ const REFUND = [/\b(refund|money back|charge ?back|dispute the (charge|payment))
 const CALLBACK = [/\b(call me|give me a (call|ring|bell)|ring me|phone me|(can|could) (someone|you|somebody) (call|ring|phone)|speak (to|with) (someone|a person|ben)|talk (it )?through on the phone)\b/i];
 const OPT_OUT = [/^\s*(stop|unsubscribe|remove me|no more (messages|texts))\b/i];
 const TRUST = [/\b(is this (a )?scam|legit\b|are you (real|genuine)|(a )?real company|reviews?\b.*\?|company (number|address)\??)/i];
-/** Mirrors server/spine/triage.ts RE_REGULATED: work that needs a registered trade is Ben's call. */
-const REGULATED = [/\b(gas safe|gas hobs?|gas cookers?|boiler|flue|consumer unit|fuse ?box|rewir(e|ing)|asbestos|load.?bearing|structural|rsj|chimney breast)\b/i];
+/**
+ * Mirrors server/spine/triage.ts RE_REGULATED. T18 (7 Sep 2026): the only work we do not do is GAS
+ * work, so this is the gas lexicon plus asbestos; consumer units, rewires, load-bearing walls and
+ * the rest of structural / electrical came out (they are ours now, as is all plumbing).
+ */
+const REGULATED = [/\b(gas ?safe|gas (hobs?|cookers?|fires?|pipe(work)?|leaks?|meters?|supply|work|engineers?|appliances?|central heating)|boilers?|combi|flues?|smell (of )?gas|gas smell|asbestos)\b/i];
 
 const RULES: Array<[ExceptionKind, RegExp[]]> = [
     ['opted_out', OPT_OUT],

@@ -132,8 +132,8 @@ export interface EvalRun {
 
 export type EvalReadiness = 'quote_ready' | 'needs_info' | 'visit_first' | 'decline';
 
-/** The four polite-no reason codes (docs/DECLINE_CRITERIA.md). */
-export type EvalDeclineReason = 'gas_work' | 'roofing_height' | 'structural' | 'major_electrical';
+/** The one polite-no reason code (docs/DECLINE_CRITERIA.md, narrowed to gas only 7 Sep 2026, T18). */
+export type EvalDeclineReason = 'gas_work';
 export type EvalGapImpact = 'none' | 'small' | 'large' | 'forks_job';
 
 /** One expected open question: the intake must contain a gap matching it. */
