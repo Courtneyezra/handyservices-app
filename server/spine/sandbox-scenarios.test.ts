@@ -12,8 +12,10 @@ import {
     SANDBOX_DOORS, DOOR_MEANING, DOOR_DEFAULTS, validateStart, walkTemplateLadder, placeholderIndexes, renderTemplateBody, templateByName,
     nameSlot, enquirySnippet, planFirstContactAck, planPostCallContinuation, postCallGreetName, sandboxClassification,
     windowReport, validateAge, validateClockTrigger, AGE_MAX_HOURS, quoteReadyNotice, quoteAcceptedNotice, planQuoteLinkDelivery, quoteLinkMessage, looksLikeAName,
+    validateCall, sandboxOutboundClassification, OUTBOUND_CALL_DEFAULT_TRANSCRIPT, SANDBOX_CALL_MAX_SECONDS, SANDBOX_TRANSCRIPT_MAX,
     type TemplateRow,
 } from './sandbox-scenarios';
+import { decideOutreach } from '../post-call-outreach';
 import { DEFAULT_FIRST_CONTACT_ACK, FIRST_CONTACT_TEMPLATE_PREFERENCE, composeFirstContactAck } from '../first-contact-ack';
 import { MIN_TRANSCRIPT_CHARS } from '../post-call-ladder';
 
@@ -278,5 +280,45 @@ describe('the funnel\'s mirrors of Ben\'s phone and the quote link', () => {
         expect(looksLikeAName('Sandbox customer (not real)')).toBe(false);
         expect(looksLikeAName('Website Visitor')).toBe(false);
         expect(looksLikeAName(null)).toBe(false);
+    });
+});
+
+describe('T21: Ben rings them (validateCall, the outbound verdict the sandbox writes)', () => {
+    it('validateCall: the default transcript when none is typed, the duration derived from its length, the ladder\'s bar enforced', () => {
+        const d = validateCall({});
+        expect(d.ok).toBe(true);
+        if (d.ok) {
+            expect(d.input.transcript).toBe(OUTBOUND_CALL_DEFAULT_TRANSCRIPT);
+            expect(d.input.durationSeconds).toBe(Math.max(20, Math.min(900, Math.round(OUTBOUND_CALL_DEFAULT_TRANSCRIPT.length / 12))));
+            expect(d.input.durationSeconds).toBeGreaterThanOrEqual(20); // clears the production minimum by default
+        }
+        expect(validateCall({ transcript: '   ' })).toMatchObject({ ok: true });
+        expect(validateCall({ transcript: 'Agent: hi. Customer: hi.' })).toMatchObject({ ok: false });
+        expect(validateCall({ transcript: 'x'.repeat(SANDBOX_TRANSCRIPT_MAX + 1) })).toMatchObject({ ok: false });
+        expect(validateCall({ transcript: 'Agent: this is a transcript that clears the bar easily. Customer: yes it does.', durationSeconds: 12 })).toMatchObject({ ok: true, input: { durationSeconds: 12 } });
+        expect(validateCall({ durationSeconds: 0 })).toMatchObject({ ok: false });
+        expect(validateCall({ durationSeconds: 1.5 })).toMatchObject({ ok: false });
+        expect(validateCall({ durationSeconds: SANDBOX_CALL_MAX_SECONDS + 1 })).toMatchObject({ ok: false });
+    });
+    it('the default transcript is Ben asking for photos, with Deepgram\'s speaker labels, over the ladder\'s bar', () => {
+        expect(OUTBOUND_CALL_DEFAULT_TRANSCRIPT.length).toBeGreaterThan(MIN_TRANSCRIPT_CHARS);
+        expect(OUTBOUND_CALL_DEFAULT_TRANSCRIPT).toMatch(/^Agent: /);
+        expect(OUTBOUND_CALL_DEFAULT_TRANSCRIPT).toMatch(/Customer: /);
+        expect(OUTBOUND_CALL_DEFAULT_TRANSCRIPT).toMatch(/photos/);
+    });
+    it('sandboxOutboundClassification is shaped as the outbound prompt pins it: kind outbound_call, consent neutral, no job phrase', () => {
+        const c = sandboxOutboundClassification(OUTBOUND_CALL_DEFAULT_TRANSCRIPT, new Date('2026-09-08T10:00:00Z'));
+        expect(c).toMatchObject({ kind: 'outbound_call', whatsappAgreed: 'not_discussed', messagingObjection: false, jobPhrase: '', urgency: 'normal', callIncomplete: false, callbackPromised: true });
+        expect(c.jobSummary).toMatch(/asked for photos or a video/);
+        expect(c.bullets.some((b) => /photos or a video/.test(b))).toBe(true);
+        expect(c.classifiedAt).toBe('2026-09-08T10:00:00.000Z');
+        // The outreach matrix can never send a template for it, whatever it says.
+        expect(decideOutreach(c, { allowUndiscussed: true }).send).toBe(false);
+        expect(decideOutreach(c, { allowUndiscussed: true }).reason).toBe('NOT_A_JOB_ENQUIRY:outbound_call');
+    });
+    it('a call with no media ask and no promise says so', () => {
+        const c = sandboxOutboundClassification('Agent: Hi, just checking you got the quote. Customer: I did, thanks, all fine. Agent: Great, bye.');
+        expect(c.callbackPromised).toBe(false);
+        expect(c.jobSummary).toBe('Rang the customer back about their enquiry.');
     });
 });

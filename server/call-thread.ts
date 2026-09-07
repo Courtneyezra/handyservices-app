@@ -30,13 +30,15 @@
  *      every write below is guarded on it rather than on the caller passing the right flags.
  */
 import { db } from './db';
-import { calls, conversations, messages } from '@shared/schema';
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { agentQuestions, calls, conversations, messages } from '@shared/schema';
+import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import { stageAfterInbound } from './conversation-stage';
 import type { FirstContactAckResult } from './first-contact-ack';
+import type { LadderPlan, OutboundRailInputs } from './post-call-ladder';
 
 type CallRow = typeof calls.$inferSelect;
+type ConversationRow = typeof conversations.$inferSelect;
 
 // ---------------------------------------------------------------- identity
 
@@ -335,7 +337,62 @@ export type CallThreadResult = {
     missed?: boolean;
     /** Present only when the ack lane ran (live path, inbound, missed). */
     ack?: FirstContactAckResult | { sent: false; reason: string };
+    /** T21: the ladder's plan for this ingest (what was asked of the spine and why), for the log and the sandbox. */
+    ladder?: LadderPlan;
+    /** T21: an answered outbound call settled the thread's callback debt (tags cleared, flags released). */
+    callbackSettled?: { tagsCleared: string[]; released: boolean; flagsDismissed: number };
 };
+
+// ---------------------------------------------------------------- T21: the rails for Ben's own call
+
+/**
+ * The inputs the ladder's outbound hand-off evaluates (server/post-call-ladder.ts
+ * outboundHandoffVerdict), gathered here because the ladder is pure. Each read is its own
+ * try: a read that fails leaves its field null, and the ladder refuses on null. The whole
+ * gather failing returns null, which refuses too. Nothing here writes.
+ */
+async function gatherOutboundRails(call: CallRow, conv: ConversationRow): Promise<OutboundRailInputs | null> {
+    try {
+        const { readOutreachConfig, ukHourNow } = await import('./post-call-outreach');
+        const { parseClassification } = await import('./call-classifier');
+        const { normalizePhoneNumber } = await import('./phone-utils');
+        const cfg = await readOutreachConfig();
+        const classification = parseClassification(call.classification);
+        const phoneE164 = normalizePhoneNumber(call.phoneNumber);
+        let askedRecently: boolean | null = null;
+        if (cfg) {
+            try {
+                // The same dedupe the template path runs (evaluateSendRails): a video request
+                // recorded on any call for this number inside the window.
+                const since = new Date(Date.now() - cfg.dedupeDays * 24 * 60 * 60 * 1000);
+                const [recent] = await db.select({ id: calls.id }).from(calls)
+                    .where(and(eq(calls.phoneNumber, call.phoneNumber), gte(calls.videoRequestSentAt, since)))
+                    .limit(1);
+                askedRecently = !!recent;
+            } catch (error: any) {
+                console.warn('[CallThread] dedupe read failed (hand-off will refuse):', error?.message ?? error);
+                askedRecently = null;
+            }
+        }
+        return { cfg, classification, threadTags: (conv.tags as string[] | null) ?? [], askedRecently, phoneE164, ukHour: ukHourNow() };
+    } catch (error: any) {
+        console.warn('[CallThread] outbound rails could not be gathered (hand-off will refuse):', error?.message ?? error);
+        return null;
+    }
+}
+
+/** An unanswered `[callback_requested]` flag row on the thread: the spine's own record that the customer asked for a call. */
+async function hasOpenCallbackFlag(conversationId: string): Promise<boolean> {
+    const [row] = await db.select({ id: agentQuestions.id }).from(agentQuestions)
+        .where(and(
+            eq(agentQuestions.conversationId, conversationId),
+            inArray(agentQuestions.status, ['flagged', 'open']),
+            isNull(agentQuestions.answeredAt),
+            sql`${agentQuestions.question} LIKE '[callback_requested]%'`,
+        ))
+        .limit(1);
+    return !!row;
+}
 
 export interface IngestCallOptions {
     /**
@@ -558,22 +615,87 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
     // Deliberately absent: lastInboundAt, canSendFreeform, templateRequired. See the file header.
     await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));
 
+    // --- 4/5 (decided here, acted on below). The post-call ladder (Phase 4 / C:
+    // server/post-call-ladder.ts, one pure decision per call type;
+    // server/__tests__/post-call-ladder.test.ts). Same rules as before for the ack and the
+    // continuation, plus: a stale abandoned ring gets no ack, an answered call with a transcript
+    // asks the spine for a `call_ended` run when the spine is on, and (T21) so does a call BEN
+    // made, behind the outreach rails gathered above. Decided before 3b because the callback
+    // settle below is the ladder's `settleCallback`.
+    const { decidePostCallLadder } = await import('./post-call-ladder');
+    const { isSpineEnabled } = await import('./spine/config');
+    const outboundRails = info.direction === 'outbound' && !info.missed ? await gatherOutboundRails(call, conv) : undefined;
+    const plan = decidePostCallLadder({
+        call, existingCard: !!existing, opts, now: new Date(),
+        spineEnabled: await isSpineEnabled().catch(() => false),
+        outbound: outboundRails,
+    });
+
     // --- 3b. the loop closes itself ---------------------------------------------------
     // A thread tagged callback_due is waiting for exactly one thing: us ringing them. This
     // outbound call IS that ring, so the debt is settled the moment it lands on the thread —
     // no button, no checkbox. The tag and its clock go together (the sweep's fallback measures
     // metadata.callbackDueAt, and a cleared tag with a live clock would be a lie in waiting).
-    // Only callback_due is touched; every other tag is someone else's bookkeeping.
-    if (info.direction === 'outbound' && (conv.tags ?? []).includes('callback_due')) {
+    //
+    // T21: the spine's vocabulary for the same debt is the `callback_requested` tag and the
+    // `[callback_requested]` flag (triage.ts RE_CALLBACK → exit.ts). An ANSWERED call Ben made
+    // on a thread waiting for one settles it too: the tag comes off, and the thread goes back
+    // through T17's door (server/handover.ts releaseFromBen, by system:outbound_call), because
+    // ringing them back is Ben answering the thread. A call on a thread that was NOT waiting for
+    // one releases nothing (T17's rule that a call is not a reply stands, sla-sweep.ts /
+    // silence-breaker.ts:141). An unanswered ring settles only callback_due, as before.
+    // Every other tag is someone else's bookkeeping.
+    let callbackSettled: CallThreadResult['callbackSettled'];
+    if (info.direction === 'outbound') {
+        const tags = (conv.tags ?? []) as string[];
+        const settle = plan.settleCallback;
+        const drop = new Set(['callback_due', ...(settle ? ['callback_requested'] : [])]);
+        const tagsCleared = tags.filter((t) => drop.has(t));
+        let waitingForCall = tags.includes('callback_requested');
+        if (settle && !waitingForCall) {
+            try { waitingForCall = await hasOpenCallbackFlag(conv.id); } catch (error: any) { console.warn('[CallThread] callback flag read failed:', error?.message ?? error); }
+        }
+        if (tagsCleared.length) {
+            try {
+                await db.update(conversations).set({
+                    tags: tags.filter((t) => !drop.has(t)),
+                    metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) - 'callbackDueAt'`,
+                    updatedAt: new Date(),
+                }).where(eq(conversations.id, conv.id));
+                console.log(`[CallThread] Callback made — ${tagsCleared.join(', ')} cleared (${conv.id})`);
+            } catch (error: any) {
+                console.warn('[CallThread] Could not clear the callback tags:', error?.message ?? error);
+            }
+        }
+        let released = false;
+        let flagsDismissed = 0;
+        if (settle && waitingForCall) {
+            try {
+                const { releaseFromBen } = await import('./handover');
+                const out = await releaseFromBen({ conversationId: conv.id }, {
+                    by: 'system:outbound_call',
+                    reason: `Ben rang them (${formatDuration(call.duration)}, answered): the callback the thread was waiting on happened`,
+                });
+                released = out.released;
+                flagsDismissed = out.flagsDismissed;
+            } catch (error: any) {
+                console.warn('[CallThread] Could not release the thread after the callback:', error?.message ?? error);
+            }
+        }
+        if (settle && (tagsCleared.length || released)) callbackSettled = { tagsCleared, released, flagsDismissed };
+    }
+
+    // T21: the outbound verdict recorded an objection to messaging. The template path tags this
+    // from its own decision (post-call-outreach.ts); it never runs for an outbound call, so this
+    // is the only place the tag lands for one. An objection is an objection whatever the call.
+    if (plan.tagNoAutoMessages && !((conv.tags ?? []) as string[]).includes('no_auto_messages')) {
         try {
-            await db.update(conversations).set({
-                tags: (conv.tags ?? []).filter((t) => t !== 'callback_due'),
-                metadata: sql`coalesce(${conversations.metadata}, '{}'::jsonb) - 'callbackDueAt'`,
-                updatedAt: new Date(),
-            }).where(eq(conversations.id, conv.id));
-            console.log(`[CallThread] Callback made — callback_due cleared (${conv.id})`);
+            const [fresh] = await db.select({ tags: conversations.tags }).from(conversations).where(eq(conversations.id, conv.id)).limit(1);
+            const current = ((fresh?.tags as string[] | null) ?? []);
+            await db.update(conversations).set({ tags: Array.from(new Set([...current, 'no_auto_messages'])), updatedAt: new Date() }).where(eq(conversations.id, conv.id));
+            console.log(`[CallThread] Tagged ${conv.id} no_auto_messages (outbound call ${call.id}: ${plan.spineRunReason})`);
         } catch (error: any) {
-            console.warn('[CallThread] Could not clear callback_due:', error?.message ?? error);
+            console.warn('[CallThread] Could not tag no_auto_messages:', error?.message ?? error);
         }
     }
 
@@ -598,18 +720,11 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
         messageId,
         preview: info.preview,
         missed: info.missed,
+        ladder: plan,
+        ...(callbackSettled ? { callbackSettled } : {}),
     };
 
-    // --- 4/5. the post-call ladder (Phase 4 / C: server/post-call-ladder.ts, one pure decision
-    // per call type; server/__tests__/post-call-ladder.test.ts). Same rules as before for the ack
-    // and the continuation, plus: a stale abandoned ring gets no ack, and an answered call with a
-    // transcript asks the spine for a `call_ended` run when the spine is on.
-    const { decidePostCallLadder } = await import('./post-call-ladder');
-    const { isSpineEnabled } = await import('./spine/config');
-    const plan = decidePostCallLadder({
-        call, existingCard: !!existing, opts, now: new Date(),
-        spineEnabled: await isSpineEnabled().catch(() => false),
-    });
+    // --- 4/5. act on the ladder's plan (decided above, before 3b).
     if (plan.ack) {
         result.ack = await ackForCall(conv.id, `+${digits}`, call, info);
     } else if (opts.ack && info.direction === 'inbound' && !existing) {
@@ -619,8 +734,11 @@ export async function ingestCallRow(call: CallRow, opts: IngestCallOptions = {})
         void (async () => {
             const { requestRun } = await import('./spine/request-run');
             const r = await requestRun(conv.id, plan.spineRun!);
-            console.log(`[CallThread] Spine ${plan.spineRun} for ${call.id}: ${r.queued ? 'queued' : r.reason}`);
+            console.log(`[CallThread] Spine ${plan.spineRun} for ${call.id} (${plan.kind}): ${r.queued ? 'queued' : r.reason}`);
         })().catch((e: any) => console.warn('[CallThread] Spine call_ended request failed:', e?.message ?? e));
+    } else if (plan.kind === 'outbound_answered') {
+        // T21: the refusal is the audit trail for "why did the desk not follow Ben's call up?".
+        console.log(`[CallThread] No spine run for outbound call ${call.id}: ${plan.spineRunReason}`);
     }
 
     // Fire-and-forget: the continuation does its own classification wait, idempotency and

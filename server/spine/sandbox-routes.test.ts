@@ -17,7 +17,7 @@ import {
     validateCustomerMessage, validateSandboxMediaType, sandboxMediaId, sandboxMediaFileName, sandboxMediaIdOf, describeUploadError,
     mediaReportFor, geminiKeyPresent, MEDIA_STATUS_NOTE, SANDBOX_MAX_FILES, SANDBOX_MAX_FILE_BYTES, SANDBOX_MEDIA_TYPES,
     validateInboundChannel, validatePriceTotal, mirrorSender, appendEvent, ackGateNote, entrySummary, SANDBOX_EVENTS_MAX,
-    MIRRORED_PROPOSAL_TAGS, proposalTagsToMirror,
+    MIRRORED_PROPOSAL_TAGS, proposalTagsToMirror, callEventSummary,
 } from './sandbox-routes';
 import type { RunOnceResult } from './index';
 import type { MediaItem } from './types';
@@ -27,9 +27,9 @@ describe('router shape', () => {
         .filter((l: any) => l.route)
         .map((l: any) => ({ path: l.route.path as string, methods: Object.keys(l.route.methods) }));
 
-    it('exposes exactly the sandbox actions: T5\'s four, T16\'s five', () => {
+    it('exposes exactly the sandbox actions: T5\'s four, T16\'s five, T21\'s call', () => {
         expect(routes.map((r: any) => `${r.methods.join(',')} ${r.path}`).sort()).toEqual([
-            'get /', 'post /accept', 'post /age', 'post /message', 'post /price', 'post /quote', 'post /reset', 'post /run', 'post /start',
+            'get /', 'post /accept', 'post /age', 'post /call', 'post /message', 'post /price', 'post /quote', 'post /reset', 'post /run', 'post /start',
         ]);
     });
     it('no route takes a parameter — nothing can name a conversation id', () => {
@@ -173,7 +173,7 @@ describe('T11: the upload is bounded, and the stored name is ours', () => {
     });
     it('the router still exposes only parameterless actions with media on (re-pinned)', () => {
         const routes = (commsSandboxRouter as any).stack.filter((l: any) => l.route).map((l: any) => l.route.path as string);
-        expect(routes.sort()).toEqual(['/', '/accept', '/age', '/message', '/price', '/quote', '/reset', '/run', '/start']);
+        expect(routes.sort()).toEqual(['/', '/accept', '/age', '/call', '/message', '/price', '/quote', '/reset', '/run', '/start']);
         for (const r of routes) expect(r).not.toMatch(/:/);
     });
     it('geminiKeyPresent reads either key name, and nothing else', () => {
@@ -306,5 +306,19 @@ describe('T16: the exit\'s tag bookkeeping is the one exit step the sandbox mirr
         expect(proposalTagsToMirror({ proposal: { intent: 'ask_gap', body: [], reasons: [], tags: ['needs_quote', 'Rescope', 'photos_received', 'needs_ben'] }, decision: { kind: 'pending', dueAt: 'd', reason: 'r' } } as any)).toEqual(['needs_quote', 'rescope']);
         expect(proposalTagsToMirror({ proposal: { intent: 'ask_gap', body: [], reasons: [], tags: ['needs_quote'] }, decision: { kind: 'drop', reason: 'spam' } } as any)).toEqual([]);
         expect(proposalTagsToMirror({ proposal: null, decision: { kind: 'none', reason: 'x' } } as any)).toEqual([]);
+    });
+});
+
+describe('T21: callEventSummary — the event log line for Ben\'s call', () => {
+    const base = { durationSeconds: 125, transcriptChars: 400, liveWouldRun: true, callbackSettled: null, window: { canFreeform: true } as any, ladder: { spineRunReason: 'OUTBOUND_ANSWERED: …' } as any };
+    it('says the desk is handed the thread, the window untouched, and what the callback settle did', () => {
+        expect(callEventSummary(base)).toBe('Ben rang them: answered, 125s, transcript 400 chars — live, the desk is handed the thread (call_ended). Window still OPEN (a call never touches it).');
+        expect(callEventSummary({ ...base, callbackSettled: { tagsCleared: ['callback_requested'], released: true, flagsDismissed: 1 } })).toContain('callback settled (callback_requested cleared, released from Ben, 1 flag(s) dismissed)');
+    });
+    it('names the rail that refused when live would not hand the thread over', () => {
+        const s = callEventSummary({ ...base, liveWouldRun: false, ladder: { spineRunReason: 'QUIET_HOURS:22h: inside 21:00 to 8:00 UK' } as any, window: { canFreeform: false } as any });
+        expect(s).toContain('live, the desk is NOT handed the thread: QUIET_HOURS:22h');
+        expect(s).toContain('Window SHUT');
+        expect(callEventSummary({ ...base, liveWouldRun: false, ladder: null })).toContain('no ladder plan');
     });
 });
