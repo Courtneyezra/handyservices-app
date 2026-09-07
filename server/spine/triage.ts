@@ -3,7 +3,8 @@
  * Haiku call, then the write of tags/stage (the autonomous tier) and an agent_runs row.
  *
  *   rules   opt-out → dropped; spam → dropped; money / complaint / refund / callback /
- *           regulated lexicons → Ben lane with the exception named; trust_concern tag → Ben;
+ *           gas (regulated_trade, the ONLY out-of-scope work; T18) lexicons → Ben lane with the
+ *           exception named; trust_concern tag → Ben;
  *           a date question is a SIGNAL (dateAsked), not Ben's (PRD §7) — except on a booked
  *           job, the §13 interim, where it is still the date_question exception;
  *           no outbound ever → rules lane (first contact); quote out and unpaid → post_quote;
@@ -43,7 +44,17 @@ export { RE_DATE, RE_DATE_ASKING, RE_DAY_WORD, RE_ASKING_SHAPE, looksLikeDateQue
 export const RE_COMPLAINT = /(complain|unhappy|disappoint|not happy|terrible|awful|rubbish|shocking|trading standards)/i;
 export const RE_REFUND = /(refund|money back|charge ?back)/i;
 export const RE_CALLBACK = /(call me|ring me|give me a (call|ring)|phone me)/i;
-export const RE_REGULATED = /(gas safe|boiler|gas hob|flue|consumer unit|fuse ?box|rewir(e|ing)|asbestos|load.?bearing|structural|rsj|chimney breast)/i;
+/**
+ * T18 (7 Sep 2026, the captain's decision): the only work Handy Services does not do is GAS work,
+ * so this is the gas lexicon plus asbestos. It is the ONE path by which a gas job reaches Ben: the
+ * rules run before the model and stop it running when they find an exception, and the merge never
+ * removes a rules exception. Consumer units, fuse boxes, rewires, load-bearing walls, RSJs and
+ * chimney breasts came OUT here: roofing, structural and electrical work is ours now, as is every
+ * kind of plumbing (a leaking water heater is the run that prompted this). Asbestos stays: it was
+ * never one of the decline categories he was asked about, and a licensed removal is still his call.
+ * Mirrored by server/evals/triage-lexicon.ts (REGULATED) and the capability_claim guard's nouns.
+ */
+export const RE_REGULATED = /(gas ?safe|boiler|combi|flue|gas (hob|cooker|fire|pipe|pipework|leak|meter|supply|work|engineer|appliance|central heating)|smell (of )?gas|gas smell|asbestos)/i;
 
 /**
  * P9: a customer adding to or changing the scope of a quote we already sent ("all 9 doors now",
@@ -156,7 +167,7 @@ export function triageRules(cf: CaseFile): TriageResult {
             if (afterBooking(cf)) { exceptions.push('date_question'); reasons.push('date lexicon on a booked job (PRD §13 open: still Ben\'s)'); }
             else reasons.push('date lexicon: a signal for the Scoper, not Ben\'s (PRD §7)');
         }
-        if (RE_REGULATED.test(text)) { exceptions.push('regulated_trade'); reasons.push('regulated-trade lexicon'); }
+        if (RE_REGULATED.test(text)) { exceptions.push('regulated_trade'); reasons.push('gas lexicon (regulated_trade): the one work we do not do'); }
     }
     if (exceptions.length) {
         return { ...base, intent: 'unknown', lane: 'ben', exceptions };
@@ -221,9 +232,10 @@ You read a case file and classify the thread. You never write to the customer. O
 - audience: one of ${JSON.stringify(AUDIENCES)}
 - intent: what the customer needs next, one of ${JSON.stringify(INTENTS)} or "unknown"
 - lane: one of ${JSON.stringify(LANES)} — "ben" whenever any exception applies; "rules" only for a first contact or a content-free acknowledgement; "post_quote" when a quote is out and unpaid; "quote_clerk" when the job is ready to price; else "scoper"
-- exceptions: array from ${JSON.stringify(EXCEPTIONS)}. Include one whenever the customer raises money, prices or discounts (money_question), a complaint or unhappiness (complaint), a refund (refund), asks for a call (callback_requested), work needing certification such as gas, structural or major electrical (regulated_trade), or work we do not do (out_of_scope). When in doubt about THOSE, add the exception: Ben would rather see one thread too many than one too few.
+- exceptions: array from ${JSON.stringify(EXCEPTIONS)}. Include one whenever the customer raises money, prices or discounts (money_question), a complaint or unhappiness (complaint), a refund (refund), asks for a call (callback_requested), or gas work (regulated_trade, see SCOPE). When in doubt about THOSE, add the exception: Ben would rather see one thread too many than one too few.
 - date_question is NOT yours to add. A question about dates, times or availability is ordinary scoping: before a quote the Scoper says dates come with the quote, after a quote it points at the date picker on the quote page. The rules decide the one case that is Ben's (a booked job); anything you add is dropped.
-- out_of_scope means, precisely: a trade we do not cover (roofing at height, asbestos, large groundworks, full rewires), a job outside our service area, or regulated work (which is regulated_trade). It NEVER means "more work than the quote covered". A customer adding to, extending or changing the scope of an existing or expired quote ("all 9 doors now, not 3", "another two lights", "instead of the shelf, the wardrobe", new photos of more of the same job) is ordinary SCOPING: lane "scoper", tags "rescope" and "needs_quote", no exception. The quote is redone and Ben prices it; money stays with Ben through the quote, not through a flag.
+- SCOPE. The only work Handy Services does not do is GAS work: anything a Gas Safe engineer must do (boilers, gas hobs and cookers, gas fires, flues, gas pipework, a smell of gas). That is regulated_trade. Asbestos removal is also regulated_trade. EVERYTHING ELSE a customer asks for is work we do and raises no exception: all plumbing (leaks, taps, toilets, water heaters, cylinders, radiators), roofing, structural work, electrical work, decorating, carpentry, whatever the trade. Do not infer what we do not do from the trade; this sentence is the whole boundary.
+- out_of_scope is NOT yours to add: the rules decide it, and anything you add is dropped. It NEVER means "more work than the quote covered". A customer adding to, extending or changing the scope of an existing or expired quote ("all 9 doors now, not 3", "another two lights", "instead of the shelf, the wardrobe", new photos of more of the same job) is ordinary SCOPING: lane "scoper", tags "rescope" and "needs_quote", no exception. The quote is redone and Ben prices it; money stays with Ben through the quote, not through a flag.
 - stage: one of ${JSON.stringify(STAGES)}. Never "won" (that means the deposit is paid and only a payment can set it).
 - tags: up to 8 short lowercase labels (e.g. "photos_received", "needs_quote", "callback_requested")
 - reasons: up to 6 short sentences citing what in the thread decided this.
@@ -277,12 +289,15 @@ export function mergeTriage(rules: TriageResult, model: TriageModelOutput, model
     let modelExceptions = rules.exceptions.includes('date_question')
         ? model.exceptions
         : model.exceptions.filter((e) => e !== 'date_question');
-    // P9: on a rescope (rules tagged it: a quote exists and the customer added or changed scope),
-    // a model-only out_of_scope is the misreading Sarah's thread got. Drop it; a real exception
-    // the rules found (regulated trade, money, a complaint) still wins.
-    if (rules.tags.includes('rescope') && !rules.exceptions.includes('out_of_scope')) {
-        modelExceptions = modelExceptions.filter((e) => e !== 'out_of_scope');
-    }
+    // T18 (7 Sep 2026): out_of_scope is not the model's to add on ANY thread. It was raised only
+    // by the model, from the prompt's "work we do not do", and the model guessed the business's
+    // scope: Sarah's rescope (P9, 4 Sep) and a leaking water heater (run_5fbca897…, 7 Sep) both
+    // went to Ben as out_of_scope. The captain's boundary is gas only, and gas reaches Ben by ONE
+    // path: the rules' RE_REGULATED lexicon → regulated_trade, found before the model runs and
+    // never removed here. A rules out_of_scope (none today) would still be kept, like every
+    // rules exception; a real model exception (money, a complaint, regulated_trade) still wins.
+    const droppedOutOfScope = modelExceptions.includes('out_of_scope') && !rules.exceptions.includes('out_of_scope');
+    if (droppedOutOfScope) modelExceptions = modelExceptions.filter((e) => e !== 'out_of_scope');
     const exceptions = Array.from(new Set([...rules.exceptions, ...modelExceptions]));
     const intent: Intent | 'unknown' = isIntent(model.intent) ? model.intent : 'unknown';
     let lane: Lane = model.lane;
@@ -295,7 +310,11 @@ export function mergeTriage(rules: TriageResult, model: TriageModelOutput, model
         audience: model.audience ?? rules.audience,
         intent, lane, exceptions, stage,
         tags: Array.from(new Set([...rules.tags, ...model.tags.map((t) => t.toLowerCase().slice(0, 30))])),
-        reasons: [...model.reasons, ...rules.reasons],
+        reasons: [
+            ...model.reasons,
+            ...(droppedOutOfScope ? ['model out_of_scope dropped: scope is gas only (regulated_trade, the rules\' lexicon), not the model\'s to infer (T18)'] : []),
+            ...rules.reasons,
+        ],
         source: 'model', model: modelId,
         customerPromisedMore: rules.customerPromisedMore,
         dateAsked: rules.dateAsked,

@@ -176,14 +176,14 @@ describe('QuoteIntakeCard', () => {
     it('decline shows the reason and the override note names who set the lane; legacy intakes are labelled', async () => {
         card(payload({
             source: 'legacy', clerkReadiness: 'quote_ready', overrideApplied: true,
-            override: { readiness: 'decline', by: 'ben@handy', at: '2026-09-03T11:00:00Z', reason: 'roof work' },
-            intake: { ...payload().intake, readiness: 'decline', declineReason: 'roofing_height', gaps: [] },
+            override: { readiness: 'decline', by: 'ben@handy', at: '2026-09-03T11:00:00Z', reason: 'gas job' },
+            intake: { ...payload().intake, readiness: 'decline', declineReason: 'gas_work', gaps: [] },
         }));
         renderWithQuery(<QuoteIntakeCard conversationId="c1" />);
         await screen.findByTestId('quote-intake-card');
         expect(screen.getByTestId('readiness-pill')).toHaveTextContent('Decline proposed');
-        expect(screen.getByText(/Reason:/)).toHaveTextContent('roofing height');
-        expect(screen.getByTestId('override-note')).toHaveTextContent('Lane set by ben@handy (roof work); the clerk said ready to price.');
+        expect(screen.getByText(/Reason:/)).toHaveTextContent('gas work');
+        expect(screen.getByTestId('override-note')).toHaveTextContent('Lane set by ben@handy (gas job); the clerk said ready to price.');
         expect(screen.getByText('legacy intake')).toBeInTheDocument();
     });
 

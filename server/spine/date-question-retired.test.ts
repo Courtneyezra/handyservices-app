@@ -195,7 +195,8 @@ describe('the model may not add date_question on its own', () => {
     });
     it('the other model exceptions are untouched by the date rule', () => {
         const rules = triageRules(cf({}, [outbound('hi'), inbound('when could you come?')]));
-        expect(mergeTriage(rules, { ...modelWithDate, exceptions: ['date_question', 'out_of_scope'] }, 'haiku').exceptions).toEqual(['out_of_scope']);
+        // T18: out_of_scope is dropped by its own rule (scope is gas only), so complaint stands in here.
+        expect(mergeTriage(rules, { ...modelWithDate, exceptions: ['date_question', 'complaint'] }, 'haiku').exceptions).toEqual(['complaint']);
     });
     it('the triage prompt no longer tells the model to raise date_question', () => {
         expect(TRIAGE_SYSTEM).not.toMatch(/dates or availability \(date_question\)/);

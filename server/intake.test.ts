@@ -110,7 +110,7 @@ describe('views and sources', () => {
         ]);
         expect(intakeViewFrom(null)).toBeNull();
         expect(intakeViewFrom({ foo: 'bar' })).toBeNull();
-        expect(intakeViewFrom({ readiness: 'decline', declineReason: 'roofing_height', lines: [] })?.declineReason).toBe('roofing_height');
+        expect(intakeViewFrom({ readiness: 'decline', declineReason: 'gas_work', lines: [] })?.declineReason).toBe('gas_work');
     });
 
     it('overrideFrom reads the stored record (and the older to/from spelling)', () => {

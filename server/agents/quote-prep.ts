@@ -61,11 +61,14 @@ export interface IntakeLine {
 export type IntakeReadiness = 'quote_ready' | 'quote_pending' | 'needs_info' | 'visit_first' | 'decline';
 
 /**
- * The only four grounds for a proposed decline, per docs/DECLINE_CRITERIA.md (29 Aug 2026).
- * The clerk APPLIES these; it never invents its own. Distance, job size, customer behaviour,
- * urgency, botched prior work, tenants and big jobs are all explicitly NOT decline grounds.
+ * The only ground for a proposed decline. docs/DECLINE_CRITERIA.md (29 Aug 2026) had four
+ * (gas, roofing at height, structural, major electrical); on 7 Sep 2026 the captain narrowed the
+ * boundary to GAS ONLY (T18): roofing, structural and notifiable electrical work are jobs Handy
+ * Services does, and so is every kind of plumbing. The clerk APPLIES this; it never invents its
+ * own. Distance, job size, customer behaviour, urgency, botched prior work, tenants and big jobs
+ * are all explicitly NOT decline grounds.
  */
-export type DeclineReason = 'gas_work' | 'roofing_height' | 'structural' | 'major_electrical';
+export type DeclineReason = 'gas_work';
 
 /** A no-go piece of work inside an otherwise quotable job (mixed job). Line-level note for
  *  Ben — the rest of the job still gets quoted; this never declines the whole thread. */
@@ -78,9 +81,6 @@ export interface IntakeExclusion {
 /** Human-readable labels for the reason codes (portal + alerts). */
 export const DECLINE_LABELS: Record<DeclineReason, string> = {
     gas_work: 'gas work',
-    roofing_height: 'roofing & work at height',
-    structural: 'structural alterations',
-    major_electrical: 'notifiable electrical',
 };
 
 /**
@@ -90,12 +90,6 @@ export const DECLINE_LABELS: Record<DeclineReason, string> = {
 export const DECLINE_TEMPLATES: Record<DeclineReason, string> = {
     gas_work:
         'Thanks for sending that over. That one needs a Gas Safe engineer so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
-    roofing_height:
-        'Thanks for sending that over. That one needs a roofing specialist with the right access equipment, so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
-    structural:
-        'Thanks for sending that over. That one is structural work that needs a structural engineer and building control involved, so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
-    major_electrical:
-        'Thanks for sending that over. That one needs a registered electrician as it\'s notifiable electrical work, so it\'s not something we can take on — but for any handyman jobs in future we\'d love to help.',
 };
 
 /**
@@ -105,12 +99,9 @@ export const DECLINE_TEMPLATES: Record<DeclineReason, string> = {
  */
 const DECLINE_EVIDENCE: Record<DeclineReason, RegExp> = {
     gas_work: /\b(gas|boiler|flue|central heating|combi|gas safe|gas hob)\b/i,
-    roofing_height: /\b(roof|roofing|chimney|scaffold|ridge|fascia|soffit)\b/i,
-    structural: /\b(structural|load[ -]bearing|lintel|underpin|knock[ -]?through|wall removal|remove.{0,20}wall|rsj|steel beam)\b/i,
-    major_electrical: /\b(consumer unit|fuse ?(box|board)|rewir|new circuit|part p|notifiable|new ring main)\b/i,
 };
 
-const DECLINE_REASONS = ['gas_work', 'roofing_height', 'structural', 'major_electrical'] as const;
+const DECLINE_REASONS = ['gas_work'] as const;
 
 /** How much the answer to a gap could change the WORK (never expressed in money — the clerk
  *  does not price; code converts these to £ using the engine's own line prices). */
@@ -236,7 +227,7 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
             if (!DECLINE_REASONS.includes(x?.reason)) {
                 throw new Error(
                     `excluded entry ${i + 1} needs a valid reason code (${DECLINE_REASONS.join(', ')}). `
-                    + 'If the work does not match one of the four no-go trades, it is not excluded — quote it or gap it.',
+                    + 'If the work is not gas work (the one no-go trade), it is not excluded — quote it or gap it.',
                 );
             }
             const reason: DeclineReason = x.reason;
@@ -275,7 +266,7 @@ export function normalizeIntake(input: any, ctx: { phone: string; contactName: s
         if (!declineReason) {
             throw new Error(
                 `readiness decline requires declineReason, one of: ${DECLINE_REASONS.join(', ')}. `
-                + 'If the job does not match one of those four no-go trades, it is not a decline — pick the honest lane instead.',
+                + 'If the job is not gas work (the one no-go trade), it is not a decline — pick the honest lane instead.',
             );
         }
         const evidenceText = lines.map((l) => `${l.title} ${l.detail}`).join(' ');
@@ -435,11 +426,11 @@ export async function runQuotePrep(
                     readiness: {
                         type: 'string',
                         enum: ['quote_ready', 'needs_info', 'visit_first', 'decline'],
-                        description: 'quote_ready = everything needed to price it is here. needs_info = one or more answers would change the price or the scope. visit_first = it cannot honestly be priced remotely (hidden/unknown extent, suspected damp or leak behind fabric, or the customer wants work we can only scope on site). decline = the WHOLE job is one of the four no-go certified trades (see system prompt) — a proposal for Ben, never sent directly.',
+                        description: 'quote_ready = everything needed to price it is here. needs_info = one or more answers would change the price or the scope. visit_first = it cannot honestly be priced remotely (hidden/unknown extent, suspected damp or leak behind fabric, or the customer wants work we can only scope on site). decline = the WHOLE job is gas work, the one no-go trade (see system prompt) — a proposal for Ben, never sent directly.',
                     },
                     declineReason: {
                         type: ['string', 'null'],
-                        description: 'ONLY with readiness decline, one of: gas_work, roofing_height, structural, major_electrical. null for every other readiness.',
+                        description: 'ONLY with readiness decline: gas_work (the one reason code). null for every other readiness.',
                     },
                     excluded: {
                         type: 'array',
@@ -448,7 +439,7 @@ export async function runQuotePrep(
                             type: 'object',
                             properties: {
                                 work: { type: 'string', description: 'The excluded work in the customer\'s terms, e.g. "service the boiler". Must itself show the no-go trigger.' },
-                                reason: { type: 'string', enum: ['gas_work', 'roofing_height', 'structural', 'major_electrical'] },
+                                reason: { type: 'string', enum: ['gas_work'] },
                             },
                             required: ['work', 'reason'],
                         },
@@ -569,15 +560,17 @@ READINESS, judged for the whole conversation:
 - visit_first — it cannot be priced remotely at all: hidden extent, suspected movement or
   subsidence, a leak or damp behind fabric, or work only a site visit can scope. Say so early
   rather than quoting a guess.
-- decline — the WHOLE job is one of the four no-go trades below. A PROPOSAL for Ben, nothing more.
+- decline — the WHOLE job is gas work, the one no-go trade below. A PROPOSAL for Ben, nothing more.
 
-DECLINE — only these four, ever (they need certification or specialist access we don't have):
-- gas_work: boiler repair/service, gas hob install, flue work — anything Gas Safe.
-- roofing_height: full roof work, chimneys, anything needing scaffold beyond a standard ladder job.
-- structural: alterations — wall removal, lintels, underpinning; needs calcs / building control.
-  (Investigating cracks or suspected movement is NOT this — that is visit_first.)
-- major_electrical: consumer units, rewires, new circuits — Part P notifiable. Swaps of
-  existing fittings, sockets and switches are normal handyman work, NOT this.
+DECLINE — only this one, ever. The only work we do not do is gas work:
+- gas_work: boiler repair/service/swap, gas hob or cooker install, gas fires, flues, gas
+  pipework — anything a Gas Safe engineer must do.
+Everything else is work we do (decided 7 Sep 2026): plumbing of every kind (leaks, taps, toilets,
+water heaters, cylinders, radiators), roofing and chimneys, structural alterations (wall removal,
+lintels, RSJs), consumer units, rewires and new circuits, decorating, carpentry. None of those is
+a decline. Judge them on the normal lanes: quote_ready or needs_info when they can be priced from
+the thread, visit_first when only a site visit can scope them (a three-storey roof, a
+load-bearing knock-through).
 Set readiness decline with declineReason, still write the job lines (they are Ben's evidence),
 and ask the customer nothing. Ben approves before any polite no goes out.
 NEVER decline for: distance (note travel as a ben-audience gap if worth flagging), job size
@@ -629,13 +622,13 @@ export const STAFF = {
     id: 'quote-prep',
     name: 'Quote Prep',
     roleTitle: 'Intake & Scoping Clerk',
-    mission: 'Turns a comms thread (messages, calls, photos, video) into a quote-ready intake: customer-facing job lines with the evidence and caveats behind each, plus a readiness verdict (quote ready / needs info / visit first / decline proposed for the four no-go trades) and the exact questions still open. Prefilled into Ben\'s builder. Ben checks, prices and sends — including approving any polite no before it goes out.',
+    mission: 'Turns a comms thread (messages, calls, photos, video) into a quote-ready intake: customer-facing job lines with the evidence and caveats behind each, plus a readiness verdict (quote ready / needs info / visit first / decline proposed for gas work, the one no-go trade) and the exact questions still open. Prefilled into Ben\'s builder. Ben checks, prices and sends — including approving any polite no before it goes out.',
     model: 'claude-sonnet-5',
     cadence: 'On demand, from the "Prep quote" button in a comms thread',
     autonomy: {
         freely: ['Read the thread, media, call transcripts and prior quotes', 'Extract job lines, assumptions, the readiness verdict and the open questions'],
         approval: ['Everything — its output only prefills the builder; Ben prices and sends the quote'],
-        never: ['Put a price on anything', 'Message a customer', 'Invent a postcode, name or scope detail not in the thread', 'Decline for distance, job size, behaviour, urgency or scale — only the four no-go trades, and only as a proposal'],
+        never: ['Put a price on anything', 'Message a customer', 'Invent a postcode, name or scope detail not in the thread', 'Decline for distance, job size, behaviour, urgency or scale — only gas work, the one no-go trade, and only as a proposal'],
     },
     tools: [
         { name: 'get_thread', blurb: 'Full conversation incl. photos + video keyframes', kind: 'read' },

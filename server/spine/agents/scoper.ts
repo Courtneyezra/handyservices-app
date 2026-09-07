@@ -341,7 +341,7 @@ export function buildScoperTools(ctx: BeltContext, state: BeltState): AgentTool[
         },
         {
             name: 'flag',
-            description: `Hand this thread to Ben. exception is one of: ${EXCEPTION_KINDS.join(', ')}. Use it for money decisions, complaints or liability, refunds, trust concerns, out-of-scope or regulated work, or a callback request. NOT for dates (dates come with the quote, or the quote page's picker answers them), and NOT for scoping judgement or material questions. date_question is only for a BOOKED job whose date the customer wants to change. note is the whole briefing he reads on his phone: why he is needed, what the customer wants, what you already told them. Ben replies in the thread himself. Then still propose_reply the content-free half unless silence is genuinely right.`,
+            description: `Hand this thread to Ben. exception is one of: ${EXCEPTION_KINDS.join(', ')}. Use it for money decisions, complaints or liability, refunds, trust concerns, gas work (regulated_trade: the ONLY work we do not do; plumbing, roofing, structural and electrical work are ours, scope them), or a callback request. NOT for dates (dates come with the quote, or the quote page's picker answers them), and NOT for scoping judgement or material questions. date_question is only for a BOOKED job whose date the customer wants to change. note is the whole briefing he reads on his phone: why he is needed, what the customer wants, what you already told them. Ben replies in the thread himself. Then still propose_reply the content-free half unless silence is genuinely right.`,
             input_schema: {
                 type: 'object' as const,
                 properties: {

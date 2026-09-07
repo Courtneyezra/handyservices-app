@@ -1502,12 +1502,11 @@
     },
     {
       "id": "qp-dc-002-roof-retile",
-      "family": "decline",
+      "family": "near-miss",
       "kind": "capability",
-      "expectedReadiness": "decline",
-      "expectedDeclineReason": "roofing_height",
-      "provenance": "T6a docs/DECLINE_CRITERIA.md: roofing / work at height beyond a standard ladder job is a no-go trade. Storm-damaged ridge tiles plus chimney repointing on a three-storey house needs scaffold — proposed decline (roofing_height).",
-      "reference": "decline, declineReason roofing_height, lines describing the ridge tiles and chimney as Ben's evidence, no customer gaps.",
+      "expectedReadiness": "visit_first",
+      "provenance": "T6a had this as a proposed decline (roofing_height). T18, 7 Sep 2026: the captain narrowed the boundary to gas only, so roofing at height is work we do. Two ridge tiles and a chimney stack three storeys up cannot be honestly priced from a street photo: visit_first, never decline. Model-backed; re-expected in T18 without a run (no key).",
+      "reference": "visit_first, lines describing the ridge tiles and chimney, no decline, no customer gaps.",
       "fixture": {
         "phone": "+447700900851",
         "contactName": "Sandra Eval",
@@ -1552,12 +1551,11 @@
     },
     {
       "id": "qp-dc-003-load-bearing-wall",
-      "family": "decline",
+      "family": "near-miss",
       "kind": "capability",
-      "expectedReadiness": "decline",
-      "expectedDeclineReason": "structural",
-      "provenance": "T6a docs/DECLINE_CRITERIA.md: structural alterations (wall removal, lintels, underpinning) are a no-go trade — needs calcs and building control. A kitchen/diner knock-through must be a proposed decline (structural), NOT visit_first (that lane is for investigating movement, not removing walls).",
-      "reference": "decline, declineReason structural, 1 line describing the knock-through as Ben's evidence, no customer gaps.",
+      "expectedReadiness": "visit_first",
+      "provenance": "T6a had this as a proposed decline (structural). T18, 7 Sep 2026: the captain narrowed the boundary to gas only, so structural alterations are work we do. A load-bearing knock-through needs a site visit to scope (span, what sits above, the RSJ): visit_first, never decline. Model-backed; re-expected in T18 without a run (no key).",
+      "reference": "visit_first, 1 line describing the knock-through, no decline, no customer gaps.",
       "fixture": {
         "phone": "+447700900852",
         "contactName": "Priya Eval",
@@ -1602,12 +1600,11 @@
     },
     {
       "id": "qp-dc-004-consumer-unit",
-      "family": "decline",
+      "family": "near-miss",
       "kind": "capability",
-      "expectedReadiness": "decline",
-      "expectedDeclineReason": "major_electrical",
-      "provenance": "T6a docs/DECLINE_CRITERIA.md: major electrical (consumer units, rewires, new circuits — Part P notifiable) is a no-go trade. Old fuse box to consumer unit plus two new circuits must be a proposed decline (major_electrical).",
-      "reference": "decline, declineReason major_electrical, lines describing the consumer unit swap and new circuits as Ben's evidence, no customer gaps.",
+      "expectedReadiness": "needs_info",
+      "provenance": "T6a had this as a proposed decline (major_electrical). T18, 7 Sep 2026: the captain narrowed the boundary to gas only, so consumer units and new circuits are work we do. The consumer unit swap is clear from the photo; the two garage circuits need one round (attached or detached garage, cable run) before they can be priced: needs_info, never decline. Model-backed; re-expected in T18 without a run (no key).",
+      "reference": "needs_info, lines for the consumer unit swap and the two garage circuits, one customer gap about the garage run, no decline.",
       "fixture": {
         "phone": "+447700900853",
         "contactName": "Tomasz Eval",
@@ -1639,7 +1636,12 @@
         },
         {
           "type": "gap-alignment",
-          "maxCustomerGaps": 0
+          "mustInclude": [
+            {
+              "pattern": "garage|circuit|run|attached|detached|distance",
+              "audience": "customer"
+            }
+          ]
         },
         {
           "type": "intake-fields",

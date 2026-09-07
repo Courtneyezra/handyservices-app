@@ -46,9 +46,9 @@ describe('triageRules', () => {
         const r = triageRules(cf({}, [outbound('hi'), inbound('can you call me about this')]));
         expect(r.lane).toBe('ben'); expect(r.exceptions).toContain('callback_requested'); expect(r.tags).toContain('callback_requested');
     });
-    it('routes regulated trades to Ben', () => {
+    it('routes gas work to Ben as regulated_trade (the one work we do not do)', () => {
         const r = triageRules(cf({}, [outbound('hi'), inbound('my boiler is leaking, can you fix it')]));
-        expect(r.exceptions).toContain('regulated_trade');
+        expect(r.lane).toBe('ben'); expect(r.exceptions).toContain('regulated_trade');
     });
     it('treats a thread with no outbound as first contact → rules lane, ack_photos when media came with it', () => {
         expect(triageRules(cf({}, [inbound('hi, need some shelves put up')]))).toMatchObject({ lane: 'rules', intent: 'ack_enquiry' });
@@ -80,9 +80,10 @@ describe('triage (rules + model)', () => {
     });
     it('uses the model when the rules found nothing, and lets it add an exception', async () => {
         const r = await triage(cf({}, [outbound('hi'), inbound('the tap is in the kitchen')]), {
-            ...quiet, llm: async () => ({ data: { audience: 'customer', intent: 'clarify_scope', lane: 'scoper', exceptions: ['out_of_scope'], stage: 'scoping', tags: ['tap'], reasons: ['asked about a tap'] }, usage: null, model: 'claude-haiku-4-5' }),
+            // T18: out_of_scope is no longer the model's to add (scope is gas only); trust_concern stands in.
+            ...quiet, llm: async () => ({ data: { audience: 'customer', intent: 'clarify_scope', lane: 'scoper', exceptions: ['trust_concern'], stage: 'scoping', tags: ['tap'], reasons: ['asked whether we are a real company'] }, usage: null, model: 'claude-haiku-4-5' }),
         });
-        expect(r.source).toBe('model'); expect(r.lane).toBe('ben'); expect(r.exceptions).toEqual(['out_of_scope']); expect(r.intent).toBe('clarify_scope'); expect(r.tags).toContain('tap');
+        expect(r.source).toBe('model'); expect(r.lane).toBe('ben'); expect(r.exceptions).toEqual(['trust_concern']); expect(r.intent).toBe('clarify_scope'); expect(r.tags).toContain('tap');
     });
     it('falls back to the rules result when the model output fails the schema, and says so', async () => {
         const r = await triage(cf({}, [outbound('hi'), inbound('the tap is in the kitchen')]), { ...quiet, llm: async () => ({ data: { lane: 'made_up' }, usage: null, model: 'x' }) });
@@ -203,14 +204,86 @@ describe('P9 rescope pre-check', () => {
         expect(merged.tags).toEqual(expect.arrayContaining(['rescope', 'photos_received']));
         const money = { ...model, exceptions: ['out_of_scope', 'money_question'] };
         expect(mergeTriage(rules, money, 'haiku').exceptions).toEqual(['money_question']);
-        // Not a rescope (no quote): the model's out_of_scope stands.
-        const plain = triageRules(cf({}, [outbound('hi'), inbound('can you remove the asbestos garage')]));
-        expect(mergeTriage({ ...plain, exceptions: [], lane: 'scoper' }, model, 'haiku').exceptions).toContain('out_of_scope');
+        // T18: off a rescope too, a model-only out_of_scope is dropped (scope is gas only, and gas
+        // is the rules' regulated_trade); the reason says so and the lane falls back to the rules'.
+        const plain = triageRules(cf({}, [outbound('hi'), inbound('can you fit a new water heater')]));
+        const m = mergeTriage({ ...plain, exceptions: [], lane: 'scoper' }, model, 'haiku');
+        expect(m.exceptions).toEqual([]);
+        expect(m.lane).toBe('scoper');
+        expect(m.reasons.join(' ')).toMatch(/model out_of_scope dropped: scope is gas only/);
     });
-    it('the prompt defines out_of_scope precisely and names the rescope rule', () => {
-        expect(TRIAGE_SYSTEM).toMatch(/out_of_scope means, precisely/);
+    it('the prompt states the scope as gas only, keeps out_of_scope from the model, and names the rescope rule', () => {
+        expect(TRIAGE_SYSTEM).toMatch(/SCOPE\. The only work Handy Services does not do is GAS work/);
+        expect(TRIAGE_SYSTEM).toMatch(/out_of_scope is NOT yours to add/);
+        expect(TRIAGE_SYSTEM).not.toMatch(/work we do not do \(out_of_scope\)/);
         expect(TRIAGE_SYSTEM).toMatch(/NEVER means "more work than the quote covered"/);
         expect(TRIAGE_SYSTEM).toMatch(/tags "rescope" and "needs_quote", no exception/);
+    });
+});
+
+// ---------------------------------------------------------------- T18: the boundary is gas only
+
+describe('T18 scope is gas only (the captain, 7 Sep 2026)', () => {
+    const turn = (text: string) => triageRules(cf({ stage: 'scoping' }, [outbound('Thanks for getting in touch. What needs doing?'), inbound(text)]));
+    const IN_SCOPE = [
+        // the run that prompted this: run_5fbca897-177d-4eaa-8a89-47e0156e3fa3
+        'The extractor fan in the bathroom is really noisy and the water heater under the sink is leaking, can you come and look?',
+        'The kitchen tap drips and the toilet keeps running, plumbing job I think',
+        'Hot water cylinder in the airing cupboard is weeping from the bottom',
+        'A few ridge tiles came off in the storm and the chimney needs repointing, three storey house',
+        'We want the load-bearing wall between the kitchen and dining room knocked through with an RSJ',
+        'Old fuse box needs replacing with a consumer unit and a full rewire of the upstairs',
+        'Can you move the radiator to the other wall and re-plumb it',
+    ];
+    const GAS = [
+        'Can you service the boiler while you are here?',
+        'Do you fit gas hobs?',
+        'The gas fire in the front room needs taking out',
+        'There is a smell of gas near the meter',
+        'Our combi keeps losing pressure',
+        'Is the flue on the boiler something you can look at?',
+    ];
+    it('plumbing, water heaters, roofing, structural and electrical work reach the Scoper with no exception', () => {
+        for (const t of IN_SCOPE) {
+            const r = turn(t);
+            expect(r.exceptions, t).toEqual([]);
+            expect(r.lane, t).toBe('scoper');
+        }
+    });
+    it('gas work is Ben\'s by ONE path: the rules\' regulated_trade, before any model runs', () => {
+        for (const t of GAS) {
+            const r = turn(t);
+            expect(r.exceptions, t).toEqual(['regulated_trade']);
+            expect(r.lane, t).toBe('ben');
+            expect(r.reasons.join(' '), t).toMatch(/gas lexicon/);
+        }
+    });
+    it('asbestos removal is still Ben\'s (never one of the categories he was asked about)', () => {
+        expect(turn('the garage roof is asbestos sheets, can you take it down').exceptions).toEqual(['regulated_trade']);
+    });
+    it('PIN: a gas job never reaches the Scoper whatever the model says', () => {
+        const rules = turn('Can you service the boiler while you are here?');
+        const permissive = { audience: 'customer', intent: 'ask_gap', lane: 'scoper', exceptions: [], stage: 'scoping', tags: [], reasons: ['handyman job'] } as any;
+        const merged = mergeTriage(rules, permissive, 'haiku');
+        expect(merged.exceptions).toContain('regulated_trade');
+        expect(merged.lane).toBe('ben');
+    });
+    it('the model cannot send a water heater to Ben as out_of_scope; its only route for gas is regulated_trade', () => {
+        const rules = turn('The extractor fan is noisy and the water heater is leaking');
+        const wrong = { audience: 'customer', intent: 'unknown', lane: 'ben', exceptions: ['out_of_scope'], stage: 'scoping', tags: [], reasons: ['Water heater leaks are plumbing/regulated trade outside Handy Services scope.'] } as any;
+        const merged = mergeTriage(rules, wrong, 'haiku');
+        expect(merged.exceptions).toEqual([]);
+        expect(merged.lane).toBe('scoper');
+        // The model naming gas in its own words still reaches Ben, as regulated_trade.
+        const gasInOtherWords = { ...wrong, exceptions: ['regulated_trade'], reasons: ['the appliance is a gas one'] };
+        expect(mergeTriage(rules, gasInOtherWords, 'haiku')).toMatchObject({ lane: 'ben', exceptions: ['regulated_trade'] });
+    });
+    it('the full triage with a model that says out_of_scope lands the Scoper', async () => {
+        const quiet = { writeConversation: false, persist: false, notifyRelay: false };
+        const r = await triage(cf({ stage: 'scoping' }, [outbound('What needs doing?'), inbound('the water heater is leaking')]), {
+            ...quiet, llm: async () => ({ data: { audience: 'customer', intent: 'ask_gap', lane: 'ben', exceptions: ['out_of_scope'], stage: 'scoping', tags: ['plumbing'], reasons: ['not our trade'] }, usage: null, model: 'claude-haiku-4-5' }),
+        });
+        expect(r.source).toBe('model'); expect(r.lane).toBe('scoper'); expect(r.exceptions).toEqual([]); expect(r.tags).toContain('plumbing');
     });
 });
 
