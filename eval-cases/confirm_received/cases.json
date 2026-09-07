@@ -40,7 +40,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "B7a: a postcode arrived, so the acknowledgement may send."
    },
    "provenance": "seed_35e067866a"
   },
@@ -56,7 +58,11 @@
     {
      "direction": "inbound",
      "body": "[photo] [photo] here you go",
-     "at": "2026-08-30T10:01:00.000Z"
+     "at": "2026-08-30T10:01:00.000Z",
+     "media": [
+      "image",
+      "image"
+     ]
     }
    ],
    "candidate": {
@@ -74,7 +80,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "B7a: two photos arrived (context.media), so the acknowledgement may send."
    },
    "provenance": "invented"
   },
@@ -108,7 +116,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": "confirm_received:nothing_arrived",
+    "notes": "B7a: nothing arrived (no media, no postcode) \u2014 a bare \"thanks for the update\" stays Ben's at SEND tier."
    },
    "provenance": "seed_5587f1f724"
   },
@@ -163,9 +173,14 @@
     "lane": "scoper",
     "mustNotEscalate": true,
     "noExceptions": true,
-    "guardsMustNotTrip": true
+    "guardsMustNotTrip": true,
+    "precondition": "confirm_received:nothing_arrived",
+    "notes": "B7a: the customer SAYS a video was sent but none arrived on the case file; the acknowledgement is refused at SEND tier."
    },
-   "provenance": "balanced"
+   "provenance": "balanced",
+   "atSend": {
+    "intent": "confirm_received"
+   }
   }
  ]
 }

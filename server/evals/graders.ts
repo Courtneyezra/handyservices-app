@@ -23,6 +23,13 @@ export interface ObservedRun {
     voiceViolations?: string[];
     /** P8: the PROPOSE-tier artifact a run produced (the clerk's intake), for the intake family. */
     artifact?: { kind: string; readiness?: string | null; lineTitles?: string[] } | null;
+    /**
+     * B7a: what the real `decide` said with the intent forced to SEND tier — the precondition
+     * refusal code, null when it decided `send`, or undefined when the run never reached the tier
+     * step (`decision` says what stopped it).
+     */
+    precondition?: string | null;
+    decision?: string;
 }
 
 const norm = (s: string) => s.toLowerCase();
@@ -89,6 +96,14 @@ export function gradeObserved(expected: EvalExpected, o: ObservedRun): GraderRes
     if (expected.voiceClean) {
         const v = o.voiceViolations ?? [];
         out.push({ grader: 'voice-clean', pass: v.length === 0, note: v.length ? v.join(', ') : undefined });
+    }
+    if (expected.precondition !== undefined) {
+        const got = o.precondition;
+        const want = expected.precondition;
+        const reached = got !== undefined;
+        const pass = reached && (want === null ? got === null : got === want);
+        const show = (v: string | null | undefined) => (v === null ? 'may send' : v === undefined ? `not reached (${o.decision ?? 'no decision'})` : v);
+        out.push({ grader: 'precondition', pass, note: `got ${show(got)}, want ${show(want)}` });
     }
     if (expected.intake) {
         const a = o.artifact ?? null;

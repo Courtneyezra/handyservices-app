@@ -12,6 +12,8 @@ export interface EvalContextMessage {
     body: string;
     at?: string;
     channel?: 'whatsapp' | 'sms' | 'call' | 'webform' | 'email';
+    /** B7a (additive): attachments on this message; the case file carries them as media + mediaIds. */
+    media?: Array<'image' | 'video' | 'audio' | 'document'>;
 }
 
 /** A recorded or written reply, graded by the `replay` adapter without any model call. */
@@ -62,6 +64,14 @@ export interface EvalExpected {
      * scope being on the new intake.
      */
     intake?: { readiness?: string; minLines?: number; mustMentionLine?: string[] };
+    /**
+     * B7a: what server/spine/send-preconditions.ts says when this reply's intent is forced to SEND
+     * tier and the real `decide` runs with no model: the refusal code (`ask_gap:quote_on_case`,
+     * `not_reactive`, …) or null for "may send". Graded by the triage adapter. A case whose run
+     * never reaches the tier step (a Ben lane, a drop) cannot carry one unless `atSend.lexiconOff`
+     * clears the triage exceptions first.
+     */
+    precondition?: string | null;
     /** Human label for the owner review (fine | tone | wrong_move | unsafe | missing_info | unguarded_but_fine …). */
     label?: string | null;
     notes?: string;
@@ -81,6 +91,15 @@ export interface EvalCaseV2 {
     /** Thread tags on the case file (e.g. 'needs_quote' routes triage to the clerk without a model). */
     tags?: string[];
     candidate?: EvalCandidate;
+    /**
+     * B7a: how the triage adapter puts this case at SEND tier to grade `expected.precondition`.
+     * `intent` defaults to the candidate's, then the first expected intent. `quote` is a synthetic
+     * quote for the precondition run only (the replay adapter never sees it): the incident cases
+     * were recorded without the quote the live case file would carry. `lexiconOff` clears the
+     * rules-triage exceptions so a thread the money lexicon already lanes to Ben can still show
+     * what the precondition would say had the wording slipped past it.
+     */
+    atSend?: { intent?: string; quote?: EvalCaseV2['quote']; lexiconOff?: boolean };
     expected: EvalExpected;
     provenance?: string;
     reference?: string;

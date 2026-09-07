@@ -30,7 +30,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "B7a: at SEND tier the precondition lets this through \u2014 pre-quote, reactive, no question asked."
    },
    "provenance": "invented"
   },
@@ -69,7 +71,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": "ask_gap:customer_question",
+    "notes": "B7a: the customer asked a question (\"by today if possible?\"); at SEND tier a gap ask is refused and Ben answers."
    },
    "provenance": "seed_26829fbb74 context"
   },
@@ -103,7 +107,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "B7a: at SEND tier the precondition lets this through \u2014 pre-quote, reactive, no question asked."
    },
    "provenance": "invented"
   },
@@ -158,9 +164,14 @@
     "lane": "scoper",
     "mustNotEscalate": true,
     "noExceptions": true,
-    "guardsMustNotTrip": true
+    "guardsMustNotTrip": true,
+    "precondition": null,
+    "notes": "B7a: forced to SEND as ask_gap the precondition lets it through."
    },
-   "provenance": "balanced: ordinary detail must not escalate"
+   "provenance": "balanced: ordinary detail must not escalate",
+   "atSend": {
+    "intent": "ask_gap"
+   }
   },
   {
    "id": "ag-006-two-windows",
@@ -192,7 +203,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "B7a: at SEND tier the precondition lets this through \u2014 pre-quote, reactive, no question asked."
    },
    "provenance": "invented"
   }

@@ -3,19 +3,27 @@
  * adapter to run triage + an agent over a case JSON; the real assembler (pane A) reads the DB.
  */
 import { createHash } from 'node:crypto';
-import type { CaseFile, TimelineItem } from '../spine/types';
+import type { CaseFile, MediaItem, TimelineItem } from '../spine/types';
 import type { EvalCaseV2 } from './case-schema';
 
 export function caseFileFromContext(c: EvalCaseV2, now: Date = new Date()): CaseFile {
     if (c.caseFile) return c.caseFile;
     const context = c.context ?? [];
-    const timeline: TimelineItem[] = context.map((m, i) => ({
-        at: m.at ?? new Date(now.getTime() - (context.length - i) * 60_000).toISOString(),
-        kind: m.channel === 'call' ? (m.direction === 'inbound' ? 'call_in' : 'call_out') : m.direction === 'inbound' ? 'message_in' : 'message_out',
-        channel: m.channel === 'call' ? 'call' : m.channel === 'webform' ? 'webchat' : (m.channel ?? 'whatsapp'),
-        body: m.body,
-        by: m.direction === 'inbound' ? 'customer' : 'agent.comms',
-    }));
+    const media: MediaItem[] = [];
+    const timeline: TimelineItem[] = context.map((m, i) => {
+        const item: TimelineItem = {
+            at: m.at ?? new Date(now.getTime() - (context.length - i) * 60_000).toISOString(),
+            kind: m.channel === 'call' ? (m.direction === 'inbound' ? 'call_in' : 'call_out') : m.direction === 'inbound' ? 'message_in' : 'message_out',
+            channel: m.channel === 'call' ? 'call' : m.channel === 'webform' ? 'webchat' : (m.channel ?? 'whatsapp'),
+            body: m.body,
+            by: m.direction === 'inbound' ? 'customer' : 'agent.comms',
+        };
+        // B7a: attachments the way the real assembler records them (server/spine/case-file.ts).
+        if (m.media?.length) {
+            item.mediaIds = m.media.map((kind, j) => { const id = `eval_media_${i}_${j}`; media.push({ id, kind }); return id; });
+        }
+        return item;
+    });
     const lastIn = [...context].reverse().find((m) => m.direction === 'inbound');
     const phone = `+447700900${String(Math.abs(hashCode(c.id)) % 1000).padStart(3, '0')}`; // Ofcom drama range
     const base: Omit<CaseFile, 'hash'> = {
@@ -25,7 +33,7 @@ export function caseFileFromContext(c: EvalCaseV2, now: Date = new Date()): Case
         stage: c.quote ? (c.quote.paid ? 'booked' : 'quote_sent') : c.firstContact ? 'enquiry' : 'scoping',
         contactName: c.customer?.firstName ?? null,
         timeline,
-        media: [],
+        media,
         window: { canFreeform: true, templateRequired: false, lastInboundAt: lastIn?.at ?? null, channelLastUsed: 'whatsapp' },
         client: null,
         quote: c.quote ? { slug: c.quote.slug ?? 'evalq', total: c.quote.totalPence ?? null, lines: 1, viewedAt: c.quote.seen ? now.toISOString() : null, expiresAt: null, paid: !!c.quote.paid } : null,

@@ -38,6 +38,10 @@ export function validatePack(pack: PolicyPack): string[] {
     }
     for (const intent of Object.keys(pack.tierByIntent)) {
         if (!(pack.allowedIntents as string[]).includes(intent)) problems.push(`${pack.id}: tier for ${intent} which is not allowed`);
+        if (pack.tierByIntent[intent as keyof typeof pack.tierByIntent] === 'SEND' && isNeverSend(pack, intent)) problems.push(`${pack.id}: ${intent} is at SEND but on neverSend`);
+    }
+    for (const intent of pack.neverSend ?? []) {
+        if (!(pack.allowedIntents as string[]).includes(intent)) problems.push(`${pack.id}: neverSend lists ${intent} which is not allowed`);
     }
     if (pack.hours.proactiveFromHour < 0 || pack.hours.proactiveToHour > 24 || pack.hours.proactiveFromHour >= pack.hours.proactiveToHour) {
         problems.push(`${pack.id}: bad proactive hours`);
@@ -79,11 +83,17 @@ export function isForbiddenIntent(intent: string): boolean {
     return FORBIDDEN_INTENT_SMELL.test(intent);
 }
 
+/** B7a: the pack says this intent may never hold a SEND tier (holding, clarify_scope, closing…). Pure. */
+export function isNeverSend(pack: PolicyPack, intent: string): boolean {
+    return ((pack.neverSend ?? []) as string[]).includes(intent);
+}
+
 /** Throws unless (pack, intent) may legitimately hold a SEND tier. */
 export function assertPromotable(pack: PolicyPack, intent: string): void {
     if (!isIntent(intent)) throw new Error(`[Spine] ${intent} is not an intent`);
     if (isForbiddenIntent(intent)) throw new Error(`[Spine] ${intent} may carry money or dates and can never be promoted`);
     if (!(pack.allowedIntents as string[]).includes(intent)) throw new Error(`[Spine] ${intent} is not allowed in pack ${pack.id}`);
+    if (isNeverSend(pack, intent)) throw new Error(`[Spine] ${intent} is on pack ${pack.id}'s neverSend list and can never be promoted to SEND`);
 }
 
 /** A copy of the pack with the DB tiers merged over its static tierByIntent. Pure; refuses bad rows. */
@@ -94,6 +104,10 @@ export function applyTierOverlay(pack: PolicyPack, tiers: Record<string, string>
         if (!(TIERS as readonly string[]).includes(tier)) { console.warn(`[Spine] ignoring tier ${tier} for ${pack.id}/${intent}`); continue; }
         if (!(pack.allowedIntents as string[]).includes(intent) || isForbiddenIntent(intent) || !isIntent(intent)) {
             console.warn(`[Spine] ignoring DB tier for ${pack.id}/${intent}: not an allowed intent`);
+            continue;
+        }
+        if (tier === 'SEND' && isNeverSend(pack, intent)) {
+            console.warn(`[Spine] ignoring DB SEND tier for ${pack.id}/${intent}: on the pack's neverSend list`);
             continue;
         }
         merged[intent] = tier as Tier;

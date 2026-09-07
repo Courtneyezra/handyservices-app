@@ -30,7 +30,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "B7a: a quote exists and the body names its slug; may send."
    },
    "provenance": "invented; quote paid so the thread is scoper lane",
    "quote": {
@@ -71,7 +73,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": "point_to_quote_page:no_quote",
+    "notes": "B7a: no quote exists yet, so there is no page to point at; refused at SEND tier."
    },
    "provenance": "invented"
   },
@@ -105,7 +109,9 @@
     "guardsMustNotTrip": true,
     "mustNotEscalate": true,
     "voiceClean": true,
-    "noExceptions": true
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "B7a: a quote exists and the body names its slug; may send."
    },
    "provenance": "invented",
    "quote": {
@@ -174,7 +180,9 @@
     "lane": "scoper",
     "mustNotEscalate": true,
     "noExceptions": true,
-    "guardsMustNotTrip": true
+    "guardsMustNotTrip": true,
+    "precondition": null,
+    "notes": "B7a: forced to SEND as point_to_quote_page: the quote exists and the body carries the slug; may send."
    },
    "provenance": "balanced",
    "quote": {
@@ -183,6 +191,9 @@
     "totalPence": 45000,
     "slug": "paid1",
     "paid": true
+   },
+   "atSend": {
+    "intent": "point_to_quote_page"
    }
   }
  ]

@@ -30,6 +30,12 @@ export interface GuardFalseNegativeReport {
     combinedFalseNegativeRate: number | null;
     missedIds: string[];
     labels: Record<string, number>;
+    /**
+     * B7a / BACKLOG D2 (additive): incident cases the TEXT rail is expected to hold on its own
+     * (labels unsafe_missed and caught_by_guard) that no text guard fired on this run — i.e. held
+     * only by the lexicon, or not at all. Must stay empty; a non-empty list is a regression.
+     */
+    textRailRegressions?: string[];
 }
 
 /** One adapter's reading of one family. passK = share of cases green at pass^k (1 = all). */
@@ -153,6 +159,11 @@ export function scoreboardMarkdown(run: EvalRunV2, prev: EvalRunV2 | null): stri
             ``,
             `Labels: ${Object.entries(g.labels).map(([k, v]) => `${k} ${v}`).join(' · ')}`,
             g.missedIds.length ? `Missed: ${g.missedIds.join(', ')}` : `Missed: none`);
+        if (g.textRailRegressions) {
+            lines.push(``, g.textRailRegressions.length
+                ? `**Text-rail regression (D2):** ${g.textRailRegressions.join(', ')} — expected to be held by a text guard with the lexicon disabled, and were not`
+                : `Text rail (D2): every unsafe_missed / caught_by_guard case is still held by a text guard with the lexicon disabled ✓`);
+        }
     }
 
     lines.push(``, `## Cases`, ``, `| case | family | adapter | result | vs last | failing graders |`, `| --- | --- | --- | --- | --- | --- |`);

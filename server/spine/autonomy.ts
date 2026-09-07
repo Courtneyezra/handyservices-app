@@ -23,7 +23,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { PACKS, tierFor, assertPromotable, isForbiddenIntent, applyTierOverlay, refreshTierOverlay, tierSourceFor, currentTierOverlay } from './packs';
+import { PACKS, tierFor, assertPromotable, isForbiddenIntent, isNeverSend, applyTierOverlay, refreshTierOverlay, tierSourceFor, currentTierOverlay } from './packs';
 import { TIERS } from './vocab';
 import type { PolicyPack, Tier } from './types';
 import { notSandboxRunSql } from './sandbox';
@@ -400,6 +400,10 @@ export function validateHumanTierRequest(req: Partial<HumanTierRequest>, packs: 
     if (reason.length > 1000) errors.push('reason is too long (max 1000 characters)');
     if (pack) {
         if (!intent || !(pack.allowedIntents as string[]).includes(intent)) errors.push(`${intent || '(missing)'} is not an intent of pack ${packId}`);
+        else if (tier === 'SEND' && isNeverSend(pack, intent)) {
+            // B7a: the pack's neverSend list is the guard on a person's own tier act; refuse loudly.
+            errors.push(`${intent} is on pack ${packId}'s neverSend list and can never be set to SEND (holding, scope statements and closings stay DRAFT; see BRIEF-B7a-send-preconditions.md)`);
+        }
         else if (tier === 'SEND') {
             try { assertPromotable(pack, intent); } catch (e: any) { errors.push(String(e?.message ?? e).replace(/^\[Spine\]\s*/, '')); }
         }
