@@ -3,7 +3,7 @@
  * impossible to misread — the "NOT SENT — dry run" state.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch } from '@test-utils';
 
@@ -354,5 +354,34 @@ describe('<SandboxPage> with attachments', () => {
         await waitFor(() => expect(screen.getAllByTestId('sandbox-attachment')).toHaveLength(1));
         await userEvent.click(screen.getByTestId('sandbox-reset'));
         await waitFor(() => expect(screen.queryByTestId('sandbox-attachments')).toBeNull());
+    });
+
+    // T13: the owner's browser. Chrome's file input hands React a LIVE FileList, and `addFiles`
+    // clears the input's value straight after enqueuing the state update so the same photo can be
+    // picked again — which empties that list (measured in Chrome: length 1 → 0). React runs a
+    // state updater lazily whenever the component has any other update pending (the sandbox page
+    // nearly always does: the events stream, the query polling), so an updater that reads the
+    // list at run time read [] and nothing was attached. The typed character below stands in for
+    // that pending update and makes the deferral deterministic; the value setter is Chrome's.
+    it('T13: the picked file survives the input being cleared, even when React defers the updater', async () => {
+        mockFetch([{ method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: started }) }]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
+        const input = screen.getByTestId('sandbox-file-input') as HTMLInputElement;
+        const live: { length: number; 0?: File; item: (i: number) => File | null } = { length: 1, 0: photo(), item: (i) => (i === 0 ? live[0] ?? null : null) };
+        Object.defineProperty(input, 'files', { configurable: true, get: () => live });
+        Object.defineProperty(input, 'value', {
+            configurable: true,
+            get: () => (live.length ? 'C:\\fakepath\\fan.jpg' : ''),
+            set: (v: string) => { if (v === '') { live.length = 0; delete live[0]; } },
+        });
+        await act(async () => {
+            fireEvent.input(screen.getByTestId('sandbox-input'), { target: { value: 'H' } });
+            fireEvent.change(input);
+        });
+        await waitFor(() => expect(screen.getAllByTestId('sandbox-attachment')).toHaveLength(1));
+        expect(screen.getByTestId('sandbox-attachments').textContent).toContain('fan.jpg');
+        expect(input.value).toBe(''); // still cleared, so the same photo can be picked twice in a row
+        expect((screen.getByTestId('sandbox-send') as HTMLButtonElement).disabled).toBe(false);
     });
 });

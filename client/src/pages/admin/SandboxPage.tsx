@@ -442,8 +442,15 @@ export default function SandboxPage() {
     };
     const addFiles = (list: FileList | null) => {
         if (!list) return;
-        setFiles((prev) => [...prev, ...Array.from(list)].slice(0, MAX_ATTACHMENTS));
+        // T13: copy the FileList NOW, before anything else. A file input's FileList is live and
+        // clearing the input's value (below, so the same photo can be picked twice) empties it;
+        // React runs a state updater lazily whenever the component has another update pending,
+        // which this page nearly always has. Reading the list inside the updater attached nothing
+        // in the owner's browser — the file never left the page (T13).
+        const picked = Array.from(list);
         if (fileInputRef.current) fileInputRef.current.value = '';
+        if (!picked.length) return;
+        setFiles((prev) => [...prev, ...picked].slice(0, MAX_ATTACHMENTS));
     };
     const removeFile = (i: number) => setFiles((prev) => prev.filter((_, j) => j !== i));
 
