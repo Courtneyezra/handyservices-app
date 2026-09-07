@@ -10,6 +10,15 @@
  *   POST /reset       delete everything on the sandbox number and start a clean thread
  *   POST /message     { text } → inbound message on the thread, then runOnce(..., { dryRun, sandbox })
  *                     returns the whole pass (triage, pack, proposal, guards, decision, exit note, cost).
+ *                     T11: ALSO multipart/form-data with `text` and up to SANDBOX_MAX_FILES `media`
+ *                     files (photos, videos). Each file becomes its own inbound row, written the
+ *                     way server/conversation-engine.ts writes a real WhatsApp inbound: bytes in
+ *                     MEDIA_DIR under a server-chosen name, mirrored to S3, `mediaUrl`
+ *                     '/api/media/<file>', `mediaType` the MIME, `type` image|video, the typed text
+ *                     as the caption on the first. The case file, the describer (Gemini) and the
+ *                     Scoper then see exactly what they would see for a customer. The response adds
+ *                     `media[]`: per item, the description the Scoper read or the one reason it did
+ *                     not (off, images off, no key, over the per-pass bound, failed).
  *                     T6: when that pass was FIRST CONTACT (triage lane `rules`, the first-contact
  *                     pack), the rules layer — not the desk — answers it live, and its ack is the
  *                     outbound that makes the NEXT message the desk's. The sandbox has no rules layer
@@ -28,13 +37,20 @@
  * so no scheduled pass can ever pick it up; runOnce itself refuses a sandbox pass on any other
  * number and never reaches the exit. Three layers, each independent — see the brief.
  */
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
+import multer from 'multer';
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { agentOutcomes, agentQuestions, agentRuns, conversations, messageDrafts, messages, nudgeQueue, personalizedQuotes } from '@shared/schema';
+import { MEDIA_DIR, mirrorMediaToS3 } from '../media-store';
+import { DEFAULT_SPINE_CONFIG, getSpineConfig, type SpineConfig } from './config';
 import { runOnce, type RunOnceResult } from './index';
+import { explainMediaSelection } from './media-selection';
 import { SANDBOX_DIGITS, SANDBOX_PHONE_E164, SANDBOX_PHONE_WA, isSandboxPhone } from './sandbox';
+import type { MediaItem } from './types';
 
 export const commsSandboxRouter = Router();
 
@@ -56,6 +72,139 @@ export function validateCustomerText(raw: unknown): { ok: true; text: string } |
     if (!text) return { ok: false, error: 'text is empty' };
     if (text.length > MAX_MESSAGE_CHARS) return { ok: false, error: `text is over ${MAX_MESSAGE_CHARS} characters` };
     return { ok: true, text };
+}
+
+/**
+ * T11: the message with its attachments. With files, the text is the caption and may be empty
+ * (a customer often sends the photo alone); without files it is the message and may not be.
+ */
+export function validateCustomerMessage(raw: unknown, fileCount: number): { ok: true; text: string } | { ok: false; error: string } {
+    if (fileCount > SANDBOX_MAX_FILES) return { ok: false, error: `at most ${SANDBOX_MAX_FILES} files per message` };
+    if (fileCount > 0 && (raw === undefined || raw === null || raw === '')) return { ok: true, text: '' };
+    const v = validateCustomerText(raw);
+    if (!v.ok && fileCount > 0 && v.error === 'text is empty') return { ok: true, text: '' };
+    return v;
+}
+
+// ---------------------------------------------------------------- T11: media bounds (pure, tested)
+
+/** Files per sandbox message. Above `spine.video.maxPerRun` (6) on purpose: the over-bound case must be reachable. */
+export const SANDBOX_MAX_FILES = 8;
+/** WhatsApp's own media cap, the same limit server/voice-notes.ts uses. */
+export const SANDBOX_MAX_FILE_BYTES = 16 * 1024 * 1024;
+/** Declared MIME → stored extension. Anything else is refused before a byte is written. */
+export const SANDBOX_MEDIA_TYPES: Readonly<Record<string, string>> = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/heic': 'heic', 'image/heif': 'heif',
+    'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/3gpp': '3gp',
+};
+/** The stored file is named after its message id, as a real inbound is (`<MessageSid>.<ext>`). */
+export const SANDBOX_MEDIA_ID_PREFIX = 'msg_sbx_';
+
+export function validateSandboxMediaType(mime: unknown): { ok: true; ext: string; kind: 'image' | 'video' } | { ok: false; error: string } {
+    const m = typeof mime === 'string' ? mime.toLowerCase().trim() : '';
+    const ext = SANDBOX_MEDIA_TYPES[m];
+    if (!ext) return { ok: false, error: `${m || 'unknown type'} is not accepted: photos (jpeg, png, webp, gif, heic) or videos (mp4, mov, webm, 3gp) only` };
+    return { ok: true, ext, kind: m.startsWith('video/') ? 'video' : 'image' };
+}
+
+export function sandboxMediaId(): string {
+    return `${SANDBOX_MEDIA_ID_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 13)}`;
+}
+
+/** `<message id>.<ext>` — never the browser's filename, never a path. */
+export function sandboxMediaFileName(id: string, mime: string): string {
+    const t = validateSandboxMediaType(mime);
+    if (!t.ok) throw new Error(t.error);
+    if (!/^[a-z0-9_]+$/i.test(id)) throw new Error('bad media id');
+    return `${id}.${t.ext}`;
+}
+
+/** The message id a stored sandbox file belongs to, or null when the name is not ours. */
+export function sandboxMediaIdOf(fileName: string): string | null {
+    const base = path.basename(fileName);
+    if (base !== fileName) return null;
+    const m = /^(msg_sbx_[a-f0-9]{13})\.[a-z0-9]{1,5}$/i.exec(base);
+    return m ? m[1] : null;
+}
+
+/** multer's refusals, in words the page can show. */
+export function describeUploadError(err: unknown): string {
+    const e = err as { code?: string; message?: string; field?: string } | null;
+    switch (e?.code) {
+        case 'LIMIT_FILE_SIZE': return `a file is over ${SANDBOX_MAX_FILE_BYTES / (1024 * 1024)} MB (WhatsApp's own cap)`;
+        case 'LIMIT_FILE_COUNT': case 'LIMIT_UNEXPECTED_FILE': return `at most ${SANDBOX_MAX_FILES} files per message, in the 'media' field`;
+        default: return e?.message ?? 'upload refused';
+    }
+}
+
+// ---------------------------------------------------------------- T11: what the desk saw (pure, tested)
+
+export type SandboxMediaStatus = 'described' | 'cached' | 'failed' | 'over_bound' | 'off' | 'images_off' | 'no_key' | 'unsupported' | 'missing';
+
+export interface SandboxMediaReport {
+    id: string;
+    kind: MediaItem['kind'];
+    url: string | null;
+    /** What the Scoper read, verbatim from the case file; null is the whole finding. */
+    description: string | null;
+    status: SandboxMediaStatus;
+    /** One line for the page: why there is a description, or why not. */
+    note: string;
+    /** The vision row for THIS pass, when one was written (a cache hit writes none). */
+    vision: { runId: string; costPence: number | null; error: string | null } | null;
+}
+
+export interface SandboxVideoStatus extends SpineConfig['video'] {
+    /** GEMINI_API_KEY (or GOOGLE_API_KEY) is set on THIS server — the one running the sandbox. */
+    keyPresent: boolean;
+}
+
+export const MEDIA_STATUS_NOTE: Record<SandboxMediaStatus, string> = {
+    described: 'Described on this pass by Gemini. This text is exactly what the Scoper read.',
+    cached: 'Description came from the cache (identical bytes were described on an earlier pass). No model call, no cost. This text is exactly what the Scoper read.',
+    failed: 'Description FAILED on this pass: the Scoper saw this item as bare media with no description. The vision row records the error; the server log has the describe_video line.',
+    over_bound: 'NOT described: outside the per-pass bound. Only the last maxPerRun eligible items on the thread are described; this earlier one was dropped. The Scoper saw bare media.',
+    off: 'NOT described: spine.video.enabled is off on this server, so no media is described. The Scoper saw bare media.',
+    images_off: 'NOT described: spine.video.images is off, so photos are skipped (videos are still described). The Scoper saw bare media.',
+    no_key: 'NOT described: GEMINI_API_KEY is not set on this server, so the describer has nothing to call. The Scoper saw bare media.',
+    unsupported: 'NOT described: only photos and videos are described. The Scoper saw bare media.',
+    missing: 'NOT described and no vision row was written: the describer threw or was unavailable before it could record anything. Check the server log for [describe_video] / [Spine] describe_video. The Scoper saw bare media.',
+};
+
+/**
+ * Per media item on the case file: the description the Scoper read, or the one reason there is
+ * none. Reads the SAME selection rule buildCaseFile used (media-selection.ts), so the report
+ * cannot say "described" of something that was dropped, or "dropped" of something described.
+ */
+export function mediaReportFor(
+    media: readonly MediaItem[],
+    video: SandboxVideoStatus,
+    visionRows: readonly { id: string; mediaId: string | null; decision: string | null; error: string | null; costPence: number | null }[],
+): SandboxMediaReport[] {
+    const selection = explainMediaSelection(media, { images: !!video.images, maxPerRun: video.maxPerRun ?? DEFAULT_SPINE_CONFIG.video.maxPerRun });
+    return media.map((m) => {
+        const row = visionRows.find((r) => r.mediaId === m.id) ?? null;
+        const vision = row ? { runId: row.id, costPence: row.costPence ?? null, error: row.error ?? null } : null;
+        const description = m.description ?? null;
+        let status: SandboxMediaStatus;
+        if (description) status = row ? 'described' : 'cached';
+        else if (!video.enabled) status = 'off';
+        else {
+            const why = selection.get(m.id) ?? 'unsupported';
+            if (why === 'images_off') status = 'images_off';
+            else if (why === 'unsupported' || why === 'no_url') status = 'unsupported';
+            else if (why === 'over_bound') status = 'over_bound';
+            else if (!video.keyPresent) status = 'no_key';
+            else if (row && (row.decision === 'failed' || row.error)) status = 'failed';
+            else status = 'missing';
+        }
+        const note = status === 'failed' && vision?.error ? `${MEDIA_STATUS_NOTE.failed} Error: ${vision.error}` : MEDIA_STATUS_NOTE[status];
+        return { id: m.id, kind: m.kind, url: m.url ?? null, description, status, note, vision };
+    });
+}
+
+export function geminiKeyPresent(env: NodeJS.ProcessEnv = process.env): boolean {
+    return !!(env.GEMINI_API_KEY || env.GOOGLE_API_KEY);
 }
 
 /** A synthetic quote's numbers, checked: a whole number of pence between £1 and £20,000. */
@@ -147,6 +296,7 @@ async function loadState() {
     const msgs = conv ? await db.select({
         id: messages.id, direction: messages.direction, content: messages.content, createdAt: messages.createdAt,
         senderName: messages.senderName, channel: messages.channel,
+        type: messages.type, mediaUrl: messages.mediaUrl, mediaType: messages.mediaType,
     }).from(messages).where(eq(messages.conversationId, conv.id)).orderBy(messages.createdAt).limit(200) : [];
     const quotes = await db.select({
         id: personalizedQuotes.id, slug: personalizedQuotes.shortSlug, jobDescription: personalizedQuotes.jobDescription,
@@ -163,6 +313,7 @@ async function loadState() {
         .orderBy(desc(agentRuns.startedAt)).limit(20) : [];
     return {
         phone: { e164: SANDBOX_PHONE_E164, wa: SANDBOX_PHONE_WA },
+        video: await videoStatus(),
         conversation: conv ? { id: conv.id, stage: conv.stage, tags: conv.tags ?? [], contactName: conv.contactName, createdAt: conv.createdAt, hasTrigger: !!(conv.metadata as any)?.nextTriageAt } : null,
         messages: msgs,
         quote: quotes[0] ?? null,
@@ -177,15 +328,32 @@ async function loadState() {
     };
 }
 
-async function insertInbound(conversationId: string, content: string): Promise<string> {
-    const id = `msg_sbx_${randomUUID().slice(0, 13)}`;
+/** T11: the sandbox's read of this server's description switch and key — read-only, never changed here. */
+async function videoStatus(): Promise<SandboxVideoStatus> {
+    const cfg = await getSpineConfig().catch(() => DEFAULT_SPINE_CONFIG);
+    const video = { ...DEFAULT_SPINE_CONFIG.video, ...(cfg.video ?? {}) };
+    return { ...video, keyPresent: geminiKeyPresent() };
+}
+
+interface InboundMedia { id: string; url: string; mimeType: string; kind: 'image' | 'video' }
+
+/**
+ * One inbound row. With `media`, the row is shaped exactly as server/conversation-engine.ts
+ * shapes a real WhatsApp media inbound (id = the file's stem, type image|video, mediaUrl
+ * '/api/media/<file>', mediaType the MIME, content the caption or '').
+ */
+async function insertInbound(conversationId: string, content: string, media?: InboundMedia): Promise<string> {
+    const id = media?.id ?? `msg_sbx_${randomUUID().slice(0, 13)}`;
     const now = new Date();
     await db.insert(messages).values({
         id, conversationId, direction: 'inbound', channel: 'whatsapp', content, status: 'received',
         senderName: SANDBOX_CONTACT_NAME, createdAt: now,
+        type: media ? media.kind : 'text',
+        mediaUrl: media?.url ?? null,
+        mediaType: media?.mimeType ?? null,
     });
     await db.update(conversations).set({
-        lastMessageAt: now, lastMessagePreview: content.slice(0, 200), lastCustomerContactAt: now,
+        lastMessageAt: now, lastMessagePreview: (content || (media ? 'Media received' : '')).slice(0, 200), lastCustomerContactAt: now,
         lastInboundAt: now, // channel IS whatsapp, so the 24h window reads as open — as it would live
         unreadCount: sql`coalesce(${conversations.unreadCount}, 0) + 1`, updatedAt: now,
     }).where(eq(conversations.id, conversationId));
@@ -205,10 +373,20 @@ async function insertOutbound(conversationId: string, content: string, senderNam
 }
 
 /** Everything on the sandbox number, gone. The dev board demo's cleanup, on the sandbox number. */
-async function cleanupSandbox(): Promise<{ conversations: number; quotes: number }> {
+async function cleanupSandbox(): Promise<{ conversations: number; quotes: number; files: number }> {
     const convs = await db.select({ id: conversations.id }).from(conversations).where(eq(conversations.phoneNumber, SANDBOX_PHONE_WA));
     const ids = convs.map((c) => c.id);
+    let files = 0;
     if (ids.length) {
+        // T11: the uploaded bytes go too — only files named as ours (msg_sbx_<id>.<ext>), only from
+        // MEDIA_DIR, so a row that somehow pointed elsewhere could never delete a customer's photo.
+        const mediaRows = await db.select({ mediaUrl: messages.mediaUrl }).from(messages)
+            .where(and(inArray(messages.conversationId, ids), sql`${messages.mediaUrl} IS NOT NULL`));
+        for (const r of mediaRows) {
+            const file = path.basename(r.mediaUrl ?? '');
+            if (!sandboxMediaIdOf(file)) continue;
+            try { fs.unlinkSync(path.join(MEDIA_DIR, file)); files++; } catch { /* already gone */ }
+        }
         await db.delete(messages).where(inArray(messages.conversationId, ids));
         await db.delete(agentQuestions).where(inArray(agentQuestions.conversationId, ids));
         await db.delete(agentOutcomes).where(inArray(agentOutcomes.conversationId, ids));
@@ -220,7 +398,7 @@ async function cleanupSandbox(): Promise<{ conversations: number; quotes: number
     const quotes = await db.delete(personalizedQuotes)
         .where(sql`regexp_replace(${personalizedQuotes.phone}, '[^0-9]', '', 'g') = ${SANDBOX_DIGITS}`)
         .returning({ id: personalizedQuotes.id });
-    return { conversations: ids.length, quotes: quotes.length };
+    return { conversations: ids.length, quotes: quotes.length, files };
 }
 
 async function createSandboxConversation(): Promise<string> {
@@ -299,15 +477,81 @@ commsSandboxRouter.post('/quote', async (req, res) => {
     }
 });
 
-commsSandboxRouter.post('/message', async (req, res) => {
+// ---------------------------------------------------------------- T11: the upload
+
+/**
+ * multer, bounded: the declared type must be in SANDBOX_MEDIA_TYPES (checked in fileFilter before
+ * a byte is written), SANDBOX_MAX_FILE_BYTES per file, SANDBOX_MAX_FILES per message. The bytes
+ * land in MEDIA_DIR — the same directory a real inbound is written to and /api/media serves — under
+ * a name this server chose (sandboxMediaFileName); the browser's filename is never used. A JSON
+ * body passes straight through: multer only parses multipart.
+ */
+const upload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => {
+            try { fs.mkdirSync(MEDIA_DIR, { recursive: true }); cb(null, MEDIA_DIR); } catch (e) { cb(e as Error, MEDIA_DIR); }
+        },
+        filename: (_req, file, cb) => {
+            try { cb(null, sandboxMediaFileName(sandboxMediaId(), file.mimetype)); } catch (e) { cb(e as Error, ''); }
+        },
+    }),
+    limits: { fileSize: SANDBOX_MAX_FILE_BYTES, files: SANDBOX_MAX_FILES, fields: 5 },
+    fileFilter: (_req, file, cb) => {
+        const t = validateSandboxMediaType(file.mimetype);
+        if (t.ok) cb(null, true); else cb(new Error(t.error));
+    },
+});
+
+function removeUploaded(files: readonly { path: string }[] | undefined): void {
+    for (const f of files ?? []) { try { fs.unlinkSync(f.path); } catch { /* already gone */ } }
+}
+
+function parseSandboxUpload(req: Request, res: Response, next: NextFunction): void {
+    if (!req.is('multipart/form-data')) { next(); return; }
+    upload.array('media', SANDBOX_MAX_FILES)(req, res, (err: unknown) => {
+        if (err) {
+            removeUploaded(req.files as Express.Multer.File[] | undefined);
+            res.status(400).json({ error: describeUploadError(err) });
+            return;
+        }
+        next();
+    });
+}
+
+/** The vision rows this pass wrote (one per model call; a cache hit writes none). */
+async function visionRowsOf(runId: string) {
+    const rows = await db.select({ id: agentRuns.id, decision: agentRuns.decision, error: agentRuns.error, costPence: agentRuns.costPence, proposal: agentRuns.proposal })
+        .from(agentRuns).where(and(eq(agentRuns.parentRunId, runId), eq(agentRuns.agent, 'vision')));
+    return rows.map((r) => ({ id: r.id, decision: r.decision ?? null, error: r.error ?? null, costPence: r.costPence ?? null, mediaId: ((r.proposal ?? {}) as { mediaId?: string }).mediaId ?? null }));
+}
+
+commsSandboxRouter.post('/message', parseSandboxUpload, async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     try {
-        const v = validateCustomerText(req.body?.text);
-        if (!v.ok) { res.status(400).json({ error: v.error }); return; }
+        const v = validateCustomerMessage(req.body?.text, files.length);
+        if (!v.ok) { removeUploaded(files); res.status(400).json({ error: v.error }); return; }
         const conversationId = await ensureSandboxConversation();
-        const messageId = await insertInbound(conversationId, v.text);
+        const messageIds: string[] = [];
+        if (!files.length) {
+            messageIds.push(await insertInbound(conversationId, v.text));
+        } else {
+            // One row per file, in the order attached, the text as the first one's caption — the
+            // Twilio shape (Body + MediaUrl0). Mirrored to S3 like a real inbound: never throws.
+            for (const [i, f] of files.entries()) {
+                const id = sandboxMediaIdOf(f.filename);
+                const t = validateSandboxMediaType(f.mimetype);
+                if (!id || !t.ok) throw new Error(`stored file ${f.filename} is not a sandbox media file`);
+                await mirrorMediaToS3(f.filename, fs.readFileSync(f.path), f.mimetype);
+                messageIds.push(await insertInbound(conversationId, i === 0 ? v.text : '', { id, url: `/api/media/${f.filename}`, mimeType: f.mimetype, kind: t.kind }));
+            }
+        }
+        const messageId = messageIds[0];
         // Layer 1 at the call site AND inside runOnce (sandbox implies dryRun): the exit never runs.
         const run = await runOnce(conversationId, 'inbound_message', undefined, { dryRun: true, sandbox: true });
         const summary = summariseRun(run, await costOf(run.runId));
+        // T11: what the desk saw of each photo or video — the description, or why there is none.
+        const video = await videoStatus();
+        const media = mediaReportFor(run.caseFile.media, video, await visionRowsOf(run.runId).catch(() => []));
         // T6: first contact — mirror the rules layer's ack so the thread can leave the rules lane.
         let mirrored: SandboxMirror | null = null;
         const mirror = firstContactMirrorFor(run);
@@ -317,9 +561,10 @@ commsSandboxRouter.post('/message', async (req, res) => {
             const ackId = await insertOutbound(conversationId, ack.body, SANDBOX_RULES_ACK_SENDER);
             mirrored = { kind: 'first_contact_ack', intent: mirror.intent, body: ack.body, messageId: ackId, note: MIRROR_NOTE };
         }
-        res.json({ ok: true, messageId, run: summary, mirrored, state: await loadState() });
+        res.json({ ok: true, messageId, messageIds, run: summary, mirrored, media, video, state: await loadState() });
     } catch (error: any) {
         console.error('[Sandbox] message failed:', error);
+        removeUploaded(files);
         res.status(500).json({ error: error?.message ?? 'sandbox message failed' });
     }
 });

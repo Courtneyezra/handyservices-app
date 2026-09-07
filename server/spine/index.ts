@@ -237,10 +237,15 @@ async function runOnceBody(
     if (sandbox && !isSandboxPhone(caseFile.phone)) {
         throw new Error(`sandbox run refused: ${conversationId} is not on the sandbox number`);
     }
-    ev.stage('case_file', `Case file: ${caseFile.timeline.length} timeline item${caseFile.timeline.length === 1 ? '' : 's'}, stage ${caseFile.stage}, ${caseFile.quote ? `quote ${caseFile.quote.slug} (${caseFile.quote.paid ? 'paid' : 'unpaid'})` : 'no quote'}${caseFile.tags.length ? `, tags ${caseFile.tags.join(', ')}` : ''}`, {
+    // T11: the media count and how many carry a description ride on the line — the description is
+    // the only sight of a photo the Scoper has (scoper.ts renders media as text), so its absence
+    // must be visible where the pass is watched.
+    const described = caseFile.media.filter((m) => !!m.description).length;
+    ev.stage('case_file', `Case file: ${caseFile.timeline.length} timeline item${caseFile.timeline.length === 1 ? '' : 's'}, stage ${caseFile.stage}, ${caseFile.quote ? `quote ${caseFile.quote.slug} (${caseFile.quote.paid ? 'paid' : 'unpaid'})` : 'no quote'}${caseFile.tags.length ? `, tags ${caseFile.tags.join(', ')}` : ''}${caseFile.media.length ? `, ${caseFile.media.length} media (${described} described)` : ''}`, {
         stage: caseFile.stage, tags: caseFile.tags, quote: caseFile.quote ?? null, window: caseFile.window,
         openFlags: caseFile.openFlags, openPromises: caseFile.openPromises, timelineItems: caseFile.timeline.length,
         lastInboundPromisedMore: !!caseFile.lastInboundPromisedMore,
+        media: caseFile.media.map((m) => ({ id: m.id, kind: m.kind, described: !!m.description, description: m.description ?? null })),
     });
     const triage = await runTriage(caseFile, { parentRunId: runId });
     ev.stage('triage', `Triage (${triage.source}${triage.model ? ` ${triage.model}` : ''}): lane ${triage.lane}, intent ${triage.intent}${triage.exceptions.length ? `, exceptions ${triage.exceptions.join(', ')}` : ', no exceptions'}${triage.tags.length ? `, tags ${triage.tags.join(', ')}` : ''}`, {
