@@ -300,6 +300,37 @@ describe('PriceAndSend (phone)', () => {
         expect(screen.getByTestId('next-waiting')).toHaveAttribute('href', '/admin/price/c1u0wkt8');
     });
 
+    // T20: the missing photo travels onto the screen instead of holding the conversation. The pill
+    // reads the payload's own photos / videos plus the server's read of the thread (we asked, she
+    // replied without one) and opens the existing Ask-her-first sheet pre-filled; Ben still queues it.
+    it('T20: "No photo · asked, none sent" shows when she sent none, and opens the ask sheet pre-filled with the photo ask', async () => {
+        const noPhotos = payload({
+            photos: [], videos: [],
+            customerMedia: { sentPhotos: false, sentVideo: false, askedAt: T(17, 45), repliedWithoutMedia: true },
+            lines: [{ ...doors, evidence: { basedOnInboundId: 's1', quotes: [{ messageId: 's1', at: T(17, 40), text: 'Can you do all 9 doors now, oak to match the ones you did?' }], media: [] } }],
+        });
+        const f = screenFetch(noPhotos);
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const pill = await screen.findByTestId('no-photo');
+        expect(pill).toHaveTextContent('No photo · asked, none sent');
+        await userEvent.click(pill);
+        expect(screen.getByTestId('ask-sheet')).toBeInTheDocument();
+        expect(screen.getByTestId('ask-question')).toHaveValue('Could you send a quick photo or video of the job? A clip of where the problem is helps us get it right first time.');
+        expect(screen.getByTestId('ask-submit')).toBeEnabled();
+        await userEvent.click(screen.getByTestId('ask-submit'));
+        await waitFor(() => expect(f.of('POST', '/ask')).toHaveLength(1));
+        expect(f.of('POST', '/ask')[0].body).toEqual({ question: 'Could you send a quick photo or video of the job? A clip of where the problem is helps us get it right first time.' });
+        expect(await screen.findByTestId('hold-banner')).toHaveTextContent('Held: you asked her first');
+        expect(f.of('POST', '/send')).toHaveLength(0);
+    });
+
+    it('T20: no pill when she sent photos, and the plain "No photo" (no ask) when nothing was asked', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('ask-first');
+        expect(screen.queryByTestId('no-photo')).toBeNull();
+    });
+
     it('Ask her first queues ONE question and holds the quote without leaving the screen', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);

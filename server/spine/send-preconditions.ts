@@ -11,7 +11,12 @@
  *
  *   every intent        reactive (the customer wrote within REACTIVE_WINDOW_MINUTES);
  *                       the newest conversation item is the customer's, not ours;
- *                       the body is not empty (BACKLOG D4)
+ *                       the body is not empty (BACKLOG D4);
+ *                       T20: the body does not ask for a photo or video while an earlier ask is
+ *                       outstanding (we asked, they replied, nothing came — server/spine/media-ask.ts).
+ *                       The Scoper's tool boundary refuses that body first; this is the belt.
+ *                       T20: nor does it thank for media we have already acknowledged with nothing
+ *                       new arrived since (Priya, 7 Sep: two thank-yous for one photo)
  *   ask_gap             no quote on the case file (paid or not); no date asked; no question mark
  *                       in the customer's last message
  *   confirm_received    the last inbound carries media or a UK postcode — something arrived
@@ -30,6 +35,7 @@
  * Nothing here anticipates it.
  */
 import { UK_POSTCODE_RE } from './asks';
+import { acknowledgesMedia, asksForMedia, mediaAckState, mediaAskState, turnsFromCaseFile } from './media-ask';
 import type { CaseFile, Proposal, TimelineItem, TriageResult } from './types';
 
 /** How recently the customer must have written for a reply to count as reactive (mirrors comms.ts). */
@@ -45,6 +51,10 @@ export const PRECONDITION = {
     notReactive: 'not_reactive',
     oursIsNewest: 'ours_is_newest',
     emptyBody: 'empty_body',
+    /** T20: the body asks for a photo/video while an earlier ask is outstanding (asked, replied, nothing came). */
+    mediaAlreadyAsked: 'media_already_asked',
+    /** T20: the body thanks for media we already acknowledged, with nothing new since (Priya, 7 Sep). */
+    mediaAlreadyAcknowledged: 'media_already_acknowledged',
     askGapQuoteOnCase: 'ask_gap:quote_on_case',
     askGapDateAsked: 'ask_gap:date_asked',
     askGapCustomerQuestion: 'ask_gap:customer_question',
@@ -123,6 +133,12 @@ export function sendPrecondition(input: SendPreconditionInput): PreconditionCode
 
     const quote = caseFile.quote ?? null;
     const body = bodyText(proposal);
+    // T20: ask for a photo once. Whatever the intent says, a body that asks for media while the
+    // customer has already answered an ask without sending any does not move. The Scoper's tool
+    // refuses it at composition; this is the belt for any other proposer.
+    if (asksForMedia(body) && mediaAskState(turnsFromCaseFile(caseFile)).outstanding) return PRECONDITION.mediaAlreadyAsked;
+    // T20: thank once. A body that thanks for media we have already acknowledged does not move.
+    if (acknowledgesMedia(body) && mediaAckState(turnsFromCaseFile(caseFile)).alreadyThanked) return PRECONDITION.mediaAlreadyAcknowledged;
 
     switch (intent) {
         case 'ask_gap': {

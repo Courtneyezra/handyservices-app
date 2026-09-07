@@ -16,6 +16,7 @@ import { realNameOrNull } from '@shared/contact-name';
 import { eq, desc, sql } from 'drizzle-orm';
 import { runAgent, type AgentTool } from './runner';
 import { buildMediaBlocks } from './media-context';
+import { mediaAskState, turnsFromMessageRows } from '../spine/media-ask';
 
 export type IntakeCustomerType = 'homeowner' | 'landlord' | 'letting_agent' | 'business';
 
@@ -350,7 +351,16 @@ export async function runQuotePrep(
 
                 // Pre-gated: a pushname placeholder ("Just Me", an emoji, a business in caps)
                 // reads as null here, so the clerk cannot mistake it for a name the customer gave.
-                const data = { contactName: realNameOrNull(conv.contactName), phone: e164, timeline };
+                // T20: the ask-once fact travels to the clerk deterministically (server/spine/media-ask.ts):
+                // when we asked for a photo and the customer replied without one, the clerk prices
+                // from their words with printed assumptions instead of holding for the photo.
+                const mediaAsk = mediaAskState(turnsFromMessageRows(recent));
+                const data = {
+                    contactName: realNameOrNull(conv.contactName), phone: e164, timeline,
+                    mediaAsk: mediaAsk.outstanding
+                        ? { askedAt: mediaAsk.askedAt, customerRepliedWithoutMedia: true, note: 'We asked for a photo or video and the customer replied without sending one. Do not treat the missing photo as a customer gap: price from their words with printed assumptions; Ben sees "no photo" on the price screen and can ask from there.' }
+                        : null,
+                };
                 const mediaBlocks = await buildMediaBlocks(
                     recent.filter((m) => m.mediaUrl).reverse().map((m) => ({
                         mediaUrl: m.mediaUrl!, mediaType: m.mediaType,

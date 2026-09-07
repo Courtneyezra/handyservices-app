@@ -79,9 +79,21 @@ export function looksLikeRescope(text: string | null | undefined): boolean {
  * waits (decide → none / waiting_for_promised) instead of drafting a reply that asks for the thing
  * they are about to send — the 2 Sep incident (Janet, 46a13bdb…).
  */
-export const RE_PROMISED_MORE = /\b(back (to you )?soon|be back|will (send|get|grab|take|find|forward)|i'?ll (send|get you|get|grab|take|find|forward|pop)|sending (it|them|now|over)|send (it|them|you)( over)? (now|shortly|in a (sec|min|minute|bit))|one (sec|second|minute|min)|give me (a|two|five|ten) (sec|second|minute|min|mins|minutes)|hang on|bear with|let me (get|grab|take|find|check)|in a (minute|min|sec|second|bit|mo|moment)|shortly|just (a )?(sec|second|minute|min|mo|moment)|two (secs|mins)|(a )?few (mins|minutes|secs))\b/i;
+/**
+ * T20 (captain, 7 Sep; Priya 495577b5): "one second let me check" at 18:11 was read as a promise
+ * and the pass said nothing, while she was still typing. The line is drawn on the WORDS, in two
+ * classes: a PROMISE names a deliverable on its way ("will send the photos", "let me get the
+ * tape", "sending now") or a deferred return ("back soon", "be back", "shortly"), and the desk
+ * still waits for it (the 2 Sep incident, Janet: "back soon with the measurement"). A PAUSE is a
+ * short conversational wait with nothing named ("one sec", "hang on", "bear with", "give me a
+ * minute", "let me check", "in a mo"), and it no longer silences the desk: a pause that also
+ * names a deliverable ("hang on, I'll take a photo") still matches the promise class.
+ */
+export const RE_PROMISED_MORE = /\b(back (to you )?soon|be back|will (send|get|grab|take|find|forward)|i'?ll (send|get you|get|grab|take|find|forward|pop)|sending (it|them|now|over)|send (it|them|you)( over)? (now|shortly|in a (sec|min|minute|bit))|let me (get|grab|take|find)|shortly)\b/i;
+/** The pause class, exported so a test can pin what is deliberately NOT a promise. */
+export const RE_PAUSE_ONLY = /\b(one (sec|second|minute|min)|give me (a|two|five|ten) (sec|second|minute|min|mins|minutes)|hang on|bear with|let me check|in a (minute|min|sec|second|bit|mo|moment)|just (a )?(sec|second|minute|min|mo|moment)|two (secs|mins)|(a )?few (mins|minutes|secs))\b/i;
 
-/** Pure: does the customer's last message promise something more is on its way? */
+/** Pure: does the customer's last message promise something more is on its way? A bare pause does not. */
 export function customerPromisedMore(text: string | null | undefined): boolean {
     const t = (text ?? '').trim();
     return !!t && RE_PROMISED_MORE.test(t);
@@ -195,10 +207,19 @@ export function triageRules(cf: CaseFile): TriageResult {
     }
 
     // First contact: we have never said anything to this person → the rules layer answers.
+    // T20 (8 Sep 2026): only while the customer's message is the thread's ONLY text message. A
+    // second one with nothing from us between means the ack did not land (held, refused, off, or
+    // the case file was built before it) and the rules layer will not answer it; the thread moves
+    // on to the ordinary lanes. A call is not counted: it lands as a call-channel message AND a
+    // call row, and its own ack answers it.
     if (!hasOutbound(cf)) {
-        const withMedia = !!(last?.mediaIds?.length);
-        reasons.push('no outbound on the thread: first contact');
-        return { ...base, intent: withMedia ? 'ack_photos' : 'ack_enquiry', lane: 'rules', exceptions };
+        const customerTexts = cf.timeline.filter((t) => t.kind === 'message_in' && t.channel !== 'call').length;
+        if (customerTexts <= 1) {
+            const withMedia = !!(last?.mediaIds?.length);
+            reasons.push('no outbound on the thread: first contact');
+            return { ...base, intent: withMedia ? 'ack_photos' : 'ack_enquiry', lane: 'rules', exceptions };
+        }
+        reasons.push(`no outbound on the thread but ${customerTexts} customer messages: the ack did not land, so this is not first contact and the rules layer will not answer it`);
     }
 
     if (cf.tags.includes('needs_quote')) {
@@ -306,8 +327,20 @@ export function mergeTriage(rules: TriageResult, model: TriageModelOutput, model
     const droppedOutOfScope = modelExceptions.includes('out_of_scope') && !rules.exceptions.includes('out_of_scope');
     if (droppedOutOfScope) modelExceptions = modelExceptions.filter((e) => e !== 'out_of_scope');
     const exceptions = Array.from(new Set([...rules.exceptions, ...modelExceptions]));
-    const intent: Intent | 'unknown' = isIntent(model.intent) ? model.intent : 'unknown';
+    let intent: Intent | 'unknown' = isIntent(model.intent) ? model.intent : 'unknown';
     let lane: Lane = model.lane;
+    // T20 (8 Sep 2026): the rules lane runs no agent (index.ts RULES_PLACEHOLDER) and only the
+    // first-contact ack answers it, so a thread the model moves ONTO it gets nothing: the reply to
+    // our ack on run_e5372115… was laned `rules` by Haiku with tags needs_quote / multiple_jobs and
+    // nobody answered. First contact is a fact of the timeline (no outbound), not a judgement: the
+    // model may leave the rules lane, never choose it. Its intent on such an answer is an ack_*,
+    // so that goes too.
+    const laneNotes: string[] = [];
+    if (lane === 'rules' && rules.lane !== 'rules') {
+        laneNotes.push(`model chose lane rules on a thread that is not first contact; kept the rules' lane ${rules.lane} (T20)`);
+        lane = rules.lane;
+        intent = 'unknown';
+    }
     if (exceptions.length) lane = 'ben';
     // The dropped exception was the only reason for the model's Ben lane: take the rules' lane instead.
     else if (lane === 'ben' && modelExceptions.length !== model.exceptions.length) lane = rules.lane === 'ben' ? 'scoper' : rules.lane;
@@ -320,6 +353,7 @@ export function mergeTriage(rules: TriageResult, model: TriageModelOutput, model
         reasons: [
             ...model.reasons,
             ...(droppedOutOfScope ? ['model out_of_scope dropped: scope is gas only (regulated_trade, the rules\' lexicon), not the model\'s to infer (T18)'] : []),
+            ...laneNotes,
             ...rules.reasons,
         ],
         source: 'model', model: modelId,
