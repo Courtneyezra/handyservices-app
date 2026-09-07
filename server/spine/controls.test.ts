@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { validateSpineConfigPatch, validateCommsConfigPatch, isOwner, lastChangeByField, OWNER_EMAIL } from './controls';
+import { DEFAULT_SPINE_CONFIG, VIDEO_MAX_PER_RUN } from './config';
 
 describe('validateSpineConfigPatch', () => {
     it('accepts an admin-level toggle and needs no confirm', () => {
@@ -87,5 +88,48 @@ describe('lastChangeByField', () => {
     it('an event without a by reads as unknown; an explicit mode field is honoured', () => {
         const last = lastChangeByField([{ at: '2026-09-04T00:00:00Z', source: 'spine', summary: 's', detail: { before: { enabled: true, mode: 'shadow' }, after: { enabled: true, mode: 'live' } } }]);
         expect(last.mode).toMatchObject({ by: 'unknown' });
+    });
+});
+
+describe('T7: video.maxPerRun and the photos switch', () => {
+    it('accepts a whole number inside the bound, admin-level, and names the change', () => {
+        const v = validateSpineConfigPatch({ video: { maxPerRun: 6 } });
+        expect(v).toMatchObject({ ok: true, needs: 'admin', goesLive: false, patch: { video: { maxPerRun: 6 } }, changes: ['video.maxPerRun → 6'] });
+        expect(validateSpineConfigPatch({ video: { maxPerRun: VIDEO_MAX_PER_RUN.min } }).ok).toBe(true);
+        expect(validateSpineConfigPatch({ video: { maxPerRun: VIDEO_MAX_PER_RUN.max } }).ok).toBe(true);
+    });
+    it('refuses anything outside the bound, a float, a string, NaN — nothing bad can reach the row', () => {
+        const bad = [0, -1, VIDEO_MAX_PER_RUN.max + 1, 99, 2.5, '6', NaN, null, true];
+        for (const maxPerRun of bad) {
+            const v = validateSpineConfigPatch({ video: { maxPerRun } });
+            expect(v.ok, `maxPerRun=${String(maxPerRun)}`).toBe(false);
+            expect((v as any).errors[0]).toMatch(new RegExp(`video.maxPerRun must be a whole number from ${VIDEO_MAX_PER_RUN.min} to ${VIDEO_MAX_PER_RUN.max}`));
+        }
+        // A bad count poisons the whole body: the switch next to it is not applied either.
+        expect(validateSpineConfigPatch({ video: { enabled: true, maxPerRun: 0 } }).ok).toBe(false);
+    });
+    it('the three video fields travel together as one partial sub-object', () => {
+        const v = validateSpineConfigPatch({ video: { enabled: true, images: true, maxPerRun: 4 } });
+        expect(v).toMatchObject({ ok: true, patch: { video: { enabled: true, images: true, maxPerRun: 4 } } });
+        expect((v as any).changes).toEqual(['video → on', 'video.images → on', 'video.maxPerRun → 4']);
+        // Only the switch: no maxPerRun key sneaks in as undefined.
+        const only = validateSpineConfigPatch({ video: { images: false } });
+        expect(only.ok && Object.keys((only as any).patch.video)).toEqual(['images']);
+    });
+    it('the bound is what config.ts says it is', () => {
+        expect(VIDEO_MAX_PER_RUN).toEqual({ min: 1, max: 12 });
+        expect(DEFAULT_SPINE_CONFIG.video.maxPerRun).toBeGreaterThanOrEqual(VIDEO_MAX_PER_RUN.min);
+        expect(DEFAULT_SPINE_CONFIG.video.maxPerRun).toBeLessThanOrEqual(VIDEO_MAX_PER_RUN.max);
+    });
+    it('lastChangeByField sees the photos switch and the count as their own controls', () => {
+        const spine = (at: string, by: string, before: any, after: any) => ({ at, source: 'spine', summary: `spine config changed by ${by}`, detail: { before, after, by } });
+        const last = lastChangeByField([
+            spine('2026-09-07T10:00:00Z', 'human:ben', { enabled: true, video: { enabled: false, images: false, maxPerRun: 3 } }, { enabled: true, video: { enabled: true, images: false, maxPerRun: 3 } }),
+            spine('2026-09-07T11:00:00Z', 'human:courtnee', { enabled: true, video: { enabled: true, images: false, maxPerRun: 3 } }, { enabled: true, video: { enabled: true, images: true, maxPerRun: 3 } }),
+            spine('2026-09-07T12:00:00Z', 'human:ben', { enabled: true, video: { enabled: true, images: true, maxPerRun: 3 } }, { enabled: true, video: { enabled: true, images: true, maxPerRun: 6 } }),
+        ]);
+        expect(last.video).toMatchObject({ at: '2026-09-07T10:00:00.000Z', by: 'human:ben' });
+        expect(last['video.images']).toMatchObject({ at: '2026-09-07T11:00:00.000Z', by: 'human:courtnee' });
+        expect(last['video.maxPerRun']).toMatchObject({ at: '2026-09-07T12:00:00.000Z', by: 'human:ben' });
     });
 });

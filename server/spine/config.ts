@@ -47,11 +47,26 @@ export interface SpineConfig {
     asks: { enabled: boolean };
     /**
      * Phase 4: describe_video via Gemini 2.5 Flash, direct (§3.8). Off = media items carry no
-     * description. `images` sends photos too (default off: photos already reach the model as
-     * image blocks). `maxPerRun` bounds how many items one case-file build may describe.
+     * description. `images` sends photos too. `maxPerRun` bounds how many items one case-file
+     * build may describe (the NEWEST that many; see describeCaseFileMedia).
+     *
+     * T7 (7 Sep 2026): note that the Scoper reads media as text only (id, kind, description) —
+     * `loadCaseFileImageBlocks` exists but nothing calls it — so with `enabled` off, or `images`
+     * off for a photo, the reply-writing agent learns NOTHING about what the customer sent.
+     * The description is the only route. `maxPerRun` is bounded by VIDEO_MAX_PER_RUN on write.
      */
     video: { enabled: boolean; images: boolean; maxPerRun: number };
 }
+
+/**
+ * T7: the only values `video.maxPerRun` may take through the settings route. The ceiling matches
+ * MAX_MEDIA_ITEMS in server/agents/media-context.ts, the most media the legacy image-block path
+ * ever embedded ("enough for any real enquiry"). Every item above the cache is one paid Gemini
+ * call, and the case-file build waits for them, so the ceiling is a latency bound as much as a
+ * cost bound. Enforced in validateSpineConfigPatch (server/spine/controls.ts), not on read: a row
+ * a script already wrote keeps whatever it holds.
+ */
+export const VIDEO_MAX_PER_RUN = { min: 1, max: 12 } as const;
 
 /** The three-way mode Phase 3 reads: off (nothing runs), shadow (compute + record, never exit), live. */
 export type SpineMode = 'off' | 'shadow' | 'live';
@@ -73,7 +88,11 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     asks: { enabled: false },
     autonomy: { enabled: false },
     sampler: { enabled: false, rate: 0.1, min: 1, max: 15 },
-    video: { enabled: false, images: false, maxPerRun: 3 },
+    // T7: 3 → 6. The bursts on record are 2 photos (P19 thread, MJ backfill), 4 photos (P13c
+    // pack, the job drawer's cap), one video + follow-up shots; 6 covers every one of them
+    // with room for an earlier item, at half the legacy 12-item ceiling. Applies only where no
+    // row is stored: the live row keeps its own value until someone changes it on /admin/staff.
+    video: { enabled: false, images: false, maxPerRun: 6 },
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {

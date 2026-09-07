@@ -52,6 +52,8 @@ export interface SpineSwitches {
     sweepLimit: number; debounceMinutes: number; triageModel: string; city: string;
 }
 export interface LegacySwitches { enabled: boolean; onInbound: boolean; autosend: boolean; firstContactAck: boolean; quotePrep: boolean }
+/** T7: what the media/run stepper may send. Mirrors VIDEO_MAX_PER_RUN in server/spine/config.ts, which the route enforces regardless. */
+export const VIDEO_MAX_PER_RUN = { min: 1, max: 12 } as const;
 
 /** Phase 0 heartbeat, same shape as GET /api/health/comms-worker. Every field optional: an older
  *  server answers without it and the strip simply says so. */
@@ -623,6 +625,21 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
     const info = (label: string, title: string) => (
         <span key={label} title={title} className="rounded bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</span>
     );
+    /**
+     * T7: a bounded count in the chip idiom — two small buttons around the value, never a text
+     * field, so the page can only ever send min..max (the server refuses anything else anyway).
+     * Same optimistic post + refetch as toggle, same `pending` key, same last-change title.
+     */
+    const stepper = (key: string, label: string, value: number, bound: { min: number; max: number }, title: string, onChange: (next: number) => void) => (
+        <span key={key} title={`${title}\nlast change: ${whoWhen(last[key])}`} data-testid={`stepper-${key}`}
+            className={cn('inline-flex items-stretch overflow-hidden rounded bg-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-700', pending === key && 'animate-pulse')}>
+            <button type="button" aria-label={`${label} down`} disabled={pending === key || value <= bound.min} onClick={() => onChange(value - 1)}
+                className="px-1.5 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40">−</button>
+            <span className="px-1 py-0.5">{label} {value}</span>
+            <button type="button" aria-label={`${label} up`} disabled={pending === key || value >= bound.max} onClick={() => onChange(value + 1)}
+                className="px-1.5 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40">+</button>
+        </span>
+    );
     const agentToggles = Object.entries(spine.agents ?? {}).map(([k, v]) =>
         toggle(`agents.${k}`, `${k} ${v?.enabled ? 'on' : 'off'}`, !!v?.enabled, `spine.agents.${k}.enabled — per-agent kill switch`, () => flipSpine(`agents.${k}`, { agents: { [k]: { enabled: !v?.enabled } } })));
     const statusCls: Record<GoLiveCheckRow['status'], string> = { GO: 'bg-emerald-100 text-emerald-800', 'NO-GO': 'bg-red-100 text-red-800', WARN: 'bg-amber-100 text-amber-800', SKIP: 'bg-slate-100 text-slate-500', INFO: 'bg-sky-100 text-sky-800' };
@@ -706,12 +723,21 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
                 {toggle('asks', `asks ${spine.asks.enabled ? 'on' : 'off'}`, spine.asks.enabled, 'spine.asks.enabled — rules-layer media/postcode asks from the exit', () => flipSpine('asks', { asks: { enabled: !spine.asks.enabled } }))}
                 {toggle('autonomy', `autonomy ${spine.autonomy.enabled ? 'on' : 'off'}`, spine.autonomy.enabled, 'spine.autonomy.enabled — the 07:30 promotion/demotion job (owner-only)', () => flipSpine('autonomy', { autonomy: { enabled: !spine.autonomy.enabled } }), { ownerOnly: true })}
                 {toggle('sampler', `sampler ${spine.sampler.enabled ? `on · ${Math.round(spine.sampler.rate * 100)}%` : 'off'}`, spine.sampler.enabled, 'spine.sampler — the 08:30 sample of yesterday\'s automatic sends', () => flipSpine('sampler', { sampler: { enabled: !spine.sampler.enabled } }))}
-                {toggle('video', `video ${spine.video.enabled ? `on · ${spine.video.maxPerRun}/run${spine.video.images ? ' +photos' : ''}` : 'off'}`, spine.video.enabled, 'spine.video — describe_video on the case file (Gemini)', () => flipSpine('video', { video: { enabled: !spine.video.enabled } }))}
+                {toggle('video', `video ${spine.video.enabled ? 'on' : 'off'}`, spine.video.enabled, 'spine.video.enabled — describe the customer\'s videos on the case file (Gemini). OFF means the Scoper reads a video as an id and nothing else.', () => flipSpine('video', { video: { enabled: !spine.video.enabled } }))}
+                {/* T7: photos ride the same pass, so the chip only reads "on" when video is on too — armed-but-idle is said in words, never shown as lit. */}
+                {toggle('video.images',
+                    `photos ${spine.video.images ? 'on' : 'off'}${spine.video.enabled ? '' : ' · needs video on'}`,
+                    spine.video.enabled && spine.video.images,
+                    `spine.video.images — describe the customer's photos too, not only videos (Gemini). OFF means the Scoper reads a photo as an id and nothing else.${spine.video.enabled ? '' : '\nVideo is OFF, so nothing is described whatever this says: turn video on first.'}`,
+                    () => flipSpine('video.images', { video: { images: !spine.video.images } }))}
+                {stepper('video.maxPerRun', 'media/run', spine.video.maxPerRun, VIDEO_MAX_PER_RUN,
+                    `spine.video.maxPerRun — how many photos/videos one case-file build may describe (the NEWEST that many; older ones in a burst are skipped). Each item not already cached is one paid Gemini call the build waits for. ${VIDEO_MAX_PER_RUN.min}–${VIDEO_MAX_PER_RUN.max}.`,
+                    (n) => flipSpine('video.maxPerRun', { video: { maxPerRun: n } }))}
                 {agentToggles}
                 <span className="text-[10px] text-slate-400">debounce {spine.debounceMinutes} min · sweep {spine.sweepLimit}/tick · triage {spine.triageModel} · {spine.city}</span>
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-400">
-                {(['asks', 'autonomy', 'sampler', 'video'] as const).map((k) => <span key={k}>{k}: {whoWhen(last[k])}</span>)}
+                {(['asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun'] as const).map((k) => <span key={k}>{k}: {whoWhen(last[k])}</span>)}
             </div>
 
             {legacy && (
@@ -740,7 +766,7 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
                 </div>
             )}
             {err && <p className="text-xs font-semibold text-red-700" data-testid="switch-error">{err}</p>}
-            {!isOwner && <p className="text-[10px] text-slate-400">🔒 mode, autonomy and legacy autosend are owner-only; asks, sampler, video and per-agent switches are yours.</p>}
+            {!isOwner && <p className="text-[10px] text-slate-400">🔒 mode, autonomy and legacy autosend are owner-only; asks, sampler, video, photos, media/run and per-agent switches are yours.</p>}
         </div>
     );
 }

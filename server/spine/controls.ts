@@ -18,7 +18,7 @@
  * who answers real customers, so the body must carry `confirm: 'LIVE'`; the route additionally runs
  * the go-live check before a live flip and refuses on any NO-GO (server/spine/golive-check.ts).
  */
-import type { SpineConfig } from './config';
+import { VIDEO_MAX_PER_RUN, type SpineConfig } from './config';
 import { isSpineMode, type SpineMode } from './switch';
 
 export const OWNER_EMAIL = 'ezramarketingltd@gmail.com';
@@ -59,6 +59,22 @@ function boolField(obj: unknown, key: string, errors: string[], label: string): 
     return v;
 }
 
+/**
+ * T7: a whole number inside [min, max], or a refusal. A numeric string, a float, NaN or anything
+ * outside the bound is an error, so nothing the page (or curl) sends can put a bad count in the
+ * live row. Absent = untouched, like boolField.
+ */
+function boundedIntField(obj: unknown, key: string, bound: { min: number; max: number }, errors: string[], label: string): number | undefined {
+    if (obj == null || typeof obj !== 'object') { errors.push(`${label} must be an object`); return undefined; }
+    const v = (obj as Record<string, unknown>)[key];
+    if (v === undefined) return undefined;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < bound.min || v > bound.max) {
+        errors.push(`${label}.${key} must be a whole number from ${bound.min} to ${bound.max}`);
+        return undefined;
+    }
+    return v;
+}
+
 export function validateSpineConfigPatch(body: unknown): SpinePatchVerdict | PatchRefusal {
     const errors: string[] = [];
     if (body == null || typeof body !== 'object' || Array.isArray(body)) return { ok: false, errors: ['body must be an object'] };
@@ -95,10 +111,16 @@ export function validateSpineConfigPatch(body: unknown): SpinePatchVerdict | Pat
     if (b.video !== undefined) {
         const v = boolField(b.video, 'enabled', errors, 'video');
         const images = boolField(b.video, 'images', errors, 'video');
-        if (v !== undefined || images !== undefined) {
-            patch.video = { ...(v !== undefined ? { enabled: v } : {}), ...(images !== undefined ? { images } : {}) } as SpineConfig['video'];
+        const maxPerRun = boundedIntField(b.video, 'maxPerRun', VIDEO_MAX_PER_RUN, errors, 'video');
+        if (v !== undefined || images !== undefined || maxPerRun !== undefined) {
+            patch.video = {
+                ...(v !== undefined ? { enabled: v } : {}),
+                ...(images !== undefined ? { images } : {}),
+                ...(maxPerRun !== undefined ? { maxPerRun } : {}),
+            } as SpineConfig['video'];
             if (v !== undefined) changes.push(`video → ${v ? 'on' : 'off'}`);
             if (images !== undefined) changes.push(`video.images → ${images ? 'on' : 'off'}`);
+            if (maxPerRun !== undefined) changes.push(`video.maxPerRun → ${maxPerRun}`);
         }
     }
     if (b.agents !== undefined) {
@@ -174,7 +196,7 @@ export interface ConfigChangeEvent {
 export interface LastChange { at: string; by: string; summary: string }
 
 /** The controls the strip shows, keyed the way the client addresses them. */
-export const SPINE_CONTROLS = ['mode', 'asks', 'autonomy', 'sampler', 'video', 'agents.scoper', 'agents.quote_clerk', 'agents.recovery', 'agents.verifier', 'agents.triage'] as const;
+export const SPINE_CONTROLS = ['mode', 'asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun', 'agents.scoper', 'agents.quote_clerk', 'agents.recovery', 'agents.verifier', 'agents.triage'] as const;
 export const COMMS_CONTROLS = ['autosend', 'onInbound'] as const;
 export type ControlKey = (typeof SPINE_CONTROLS)[number] | (typeof COMMS_CONTROLS)[number];
 
@@ -193,6 +215,8 @@ function controlValue(control: ControlKey, cfg: unknown): unknown {
             return c.shadow ? 'shadow' : 'live';
         }
         case 'asks': case 'autonomy': case 'sampler': case 'video': return get(cfg, `${control}.enabled`);
+        // T7: the two video sub-controls are plain values, not `.enabled` switches.
+        case 'video.images': case 'video.maxPerRun': return get(cfg, control);
         case 'autosend': return get(cfg, 'autosend.enabled');
         case 'onInbound': return get(cfg, 'onInbound');
         default: return get(cfg, `${control}.enabled`);

@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import AgentStaffPage, {
     WorkerHeartbeatStrip, SpineSwitchStrip, PackTiersBlock, CategoryGraduationTable,
-    type WorkerHeartbeat, type SpineSwitches, type LegacySwitches, type PackTierRow,
+    VIDEO_MAX_PER_RUN, type WorkerHeartbeat, type SpineSwitches, type LegacySwitches, type PackTierRow,
 } from '@/pages/admin/AgentStaffPage';
 
 const spine: SpineSwitches = {
@@ -185,5 +185,88 @@ describe('CategoryGraduationTable (P8 / B)', () => {
     it('empty window', () => {
         render(<CategoryGraduationTable data={{ days: 30, since: '', thresholds: { minQuotes: 30, maxVariance: 0.2, minUneditedInBandPct: 80, recentDays: 30 }, totals: { quotes: 0, lines: 0 }, categories: [] }} />);
         expect(screen.getByTestId('category-graduation')).toHaveTextContent('No priced quotes on /admin/price in the last 30 days yet.');
+    });
+});
+
+describe('SpineSwitchStrip — T7 photos chip and media/run stepper', () => {
+    const captions = { off: 'OFF', shadow: 'SHADOW', live: 'LIVE' };
+    const controls = (sp: SpineSwitches) => ({ spine: sp, legacy: null, lastChanges: {}, viewer: { isOwner: false, email: 'ben@x', role: 'va' }, captions, confirmWord: 'LIVE' });
+    const okReply = () => ({ json: { ok: true } });
+
+    it('video off: the photos chip says it needs video, is never lit, and still posts video.images', async () => {
+        const fetches = mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, video: { enabled: false, images: true, maxPerRun: 3 } }) }) },
+            { url: '/api/spine/config', method: 'POST', reply: okReply },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const chip = await screen.findByTestId('switch-video.images', {}, { timeout: 3000 });
+        expect(chip).toHaveTextContent('photos on · needs video on');
+        expect(chip.className).not.toMatch(/bg-slate-900/); // stored on, but not lit: nothing is described while video is off
+        expect(chip).not.toBeDisabled(); // a VA can flip it (same footing as video)
+        expect(chip.title).toMatch(/turn video on first/);
+        await userEvent.click(chip);
+        const posts = fetches.of('POST', '/api/spine/config');
+        expect(posts).toHaveLength(1);
+        expect(posts[0].body).toEqual({ video: { images: false } });
+    });
+
+    it('video on + photos on: the chip is lit and a click posts images:false', async () => {
+        const fetches = mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, video: { enabled: true, images: true, maxPerRun: 6 } }) }) },
+            { url: '/api/spine/config', method: 'POST', reply: okReply },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const chip = await screen.findByTestId('switch-video.images', {}, { timeout: 3000 });
+        expect(chip).toHaveTextContent(/^photos on$/);
+        expect(chip.className).toMatch(/bg-slate-900/);
+        expect(screen.getByTestId('switch-video')).toHaveTextContent(/^video on$/);
+        await userEvent.click(chip);
+        expect(fetches.of('POST', '/api/spine/config')[0].body).toEqual({ video: { images: false } });
+    });
+
+    it('the stepper shows the count, posts ±1, and cannot step past the bound', async () => {
+        const fetches = mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, video: { enabled: true, images: false, maxPerRun: 3 } }) }) },
+            { url: '/api/spine/config', method: 'POST', reply: okReply },
+        ], { fallback: 'notFound' });
+        const { unmount } = renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const step = await screen.findByTestId('stepper-video.maxPerRun', {}, { timeout: 3000 });
+        expect(step).toHaveTextContent('media/run 3');
+        expect(step.title).toMatch(/NEWEST/);
+        await userEvent.click(within(step).getByRole('button', { name: 'media/run up' }));
+        expect(fetches.of('POST', '/api/spine/config')[0].body).toEqual({ video: { maxPerRun: 4 } });
+        await userEvent.click(within(step).getByRole('button', { name: 'media/run down' }));
+        expect(fetches.of('POST', '/api/spine/config')[1].body).toEqual({ video: { maxPerRun: 2 } });
+        unmount();
+
+        // At the ceiling the + is disabled; at the floor the − is; nothing is posted either way.
+        const atMax = mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, video: { enabled: true, images: false, maxPerRun: VIDEO_MAX_PER_RUN.max } }) }) },
+        ], { fallback: 'notFound' });
+        const { unmount: unmount2 } = renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const top = await screen.findByTestId('stepper-video.maxPerRun', {}, { timeout: 3000 });
+        expect(top).toHaveTextContent(`media/run ${VIDEO_MAX_PER_RUN.max}`);
+        expect(within(top).getByRole('button', { name: 'media/run up' })).toBeDisabled();
+        expect(within(top).getByRole('button', { name: 'media/run down' })).not.toBeDisabled();
+        expect(atMax.of('POST', '/api/spine/config')).toHaveLength(0);
+        unmount2();
+
+        mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, video: { enabled: true, images: false, maxPerRun: VIDEO_MAX_PER_RUN.min } }) }) },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const bottom = await screen.findByTestId('stepper-video.maxPerRun', {}, { timeout: 3000 });
+        expect(within(bottom).getByRole('button', { name: 'media/run down' })).toBeDisabled();
+    });
+
+    it('a refused count from the server lands in the strip error line', async () => {
+        mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, video: { enabled: true, images: false, maxPerRun: 3 } }) }) },
+            { url: '/api/spine/config', method: 'POST', reply: () => ({ status: 400, json: { ok: false, errors: ['video.maxPerRun must be a whole number from 1 to 12'] } }) },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const step = await screen.findByTestId('stepper-video.maxPerRun', {}, { timeout: 3000 });
+        await userEvent.click(within(step).getByRole('button', { name: 'media/run up' }));
+        expect(await screen.findByTestId('switch-error')).toHaveTextContent('video.maxPerRun must be a whole number from 1 to 12');
     });
 });
