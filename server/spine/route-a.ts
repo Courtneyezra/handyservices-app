@@ -40,6 +40,8 @@ export interface RouteAOutcome {
     checkThis?: number;
     /** P8-fix: the estimator failed; the draft was priced from reference rates, every line check_this. */
     fallback?: boolean;
+    /** T16: on a sandbox pass, what the two outward steps (Ben's Pushover, the job pack) would have done — recorded, never done. */
+    sandbox?: import('./sandbox').SandboxRouteARecord;
 }
 
 export interface RouteADeps {

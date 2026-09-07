@@ -16,6 +16,8 @@ import {
     MAX_MESSAGE_CHARS, SANDBOX_DEFAULT_TOTAL_PENCE, SANDBOX_QUOTE_MARK, firstContactMirrorFor, SANDBOX_RULES_ACK_SENDER, MIRROR_NOTE,
     validateCustomerMessage, validateSandboxMediaType, sandboxMediaId, sandboxMediaFileName, sandboxMediaIdOf, describeUploadError,
     mediaReportFor, geminiKeyPresent, MEDIA_STATUS_NOTE, SANDBOX_MAX_FILES, SANDBOX_MAX_FILE_BYTES, SANDBOX_MEDIA_TYPES,
+    validateInboundChannel, validatePriceTotal, mirrorSender, appendEvent, ackGateNote, entrySummary, SANDBOX_EVENTS_MAX,
+    MIRRORED_PROPOSAL_TAGS, proposalTagsToMirror,
 } from './sandbox-routes';
 import type { RunOnceResult } from './index';
 import type { MediaItem } from './types';
@@ -25,9 +27,9 @@ describe('router shape', () => {
         .filter((l: any) => l.route)
         .map((l: any) => ({ path: l.route.path as string, methods: Object.keys(l.route.methods) }));
 
-    it('exposes exactly the four sandbox actions', () => {
+    it('exposes exactly the sandbox actions: T5\'s four, T16\'s five', () => {
         expect(routes.map((r: any) => `${r.methods.join(',')} ${r.path}`).sort()).toEqual([
-            'get /', 'post /message', 'post /quote', 'post /reset',
+            'get /', 'post /accept', 'post /age', 'post /message', 'post /price', 'post /quote', 'post /reset', 'post /run', 'post /start',
         ]);
     });
     it('no route takes a parameter — nothing can name a conversation id', () => {
@@ -169,9 +171,9 @@ describe('T11: the upload is bounded, and the stored name is ours', () => {
         expect(describeUploadError({ code: 'LIMIT_UNEXPECTED_FILE' })).toMatch(/media/);
         expect(describeUploadError(new Error('application/pdf is not accepted'))).toMatch(/not accepted/);
     });
-    it('the router still exposes the same four parameterless actions with media on (re-pinned)', () => {
+    it('the router still exposes only parameterless actions with media on (re-pinned)', () => {
         const routes = (commsSandboxRouter as any).stack.filter((l: any) => l.route).map((l: any) => l.route.path as string);
-        expect(routes.sort()).toEqual(['/', '/message', '/quote', '/reset']);
+        expect(routes.sort()).toEqual(['/', '/accept', '/age', '/message', '/price', '/quote', '/reset', '/run', '/start']);
         for (const r of routes) expect(r).not.toMatch(/:/);
     });
     it('geminiKeyPresent reads either key name, and nothing else', () => {
@@ -227,5 +229,79 @@ describe('T11: mediaReportFor — what the desk saw, or why it saw nothing', () 
         expect(r.map((x) => x.id)).toEqual(['b', 'a']);
         expect(r[0].url).toBe('/api/media/b.jpg');
         expect(r[0].kind).toBe('video');
+    });
+});
+
+// ---------------------------------------------------------------- T16: the doors, the window, the funnel — the route's pure parts
+
+describe('T16: the route never takes an id, and every new action is keyed on the number', () => {
+    it('the source names no conversation id, quote id or call id from the request', () => {
+        const fs = require('node:fs'); const path = require('node:path');
+        // Code only: the header comment names the forbidden senders on purpose (it says they are never called).
+        const src: string = (fs.readFileSync(path.join(__dirname, 'sandbox-routes.ts'), 'utf8') as string).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        // The only reads of the request body are the validated fields; nothing named *Id comes off req.
+        expect(src).not.toMatch(/req\.(body|query|params)\??\.\w*[iI]d\b/);
+        expect(src).not.toMatch(/req\.params/);
+        // Nothing here sends: the exit, the drafts pipe, the outbound gate, the ack lane, the outreach, Pushover.
+        for (const forbidden of ['approveAndSendDraft', 'queueDraft(', 'sendCustomerMessage', 'sendWhatsAppMessage', 'sendSmsMessage', 'maybeAutoAckFirstContact', 'maybeSendPostCallContinuation', 'maybeSendPostCallVideoRequest', 'notifyQuoteReadyToPrice', 'notifyQuoteAccepted', 'notifyEscalation', "from '../pushover'", 'runExit', "from './exit'"]) {
+            expect(src.includes(forbidden), forbidden).toBe(false);
+        }
+        // The one thing that runs the desk passes sandbox: true, always.
+        for (const m of src.matchAll(/runOnce\(([^)]*)\)/g)) expect(m[1]).toMatch(/sandbox: true/);
+    });
+    it('validateInboundChannel: whatsapp by default, sms allowed, a photo on SMS refused in words', () => {
+        expect(validateInboundChannel(undefined, 0)).toEqual({ ok: true, channel: 'whatsapp' });
+        expect(validateInboundChannel('sms', 0)).toEqual({ ok: true, channel: 'sms' });
+        expect(validateInboundChannel('sms', 1)).toMatchObject({ ok: false, error: expect.stringMatching(/MMS/) });
+        expect(validateInboundChannel('email', 0)).toMatchObject({ ok: false });
+        expect(validateInboundChannel('whatsapp', 3)).toEqual({ ok: true, channel: 'whatsapp' });
+    });
+    it('validatePriceTotal: Ben\'s number wins, else the engine\'s suggestion, else a refusal', () => {
+        expect(validatePriceTotal({ totalPence: 52000 }, 48000)).toEqual({ ok: true, totalPence: 52000, source: 'ben' });
+        expect(validatePriceTotal({}, 48000)).toEqual({ ok: true, totalPence: 48000, source: 'suggested' });
+        expect(validatePriceTotal({ totalPence: '' }, 48000)).toEqual({ ok: true, totalPence: 48000, source: 'suggested' });
+        expect(validatePriceTotal({}, null)).toMatchObject({ ok: false });
+        expect(validatePriceTotal({ totalPence: 12.5 }, 48000)).toMatchObject({ ok: false });
+        expect(validatePriceTotal({ totalPence: 5_000_000 }, 48000)).toMatchObject({ ok: false });
+    });
+    it('mirrorSender names the live path and the pipe, and always says never sent', () => {
+        expect(mirrorSender('rules layer ack', { mode: 'template', templateName: 'web_enquiry_ack_context' })).toBe('Sandbox (rules layer ack · template web_enquiry_ack_context · mirrored, never sent)');
+        expect(mirrorSender('rules layer ack', { mode: 'sms', channel: 'sms' })).toBe('Sandbox (rules layer ack · by SMS · mirrored, never sent)');
+        expect(mirrorSender('post-call continuation', { mode: 'template', templateName: 'post_call_continuation' })).toContain('post-call continuation · template post_call_continuation');
+        expect(mirrorSender("Ben's send", { mode: 'freeform' })).toBe("Sandbox (Ben's send · freeform · mirrored, never sent)");
+    });
+    it('appendEvent keeps the newest, bounded', () => {
+        let events = appendEvent(null, { at: '1', kind: 'entry', summary: 'a' });
+        for (let i = 0; i < SANDBOX_EVENTS_MAX + 10; i++) events = appendEvent(events, { at: String(i), kind: 'clock', summary: 'x' });
+        expect(events).toHaveLength(SANDBOX_EVENTS_MAX);
+        expect(events.at(-1)?.at).toBe(String(SANDBOX_EVENTS_MAX + 9));
+    });
+    it('ackGateNote says what production would do on THIS server', () => {
+        const base = { mode: 'freeform' as const, holdSeconds: [60, 150] as [number, number], door: 'whatsapp' as const };
+        expect(ackGateNote({ ...base, gate: { enabled: true, channelOn: true, askForMedia: false, liveWouldSend: true } })).toMatch(/ON for whatsapp.*60 to 150 seconds/);
+        expect(ackGateNote({ ...base, gate: { enabled: false, channelOn: false, askForMedia: false, liveWouldSend: false } })).toMatch(/OFF.*send NOTHING/);
+        expect(ackGateNote({ ...base, door: 'sms', gate: { enabled: true, channelOn: false, askForMedia: false, liveWouldSend: false } })).toMatch(/not for this door/);
+    });
+    it('entrySummary reads per door', () => {
+        const meaning = { label: 'x', window: 'y', firstReply: 'z' };
+        expect(entrySummary({ door: 'whatsapp', meaning, ack: null, postCall: null, mirrored: null, firstRunTrigger: null })).toMatch(/clean thread/);
+        expect(entrySummary({ door: 'webform', meaning, ack: { mode: 'template', templateName: 'web_enquiry_ack_context', channel: 'whatsapp', reason: 'r' } as any, postCall: null, mirrored: null, firstRunTrigger: 'inbound_message' })).toMatch(/ack template \(web_enquiry_ack_context\) by whatsapp/);
+        expect(entrySummary({ door: 'post_call', meaning, ack: null, postCall: { outcome: 'no_approved_template', reason: 'NO_APPROVED_TEMPLATE', call: { preview: 'Inbound call (4m)' } } as any, mirrored: null, firstRunTrigger: 'call_ended' })).toMatch(/Inbound call \(4m\); continuation NO_APPROVED_TEMPLATE/);
+    });
+});
+
+describe('T16: the exit\'s tag bookkeeping is the one exit step the sandbox mirrors', () => {
+    it('the mirrored list is exactly exit.ts PROPOSAL_TAG_ALLOWLIST (read from the source, so it cannot drift)', () => {
+        const fs = require('node:fs'); const path = require('node:path');
+        const src: string = fs.readFileSync(path.join(__dirname, 'exit.ts'), 'utf8');
+        const m = /export const PROPOSAL_TAG_ALLOWLIST: readonly string\[\] = \[([^\]]+)\]/.exec(src);
+        expect(m).toBeTruthy();
+        const live = m![1].split(',').map((t) => t.trim().replace(/^'|'$/g, '')).filter(Boolean);
+        expect([...MIRRORED_PROPOSAL_TAGS].sort()).toEqual([...live].sort());
+    });
+    it('proposalTagsToMirror: allowlisted, lower-cased, never on a drop, never a tag outside the list', () => {
+        expect(proposalTagsToMirror({ proposal: { intent: 'ask_gap', body: [], reasons: [], tags: ['needs_quote', 'Rescope', 'photos_received', 'needs_ben'] }, decision: { kind: 'pending', dueAt: 'd', reason: 'r' } } as any)).toEqual(['needs_quote', 'rescope']);
+        expect(proposalTagsToMirror({ proposal: { intent: 'ask_gap', body: [], reasons: [], tags: ['needs_quote'] }, decision: { kind: 'drop', reason: 'spam' } } as any)).toEqual([]);
+        expect(proposalTagsToMirror({ proposal: null, decision: { kind: 'none', reason: 'x' } } as any)).toEqual([]);
     });
 });

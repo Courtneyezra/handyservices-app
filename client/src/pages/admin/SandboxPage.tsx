@@ -16,11 +16,19 @@
  * reason it read nothing. That description is the Scoper's ONLY sight of a photo (it reads media
  * as text), so "What the desk saw" is the point of the exercise, and a missing one is red.
  *
+ * T16: the thread is opened through one of the four real front doors (inbound WhatsApp, post-call
+ * with WhatsApp agreed, webform, inbound SMS), each seeded the way the live writer seeds it and each
+ * reporting the first thing the customer would receive and by which rung of which ladder. The 24 h
+ * messaging window is shown as the case file will read it and can be shut honestly (move the thread
+ * back in time) and observed (a clock pass with no new message). The funnel runs to the end: the
+ * clerk's draft priced by the engine, "Ben would have been pinged" recorded rather than sent, Ben's
+ * send, questions before and after, the customer's acceptance. Nothing on this page can send.
+ *
  * Data: GET/POST /api/comms-sandbox (server/spine/sandbox-routes.ts).
  */
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, Eye, FlaskConical, ImageIcon, Loader2, Paperclip, RotateCcw, Send, ShieldCheck, User, Video, X } from 'lucide-react';
+import { AlertTriangle, BellRing, Bot, Clock, DoorOpen, Eye, FlaskConical, ImageIcon, Loader2, MessageSquare, Paperclip, Phone, RotateCcw, Send, ShieldCheck, Smartphone, User, Video, X } from 'lucide-react';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,7 +36,7 @@ import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------- api shapes (server/spine/sandbox-routes.ts)
 
-interface SandboxMessage { id: string; direction: 'inbound' | 'outbound' | string; content: string | null; createdAt: string | null; senderName: string | null; type?: string | null; mediaUrl?: string | null; mediaType?: string | null }
+interface SandboxMessage { id: string; direction: 'inbound' | 'outbound' | string; content: string | null; createdAt: string | null; senderName: string | null; channel?: string | null; type?: string | null; mediaUrl?: string | null; mediaType?: string | null }
 /** T11: this server's description switch and key, read-only (server/spine/sandbox-routes.ts videoStatus). */
 /** T14: the describer's verdict from the newest vision rows (server/spine/vision-health.ts), the same one the sidebar badge shows. */
 export interface SandboxVisionHealth { status: 'ok' | 'failing' | 'idle' | 'unknown'; failing: boolean; permanent: boolean; reason: string | null; since: string | null; lastAt: string | null; window: { runs: number; failed: number; described: number } }
@@ -37,7 +45,19 @@ export type SandboxMediaStatus = 'described' | 'cached' | 'failed' | 'over_bound
 /** T11: one media item on the case file — what the Scoper read of it, or why it read nothing (mediaReportFor). */
 export interface SandboxMediaReport { id: string; kind: 'image' | 'video' | 'audio' | 'document'; url: string | null; description: string | null; status: SandboxMediaStatus; note: string; vision: { runId: string; costPence: number | null; error: string | null } | null }
 interface SandboxQuote { id: string; slug: string; jobDescription: string; basePrice: number | null; expiresAt: string | null; createdAt: string | null; depositPaidAt: string | null; revokedAt: string | null }
-interface SandboxRunRow { id: string; agent: string; decision: string | null; lane: string | null; costPence: number | null; model: string | null; durationMs: number | null; error: string | null; startedAt: string | null; sandbox: boolean; intent: string | null; bubbles: string[] }
+interface SandboxRunRow { id: string; agent: string; trigger?: string | null; decision: string | null; lane: string | null; costPence: number | null; model: string | null; durationMs: number | null; error: string | null; startedAt: string | null; sandbox: boolean; intent: string | null; bubbles: string[] }
+/** T16: the four front doors (server/spine/sandbox-scenarios.ts). */
+export type SandboxDoor = 'whatsapp' | 'post_call' | 'webform' | 'sms';
+export const SANDBOX_DOORS: readonly SandboxDoor[] = ['whatsapp', 'post_call', 'webform', 'sms'];
+export interface LadderRung { name: string; status: string; picked: boolean; note: string }
+export interface AckPlan { door: SandboxDoor; intent: string; mode: 'freeform' | 'template' | 'sms' | 'queued' | 'refused'; channel: 'whatsapp' | 'sms' | null; body: string | null; templateName: string | null; rungs: LadderRung[]; outOfHours: boolean; gate: { enabled: boolean; channelOn: boolean; askForMedia: boolean; liveWouldSend: boolean }; reason: string; holdSeconds: [number, number] }
+export interface PostCallPlan { route: { send: boolean; reason: string; callbackDue: boolean; tagNoAutoMessages: boolean; complaintAlert: boolean }; body: string | null; templateName: string | null; rungs: LadderRung[]; outcome: 'template' | 'no_approved_template' | 'not_agreed'; reason: string; approval: 'auto_first_contact' | 'queued_for_approval'; gate: { continuationEnabled: boolean; ackEnabled: boolean; ackChannelOn: boolean; liveWouldSend: boolean }; spineRun: 'call_ended' | null; spineRunReason: string; call: { id: string; preview: string; durationSeconds: number; transcriptChars: number } }
+export interface EntryReport { door: SandboxDoor; meaning: { label: string; window: string; firstReply: string }; ack: AckPlan | null; postCall: PostCallPlan | null; mirrored: { messageId: string; channel: 'whatsapp' | 'sms'; body: string; sender: string } | null; firstRunTrigger: 'inbound_message' | 'call_ended' | null }
+export interface WindowReport { canFreeform: boolean; lastWhatsAppInboundAt: string | null; hoursSince: number | null; channelLastUsed: string | null; summary: string; permits: string }
+export interface SandboxGates { firstContactAck: { enabled: boolean; channels: string[]; askForMedia: boolean }; postCallContinuation: { enabled: boolean }; spineEnabled: boolean; smsSenderConfigured: boolean; templates: Array<{ name: string; status: string }> }
+export interface SandboxEvent { at: string; kind: string; summary: string; detail?: unknown }
+export interface BenNotice { event: string; title: string; message: string; link: string | null }
+export interface SandboxFunnel { stage: string | null; draft: { id: string; slug: string; lines: string[]; suggestedTotalPence: number | null; checkThis: number; createdAt: string | null; customerName: string | null } | null; quote: { slug: string; basePrice: number | null; delivered: boolean; accepted: boolean; expiresAt: string | null } | null }
 export interface SandboxState {
     phone: { e164: string; wa: string };
     conversation: { id: string; stage: string | null; tags: string[]; contactName: string | null; createdAt: string | null; hasTrigger: boolean } | null;
@@ -45,6 +65,13 @@ export interface SandboxState {
     quote: SandboxQuote | null;
     runs: SandboxRunRow[];
     video?: SandboxVideoStatus;
+    /** T16 */
+    door?: SandboxDoor | null;
+    entry?: EntryReport | null;
+    events?: SandboxEvent[];
+    window?: WindowReport | null;
+    gates?: SandboxGates | null;
+    funnel?: SandboxFunnel | null;
 }
 export interface SandboxRun {
     runId: string;
@@ -64,7 +91,10 @@ export interface SandboxRun {
     model: string | null;
     caseFile: { stage: string; tags: string[]; quote: { slug: string; total?: number | null; paid: boolean } | null; window: { canFreeform: boolean; templateRequired: boolean } };
     benLaneClerk: { run: boolean; reason: string } | null;
-    routeA: { ran: boolean; reason?: string } | null;
+    /** T16: the proposal tags the pass put on the thread (the exit's bookkeeping, mirrored); needs_quote means the clerk runs next. */
+    tagsAdded?: string[];
+    /** T16: the chain's outcome; on a sandbox pass `sandbox` carries what Ben's phone and the job pack would have got. */
+    routeA: { ran: boolean; reason?: string; draftSlug?: string; estimateId?: string; checkThis?: number; fallback?: boolean; sandbox?: { benNotice: BenNotice | null; jobPack: { lines: number; estimateLines: number; quoteId: string } | null; logs: string[] } | null } | null;
     /**
      * T6: set when the pass was first contact and the sandbox mirrored the rules layer's ack onto
      * the thread (server/spine/sandbox-routes.ts). Rides on the run so the detail can say why the
@@ -75,7 +105,7 @@ export interface SandboxRun {
     media?: SandboxMediaReport[] | null;
     video?: SandboxVideoStatus | null;
 }
-export interface SandboxMirror { kind: 'first_contact_ack'; intent: string; body: string; messageId: string; note: string }
+export interface SandboxMirror { kind: 'first_contact_ack'; intent: string; body: string; messageId: string | null; note: string; plan?: AckPlan | null }
 
 /** T6: the mirrored rules-layer ack carries this sender name (server/spine/sandbox-routes.ts). */
 export const RULES_ACK_SENDER_MARK = 'rules layer ack';
@@ -168,6 +198,63 @@ export function videoWarning(v: SandboxVideoStatus | null | undefined): string |
 export function attachmentsOverBound(count: number, v: SandboxVideoStatus | null | undefined): number {
     if (!v || !v.enabled) return 0;
     return Math.max(0, count - Math.max(1, v.maxPerRun));
+}
+
+// ---------------------------------------------------------------- T16 pure helpers (tested)
+
+/** The funnel's steps, in order. `won` is what the live webhook writes on a paid deposit. */
+export const FUNNEL_STEPS = ['enquiry', 'scoping', 'clerk', 'priced_draft', 'quote_sent', 'accepted'] as const;
+export type FunnelStep = (typeof FUNNEL_STEPS)[number];
+export const FUNNEL_LABEL: Record<FunnelStep, string> = { enquiry: 'Enquiry', scoping: 'Scoping', clerk: 'Clerk intake', priced_draft: 'Priced draft · Ben pinged', quote_sent: 'Quote sent', accepted: 'Accepted' };
+
+/** Where the thread is on the funnel, from the state alone. */
+export function funnelStep(state: Pick<SandboxState, 'conversation' | 'funnel' | 'runs'> | null | undefined): FunnelStep {
+    const f = state?.funnel ?? null;
+    if (f?.quote?.accepted) return 'accepted';
+    if (f?.quote) return 'quote_sent';
+    if (f?.draft) return 'priced_draft';
+    if ((state?.runs ?? []).some((r) => r.lane === 'quote_clerk' || r.agent === 'quote_clerk')) return 'clerk';
+    const stage = state?.conversation?.stage ?? 'enquiry';
+    if (stage === 'won' || stage === 'booked') return 'accepted';
+    if (stage === 'quote_sent' || stage === 'quoted') return 'quote_sent';
+    if (stage === 'scoping' || stage === 'active' || stage === 'waiting') return 'scoping';
+    return 'enquiry';
+}
+
+/** One line per door on what THIS server would do live, from the gates. */
+export function doorGateNote(door: SandboxDoor, gates: SandboxGates | null | undefined): { text: string; tone: 'ok' | 'warn' } {
+    if (!gates) return { text: 'Server switches not read yet.', tone: 'warn' };
+    const ack = gates.firstContactAck;
+    const tpl = (name: string) => gates.templates.find((t) => t.name === name)?.status ?? 'missing';
+    switch (door) {
+        case 'whatsapp':
+            return ack.enabled && ack.channels.includes('whatsapp')
+                ? { text: 'First-contact ack ON for WhatsApp: production sends the ack you will see mirrored.', tone: 'ok' }
+                : { text: 'First-contact ack OFF for WhatsApp on this server: production would send nothing at first contact; the sandbox mirrors it anyway.', tone: 'warn' };
+        case 'webform': {
+            const t = tpl('web_enquiry_ack_context');
+            const on = ack.enabled && ack.channels.includes('webform');
+            return { text: `${on ? 'Ack ON for webform' : 'Ack OFF for webform on this server'} · web_enquiry_ack_context is ${t}${t !== 'approved' ? (gates.smsSenderConfigured ? ' → falls to the next rung, then SMS' : ' → falls to the next rung; no SMS sender, so it may queue for Ben') : ''}.`, tone: on && t === 'approved' ? 'ok' : 'warn' };
+        }
+        case 'post_call': {
+            const t = tpl('post_call_continuation'); const g = tpl('post_call_continuation_generic');
+            const on = gates.postCallContinuation.enabled;
+            return { text: `${on ? 'Post-call continuation ON' : 'Post-call continuation OFF on this server (nothing would go live)'} · post_call_continuation is ${t}, generic is ${g}${t !== 'approved' && g !== 'approved' ? ' → NO_APPROVED_TEMPLATE: nothing can send' : ''} · spine ${gates.spineEnabled ? 'on: the clerk reads the transcript' : 'off: live, no call_ended pass'}.`, tone: on && (t === 'approved' || g === 'approved') ? 'ok' : 'warn' };
+        }
+        case 'sms': {
+            const on = ack.enabled && ack.channels.includes('sms');
+            return { text: `${on ? 'Ack ON for SMS' : 'Ack OFF for SMS on this server'} · SMS sender ${gates.smsSenderConfigured ? 'configured' : 'NOT configured (live, no SMS could go at all)'}.`, tone: on && gates.smsSenderConfigured ? 'ok' : 'warn' };
+        }
+    }
+}
+
+/** The bubble label for an outbound row: the mirror's own sender name, else the two T5/T6 labels. */
+export function outboundLabel(m: { senderName: string | null }): string {
+    const s = (m.senderName ?? '').trim();
+    const inner = /^Sandbox \((.+)\)$/.exec(s)?.[1];
+    if (inner) return inner.replace(/,\s*/g, ' · ');
+    if (isMirroredAck({ direction: 'outbound', senderName: s })) return 'rules layer ack · mirrored · never sent';
+    return 'synthetic · never sent';
 }
 
 const MEDIA_TONE_CLASSES: Record<ReturnType<typeof mediaStatusLabel>['tone'], string> = {
@@ -266,9 +353,87 @@ export function MediaSeen({ media, video }: { media: SandboxMediaReport[]; video
     );
 }
 
+/** T16: the Pushover Ben WOULD have received. Red-amber on purpose: this is the one thing the sandbox refuses to do. */
+export function BenNoticeBox({ notice, when }: { notice: BenNotice; when?: string }) {
+    return (
+        <div className="rounded-lg border-2 border-dashed border-rose-400 bg-rose-50 p-3 text-sm text-rose-900" data-testid="sandbox-ben-notice">
+            <div className="flex items-center gap-2 font-semibold"><BellRing className="h-4 w-4" /> Ben's phone would have buzzed — NOT sent{when ? <span className="font-normal text-rose-700"> · {when}</span> : null}</div>
+            <div className="mt-1 font-medium">{notice.title}</div>
+            <pre className="mt-1 whitespace-pre-wrap font-sans text-sm">{notice.message}</pre>
+            {notice.link && <div className="mt-1 text-xs text-rose-800">Tap would open <span className="font-mono">{notice.link}</span> (that screen refuses to send a sandbox quote; price it here instead).</div>}
+        </div>
+    );
+}
+
+/** T16: the ladder as a table: which template names were tried, their Meta status, which was picked. */
+export function LadderTable({ rungs }: { rungs: LadderRung[] }) {
+    if (!rungs.length) return null;
+    return (
+        <table className="mt-2 w-full text-xs" data-testid="sandbox-ladder">
+            <thead><tr className="text-left text-muted-foreground"><th className="pr-2 font-medium">Template</th><th className="pr-2 font-medium">Meta status</th><th className="font-medium">Outcome</th></tr></thead>
+            <tbody>
+                {rungs.map((r) => (
+                    <tr key={r.name} className={cn(r.picked ? 'font-semibold text-emerald-900' : 'text-slate-700')}>
+                        <td className="pr-2 font-mono">{r.name}</td>
+                        <td className="pr-2">{r.status}</td>
+                        <td>{r.picked ? '✓ ' : ''}{r.note}</td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
+/** T16: what the door did — the seed, the first thing the customer would receive, the ladder, the gate. */
+export function EntryDetail({ entry }: { entry: EntryReport }) {
+    const ack = entry.ack;
+    const pc = entry.postCall;
+    return (
+        <div className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 text-sm" data-testid="sandbox-entry">
+            <div className="flex items-center gap-2 font-semibold text-indigo-900"><DoorOpen className="h-4 w-4" /> Door: {entry.meaning.label}</div>
+            <p className="text-indigo-900">{entry.meaning.window}</p>
+            <p className="text-slate-700">{entry.meaning.firstReply}</p>
+            {pc && (
+                <div className="rounded border bg-white p-2" data-testid="sandbox-entry-call">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">The call, as call-thread.ts writes it</div>
+                    <div className="font-mono text-xs">{pc.call.preview}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{pc.call.durationSeconds}s · transcript {pc.call.transcriptChars} chars · {pc.spineRunReason}</div>
+                    <div className="mt-2 text-xs"><span className="font-medium">Continuation:</span> <span className="font-mono">{pc.route.reason}</span> → {pc.outcome === 'template' ? `template ${pc.templateName}` : pc.outcome === 'no_approved_template' ? 'NO APPROVED TEMPLATE — nothing can send' : 'not sent'}. {pc.reason}</div>
+                    <LadderTable rungs={pc.rungs} />
+                    <div className={cn('mt-2 rounded px-2 py-1 text-xs', pc.gate.liveWouldSend ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')} data-testid="sandbox-entry-gate">
+                        {pc.gate.liveWouldSend ? 'On this server production would send this.' : pc.gate.continuationEnabled ? 'On this server nothing would go live (see the reason above).' : 'On this server post_call_continuation is OFF: production would send nothing after this call.'}
+                        {' '}{pc.approval === 'auto_first_contact' ? 'It auto-sends under the first-contact exception (held 60 to 150 s).' : 'It would wait in Ben\'s queue for approval (first-contact auto-send is off for post_call).'}
+                    </div>
+                </div>
+            )}
+            {ack && (
+                <div className="rounded border bg-white p-2" data-testid="sandbox-entry-ack">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">The first-contact ack ladder (first-contact-ack.ts)</div>
+                    <div className="mt-1 text-xs"><span className="font-medium">{ack.mode.toUpperCase()}</span>{ack.channel ? ` by ${ack.channel}` : ''}{ack.templateName ? ` · ${ack.templateName}` : ''}{ack.outOfHours ? ' · out of hours wording' : ''} — {ack.reason}</div>
+                    <LadderTable rungs={ack.rungs} />
+                    <div className={cn('mt-2 rounded px-2 py-1 text-xs', ack.gate.liveWouldSend ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')} data-testid="sandbox-entry-gate">
+                        {ack.gate.liveWouldSend
+                            ? `On this server the first-contact ack is ON for ${ack.door}: production sends exactly this, ${ack.holdSeconds[0]} to ${ack.holdSeconds[1]} s after the message.`
+                            : ack.gate.enabled && !ack.gate.channelOn
+                                ? `On this server the ack is on, but not for ${ack.door}: production would send nothing here. The sandbox mirrored it so the desk gets its turn.`
+                                : !ack.gate.enabled
+                                    ? 'On this server the first-contact ack is OFF: production would send nothing here. The sandbox mirrored it so the desk gets its turn.'
+                                    : 'Live this would queue for Ben; the customer gets nothing until he acts.'}
+                    </div>
+                </div>
+            )}
+            {entry.mirrored
+                ? <div className="text-xs text-muted-foreground">Placed on the thread as <span className="font-mono">{entry.mirrored.sender}</span>, on {entry.mirrored.channel}.</div>
+                : entry.door !== 'whatsapp' && <div className="text-xs font-medium text-amber-900" data-testid="sandbox-entry-nothing">Nothing placed on the thread: the customer would have received nothing.</div>}
+            {entry.firstRunTrigger && <div className="text-xs text-muted-foreground">The desk's first pass ran with trigger <span className="font-mono">{entry.firstRunTrigger}</span> (below).</div>}
+        </div>
+    );
+}
+
 /** The whole pass, once it has come back. The exit line sits on top because it is the point. */
 export function RunDetail({ run }: { run: SandboxRun }) {
     const d = decisionLabel(run.decision);
+    const ra = run.routeA;
     return (
         <div className="space-y-4" data-testid="sandbox-run-detail">
             <div className={cn('rounded-lg border-2 border-dashed p-3', 'border-amber-400 bg-amber-50')} data-testid="sandbox-exit-note">
@@ -282,11 +447,21 @@ export function RunDetail({ run }: { run: SandboxRun }) {
                 Decision: {d.text}
             </div>
 
+            {ra?.sandbox?.benNotice && <BenNoticeBox notice={ra.sandbox.benNotice} when="Route A, after the clerk" />}
+
             {run.mirrored && (
                 <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900" data-testid="sandbox-mirrored">
                     <div className="font-semibold">First contact — the rules layer answers, not the desk</div>
                     <p className="mt-1">{run.mirrored.note}</p>
-                    <div className="mt-2 whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-dashed border-sky-300 bg-white px-3 py-2 text-sm text-slate-800">{run.mirrored.body}</div>
+                    {run.mirrored.plan && (
+                        <div className="mt-1 text-xs" data-testid="sandbox-mirrored-plan">
+                            <span className="font-medium">{run.mirrored.plan.mode.toUpperCase()}</span>{run.mirrored.plan.channel ? ` by ${run.mirrored.plan.channel}` : ''}{run.mirrored.plan.templateName ? ` · ${run.mirrored.plan.templateName}` : ''} — {run.mirrored.plan.reason}
+                            <LadderTable rungs={run.mirrored.plan.rungs} />
+                        </div>
+                    )}
+                    {run.mirrored.body
+                        ? <div className="mt-2 whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-dashed border-sky-300 bg-white px-3 py-2 text-sm text-slate-800">{run.mirrored.body}</div>
+                        : <div className="mt-2 text-xs font-medium text-amber-900">Nothing would reach the customer here (see the reason above).</div>}
                 </div>
             )}
 
@@ -323,6 +498,31 @@ export function RunDetail({ run }: { run: SandboxRun }) {
                 </div>
             )}
 
+            {run.tagsAdded && run.tagsAdded.length > 0 && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900" data-testid="sandbox-tags-added">
+                    Tags put on the thread by this pass (the exit's bookkeeping, mirrored): <span className="font-mono">{run.tagsAdded.join(', ')}</span>.
+                    {run.tagsAdded.includes('needs_quote') && <> Live, the clerk's pass is asked for at once. Here, press <span className="font-medium">Run a clock pass</span> (or send a message) and the Quote clerk runs.</>}
+                </div>
+            )}
+            {ra && (
+                <div className="rounded-lg border p-3 text-sm" data-testid="sandbox-route-a">
+                    <div className="font-semibold">Route A — the clerk's intake to a priced draft</div>
+                    {ra.ran
+                        ? (
+                            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-slate-700">
+                                {ra.draftSlug && <li>Draft <span className="font-mono">{ra.draftSlug}</span> written on the sandbox number, every customer-visible price null (the engine's suggestions on it){ra.checkThis != null ? `, ${ra.checkThis} line(s) marked check this` : ''}.</li>}
+                                {ra.estimateId && <li>Estimate <span className="font-mono">{ra.estimateId}</span>{ra.fallback ? ' — the estimator FAILED; the draft was priced from reference rates' : ''}.</li>}
+                                {ra.reason && !ra.draftSlug && <li>{ra.reason}</li>}
+                                {ra.sandbox?.jobPack && <li>Job pack: would have been written for quote <span className="font-mono">{ra.sandbox.jobPack.quoteId}</span> ({ra.sandbox.jobPack.lines} clerk line(s), {ra.sandbox.jobPack.estimateLines} estimated) — recorded, not written.</li>}
+                                {ra.sandbox && !ra.sandbox.benNotice && <li className="text-amber-900">No Pushover would have gone (the chain produced no draft).</li>}
+                                {ra.sandbox?.logs.map((l, i) => <li key={i} className="text-muted-foreground">{l}</li>)}
+                            </ul>
+                        )
+                        : <div className="mt-1 text-xs text-slate-700">Did not run: {ra.reason ?? 'no reason recorded'}</div>}
+                    {ra.ran && ra.draftSlug && <div className="mt-2 text-xs text-slate-700">Next: <span className="font-medium">Ben prices and sends</span> (the strip above the composer) does what /admin/price/{ra.draftSlug} would do, minus the send.</div>}
+                </div>
+            )}
+
             {run.media && run.media.length > 0 && <MediaSeen media={run.media} video={run.video ?? null} />}
 
             <div className="space-y-2 rounded-lg border p-3">
@@ -350,7 +550,7 @@ export function RunDetail({ run }: { run: SandboxRun }) {
                 <Field label="Quote seen">
                     {run.caseFile.quote ? <>{run.caseFile.quote.slug} · {run.caseFile.quote.paid ? 'paid' : 'unpaid'}{run.caseFile.quote.total != null ? ` · £${run.caseFile.quote.total}` : ''}</> : <span className="text-muted-foreground">none on the thread</span>}
                 </Field>
-                <Field label="Window">{run.caseFile.window.canFreeform ? 'open (freeform ok)' : 'shut (template required)'}</Field>
+                <Field label="Window">{run.caseFile.window.canFreeform ? 'open (freeform ok)' : 'shut (template required)'}{(run.caseFile.window as { channelLastUsed?: string }).channelLastUsed ? <span className="text-xs text-muted-foreground"> · channel last used {(run.caseFile.window as { channelLastUsed?: string }).channelLastUsed}</span> : null}</Field>
                 <Field label="Cost">
                     {pounds(run.costPence) ?? <span className="text-muted-foreground">not recorded</span>}
                     {run.model ? <span className="text-xs text-muted-foreground"> · {run.model}</span> : null}
@@ -368,15 +568,165 @@ export function RunDetail({ run }: { run: SandboxRun }) {
     );
 }
 
+// ---------------------------------------------------------------- T16: the door picker
+
+const DOOR_ICON: Record<SandboxDoor, typeof MessageSquare> = { whatsapp: MessageSquare, post_call: Phone, webform: DoorOpen, sms: Smartphone };
+const DOOR_TITLE: Record<SandboxDoor, string> = { whatsapp: 'Inbound WhatsApp', post_call: 'Post-call (WhatsApp agreed)', webform: 'Webform', sms: 'Inbound SMS' };
+const DOOR_BLURB: Record<SandboxDoor, string> = {
+    whatsapp: 'A customer messages the business number on WhatsApp. Window OPEN. Freeform allowed. First contact gets the rules layer\'s ack; the desk answers from the second message.',
+    post_call: 'They rang, WhatsApp was agreed on the phone. Window SHUT (a call never opens it). The first WhatsApp must be an approved template with the job from the call; the clerk reads the transcript.',
+    webform: 'They filled in the website form. Window SHUT. The ack goes as the first approved template on the ladder (web_enquiry_ack_context quotes them back), else by SMS, else it waits for Ben.',
+    sms: 'They texted the business number. No window, no templates: everything goes back by SMS. A photo cannot arrive by SMS; the desk asks them to describe it, and may invite a switch to WhatsApp once.',
+};
+const DEFAULTS: Record<SandboxDoor, { name: string; text: string; jobPhrase: string }> = {
+    whatsapp: { name: 'Sam', text: '', jobPhrase: '' },
+    webform: { name: 'Priya Shah', text: 'Hi, the extractor fan in our bathroom has stopped working and the ceiling is getting damp. Can you replace it? We are in NG7.', jobPhrase: '' },
+    sms: { name: 'Dave', text: 'Hi do you do gutters? Mine is overflowing at the back, Beeston', jobPhrase: '' },
+    post_call: { name: 'Alex Morgan', text: '', jobPhrase: 'the bathroom extractor fan' },
+};
+
+export interface StartVars { door: SandboxDoor; name: string; text: string; jobPhrase: string; whatsappAgreed: 'agreed' | 'declined' | 'not_discussed'; transcript?: string }
+
+export function DoorPicker({ gates, busy, onStart, hasThread }: { gates: SandboxGates | null | undefined; busy: boolean; onStart: (v: StartVars) => void; hasThread: boolean }) {
+    const [door, setDoor] = useState<SandboxDoor>('whatsapp');
+    const [name, setName] = useState(DEFAULTS.whatsapp.name);
+    const [text, setText] = useState(DEFAULTS.whatsapp.text);
+    const [jobPhrase, setJobPhrase] = useState(DEFAULTS.whatsapp.jobPhrase);
+    const [agreed, setAgreed] = useState<StartVars['whatsappAgreed']>('agreed');
+    const [transcript, setTranscript] = useState('');
+    const pick = (d: SandboxDoor) => { setDoor(d); setName(DEFAULTS[d].name); setText(DEFAULTS[d].text); setJobPhrase(DEFAULTS[d].jobPhrase); };
+    const gate = doorGateNote(door, gates);
+    const needsText = door === 'webform' || door === 'sms';
+    return (
+        <div className="space-y-3 rounded-lg border p-3" data-testid="sandbox-doors">
+            <div className="flex items-center gap-2 text-sm font-semibold"><DoorOpen className="h-4 w-4 text-indigo-600" /> {hasThread ? 'Open a new thread through a door (resets this one)' : 'Open a thread through one of the four front doors'}</div>
+            <div className="grid gap-2 sm:grid-cols-2">
+                {SANDBOX_DOORS.map((d) => {
+                    const Icon = DOOR_ICON[d];
+                    const g = doorGateNote(d, gates);
+                    return (
+                        <button key={d} type="button" onClick={() => pick(d)} disabled={busy} data-testid={`sandbox-door-${d}`} aria-pressed={door === d}
+                            className={cn('rounded-lg border p-2 text-left text-xs hover:bg-slate-50', door === d ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-300' : 'border-slate-200')}>
+                            <div className="flex items-center gap-1.5 text-sm font-semibold"><Icon className="h-4 w-4" /> {DOOR_TITLE[d]}</div>
+                            <div className="mt-1 text-slate-700">{DOOR_BLURB[d]}</div>
+                            <div className={cn('mt-1 rounded px-1.5 py-0.5', g.tone === 'ok' ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')}>{g.text}</div>
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
+                <label className="text-xs">
+                    <span className="text-muted-foreground">Customer's name{door === 'whatsapp' ? ' (pushname)' : door === 'post_call' ? ' (as given on the call)' : ''}</span>
+                    <input value={name} onChange={(e) => setName(e.target.value)} className="mt-0.5 w-full rounded border px-1.5 py-1 text-xs" data-testid="sandbox-start-name" />
+                </label>
+                {needsText && (
+                    <label className="text-xs">
+                        <span className="text-muted-foreground">{door === 'webform' ? 'The enquiry, as typed into the form' : 'Their first text'}</span>
+                        <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} className="mt-0.5 text-xs" data-testid="sandbox-start-text" />
+                    </label>
+                )}
+                {door === 'post_call' && (
+                    <div className="space-y-1 text-xs">
+                        <label className="block">
+                            <span className="text-muted-foreground">Job phrase the classifier would write (goes into "good to speak just now about …")</span>
+                            <input value={jobPhrase} onChange={(e) => setJobPhrase(e.target.value)} className="mt-0.5 w-full rounded border px-1.5 py-1 text-xs" data-testid="sandbox-start-jobphrase" />
+                        </label>
+                        <label className="block">
+                            <span className="text-muted-foreground">WhatsApp on the call</span>
+                            <select value={agreed} onChange={(e) => setAgreed(e.target.value as StartVars['whatsappAgreed'])} className="mt-0.5 w-full rounded border px-1.5 py-1 text-xs" data-testid="sandbox-start-agreed">
+                                <option value="agreed">agreed (the customer said yes)</option>
+                                <option value="not_discussed">not discussed</option>
+                                <option value="declined">declined ("just ring me")</option>
+                            </select>
+                        </label>
+                        <label className="block">
+                            <span className="text-muted-foreground">Transcript (leave empty for the built-in one)</span>
+                            <Textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={2} className="mt-0.5 text-xs" placeholder="Customer: … Agent: …" data-testid="sandbox-start-transcript" />
+                        </label>
+                    </div>
+                )}
+                {door === 'whatsapp' && <div className="self-end text-xs text-muted-foreground">A clean thread. Type the first message below as the customer; it is first contact.</div>}
+            </div>
+            <div className={cn('rounded px-2 py-1 text-xs', gate.tone === 'ok' ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')} data-testid="sandbox-door-gate">{gate.text}</div>
+            <Button onClick={() => onStart({ door, name, text, jobPhrase, whatsappAgreed: agreed, ...(transcript.trim() ? { transcript: transcript.trim() } : {}) })} disabled={busy || (needsText && !text.trim())} data-testid="sandbox-start">
+                {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <DoorOpen className="mr-1 h-4 w-4" />} Open through this door
+            </Button>
+        </div>
+    );
+}
+
+/** T16: the window as the case file will read it, with the two controls that change it honestly. */
+export function WindowStrip({ window, busy, onAge, onClock }: { window: WindowReport | null | undefined; busy: boolean; onAge: (hours: number) => void; onClock: () => void }) {
+    const [hours, setHours] = useState('25');
+    const h = Number(hours);
+    const ok = Number.isFinite(h) && h > 0 && h <= 720;
+    if (!window) return null;
+    return (
+        <div className={cn('flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-xs', window.canFreeform ? 'bg-emerald-50' : 'bg-amber-50')} data-testid="sandbox-window">
+            <div className="min-w-0">
+                <div className={cn('font-semibold', window.canFreeform ? 'text-emerald-900' : 'text-amber-900')}>WhatsApp window: {window.summary}</div>
+                <div className="text-slate-700">{window.permits}{window.channelLastUsed ? ` Channel last used: ${window.channelLastUsed}.` : ''}</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Move the thread back</span>
+                <input value={hours} onChange={(e) => setHours(e.target.value)} inputMode="decimal" className="w-12 rounded border px-1 py-0.5 text-xs" aria-label="hours to move the thread back" data-testid="sandbox-age-hours" />
+                <span className="text-muted-foreground">h</span>
+                <Button variant="outline" size="sm" onClick={() => onAge(h)} disabled={busy || !ok} title="Every timestamp on the thread moves back; with 25 h the window shuts, as it would live" data-testid="sandbox-age"><Clock className="mr-1 h-3.5 w-3.5" /> Fast-forward</Button>
+                <Button variant="outline" size="sm" onClick={onClock} disabled={busy} title="A pass with no new customer message — what a sweep does" data-testid="sandbox-clock"><Bot className="mr-1 h-3.5 w-3.5" /> Run a clock pass</Button>
+            </div>
+        </div>
+    );
+}
+
+/** T16: where the thread is on the funnel and the two actions that move it (Ben's, the customer's). */
+export function FunnelStrip({ state, busy, onPrice, onAccept, amount, setAmount }: { state: SandboxState | null | undefined; busy: boolean; onPrice: () => void; onAccept: () => void; amount: string; setAmount: (v: string) => void }) {
+    const step = funnelStep(state);
+    const idx = FUNNEL_STEPS.indexOf(step);
+    const f = state?.funnel ?? null;
+    const canPrice = !!f?.draft || (!!f?.quote && !f.quote.delivered && !f.quote.accepted);
+    const canAccept = !!f?.quote && f.quote.delivered && !f.quote.accepted;
+    return (
+        <div className="space-y-2 rounded-lg border p-3" data-testid="sandbox-funnel">
+            <div className="flex flex-wrap items-center gap-1 text-xs">
+                {FUNNEL_STEPS.map((s, i) => (
+                    <span key={s} className="flex items-center gap-1">
+                        <span className={cn('rounded-full px-2 py-0.5', i < idx ? 'bg-slate-200 text-slate-700' : i === idx ? 'bg-indigo-600 font-semibold text-white' : 'bg-slate-100 text-muted-foreground')} data-testid={`sandbox-funnel-${s}`} aria-current={i === idx ? 'step' : undefined}>{FUNNEL_LABEL[s]}</span>
+                        {i < FUNNEL_STEPS.length - 1 && <span className="text-muted-foreground">›</span>}
+                    </span>
+                ))}
+            </div>
+            {f?.draft && (
+                <div className="text-xs text-slate-700" data-testid="sandbox-funnel-draft">
+                    Waiting draft <span className="font-mono">{f.draft.slug}</span>: {f.draft.lines.length} line(s){f.draft.lines.length ? ` (${f.draft.lines.slice(0, 3).join('; ')}${f.draft.lines.length > 3 ? '…' : ''})` : ''}{f.draft.suggestedTotalPence != null ? `, engine suggests ${pounds(f.draft.suggestedTotalPence)}` : ', no suggested total'}{f.draft.checkThis ? `, ${f.draft.checkThis} check this` : ''}. It is NOT in Ben's price queue (the sandbox number is excluded) and the real price screen refuses it.
+                </div>
+            )}
+            {f?.quote && !f.quote.delivered && !f.quote.accepted && <div className="text-xs text-amber-900" data-testid="sandbox-funnel-undelivered">Quote <span className="font-mono">{f.quote.slug}</span> is priced but NOT with the customer: the window was shut. A customer WhatsApp reopens it; then press Ben prices and sends again.</div>}
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 text-xs">
+                    <span className="text-muted-foreground">Ben's total £</span>
+                    <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="w-16 rounded border px-1.5 py-0.5 text-xs" aria-label="Ben's total in pounds" placeholder="engine's" data-testid="sandbox-price-amount" />
+                </div>
+                <Button size="sm" variant="outline" onClick={onPrice} disabled={busy || !canPrice} title={canPrice ? 'Does what /admin/price/<slug> does, minus the send: prices the draft, places the quote message on the thread the way it would travel' : 'Nothing waiting: the clerk has not produced a draft (or Seed quote)'} data-testid="sandbox-price">Ben prices and sends</Button>
+                <Button size="sm" variant="outline" onClick={onAccept} disabled={busy || !canAccept} title={canAccept ? 'The customer pays the deposit on the quote page: stamps the quote, moves the thread to won, records the Pushover Ben would have got' : 'No sent quote to accept yet'} data-testid="sandbox-accept">Customer accepts (pays deposit)</Button>
+            </div>
+        </div>
+    );
+}
+
 // ---------------------------------------------------------------- the page
 
 export default function SandboxPage() {
     const queryClient = useQueryClient();
     const [text, setText] = useState('');
+    const [channel, setChannel] = useState<'whatsapp' | 'sms'>('whatsapp');
     const [files, setFiles] = useState<File[]>([]);
     const [amount, setAmount] = useState('480');
+    const [benAmount, setBenAmount] = useState('');
     const [lastRun, setLastRun] = useState<SandboxRun | null>(null);
+    const [lastNotice, setLastNotice] = useState<{ notice: BenNotice; when: string } | null>(null);
+    const [lastAction, setLastAction] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [showDoors, setShowDoors] = useState(false);
     const bottomRef = useRef<HTMLDivElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -397,9 +747,18 @@ export default function SandboxPage() {
         else refresh();
     };
 
+    type SendReply = { ok: true; run: SandboxRun; mirrored?: SandboxMirror | null; media?: SandboxMediaReport[] | null; video?: SandboxVideoStatus | null; state?: SandboxState };
+    const paintRun = (r: SendReply) => setLastRun({ ...r.run, mirrored: r.mirrored ?? null, media: r.media ?? null, video: r.video ?? null });
+
     const reset = useMutation({
         mutationFn: () => api<{ ok: true; state?: SandboxState }>('/reset', { method: 'POST' }),
-        onSuccess: (r) => { setLastRun(null); setError(null); setFiles([]); applyState(r.state); },
+        onSuccess: (r) => { setLastRun(null); setLastNotice(null); setLastAction(null); setError(null); setFiles([]); setShowDoors(false); applyState(r.state); },
+        onError: (e: Error) => setError(e.message),
+    });
+    const start = useMutation({
+        mutationFn: (v: StartVars) => api<SendReply & { run: SandboxRun | null; entry: EntryReport; door: SandboxDoor }>('/start', { method: 'POST', body: JSON.stringify(v) }),
+        onMutate: () => { setError(null); setLastRun(null); setLastNotice(null); setLastAction(null); },
+        onSuccess: (r) => { setFiles([]); setShowDoors(false); setChannel(r.door === 'sms' ? 'sms' : 'whatsapp'); applyState(r.state); if (r.run) paintRun({ ...r, run: r.run }); },
         onError: (e: Error) => setError(e.message),
     });
     const seedQuote = useMutation({
@@ -408,19 +767,40 @@ export default function SandboxPage() {
         onSuccess: (r) => { setError(null); setLastRun(null); applyState(r.state); },
         onError: (e: Error) => setError(e.message),
     });
-    type SendVars = { text: string; files: File[] };
-    type SendReply = { ok: true; run: SandboxRun; mirrored?: SandboxMirror | null; media?: SandboxMediaReport[] | null; video?: SandboxVideoStatus | null; state?: SandboxState };
+    const age = useMutation({
+        mutationFn: (hours: number) => api<{ ok: true; hours: number; window: WindowReport; state?: SandboxState }>('/age', { method: 'POST', body: JSON.stringify({ hours }) }),
+        onSuccess: (r) => { setError(null); setLastAction(`Moved the thread back ${r.hours} h. Window now ${r.window.summary}.`); applyState(r.state); },
+        onError: (e: Error) => setError(e.message),
+    });
+    const clock = useMutation({
+        mutationFn: () => api<SendReply>('/run', { method: 'POST', body: JSON.stringify({ trigger: 'cadence' }) }),
+        onMutate: () => { setError(null); setLastRun(null); },
+        onSuccess: (r) => { applyState(r.state); paintRun(r); },
+        onError: (e: Error) => setError(e.message),
+    });
+    const price = useMutation({
+        mutationFn: () => api<{ ok: true; slug: string; totalPence: number; source: string; delivery: { mode: string; body: string | null; templateName: string | null; reason: string }; state?: SandboxState }>('/price', { method: 'POST', body: JSON.stringify(benAmount.trim() ? { totalPence: Math.round(Number(benAmount) * 100) } : {}) }),
+        onSuccess: (r) => { setError(null); setLastRun(null); setLastAction(`Ben priced ${r.slug} at ${pounds(r.totalPence)} (${r.source === 'ben' ? 'his number' : "the engine's suggestion"}). Delivery: ${r.delivery.mode.toUpperCase()}${r.delivery.templateName ? ` via ${r.delivery.templateName}` : ''} — ${r.delivery.reason}`); applyState(r.state); },
+        onError: (e: Error) => setError(e.message),
+    });
+    const accept = useMutation({
+        mutationFn: () => api<{ ok: true; slug: string; depositPence: number; notice: BenNotice; next: string; state?: SandboxState }>('/accept', { method: 'POST' }),
+        onSuccess: (r) => { setError(null); setLastRun(null); setLastNotice({ notice: r.notice, when: 'the deposit webhook' }); setLastAction(`Customer accepted ${r.slug}: deposit ${pounds(r.depositPence)}. ${r.next}`); applyState(r.state); },
+        onError: (e: Error) => setError(e.message),
+    });
+    type SendVars = { text: string; files: File[]; channel: 'whatsapp' | 'sms' };
     const send = useMutation({
         // T11: with attachments the body is multipart (text + media files); without, the JSON body as before.
         mutationFn: (v: SendVars) => {
-            if (!v.files.length) return api<SendReply>('/message', { method: 'POST', body: JSON.stringify({ text: v.text }) });
+            if (!v.files.length) return api<SendReply>('/message', { method: 'POST', body: JSON.stringify({ text: v.text, channel: v.channel }) });
             const form = new FormData();
             form.append('text', v.text);
+            form.append('channel', v.channel);
             for (const f of v.files) form.append('media', f, f.name);
             return api<SendReply>('/message', { method: 'POST', body: form });
         },
         onMutate: () => { setError(null); setLastRun(null); },
-        onSuccess: (r) => { applyState(r.state); setLastRun({ ...r.run, mirrored: r.mirrored ?? null, media: r.media ?? null, video: r.video ?? null }); setText(''); setFiles([]); },
+        onSuccess: (r) => { applyState(r.state); paintRun(r); setText(''); setFiles([]); },
         onError: (e: Error) => setError(e.message),
     });
 
@@ -428,10 +808,14 @@ export default function SandboxPage() {
     const msgs = state.data?.messages ?? [];
     const quote = state.data?.quote ?? null;
     const video = state.data?.video ?? null;
-    const busy = send.isPending || reset.isPending || seedQuote.isPending;
+    const gates = state.data?.gates ?? null;
+    const entry = state.data?.entry ?? null;
+    const events = state.data?.events ?? [];
+    const busy = send.isPending || reset.isPending || seedQuote.isPending || start.isPending || age.isPending || clock.isPending || price.isPending || accept.isPending;
     const amountOk = Number.isFinite(Number(amount)) && Number(amount) >= 1 && Number(amount) <= 20_000;
     const warning = videoWarning(video);
     const overBound = attachmentsOverBound(files.length, video);
+    const smsMode = channel === 'sms';
 
     useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length, lastRun?.runId, send.isPending]);
 
@@ -447,7 +831,7 @@ export default function SandboxPage() {
     const submit = () => {
         const t = text.trim();
         if ((!t && !files.length) || busy) return;
-        send.mutate({ text: t, files });
+        send.mutate({ text: t, files: smsMode ? [] : files, channel });
     };
     const addFiles = (list: FileList | null) => {
         if (!list) return;
@@ -468,9 +852,14 @@ export default function SandboxPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h1 className="flex items-center gap-2 text-2xl font-bold"><FlaskConical className="h-6 w-6 text-amber-600" /> Comms sandbox</h1>
-                    <p className="text-sm text-muted-foreground">Type as a customer. Watch the desk triage, think, and propose. Nothing is ever sent.</p>
+                    <p className="text-sm text-muted-foreground">Open a thread through one of the four real front doors, type as the customer, watch the desk triage, think and propose, carry it through to a priced quote and an acceptance. Nothing is ever sent.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {conv && (
+                        <Button variant="outline" size="sm" onClick={() => setShowDoors((v) => !v)} disabled={busy} data-testid="sandbox-new-scenario">
+                            <DoorOpen className="mr-1 h-4 w-4" /> {showDoors ? 'Hide doors' : 'New scenario'}
+                        </Button>
+                    )}
                     <Button variant="outline" size="sm" onClick={() => reset.mutate()} disabled={busy} data-testid="sandbox-reset">
                         {reset.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-1 h-4 w-4" />}
                         {conv ? 'Reset thread' : 'Start a clean thread'}
@@ -482,38 +871,46 @@ export default function SandboxPage() {
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
                     <span className="font-semibold">Dry run only.</span> This thread lives on the reserved test number <span className="font-mono">{state.data?.phone.e164 ?? '+447700900942'}</span> (no subscriber exists),
-                    every pass skips the exit (the only sender), and no schedule can ever pick it up. Replies shown here would have gone out live — they did not.
+                    every pass skips the exit (the only sender), and no schedule can ever pick it up. Replies shown here would have gone out live — they did not. Ben's phone is never pinged from here: what it would have shown is recorded and painted red.
                 </div>
             </div>
 
             {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</div>}
 
+            {(!state.isLoading && (!conv || showDoors)) && <DoorPicker gates={gates} busy={busy} hasThread={!!conv} onStart={(v) => start.mutate(v)} />}
+
             <div className="grid gap-4 lg:grid-cols-2">
                 {/* ---------------- left: the conversation */}
                 <section className="flex min-h-[32rem] flex-col rounded-lg border">
                     <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
-                        <div className="flex items-center gap-2 font-medium"><User className="h-4 w-4" /> {conv?.contactName ?? 'No thread yet'}</div>
+                        <div className="flex items-center gap-2 font-medium"><User className="h-4 w-4" /> {conv?.contactName ?? 'No thread yet'}{conv && state.data?.door ? <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-800" data-testid="sandbox-door-pill">{DOOR_TITLE[state.data.door]}</span> : null}</div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             {conv && <span>stage <span className="font-mono">{conv.stage ?? 'enquiry'}</span></span>}
                             {quote && !quote.depositPaidAt && !quote.revokedAt && <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">unpaid quote {quote.slug}{quote.basePrice != null ? ` · ${pounds(quote.basePrice)}` : ''}</span>}
+                            {quote && quote.depositPaidAt && <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-medium text-white">accepted {quote.slug}</span>}
                         </div>
                     </div>
+                    {conv && <WindowStrip window={state.data?.window} busy={busy} onAge={(h) => age.mutate(h)} onClock={() => clock.mutate()} />}
 
                     <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50/60 p-3" data-testid="sandbox-thread">
                         {state.isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
                         {!state.isLoading && !conv && (
                             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                                No sandbox thread yet. Press <span className="font-medium">Start a clean thread</span>, then type a message below as the customer would.
+                                No sandbox thread yet. Pick a door above and press <span className="font-medium">Open through this door</span>, or <span className="font-medium">Start a clean thread</span> for a bare WhatsApp thread.
                             </div>
                         )}
                         {msgs.map((m) => {
                             const inbound = m.direction === 'inbound';
+                            const call = m.channel === 'call';
                             return (
                                 <div key={m.id} className={cn('flex', inbound ? 'justify-start' : 'justify-end')}>
-                                    <div className={cn('max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm', inbound ? 'rounded-tl-sm bg-white' : 'rounded-tr-sm bg-emerald-100')}>
+                                    <div className={cn('max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm', inbound ? (call ? 'rounded-tl-sm border border-slate-300 bg-slate-100' : 'rounded-tl-sm bg-white') : 'rounded-tr-sm bg-emerald-100')}>
+                                        {inbound && m.channel && m.channel !== 'whatsapp' && (
+                                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600" data-testid="sandbox-inbound-channel">{call ? '📞 phone call' : m.channel === 'sms' ? '💬 SMS' : m.channel === 'webform' ? '📝 webform' : m.channel}</div>
+                                        )}
                                         {!inbound && (
                                             <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                                                {isMirroredAck(m) ? 'rules layer ack · mirrored · never sent' : 'synthetic · never sent'}
+                                                {outboundLabel(m)}{m.channel === 'sms' ? ' · SMS' : ''}
                                             </div>
                                         )}
                                         {m.mediaUrl && (
@@ -541,7 +938,7 @@ export default function SandboxPage() {
                                 </div>
                             </div>
                         )}
-                        {send.isPending && (
+                        {(send.isPending || clock.isPending || start.isPending) && (
                             <div className="flex justify-end">
                                 <div className="flex items-center gap-2 rounded-2xl rounded-tr-sm border border-dashed border-amber-300 bg-white px-3 py-2 text-sm text-muted-foreground">
                                     <Bot className="h-4 w-4 text-blue-600" /><Loader2 className="h-3 w-3 animate-spin" /> the desk is thinking…
@@ -566,6 +963,9 @@ export default function SandboxPage() {
                     </div>
 
                     <div className="space-y-2 border-t p-3">
+                        {conv && <FunnelStrip state={state.data} busy={busy} onPrice={() => price.mutate()} onAccept={() => accept.mutate()} amount={benAmount} setAmount={setBenAmount} />}
+                        {lastAction && <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-xs text-indigo-900" data-testid="sandbox-last-action">{lastAction}</div>}
+                        {lastNotice && <BenNoticeBox notice={lastNotice.notice} when={lastNotice.when} />}
                         <div className="flex flex-wrap gap-1.5">
                             {WRONG_MOVE_SHAPES.map((s) => (
                                 <button
@@ -580,16 +980,26 @@ export default function SandboxPage() {
                                 </button>
                             ))}
                         </div>
-                        {warning && (
+                        {warning && !smsMode && (
                             <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-2 text-xs text-red-900" role="status" data-testid="sandbox-video-warning">
                                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{warning}</span>
                             </div>
                         )}
+                        <div className="flex items-center gap-1 text-xs" role="radiogroup" aria-label="channel the customer writes on" data-testid="sandbox-channel">
+                            <span className="text-muted-foreground">The customer writes on</span>
+                            {(['whatsapp', 'sms'] as const).map((c) => (
+                                <button key={c} type="button" role="radio" aria-checked={channel === c} onClick={() => { setChannel(c); if (c === 'sms') setFiles([]); }} disabled={busy}
+                                    className={cn('rounded-full border px-2 py-0.5', channel === c ? 'border-indigo-500 bg-indigo-50 font-semibold text-indigo-900' : 'text-slate-700 hover:bg-slate-100')} data-testid={`sandbox-channel-${c}`}>
+                                    {c === 'whatsapp' ? 'WhatsApp' : 'SMS'}
+                                </button>
+                            ))}
+                            <span className="text-muted-foreground">{smsMode ? '— an SMS does not open the window and cannot carry a photo' : '— opens the 24 h window'}</span>
+                        </div>
                         <Textarea
                             value={text}
                             onChange={(e) => setText(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-                            placeholder={conv ? 'Type as the customer… (Enter to send, Shift+Enter for a new line; attach a photo or video below)' : 'Start a clean thread first'}
+                            placeholder={conv ? (smsMode ? 'Type as the customer, by SMS… (Enter to send)' : 'Type as the customer… (Enter to send, Shift+Enter for a new line; attach a photo or video below)') : 'Open a door first'}
                             rows={3}
                             disabled={!conv || busy}
                             data-testid="sandbox-input"
@@ -637,7 +1047,7 @@ export default function SandboxPage() {
                                     onChange={(e) => addFiles(e.target.files)}
                                     data-testid="sandbox-file-input"
                                 />
-                                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={!conv || busy || files.length >= MAX_ATTACHMENTS} data-testid="sandbox-attach" title="Attach a photo or video, as the customer would">
+                                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={!conv || busy || smsMode || files.length >= MAX_ATTACHMENTS} data-testid="sandbox-attach" title={smsMode ? 'A UK long code cannot receive a photo by SMS' : 'Attach a photo or video, as the customer would'}>
                                     <Paperclip className="mr-1 h-4 w-4" /> Attach
                                 </Button>
                                 <Button onClick={submit} disabled={!conv || busy || (!text.trim() && !files.length)} data-testid="sandbox-send">
@@ -651,6 +1061,8 @@ export default function SandboxPage() {
 
                 {/* ---------------- right: the desk thinking */}
                 <section className="space-y-4">
+                    {entry && conv && <EntryDetail entry={entry} />}
+
                     <div className="rounded-lg border p-3">
                         <div className="mb-2 flex items-center gap-2 text-sm font-medium"><Bot className="h-4 w-4 text-blue-600" /> Live: what the desk is doing</div>
                         {conv ? (
@@ -658,7 +1070,7 @@ export default function SandboxPage() {
                                 <LiveRunPanel conversationId={conv.id} keepFinished />
                                 {!send.isPending && !lastRun && <div className="text-sm text-muted-foreground">Send a message and the pass appears here step by step: case file (with how many media were described), triage, pack, each tool the Scoper calls, the proposal, guards, decision, exit.</div>}
                             </>
-                        ) : <div className="text-sm text-muted-foreground">Start a thread to watch runs.</div>}
+                        ) : <div className="text-sm text-muted-foreground">Open a door to watch runs.</div>}
                     </div>
 
                     {lastRun
@@ -669,6 +1081,21 @@ export default function SandboxPage() {
                             </div>
                         )}
 
+                    {events.length > 0 && (
+                        <div className="rounded-lg border p-3" data-testid="sandbox-events">
+                            <div className="mb-2 text-sm font-medium">What happened on this thread</div>
+                            <ul className="space-y-1 text-xs">
+                                {events.slice().reverse().map((e, i) => (
+                                    <li key={`${e.at}-${i}`} className="flex gap-2">
+                                        <span className="shrink-0 font-mono text-muted-foreground">{new Date(e.at).toLocaleTimeString('en-GB')}</span>
+                                        <span className={cn('shrink-0 rounded px-1 font-mono', e.kind === 'route_a' || e.kind === 'accepted' ? 'bg-rose-100 text-rose-900' : 'bg-slate-100 text-slate-700')}>{e.kind}</span>
+                                        <span className="text-slate-700">{e.summary}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
                     {(state.data?.runs.length ?? 0) > 0 && (
                         <div className="rounded-lg border p-3">
                             <div className="mb-2 text-sm font-medium">Earlier passes on this thread</div>
@@ -676,6 +1103,7 @@ export default function SandboxPage() {
                                 {state.data!.runs.map((r) => (
                                     <li key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5">
                                         <span className="font-mono text-muted-foreground">{r.startedAt ? new Date(r.startedAt).toLocaleTimeString('en-GB') : ''}</span>
+                                        <span className="font-mono">{r.trigger ?? ''}</span>
                                         <span className="font-mono">{r.lane ?? '—'}</span>
                                         <span>→ <span className="font-medium">{r.decision ?? '—'}</span>{r.intent ? ` (${r.intent})` : ''}</span>
                                         <span className="text-muted-foreground">{pounds(r.costPence) ?? 'no cost'}</span>

@@ -104,3 +104,29 @@ describe('the live feed survives Phase 5', () => {
         expect(src).toMatch(/finally \{\s+ev\.finished\(ok\);/);
     });
 });
+
+// ---------------------------------------------------------------- T16: a Route A draft on the sandbox number never reaches Ben's screens
+
+describe('T16: the price queue and the price screen keep the sandbox out', () => {
+    it('WAITING_DRAFT_WHERE (the one definition both readers use) excludes the sandbox number', async () => {
+        const src = read('spine/price-brief.ts');
+        const start = src.indexOf('export const WAITING_DRAFT_WHERE');
+        const block = src.slice(start, src.indexOf('`;', start));
+        expect(block).toContain("regexp_replace(coalesce(q.phone, ''), '[^0-9]', '', 'g') <> '${SANDBOX_DIGITS}'");
+        expect(src).toMatch(/import \{ SANDBOX_DIGITS \} from '\.\/sandbox'/);
+        // Both readers still read that one string and no other.
+        expect(read('spine/price-queue.ts')).toContain('sql.raw(WAITING_DRAFT_WHERE)');
+        expect((read('spine/price-queue.ts').match(/is_draft = true/g) ?? []).length).toBe(0);
+    });
+    it('POST /price/:slug/send refuses a sandbox-number draft before confirmPrices (the route ends in a real send)', () => {
+        const src = read('spine/routes.ts');
+        const handler = src.slice(src.indexOf("spineRouter.post('/price/:slug/send'"));
+        expect(handler.indexOf('isSandboxQuoteSlug(slug)')).toBeGreaterThan(-1);
+        expect(handler.indexOf('isSandboxQuoteSlug(slug)')).toBeLessThan(handler.indexOf('confirmPrices(slug'));
+        expect(src).toMatch(/async function isSandboxQuoteSlug/);
+        expect(src).toMatch(/isSandboxPhone\(q\.phone\)/);
+    });
+    it('the outbound gate has no test-number guard, which is why the refusal above has to exist', () => {
+        expect(read('outbound.ts')).not.toMatch(/isTestNumber|7700900/);
+    });
+});

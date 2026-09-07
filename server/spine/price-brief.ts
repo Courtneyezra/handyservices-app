@@ -13,6 +13,7 @@
  * Nothing here prices, and nothing here sends to a customer: the ask and the visit offer are
  * pending drafts in Ben's queue, the call is his phone.
  */
+import { SANDBOX_DIGITS } from './sandbox';
 import { toChatVoice, chatVoiceViolations } from '@shared/chat-voice';
 import type { Approver } from '../approver';
 
@@ -474,9 +475,12 @@ export async function loadThread(conversationId: string | null): Promise<PriceSc
  * confirm screen's "next waiting" button (loadNextWaiting) and the price queue
  * (server/spine/price-queue.ts) read this one string; there is no second definition. Change it
  * here and both move together. Oldest first is the order everywhere it is used.
+ * T16: a Route A draft on the comms sandbox's number (server/spine/sandbox.ts) is never waiting —
+ * the sandbox prices and "sends" it from its own page, and the real price screen refuses it.
  */
 export const WAITING_DRAFT_WHERE = `q.is_draft = true and q.superseded_at is null and q.revoked_at is null and q.pricing_suggestions is not null
-          and coalesce(q.pricing_suggestions->'hold', 'null'::jsonb) = 'null'::jsonb`;
+          and coalesce(q.pricing_suggestions->'hold', 'null'::jsonb) = 'null'::jsonb
+          and regexp_replace(coalesce(q.phone, ''), '[^0-9]', '', 'g') <> '${SANDBOX_DIGITS}'`;
 
 /** The next Route A draft waiting for Ben, oldest first, never this one. */
 export async function loadNextWaiting(excludeQuoteId: string): Promise<{ slug: string; firstName: string } | null> {
