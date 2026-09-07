@@ -167,7 +167,7 @@ function mediaItem(over: Partial<SandboxMediaReport> = {}): SandboxMediaReport {
     return {
         id: 'msg_sbx_aaaaaaaaaaaaa', kind: 'image', url: '/api/media/msg_sbx_aaaaaaaaaaaaa.jpg',
         description: 'A ceiling extractor fan with a yellowed grille in a tiled bathroom. Defects: fan (moderate: not spinning). (confidence high)',
-        status: 'described', note: 'Described on this pass by Gemini. This text is exactly what the Scoper read.',
+        status: 'described', note: 'Described on this pass by Gemini. This is the description on the case file; the Scoper\'s case-file summary carries its first 160 characters.',
         vision: { runId: 'run_vis_1', costPence: 1, error: null }, ...over,
     };
 }
@@ -209,7 +209,7 @@ describe('<MediaSeen> — the description is shown next to the reply, and its ab
         render(<MediaSeen media={[mediaItem()]} video={VIDEO_ON} />);
         expect(screen.getByTestId('sandbox-media-seen').textContent).toContain('1 of 1 described');
         expect(screen.getByTestId('sandbox-media-description').textContent).toContain('ceiling extractor fan');
-        expect(screen.getByText(/Described — this is what the Scoper read/)).toBeTruthy();
+        expect(screen.getByText(/Described — on the case file the Scoper read/)).toBeTruthy();
         expect(screen.getByText(/run_vis_1/).parentElement?.textContent).toContain('£0.01');
         expect(screen.queryByTestId('sandbox-media-missing')).toBeNull();
         expect(document.querySelector('img[src="/api/media/msg_sbx_aaaaaaaaaaaaa.jpg"]')).toBeTruthy();

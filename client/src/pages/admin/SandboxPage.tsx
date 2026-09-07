@@ -134,8 +134,8 @@ export const WRONG_MOVE_SHAPES: { label: string; needsQuote: boolean; text: stri
 /** T11: the status pill on each media item. Anything but described/cached is a fault to look at. */
 export function mediaStatusLabel(status: SandboxMediaStatus, maxPerRun?: number | null): { text: string; tone: 'ok' | 'warn' | 'bad' } {
     switch (status) {
-        case 'described': return { text: 'Described — this is what the Scoper read', tone: 'ok' };
-        case 'cached': return { text: 'Described (from cache, no model call) — this is what the Scoper read', tone: 'ok' };
+        case 'described': return { text: 'Described — on the case file the Scoper read', tone: 'ok' };
+        case 'cached': return { text: 'Described (from cache, no model call) — on the case file the Scoper read', tone: 'ok' };
         case 'over_bound': return { text: `NOT described — over the per-pass bound (only the last ${maxPerRun ?? 'N'} are described)`, tone: 'warn' };
         case 'failed': return { text: 'DESCRIPTION FAILED — the Scoper saw bare media', tone: 'bad' };
         case 'off': return { text: 'NOT described — description is OFF on this server (spine.video.enabled)', tone: 'bad' };
@@ -221,7 +221,7 @@ export function MediaSeen({ media, video }: { media: SandboxMediaReport[]; video
                 </span>
             </div>
             <p className="mb-2 text-xs text-muted-foreground">
-                The Scoper reads media as text: the id, the kind, and Gemini's description if there is one. It never sees the pixels. So the text below is everything the reply was written from.
+                The Scoper reads media as text: the id, the kind, and Gemini's description if there is one. It never sees the pixels. Its case-file summary carries the first 160 characters of each description (the clip in scoper.ts), so the reply was written from the start of the text below, not all of it.
             </p>
             <ul className="space-y-2">
                 {media.map((m) => {

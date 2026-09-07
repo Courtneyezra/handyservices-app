@@ -191,7 +191,7 @@ describe('T11: mediaReportFor — what the desk saw, or why it saw nothing', () 
         const r = mediaReportFor([m('a', 'image', 'A cracked tile.'), m('b', 'video', 'Water dripping from a tap.')], on, [row('a', 'described')]);
         expect(r[0]).toMatchObject({ id: 'a', status: 'described', description: 'A cracked tile.', vision: { runId: 'vis_a', costPence: 1, error: null } });
         expect(r[1]).toMatchObject({ id: 'b', status: 'cached', description: 'Water dripping from a tap.', vision: null });
-        expect(r[0].note).toContain('exactly what the Scoper read');
+        expect(r[0].note).toContain('first 160 characters');
     });
     it('a failed description says FAILED and carries the vision row\'s error', () => {
         const r = mediaReportFor([m('a', 'image')], on, [row('a', 'failed', 'no description (see describe_video log)')]);

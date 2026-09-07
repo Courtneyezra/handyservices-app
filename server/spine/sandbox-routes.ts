@@ -154,14 +154,12 @@ export interface SandboxMediaReport {
     vision: { runId: string; costPence: number | null; error: string | null } | null;
 }
 
-export interface SandboxVideoStatus extends SpineConfig['video'] {
-    /** GEMINI_API_KEY (or GOOGLE_API_KEY) is set on THIS server — the one running the sandbox. */
-    keyPresent: boolean;
-}
+/** `spine.video` as this server reads it, plus whether GEMINI_API_KEY (or GOOGLE_API_KEY) is set on THIS server — the one running the sandbox. */
+export type SandboxVideoStatus = SpineConfig['video'] & { keyPresent: boolean };
 
 export const MEDIA_STATUS_NOTE: Record<SandboxMediaStatus, string> = {
-    described: 'Described on this pass by Gemini. This text is exactly what the Scoper read.',
-    cached: 'Description came from the cache (identical bytes were described on an earlier pass). No model call, no cost. This text is exactly what the Scoper read.',
+    described: 'Described on this pass by Gemini. This is the description on the case file; the Scoper\'s case-file summary carries its first 160 characters (scoper.ts clip).',
+    cached: 'Description came from the cache (identical bytes were described on an earlier pass). No model call, no cost. This is the description on the case file; the Scoper\'s case-file summary carries its first 160 characters (scoper.ts clip).',
     failed: 'Description FAILED on this pass: the Scoper saw this item as bare media with no description. The vision row records the error; the server log has the describe_video line.',
     over_bound: 'NOT described: outside the per-pass bound. Only the last maxPerRun eligible items on the thread are described; this earlier one was dropped. The Scoper saw bare media.',
     off: 'NOT described: spine.video.enabled is off on this server, so no media is described. The Scoper saw bare media.',
@@ -537,7 +535,8 @@ commsSandboxRouter.post('/message', parseSandboxUpload, async (req, res) => {
         } else {
             // One row per file, in the order attached, the text as the first one's caption — the
             // Twilio shape (Body + MediaUrl0). Mirrored to S3 like a real inbound: never throws.
-            for (const [i, f] of files.entries()) {
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i];
                 const id = sandboxMediaIdOf(f.filename);
                 const t = validateSandboxMediaType(f.mimetype);
                 if (!id || !t.ok) throw new Error(`stored file ${f.filename} is not a sandbox media file`);
