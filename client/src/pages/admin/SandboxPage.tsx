@@ -10,11 +10,17 @@
  * dry run (server/spine/sandbox.ts explains the three layers), and this page never names a
  * conversation id to the server — every call is "the sandbox thread", whichever row that is.
  *
+ * T11: a message can carry photos or a video (the Attach control). They are stored the way a real
+ * WhatsApp inbound is, so the case file, Gemini's describer and the Scoper see what they would see
+ * for a customer; the pass then reports, per item, the description the Scoper read — or the one
+ * reason it read nothing. That description is the Scoper's ONLY sight of a photo (it reads media
+ * as text), so "What the desk saw" is the point of the exercise, and a missing one is red.
+ *
  * Data: GET/POST /api/comms-sandbox (server/spine/sandbox-routes.ts).
  */
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, FlaskConical, Loader2, RotateCcw, Send, ShieldCheck, User } from 'lucide-react';
+import { AlertTriangle, Bot, Eye, FlaskConical, ImageIcon, Loader2, Paperclip, RotateCcw, Send, ShieldCheck, User, Video, X } from 'lucide-react';
 import { LiveRunPanel } from '@/components/comms/LiveRunPanel';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,7 +28,12 @@ import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------- api shapes (server/spine/sandbox-routes.ts)
 
-interface SandboxMessage { id: string; direction: 'inbound' | 'outbound' | string; content: string | null; createdAt: string | null; senderName: string | null }
+interface SandboxMessage { id: string; direction: 'inbound' | 'outbound' | string; content: string | null; createdAt: string | null; senderName: string | null; type?: string | null; mediaUrl?: string | null; mediaType?: string | null }
+/** T11: this server's description switch and key, read-only (server/spine/sandbox-routes.ts videoStatus). */
+export interface SandboxVideoStatus { enabled: boolean; images: boolean; maxPerRun: number; keyPresent: boolean }
+export type SandboxMediaStatus = 'described' | 'cached' | 'failed' | 'over_bound' | 'off' | 'images_off' | 'no_key' | 'unsupported' | 'missing';
+/** T11: one media item on the case file — what the Scoper read of it, or why it read nothing (mediaReportFor). */
+export interface SandboxMediaReport { id: string; kind: 'image' | 'video' | 'audio' | 'document'; url: string | null; description: string | null; status: SandboxMediaStatus; note: string; vision: { runId: string; costPence: number | null; error: string | null } | null }
 interface SandboxQuote { id: string; slug: string; jobDescription: string; basePrice: number | null; expiresAt: string | null; createdAt: string | null; depositPaidAt: string | null; revokedAt: string | null }
 interface SandboxRunRow { id: string; agent: string; decision: string | null; lane: string | null; costPence: number | null; model: string | null; durationMs: number | null; error: string | null; startedAt: string | null; sandbox: boolean; intent: string | null; bubbles: string[] }
 export interface SandboxState {
@@ -31,6 +42,7 @@ export interface SandboxState {
     messages: SandboxMessage[];
     quote: SandboxQuote | null;
     runs: SandboxRunRow[];
+    video?: SandboxVideoStatus;
 }
 export interface SandboxRun {
     runId: string;
@@ -57,6 +69,9 @@ export interface SandboxRun {
      * desk was quiet and what the customer would actually have received.
      */
     mirrored?: SandboxMirror | null;
+    /** T11: per media item on the thread, the description the Scoper read or why there is none. */
+    media?: SandboxMediaReport[] | null;
+    video?: SandboxVideoStatus | null;
 }
 export interface SandboxMirror { kind: 'first_contact_ack'; intent: string; body: string; messageId: string; note: string }
 
@@ -72,9 +87,11 @@ function authHeaders(): Record<string, string> {
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+    // T11: a FormData body sets its own multipart boundary — never force a content type on it.
+    const multipart = typeof FormData !== 'undefined' && init?.body instanceof FormData;
     const res = await fetch(`/api/comms-sandbox${path}`, {
         ...init,
-        headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init?.headers ?? {}) },
+        headers: { ...(multipart ? {} : { 'Content-Type': 'application/json' }), ...authHeaders(), ...(init?.headers ?? {}) },
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error((body as { error?: string }).error ?? `${res.status} ${res.statusText}`);
@@ -114,6 +131,46 @@ export const WRONG_MOVE_SHAPES: { label: string; needsQuote: boolean; text: stri
     { label: 'Demands a price', needsQuote: false, text: 'Just tell me how much it is going to cost. I need a number before I go any further.' },
 ];
 
+/** T11: the status pill on each media item. Anything but described/cached is a fault to look at. */
+export function mediaStatusLabel(status: SandboxMediaStatus, maxPerRun?: number | null): { text: string; tone: 'ok' | 'warn' | 'bad' } {
+    switch (status) {
+        case 'described': return { text: 'Described — this is what the Scoper read', tone: 'ok' };
+        case 'cached': return { text: 'Described (from cache, no model call) — this is what the Scoper read', tone: 'ok' };
+        case 'over_bound': return { text: `NOT described — over the per-pass bound (only the last ${maxPerRun ?? 'N'} are described)`, tone: 'warn' };
+        case 'failed': return { text: 'DESCRIPTION FAILED — the Scoper saw bare media', tone: 'bad' };
+        case 'off': return { text: 'NOT described — description is OFF on this server (spine.video.enabled)', tone: 'bad' };
+        case 'images_off': return { text: 'NOT described — photos are off on this server (spine.video.images)', tone: 'bad' };
+        case 'no_key': return { text: 'NOT described — GEMINI_API_KEY is not set on this server', tone: 'bad' };
+        case 'unsupported': return { text: 'NOT described — only photos and videos are described', tone: 'warn' };
+        default: return { text: 'NOT described — no description and no vision row; check the server log', tone: 'bad' };
+    }
+}
+
+/** T11: the banner over the composer, or null when description is on and the key is there. */
+export function videoWarning(v: SandboxVideoStatus | null | undefined): string | null {
+    if (!v) return null;
+    if (!v.enabled) return 'Photo and video description is OFF on this server (spine.video.enabled is false). A photo will reach the desk as bare media with no description — that is what the Scoper sees live when the switch is off.';
+    if (!v.keyPresent) return 'GEMINI_API_KEY is not set on this server, so every description will FAIL. The desk will see bare media. (Production has the key; your local .env needs it too.)';
+    if (!v.images) return 'Photos are not described on this server (spine.video.images is false); only videos are. A photo will reach the desk as bare media.';
+    return null;
+}
+
+/** T11: which of the pending attachments would be described, by the same last-N rule the case file uses. */
+export function attachmentsOverBound(count: number, v: SandboxVideoStatus | null | undefined): number {
+    if (!v || !v.enabled) return 0;
+    return Math.max(0, count - Math.max(1, v.maxPerRun));
+}
+
+const MEDIA_TONE_CLASSES: Record<ReturnType<typeof mediaStatusLabel>['tone'], string> = {
+    ok: 'bg-emerald-100 text-emerald-900',
+    warn: 'bg-amber-100 text-amber-900',
+    bad: 'bg-red-100 text-red-900',
+};
+
+/** T11: the server's bounds (SANDBOX_MAX_FILES / SANDBOX_MEDIA_TYPES in sandbox-routes.ts), mirrored for the picker. */
+export const MAX_ATTACHMENTS = 8;
+export const ACCEPT_MEDIA = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,video/mp4,video/quicktime,video/webm,video/3gpp';
+
 const TONE_CLASSES: Record<ReturnType<typeof decisionLabel>['tone'], string> = {
     send: 'border-red-300 bg-red-50 text-red-900',
     draft: 'border-sky-200 bg-sky-50 text-sky-900',
@@ -138,6 +195,65 @@ function Chips({ items, empty = '—' }: { items: string[] | undefined | null; e
         <span className="flex flex-wrap gap-1">
             {items.map((t) => <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">{t}</span>)}
         </span>
+    );
+}
+
+function isVideoType(t: string | null | undefined): boolean {
+    return (t ?? '').toLowerCase().startsWith('video');
+}
+
+/** A stored media item, rendered as CommsPage renders a customer's (img / video off /api/media). */
+function MediaThumb({ url, video, className }: { url: string; video: boolean; className?: string }) {
+    return video
+        ? <video src={url} controls preload="metadata" className={cn('max-h-56 max-w-full rounded-lg', className)} />
+        : <img src={url} alt="" loading="lazy" className={cn('max-h-56 max-w-full rounded-lg', className)} />;
+}
+
+/** T11: what the desk saw of each photo or video on the thread. The description is the whole point. */
+export function MediaSeen({ media, video }: { media: SandboxMediaReport[]; video?: SandboxVideoStatus | null }) {
+    const described = media.filter((m) => m.status === 'described' || m.status === 'cached').length;
+    return (
+        <div className="rounded-lg border p-3" data-testid="sandbox-media-seen">
+            <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold"><Eye className="h-4 w-4 text-blue-600" /> What the desk saw</div>
+                <span className={cn('rounded px-1.5 py-0.5 text-xs font-semibold', described === media.length ? 'bg-emerald-100 text-emerald-900' : 'bg-red-100 text-red-900')}>
+                    {described} of {media.length} described
+                </span>
+            </div>
+            <p className="mb-2 text-xs text-muted-foreground">
+                The Scoper reads media as text: the id, the kind, and Gemini's description if there is one. It never sees the pixels. So the text below is everything the reply was written from.
+            </p>
+            <ul className="space-y-2">
+                {media.map((m) => {
+                    const label = mediaStatusLabel(m.status, video?.maxPerRun);
+                    return (
+                        <li key={m.id} className="flex gap-3 rounded-lg border bg-white p-2" data-testid="sandbox-media-item" data-status={m.status}>
+                            <div className="w-24 shrink-0">
+                                {m.url && (m.kind === 'image' || m.kind === 'video')
+                                    ? <MediaThumb url={m.url} video={m.kind === 'video'} className="h-24 w-24 object-cover" />
+                                    : <div className="flex h-24 w-24 items-center justify-center rounded-lg bg-slate-100 text-xs text-muted-foreground">{m.kind}</div>}
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                                    {m.kind === 'video' ? <Video className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
+                                    <span className="font-mono text-muted-foreground">{m.id}</span>
+                                    <span className={cn('rounded px-1.5 py-0.5 font-semibold', MEDIA_TONE_CLASSES[label.tone])}>{label.text}</span>
+                                </div>
+                                {m.description
+                                    ? <div className="whitespace-pre-wrap rounded border border-emerald-200 bg-emerald-50/60 px-2 py-1.5 text-sm text-slate-800" data-testid="sandbox-media-description">{m.description}</div>
+                                    : <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-sm text-red-900" data-testid="sandbox-media-missing">No description. {m.note}</div>}
+                                {m.description && m.status !== 'described' && m.status !== 'cached' && <div className="text-xs text-amber-800">{m.note}</div>}
+                                {m.vision && (
+                                    <div className="text-xs text-muted-foreground">
+                                        vision run <span className="font-mono">{m.vision.runId}</span>{m.vision.costPence != null ? ` · ${pounds(m.vision.costPence)}` : ''}{m.vision.error ? <span className="text-red-700"> · {m.vision.error}</span> : null}
+                                    </div>
+                                )}
+                            </div>
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
     );
 }
 
@@ -198,6 +314,8 @@ export function RunDetail({ run }: { run: SandboxRun }) {
                 </div>
             )}
 
+            {run.media && run.media.length > 0 && <MediaSeen media={run.media} video={run.video ?? null} />}
+
             <div className="space-y-2 rounded-lg border p-3">
                 <Field label="Triage">
                     lane <span className="font-mono">{run.triage.lane}</span>, intent <span className="font-mono">{run.triage.intent}</span>, by {run.triage.source}{run.triage.model ? ` (${run.triage.model})` : ''}
@@ -246,10 +364,12 @@ export function RunDetail({ run }: { run: SandboxRun }) {
 export default function SandboxPage() {
     const queryClient = useQueryClient();
     const [text, setText] = useState('');
+    const [files, setFiles] = useState<File[]>([]);
     const [amount, setAmount] = useState('480');
     const [lastRun, setLastRun] = useState<SandboxRun | null>(null);
     const [error, setError] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const state = useQuery<SandboxState>({
         queryKey: ['comms-sandbox'],
@@ -270,7 +390,7 @@ export default function SandboxPage() {
 
     const reset = useMutation({
         mutationFn: () => api<{ ok: true; state?: SandboxState }>('/reset', { method: 'POST' }),
-        onSuccess: (r) => { setLastRun(null); setError(null); applyState(r.state); },
+        onSuccess: (r) => { setLastRun(null); setError(null); setFiles([]); applyState(r.state); },
         onError: (e: Error) => setError(e.message),
     });
     const seedQuote = useMutation({
@@ -279,26 +399,53 @@ export default function SandboxPage() {
         onSuccess: (r) => { setError(null); setLastRun(null); applyState(r.state); },
         onError: (e: Error) => setError(e.message),
     });
+    type SendVars = { text: string; files: File[] };
+    type SendReply = { ok: true; run: SandboxRun; mirrored?: SandboxMirror | null; media?: SandboxMediaReport[] | null; video?: SandboxVideoStatus | null; state?: SandboxState };
     const send = useMutation({
-        mutationFn: (t: string) => api<{ ok: true; run: SandboxRun; mirrored?: SandboxMirror | null; state?: SandboxState }>('/message', { method: 'POST', body: JSON.stringify({ text: t }) }),
+        // T11: with attachments the body is multipart (text + media files); without, the JSON body as before.
+        mutationFn: (v: SendVars) => {
+            if (!v.files.length) return api<SendReply>('/message', { method: 'POST', body: JSON.stringify({ text: v.text }) });
+            const form = new FormData();
+            form.append('text', v.text);
+            for (const f of v.files) form.append('media', f, f.name);
+            return api<SendReply>('/message', { method: 'POST', body: form });
+        },
         onMutate: () => { setError(null); setLastRun(null); },
-        onSuccess: (r) => { applyState(r.state); setLastRun({ ...r.run, mirrored: r.mirrored ?? null }); setText(''); },
+        onSuccess: (r) => { applyState(r.state); setLastRun({ ...r.run, mirrored: r.mirrored ?? null, media: r.media ?? null, video: r.video ?? null }); setText(''); setFiles([]); },
         onError: (e: Error) => setError(e.message),
     });
 
     const conv = state.data?.conversation ?? null;
     const msgs = state.data?.messages ?? [];
     const quote = state.data?.quote ?? null;
+    const video = state.data?.video ?? null;
     const busy = send.isPending || reset.isPending || seedQuote.isPending;
     const amountOk = Number.isFinite(Number(amount)) && Number(amount) >= 1 && Number(amount) <= 20_000;
+    const warning = videoWarning(video);
+    const overBound = attachmentsOverBound(files.length, video);
 
     useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length, lastRun?.runId, send.isPending]);
 
+    // T11: object urls for the previews, revoked when the set changes (jsdom has no createObjectURL).
+    const [previews, setPreviews] = useState<string[]>([]);
+    useEffect(() => {
+        const make = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+        const urls = files.map((f) => (make ? URL.createObjectURL(f) : ''));
+        setPreviews(urls);
+        return () => { if (make) for (const u of urls) if (u) URL.revokeObjectURL(u); };
+    }, [files]);
+
     const submit = () => {
         const t = text.trim();
-        if (!t || busy) return;
-        send.mutate(t);
+        if ((!t && !files.length) || busy) return;
+        send.mutate({ text: t, files });
     };
+    const addFiles = (list: FileList | null) => {
+        if (!list) return;
+        setFiles((prev) => [...prev, ...Array.from(list)].slice(0, MAX_ATTACHMENTS));
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    const removeFile = (i: number) => setFiles((prev) => prev.filter((_, j) => j !== i));
 
     return (
         <div className="mx-auto max-w-6xl space-y-4">
@@ -353,6 +500,11 @@ export default function SandboxPage() {
                                                 {isMirroredAck(m) ? 'rules layer ack · mirrored · never sent' : 'synthetic · never sent'}
                                             </div>
                                         )}
+                                        {m.mediaUrl && (
+                                            <div className="mb-1" data-testid="sandbox-bubble-media">
+                                                <MediaThumb url={m.mediaUrl} video={isVideoType(m.mediaType) || m.type === 'video'} />
+                                            </div>
+                                        )}
                                         {m.content}
                                     </div>
                                 </div>
@@ -361,7 +513,16 @@ export default function SandboxPage() {
                         {send.isPending && send.variables && (
                             // T6: the line just sent, shown at once — the row exists server-side before the pass starts.
                             <div className="flex justify-start" data-testid="sandbox-pending-inbound">
-                                <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-sm shadow-sm">{send.variables}</div>
+                                <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-sm shadow-sm">
+                                    {send.variables.files.length > 0 && (
+                                        <div className="mb-1 flex flex-wrap gap-1">
+                                            {send.variables.files.map((f, i) => (
+                                                <span key={i} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">{f.type.startsWith('video') ? '🎬' : '📷'} {f.name}</span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {send.variables.text}
+                                </div>
                             </div>
                         )}
                         {send.isPending && (
@@ -403,15 +564,39 @@ export default function SandboxPage() {
                                 </button>
                             ))}
                         </div>
+                        {warning && (
+                            <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-2 text-xs text-red-900" role="status" data-testid="sandbox-video-warning">
+                                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{warning}</span>
+                            </div>
+                        )}
                         <Textarea
                             value={text}
                             onChange={(e) => setText(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-                            placeholder={conv ? 'Type as the customer… (Enter to send, Shift+Enter for a new line)' : 'Start a clean thread first'}
+                            placeholder={conv ? 'Type as the customer… (Enter to send, Shift+Enter for a new line; attach a photo or video below)' : 'Start a clean thread first'}
                             rows={3}
                             disabled={!conv || busy}
                             data-testid="sandbox-input"
                         />
+                        {files.length > 0 && (
+                            <div className="space-y-1" data-testid="sandbox-attachments">
+                                <div className="flex flex-wrap gap-1.5">
+                                    {files.map((f, i) => (
+                                        <span key={`${f.name}-${i}`} className="flex items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-xs" data-testid="sandbox-attachment">
+                                            {previews[i] && !f.type.startsWith('video') ? <img src={previews[i]} alt="" className="h-5 w-5 rounded object-cover" /> : f.type.startsWith('video') ? <Video className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
+                                            <span className="max-w-[10rem] truncate">{f.name}</span>
+                                            <span className="text-muted-foreground">{(f.size / (1024 * 1024)).toFixed(1)} MB</span>
+                                            <button type="button" onClick={() => removeFile(i)} disabled={busy} aria-label={`remove ${f.name}`} className="rounded hover:bg-slate-100"><X className="h-3 w-3" /></button>
+                                        </span>
+                                    ))}
+                                </div>
+                                {overBound > 0 && (
+                                    <div className="text-xs text-amber-800" data-testid="sandbox-over-bound">
+                                        Only the last {video?.maxPerRun} will be described (spine.video.maxPerRun): the first {overBound} will reach the desk as bare media. That is what happens live in a burst.
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="flex items-center gap-1 text-xs">
                                 <span className="text-muted-foreground">Seed an unpaid quote for £</span>
@@ -426,10 +611,24 @@ export default function SandboxPage() {
                                     {seedQuote.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}Seed quote
                                 </Button>
                             </div>
-                            <Button onClick={submit} disabled={!conv || busy || !text.trim()} data-testid="sandbox-send">
-                                {send.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
-                                Send as customer
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept={ACCEPT_MEDIA}
+                                    multiple
+                                    className="hidden"
+                                    onChange={(e) => addFiles(e.target.files)}
+                                    data-testid="sandbox-file-input"
+                                />
+                                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={!conv || busy || files.length >= MAX_ATTACHMENTS} data-testid="sandbox-attach" title="Attach a photo or video, as the customer would">
+                                    <Paperclip className="mr-1 h-4 w-4" /> Attach
+                                </Button>
+                                <Button onClick={submit} disabled={!conv || busy || (!text.trim() && !files.length)} data-testid="sandbox-send">
+                                    {send.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                                    Send as customer
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -441,7 +640,7 @@ export default function SandboxPage() {
                         {conv ? (
                             <>
                                 <LiveRunPanel conversationId={conv.id} keepFinished />
-                                {!send.isPending && !lastRun && <div className="text-sm text-muted-foreground">Send a message and the pass appears here step by step: case file, triage, pack, each tool the Scoper calls, the proposal, guards, decision, exit.</div>}
+                                {!send.isPending && !lastRun && <div className="text-sm text-muted-foreground">Send a message and the pass appears here step by step: case file (with how many media were described), triage, pack, each tool the Scoper calls, the proposal, guards, decision, exit.</div>}
                             </>
                         ) : <div className="text-sm text-muted-foreground">Start a thread to watch runs.</div>}
                     </div>

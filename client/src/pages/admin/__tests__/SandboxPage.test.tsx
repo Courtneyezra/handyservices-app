@@ -9,7 +9,7 @@ import { renderWithQuery, mockFetch } from '@test-utils';
 
 vi.mock('@/hooks/useCommsEvents', () => ({ useCommsEvents: () => undefined }));
 
-import SandboxPage, { RunDetail, decisionLabel, pounds, WRONG_MOVE_SHAPES, type SandboxRun, type SandboxState } from '@/pages/admin/SandboxPage';
+import SandboxPage, { RunDetail, MediaSeen, decisionLabel, pounds, mediaStatusLabel, videoWarning, attachmentsOverBound, WRONG_MOVE_SHAPES, MAX_ATTACHMENTS, ACCEPT_MEDIA, type SandboxRun, type SandboxState, type SandboxMediaReport, type SandboxVideoStatus } from '@/pages/admin/SandboxPage';
 
 function run(over: Partial<SandboxRun> = {}): SandboxRun {
     return {
@@ -157,5 +157,202 @@ describe('<SandboxPage>', () => {
         await waitFor(() => expect(screen.getByText(/rules layer ack · mirrored · never sent/i)).toBeTruthy());
         expect(screen.getByTestId('sandbox-proposed-bubble').textContent).toContain('first contact');
         expect(screen.getByTestId('sandbox-proposed-bubble').textContent).not.toContain('no reply proposed');
+    });
+});
+
+// ---------------------------------------------------------------- T11: media in the sandbox
+
+const VIDEO_ON: SandboxVideoStatus = { enabled: true, images: true, maxPerRun: 6, keyPresent: true };
+function mediaItem(over: Partial<SandboxMediaReport> = {}): SandboxMediaReport {
+    return {
+        id: 'msg_sbx_aaaaaaaaaaaaa', kind: 'image', url: '/api/media/msg_sbx_aaaaaaaaaaaaa.jpg',
+        description: 'A ceiling extractor fan with a yellowed grille in a tiled bathroom. Defects: fan (moderate: not spinning). (confidence high)',
+        status: 'described', note: 'Described on this pass by Gemini. This text is exactly what the Scoper read.',
+        vision: { runId: 'run_vis_1', costPence: 1, error: null }, ...over,
+    };
+}
+
+describe('T11 pure helpers', () => {
+    it('mediaStatusLabel: only described/cached are ok; everything else says NOT described or FAILED', () => {
+        expect(mediaStatusLabel('described').tone).toBe('ok');
+        expect(mediaStatusLabel('cached').tone).toBe('ok');
+        for (const s of ['failed', 'off', 'images_off', 'no_key', 'missing'] as const) {
+            expect(mediaStatusLabel(s).tone).toBe('bad');
+            expect(mediaStatusLabel(s).text).toMatch(/NOT described|FAILED/);
+        }
+        expect(mediaStatusLabel('over_bound', 6)).toEqual({ text: 'NOT described — over the per-pass bound (only the last 6 are described)', tone: 'warn' });
+        expect(mediaStatusLabel('unsupported').tone).toBe('warn');
+    });
+    it('videoWarning: quiet when on with a key; loud when off, keyless, or photos off', () => {
+        expect(videoWarning(VIDEO_ON)).toBeNull();
+        expect(videoWarning(undefined)).toBeNull();
+        expect(videoWarning({ ...VIDEO_ON, enabled: false })).toMatch(/OFF/);
+        expect(videoWarning({ ...VIDEO_ON, keyPresent: false })).toMatch(/GEMINI_API_KEY/);
+        expect(videoWarning({ ...VIDEO_ON, images: false })).toMatch(/Photos are not described/);
+    });
+    it('attachmentsOverBound: the count above maxPerRun, none when description is off', () => {
+        expect(attachmentsOverBound(8, VIDEO_ON)).toBe(2);
+        expect(attachmentsOverBound(6, VIDEO_ON)).toBe(0);
+        expect(attachmentsOverBound(8, { ...VIDEO_ON, enabled: false })).toBe(0);
+        expect(attachmentsOverBound(8, null)).toBe(0);
+    });
+    it('the picker mirrors the server bounds: 8 files, photos and videos only', () => {
+        expect(MAX_ATTACHMENTS).toBe(8);
+        expect(ACCEPT_MEDIA.split(',')).toContain('image/jpeg');
+        expect(ACCEPT_MEDIA.split(',')).toContain('video/mp4');
+        expect(ACCEPT_MEDIA).not.toMatch(/pdf|audio/);
+    });
+});
+
+describe('<MediaSeen> — the description is shown next to the reply, and its absence is loud', () => {
+    it('a described item shows the text the Scoper read, the pill, the vision cost', () => {
+        render(<MediaSeen media={[mediaItem()]} video={VIDEO_ON} />);
+        expect(screen.getByTestId('sandbox-media-seen').textContent).toContain('1 of 1 described');
+        expect(screen.getByTestId('sandbox-media-description').textContent).toContain('ceiling extractor fan');
+        expect(screen.getByText(/Described — this is what the Scoper read/)).toBeTruthy();
+        expect(screen.getByText(/run_vis_1/).parentElement?.textContent).toContain('£0.01');
+        expect(screen.queryByTestId('sandbox-media-missing')).toBeNull();
+        expect(document.querySelector('img[src="/api/media/msg_sbx_aaaaaaaaaaaaa.jpg"]')).toBeTruthy();
+    });
+    it('a failed item is red, says FAILED, and carries the error — never silently blank', () => {
+        render(<MediaSeen media={[mediaItem({ description: null, status: 'failed', note: 'Description FAILED on this pass. Error: no description (see describe_video log)', vision: { runId: 'run_vis_2', costPence: null, error: 'no description (see describe_video log)' } })]} video={VIDEO_ON} />);
+        const missing = screen.getByTestId('sandbox-media-missing');
+        expect(missing.textContent).toContain('No description.');
+        expect(missing.textContent).toContain('FAILED');
+        expect(missing.className).toContain('red');
+        expect(screen.getByText(/DESCRIPTION FAILED/)).toBeTruthy();
+        expect(screen.getByTestId('sandbox-media-seen').textContent).toContain('0 of 1 described');
+    });
+    it('over the bound: the earlier item says which bound dropped it, the later one is described', () => {
+        render(<MediaSeen media={[
+            mediaItem({ id: 'msg_sbx_0000000000000', description: null, status: 'over_bound', note: 'NOT described: outside the per-pass bound.', vision: null }),
+            mediaItem(),
+        ]} video={VIDEO_ON} />);
+        const items = screen.getAllByTestId('sandbox-media-item');
+        expect(items).toHaveLength(2);
+        expect(items[0].getAttribute('data-status')).toBe('over_bound');
+        expect(items[0].textContent).toContain('only the last 6 are described');
+        expect(items[1].getAttribute('data-status')).toBe('described');
+        expect(screen.getByTestId('sandbox-media-seen').textContent).toContain('1 of 2 described');
+    });
+    it('off and no key are named as such', () => {
+        render(<MediaSeen media={[mediaItem({ description: null, status: 'off', note: 'NOT described: spine.video.enabled is off.', vision: null })]} video={{ ...VIDEO_ON, enabled: false }} />);
+        expect(screen.getByText(/description is OFF on this server/)).toBeTruthy();
+    });
+    it('a video renders as a video element', () => {
+        render(<MediaSeen media={[mediaItem({ kind: 'video', url: '/api/media/msg_sbx_bbbbbbbbbbbbb.mp4' })]} video={VIDEO_ON} />);
+        expect(document.querySelector('video[src="/api/media/msg_sbx_bbbbbbbbbbbbb.mp4"]')).toBeTruthy();
+    });
+});
+
+describe('<RunDetail> with media', () => {
+    it('shows What the desk saw between the reply and the triage fields; nothing when the pass had no media', () => {
+        render(<RunDetail run={run({ media: [mediaItem()], video: VIDEO_ON })} />);
+        expect(screen.getByTestId('sandbox-media-seen')).toBeTruthy();
+        expect(screen.getByTestId('sandbox-media-description').textContent).toContain('extractor fan');
+    });
+    it('no media on the pass: no section', () => {
+        render(<RunDetail run={run({ media: [] })} />);
+        expect(screen.queryByTestId('sandbox-media-seen')).toBeNull();
+    });
+});
+
+describe('<SandboxPage> with attachments', () => {
+    const started: SandboxState = {
+        phone: { e164: '+447700900942', wa: '447700900942@c.us' }, quote: null, runs: [], messages: [],
+        conversation: { id: 'sbx-1', stage: 'enquiry', tags: ['sandbox'], contactName: 'Sandbox customer (not real)', createdAt: '2026-09-06T10:00:00Z', hasTrigger: false },
+        video: VIDEO_ON,
+    };
+    const photo = () => new File([new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 1, 2, 3])], 'fan.jpg', { type: 'image/jpeg' });
+
+    it('attaching a photo posts multipart to the same parameterless url, with the text as the caption; the sent bubble shows it', async () => {
+        const withMedia: SandboxState = {
+            ...started,
+            messages: [{ id: 'msg_sbx_aaaaaaaaaaaaa', direction: 'inbound', content: 'The fan has died', createdAt: '2026-09-06T10:00:01Z', senderName: 'Sandbox customer (not real)', type: 'image', mediaUrl: '/api/media/msg_sbx_aaaaaaaaaaaaa.jpg', mediaType: 'image/jpeg' }],
+        };
+        const { fn, calls } = mockFetch([
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: started }) },
+            { method: 'POST', url: '/api/comms-sandbox/message', reply: () => ({ json: { ok: true, messageId: 'msg_sbx_aaaaaaaaaaaaa', run: run(), media: [mediaItem()], video: VIDEO_ON, state: withMedia } }) },
+        ]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
+        await userEvent.upload(screen.getByTestId('sandbox-file-input'), photo());
+        await waitFor(() => expect(screen.getAllByTestId('sandbox-attachment')).toHaveLength(1));
+        expect(screen.getByTestId('sandbox-attachments').textContent).toContain('fan.jpg');
+        await userEvent.type(screen.getByTestId('sandbox-input'), 'The fan has died');
+        await userEvent.click(screen.getByTestId('sandbox-send'));
+        await waitFor(() => expect(screen.getByTestId('sandbox-run-detail')).toBeTruthy());
+
+        const post = calls.find((c) => c.method === 'POST');
+        expect(post?.url).toBe('/api/comms-sandbox/message');
+        expect(post?.url).not.toMatch(/sbx-1/);
+        const init = fn.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')?.[1] as RequestInit;
+        expect(init.body).toBeInstanceOf(FormData);
+        const form = init.body as FormData;
+        expect(form.get('text')).toBe('The fan has died');
+        expect(form.getAll('media')).toHaveLength(1);
+        expect((form.get('media') as File).name).toBe('fan.jpg');
+        expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+
+        // The sent bubble carries the stored photo; the detail carries what the desk saw; the picker is clear.
+        await waitFor(() => expect(screen.getByTestId('sandbox-bubble-media')).toBeTruthy());
+        expect(screen.getByTestId('sandbox-media-seen')).toBeTruthy();
+        expect(screen.getByTestId('sandbox-media-description').textContent).toContain('extractor fan');
+        expect(screen.queryByTestId('sandbox-attachments')).toBeNull();
+    });
+
+    it('a photo alone can be sent; text alone still goes as JSON', async () => {
+        const { fn, calls } = mockFetch([
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: started }) },
+            { method: 'POST', url: '/api/comms-sandbox/message', reply: () => ({ json: { ok: true, messageId: 'm1', run: run(), state: started } }) },
+        ]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
+        expect((screen.getByTestId('sandbox-send') as HTMLButtonElement).disabled).toBe(true);
+        await userEvent.upload(screen.getByTestId('sandbox-file-input'), photo());
+        await waitFor(() => expect((screen.getByTestId('sandbox-send') as HTMLButtonElement).disabled).toBe(false));
+        await userEvent.click(screen.getByTestId('sandbox-send'));
+        await waitFor(() => expect(screen.getByTestId('sandbox-run-detail')).toBeTruthy());
+        const first = fn.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')?.[1] as RequestInit;
+        expect(first.body).toBeInstanceOf(FormData);
+        expect((first.body as FormData).get('text')).toBe('');
+
+        await userEvent.type(screen.getByTestId('sandbox-input'), 'just words');
+        await userEvent.click(screen.getByTestId('sandbox-send'));
+        await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(2));
+        expect(calls.filter((c) => c.method === 'POST')[1].body).toEqual({ text: 'just words' });
+    });
+
+    it('more than maxPerRun attached: says which will not be described; removing one clears it', async () => {
+        mockFetch([{ method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: { ...started, video: { ...VIDEO_ON, maxPerRun: 2 } } }) }]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
+        await userEvent.upload(screen.getByTestId('sandbox-file-input'), [photo(), photo(), photo()]);
+        await waitFor(() => expect(screen.getAllByTestId('sandbox-attachment')).toHaveLength(3));
+        expect(screen.getByTestId('sandbox-over-bound').textContent).toContain('Only the last 2 will be described');
+        expect(screen.getByTestId('sandbox-over-bound').textContent).toContain('the first 1 will reach the desk as bare media');
+        await userEvent.click(screen.getAllByLabelText(/remove fan.jpg/)[0]);
+        await waitFor(() => expect(screen.getAllByTestId('sandbox-attachment')).toHaveLength(2));
+        expect(screen.queryByTestId('sandbox-over-bound')).toBeNull();
+    });
+
+    it('description off, or no key: the composer warns before anything is sent', async () => {
+        mockFetch([{ method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: { ...started, video: { ...VIDEO_ON, keyPresent: false } } }) }]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect(screen.getByTestId('sandbox-video-warning')).toBeTruthy());
+        expect(screen.getByTestId('sandbox-video-warning').textContent).toContain('GEMINI_API_KEY');
+    });
+
+    it('reset clears the pending attachments', async () => {
+        mockFetch([
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: started }) },
+            { method: 'POST', url: '/api/comms-sandbox/reset', reply: () => ({ json: { ok: true, state: started } }) },
+        ]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
+        await userEvent.upload(screen.getByTestId('sandbox-file-input'), photo());
+        await waitFor(() => expect(screen.getAllByTestId('sandbox-attachment')).toHaveLength(1));
+        await userEvent.click(screen.getByTestId('sandbox-reset'));
+        await waitFor(() => expect(screen.queryByTestId('sandbox-attachments')).toBeNull());
     });
 });
