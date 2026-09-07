@@ -12,11 +12,15 @@
  *   POST /start       T16: { door, name?, text?, jobPhrase?, whatsappAgreed?, transcript? } → reset,
  *                     then open the thread through one of the four real front doors, shaped as the
  *                     live writer shapes it (server/spine/sandbox-scenarios.ts): a webform enquiry,
- *                     an answered call with WhatsApp agreed, an inbound SMS, or a clean WhatsApp
- *                     thread. The first thing the customer would receive (the ack ladder's rung,
- *                     the continuation template, the SMS) is MIRRORED onto the thread and reported
- *                     with the reason, and the desk's first pass runs where the live system would
- *                     run one (inbound_message, or call_ended for a call).
+ *                     an answered call with WhatsApp agreed, an inbound SMS, or (T19) the customer's
+ *                     own opening WhatsApp message, typed by the owner with no default: on that door
+ *                     the customer starts the conversation, so the message IS the event (it creates
+ *                     the thread and opens the 24 h window) and the ack is planned against it only
+ *                     after the first pass lands on first contact, exactly as /message does. The
+ *                     first thing the customer would receive (the ack ladder's rung, the
+ *                     continuation template, the SMS, the freeform ack) is MIRRORED onto the thread
+ *                     and reported with the reason, and the desk's first pass runs where the live
+ *                     system would run one (inbound_message, or call_ended for a call).
  *   POST /message     { text, channel? } → inbound message on the thread, then runOnce(..., { dryRun, sandbox })
  *                     returns the whole pass (triage, pack, proposal, guards, decision, exit note, cost).
  *                     T16: `channel` 'whatsapp' (default) or 'sms'. An SMS never moves lastInboundAt
@@ -80,7 +84,7 @@ import { explainMediaSelection } from './media-selection';
 import { SANDBOX_DIGITS, SANDBOX_PHONE_E164, SANDBOX_PHONE_WA, isSandboxPhone, quoteAcceptedNotice, type SandboxBenNotice } from './sandbox';
 import {
     DOOR_MEANING, validateStart, validateAge, validateClockTrigger, planFirstContactAck, planPostCallContinuation, planQuoteLinkDelivery,
-    sandboxClassification, windowReport, nameSlot, looksLikeAName, type AckPlan, type PostCallPlan, type QuoteLinkPlan, type SandboxDoor, type StartInput, type TemplateRow, type WindowReport,
+    sandboxClassification, windowReport, nameSlot, looksLikeAName, enquirySnippet, type AckPlan, type PostCallPlan, type QuoteLinkPlan, type SandboxDoor, type StartInput, type TemplateRow, type WindowReport,
 } from './sandbox-scenarios';
 import type { MediaItem } from './types';
 
@@ -298,6 +302,8 @@ export interface SandboxMirror {
     intent: 'ack_enquiry' | 'ack_photos';
     body: string;
     messageId: string | null;
+    /** T19: the sender label the mirrored row carries (the page labels the bubble off it). */
+    sender: string;
     note: string;
     /** T16: the whole plan — pipe, ladder rung, config gate — so the page can say what production would do. */
     plan: AckPlan;
@@ -373,8 +379,12 @@ export const SANDBOX_EVENTS_MAX = 60;
 export interface EntryReport {
     door: SandboxDoor;
     meaning: (typeof DOOR_MEANING)[SandboxDoor];
-    /** webform / sms: the first-contact ack ladder. */
+    /** webform / sms: the first-contact ack ladder. whatsapp (T19): the freeform plan, filled in after the first pass lands on first contact. */
     ack: AckPlan | null;
+    /** T19: whatsapp only — the customer's opening message, the event that created the thread. */
+    firstMessage?: string | null;
+    /** T19: true when the door's own event opened the 24 h window (only a customer WhatsApp does). */
+    openedWindow?: boolean;
     /** post_call: the continuation plan and the seeded call. */
     postCall: (PostCallPlan & { call: { id: string; preview: string; durationSeconds: number; transcriptChars: number } }) | null;
     /** What the sandbox placed on the thread for the customer to "have received", or why nothing. */
@@ -731,6 +741,31 @@ commsSandboxRouter.post('/reset', async (_req, res) => {
     }
 });
 
+/**
+ * T6 / T16 / T19: if the pass landed on the rules layer's first contact, plan the ack for the
+ * channel the message came on (the window is open only when that channel is WhatsApp), place it
+ * on the thread as a synthetic outbound, record the event, and return the mirror for the page.
+ * Null when the pass did not land there (the desk answered, or the screen refused). Shared by
+ * /message and the WhatsApp door of /start, so both doors into first contact behave identically.
+ */
+async function mirrorFirstContactAck(conversationId: string, run: RunOnceResult, input: { channel: 'whatsapp' | 'sms'; name: string | null; text: string; hasMedia: boolean }): Promise<SandboxMirror | null> {
+    const mirror = firstContactMirrorFor(run);
+    if (!mirror) return null;
+    const templates = await templateCache().catch(() => [] as TemplateRow[]);
+    const config = await ackConfig();
+    let smsSenderConfigured = false;
+    try { const { isSmsSenderConfigured } = await import('../whatsapp-sender'); smsSenderConfigured = isSmsSenderConfigured(); } catch { /* off */ }
+    const plan = planFirstContactAck({
+        door: input.channel, intent: mirror.intent, name: input.name, text: input.text,
+        hasMedia: input.hasMedia, windowOpen: input.channel === 'whatsapp', config, templates, smsSenderConfigured,
+    });
+    const sender = plan.mode === 'freeform' ? SANDBOX_RULES_ACK_SENDER : mirrorSender('rules layer ack', plan);
+    let ackId: string | null = null;
+    if (plan.body && plan.channel) ackId = await insertOutbound(conversationId, plan.body, sender, plan.channel);
+    await recordEvent(conversationId, { kind: 'ack', summary: `First-contact ack (${mirror.intent}): ${plan.mode}${plan.templateName ? ` (${plan.templateName})` : ''} — ${plan.reason}`, detail: { gate: plan.gate } });
+    return { kind: 'first_contact_ack', intent: mirror.intent, body: plan.body ?? '', messageId: ackId, sender, note: `${MIRROR_NOTE} ${ackGateNote(plan)}`, plan };
+}
+
 // ---------------------------------------------------------------- T16: the four doors
 
 commsSandboxRouter.post('/start', async (req, res) => {
@@ -748,7 +783,20 @@ commsSandboxRouter.post('/start', async (req, res) => {
         }));
         let pass: Awaited<ReturnType<typeof passOn>> | null = null;
         if (entry.firstRunTrigger) pass = await passOn(conversationId, entry.firstRunTrigger);
-        res.json({ ok: true, deleted, door: input.door, entry, run: pass?.summary ?? null, media: pass?.media ?? null, video: pass?.video ?? null, state: await loadState() });
+        // T19: on the WhatsApp door the ack answers the customer's message, so it can only be
+        // planned once the pass has said this is first contact (the T6 rule, firstContactMirrorFor).
+        let mirrored: SandboxMirror | null = null;
+        let finalEntry = entry;
+        if (input.door === 'whatsapp' && pass) {
+            mirrored = await mirrorFirstContactAck(conversationId, pass.run, { channel: 'whatsapp', name: looksLikeAName(input.name) ? input.name : null, text: input.text, hasMedia: false });
+            finalEntry = {
+                ...entry,
+                ack: mirrored?.plan ?? null,
+                mirrored: mirrored?.messageId && mirrored.plan.channel ? { messageId: mirrored.messageId, channel: mirrored.plan.channel, body: mirrored.body, sender: mirrored.sender } : null,
+            };
+            await patchSandboxMeta(conversationId, { entry: finalEntry });
+        }
+        res.json({ ok: true, deleted, door: input.door, entry: finalEntry, run: pass?.summary ?? null, mirrored, media: pass?.media ?? null, video: pass?.video ?? null, state: await loadState() });
     } catch (error: any) {
         console.error('[Sandbox] start failed:', error);
         res.status(500).json({ error: error?.message ?? 'sandbox start failed' });
@@ -758,7 +806,7 @@ commsSandboxRouter.post('/start', async (req, res) => {
 /** One line for the event log. */
 export function entrySummary(entry: EntryReport): string {
     const meaning = DOOR_MEANING[entry.door].label;
-    if (entry.door === 'whatsapp') return `Opened through ${meaning}: a clean thread; the first message is first contact`;
+    if (entry.door === 'whatsapp') return `Opened through ${meaning}: the customer's message "${enquirySnippet(entry.firstMessage)}" created the thread and opened the 24 h window; first contact`;
     if (entry.postCall) return `Opened through ${meaning}: call ${entry.postCall.call.preview}; continuation ${entry.postCall.outcome === 'template' ? `template ${entry.postCall.templateName}` : entry.postCall.reason}`;
     if (entry.ack) return `Opened through ${meaning}: ack ${entry.ack.mode}${entry.ack.templateName ? ` (${entry.ack.templateName})` : ''}${entry.ack.channel ? ` by ${entry.ack.channel}` : ''} — ${entry.ack.reason}`;
     return `Opened through ${meaning}`;
@@ -768,7 +816,14 @@ export function entrySummary(entry: EntryReport): string {
 async function openDoor(conversationId: string, input: StartInput): Promise<EntryReport> {
     const meaning = DOOR_MEANING[input.door];
     const base: EntryReport = { door: input.door, meaning, ack: null, postCall: null, mirrored: null, firstRunTrigger: null };
-    if (input.door === 'whatsapp') return base;
+    if (input.door === 'whatsapp') {
+        // T19: the live writer (conversation-engine.ts) — one WhatsApp inbound row, which is what
+        // opens the window (insertInbound sets lastInboundAt for this channel only). No ack yet:
+        // live, the rules layer answers only once the pass has landed on first contact, and the
+        // /start handler mirrors it after the pass through the same helper /message uses.
+        await insertInbound(conversationId, input.text, undefined, { channel: 'whatsapp', senderName: input.name ?? SANDBOX_CONTACT_NAME });
+        return { ...base, firstMessage: input.text, openedWindow: true, firstRunTrigger: 'inbound_message' };
+    }
 
     const templates = await templateCache().catch(() => [] as TemplateRow[]);
     const config = await ackConfig();
@@ -1060,22 +1115,9 @@ commsSandboxRouter.post('/message', parseSandboxUpload, async (req, res) => {
         const { run, summary, media, video } = pass;
         // T6: first contact — mirror the rules layer's ack so the thread can leave the rules lane.
         // T16: the mirror is the whole plan (pipe, ladder, gate), for the door the message came through.
-        let mirrored: SandboxMirror | null = null;
-        const mirror = firstContactMirrorFor(run);
-        if (mirror) {
-            const templates = await templateCache().catch(() => [] as TemplateRow[]);
-            const config = await ackConfig();
-            let smsSenderConfigured = false;
-            try { const { isSmsSenderConfigured } = await import('../whatsapp-sender'); smsSenderConfigured = isSmsSenderConfigured(); } catch { /* off */ }
-            const plan = planFirstContactAck({
-                door: ch.channel, intent: mirror.intent, name: looksLikeAName(conv?.contactName) ? conv!.contactName : null, text: v.text,
-                hasMedia: files.length > 0, windowOpen: ch.channel === 'whatsapp', config, templates, smsSenderConfigured,
-            });
-            let ackId: string | null = null;
-            if (plan.body && plan.channel) ackId = await insertOutbound(conversationId, plan.body, plan.mode === 'freeform' ? SANDBOX_RULES_ACK_SENDER : mirrorSender('rules layer ack', plan), plan.channel);
-            mirrored = { kind: 'first_contact_ack', intent: mirror.intent, body: plan.body ?? '', messageId: ackId, note: `${MIRROR_NOTE} ${ackGateNote(plan)}`, plan };
-            await recordEvent(conversationId, { kind: 'ack', summary: `First-contact ack (${mirror.intent}): ${plan.mode}${plan.templateName ? ` (${plan.templateName})` : ''} — ${plan.reason}`, detail: { gate: plan.gate } });
-        }
+        const mirrored = await mirrorFirstContactAck(conversationId, run, {
+            channel: ch.channel, name: looksLikeAName(conv?.contactName) ? conv!.contactName : null, text: v.text, hasMedia: files.length > 0,
+        });
         res.json({ ok: true, messageId, messageIds, channel: ch.channel, run: summary, mirrored, media, video, state: await loadState() });
     } catch (error: any) {
         console.error('[Sandbox] message failed:', error);

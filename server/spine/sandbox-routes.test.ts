@@ -284,7 +284,10 @@ describe('T16: the route never takes an id, and every new action is keyed on the
     });
     it('entrySummary reads per door', () => {
         const meaning = { label: 'x', window: 'y', firstReply: 'z' };
-        expect(entrySummary({ door: 'whatsapp', meaning, ack: null, postCall: null, mirrored: null, firstRunTrigger: null })).toMatch(/clean thread/);
+        // T19: the WhatsApp door's event is the customer's own message, and it opens the window.
+        const wa = entrySummary({ door: 'whatsapp', meaning, ack: null, postCall: null, mirrored: null, firstRunTrigger: 'inbound_message', firstMessage: 'Hi, my extractor fan has died, NG7 2AB', openedWindow: true });
+        expect(wa).toMatch(/customer's message "my extractor fan has died, NG7 2AB" created the thread and opened the 24 h window/); // enquirySnippet drops the greeting, as live does
+        expect(wa).not.toMatch(/clean thread/);
         expect(entrySummary({ door: 'webform', meaning, ack: { mode: 'template', templateName: 'web_enquiry_ack_context', channel: 'whatsapp', reason: 'r' } as any, postCall: null, mirrored: null, firstRunTrigger: 'inbound_message' })).toMatch(/ack template \(web_enquiry_ack_context\) by whatsapp/);
         expect(entrySummary({ door: 'post_call', meaning, ack: null, postCall: { outcome: 'no_approved_template', reason: 'NO_APPROVED_TEMPLATE', call: { preview: 'Inbound call (4m)' } } as any, mirrored: null, firstRunTrigger: 'call_ended' })).toMatch(/Inbound call \(4m\); continuation NO_APPROVED_TEMPLATE/);
     });
