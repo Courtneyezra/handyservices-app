@@ -20,7 +20,7 @@ import { exit as runExit, type ExitOutcome } from './exit';
 import { requestRun, runDue, quoteWorkInFlight, QUOTE_TAGS, type QuoteWorkInFlight } from './request-run';
 import { runRouteAChain, surveyOfferFor, artifactReadiness, type RouteAOutcome } from './route-a';
 import { runEmitter, leanTranscriptEvent, wouldHaveHappened, type RunEmitter } from './run-events';
-import { isSandboxPhone } from './sandbox';
+import { isSandboxPhone, newSandboxRouteARecord, sandboxRouteADeps } from './sandbox';
 import type { AgentLoopUsage, AgentName, CaseFile, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, TriageResult, Trigger } from './types';
 
 /** P7: how long the spine waits for something the customer said was coming before it looks again. */
@@ -141,9 +141,10 @@ export interface RunOnceOpts {
     /**
      * T5: the comms sandbox (server/spine/sandbox.ts). Implies dryRun — the exit is never reached
      * whatever the caller passed; refuses a case file whose phone is not the sandbox number; skips
-     * the two internal side-chains that reach outside the thread (job pack filing, Route A: draft
-     * quotes + a Pushover to Ben); stamps `proposal.sandbox = true` on the agent_runs row so the
-     * sampler and the autonomy job can exclude it.
+     * job pack filing (writes job packs); T16: runs Route A with Ben's Pushover and the job pack
+     * write RECORDED on the run rather than done (the draft and the estimate land on the sandbox
+     * number, which the price queue excludes); stamps `proposal.sandbox = true` on the agent_runs
+     * row so the sampler and the autonomy job can exclude it.
      */
     sandbox?: boolean;
 }
@@ -343,21 +344,29 @@ async function runOnceBody(
     // nothing here reaches a customer. A chain failure is recorded on the run and never blocks the
     // decision the clerk's pass would have taken.
     let routeA: RouteAOutcome | undefined;
-    if (sandbox && proposal?.artifact?.kind === 'quote_intake') {
-        // T5: Route A writes draft quotes and pushes Ben's phone — neither belongs to a play session.
-        const readiness = artifactReadiness(proposal.artifact);
-        const reason = `sandbox: Route A skipped (readiness ${readiness}; live, it would run the estimator chain and push Ben)`;
-        routeA = { ran: false, reason };
-        skipped.push(reason);
-        ev.stage('note', reason);
-    } else if (proposal?.artifact?.kind === 'quote_intake') {
+    if (proposal?.artifact?.kind === 'quote_intake') {
         const readiness = artifactReadiness(proposal.artifact);
         if (readiness === 'quote_ready') {
+            // T16: in the sandbox the chain runs for real — estimator, pricing engine, an estimate
+            // row and a priced draft, all on the sandbox conversation / number — up to the two
+            // steps that leave the thread: Ben's Pushover and the job pack write. Those are
+            // RECORDED on the run (server/spine/sandbox.ts sandboxRouteADeps) in the words Ben
+            // would have read, never done. T5 skipped the whole chain; the funnel was unobservable.
+            const record = sandbox ? newSandboxRouteARecord() : null;
+            if (record) ev.stage('note', 'sandbox: Route A runs (estimator, pricing engine, a draft on the sandbox number); Ben\'s ping and the job pack are recorded on this run, not sent');
             try {
-                routeA = await runRouteAChain({ caseFile, pack, triage, clerkRunId: runId, artifact: proposal.artifact });
+                routeA = await runRouteAChain({ caseFile, pack, triage, clerkRunId: runId, artifact: proposal.artifact }, record ? sandboxRouteADeps(record) : undefined);
             } catch (e: any) {
                 routeA = { ran: true, reason: `chain failed: ${e?.message ?? e}` };
                 console.error(`[Spine] Route A chain failed for ${conversationId}:`, e?.message ?? e);
+            }
+            if (record) {
+                routeA = { ...routeA, sandbox: record };
+                skipped.push('Pushover to Ben (recorded on this run instead: "Ben would have been pinged")');
+                skipped.push('job pack write (recorded on this run instead)');
+                ev.stage('note', record.benNotice
+                    ? `sandbox: Route A produced draft ${routeA.draftSlug ?? '?'}; Ben would have been pinged: ${record.benNotice.title}`
+                    : `sandbox: Route A ${routeA.ran ? 'ran' : 'did not run'}${routeA.reason ? ` — ${routeA.reason}` : ''}; no ping would have gone`);
             }
         } else if (readiness === 'visit_first' && !benLaneClerk?.run) {
             // P19: `visit_first` REPLACES the proposal with a customer-facing survey offer, which

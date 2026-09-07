@@ -4,7 +4,8 @@
  *
  *   layer 1  sandbox implies dryRun: the exit is never called, even when the caller forgot dryRun
  *   layer 2  a sandbox pass on a case file that is not on the sandbox number throws before triage
- *   evidence the agent_runs row carries proposal.sandbox = true; Route A and filing are skipped
+ *   evidence the agent_runs row carries proposal.sandbox = true; filing is skipped; Route A runs with
+ *            Ben's Pushover and the job pack recorded on the run, never done (T16)
  *   feed     run_started → stage events (case file, triage, pack, proposal, guards, decision,
  *            exit) → run_finished, on EVERY run; the agent's tool events ride the same feed; a
  *            throwing bus never fails the pass
@@ -228,25 +229,58 @@ describe('evidence — the row is marked and the side-chains stay home', () => {
         expect(patch.proposal.sandbox).toBeUndefined();
         expect(isSandboxRunProposal(patch.proposal)).toBe(false);
     });
-    it('Route A is skipped on a quote_ready clerk artifact (it writes draft quotes and pushes Ben)', async () => {
+    it('T16: Route A RUNS on a quote_ready clerk artifact, with Ben\'s Pushover and the job pack recorded on the run instead of done', async () => {
         const clerk: SpineAgent = {
             name: 'quote_clerk', tier: 'PROPOSE',
             async run() { return { intent: 'holding', body: [], reasons: [], artifact: { kind: 'quote_intake', summary: 'ready', data: {} } }; },
         };
         triageFn.mockResolvedValue(scoperTriage({ lane: 'quote_clerk' }));
+        // The chain stand-in exercises the injected deps exactly as route-a.ts would.
+        runRouteAChain.mockImplementationOnce(async (_input: any, deps: any) => {
+            expect(deps).toBeTruthy();
+            await deps.notify({ conversationId: SANDBOX_CONV, customerName: 'Sandbox customer (not real)', postcode: 'NG7 2AB', slug: 'sbxdraft', lines: ['Replace bathroom extractor fan'], checkThis: 1, suggestedTotalPence: 48_000 });
+            await deps.writePack({ quoteId: 'quote_sbx', conversationId: SANDBOX_CONV, intakeRunId: 'run_clerk', intake: { lines: [{}, {}] }, estimate: { lines: [{}] }, intakeLines: [] });
+            await deps.log({ kind: 'other', summary: 'Route A: draft sbxdraft from estimate est_1', detail: {}, conversationId: SANDBOX_CONV, source: 'route-a' });
+            return { ran: true, draftSlug: 'sbxdraft', estimateId: 'est_1', checkThis: 1 };
+        });
         const run = await runOnce(SANDBOX_CONV, 'inbound_message', { quote_clerk: clerk }, { sandbox: true, runId: 'run_clerk' });
-        expect(runRouteAChain).not.toHaveBeenCalled();
-        expect(run.routeA).toMatchObject({ ran: false, reason: expect.stringMatching(/sandbox: Route A skipped/) });
+        expect(runRouteAChain).toHaveBeenCalledTimes(1);
+        expect(run.routeA).toMatchObject({ ran: true, draftSlug: 'sbxdraft' });
+        expect(run.routeA?.sandbox?.benNotice).toMatchObject({ event: 'quote_prep_ready', title: '💷 Quote ready to price: Sandbox customer (not real)' });
+        expect(run.routeA?.sandbox?.benNotice?.message).toContain('Suggested total £480');
+        expect(run.routeA?.sandbox?.benNotice?.link).toMatch(/\/admin\/price\/sbxdraft$/);
+        expect(run.routeA?.sandbox?.jobPack).toEqual({ lines: 2, estimateLines: 1, quoteId: 'quote_sbx' });
+        expect(run.routeA?.sandbox?.logs).toEqual(['Route A: draft sbxdraft from estimate est_1']);
+        expect(run.skipped).toEqual(expect.arrayContaining([expect.stringMatching(/Pushover to Ben \(recorded/), expect.stringMatching(/job pack write \(recorded/)]));
         expect(exitFn).not.toHaveBeenCalled();
+        const notes = events().filter((e) => e.type === 'run_event' && e.event?.type === 'stage' && e.event.stage === 'note').map((e) => e.event.label);
+        expect(notes.some((n: string) => /Ben would have been pinged: 💷 Quote ready to price/.test(n))).toBe(true);
     });
-    it('the control: Route A runs on the same artifact outside the sandbox', async () => {
+    it('T16: a sandbox pass never hands the chain the LIVE deps (the ones that dispatch Pushover and write the pack)', async () => {
         const clerk: SpineAgent = {
             name: 'quote_clerk', tier: 'PROPOSE',
             async run() { return { intent: 'holding', body: [], reasons: [], artifact: { kind: 'quote_intake', summary: 'ready', data: {} } }; },
         };
         triageFn.mockResolvedValue(scoperTriage({ lane: 'quote_clerk' }));
-        await runOnce(SANDBOX_CONV, 'inbound_message', { quote_clerk: clerk }, { dryRun: true, runId: 'run_clerk_live' });
+        await runOnce(SANDBOX_CONV, 'inbound_message', { quote_clerk: clerk }, { sandbox: true, runId: 'run_clerk_deps' });
+        const deps = (runRouteAChain.mock.calls[0] as any[])[1];
+        expect(typeof deps.notify).toBe('function');
+        expect(typeof deps.writePack).toBe('function');
+        expect(typeof deps.log).toBe('function');
+        // A chain that produced no draft: no notice, and the run says so.
+        const run = await runOnce(SANDBOX_CONV, 'inbound_message', { quote_clerk: clerk }, { sandbox: true, runId: 'run_clerk_nodraft' });
+        expect(run.routeA?.sandbox?.benNotice).toBeNull();
+    });
+    it('the control: Route A runs on the same artifact outside the sandbox with the live deps (none injected)', async () => {
+        const clerk: SpineAgent = {
+            name: 'quote_clerk', tier: 'PROPOSE',
+            async run() { return { intent: 'holding', body: [], reasons: [], artifact: { kind: 'quote_intake', summary: 'ready', data: {} } }; },
+        };
+        triageFn.mockResolvedValue(scoperTriage({ lane: 'quote_clerk' }));
+        const run = await runOnce(SANDBOX_CONV, 'inbound_message', { quote_clerk: clerk }, { dryRun: true, runId: 'run_clerk_live' });
         expect(runRouteAChain).toHaveBeenCalledTimes(1);
+        expect((runRouteAChain.mock.calls[0] as any[])[1]).toBeUndefined();
+        expect(run.routeA?.sandbox).toBeUndefined();
     });
 });
 

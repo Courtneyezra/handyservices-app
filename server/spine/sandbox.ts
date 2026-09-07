@@ -22,6 +22,7 @@
  */
 import { sql, type SQL } from 'drizzle-orm';
 import { isTestNumber } from '../phone-utils';
+import type { RouteADeps } from './route-a';
 
 /** The sandbox thread's number, as the WhatsApp ingest stores it. */
 export const SANDBOX_PHONE_WA = '447700900942@c.us';
@@ -56,4 +57,73 @@ export function notSandboxRunSql(alias?: string): SQL {
 /** Drizzle predicate keeping the sandbox thread off a conversations query (board, desk). */
 export function notSandboxPhoneSql(phoneColumn: SQL | { name: string } | unknown): SQL {
     return sql`regexp_replace(coalesce(${phoneColumn as SQL}, ''), '[^0-9]', '', 'g') <> ${SANDBOX_DIGITS}`;
+}
+
+// ---------------------------------------------------------------- T16: Route A in the sandbox
+//
+// T5 skipped the whole chain because two of its steps leave the thread: the Pushover to Ben and
+// the job pack. Everything else — the estimator, the pricing engine (read-only), the estimate row
+// and the priced draft — is written against the sandbox conversation and the sandbox number, so
+// it can run for real and Reset can delete it. The two outward steps are RECORDED on the run
+// instead, in the exact words Ben's phone would have shown, so the page can say "Ben would have
+// been pinged with this" without pinging him. The price queue excludes the sandbox number
+// (WAITING_DRAFT_WHERE), and the price screen's send refuses it, so the draft can never be sent
+// from the real screen.
+
+export interface SandboxBenNotice { event: string; title: string; message: string; link: string | null }
+
+export interface SandboxRouteARecord {
+    /** The Pushover Ben would have received, verbatim (pushover.notifyQuoteReadyToPrice's lines). */
+    benNotice: SandboxBenNotice | null;
+    /** What the job pack write would have held. */
+    jobPack: { lines: number; estimateLines: number; quoteId: string } | null;
+    /** The system_events lines Route A would have written. */
+    logs: string[];
+}
+
+export function newSandboxRouteARecord(): SandboxRouteARecord {
+    return { benNotice: null, jobPack: null, logs: [] };
+}
+
+function truncate(s: string, n: number): string { return s.length <= n ? s : `${s.slice(0, n - 1)}…`; }
+
+/** Mirror of pushover.notifyQuoteReadyToPrice: the lines Ben would have read. Pure; never dispatched. */
+export function quoteReadyNotice(alert: { customerName?: string | null; postcode?: string | null; slug: string; lines: string[]; checkThis: number; suggestedTotalPence?: number | null; estimatorFailed?: string | null }, baseUrl: string = process.env.BASE_URL || 'https://handyservices.app'): SandboxBenNotice {
+    const who = alert.customerName?.trim() || 'A customer';
+    const lines = [`${who}${alert.postcode ? ` · ${alert.postcode}` : ''}`];
+    if (alert.lines.length) {
+        lines.push(alert.lines.slice(0, 5).map((t) => `• ${truncate(t, 60)}`).join('\n'));
+        if (alert.lines.length > 5) lines.push(`…+${alert.lines.length - 5} more`);
+    }
+    if (alert.suggestedTotalPence != null) lines.push(`Suggested total £${(alert.suggestedTotalPence / 100).toFixed(0)} (yours to change).`);
+    if (alert.estimatorFailed) lines.push(`⚠️ Priced from reference rates, estimator failed (${truncate(alert.estimatorFailed, 120)}). Every line needs a check.`);
+    else if (alert.checkThis > 0) lines.push(`⚠️ ${alert.checkThis} line${alert.checkThis === 1 ? '' : 's'} marked check this.`);
+    lines.push('Nothing has been sent. Open, check, price, send.');
+    return { event: 'quote_prep_ready', title: `💷 Quote ready to price: ${who}`, message: lines.join('\n'), link: `${baseUrl}/admin/price/${alert.slug}` };
+}
+
+/** Mirror of pushover.notifyQuoteAccepted. Pure; never dispatched. */
+export function quoteAcceptedNotice(alert: { customerName?: string | null; phoneNumber?: string | null; jobSummary?: string | null; amountPaidPence?: number | null; paymentType?: 'full' | 'deposit' | null }): SandboxBenNotice {
+    const name = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const lines = [`${name} — ${number}`];
+    if (alert.jobSummary?.trim()) lines.push(truncate(alert.jobSummary.trim(), 140));
+    if (alert.amountPaidPence != null && alert.amountPaidPence > 0) lines.push(`💷 £${(alert.amountPaidPence / 100).toFixed(2)} paid${alert.paymentType === 'full' ? ' in full' : alert.paymentType === 'deposit' ? ' (deposit)' : ''}`);
+    return { event: 'quote_accepted', title: '🎉 Quote accepted', message: lines.join('\n'), link: null };
+}
+
+/**
+ * The chain's injectable deps for a sandbox pass: the estimator, the pricing engine, the estimate
+ * row, the draft and the supersede all default to the live functions (they write only against
+ * this conversation / this number); `notify`, `writePack` and `log` record into `record`.
+ */
+export function sandboxRouteADeps(record: SandboxRouteARecord): RouteADeps {
+    return {
+        notify: async (alert) => { record.benNotice = quoteReadyNotice(alert); },
+        writePack: async (input) => {
+            record.jobPack = { lines: input.intake.lines.length, estimateLines: input.estimate.lines.length, quoteId: input.quoteId };
+            return null;
+        },
+        log: async (e) => { record.logs.push(e.summary); },
+    };
 }

@@ -9,7 +9,7 @@ import { renderWithQuery, mockFetch } from '@test-utils';
 
 vi.mock('@/hooks/useCommsEvents', () => ({ useCommsEvents: () => undefined }));
 
-import SandboxPage, { RunDetail, MediaSeen, decisionLabel, pounds, mediaStatusLabel, videoWarning, attachmentsOverBound, WRONG_MOVE_SHAPES, MAX_ATTACHMENTS, ACCEPT_MEDIA, type SandboxRun, type SandboxState, type SandboxMediaReport, type SandboxVideoStatus } from '@/pages/admin/SandboxPage';
+import SandboxPage, { RunDetail, MediaSeen, EntryDetail, BenNoticeBox, DoorPicker, WindowStrip, FunnelStrip, decisionLabel, pounds, mediaStatusLabel, videoWarning, attachmentsOverBound, funnelStep, doorGateNote, outboundLabel, WRONG_MOVE_SHAPES, MAX_ATTACHMENTS, ACCEPT_MEDIA, SANDBOX_DOORS, FUNNEL_STEPS, type SandboxRun, type SandboxState, type SandboxMediaReport, type SandboxVideoStatus, type SandboxGates, type EntryReport, type BenNotice, type WindowReport } from '@/pages/admin/SandboxPage';
 
 function run(over: Partial<SandboxRun> = {}): SandboxRun {
     return {
@@ -121,7 +121,7 @@ describe('<SandboxPage>', () => {
         await userEvent.click(screen.getByTestId('sandbox-send'));
         await waitFor(() => expect(screen.getByTestId('sandbox-run-detail')).toBeTruthy());
         const post = calls.find((c) => c.method === 'POST');
-        expect(post?.body).toEqual({ text: "That's a lot more than I was expecting" });
+        expect(post?.body).toEqual({ text: "That's a lot more than I was expecting", channel: 'whatsapp' });
         expect(post?.url).not.toMatch(/sbx-1/);
         expect(screen.getByTestId('sandbox-proposed-bubble').textContent).toContain('NOT SENT');
         expect(screen.getByTestId('sandbox-exit-note').textContent).toContain('NOT SENT — dry run');
@@ -333,7 +333,7 @@ describe('<SandboxPage> with attachments', () => {
         await userEvent.type(screen.getByTestId('sandbox-input'), 'just words');
         await userEvent.click(screen.getByTestId('sandbox-send'));
         await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(2));
-        expect(calls.filter((c) => c.method === 'POST')[1].body).toEqual({ text: 'just words' });
+        expect(calls.filter((c) => c.method === 'POST')[1].body).toEqual({ text: 'just words', channel: 'whatsapp' });
     });
 
     it('more than maxPerRun attached: says which will not be described; removing one clears it', async () => {
@@ -396,5 +396,231 @@ describe('<SandboxPage> with attachments', () => {
         expect(screen.getByTestId('sandbox-attachments').textContent).toContain('fan.jpg');
         expect(input.value).toBe(''); // still cleared, so the same photo can be picked twice in a row
         expect((screen.getByTestId('sandbox-send') as HTMLButtonElement).disabled).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------- T16: the four doors, the window, the funnel
+
+const GATES_ON: SandboxGates = {
+    firstContactAck: { enabled: true, channels: ['whatsapp', 'sms', 'webform', 'post_call'], askForMedia: false },
+    postCallContinuation: { enabled: true }, spineEnabled: true, smsSenderConfigured: true,
+    templates: [{ name: 'web_enquiry_ack_context', status: 'approved' }, { name: 'post_call_continuation', status: 'approved' }, { name: 'post_call_continuation_generic', status: 'approved' }, { name: 'quote_ready_link', status: 'pending' }],
+};
+const GATES_OFF: SandboxGates = { firstContactAck: { enabled: false, channels: [], askForMedia: false }, postCallContinuation: { enabled: false }, spineEnabled: false, smsSenderConfigured: false, templates: [] };
+const WINDOW_OPEN: WindowReport = { canFreeform: true, lastWhatsAppInboundAt: '2026-09-07T10:00:00Z', hoursSince: 0.2, channelLastUsed: 'whatsapp', summary: 'OPEN — last customer WhatsApp 12 min ago; shuts 23.8 h from now', permits: 'We may write freely on WhatsApp.' };
+const WINDOW_SHUT: WindowReport = { canFreeform: false, lastWhatsAppInboundAt: null, hoursSince: null, channelLastUsed: 'webchat', summary: 'SHUT — last customer WhatsApp never', permits: 'Only an approved Meta template may go on WhatsApp; a freeform draft would be refused (63016). SMS has no window.' };
+const NOTICE: BenNotice = { event: 'quote_prep_ready', title: '💷 Quote ready to price: Priya Shah', message: 'Priya Shah · NG7 2AB\n• Replace bathroom extractor fan\nSuggested total £480 (yours to change).\nNothing has been sent. Open, check, price, send.', link: 'https://handyservices.app/admin/price/abc12345' };
+const webformEntry: EntryReport = {
+    door: 'webform', meaning: { label: 'Webform', window: 'A form opens no WhatsApp window. It is SHUT until the customer writes on WhatsApp.', firstReply: 'The first-contact ack goes as the first approved template on the ladder.' },
+    ack: { door: 'webform', intent: 'ack_enquiry', mode: 'template', channel: 'whatsapp', body: 'Hi Priya, we got your message: "the extractor fan…". Is it OK if we give you a quick call shortly?', templateName: 'web_enquiry_ack_context', rungs: [{ name: 'web_enquiry_ack_context', status: 'approved', picked: true, note: 'approved and fillable: this is what the customer would receive' }, { name: 'call_request', status: 'approved', picked: false, note: 'approved, but a higher rung was picked' }], outOfHours: false, gate: { enabled: true, channelOn: true, askForMedia: false, liveWouldSend: true }, reason: 'window shut: the first approved template on the ladder carries the ack (web_enquiry_ack_context), in Meta\'s approved wording', holdSeconds: [60, 150] },
+    postCall: null, mirrored: { messageId: 'm_ack', channel: 'whatsapp', body: 'Hi Priya, we got your message…', sender: 'Sandbox (rules layer ack · template web_enquiry_ack_context · mirrored, never sent)' }, firstRunTrigger: 'inbound_message',
+};
+
+describe('T16 pure helpers', () => {
+    it('funnelStep reads the state: accepted > quote sent > priced draft > clerk ran > stage', () => {
+        const base = { conversation: { id: 'c', stage: 'enquiry', tags: [], contactName: null, createdAt: null, hasTrigger: false }, funnel: { stage: 'enquiry', draft: null, quote: null }, runs: [] } as any;
+        expect(funnelStep(base)).toBe('enquiry');
+        expect(funnelStep({ ...base, conversation: { ...base.conversation, stage: 'scoping' } })).toBe('scoping');
+        expect(funnelStep({ ...base, runs: [{ id: 'r', agent: 'quote_clerk', lane: 'quote_clerk' }] })).toBe('clerk');
+        expect(funnelStep({ ...base, funnel: { stage: 'scoping', draft: { id: 'q', slug: 's', lines: [], suggestedTotalPence: 1, checkThis: 0, createdAt: null, customerName: null }, quote: null } })).toBe('priced_draft');
+        expect(funnelStep({ ...base, funnel: { stage: 'quote_sent', draft: null, quote: { slug: 's', basePrice: 1, delivered: true, accepted: false, expiresAt: null } } })).toBe('quote_sent');
+        expect(funnelStep({ ...base, funnel: { stage: 'won', draft: null, quote: { slug: 's', basePrice: 1, delivered: true, accepted: true, expiresAt: null } } })).toBe('accepted');
+        expect(funnelStep(null)).toBe('enquiry');
+        expect(FUNNEL_STEPS).toEqual(['enquiry', 'scoping', 'clerk', 'priced_draft', 'quote_sent', 'accepted']);
+    });
+    it('doorGateNote says what THIS server would do live, per door', () => {
+        expect(doorGateNote('whatsapp', GATES_ON)).toMatchObject({ tone: 'ok' });
+        expect(doorGateNote('whatsapp', GATES_OFF).text).toMatch(/OFF/);
+        expect(doorGateNote('webform', GATES_ON)).toMatchObject({ tone: 'ok' });
+        expect(doorGateNote('webform', { ...GATES_ON, templates: [{ name: 'web_enquiry_ack_context', status: 'pending' }] }).text).toMatch(/pending → falls to the next rung, then SMS/);
+        expect(doorGateNote('post_call', GATES_ON).text).toMatch(/spine on: the clerk reads the transcript/);
+        expect(doorGateNote('post_call', GATES_OFF).text).toMatch(/NO_APPROVED_TEMPLATE/);
+        expect(doorGateNote('sms', GATES_OFF).text).toMatch(/NOT configured/);
+        expect(doorGateNote('sms', null).tone).toBe('warn');
+        expect(SANDBOX_DOORS).toHaveLength(4);
+    });
+    it('outboundLabel: the mirror\'s own sender name, dotted; the T5/T6 labels otherwise', () => {
+        expect(outboundLabel({ senderName: 'Sandbox (rules layer ack, mirrored, never sent)' })).toBe('rules layer ack · mirrored · never sent');
+        expect(outboundLabel({ senderName: 'Sandbox (post-call continuation · template post_call_continuation · mirrored, never sent)' })).toBe('post-call continuation · template post_call_continuation · mirrored · never sent');
+        expect(outboundLabel({ senderName: "Sandbox (Ben's send · freeform · mirrored, never sent)" })).toMatch(/^Ben's send · freeform/);
+        expect(outboundLabel({ senderName: 'Sandbox (synthetic, never sent)' })).toBe('synthetic · never sent');
+        expect(outboundLabel({ senderName: null })).toBe('synthetic · never sent');
+    });
+});
+
+describe('<EntryDetail> and <BenNoticeBox>', () => {
+    it('a webform entry shows the door, the ladder with the picked rung, the gate, and what was placed', () => {
+        render(<EntryDetail entry={webformEntry} />);
+        const box = screen.getByTestId('sandbox-entry');
+        expect(box.textContent).toContain('Door: Webform');
+        expect(box.textContent).toContain('SHUT');
+        expect(screen.getByTestId('sandbox-ladder').textContent).toContain('web_enquiry_ack_context');
+        expect(screen.getByTestId('sandbox-ladder').textContent).toContain('✓ approved and fillable');
+        expect(screen.getByTestId('sandbox-entry-gate').textContent).toContain('production sends exactly this, 60 to 150 s after the message');
+        expect(box.textContent).toContain('trigger inbound_message');
+    });
+    it('a post-call entry with no approved template says NOTHING can send, and the gate says so', () => {
+        const entry: EntryReport = {
+            door: 'post_call', meaning: { label: 'Post-call, WhatsApp agreed on the phone', window: 'A phone call never opens the WhatsApp window.', firstReply: 'x' }, ack: null, mirrored: null, firstRunTrigger: 'call_ended',
+            postCall: { route: { send: true, reason: 'AGREED_ON_CALL', callbackDue: false, tagNoAutoMessages: false, complaintAlert: false }, body: null, templateName: null, variables: {}, rungs: [{ name: 'post_call_continuation', status: 'pending', picked: false, note: 'pending with Meta: cannot send' }, { name: 'post_call_continuation_generic', status: 'missing', picked: false, note: 'not in the template cache' }], outcome: 'no_approved_template', reason: 'NO_APPROVED_TEMPLATE: nothing sends; the thread waits for Ben.', approval: 'auto_first_contact', gate: { continuationEnabled: true, ackEnabled: true, ackChannelOn: true, liveWouldSend: false }, spineRun: 'call_ended', spineRunReason: 'answered call with a transcript: the ladder asks the spine for a call_ended run', call: { id: 'c1', preview: 'Inbound call (4m 10s), job enquiry: the fan; WhatsApp agreed', durationSeconds: 250, transcriptChars: 420 } },
+        };
+        render(<EntryDetail entry={entry} />);
+        expect(screen.getByTestId('sandbox-entry-call').textContent).toContain('NO APPROVED TEMPLATE — nothing can send');
+        expect(screen.getByTestId('sandbox-entry-nothing').textContent).toContain('the customer would have received nothing');
+        expect(screen.getByTestId('sandbox-entry-gate').textContent).toContain('nothing would go live');
+    });
+    it('the Ben notice is red, says NOT sent, and carries the title, the lines and the link', () => {
+        render(<BenNoticeBox notice={NOTICE} when="Route A, after the clerk" />);
+        const box = screen.getByTestId('sandbox-ben-notice');
+        expect(box.className).toContain('rose');
+        expect(box.textContent).toContain("Ben's phone would have buzzed — NOT sent");
+        expect(box.textContent).toContain('💷 Quote ready to price: Priya Shah');
+        expect(box.textContent).toContain('Suggested total £480');
+        expect(box.textContent).toContain('/admin/price/abc12345');
+    });
+    it('<RunDetail> says which tags the pass put on the thread and that the clerk runs next', () => {
+        render(<RunDetail run={run({ tagsAdded: ['needs_quote'] })} />);
+        expect(screen.getByTestId('sandbox-tags-added').textContent).toContain('needs_quote');
+        expect(screen.getByTestId('sandbox-tags-added').textContent).toContain('Run a clock pass');
+    });
+    it('<RunDetail> with a sandbox Route A outcome shows the notice and the draft, and the job pack as recorded', () => {
+        render(<RunDetail run={run({ routeA: { ran: true, draftSlug: 'abc12345', estimateId: 'est_1', checkThis: 1, sandbox: { benNotice: NOTICE, jobPack: { lines: 2, estimateLines: 2, quoteId: 'quote_1' }, logs: ['Route A: draft abc12345 from estimate est_1 (2 lines, 1 check_this)'] } } })} />);
+        expect(screen.getByTestId('sandbox-ben-notice')).toBeTruthy();
+        const ra = screen.getByTestId('sandbox-route-a');
+        expect(ra.textContent).toContain('abc12345');
+        expect(ra.textContent).toContain('recorded, not written');
+        expect(ra.textContent).toContain('Ben prices and sends');
+    });
+});
+
+describe('<DoorPicker>, <WindowStrip>, <FunnelStrip>', () => {
+    it('picking a door and opening it posts the door, name and text to the parameterless /start', async () => {
+        const onStart = vi.fn();
+        render(<DoorPicker gates={GATES_ON} busy={false} hasThread={false} onStart={onStart} />);
+        await userEvent.click(screen.getByTestId('sandbox-door-webform'));
+        expect(screen.getByTestId('sandbox-door-gate').textContent).toContain('Ack ON for webform');
+        expect((screen.getByTestId('sandbox-start-name') as HTMLInputElement).value).toBe('Priya Shah');
+        await userEvent.clear(screen.getByTestId('sandbox-start-text'));
+        await userEvent.type(screen.getByTestId('sandbox-start-text'), 'My gate has come off its hinge');
+        await userEvent.click(screen.getByTestId('sandbox-start'));
+        expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ door: 'webform', name: 'Priya Shah', text: 'My gate has come off its hinge' }));
+    });
+    it('the post-call door exposes the job phrase, the consent and a transcript; the whatsapp door needs no text', async () => {
+        const onStart = vi.fn();
+        render(<DoorPicker gates={GATES_ON} busy={false} hasThread={false} onStart={onStart} />);
+        await userEvent.click(screen.getByTestId('sandbox-door-post_call'));
+        expect(screen.getByTestId('sandbox-start-jobphrase')).toBeTruthy();
+        await userEvent.selectOptions(screen.getByTestId('sandbox-start-agreed'), 'declined');
+        await userEvent.click(screen.getByTestId('sandbox-start'));
+        expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ door: 'post_call', whatsappAgreed: 'declined', jobPhrase: 'the bathroom extractor fan' }));
+        await userEvent.click(screen.getByTestId('sandbox-door-whatsapp'));
+        expect(screen.queryByTestId('sandbox-start-text')).toBeNull();
+        expect((screen.getByTestId('sandbox-start') as HTMLButtonElement).disabled).toBe(false);
+    });
+    it('the window strip reads open/shut in the case file\'s words and offers the two honest controls', async () => {
+        const onAge = vi.fn(); const onClock = vi.fn();
+        const { unmount } = render(<WindowStrip window={WINDOW_SHUT} busy={false} onAge={onAge} onClock={onClock} />);
+        expect(screen.getByTestId('sandbox-window').textContent).toContain('SHUT — last customer WhatsApp never');
+        expect(screen.getByTestId('sandbox-window').textContent).toContain('Only an approved Meta template');
+        expect(screen.getByTestId('sandbox-window').className).toContain('amber');
+        await userEvent.click(screen.getByTestId('sandbox-age'));
+        expect(onAge).toHaveBeenCalledWith(25);
+        await userEvent.click(screen.getByTestId('sandbox-clock'));
+        expect(onClock).toHaveBeenCalled();
+        unmount();
+        render(<WindowStrip window={WINDOW_OPEN} busy={false} onAge={onAge} onClock={onClock} />);
+        expect(screen.getByTestId('sandbox-window').className).toContain('emerald');
+        expect(screen.getByTestId('sandbox-window').textContent).toContain('OPEN');
+    });
+    it('the funnel strip highlights the step and enables Ben\'s send only with a draft, the acceptance only with a delivered quote', async () => {
+        const onPrice = vi.fn(); const onAccept = vi.fn();
+        const withDraft = { conversation: { id: 'c', stage: 'scoping', tags: [], contactName: 'Priya', createdAt: null, hasTrigger: false }, runs: [], funnel: { stage: 'scoping', draft: { id: 'q', slug: 'abc12345', lines: ['Replace fan'], suggestedTotalPence: 48_000, checkThis: 1, createdAt: null, customerName: 'Priya' }, quote: null } } as any;
+        const { unmount } = render(<FunnelStrip state={withDraft} busy={false} onPrice={onPrice} onAccept={onAccept} amount="" setAmount={() => {}} />);
+        expect(screen.getByTestId('sandbox-funnel-priced_draft').getAttribute('aria-current')).toBe('step');
+        expect(screen.getByTestId('sandbox-funnel-draft').textContent).toContain('NOT in Ben\'s price queue');
+        expect((screen.getByTestId('sandbox-price') as HTMLButtonElement).disabled).toBe(false);
+        expect((screen.getByTestId('sandbox-accept') as HTMLButtonElement).disabled).toBe(true);
+        await userEvent.click(screen.getByTestId('sandbox-price'));
+        expect(onPrice).toHaveBeenCalled();
+        unmount();
+        const sent = { ...withDraft, funnel: { stage: 'quote_sent', draft: null, quote: { slug: 'abc12345', basePrice: 48_000, delivered: true, accepted: false, expiresAt: null } } };
+        render(<FunnelStrip state={sent} busy={false} onPrice={onPrice} onAccept={onAccept} amount="" setAmount={() => {}} />);
+        expect(screen.getByTestId('sandbox-funnel-quote_sent').getAttribute('aria-current')).toBe('step');
+        expect((screen.getByTestId('sandbox-price') as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId('sandbox-accept') as HTMLButtonElement).disabled).toBe(false);
+    });
+    it('a priced-but-undelivered quote says the window was shut and how to reopen it', () => {
+        const undelivered = { conversation: { id: 'c', stage: 'scoping', tags: [], contactName: null, createdAt: null, hasTrigger: false }, runs: [], funnel: { stage: 'scoping', draft: null, quote: { slug: 'abc12345', basePrice: 48_000, delivered: false, accepted: false, expiresAt: null } } } as any;
+        render(<FunnelStrip state={undelivered} busy={false} onPrice={() => {}} onAccept={() => {}} amount="" setAmount={() => {}} />);
+        expect(screen.getByTestId('sandbox-funnel-undelivered').textContent).toContain('NOT with the customer');
+        expect((screen.getByTestId('sandbox-price') as HTMLButtonElement).disabled).toBe(false);
+    });
+});
+
+describe('<SandboxPage> T16 wiring', () => {
+    const started: SandboxState = {
+        phone: { e164: '+447700900942', wa: '447700900942@c.us' }, quote: null, runs: [], messages: [], video: VIDEO_ON,
+        conversation: { id: 'sbx-1', stage: 'enquiry', tags: ['sandbox'], contactName: 'Priya Shah', createdAt: '2026-09-07T10:00:00Z', hasTrigger: false },
+        door: 'webform', entry: webformEntry, events: [{ at: '2026-09-07T10:00:01Z', kind: 'entry', summary: 'Opened through Webform: ack template (web_enquiry_ack_context) by whatsapp' }], window: WINDOW_SHUT, gates: GATES_ON, funnel: { stage: 'enquiry', draft: null, quote: null },
+    };
+    it('with no thread the doors are offered; opening one posts to /start and paints the entry, the window and the first pass', async () => {
+        const empty: SandboxState = { phone: started.phone, conversation: null, messages: [], quote: null, runs: [], gates: GATES_ON };
+        const { calls } = mockFetch([
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: empty }) },
+            { method: 'POST', url: '/api/comms-sandbox/start', reply: () => ({ json: { ok: true, door: 'webform', entry: webformEntry, run: run({ agent: 'scoper', pack: { id: 'customer.default', version: 1 }, triage: { lane: 'scoper', intent: 'unknown', exceptions: [], tags: [], reasons: ['no rule fired: scoper'], source: 'rules' }, caseFile: { stage: 'enquiry', tags: ['sandbox'], quote: null, window: { canFreeform: false, templateRequired: true } } }), state: started } }) },
+        ]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect(screen.getByTestId('sandbox-doors')).toBeTruthy());
+        await userEvent.click(screen.getByTestId('sandbox-door-webform'));
+        await userEvent.click(screen.getByTestId('sandbox-start'));
+        await waitFor(() => expect(screen.getByTestId('sandbox-entry')).toBeTruthy());
+        const post = calls.find((c) => c.method === 'POST');
+        expect(post?.url).toBe('/api/comms-sandbox/start');
+        expect(post?.body).toMatchObject({ door: 'webform', name: 'Priya Shah' });
+        expect(screen.getByTestId('sandbox-window').textContent).toContain('SHUT');
+        expect(screen.getByTestId('sandbox-door-pill').textContent).toBe('Webform');
+        expect(screen.getByTestId('sandbox-run-detail')).toBeTruthy();
+        expect(screen.getByTestId('sandbox-events').textContent).toContain('Opened through Webform');
+        expect(screen.queryByTestId('sandbox-doors')).toBeNull();
+    });
+    it('the SMS channel posts channel sms, disables Attach, and Fast-forward posts hours to /age', async () => {
+        const { calls } = mockFetch([
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: started }) },
+            { method: 'POST', url: '/api/comms-sandbox/message', reply: () => ({ json: { ok: true, messageId: 'm1', run: run(), state: started } }) },
+            { method: 'POST', url: '/api/comms-sandbox/age', reply: () => ({ json: { ok: true, hours: 25, window: WINDOW_SHUT, state: started } }) },
+        ]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-input') as HTMLTextAreaElement).disabled).toBe(false));
+        await userEvent.click(screen.getByTestId('sandbox-channel-sms'));
+        expect((screen.getByTestId('sandbox-attach') as HTMLButtonElement).disabled).toBe(true);
+        await userEvent.type(screen.getByTestId('sandbox-input'), 'its the back gutter');
+        await userEvent.click(screen.getByTestId('sandbox-send'));
+        await waitFor(() => expect(calls.some((c) => c.url.endsWith('/message'))).toBe(true));
+        expect(calls.find((c) => c.url.endsWith('/message'))?.body).toEqual({ text: 'its the back gutter', channel: 'sms' });
+        await userEvent.click(screen.getByTestId('sandbox-age'));
+        await waitFor(() => expect(calls.some((c) => c.url.endsWith('/age'))).toBe(true));
+        expect(calls.find((c) => c.url.endsWith('/age'))?.body).toEqual({ hours: 25 });
+        await waitFor(() => expect(screen.getByTestId('sandbox-last-action').textContent).toContain('Moved the thread back 25 h'));
+    });
+    it('Ben prices and sends, then the customer accepts: both parameterless, the acceptance paints the red notice', async () => {
+        const withDraft: SandboxState = { ...started, funnel: { stage: 'scoping', draft: { id: 'q1', slug: 'abc12345', lines: ['Replace fan'], suggestedTotalPence: 48_000, checkThis: 0, createdAt: null, customerName: 'Priya' }, quote: null } };
+        const sent: SandboxState = { ...started, funnel: { stage: 'quote_sent', draft: null, quote: { slug: 'abc12345', basePrice: 48_000, delivered: true, accepted: false, expiresAt: null } } };
+        const accepted: SandboxState = { ...started, funnel: { stage: 'won', draft: null, quote: { slug: 'abc12345', basePrice: 48_000, delivered: true, accepted: true, expiresAt: null } } };
+        const { calls } = mockFetch([
+            { method: 'GET', url: '/api/comms-sandbox', reply: () => ({ json: withDraft }) },
+            { method: 'POST', url: '/api/comms-sandbox/price', reply: () => ({ json: { ok: true, slug: 'abc12345', totalPence: 48_000, source: 'suggested', delivery: { mode: 'freeform', body: 'Hi Priya! Here\'s your quote', templateName: null, reason: 'window open' }, state: sent } }) },
+            { method: 'POST', url: '/api/comms-sandbox/accept', reply: () => ({ json: { ok: true, slug: 'abc12345', depositPence: 12_000, notice: { event: 'quote_accepted', title: '🎉 Quote accepted', message: 'Priya Shah — +447700900942\n💷 £120.00 paid (deposit)', link: null }, next: 'Live, the Stripe webhook does exactly this.', state: accepted } }) },
+        ]);
+        renderWithQuery(<SandboxPage />);
+        await waitFor(() => expect((screen.getByTestId('sandbox-price') as HTMLButtonElement).disabled).toBe(false));
+        await userEvent.click(screen.getByTestId('sandbox-price'));
+        await waitFor(() => expect(screen.getByTestId('sandbox-last-action').textContent).toContain('Ben priced abc12345 at £480.00'));
+        expect(calls.find((c) => c.url.endsWith('/price'))?.url).not.toMatch(/q1|sbx-1/);
+        await waitFor(() => expect((screen.getByTestId('sandbox-accept') as HTMLButtonElement).disabled).toBe(false));
+        await userEvent.click(screen.getByTestId('sandbox-accept'));
+        await waitFor(() => expect(screen.getByTestId('sandbox-ben-notice')).toBeTruthy());
+        expect(screen.getByTestId('sandbox-ben-notice').textContent).toContain('🎉 Quote accepted');
+        expect(screen.getByTestId('sandbox-ben-notice').textContent).toContain('NOT sent');
+        expect(screen.getByTestId('sandbox-funnel-accepted').getAttribute('aria-current')).toBe('step');
     });
 });

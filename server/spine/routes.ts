@@ -317,6 +317,19 @@ spineRouter.get('/price/:slug', async (req, res) => {
     }
 });
 
+/** T16: is this slug's quote on the comms sandbox number? A lookup failure reads as "not sandbox" (the route then behaves as before). */
+async function isSandboxQuoteSlug(slug: string): Promise<boolean> {
+    if (!slug) return false;
+    try {
+        const { db } = await import('../db');
+        const { personalizedQuotes } = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        const { isSandboxPhone } = await import('./sandbox');
+        const [q] = await db.select({ phone: personalizedQuotes.phone }).from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
+        return !!q && isSandboxPhone(q.phone);
+    } catch { return false; }
+}
+
 /**
  * POST /price/:slug/send { version, lines:[{ lineId, finalPence }], messageStyle? } — Ben's tap.
  * 1. confirmPrices: 409 if the draft was superseded / sent / revoked or the version differs (a new
@@ -329,6 +342,12 @@ spineRouter.get('/price/:slug', async (req, res) => {
 spineRouter.post('/price/:slug/send', async (req, res) => {
     try {
         const slug = String(req.params.slug || '').trim();
+        // T16: a draft on the comms sandbox's number is priced and "sent" from /admin/sandbox only.
+        // This route ends in a real Twilio send and the outbound gate has no test-number guard, so
+        // the refusal has to be here, before a price is written.
+        if (await isSandboxQuoteSlug(slug)) {
+            return res.status(409).json({ ok: false, errors: ['This quote is on the comms sandbox number. Price and send it from /admin/sandbox; nothing on that number can be sent for real.'] });
+        }
         const { confirmPrices } = await import('./price-screen');
         const u = sessionUser(req);
         const c = await confirmPrices(slug, req.body, { id: u.id ?? null, email: u.email ?? null });
