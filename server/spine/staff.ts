@@ -148,7 +148,7 @@ export const SPINE_STAFF: StaffCard[] = [
     },
     {
         id: 'vision', agent: 'vision', name: 'Vision', roleTitle: 'The Eyes — describe_video',
-        tier: 'READ', accent: 'sky', model: 'gemini-2.5-flash (direct)',
+        tier: 'READ', accent: 'sky', model: 'gemini-3.6-flash (direct)',
         cadence: 'While a case file is built, newest videos first (spine.video, max per run)',
         mission: 'Turns a customer\'s video into a fixed-schema description on the case file — what is shown, what is missing, defects with severity, any text seen — so the Scoper and the clerk can read a clip. Cached by file hash; a clip is described once.',
         autonomy: {
@@ -157,7 +157,7 @@ export const SPINE_STAFF: StaffCard[] = [
             never: ['Message anyone', 'Guess: an off-schema answer is retried once, then dropped'],
         },
         tools: [
-            { name: 'describeMedia', blurb: 'server/spine/tools/describe-video.ts — Gemini 2.5 Flash, native bytes, zod schema, cache', kind: 'read' },
+            { name: 'describeMedia', blurb: 'server/spine/tools/describe-video.ts — Gemini 3.6 Flash, native bytes, zod schema, cache; a failure is classified (T14)', kind: 'read' },
         ],
     },
 ];

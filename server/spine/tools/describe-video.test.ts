@@ -6,7 +6,10 @@ import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { describeMedia, MediaDescriptionSchema, formatDescription, extractJson, mimeTypeFor, type DescribeDeps } from './describe-video';
+import { describeMedia, describeMediaDetailed, classifyFailure, failureLabel, geminiErrorDetail, GeminiHttpError, GEMINI_MODEL, MediaDescriptionSchema, formatDescription, extractJson, mimeTypeFor, type DescribeDeps } from './describe-video';
+
+/** The body the owner's server printed on 7 Sep 2026, verbatim in substance (BRIEF-T14). */
+const RETIRED_404 = JSON.stringify({ error: { code: 404, message: 'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.6-flash for the latest features and improvements. We recommend you to use the Interactions API.', status: 'NOT_FOUND' } });
 
 const GOOD = {
     whatIsShown: 'A chrome mixer tap over a white ceramic kitchen sink; the base is green with limescale.',
@@ -59,11 +62,13 @@ describe('describeMedia', () => {
             const body = JSON.parse(init.body);
             expect(body.contents[0].parts[0].inline_data.mime_type).toBe('video/mp4');
             expect(body.generationConfig.responseMimeType).toBe('application/json');
-            expect(String(_url)).toContain('/v1beta/models/gemini-2.5-flash:generateContent?key=test-key');
+            // T14: the model Google named in its 404; no temperature (Gemini 3 guide: keep the default).
+            expect(String(_url)).toContain('/v1beta/models/gemini-3.6-flash:generateContent?key=test-key');
+            expect(body.generationConfig.temperature).toBeUndefined();
             return geminiReply(GOOD);
         });
         const first = await describeMedia({ path: file, kind: 'video', mediaId: 'm1' }, deps({ cacheDir: dir, fetch: fetch as any }));
-        expect(first).toMatchObject({ cached: false, transport: 'inline', attempts: 1, model: 'gemini-2.5-flash', usage: { inputTokens: 1200, outputTokens: 180 } });
+        expect(first).toMatchObject({ cached: false, transport: 'inline', attempts: 1, model: 'gemini-3.6-flash', usage: { inputTokens: 1200, outputTokens: 180 } });
         expect(first!.description).toEqual(GOOD);
         expect(fetch).toHaveBeenCalledTimes(1);
         const cachedFile = JSON.parse(await fs.readFile(path.join(dir, `${first!.hash}.json`), 'utf8'));
@@ -152,5 +157,82 @@ describe('describeMedia', () => {
         const r = await describeMedia({ path: file, kind: 'video', mediaId: 'big' }, deps({ cacheDir: dir, fetch: fetch as any, inlineLimitBytes: 1000 }));
         expect(calls).toEqual(['start', 'upload', 'poll', 'generate']);
         expect(r).toMatchObject({ transport: 'files_api', cached: false });
+    });
+});
+
+describe('T14: a retired model is a configuration failure — classified, not retried, and the reason survives', () => {
+    it('a 404 naming a retired model is `config`, permanent, called ONCE, and carries Google\'s message', async () => {
+        const dir = await tmpDir();
+        const file = await tmpFile(dir, 'leak.jpg', 300);
+        const logs: string[] = [];
+        const retired = vi.fn(async () => new Response(RETIRED_404, { status: 404, headers: { 'content-type': 'application/json' } }));
+        const out = await describeMediaDetailed({ path: file, kind: 'image', mediaId: 'msg_sbx_a5e5e03bf5fc4' }, deps({ cacheDir: dir, fetch: retired as any, log: (l) => logs.push(l) }));
+        expect(out.ok).toBe(false);
+        if (out.ok) throw new Error('unreachable');
+        expect(out.failure).toMatchObject({ kind: 'config', permanent: true, status: 404, attempts: 1 });
+        expect(out.failure.reason).toBe('gemini 404: This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.6-flash for the latest features and improvements. We recommend you to use the Interactions API.');
+        expect(retired).toHaveBeenCalledTimes(1); // not retried: the second 404 would be identical
+        expect(logs.some((l) => /config failure, not retried/.test(l))).toBe(true);
+        expect(logs.at(-1)).toMatch(/msg_sbx_a5e5e03bf5fc4: no description after 1 attempt\(s\): gemini 404: This model/);
+        // The row's error column: class first, so a query can tell it from a timeout.
+        expect(failureLabel(out.failure)).toMatch(/^config: gemini 404: This model models\/gemini-2\.5-flash/);
+        // The plain contract still returns null and writes no cache file.
+        expect(await describeMedia({ path: file, kind: 'image' }, deps({ cacheDir: dir, fetch: retired as any }))).toBeNull();
+        expect((await fs.readdir(dir)).filter((f) => f.endsWith('.json'))).toEqual([]);
+    });
+
+    it('401 / 403 / 400 are permanent too; 429 / 503 / network / timeout / off-schema keep the one retry', async () => {
+        const dir = await tmpDir();
+        const file = await tmpFile(dir, 'clip.mp4', 100);
+        for (const status of [400, 401, 403]) {
+            const f = vi.fn(async () => new Response(JSON.stringify({ error: { message: `key problem ${status}` } }), { status }));
+            const out = await describeMediaDetailed({ path: file, kind: 'video' }, deps({ cacheDir: dir, fetch: f as any }));
+            expect(out.ok).toBe(false);
+            if (!out.ok) expect(out.failure).toMatchObject({ kind: 'config', permanent: true, status, attempts: 1, reason: `gemini ${status}: key problem ${status}` });
+            expect(f).toHaveBeenCalledTimes(1);
+        }
+        for (const status of [429, 500, 503]) {
+            const f = vi.fn(async () => new Response('busy', { status }));
+            const out = await describeMediaDetailed({ path: file, kind: 'video' }, deps({ cacheDir: dir, fetch: f as any }));
+            if (!out.ok) expect(out.failure).toMatchObject({ kind: 'transient', permanent: false, status, attempts: 2, reason: `gemini ${status}: busy` });
+            expect(f).toHaveBeenCalledTimes(2);
+        }
+        const off = vi.fn(async () => geminiReply({ whatIsShown: 'x', confidence: 'certain' }));
+        const outOff = await describeMediaDetailed({ path: file, kind: 'video' }, deps({ cacheDir: dir, fetch: off as any }));
+        if (!outOff.ok) expect(outOff.failure).toMatchObject({ kind: 'reply', permanent: false, attempts: 2 });
+        expect(off).toHaveBeenCalledTimes(2);
+        expect(classifyFailure(Object.assign(new Error('aborted'), { name: 'AbortError' }), 20)).toEqual({ kind: 'transient', permanent: false, reason: 'timed out after 20 ms', status: null });
+        expect(classifyFailure(new Error('ECONNRESET'), 20)).toMatchObject({ kind: 'transient', permanent: false, status: null });
+        expect(classifyFailure(new GeminiHttpError(404, 'files api start', 'gone'), 20)).toMatchObject({ kind: 'config', permanent: true, status: 404, reason: 'files api start 404: gone' });
+    });
+
+    it('no key and a missing file are permanent failures with their own reasons; nothing is called', async () => {
+        const dir = await tmpDir();
+        const file = await tmpFile(dir, 'clip.mp4', 100);
+        const fetch = vi.fn();
+        const noKey = await describeMediaDetailed({ path: file, kind: 'video' }, deps({ cacheDir: dir, fetch, apiKey: null }));
+        if (!noKey.ok) expect(noKey.failure).toMatchObject({ kind: 'config', permanent: true, attempts: 0, reason: 'GEMINI_API_KEY is not set; no description' });
+        const missing = await describeMediaDetailed({ path: path.join(dir, 'missing.mp4'), kind: 'video' }, deps({ cacheDir: dir, fetch }));
+        if (!missing.ok) expect(missing.failure).toMatchObject({ kind: 'input', permanent: true, attempts: 0 });
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('thinking tokens are counted as output (Google bills them at the output rate); usage still null when absent', async () => {
+        const dir = await tmpDir();
+        const file = await tmpFile(dir, 'photo.jpg', 200);
+        const fetch = vi.fn(async () => geminiReply(GOOD, { promptTokenCount: 900, candidatesTokenCount: 150, thoughtsTokenCount: 320 } as any));
+        const r = await describeMedia({ path: file, kind: 'image' }, deps({ cacheDir: dir, fetch: fetch as any }));
+        expect(r!.usage).toEqual({ inputTokens: 900, outputTokens: 470, cacheReadTokens: 0, cacheWriteTokens: 0 });
+        expect(r!.model).toBe(GEMINI_MODEL);
+        const dir2 = await tmpDir();
+        const file2 = await tmpFile(dir2, 'photo.jpg', 201);
+        const noUsage = vi.fn(async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(GOOD) }] } }] }), { status: 200 }));
+        expect((await describeMedia({ path: file2, kind: 'image' }, deps({ cacheDir: dir2, fetch: noUsage as any })))!.usage).toBeNull();
+    });
+
+    it('geminiErrorDetail keeps Google\'s message from a JSON body and the raw text otherwise', () => {
+        expect(geminiErrorDetail(RETIRED_404)).toMatch(/^This model models\/gemini-2\.5-flash is no longer available to new users\./);
+        expect(geminiErrorDetail('  <html>Service Unavailable</html>\n')).toBe('<html>Service Unavailable</html>');
+        expect(geminiErrorDetail('{"error":{"code":429}}')).toBe('{"error":{"code":429}}');
     });
 });

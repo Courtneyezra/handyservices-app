@@ -2,7 +2,7 @@
  * Try describe_video (Phase 4) on a local file.
  *
  *   npx tsx scripts/_describe-media.ts <file>            # dry: size, mime, transport, cache status; no network
- *   npx tsx scripts/_describe-media.ts <file> --live     # calls Gemini 2.5 Flash with GEMINI_API_KEY, prints the JSON + cost
+ *   npx tsx scripts/_describe-media.ts <file> --live     # calls Gemini (GEMINI_MODEL in describe-video.ts) with GEMINI_API_KEY, prints the JSON + cost
  *   options: --kind image|video (default from extension) · --context "what the customer said" · --cache-dir <dir>
  *
  * Writes nothing to the database. Costs money only with --live.

@@ -263,6 +263,8 @@ async function spineOrders(): Promise<Record<string, string>> {
 async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTally>, packTiers: any[], verdicts: Awaited<ReturnType<typeof verdictStats>> | null = null) {
     const mode = spineModeFrom(cfg);
     const orders = await spineOrders();
+    // T14: the describer's verdict (newest vision rows), for the Vision card's face and chip.
+    const vision = await import('./spine/vision-health').then((m) => m.visionHealth()).catch(() => null);
     return SPINE_STAFF.map((card) => {
         const t = card.agent ? tallies[card.agent] : undefined;
         const agentKey = card.agent as keyof SpineConfig['agents'] | undefined;
@@ -288,6 +290,15 @@ async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTa
             if (t.errors) stats.push({ label: 'Errors (7d)', value: t.errors, tone: 'bad' });
             if (t.costPence) stats.push({ label: 'Spend (7d)', value: t.costPence < 100 ? `${t.costPence}p` : `£${(t.costPence / 100).toFixed(2)}`, tone: 'plain' });
         }
+        // T14: a failing describer is said on the card's face, with the reason, not counted in a
+        // red number nobody reads ("Errors (7d)" was red for 30 hours of a retired model).
+        if (card.id === 'vision' && vision) {
+            if (vision.failing) {
+                stats.push({ label: vision.permanent ? 'Describer (config)' : 'Describer', value: `FAILING — ${(vision.reason ?? 'no reason recorded').slice(0, 160)}`, tone: 'bad' });
+            } else if (vision.status === 'ok') {
+                stats.push({ label: `Described (last ${vision.window.runs})`, value: `${vision.window.described} of ${vision.window.runs}`, tone: vision.window.failed ? 'warn' : 'good' });
+            }
+        }
         const featureOff =
             card.id === 'vision' ? !cfg.video.enabled
             : card.id === 'verifier' ? !cfg.sampler.enabled
@@ -301,6 +312,7 @@ async function spineStaffMembers(cfg: SpineConfig, tallies: Record<string, RunTa
                 { label: `SPINE ${mode.toUpperCase()}`, on: mode !== 'off' },
                 { label: `TIER ${card.tier}`, on: card.tier === 'SEND' },
                 ...(card.id === 'vision' ? [{ label: cfg.video.enabled ? 'VIDEO ON' : 'VIDEO OFF', on: cfg.video.enabled }] : []),
+                ...(card.id === 'vision' && vision?.failing ? [{ label: 'DESCRIBER FAILING', on: false }] : []),
                 ...(card.id === 'verifier' ? [{ label: cfg.sampler.enabled ? `SAMPLER ON · ${Math.round(cfg.sampler.rate * 100)}%` : 'SAMPLER OFF', on: cfg.sampler.enabled }] : []),
                 ...(card.id === 'rules-layer' ? [{ label: cfg.asks.enabled ? 'ASKS ON' : 'ASKS OFF', on: cfg.asks.enabled }] : []),
                 ...(card.agent && agentKey && cfg.agents[agentKey] ? [{ label: cfg.agents[agentKey]!.enabled ? 'AGENT ON' : 'AGENT OFF', on: !!cfg.agents[agentKey]!.enabled }] : []),
