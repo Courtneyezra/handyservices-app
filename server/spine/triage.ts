@@ -26,6 +26,7 @@ import { looksLikeSpam } from '../first-contact-ack';
 import { AUDIENCES, EXCEPTIONS, INTENTS, LANES, STAGES, isIntent } from './vocab';
 import { RELAY_TAG } from '../contractor-relay';
 import { looksLikeDateQuestion } from './date-lexicon';
+import { answeredByOurCall } from './answered-by-call';
 import type { CaseFile, TriageResult, TimelineItem, ExceptionKind, Lane, Intent } from './types';
 import type { TokenUsage } from '../agent-cost';
 
@@ -134,7 +135,13 @@ export function triageRules(cf: CaseFile): TriageResult {
     // B3 / PRD §7: a date question is a signal the Scoper answers, not a reason for Ben. Read off
     // the same text the old exception used (a message body or a call transcript), so the §13
     // interim below is exactly the old trigger, narrowed to booked jobs.
-    const dateAsked = !!text && looksLikeDateQuestion(text);
+    // T21: a message Ben has since answered on the phone (an outbound call with a transcript after
+    // it, server/spine/answered-by-call.ts) is not re-read by the text lexicons: "yes please call
+    // me" must not lane the thread to Ben again after he rang. Opt-out, spam and the tag rules
+    // below still run; the model and the Scoper still see the message and the call.
+    const answeredByCall = answeredByOurCall(cf);
+    if (answeredByCall) reasons.push('the customer\'s last message was answered by our call (Ben spoke to them since): the text lexicons do not re-run on it (T21)');
+    const dateAsked = !!text && !answeredByCall && looksLikeDateQuestion(text);
     const base = { audience, stage, tags, reasons, source: 'rules' as const, customerPromisedMore: promised, dateAsked };
 
     if (audience === 'internal') {
@@ -155,7 +162,7 @@ export function triageRules(cf: CaseFile): TriageResult {
 
     // Exceptions: Ben before any agent.
     if (cf.tags.includes('trust_concern')) { exceptions.push('trust_concern'); reasons.push('thread tagged trust_concern'); }
-    if (text) {
+    if (text && !answeredByCall) {
         if (RE_REFUND.test(text)) { exceptions.push('refund'); reasons.push('refund lexicon'); }
         else if (RE_COMPLAINT.test(text)) { exceptions.push('complaint'); reasons.push('complaint lexicon'); }
         if (RE_CALLBACK.test(text)) { exceptions.push('callback_requested'); reasons.push('callback lexicon'); tags.push('callback_requested'); }

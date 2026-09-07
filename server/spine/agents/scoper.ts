@@ -66,6 +66,13 @@ const MAX_BUBBLES = 3;
 const MAX_WORDS_PER_BUBBLE = 40; // the prompt says 25; this is the hard ceiling, not the target
 const MAX_TIMELINE_ITEMS = 40;
 const MAX_BODY_CHARS = 700;
+/**
+ * T21: a call's transcript is shown up to the case file's own cap (case-file.ts TRANSCRIPT_CHARS,
+ * the first 4,000 characters). At MAX_BODY_CHARS the Scoper saw about fifty seconds of a call and
+ * never the end of it, which is where Ben asks for photos; the follow-up after his call has to
+ * know what he asked for.
+ */
+const MAX_TRANSCRIPT_CHARS = 4000;
 
 // ---------------------------------------------------------------- prompts
 
@@ -160,7 +167,10 @@ function renderTimelineItem(t: TimelineItem): string {
         : t.kind === 'message_out' || t.kind === 'call_out' ? (isAgentOrRules(t.by) ? `US (${t.by})` : 'US (BEN, manual)')
             : t.kind.toUpperCase();
     const media = t.mediaIds?.length ? ` [media: ${t.mediaIds.join(', ')}]` : '';
-    const body = t.transcript ? `transcript: ${clip(t.transcript, MAX_BODY_CHARS)}` : clip(t.body, MAX_BODY_CHARS);
+    // T21: a call shows its summary line (the case file's body) AND its transcript, not one or the other.
+    const body = t.transcript
+        ? `${t.body?.trim() ? `${clip(t.body, MAX_BODY_CHARS)}; ` : ''}transcript: ${clip(t.transcript, MAX_TRANSCRIPT_CHARS)}`
+        : clip(t.body, MAX_BODY_CHARS);
     return `- ${t.at} ${who}${t.channel ? ` via ${t.channel}` : ''}${media}: ${body}`;
 }
 

@@ -100,15 +100,28 @@ const DEFAULT_CONFIG: PostCallOutreachConfig = {
  */
 export { isNonMobileUkNumber } from './phone-utils';
 
-export async function getOutreachConfig(): Promise<PostCallOutreachConfig> {
+/**
+ * T21: the config as stored, or NULL when the read failed. The ladder's outbound hand-off
+ * (server/post-call-ladder.ts) needs the difference: a config it cannot read is a check it
+ * cannot evaluate, and a check that cannot be evaluated sends nothing. getOutreachConfig keeps
+ * its own contract (defaults, disabled) for every existing caller.
+ */
+export async function readOutreachConfig(): Promise<PostCallOutreachConfig | null> {
     try {
         const [row] = await db.select().from(appSettings).where(eq(appSettings.key, SETTING_KEY));
         if (!row) return DEFAULT_CONFIG;
         return { ...DEFAULT_CONFIG, ...(row.value as Partial<PostCallOutreachConfig>) };
     } catch (error) {
-        console.error('[PostCallOutreach] Could not read config, treating as disabled:', error);
-        return { ...DEFAULT_CONFIG, enabled: false }; // Fail closed.
+        console.error('[PostCallOutreach] Could not read config:', error);
+        return null;
     }
+}
+
+export async function getOutreachConfig(): Promise<PostCallOutreachConfig> {
+    const cfg = await readOutreachConfig();
+    if (cfg) return cfg;
+    console.error('[PostCallOutreach] Treating an unreadable config as disabled.');
+    return { ...DEFAULT_CONFIG, enabled: false }; // Fail closed.
 }
 
 export async function setOutreachConfig(patch: Partial<PostCallOutreachConfig>): Promise<PostCallOutreachConfig> {
@@ -130,21 +143,25 @@ export async function setOutreachConfig(patch: Partial<PostCallOutreachConfig>):
 }
 
 /** Current hour in UK local time, which is what "quiet hours" means to a Nottingham customer. */
-function ukHourNow(): number {
+export function ukHourNow(now: Date = new Date()): number {
     const parts = new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Europe/London',
         hour: 'numeric',
         hour12: false,
-    }).formatToParts(new Date());
+    }).formatToParts(now);
     return Number(parts.find((p) => p.type === 'hour')?.value ?? '12');
 }
 
-function inQuietHours(cfg: PostCallOutreachConfig): boolean {
-    const h = ukHourNow();
+/** Pure: is this UK hour inside the config's quiet window? T21: the ladder's outbound hand-off reads the same rule. */
+export function isQuietHour(cfg: Pick<PostCallOutreachConfig, 'quietHoursStart' | 'quietHoursEnd'>, h: number): boolean {
     // Window wraps midnight (e.g. 21 -> 8), so it's a union, not a range.
     return cfg.quietHoursStart > cfg.quietHoursEnd
         ? h >= cfg.quietHoursStart || h < cfg.quietHoursEnd
         : h >= cfg.quietHoursStart && h < cfg.quietHoursEnd;
+}
+
+function inQuietHours(cfg: PostCallOutreachConfig): boolean {
+    return isQuietHour(cfg, ukHourNow());
 }
 
 export type OutreachDecision = {

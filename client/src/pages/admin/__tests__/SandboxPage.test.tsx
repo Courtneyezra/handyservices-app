@@ -9,7 +9,7 @@ import { renderWithQuery, mockFetch } from '@test-utils';
 
 vi.mock('@/hooks/useCommsEvents', () => ({ useCommsEvents: () => undefined }));
 
-import SandboxPage, { RunDetail, MediaSeen, EntryDetail, BenNoticeBox, DoorPicker, WindowStrip, FunnelStrip, decisionLabel, pounds, mediaStatusLabel, videoWarning, attachmentsOverBound, funnelStep, doorGateNote, outboundLabel, WRONG_MOVE_SHAPES, MAX_ATTACHMENTS, ACCEPT_MEDIA, SANDBOX_DOORS, FUNNEL_STEPS, type SandboxRun, type SandboxState, type SandboxMediaReport, type SandboxVideoStatus, type SandboxGates, type EntryReport, type BenNotice, type WindowReport } from '@/pages/admin/SandboxPage';
+import SandboxPage, { RunDetail, MediaSeen, EntryDetail, BenNoticeBox, DoorPicker, WindowStrip, FunnelStrip, CallStrip, CallDetail, callVerdictLabel, CALL_DEFAULT_TRANSCRIPT, CALL_MIN_TRANSCRIPT_CHARS, decisionLabel, pounds, mediaStatusLabel, videoWarning, attachmentsOverBound, funnelStep, doorGateNote, outboundLabel, WRONG_MOVE_SHAPES, MAX_ATTACHMENTS, ACCEPT_MEDIA, SANDBOX_DOORS, FUNNEL_STEPS, type SandboxRun, type SandboxState, type SandboxMediaReport, type SandboxVideoStatus, type SandboxGates, type EntryReport, type BenNotice, type WindowReport, type SandboxCallReport } from '@/pages/admin/SandboxPage';
 
 function run(over: Partial<SandboxRun> = {}): SandboxRun {
     return {
@@ -665,5 +665,57 @@ describe('<SandboxPage> T16 wiring', () => {
         expect(screen.getByTestId('sandbox-ben-notice').textContent).toContain('🎉 Quote accepted');
         expect(screen.getByTestId('sandbox-ben-notice').textContent).toContain('NOT sent');
         expect(screen.getByTestId('sandbox-funnel-accepted').getAttribute('aria-current')).toBe('step');
+    });
+});
+
+describe('T21: Ben rings them', () => {
+    const callReport = (over: Partial<SandboxCallReport> = {}): SandboxCallReport => ({
+        callId: 'sbx_call_1', preview: 'Outbound call (2m 5s): Rang the customer back about their enquiry; asked for photos or a video on WhatsApp.',
+        durationSeconds: 125, transcriptChars: 520, startedAt: '2026-09-08T10:00:00Z',
+        ladder: { kind: 'outbound_answered', ack: null, ackReason: 'outbound call: no customer ack', continuation: false, spineRun: 'call_ended', spineRunReason: 'OUTBOUND_ANSWERED: Ben\'s call has a transcript and clears every outreach rail; the desk resumes from it (call_ended)', record: true, tagNoAutoMessages: false, settleCallback: true },
+        liveWouldRun: true, callbackSettled: { tagsCleared: ['callback_requested'], released: false, flagsDismissed: 0 }, tagsBefore: ['sandbox', 'callback_requested'], tagsAfter: ['sandbox'],
+        window: { canFreeform: true, lastWhatsAppInboundAt: '2026-09-08T09:40:00Z', hoursSince: 0.4, channelLastUsed: 'whatsapp', summary: 'OPEN — last customer WhatsApp 24 min ago; shuts 23.6 h from now.', permits: 'We may write freely on WhatsApp.' },
+        ...over,
+    });
+    it('callVerdictLabel: handed over in green, refused in amber with the rail named', () => {
+        expect(callVerdictLabel(callReport())).toMatchObject({ tone: 'ok' });
+        expect(callVerdictLabel(callReport()).text).toContain('handed the thread');
+        const refused = callVerdictLabel(callReport({ liveWouldRun: false, ladder: { ...callReport().ladder!, spineRun: null, spineRunReason: 'QUIET_HOURS:22h: inside 21:00 to 8:00 UK' } }));
+        expect(refused.tone).toBe('warn');
+        expect(refused.text).toContain('NOT handed the thread: QUIET_HOURS:22h');
+        expect(callVerdictLabel(callReport({ liveWouldRun: false, ladder: null })).text).toContain('no ladder plan was recorded');
+    });
+    it('<CallDetail> shows the card line, the verdict, the callback settled, the window still open, and that the pass waits for Ben', () => {
+        render(<CallDetail call={callReport()} />);
+        expect(screen.getByTestId('sandbox-call-detail').textContent).toContain('Outbound call (2m 5s)');
+        expect(screen.getByTestId('sandbox-call-verdict').textContent).toContain('handed the thread');
+        expect(screen.getByTestId('sandbox-call-callback').textContent).toContain('callback_requested');
+        expect(screen.getByTestId('sandbox-call-callback').textContent).toContain('cleared');
+        expect(screen.getByTestId('sandbox-call-window').textContent).toContain('OPEN');
+        expect(screen.getByTestId('sandbox-call-detail').textContent).toContain('ours_is_newest');
+    });
+    it('<CallDetail> on a thread that was not waiting for a call says nothing was settled', () => {
+        render(<CallDetail call={callReport({ callbackSettled: null, tagsAfter: [] })} />);
+        expect(screen.getByTestId('sandbox-call-callback').textContent).toContain('was not waiting for a call');
+    });
+    it('<CallStrip> carries the default transcript, disables the button under the ladder\'s bar and without a thread, and posts the transcript', async () => {
+        const onCall = vi.fn();
+        const { rerender } = render(<CallStrip defaultTranscript={null} busy={false} hasThread={true} onCall={onCall} />);
+        const box = screen.getByTestId('sandbox-call-transcript') as HTMLTextAreaElement;
+        expect(box.value).toBe(CALL_DEFAULT_TRANSCRIPT);
+        expect(CALL_DEFAULT_TRANSCRIPT.length).toBeGreaterThanOrEqual(CALL_MIN_TRANSCRIPT_CHARS);
+        const button = screen.getByTestId('sandbox-call-button') as HTMLButtonElement;
+        expect(button.disabled).toBe(false);
+        fireEvent.click(button);
+        expect(onCall).toHaveBeenCalledWith(CALL_DEFAULT_TRANSCRIPT);
+        fireEvent.change(box, { target: { value: 'Agent: hi. Customer: hi.' } });
+        expect((screen.getByTestId('sandbox-call-button') as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.getByTestId('sandbox-call').textContent).toContain(`at least ${CALL_MIN_TRANSCRIPT_CHARS} needed`);
+        rerender(<CallStrip defaultTranscript={null} busy={false} hasThread={false} onCall={onCall} />);
+        expect((screen.getByTestId('sandbox-call-button') as HTMLButtonElement).disabled).toBe(true);
+    });
+    it('<CallStrip> prefers the server\'s default transcript when the state carries one', () => {
+        render(<CallStrip defaultTranscript="Agent: the server's own default transcript, long enough to clear the bar. Customer: yes." busy={false} hasThread={true} onCall={() => undefined} />);
+        expect((screen.getByTestId('sandbox-call-transcript') as HTMLTextAreaElement).value).toContain("the server's own default");
     });
 });

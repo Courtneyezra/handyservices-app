@@ -514,3 +514,69 @@ export function planQuoteLinkDelivery(input: { windowOpen: boolean; firstName: s
 export function looksLikeAName(name: string | null | undefined): boolean {
     return !!name && isLikelyRealName(name) && !isPlaceholderName(name);
 }
+
+// ---------------------------------------------------------------- T21: Ben rings them (an outbound call on an open window)
+
+/**
+ * The transcript the sandbox uses when the owner types none: Ben ringing a customer who wrote
+ * first and said yes to a call, asking for photos on the phone, as he does. Speaker labels as the
+ * dual-track Deepgram pass writes them (call-batch-transcribe.ts: Agent / Customer).
+ */
+export const OUTBOUND_CALL_DEFAULT_TRANSCRIPT = 'Agent: Hi, it is Ben from Handy Services, you messaged us about the bathroom extractor fan. Customer: Oh hi, yes, thanks for ringing. Agent: No problem. Is it just not spinning, or is it making a noise? Customer: Nothing at all, the light works but the fan is dead. It is a four inch one in the ceiling. Agent: OK. Easiest thing is if you can send me a couple of photos of the fan and the switch on this WhatsApp, and a quick video of the ceiling around it, then I can price it up today without coming out. Customer: Yes fine, I will do that this afternoon. Agent: Great, I will get the quote over to you once I have seen them. Speak soon.';
+
+/** Longest call the sandbox will write. */
+export const SANDBOX_CALL_MAX_SECONDS = 3600;
+
+export interface CallInput {
+    transcript: string;
+    durationSeconds: number;
+}
+
+/** {transcript?, durationSeconds?}: the transcript defaults; the duration derives from its length (about twelve characters a second) unless given. */
+export function validateCall(body: unknown): { ok: true; input: CallInput } | { ok: false; error: string } {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    const raw = typeof b.transcript === 'string' ? b.transcript : '';
+    const transcript = (raw.trim() ? raw : OUTBOUND_CALL_DEFAULT_TRANSCRIPT).replace(/\r\n/g, '\n').trim();
+    if (transcript.length > SANDBOX_TRANSCRIPT_MAX) return { ok: false, error: `transcript is over ${SANDBOX_TRANSCRIPT_MAX} characters` };
+    if (transcript.length < MIN_TRANSCRIPT_CHARS) return { ok: false, error: `the transcript needs at least ${MIN_TRANSCRIPT_CHARS} characters (the ladder's own bar)` };
+    let durationSeconds: number;
+    if (b.durationSeconds === undefined || b.durationSeconds === null || b.durationSeconds === '') {
+        durationSeconds = Math.max(20, Math.min(900, Math.round(transcript.length / 12)));
+    } else {
+        const n = Number(b.durationSeconds);
+        if (!Number.isInteger(n) || n < 1 || n > SANDBOX_CALL_MAX_SECONDS) return { ok: false, error: `durationSeconds must be a whole number of seconds between 1 and ${SANDBOX_CALL_MAX_SECONDS}` };
+        durationSeconds = n;
+    }
+    return { ok: true, input: { transcript, durationSeconds } };
+}
+
+const RE_ASKED_FOR_MEDIA = /\b(photo|photos|picture|pictures|pic|pics|video|videos|snap)\b/i;
+/** The outbound prompt's callbackPromised: OUR side promised further contact (a call, a quote, a text). */
+const RE_PROMISED_CONTACT = /\b(get|send|drop) (you|the quote|a quote|a message|a text)|quote over|message you|text you|whatsapp you|ring you|call you back|get back to you\b/i;
+
+/**
+ * The verdict the classifier writes for a call WE made (call-classifier.ts SYSTEM_PROMPT_OUTBOUND):
+ * kind pinned to outbound_call, the consent fields pinned neutral, a one-line summary of why we
+ * rang and how it ended, bullets. Read off the transcript with two lexicons so the sandbox's row
+ * carries what the model would have written, without a model.
+ */
+export function sandboxOutboundClassification(transcript: string, now: Date = new Date()): CallClassification {
+    const askedForMedia = RE_ASKED_FOR_MEDIA.test(transcript);
+    const promised = RE_PROMISED_CONTACT.test(transcript);
+    return {
+        kind: 'outbound_call',
+        whatsappAgreed: 'not_discussed',
+        messagingObjection: false,
+        jobSummary: `Rang the customer back about their enquiry${askedForMedia ? '; asked for photos or a video on WhatsApp' : ''}${promised ? '; quote to follow' : ''}.`,
+        jobPhrase: '',
+        urgency: 'normal',
+        callbackPromised: promised,
+        callIncomplete: false,
+        bullets: [
+            'Purpose: rang them back about their WhatsApp enquiry',
+            ...(askedForMedia ? ['Agreed: customer to send photos or a video on WhatsApp'] : []),
+            ...(promised ? ['Follow-up promised: the quote once the media is in'] : []),
+        ],
+        classifiedAt: now.toISOString(),
+    } as CallClassification;
+}

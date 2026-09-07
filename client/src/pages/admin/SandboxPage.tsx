@@ -63,6 +63,9 @@ export interface SandboxGates { firstContactAck: { enabled: boolean; channels: s
 export interface SandboxEvent { at: string; kind: string; summary: string; detail?: unknown }
 export interface BenNotice { event: string; title: string; message: string; link: string | null }
 export interface SandboxFunnel { stage: string | null; draft: { id: string; slug: string; lines: string[]; suggestedTotalPence: number | null; checkThis: number; createdAt: string | null; customerName: string | null } | null; quote: { slug: string; basePrice: number | null; delivered: boolean; accepted: boolean; expiresAt: string | null } | null }
+/** T21: Ben's call as the LIVE ingest wrote and judged it (server/spine/sandbox-routes.ts SandboxCallReport; the ladder is server/post-call-ladder.ts). */
+export interface SandboxLadderPlan { kind: string; ack: string | null; ackReason: string; continuation: boolean; spineRun: 'call_ended' | null; spineRunReason: string; record: boolean; tagNoAutoMessages: boolean; settleCallback: boolean }
+export interface SandboxCallReport { callId: string; preview: string; durationSeconds: number; transcriptChars: number; startedAt: string; ladder: SandboxLadderPlan | null; liveWouldRun: boolean; callbackSettled: { tagsCleared: string[]; released: boolean; flagsDismissed: number } | null; tagsBefore: string[]; tagsAfter: string[]; window: WindowReport }
 export interface SandboxState {
     phone: { e164: string; wa: string };
     conversation: { id: string; stage: string | null; tags: string[]; contactName: string | null; createdAt: string | null; hasTrigger: boolean } | null;
@@ -77,6 +80,9 @@ export interface SandboxState {
     window?: WindowReport | null;
     gates?: SandboxGates | null;
     funnel?: SandboxFunnel | null;
+    /** T21 */
+    lastCall?: SandboxCallReport | null;
+    callDefaults?: { transcript: string } | null;
 }
 export interface SandboxRun {
     runId: string;
@@ -692,6 +698,63 @@ export function WindowStrip({ window, busy, onAge, onClock }: { window: WindowRe
     );
 }
 
+// ---------------------------------------------------------------- T21: Ben rings them
+
+/** The ladder's own bar (server/post-call-ladder.ts MIN_TRANSCRIPT_CHARS), mirrored for the button. */
+export const CALL_MIN_TRANSCRIPT_CHARS = 40;
+/** The server's default (sandbox-scenarios.ts OUTBOUND_CALL_DEFAULT_TRANSCRIPT) travels in state; this is the fallback for an older server. */
+export const CALL_DEFAULT_TRANSCRIPT = 'Agent: Hi, it is Ben from Handy Services, you messaged us about the bathroom extractor fan. Customer: Oh hi, yes, thanks for ringing. Agent: No problem. Is it just not spinning, or is it making a noise? Customer: Nothing at all, the light works but the fan is dead. It is a four inch one in the ceiling. Agent: OK. Easiest thing is if you can send me a couple of photos of the fan and the switch on this WhatsApp, and a quick video of the ceiling around it, then I can price it up today without coming out. Customer: Yes fine, I will do that this afternoon. Agent: Great, I will get the quote over to you once I have seen them. Speak soon.';
+
+/** Pure: one line on what the ladder decided for Ben's call, for the strip and the event log. */
+export function callVerdictLabel(call: Pick<SandboxCallReport, 'liveWouldRun' | 'ladder'>): { text: string; tone: 'ok' | 'warn' } {
+    if (call.liveWouldRun) return { text: 'Live, the desk is handed the thread: the ladder asked for a call_ended pass, and the Scoper resumes from what Ben established on the phone.', tone: 'ok' };
+    return { text: `Live, the desk is NOT handed the thread: ${call.ladder?.spineRunReason ?? 'no ladder plan was recorded'}. The sandbox ran the pass anyway (below) so you can see what it would have composed.`, tone: 'warn' };
+}
+
+/** The control: Ben rings the customer from Groundwire, the call is answered, this is what was said. */
+export function CallStrip({ defaultTranscript, busy, hasThread, onCall }: { defaultTranscript: string | null | undefined; busy: boolean; hasThread: boolean; onCall: (transcript: string) => void }) {
+    const [transcript, setTranscript] = useState(defaultTranscript ?? CALL_DEFAULT_TRANSCRIPT);
+    const ok = transcript.trim().length >= CALL_MIN_TRANSCRIPT_CHARS;
+    return (
+        <div className="space-y-1.5 rounded-lg border border-violet-200 bg-violet-50/60 p-2 text-xs" data-testid="sandbox-call">
+            <div className="flex items-center gap-1.5 text-sm font-medium text-violet-900"><Phone className="h-4 w-4" /> Ben rings them</div>
+            <div className="text-slate-700">An answered outbound call from Groundwire. The transcript lands as Deepgram writes it, the call is written to the thread by the live code, and the ladder decides whether the desk is handed the thread. A call never opens or shuts the window.</div>
+            <Textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={3} className="bg-white text-xs" placeholder="Agent: … Customer: …" disabled={!hasThread || busy} aria-label="what was said on the call" data-testid="sandbox-call-transcript" />
+            <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{transcript.trim().length} characters{ok ? '' : ` (at least ${CALL_MIN_TRANSCRIPT_CHARS} needed: the ladder's own bar)`}</span>
+                <Button variant="outline" size="sm" onClick={() => onCall(transcript.trim())} disabled={!hasThread || busy || !ok} title="Write the call as the live path would and run the pass it triggers" data-testid="sandbox-call-button">
+                    <Phone className="mr-1 h-3.5 w-3.5" /> Ben rings them
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+/** The report: the call as call-thread.ts wrote it, the ladder's verdict, the callback settled, the window. */
+export function CallDetail({ call }: { call: SandboxCallReport }) {
+    const v = callVerdictLabel(call);
+    const settled = call.callbackSettled;
+    return (
+        <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50/60 p-3 text-sm" data-testid="sandbox-call-detail">
+            <div className="flex items-center gap-2 font-semibold text-violet-900"><Phone className="h-4 w-4" /> Ben's call, as call-thread.ts wrote it</div>
+            <div className="rounded border bg-white p-2">
+                <div className="font-mono text-xs">{call.preview}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{call.durationSeconds}s · answered · transcript {call.transcriptChars} chars · started {new Date(call.startedAt).toLocaleTimeString('en-GB')}</div>
+            </div>
+            <div className={cn('rounded px-2 py-1 text-xs', v.tone === 'ok' ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')} data-testid="sandbox-call-verdict">{v.text}</div>
+            {call.ladder && <div className="text-xs text-slate-700">Ladder: <span className="font-mono">{call.ladder.kind}</span> · ack <span className="font-mono">{call.ladder.ack ?? 'none'}</span> ({call.ladder.ackReason}) · spine <span className="font-mono">{call.ladder.spineRun ?? 'none'}</span>{call.ladder.tagNoAutoMessages ? <span className="ml-1 rounded bg-red-100 px-1 text-red-900">tagged no_auto_messages</span> : null}</div>}
+            <div className="text-xs text-slate-700" data-testid="sandbox-call-callback">
+                {settled
+                    ? <>Callback settled: {settled.tagsCleared.length ? <>{settled.tagsCleared.map((t) => <span key={t} className="mr-1 rounded bg-slate-100 px-1 font-mono">{t}</span>)} cleared</> : 'no callback tag was on the thread'}{settled.released ? <>; the thread came back from Ben (T17&apos;s door, {settled.flagsDismissed} flag{settled.flagsDismissed === 1 ? '' : 's'} dismissed)</> : ''}.</>
+                    : 'The thread was not waiting for a call (no callback_due, callback_requested or open callback flag), so nothing was settled and nothing released.'}
+                {' '}Tags now: {call.tagsAfter.length ? call.tagsAfter.map((t) => <span key={t} className="mr-1 rounded bg-slate-100 px-1 font-mono">{t}</span>) : 'none'}.
+            </div>
+            <div className={cn('rounded px-2 py-1 text-xs', call.window.canFreeform ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900')} data-testid="sandbox-call-window">Window after the call: {call.window.summary} A call never touches it; the follow-up may be freeform because the customer wrote first.</div>
+            <div className="text-xs text-muted-foreground">The desk&apos;s pass ran with trigger <span className="font-mono">call_ended</span> (below). Live, a Scoper reply on this pass waits for Ben: the call is the newest turn, so the send preconditions hold it as a draft (ours_is_newest), and the chase pings him at its due time.</div>
+        </div>
+    );
+}
+
 /** T16: where the thread is on the funnel and the two actions that move it (Ben's, the customer's). */
 export function FunnelStrip({ state, busy, onPrice, onAccept, amount, setAmount }: { state: SandboxState | null | undefined; busy: boolean; onPrice: () => void; onAccept: () => void; amount: string; setAmount: (v: string) => void }) {
     const step = funnelStep(state);
@@ -739,6 +802,7 @@ export default function SandboxPage() {
     const [lastRun, setLastRun] = useState<SandboxRun | null>(null);
     const [lastNotice, setLastNotice] = useState<{ notice: BenNotice; when: string } | null>(null);
     const [lastAction, setLastAction] = useState<string | null>(null);
+    const [lastCall, setLastCall] = useState<SandboxCallReport | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showDoors, setShowDoors] = useState(false);
     const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -766,13 +830,20 @@ export default function SandboxPage() {
 
     const reset = useMutation({
         mutationFn: () => api<{ ok: true; state?: SandboxState }>('/reset', { method: 'POST' }),
-        onSuccess: (r) => { setLastRun(null); setLastNotice(null); setLastAction(null); setError(null); setFiles([]); setShowDoors(false); applyState(r.state); },
+        onSuccess: (r) => { setLastRun(null); setLastNotice(null); setLastAction(null); setLastCall(null); setError(null); setFiles([]); setShowDoors(false); applyState(r.state); },
         onError: (e: Error) => setError(e.message),
     });
     const start = useMutation({
         mutationFn: (v: StartVars) => api<SendReply & { run: SandboxRun | null; entry: EntryReport; door: SandboxDoor }>('/start', { method: 'POST', body: JSON.stringify(v) }),
-        onMutate: () => { setError(null); setLastRun(null); setLastNotice(null); setLastAction(null); },
+        onMutate: () => { setError(null); setLastRun(null); setLastNotice(null); setLastAction(null); setLastCall(null); },
         onSuccess: (r) => { setFiles([]); setShowDoors(false); setChannel(r.door === 'sms' ? 'sms' : 'whatsapp'); applyState(r.state); if (r.run) paintRun({ ...r, run: r.run }); },
+        onError: (e: Error) => setError(e.message),
+    });
+    // T21: Ben rings them. The response carries the call as the live ingest judged it and the call_ended pass.
+    const call = useMutation({
+        mutationFn: (transcript: string) => api<SendReply & { call: SandboxCallReport }>('/call', { method: 'POST', body: JSON.stringify({ transcript }) }),
+        onMutate: () => { setError(null); setLastRun(null); setLastNotice(null); },
+        onSuccess: (r) => { setLastCall(r.call); setLastAction(callVerdictLabel(r.call).text); applyState(r.state); paintRun(r); },
         onError: (e: Error) => setError(e.message),
     });
     const seedQuote = useMutation({
@@ -825,7 +896,8 @@ export default function SandboxPage() {
     const gates = state.data?.gates ?? null;
     const entry = state.data?.entry ?? null;
     const events = state.data?.events ?? [];
-    const busy = send.isPending || reset.isPending || seedQuote.isPending || start.isPending || age.isPending || clock.isPending || price.isPending || accept.isPending;
+    const busy = send.isPending || reset.isPending || seedQuote.isPending || start.isPending || age.isPending || clock.isPending || price.isPending || accept.isPending || call.isPending;
+    const callShown = lastCall ?? state.data?.lastCall ?? null;
     const amountOk = Number.isFinite(Number(amount)) && Number(amount) >= 1 && Number(amount) <= 20_000;
     const warning = videoWarning(video);
     const overBound = attachmentsOverBound(files.length, video);
@@ -924,7 +996,7 @@ export default function SandboxPage() {
                                         )}
                                         {!inbound && (
                                             <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                                                {outboundLabel(m)}{m.channel === 'sms' ? ' · SMS' : ''}
+                                                {call ? '📞 outbound call · Ben rang them · written by the live ingest' : outboundLabel(m)}{m.channel === 'sms' ? ' · SMS' : ''}
                                             </div>
                                         )}
                                         {m.mediaUrl && (
@@ -952,7 +1024,12 @@ export default function SandboxPage() {
                                 </div>
                             </div>
                         )}
-                        {(send.isPending || clock.isPending || start.isPending) && (
+                        {call.isPending && (
+                            <div className="flex justify-end" data-testid="sandbox-pending-call">
+                                <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-700"><Phone className="mr-1 inline h-3.5 w-3.5" /> Ben is on the phone to them…</div>
+                            </div>
+                        )}
+                        {(send.isPending || clock.isPending || start.isPending || call.isPending) && (
                             <div className="flex justify-end">
                                 <div className="flex items-center gap-2 rounded-2xl rounded-tr-sm border border-dashed border-amber-300 bg-white px-3 py-2 text-sm text-muted-foreground">
                                     <Bot className="h-4 w-4 text-blue-600" /><Loader2 className="h-3 w-3 animate-spin" /> the desk is thinking…
@@ -978,6 +1055,7 @@ export default function SandboxPage() {
 
                     <div className="space-y-2 border-t p-3">
                         {conv && <FunnelStrip state={state.data} busy={busy} onPrice={() => price.mutate()} onAccept={() => accept.mutate()} amount={benAmount} setAmount={setBenAmount} />}
+                        {conv && <CallStrip defaultTranscript={state.data?.callDefaults?.transcript} busy={busy} hasThread={!!conv} onCall={(t) => call.mutate(t)} />}
                         {lastAction && <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-xs text-indigo-900" data-testid="sandbox-last-action">{lastAction}</div>}
                         {lastNotice && <BenNoticeBox notice={lastNotice.notice} when={lastNotice.when} />}
                         <div className="flex flex-wrap gap-1.5">
@@ -1076,6 +1154,7 @@ export default function SandboxPage() {
                 {/* ---------------- right: the desk thinking */}
                 <section className="space-y-4">
                     {entry && conv && <EntryDetail entry={entry} />}
+                    {callShown && conv && <CallDetail call={callShown} />}
 
                     <div className="rounded-lg border p-3">
                         <div className="mb-2 flex items-center gap-2 text-sm font-medium"><Bot className="h-4 w-4 text-blue-600" /> Live: what the desk is doing</div>

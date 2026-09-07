@@ -60,6 +60,15 @@
  *                     (freeform / quote_ready_link template / queued until the window reopens).
  *   POST /accept      T16: the customer pays the deposit: depositPaidAt on the sandbox quote, the
  *                     thread to `won`, and the "Quote accepted" Pushover RECORDED, not sent.
+ *   POST /call        T21: { transcript?, durationSeconds? } → Ben rings them: an ANSWERED outbound
+ *                     call on the current thread, written as the live path writes one (the calls
+ *                     row with the classifier's outbound-shaped verdict, then the LIVE ingestCallRow
+ *                     with call-logger's own options: the card line, the clocks, the callback
+ *                     settle and the ladder are the real code; its requestRun refuses the test
+ *                     number, as it must). The ladder's verdict — whether live would hand the
+ *                     thread to the desk, and the outreach rail that refused if not — is reported,
+ *                     and the sandbox runs the call_ended pass itself either way, so the owner sees
+ *                     what the Scoper composes from the call. A call never touches the window.
  *
  * HARD SAFETY RULE (the dev board demo's rule, inherited): every read and write here is keyed on
  * the sandbox number (server/spine/sandbox.ts) and NEVER on a conversation id, quote id or call id
@@ -84,9 +93,12 @@ import { explainMediaSelection } from './media-selection';
 import { SANDBOX_DIGITS, SANDBOX_PHONE_E164, SANDBOX_PHONE_WA, isSandboxPhone, quoteAcceptedNotice, type SandboxBenNotice } from './sandbox';
 import {
     DOOR_MEANING, validateStart, validateAge, validateClockTrigger, planFirstContactAck, planPostCallContinuation, planQuoteLinkDelivery,
-    sandboxClassification, windowReport, nameSlot, looksLikeAName, enquirySnippet, type AckPlan, type PostCallPlan, type QuoteLinkPlan, type SandboxDoor, type StartInput, type TemplateRow, type WindowReport,
+    sandboxClassification, windowReport, nameSlot, looksLikeAName, enquirySnippet, validateCall, sandboxOutboundClassification, OUTBOUND_CALL_DEFAULT_TRANSCRIPT,
+    type AckPlan, type PostCallPlan, type QuoteLinkPlan, type SandboxDoor, type StartInput, type TemplateRow, type WindowReport,
 } from './sandbox-scenarios';
 import type { MediaItem } from './types';
+import type { LadderPlan } from '../post-call-ladder';
+import type { CallThreadResult } from '../call-thread';
 
 export const commsSandboxRouter = Router();
 
@@ -363,7 +375,7 @@ export type SandboxRunSummary = ReturnType<typeof summariseRun>;
 
 // ---------------------------------------------------------------- T16: the thread's own record of what happened
 
-export type SandboxEventKind = 'entry' | 'ack' | 'route_a' | 'quote_seeded' | 'quote_sent' | 'accepted' | 'aged' | 'clock' | 'tags';
+export type SandboxEventKind = 'entry' | 'ack' | 'route_a' | 'quote_seeded' | 'quote_sent' | 'accepted' | 'aged' | 'clock' | 'tags' | 'call';
 export interface SandboxEvent { at: string; kind: SandboxEventKind; summary: string; detail?: unknown }
 
 /** What the sandbox keeps on conversations.metadata.sandbox. Never nextTriageAt. */
@@ -373,6 +385,39 @@ export interface SandboxMeta {
     startedAt: string;
     entry: EntryReport | null;
     events: SandboxEvent[];
+    /** T21: the last call Ben made on this thread, as the live ingest reported it. */
+    lastCall?: SandboxCallReport | null;
+}
+
+/** T21: Ben's call as the live ingest wrote and judged it, for the page and the event log. */
+export interface SandboxCallReport {
+    callId: string;
+    /** The card line call-thread.ts wrote ("Outbound call (2m 5s): …"). */
+    preview: string;
+    durationSeconds: number;
+    transcriptChars: number;
+    startedAt: string;
+    /** The ladder's plan for the transcript ingest: spineRun, spineRunReason (the outreach rail that refused, if one did), settleCallback. */
+    ladder: LadderPlan | null;
+    /** True when live would have asked the spine for the call_ended pass. The sandbox runs it either way. */
+    liveWouldRun: boolean;
+    /** What 3b settled: the callback tags that came off and whether T17's door released the thread. */
+    callbackSettled: NonNullable<CallThreadResult['callbackSettled']> | null;
+    tagsBefore: string[];
+    tagsAfter: string[];
+    /** The window after the call: unchanged, because a call never touches lastInboundAt. */
+    window: WindowReport;
+}
+
+/** One line for the event log. Pure. */
+export function callEventSummary(r: Pick<SandboxCallReport, 'durationSeconds' | 'transcriptChars' | 'ladder' | 'liveWouldRun' | 'callbackSettled' | 'window'>): string {
+    const verdict = r.liveWouldRun
+        ? 'live, the desk is handed the thread (call_ended)'
+        : `live, the desk is NOT handed the thread: ${r.ladder?.spineRunReason ?? 'no ladder plan'}`;
+    const settled = r.callbackSettled
+        ? `; callback settled (${[...r.callbackSettled.tagsCleared.map((t) => `${t} cleared`), ...(r.callbackSettled.released ? [`released from Ben, ${r.callbackSettled.flagsDismissed} flag(s) dismissed`] : [])].join(', ')})`
+        : '';
+    return `Ben rang them: answered, ${r.durationSeconds}s, transcript ${r.transcriptChars} chars — ${verdict}${settled}. Window ${r.window.canFreeform ? 'still OPEN' : 'SHUT'} (a call never touches it).`;
 }
 export const SANDBOX_EVENTS_MAX = 60;
 
@@ -546,6 +591,9 @@ async function loadState() {
         door: meta?.door ?? (conv ? 'whatsapp' : null),
         entry: meta?.entry ?? null,
         events: meta?.events ?? [],
+        // T21
+        lastCall: meta?.lastCall ?? null,
+        callDefaults: { transcript: OUTBOUND_CALL_DEFAULT_TRANSCRIPT },
         window: await windowOf(conv?.id ?? null),
         gates: await gatesOf(),
         funnel: {
@@ -934,6 +982,69 @@ commsSandboxRouter.post('/run', async (req, res) => {
     } catch (error: any) {
         console.error('[Sandbox] run failed:', error);
         res.status(500).json({ error: error?.message ?? 'sandbox run failed' });
+    }
+});
+
+// ---------------------------------------------------------------- T21: Ben rings them
+
+/**
+ * The captain's flow: the customer wrote first (the window is open), said yes to a call, and Ben
+ * rang them from Groundwire and asked for photos. This writes that call as the live path does and
+ * lets the LIVE ingest judge it, so what the page shows is call-thread.ts's own verdict:
+ *
+ *   1. the `calls` row: direction outbound, OUTBOUND_ANSWERED (index.ts sip-outbound-status), the
+ *      real talk time, the transcript, and the verdict the classifier writes for a call we made
+ *      (kind outbound_call, consent fields neutral; sandboxOutboundClassification). The call starts
+ *      AFTER the newest message on the thread, as it does live (Ben rings after they wrote), so the
+ *      send preconditions see the call as the newest turn, exactly as they would live.
+ *   2. ingestCallRow with call-logger.ts finalizeCall's own options: the card line, the clocks (never
+ *      lastInboundAt), 3b's callback settle, the ladder behind the outreach rails. Its requestRun
+ *      refuses the sandbox number ('test number'), so no scheduled pass is ever armed here.
+ *   3. the call_ended pass, run by the sandbox whatever the ladder said (the plan says what live
+ *      would have done), so the Scoper's follow-up is on the page.
+ */
+commsSandboxRouter.post('/call', async (req, res) => {
+    try {
+        const v = validateCall(req.body);
+        if (!v.ok) { res.status(400).json({ error: v.error }); return; }
+        const conv = await findSandboxConversation();
+        if (!conv) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
+        const { transcript, durationSeconds } = v.input;
+        const now = new Date();
+        // Ben rings after the customer's last word: the call starts strictly after the newest row.
+        const [newest] = await db.select({ at: sql<string | null>`max(${messages.createdAt})` }).from(messages).where(eq(messages.conversationId, conv.id));
+        const newestAt = newest?.at ? new Date(newest.at).getTime() : 0;
+        const startTime = new Date(Math.max(now.getTime() - durationSeconds * 1000, newestAt + 1000));
+        const endTime = new Date(Math.max(now.getTime(), startTime.getTime() + durationSeconds * 1000));
+        const classification = sandboxOutboundClassification(transcript, now);
+        const callId = `sbx_call_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+        const customerName = looksLikeAName(conv.contactName) ? conv.contactName : null;
+        await db.insert(calls).values({
+            id: callId, callId, phoneNumber: SANDBOX_PHONE_E164, startTime, endTime, direction: 'outbound', status: 'completed',
+            outcome: 'OUTBOUND_ANSWERED', handledBy: 'va', duration: durationSeconds, ringSeconds: 8, customerName,
+            transcription: transcript, jobSummary: classification.jobSummary, classification,
+        } as any);
+        const [row] = await db.select().from(calls).where(eq(calls.id, callId)).limit(1);
+        if (!row) throw new Error('the sandbox call row was not written');
+        const tagsBefore = ((conv.tags as string[] | null) ?? []).slice();
+        const { ingestCallRow } = await import('../call-thread');
+        // call-logger.ts finalizeCall's options, verbatim: the live path for a call that just ended.
+        const ingest = await ingestCallRow(row, { markUnread: true, ack: true, outboundOpensCard: true, continuation: true });
+        if (ingest.status === 'skipped') throw new Error(`the live ingest refused the call: ${ingest.reason}`);
+        const [after] = await db.select({ tags: conversations.tags }).from(conversations).where(eq(conversations.id, conv.id)).limit(1);
+        const window = await windowOf(conv.id);
+        const report: SandboxCallReport = {
+            callId, preview: ingest.preview ?? '', durationSeconds, transcriptChars: transcript.length, startedAt: startTime.toISOString(),
+            ladder: ingest.ladder ?? null, liveWouldRun: ingest.ladder?.spineRun === 'call_ended',
+            callbackSettled: ingest.callbackSettled ?? null, tagsBefore, tagsAfter: ((after?.tags as string[] | null) ?? []).slice(), window,
+        };
+        await recordEvent(conv.id, { kind: 'call', summary: callEventSummary(report), detail: { callId, ladder: report.ladder, callbackSettled: report.callbackSettled } });
+        await patchSandboxMeta(conv.id, { lastCall: report });
+        const pass = await passOn(conv.id, 'call_ended');
+        res.json({ ok: true, call: report, run: pass.summary, media: pass.media, video: pass.video, mirrored: null, state: await loadState() });
+    } catch (error: any) {
+        console.error('[Sandbox] call failed:', error);
+        res.status(500).json({ error: error?.message ?? 'sandbox call failed' });
     }
 });
 
