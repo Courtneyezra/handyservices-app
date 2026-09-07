@@ -127,16 +127,20 @@ export function setupCronJobs() {
     }, { timezone: 'Europe/London' }));
 
     // PHASE 3 — EARNED AUTONOMY (3 Sep 2026): daily 07:30 UK, the promotion / demotion job
-    // (server/spine/autonomy.ts). Worker-gated (it writes pack tiers and pings the owner) and
-    // behind app_settings.spine.autonomy.enabled AND spine.enabled — both default off, fail closed.
-    // Dry run for the owner: npx tsx scripts/_autonomy-report.ts --dry-run
+    // (server/spine/autonomy.ts). Worker-gated (it writes pack tiers and pings the owner).
+    // B6 (7 Sep 2026, PRD v3 §5.4): the mode comes from the row with no flag of its own
+    // (server/spine/config.ts autonomyJobMode): spine off → skipped (fail closed); spine on and
+    // autonomy.enabled on → full (promote + demote, as before); spine on and autonomy.enabled off
+    // → demote-only, so a tier a person set to SEND always has an automatic way back down.
+    // Dry run for the owner: npx tsx scripts/_autonomy-report.ts --dry-run [--demote-only]
     gateCustomerLoop('cron: 07:30 autonomy promotion/demotion', () => cron.schedule("30 7 * * *", async () => {
         try {
-            const { isAutonomyEnabled } = await import('./spine/config');
-            if (!(await isAutonomyEnabled())) { console.log('[Cron] Autonomy job skipped: spine.autonomy.enabled is off'); return; }
+            const { getAutonomyJobMode } = await import('./spine/config');
+            const mode = await getAutonomyJobMode();
+            if (mode === 'off') { console.log('[Cron] Autonomy job skipped: spine.enabled is off'); return; }
             const { evaluateAutonomy } = await import('./spine/autonomy');
-            const report = await evaluateAutonomy({ dryRun: false });
-            console.log(`[Cron] Autonomy: ${report.applied.length} change(s), ${report.errors.length} error(s)\n${report.table}`);
+            const report = await evaluateAutonomy({ dryRun: false, mode });
+            console.log(`[Cron] Autonomy (${mode}): ${report.applied.length} change(s), ${report.held.length} promotion(s) held, ${report.errors.length} error(s)\n${report.table}`);
         } catch (error) {
             console.error("[Cron] Autonomy job failed:", error);
         }

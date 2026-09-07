@@ -94,6 +94,25 @@ export async function isAutonomyEnabled(): Promise<boolean> {
     return cfg.enabled === true && cfg.autonomy.enabled === true;
 }
 
+/**
+ * B6 (PRD v3 §5.4): what the 07:30 autonomy job does, derived from the row with no flag of its own.
+ *   off          master switch off — nothing runs (fail closed, like every other spine entry point)
+ *   full         master on, autonomy on — promote and demote, today's behaviour byte for byte
+ *   demote_only  master on, autonomy off — the job still runs every morning but may only take a
+ *                tier AWAY; a promotion is reported and held. This is what makes a human SEND
+ *                (POST /api/spine/tiers) safe to set before the earned ladder is honest: there is
+ *                no flag to remember, so there is no flag to forget.
+ */
+export type AutonomyJobMode = 'off' | 'demote_only' | 'full';
+export function autonomyJobMode(c: Pick<SpineConfig, 'enabled'> & { autonomy?: Partial<SpineConfig['autonomy']> | null }): AutonomyJobMode {
+    if (c.enabled !== true) return 'off';
+    return c.autonomy?.enabled === true ? 'full' : 'demote_only';
+}
+/** The DB-read wrapper the cron job calls. Fail closed: an unreadable row is `off`. */
+export async function getAutonomyJobMode(): Promise<AutonomyJobMode> {
+    return autonomyJobMode(await getSpineConfig());
+}
+
 let localConfig: SpineConfig | null = null;
 
 /** Suites call this once; from then on this process never touches the live row. */
