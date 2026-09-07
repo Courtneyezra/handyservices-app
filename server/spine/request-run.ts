@@ -134,6 +134,12 @@ export interface QuoteRunState {
      * (see sweepQuoteRunState): the direct requesters fire once per cause and leave it unset.
      */
     pendingDraft?: boolean;
+    /**
+     * D1 / D10 (7 Sep 2026): a finished pass already looked at this customer turn and nothing has
+     * changed since (metadata.lastSpinePass judged by lastPassCoversThisTurn). Loaded by the NET
+     * only, like pendingDraft: the direct requesters fire once per cause and leave it unset.
+     */
+    passedThisTurn?: boolean;
 }
 
 /** Pure: does this thread need a spine pass for its quote tag? */
@@ -161,6 +167,14 @@ export function shouldRequestQuoteRun(state: QuoteRunState, now: Date = new Date
     // nothing has changed: the desk already spoke for this turn, and the answer is Ben's, not a
     // re-run's. Same rule the legacy slow sweep applies before line 154 (comms-sweep.ts:128).
     if (state.pendingDraft) return { ok: false, reason: 'a pending draft already answers this turn (waiting on Ben, nothing new from the customer)' };
+    // D1 / D10: the half of that loop a pending draft does not cover (284 clerk runs on one thread
+    // in 30 hours, 7 Sep 2026). A pass whose lane leaves NO draft — the P19 Ben-lane clerk with an
+    // intake short of quote_ready and a flag deduped on needs_ben; a Scoper deciding none — leaves
+    // the thread byte-for-byte as it found it, so every other question here has the same answer
+    // five minutes later. The pass now leaves a stamp (metadata.lastSpinePass, written by runDue),
+    // and the net reads it against the customer's latest inbound and the quote tags on the row: a
+    // new customer turn, or a quote tag the pass did not find, re-opens the thread; a clock does not.
+    if (state.passedThisTurn) return { ok: false, reason: 'the desk already looked at this turn (a pass finished after the customer\'s last message and no quote tag has landed since); waiting on the customer or Ben' };
     if (state.nextTriageAt) {
         const due = new Date(state.nextTriageAt).getTime();
         if (Number.isFinite(due) && now.getTime() - due < STALE_PENDING_MINUTES * 60_000) return { ok: false, reason: `a pass is already pending (due ${state.nextTriageAt})` };
@@ -256,7 +270,7 @@ export function pendingDraftAnswersLatestInbound(drafts: readonly PendingDraftRe
  * written past? Matched on the thread id and on the E.164 phone (the case file's `+digits`), the
  * two keys queueDraft writes. Throws are the caller's: the net's loader fails closed (no run).
  */
-export async function pendingAgentDraftAwaitsBen(conversationId: string, phoneNumber: string | null | undefined): Promise<boolean> {
+export async function pendingAgentDraftAwaitsBen(conversationId: string, phoneNumber: string | null | undefined, latestInbound?: { id: string; at: Date } | null): Promise<boolean> {
     const { messageDrafts } = await import('@shared/schema');
     const { and, desc, inArray, or } = await import('drizzle-orm');
     const { AGENT_DRAFT_SOURCES, latestInboundFor } = await import('../draft-freshness');
@@ -271,15 +285,82 @@ export async function pendingAgentDraftAwaitsBen(conversationId: string, phoneNu
         ))
         .orderBy(desc(messageDrafts.createdAt)).limit(5);
     if (!drafts.length) return false;
-    return pendingDraftAnswersLatestInbound(drafts, await latestInboundFor(conversationId));
+    return pendingDraftAnswersLatestInbound(drafts, latestInbound === undefined ? await latestInboundFor(conversationId) : latestInbound);
 }
 
-/** The net's loader: the default state plus the D7 pending-draft check. */
+// ---------------------------------------------------------------- D1 / D10: has the desk already looked at this turn?
+//
+// The stamp a finished pass leaves on the thread: metadata.lastSpinePass. Same shape as the legacy
+// sweep's lastAutoTriageAt (comms-sweep.ts:145) — a per-thread mark on the conversation row, no
+// table, no migration — and the same reader as D7's pending-draft check: the customer's latest
+// inbound. The quote tags recorded are the ones the pass FOUND (caseFile.tags), never the ones it
+// wrote: in live mode the in-pass direct requesters (triage.ts, exit.ts) are refused by the run's
+// own lease ("a pass is already pending"), so a tag that lands during a pass is scheduled by the
+// net, and it must show as new on the net's next look.
+
+export const LAST_SPINE_PASS_KEY = 'lastSpinePass';
+
+export interface SpinePassStamp {
+    /** ISO: when the pass STARTED (before the case file was built), so a message that arrived mid-pass is newer than it. */
+    at: string;
+    trigger?: string | null;
+    runId?: string | null;
+    /** QUOTE_TAGS present on the row when the pass found it. Absent on a stamp written before this field: treated as none seen. */
+    quoteTags?: string[];
+}
+
+/** Pure: the stamp for a finished pass. */
+export function spinePassStamp(run: { runId: string; trigger: string; caseFile: { tags: readonly string[] } }, startedAt: Date): SpinePassStamp {
+    return { at: startedAt.toISOString(), trigger: run.trigger, runId: run.runId, quoteTags: QUOTE_TAGS.filter((t) => run.caseFile.tags.includes(t)) };
+}
+
+/** Pure: read the stamp off a conversation's metadata; anything malformed is no stamp. */
+export function readSpinePassStamp(metadata: Record<string, any> | null | undefined): SpinePassStamp | null {
+    const raw = metadata?.[LAST_SPINE_PASS_KEY];
+    if (!raw || typeof raw !== 'object' || typeof raw.at !== 'string') return null;
+    const stamp: SpinePassStamp = { at: raw.at };
+    if (typeof raw.trigger === 'string') stamp.trigger = raw.trigger;
+    if (typeof raw.runId === 'string') stamp.runId = raw.runId;
+    if (Array.isArray(raw.quoteTags)) stamp.quoteTags = raw.quoteTags.filter((t: unknown) => typeof t === 'string');
+    return stamp;
+}
+
+/**
+ * Pure. Does the last finished pass cover this turn? Yes when it started at or after the
+ * customer's latest inbound (or the thread has no inbound at all) AND no quote tag is on the row
+ * now that the pass did not find. A new customer turn or a freshly landed quote tag re-opens the
+ * thread; nothing else does — that is the point, a clock must not.
+ */
+export function lastPassCoversThisTurn(stamp: SpinePassStamp | null | undefined, latestInbound: { id: string; at: Date } | null | undefined, tagsNow: readonly string[]): boolean {
+    if (!stamp) return false;
+    const at = new Date(stamp.at).getTime();
+    if (!Number.isFinite(at)) return false;
+    const seen = stamp.quoteTags ?? [];
+    if (QUOTE_TAGS.some((t) => tagsNow.includes(t) && !seen.includes(t))) return false;
+    if (!latestInbound) return true;
+    return at >= latestInbound.at.getTime();
+}
+
+/** DB: merge the stamp into the thread's metadata. runDue folds this into its lease-clearing UPDATE; the shadow path calls it. */
+export async function recordSpinePass(conversationId: string, stamp: SpinePassStamp): Promise<void> {
+    await db.execute(sql`
+        UPDATE conversations
+        SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('lastSpinePass', ${JSON.stringify(stamp)}::jsonb)
+        WHERE id = ${conversationId}`);
+}
+
+/** The net's loader: the default state plus the D7 pending-draft check and the D1 last-pass stamp, both judged against the same latest inbound. */
 async function sweepQuoteRunState(conversationId: string): Promise<QuoteRunState | null> {
     const state = await defaultQuoteRunState(conversationId);
     if (!state) return null;
-    const [conv] = await db.select({ phoneNumber: conversations.phoneNumber }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
-    return { ...state, pendingDraft: await pendingAgentDraftAwaitsBen(conversationId, conv?.phoneNumber) };
+    const [conv] = await db.select({ phoneNumber: conversations.phoneNumber, metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    const { latestInboundFor } = await import('../draft-freshness');
+    const latestInbound = await latestInboundFor(conversationId);
+    return {
+        ...state,
+        pendingDraft: await pendingAgentDraftAwaitsBen(conversationId, conv?.phoneNumber, latestInbound),
+        passedThisTurn: lastPassCoversThisTurn(readSpinePassStamp(conv?.metadata as Record<string, any> | null), latestInbound, state.tags),
+    };
 }
 
 export interface SweepUntriggeredDeps {
@@ -377,11 +458,17 @@ export async function runDue(limit?: number): Promise<SpineRun[]> {
         try {
             // Lazy: index.ts imports the whole chain; this module must stay light for the tick.
             const { runOnce } = await import('./index');
+            const passStartedAt = new Date();
             const run = await runOnce(row.id, trigger, undefined, { runId: row.run_id ?? undefined });
             runs.push(run);
+            // D1 / D10: the same write that clears the lease leaves the pass's stamp, so the net can
+            // tell "already looked at this turn" from "nobody has looked". Only when the lease still
+            // matches: a message that re-armed the row mid-run leaves no stamp, and its own pass will.
+            // A thrown run never reaches here — the lease expires and the next tick retries, as before.
+            const stamp = spinePassStamp(run, passStartedAt);
             await db.execute(sql`
                 UPDATE conversations
-                SET metadata = (metadata - 'nextTriageAt') - 'nextTriageTrigger' - 'nextTriageRunId'
+                SET metadata = ((metadata - 'nextTriageAt') - 'nextTriageTrigger' - 'nextTriageRunId') || jsonb_build_object('lastSpinePass', ${JSON.stringify(stamp)}::jsonb)
                 WHERE id = ${row.id} AND metadata->>'nextTriageAt' = ${lease}`);
         } catch (error: any) {
             console.error(`[Spine] run failed for ${row.id} (lease stands, will retry):`, error?.message ?? error);
