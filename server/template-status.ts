@@ -9,6 +9,8 @@
  * this is the page that answers them. Read-only; nothing here submits anything.
  */
 
+import { expectedFromWindowTemplates } from './window-templates';
+
 export interface CachedTemplateRow {
     contentSid: string;
     name: string;
@@ -31,10 +33,12 @@ export interface ExpectedTemplate {
 }
 
 /**
- * The names the code reads, by purpose. Kept as data so the staff page and the go-live check
+ * The names the code reads today, by purpose. Kept as data so the staff page and the go-live check
  * share one list; the source preference arrays stay where they are (they carry the copy).
+ *
+ * 4.1's window-shut five are appended below rather than typed out again, so there is one registry.
  */
-export const EXPECTED_TEMPLATES: ExpectedTemplate[] = [
+const LIVE_TEMPLATES: ExpectedTemplate[] = [
     { purpose: 'holding line (silence / flag / draft expiry)', usedBy: 'server/rules-layer.ts HOLDING_TEMPLATE_PREFERENCE', names: ['holding_line_v1', 'holding_line'], required: true },
     { purpose: 'missed-call ack', usedBy: 'server/first-contact-ack.ts MISSED_CALL_TEMPLATE_PREFERENCE', names: ['missed_call_ack'], required: true },
     { purpose: 'ask for a photo / video', usedBy: 'server/rules-layer.ts ASK_TEMPLATE_PREFERENCE', names: ['video_request', 'job_video_request'], required: true },
@@ -43,6 +47,26 @@ export const EXPECTED_TEMPLATES: ExpectedTemplate[] = [
     { purpose: 'web enquiry ack (with context)', usedBy: 'server/spine/packs/rules-first-contact.ts', names: ['web_enquiry_ack_context'], required: false },
     { purpose: 'returning-customer ack', usedBy: 'server/spine/packs/rules-first-contact.ts', names: ['1_contact_generic'], required: false },
 ];
+
+/**
+ * The live list plus build-plan 4.1's window-shut five (server/window-templates.ts), which carry
+ * their own category and trigger and are all `required: false` — nothing reads them until 4.2, and
+ * a name still in Meta's queue must not turn the go-live check to NO-GO.
+ *
+ * A window template whose first name is already a row above (web_enquiry_ack_context is both the
+ * first-contact ack and 4.1's webform carrier) is folded into that row instead of duplicating it:
+ * one purpose, one name, one row, which is also what stops Meta seeing two templates for one job.
+ */
+export const EXPECTED_TEMPLATES: ExpectedTemplate[] = (() => {
+    const live = [...LIVE_TEMPLATES];
+    const seen = new Set(live.flatMap((e) => e.names));
+    for (const row of expectedFromWindowTemplates()) {
+        if (row.names.some((n) => seen.has(n))) continue;
+        row.names.forEach((n) => seen.add(n));
+        live.push(row);
+    }
+    return live;
+})();
 
 export type ExpectedState = 'approved' | 'present' | 'missing';
 

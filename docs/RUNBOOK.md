@@ -94,6 +94,7 @@ npx tsx scripts/_p19-replay-thread.ts <conversationId>   # read-only: no writes,
 | Eval scoreboard | table `eval_runs` (0.7, what the autonomy job reads); `eval-results/latest.md` + `latest.json` (gitignored, the fallback); `npx tsx scripts/eval-comms.ts`, `scripts/_eval-scoreboard.ts --status` |
 | Shadow comparison | `npx tsx scripts/_shadow-report.ts --days 7` |
 | Autonomy ladder | `npx tsx scripts/_autonomy-report.ts --dry-run` |
+| WhatsApp templates: status, submission, what Meta does next | `/admin/staff` → Templates; `docs/META-TEMPLATE-RUNBOOK.md`; definitions in `server/window-templates.ts` |
 
 ### Migrations
 Files in `migrations/` are idempotent SQL (`IF NOT EXISTS`). Apply with the targeted runner `npx tsx scripts/_apply-migration.ts migrations/<file>.sql` (statement by statement, comment-safe; never `db:push` against the shared production DB). psql works too
