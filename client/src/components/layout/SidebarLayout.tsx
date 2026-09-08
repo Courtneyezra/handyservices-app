@@ -3,6 +3,7 @@ import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, Messag
 import { useQuery } from "@tanstack/react-query";
 import { usePriceQueue, hasAdminToken } from "@/hooks/usePriceQueue";
 import { useVisionHealth, visionBadge } from "@/hooks/useVisionHealth";
+import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
 
 import InstallPrompt from "@/components/InstallPrompt";
 import OpsDock from "@/components/ops/OpsDock";
@@ -81,6 +82,11 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     // in a server console. The staff card and the sandbox banner show the same verdict with the reason.
     const { data: visionHealth } = useVisionHealth({ enabled: hasAdminToken() });
     const visionFailing = visionBadge(visionHealth);
+
+    // 3.4: how many knowledge-base entries are still waiting for Ben to read them. Until he does,
+    // none of them can be sent, so the badge is the whole prompt for the work.
+    const { data: knowledgeBase } = useKnowledgeBase({ enabled: hasAdminToken() });
+    const kbWaiting = knowledgeBase?.counts.unreviewed ?? 0;
 
     // Persist collapse state
     useEffect(() => {
@@ -180,6 +186,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: PoundSterling, label: "Price queue", href: "/admin/price", badge: priceQueueCount > 0 ? String(priceQueueCount) : null },
                                 { icon: FlaskConical, label: "Sandbox", href: "/admin/sandbox", badge: "NEW" },
                                 { icon: Bot, label: "AI Staff", href: "/admin/staff", badge: visionFailing ?? "NEW", alarm: !!visionFailing },
+                                { icon: BookOpen, label: "What we tell customers", href: "/admin/knowledge", badge: kbWaiting > 0 ? String(kbWaiting) : "NEW" },
                                 { icon: Activity, label: "Activity", href: "/admin/activity", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
                                 { icon: Map, label: "Dispatch Console", href: "/admin/dispatch-console" },

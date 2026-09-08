@@ -4820,3 +4820,53 @@ export type InsertQuoteResearch = typeof quoteResearch.$inferInsert;
 // conversation_memory (Agent Framework V2) was DELETED in Phase 5 of the comms rebuild (3 Sep 2026).
 // The table itself is dropped by hand via migrations/20260903_drop_conversation_memory.sql once
 // the orchestrator confirms it is empty; nothing reads or writes it any more.
+
+/**
+ * Build plan v2, item 3.4: the knowledge base — what Ben says is true about the business, written
+ * by him in the admin (his answer 11). Migration `migrations/20260908_kb_entries.sql`.
+ *
+ * An entry is not a hint to the model. A later item (3.2) makes a factual answer to a customer BE
+ * `approvedWords`, selected verbatim, because the s10 review established that nothing here can
+ * check whether a claim about the business is true. So the row is the sentence that gets sent, and
+ * only a REVIEWED answer is ever readable by anything customer-facing:
+ * `listReviewedEntries()` in server/spine/knowledge-base.ts is the one accessor for that; reaching
+ * an unreviewed row needs the deliberately named `adminListEveryEntryIncludingUnreviewed()`.
+ *
+ * A `question` row is an open question for Ben, never an answer: the website says things the
+ * desk's rules forbid (a free quote, no call-out charge, Gas Safe engineers, a no-charge fix), and
+ * those are surfaced for him to rule on rather than imported as facts (review s29 finding 1.19).
+ * The table's CHECKs, not the accessor alone, make a question and a blank unsendable.
+ */
+export const KB_KINDS = ['answer', 'question'] as const;
+export type KbKind = (typeof KB_KINDS)[number];
+export const KB_STATUSES = ['unreviewed', 'reviewed', 'retired'] as const;
+export type KbStatus = (typeof KB_STATUSES)[number];
+
+export const kbEntries = pgTable("kb_entries", {
+    /** The stable citation id: a readable slug, so a run record reads as English. */
+    id: text("id").primaryKey().notNull(),
+    kind: text("kind").notNull().default('answer'),          // KbKind
+    /** The question or topic, in the customer's words where possible. */
+    topic: text("topic").notNull(),
+    /** What may be SENT, word for word. Always '' on a question (CHECK). */
+    approvedWords: text("approved_words").notNull().default(''),
+    /** Phrases that must never be used on this topic. */
+    bannedWords: text("banned_words").array().notNull().default([]),
+    status: text("status").notNull().default('unreviewed'),  // KbStatus
+    /** human:<id> — always a person; never null on a reviewed row (CHECK). */
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    /** On a question, the conflict itself (required). On an answer, what to check when reviewing. */
+    benNote: text("ben_note"),
+    /** Where the draft came from, for the review screen. */
+    sourceNote: text("source_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_kb_entries_status").on(table.status, table.updatedAt),
+    check("kb_entries_kind_check", sql`${table.kind} IN ('answer', 'question')`),
+    check("kb_entries_status_check", sql`${table.status} IN ('unreviewed', 'reviewed', 'retired')`),
+    check("kb_entries_reviewed_check", sql`${table.status} <> 'reviewed' OR (${table.kind} = 'answer' AND btrim(${table.approvedWords}) <> '' AND ${table.reviewedBy} IS NOT NULL AND ${table.reviewedAt} IS NOT NULL)`),
+    check("kb_entries_question_check", sql`${table.kind} <> 'question' OR (btrim(${table.approvedWords}) = '' AND btrim(coalesce(${table.benNote}, '')) <> '')`),
+]);
+export type KbEntryRow = typeof kbEntries.$inferSelect;
