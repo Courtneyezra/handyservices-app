@@ -20,6 +20,7 @@
  */
 import { DESK_BEHAVIOURS, isDeskBehaviour, VIDEO_MAX_PER_RUN, type SpineConfig } from './config';
 import { isSpineMode, type SpineMode } from './switch';
+import { senderSwitchKeys } from '../sender-registry';
 
 export const OWNER_EMAIL = 'ezramarketingltd@gmail.com';
 export const LIVE_CONFIRM_WORD = 'LIVE';
@@ -48,8 +49,8 @@ export interface SpinePatchVerdict {
 }
 export interface PatchRefusal { ok: false; errors: string[] }
 
-const SPINE_KEYS = ['mode', 'desk', 'agents', 'asks', 'autonomy', 'sampler', 'video', 'confirm'] as const;
-const AGENT_KEYS = ['scoper', 'quote_clerk', 'recovery', 'verifier', 'triage'] as const;
+const SPINE_KEYS = ['mode', 'desk', 'agents', 'senders', 'asks', 'autonomy', 'sampler', 'video', 'confirm'] as const;
+const AGENT_KEYS = ['scoper', 'quote_clerk', 'recovery', 'contractor_liaison', 'verifier', 'triage'] as const;
 
 function boolField(obj: unknown, key: string, errors: string[], label: string): boolean | undefined {
     if (obj == null || typeof obj !== 'object') { errors.push(`${label} must be an object`); return undefined; }
@@ -139,6 +140,22 @@ export function validateSpineConfigPatch(body: unknown): SpinePatchVerdict | Pat
                 if (on !== undefined) { agents[k as keyof SpineConfig['agents']] = { enabled: on }; changes.push(`agents.${k} → ${on ? 'on' : 'off'}`); }
             }
             if (Object.keys(agents).length) patch.agents = agents;
+        }
+    }
+    // 0.2: the sender switches. The key must be one the registry actually issued — an unknown key
+    // would be a switch that turns nothing off, which is the failure this item exists to end — and
+    // a transactional sender has no key at all, so it cannot be named here even by hand.
+    if (b.senders !== undefined) {
+        if (b.senders == null || typeof b.senders !== 'object' || Array.isArray(b.senders)) errors.push('senders must be an object');
+        else {
+            const known = new Set(senderSwitchKeys());
+            const senders: SpineConfig['senders'] = {};
+            for (const [k, v] of Object.entries(b.senders as Record<string, unknown>)) {
+                if (!known.has(k)) { errors.push(`unknown sender switch ${k}`); continue; }
+                const on = boolField(v, 'enabled', errors, `senders.${k}`);
+                if (on !== undefined) { senders[k] = { enabled: on }; changes.push(`senders.${k} → ${on ? 'on' : 'off'}`); }
+            }
+            if (Object.keys(senders).length) patch.senders = senders;
         }
     }
     if (b.confirm !== undefined && typeof b.confirm !== 'string') errors.push('confirm must be a string');

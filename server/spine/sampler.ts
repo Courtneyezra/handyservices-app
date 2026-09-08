@@ -188,6 +188,11 @@ export async function runSampler(deps: SamplerDeps = {}): Promise<SamplerResult 
     if (!isCommsWorker()) return { skipped: true, reason: 'not the comms worker' };
     const cfg = await getSpineConfig();
     if (!cfg.sampler?.enabled) return { skipped: true, reason: 'spine.sampler.enabled is false' };
+    // 0.2 item G: the Verifier's own per-agent switch. `spine.sampler.enabled` says whether the
+    // morning sample RUNS; `spine.agents.verifier.enabled` names the agent that judges it, and on
+    // /admin/staff it sits on the Verifier's own card — so it has to mean something. Off = no judge
+    // calls, exactly like the sampler switch, and the reason says which one stopped it.
+    if (cfg.agents?.verifier?.enabled === false) return { skipped: true, reason: 'spine.agents.verifier.enabled is false' };
 
     const { label } = yesterdayBoundsUk(now);
     const result: SamplerResult = { day: label, candidates: 0, selected: 0, judged: 0, queued: 0, skipped: 0, failed: 0, notFine: 0 };

@@ -7,6 +7,9 @@
  * check-then-act reads are how three processes all "win"), and hands the actual send to
  * server/rules-layer.ts, which owns copy, suppression and the template/SMS ladder.
  *
+ * 0.2 (8 Sep 2026): the three lanes below are ONE clock, `runSilenceClock`, carrying a REASON.
+ * They were three, fired side by side; every timing, cap, suppression rule and word is unchanged.
+ *
  *   sweepSilence   an inbound ≥ 10 min old with no outbound since → holding line ('silence').
  *                  Idempotent via conversations.metadata.silenceBreakerAt: one per inbound burst.
  *   expireFlags    agent_questions past due_at, unanswered → holding line ('flag_expiry'),
@@ -155,6 +158,40 @@ async function humanOutboundSince(conversationId: string, phone: string, since: 
     });
 }
 
+// ---------------------------------------------------------------- THE ONE SILENCE CLOCK
+//
+// 0.2 (8 Sep 2026). Three lanes ran as three clocks: sweepSilence, expireFlags, expireDrafts,
+// fired side by side from the tick with Promise.all. They are ONE behaviour on three triggers —
+// "a customer heard nothing, and something of ours is overdue" — and the trace's own reading of
+// them (S27 §3.1 A1–A3) is that A2 and A3 are in practice suppressed by A1's two-hour window,
+// which is to say they were already competing for one send and the winner depended on which
+// promise resolved first.
+//
+// So: one clock, and the lane is now a REASON carried through it. Each lane still owns its own
+// scan and its own claim — three different tables, three different definitions of overdue, and
+// the claim is what makes each action happen once — but every one of them emits through
+// `breakSilence` below, in a fixed order, sequentially. Nothing about the timings, the caps, the
+// suppression or the wording moves: the ten minutes, the 48-hour ceiling, the five-per-pass caps,
+// the two-hour holding window inside rules-layer and the flag-expiry re-ping to Ben are all
+// exactly what they were. What changes is that there is one place to read, one order, and one
+// row to add when a fourth trigger arrives.
+
+/** Which overdue thing this holding line is for. `HoldingKind` in server/rules-layer.ts. */
+export type SilenceReason = 'silence' | 'flag_expiry' | 'draft_expiry';
+
+/** Fixed order. A thread overdue on two counts gets one line, for the first reason in this list. */
+export const SILENCE_REASONS: readonly SilenceReason[] = ['silence', 'flag_expiry', 'draft_expiry'];
+
+/**
+ * The one send. Every lane goes through here, so "what a holding line is" is written once:
+ * server/rules-layer.ts owns the copy, the suppression (opted out, archived, test number, a rules
+ * send inside the last two hours, an answer since) and the template/SMS ladder; this just names
+ * the reason and the run.
+ */
+async function breakSilence(conversationId: string, reason: SilenceReason, runId: string) {
+    return sendHoldingLine(conversationId, reason, runId);
+}
+
 // ---------------------------------------------------------------- 1. silence
 
 export interface SilenceSweepResult { scanned: number; sent: number; suppressed: number; skipped: number }
@@ -203,7 +240,7 @@ export async function sweepSilence(now: Date = new Date()): Promise<SilenceSweep
         if (!((claimed.rows ?? claimed) as unknown[]).length) { result.skipped++; continue; }
 
         const runId = newRunId('rules');
-        const sent = await sendHoldingLine(c.id, 'silence', runId);
+        const sent = await breakSilence(c.id, 'silence', runId);
         if (sent.sent) result.sent++; else result.suppressed++;
         void logSystemEvent({
             kind: 'sweep', phone: c.phoneNumber, conversationId: c.id, source: 'silence-breaker',
@@ -242,7 +279,7 @@ export async function expireFlags(now: Date = new Date()): Promise<FlagExpiryRes
         result.expired++;
 
         const runId = newRunId('rules');
-        const sent = await sendHoldingLine(q.conversationId, 'flag_expiry', runId);
+        const sent = await breakSilence(q.conversationId, 'flag_expiry', runId);
         if (sent.sent) result.sent++;
 
         // Re-ping Ben ONCE — the claim above is what makes it once.
@@ -294,7 +331,7 @@ export async function expireDrafts(now: Date = new Date()): Promise<DraftExpiryR
         let draftId: string | null | undefined = null;
         if (d.conversationId) {
             const runId = newRunId('rules');
-            const sent = await sendHoldingLine(d.conversationId, 'draft_expiry', runId);
+            const sent = await breakSilence(d.conversationId, 'draft_expiry', runId);
             outcome = sent.reason; draftId = sent.draftId;
             if (sent.sent) result.sent++;
             void logSystemEvent({
@@ -313,23 +350,84 @@ export async function expireDrafts(now: Date = new Date()): Promise<DraftExpiryR
     return result;
 }
 
-// ---------------------------------------------------------------- the tick
+// ---------------------------------------------------------------- the tick: ONE clock
 
 let lastPassAt = 0;
 
-/** One call per fast tick; self-throttled to a pass a minute. Never throws. */
-export async function runSilenceBreakerTick(now: Date = new Date()): Promise<void> {
+/**
+ * The lanes of the one clock, in the order they run. Each owns its scan and its claim; all three
+ * emit through `breakSilence`. `acted` is what the lane counts as having DONE something this pass
+ * (a line sent, a flag expired, a draft marked) — it is what decides whether the pass logs.
+ *
+ * Adding a fourth trigger is a row here, not a fourth clock.
+ */
+export interface SilenceLane {
+    reason: SilenceReason;
+    what: string;
+    run: (now: Date) => Promise<{ acted: number; note: string }>;
+}
+
+export const SILENCE_LANES: readonly SilenceLane[] = [
+    {
+        reason: 'silence',
+        what: 'an inbound ≥ 10 min old with nothing outbound since',
+        run: async (now) => {
+            const r = await sweepSilence(now);
+            return { acted: r.sent, note: `silence sent=${r.sent} suppressed=${r.suppressed}` };
+        },
+    },
+    {
+        reason: 'flag_expiry',
+        what: 'a flag past its due time, unanswered — and Ben re-pinged once',
+        run: async (now) => {
+            const r = await expireFlags(now);
+            return { acted: r.expired, note: `flags expired=${r.expired} sent=${r.sent}` };
+        },
+    },
+    {
+        reason: 'draft_expiry',
+        what: 'a pending draft past its due time',
+        run: async (now) => {
+            const r = await expireDrafts(now);
+            return { acted: r.expired, note: `drafts expired=${r.expired} sent=${r.sent}` };
+        },
+    },
+];
+
+/**
+ * ONE call per fast tick; self-throttled to a pass a minute, as before. Never throws: a lane that
+ * fails is logged and the next one still runs, which is what the three separate `.catch(() => null)`
+ * arms used to buy.
+ *
+ * Sequential, in SILENCE_LANES order, where the three used to race inside a Promise.all. That is
+ * the only observable difference and it is a tightening, not a timing change: the two-hour holding
+ * window in rules-layer already meant at most one line per thread per pass, and now it is always
+ * the same one — the oldest, plainest reason first.
+ */
+export async function runSilenceClock(now: Date = new Date()): Promise<void> {
     if (now.getTime() - lastPassAt < PASS_EVERY_MS) return;
     lastPassAt = now.getTime();
-    const [silence, flags, drafts] = await Promise.all([
-        sweepSilence(now).catch((e) => { console.error('[SilenceBreaker] silence sweep failed:', e?.message ?? e); return null; }),
-        expireFlags(now).catch((e) => { console.error('[SilenceBreaker] flag expiry failed:', e?.message ?? e); return null; }),
-        expireDrafts(now).catch((e) => { console.error('[SilenceBreaker] draft expiry failed:', e?.message ?? e); return null; }),
-    ]);
-    const acted = (silence?.sent ?? 0) + (flags?.expired ?? 0) + (drafts?.expired ?? 0);
-    if (acted > 0) {
-        console.log(`[SilenceBreaker] silence sent=${silence?.sent} suppressed=${silence?.suppressed} · flags expired=${flags?.expired} sent=${flags?.sent} · drafts expired=${drafts?.expired} sent=${drafts?.sent}`);
+    const notes: string[] = [];
+    let acted = 0;
+    for (const lane of SILENCE_LANES) {
+        try {
+            const r = await lane.run(now);
+            acted += r.acted;
+            notes.push(r.note);
+        } catch (e: any) {
+            console.error(`[SilenceBreaker] ${lane.reason} lane failed:`, e?.message ?? e);
+            notes.push(`${lane.reason} FAILED`);
+        }
     }
+    if (acted > 0) console.log(`[SilenceBreaker] ${notes.join(' · ')}`);
+}
+
+/** The name the fast tick has always called. Kept so the sweep needs no edit to follow the rename. */
+export const runSilenceBreakerTick = runSilenceClock;
+
+/** Tests only: forget the once-a-minute throttle between cases. */
+export function _resetSilenceClockThrottle(): void {
+    lastPassAt = 0;
 }
 
 // ---------------------------------------------------------------- 4. the 09:00 digest

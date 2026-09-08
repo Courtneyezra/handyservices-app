@@ -111,7 +111,7 @@ spineRouter.get('/controls', async (req, res) => {
             spine: {
                 mode: spineModeFrom(cfg), enabled: cfg.enabled, shadow: cfg.shadow, explicitMode: cfg.mode ?? null,
                 desk: cfg.desk,
-                agents: cfg.agents, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
+                agents: cfg.agents, senders: cfg.senders, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
                 sweepLimit: cfg.sweepLimit, debounceMinutes: cfg.debounceMinutes, triageModel: cfg.triageModel, city: cfg.city,
             },
             legacy: legacy ? { enabled: legacy.enabled, onInbound: legacy.onInbound, autosend: legacy.autosend.enabled, firstContactAck: legacy.firstContactAutoAck.enabled, quotePrep: legacy.quotePrep.enabled } : null,

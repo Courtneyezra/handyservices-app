@@ -21,7 +21,7 @@ import { normalizePhoneNumber } from './phone-utils';
 import { toE164Recipient } from './sms';
 import { scheduleInboundTriage } from './agents/comms-lanes';
 import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
-import { blockedByOptOut, optOutRefusalMessage } from './opt-out';
+import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { mirrorMediaToS3 } from './media-store';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -429,7 +429,18 @@ export class ConversationEngine {
     public async sendMessage(
         to: string,
         body: string,
-        options: { templateSid?: string; templateVars?: Record<string, string>; approver: Approver; runId: string },
+        options: {
+            templateSid?: string; templateVars?: Record<string, string>; approver: Approver; runId: string;
+            /**
+             * 0.2 (8 Sep 2026): why this is being sent, passed straight to the gate. Omitted means
+             * the SENDER'S registered purpose (server/sender-registry.ts). Before the registry an
+             * omission meant 'marketing', and that is what blocked the booking confirmation on a
+             * paid deposit for any customer who had once written a plain STOP (S27 §3.1 A6): this
+             * function's own opt-out check above passes it as a service reply, and the gate then
+             * refused the same message as marketing.
+             */
+            purpose?: OutboundPurpose;
+        },
     ) {
         try {
             // Normalize phone number to E.164 format (+44...)
@@ -511,6 +522,7 @@ export class ConversationEngine {
                 contentSid: options?.templateSid,
                 contentVariables: options?.templateVars,
                 via: 'twilio',
+                purpose: options.purpose,
             });
             if (!result.ok || !result.sid) {
                 throw new Error(result.error ?? result.reason ?? 'send failed');

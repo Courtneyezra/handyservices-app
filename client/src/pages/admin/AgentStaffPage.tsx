@@ -40,11 +40,34 @@ interface StaffVerdicts {
     topEditReason: { reason: string; n: number } | null;
 }
 
+/**
+ * The per-agent kill switches, in the order they run. Mirrors SpineAgentKey in
+ * server/spine/config.ts and AGENT_KEYS in server/spine/controls.ts — the server refuses any other
+ * key, so a typo here is a 400 rather than a silent no-op.
+ */
+const SPINE_AGENT_KEYS = ['triage', 'scoper', 'quote_clerk', 'recovery', 'contractor_liaison', 'verifier'] as const;
+
+/** What turning each one OFF actually stops. Shown in the switch's tooltip. */
+const AGENT_SWITCH_WHAT: Record<(typeof SPINE_AGENT_KEYS)[number], string> = {
+    triage: 'off = the triage MODEL does not run; the deterministic rules still do, and still raise every exception',
+    scoper: 'off = the Scoper proposes nothing, so the pass says nothing to the customer',
+    quote_clerk: 'off = the Quote clerk proposes nothing and builds no artifact',
+    recovery: 'off = the Recovery agent proposes nothing',
+    contractor_liaison: 'off = the contractor pack proposes nothing',
+    verifier: 'off = the morning sampler makes no judge calls (spine.sampler.enabled also stops it)',
+};
+
 /** Phase 5: the spine's switches as /api/agents/staff reports them (app_settings.spine, no secrets). */
 export interface SpineSwitches {
     mode: 'off' | 'shadow' | 'live';
     enabled: boolean; shadow: boolean; explicitMode: string | null;
     agents: Partial<Record<string, { enabled: boolean }>>;
+    /**
+     * 0.2: the sender registry's switches, `spine.senders.<key>.enabled`
+     * (server/sender-registry.ts). Reported here so a later item can show them all on one strip;
+     * absent = every registered sender on, and a transactional sender has no key at all.
+     */
+    senders?: Partial<Record<string, { enabled: boolean }>>;
     asks: { enabled: boolean };
     autonomy: { enabled: boolean };
     sampler: { enabled: boolean; rate: number; min: number; max: number };
@@ -657,8 +680,16 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
                 className="px-1.5 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40">+</button>
         </span>
     );
-    const agentToggles = Object.entries(spine.agents ?? {}).map(([k, v]) =>
-        toggle(`agents.${k}`, `${k} ${v?.enabled ? 'on' : 'off'}`, !!v?.enabled, `spine.agents.${k}.enabled — per-agent kill switch`, () => flipSpine(`agents.${k}`, { agents: { [k]: { enabled: !v?.enabled } } })));
+    // 0.2 item G: every per-agent switch is shown, not just the keys that already have a row, and
+    // each one now STOPS the thing it names (server/spine/index.ts for the lane agents and the
+    // triage model, server/spine/sampler.ts for the verifier). Absent = ON, which is what the
+    // config means; the title says what turning it off actually does.
+    const agentToggles = SPINE_AGENT_KEYS.map((k) => {
+        const on = spine.agents?.[k]?.enabled !== false;
+        return toggle(`agents.${k}`, `${k} ${on ? 'on' : 'off'}`, on,
+            `spine.agents.${k}.enabled — ${AGENT_SWITCH_WHAT[k]}`,
+            () => flipSpine(`agents.${k}`, { agents: { [k]: { enabled: !on } } }));
+    });
     const statusCls: Record<GoLiveCheckRow['status'], string> = { GO: 'bg-emerald-100 text-emerald-800', 'NO-GO': 'bg-red-100 text-red-800', WARN: 'bg-amber-100 text-amber-800', SKIP: 'bg-slate-100 text-slate-500', INFO: 'bg-sky-100 text-sky-800' };
 
     return (
