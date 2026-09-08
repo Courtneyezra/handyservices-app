@@ -9,18 +9,24 @@
  * the money going" is a SQL query and a dashboard column, not an investigation.
  */
 import { logSystemEvent } from './system-events';
+import { priceForModel, CACHE_READ_MULTIPLIER, CACHE_WRITE_MULTIPLIER } from './agent-cost';
 
-/** USD per MTok, APPROXIMATE — for ranking burners, not accounting. */
-const RATES: Record<string, { in: number; out: number; cacheRead: number }> = {
-    'claude-opus-5': { in: 15, out: 75, cacheRead: 1.5 },
-    'claude-sonnet-5': { in: 3, out: 15, cacheRead: 0.3 },
-    'claude-sonnet-4-5': { in: 3, out: 15, cacheRead: 0.3 },
-    'claude-haiku-4-5': { in: 1, out: 5, cacheRead: 0.1 },
-};
-
-function rateFor(model: string) {
-    const key = Object.keys(RATES).find((k) => model.startsWith(k));
-    return key ? RATES[key] : { in: 3, out: 15, cacheRead: 0.3 };
+/**
+ * ONE price table, not two (0.4, 8 Sep 2026).
+ *
+ * This module had its own hand-kept RATES map, and it was wrong: Opus at $15/$75 and Sonnet at
+ * $3/$15 — 3x and 1.5x the real rate (the audit's S12 §0 point 2). Every `~$` on /admin/activity
+ * was that overstatement, and every ranking of "what is burning the money" was distorted with it.
+ * The correct numbers were, all along, in server/agent-cost.ts, which prices agent_runs.cost_pence:
+ * Haiku 4.5 $1/$5, Sonnet 5 $2/$10, Opus 5 $5/$25, cache reads at 10% of input and cache writes at
+ * 125%. So this file no longer keeps a table — it reads that one. A model that is not in it is
+ * priced at 0 and named in the row rather than guessed at, because a made-up figure that looks
+ * like a measurement is worse than a visible zero.
+ */
+function rateFor(model: string): { in: number; out: number; cacheRead: number } | null {
+    const price = priceForModel(model);
+    if (!price) return null;
+    return { in: price.input, out: price.output, cacheRead: price.input * CACHE_READ_MULTIPLIER };
 }
 
 /** Best-effort caller tag from the stack — function names survive esbuild bundling.
@@ -47,12 +53,14 @@ export function recordLlmUsage(model: string, usage: any, src = 'unknown'): void
         const cacheRead = Number(usage?.cache_read_input_tokens ?? 0);
         const cacheWrite = Number(usage?.cache_creation_input_tokens ?? 0);
         const r = rateFor(model);
-        // Cache writes bill at 1.25x input; close enough for ranking.
-        const usd = (inTok * r.in + cacheWrite * r.in * 1.25 + cacheRead * r.cacheRead + outTok * r.out) / 1_000_000;
+        const usd = r
+            ? (inTok * r.in + cacheWrite * r.in * CACHE_WRITE_MULTIPLIER + cacheRead * r.cacheRead + outTok * r.out) / 1_000_000
+            : 0;
+        const unpriced = r ? '' : ' · UNPRICED MODEL';
         void logSystemEvent({
             kind: 'other',
-            summary: `llm ${model.replace('claude-', '')} · ${src} · in=${inTok} cw=${cacheWrite} cr=${cacheRead} out=${outTok} · ~$${usd.toFixed(4)}`,
-            detail: { model, src, inTok, outTok, cacheRead, cacheWrite, usd: Number(usd.toFixed(6)) },
+            summary: `llm ${model.replace('claude-', '')} · ${src} · in=${inTok} cw=${cacheWrite} cr=${cacheRead} out=${outTok} · ~$${usd.toFixed(4)}${unpriced}`,
+            detail: { model, src, inTok, outTok, cacheRead, cacheWrite, usd: Number(usd.toFixed(6)), ...(r ? {} : { unpriced: true }) },
             source: 'llm-usage',
         });
     } catch {

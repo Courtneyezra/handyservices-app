@@ -2,7 +2,8 @@ import { Router } from "express";
 import { db } from "./db";
 import { calls } from "../shared/schema";
 import { eq } from "drizzle-orm";
-import { claudeJson } from "./llm";
+import { claudeJsonWithUsage } from "./llm";
+import { recordModelSpend } from "./model-spend";
 
 const router = Router();
 
@@ -72,9 +73,17 @@ Return ONLY a JSON object with these fields. No markdown, no explanation.
 TRANSCRIPT:
 ${transcript}`;
 
-        const extractedData = await claudeJson<any>({
+        // 0.4 (8 Sep 2026): audit site C5 — this route's Haiku call now writes a priced run row.
+        const startedAt = Date.now();
+        const answer = await claudeJsonWithUsage<any>({
             system: "You are a data extraction assistant. Return only valid JSON.",
             user: extractionPrompt,
+        });
+        const extractedData = answer.data;
+        void recordModelSpend({
+            agent: 'call-data-extract', trigger: 'admin_click', model: answer.model,
+            usage: answer.usage, phone: customerPhone || null,
+            durationMs: Date.now() - startedAt, detail: { callId: callId ?? null },
         });
 
         // Merge with call metadata if available

@@ -87,10 +87,30 @@ export function verdictFrom(j: MoveQuality): Pick<JudgeResult, 'verdict' | 'reas
     return { verdict: 'sample_not_fine', reason };
 }
 
+/**
+ * 0.4 (8 Sep 2026): audit site A10 — this default dropped the usage on the floor, so the sampler's
+ * Opus calls (up to 15 a morning) were priced nowhere in the run ledger. It now writes one priced
+ * run row per judgement, in the same shape every other single-call site uses.
+ */
 async function defaultLlm(args: { system: string; user: string; model: string; maxTokens: number }): Promise<{ data: unknown; model: string }> {
     const { claudeJsonWithUsage } = await import('../../llm');
-    const r = await claudeJsonWithUsage({ system: args.system, user: args.user, model: args.model, maxTokens: args.maxTokens });
-    return { data: r.data, model: r.model };
+    const { recordModelSpend } = await import('../../model-spend');
+    const startedAt = Date.now();
+    try {
+        const r = await claudeJsonWithUsage({ system: args.system, user: args.user, model: args.model, maxTokens: args.maxTokens });
+        void recordModelSpend({
+            agent: VERIFIER_NAME, trigger: 'sampler', model: r.model, usage: r.usage,
+            durationMs: Date.now() - startedAt, detail: { rubric: RUBRIC_ID },
+        });
+        return { data: r.data, model: r.model };
+    } catch (error: any) {
+        void recordModelSpend({
+            agent: VERIFIER_NAME, trigger: 'sampler', model: args.model, usage: null,
+            durationMs: Date.now() - startedAt, error: String(error?.message ?? error).slice(0, 300),
+            detail: { rubric: RUBRIC_ID },
+        });
+        throw error;
+    }
 }
 
 /** One rubric call. Throws on a malformed answer (the sampler records the failure and moves on). */

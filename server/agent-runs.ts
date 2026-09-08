@@ -12,7 +12,7 @@
  */
 import { db } from './db';
 import { agentRuns } from '@shared/schema';
-import { and, eq, isNull, lt } from 'drizzle-orm';
+import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import { newRunId } from './approver';
 import { computeCostPence, type TokenUsage } from './agent-cost';
 import { ledgerRunStarted, ledgerRunFinished } from './ledger';
@@ -46,6 +46,9 @@ export interface FinishAgentRunInput {
     error?: string | null;
     durationMs?: number | null;
     transcriptRef?: string | null;
+    /** 0.4: the run's bounded lean transcript (server/agents/transcript-store.ts). `undefined`
+     *  leaves whatever is on the row — the spine closes a run the runner already wrote. */
+    transcript?: unknown;
     decision?: string | null;
     lane?: string | null;
     proposal?: unknown;
@@ -118,6 +121,7 @@ export async function finishAgentRun(
             error: patch.error ?? null,
             ...(patch.model ? { model: patch.model, modelSnapshot: patch.model } : {}),
             ...(patch.transcriptRef ? { transcriptRef: patch.transcriptRef } : {}),
+            ...(patch.transcript !== undefined ? { transcript: patch.transcript as any } : {}),
             ...(patch.decision ? { decision: patch.decision } : {}),
             ...(patch.lane ? { lane: patch.lane } : {}),
             ...(patch.proposal !== undefined ? { proposal: patch.proposal as any } : {}),
@@ -132,4 +136,45 @@ export async function finishAgentRun(
         ok: !patch.error, error: patch.error ?? null, durationMs: patch.durationMs ?? null, costPence, turns: patch.turns ?? null,
     });
     return { costPence };
+}
+
+/**
+ * 0.4: the model spend behind one reply — the drafting run and EVERY run descended from it.
+ *
+ * Not just the direct children. A Route A reply's chain is three deep: the spine pass, the
+ * estimator's own attempt run beneath it, and the `search_web` call the estimator made inside that
+ * attempt (audit site A5, the one the spend audit called material). A parent-only sum would miss
+ * exactly the call that costs the most, so the walk is recursive and bounded by
+ * MAX_RUN_COST_DEPTH. `parent_run_id` always points at an earlier run, so the walk is a tree; the
+ * depth guard is a belt, not the reason it terminates.
+ *
+ * Whole pence, or null when nothing in the chain could be priced — a null is "not measured", a 0
+ * is "measured and free". Never throws: cost is bookkeeping, not a send condition.
+ *
+ * Read at SEND time, not at draft time: by then every run in the chain has been closed (the
+ * runner writes its own cost before the exit runs, and a draft a person approves later is closed
+ * long since), so the sum is complete.
+ */
+export const MAX_RUN_COST_DEPTH = 5;
+
+export async function modelCostPenceForRun(runId: string | null | undefined): Promise<number | null> {
+    if (!runId) return null;
+    try {
+        const res: any = await db.execute(sql`
+            WITH RECURSIVE chain AS (
+                SELECT id, cost_pence, 0 AS depth FROM agent_runs WHERE id = ${runId}
+                UNION ALL
+                SELECT r.id, r.cost_pence, c.depth + 1
+                FROM agent_runs r JOIN chain c ON r.parent_run_id = c.id
+                WHERE c.depth < ${MAX_RUN_COST_DEPTH}
+            )
+            SELECT cost_pence FROM chain`);
+        const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
+        const priced = rows.map((r) => Number(r.cost_pence ?? r.costPence)).filter((n) => Number.isFinite(n));
+        if (!priced.length) return null;
+        return priced.reduce((sum, n) => sum + n, 0);
+    } catch (error: any) {
+        console.warn(`[AgentRuns] could not sum the model cost behind run ${runId}:`, error?.message ?? error);
+        return null;
+    }
 }

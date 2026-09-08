@@ -20,6 +20,7 @@ import { exit as runExit, type ExitOutcome } from './exit';
 import { requestRun, runDue, quoteWorkInFlight, QUOTE_TAGS, type QuoteWorkInFlight } from './request-run';
 import { runRouteAChain, surveyOfferFor, artifactReadiness, type RouteAOutcome } from './route-a';
 import { runEmitter, leanTranscriptEvent, wouldHaveHappened, type RunEmitter } from './run-events';
+import { collectRead, runSources, type RunRead } from './run-sources';
 import { isSandboxPhone, newSandboxRouteARecord, sandboxRouteADeps } from './sandbox';
 import type { AgentLoopUsage, AgentName, CaseFile, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, TriageResult, Trigger } from './types';
 
@@ -266,7 +267,7 @@ async function runOnceBody(
         try {
             const { fileInboundIntoPack, liveFilingDeps } = await import('./job-pack-filing');
             const last = [...caseFile.timeline].reverse().find((t) => t.kind === 'message_in');
-            packFiling = await fileInboundIntoPack({ conversationId, text: last?.body ?? null }, await liveFilingDeps());
+            packFiling = await fileInboundIntoPack({ conversationId, text: last?.body ?? null, runId }, await liveFilingDeps());
         } catch (e: any) {
             console.warn(`[Spine] job pack filing failed for ${conversationId}:`, e?.message ?? e);
         }
@@ -297,6 +298,10 @@ async function runOnceBody(
     let error: string | null = null;
     // B2: the agent loop's own usage, reported back so this row records a real cost_pence.
     let loopUsage: AgentLoopUsage | null = null;
+    // 0.4: what the model saw. Every tool result the belt returned is indexed onto the run
+    // (server/spine/run-sources.ts) beside the ids the proposal cites, so a later reader can check
+    // the reply against its sources. Filled from the same onEvent listener the live feed uses.
+    const reads: RunRead[] = [];
     if (agentName && !agent) {
         error = `no agent registered for lane ${triage.lane} (${agentName})${benLaneClerk?.run ? ' — the Ben-lane clerk could not prepare' : ''}`;
         console.warn(`[Spine] ${error}; run ${runId} decides on triage alone`);
@@ -305,7 +310,11 @@ async function runOnceBody(
             proposal = await agent.run({
                 caseFile, pack, triage, runId, reportUsage: (u) => { loopUsage = u; },
                 // T5: the agent's own belt (tool calls, results, assistant text) rides the live feed.
-                onEvent: (evt) => ev.step(leanTranscriptEvent(evt as import('../agents/runner').AgentTranscriptEvent)),
+                onEvent: (evt) => {
+                    const e = evt as import('../agents/runner').AgentTranscriptEvent;
+                    collectRead(reads, e);           // 0.4: the reads, indexed onto the run
+                    ev.step(leanTranscriptEvent(e)); // unchanged: what the live feed streams
+                },
                 // T6: an agent that swallows its own belt failure (so its post-conditions still run)
                 // reports it here; the pass is then recorded as failed exactly as if it had thrown,
                 // while whatever it returned still drives the decision.
@@ -423,7 +432,10 @@ async function runOnceBody(
         error, durationMs: Date.now() - startedAt, decision: decision.kind, lane: triage.lane,
         ...(usagePatch ? { usage: usagePatch.usage, model: usagePatch.model, turns: usagePatch.turns } : {}),
         // T5: `sandbox: true` is the mark the sampler and the autonomy job exclude on (server/spine/sandbox.ts).
-        proposal: { triage, proposal, decision, outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(sandbox ? { sandbox: true, skipped } : {}), ...(routeA ? { routeA } : {}), ...(benLaneClerk ? { benLaneClerk } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
+        // 0.4: `sources` — the ids the proposal cites and every read the belt made. Same column and
+        // same habit as the vision rows' `description` (case-file.ts); the payloads themselves are
+        // on agent_runs.transcript, which the runner writes.
+        proposal: { triage, proposal, decision, sources: runSources(proposal, reads), outcome: run.outcome ?? null, dryRun, shadow: !!opts.shadow, ...(sandbox ? { sandbox: true, skipped } : {}), ...(routeA ? { routeA } : {}), ...(benLaneClerk ? { benLaneClerk } : {}), ...(packFiling ? { packFiling: { verdict: packFiling.verdict, quoteId: packFiling.quoteId ?? null, missingAfter: packFiling.missingAfter ?? null } } : {}) },
         guardsHit: guards?.guardsHit ?? [],
         ...(opts.shadow ? { shadowDecision: decision.kind } : {}),
     });

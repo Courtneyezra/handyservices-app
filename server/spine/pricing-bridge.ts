@@ -24,6 +24,7 @@ import { depositFor, type PricingSettings } from '@shared/pricing-settings';
 import type { QuoteMaterial } from '@shared/materials';
 import { DEFAULT_SETUP_MIN, DEFAULT_CLEANUP_MIN } from '@shared/schedule-composition';
 import type { EstimateLine, EstimateJob, QuoteEstimate } from './estimate-store';
+import type { SpendContext } from '../model-spend';
 
 export interface LineSuggestion {
     lineId: string;
@@ -61,7 +62,10 @@ export interface PricingSuggestions {
     engine: 'multi-line-engine' | 'reference-fallback';
 }
 
-export type Engine = (request: MultiLineRequest) => Promise<MultiLineResult>;
+/** 0.4: `spend` names the thread and the run the pricing belongs to, so the engine's Haiku spend
+ *  (audit site A6) lands on a run row that rolls up into the reply. Optional: a test double or an
+ *  admin path that has neither still satisfies the type. */
+export type Engine = (request: MultiLineRequest, spend?: SpendContext) => Promise<MultiLineResult>;
 
 export interface PriceEstimateDeps {
     engine: Engine;
@@ -155,6 +159,9 @@ export async function priceEstimate(estimate: QuoteEstimate, settings: PricingSe
     const setup = job.setupMinutes ?? DEFAULT_SETUP_MIN;
     const cleanup = job.cleanupMinutes ?? DEFAULT_CLEANUP_MIN;
     const marginPct = settings.materialsMarginPercent;
+    // 0.4: the estimate names the thread and the estimator's run; the engine's own model calls
+    // hang off that run, so the reply's cost includes what pricing it cost.
+    const spend: SpendContext = { conversationId: estimate.conversationId ?? null, parentRunId: estimate.runId ?? null };
     const signals: ContextualSignals = {
         urgency: 'standard', timeOfService: 'standard', isReturningCustomer: false, previousJobCount: 0, previousAvgPricePence: 0,
         materialsSupply: estimate.lines.some((l) => l.materials?.length) ? 'we_supply' : 'labor_only',
@@ -170,9 +177,9 @@ export async function priceEstimate(estimate: QuoteEstimate, settings: PricingSe
     const rules: string[] = [];
     if (engineLines.length) {
         const [point, low, high] = await Promise.all([
-            deps.engine(buildRequest(engineLines, (l) => l.minutesPoint, allowances, signals)),
-            deps.engine(buildRequest(engineLines, (l) => Math.min(l.minutesLow || l.minutesPoint, l.minutesPoint), allowances, signals)),
-            deps.engine(buildRequest(engineLines, (l) => Math.max(l.minutesHigh || l.minutesPoint, l.minutesPoint), allowances, signals)),
+            deps.engine(buildRequest(engineLines, (l) => l.minutesPoint, allowances, signals), spend),
+            deps.engine(buildRequest(engineLines, (l) => Math.min(l.minutesLow || l.minutesPoint, l.minutesPoint), allowances, signals), spend),
+            deps.engine(buildRequest(engineLines, (l) => Math.max(l.minutesHigh || l.minutesPoint, l.minutesPoint), allowances, signals), spend),
         ]);
         rules.push(...(point.guardrails?.adjustments ?? []).map(String));
         if (point.batchDiscount?.applied) rules.push(`batch discount ${point.batchDiscount.discountPercent}% (engine)`);
@@ -256,7 +263,7 @@ export async function defaultPricingDeps(): Promise<PriceEstimateDeps> {
     const { getPricingSettings } = await import('../pricing-settings');
     const settings = await getPricingSettings();
     return {
-        engine: (request) => generateMultiLinePrice(request),
+        engine: (request, spend) => generateMultiLinePrice(request, undefined, undefined, spend),
         reference: (category, minutes) => {
             const r = getReferencePrice(category, minutes, settings.referenceContingencyPercent);
             return { hourlyPence: r.hourlyRatePence, minChargePence: r.minimumChargePence, pricePence: r.calculatedReferencePence };

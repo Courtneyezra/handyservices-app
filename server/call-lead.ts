@@ -21,7 +21,8 @@ import { calls, leads, conversations, serviceClients } from "../shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { normalizePhoneNumber } from "./phone-utils";
-import { claudeJson } from "./llm";
+import { claudeJsonWithUsage, FAST_MODEL } from "./llm";
+import { recordModelSpend } from "./model-spend";
 
 interface CallLeadExtract {
     customerName: string | null;
@@ -71,13 +72,25 @@ export async function upsertLeadFromCall(callRecordId: string): Promise<void> {
     const clientId = call.clientId ?? await resolveClientByPhone(e164);
 
     let extract: CallLeadExtract;
+    const extractStartedAt = Date.now();
     try {
-        extract = await claudeJson<CallLeadExtract>({
+        // 0.4 (8 Sep 2026): audit site C2 — lead extraction now writes a priced run row.
+        const answer = await claudeJsonWithUsage<CallLeadExtract>({
             system: "You extract structured facts from a phone call transcript between a customer ([Caller]) and our handyman company ([Agent]). Return ONLY facts actually stated in the transcript — never guess or infer. Use null for anything not clearly stated.",
             user: `Extract from this transcript as JSON: {"customerName": first and/or last name the caller gives for themselves or null, "address": street address of the JOB if stated or null, "postcode": UK postcode if stated or null, "jobDescription": one plain sentence describing the work the caller wants or null, "leadType": one of "Homeowner"|"Landlord"|"Business"|"Property Manager"|"Unknown"}\n\nTranscript:\n${transcript.slice(0, 8000)}`,
         });
+        extract = answer.data;
+        void recordModelSpend({
+            agent: 'call-lead', trigger: 'call_ended', model: answer.model, usage: answer.usage,
+            phone: e164, durationMs: Date.now() - extractStartedAt, detail: { callRecordId },
+        });
     } catch (e: any) {
         console.warn(`[CallLead] ${callRecordId}: extraction failed:`, e?.message ?? e);
+        void recordModelSpend({
+            agent: 'call-lead', trigger: 'call_ended', model: FAST_MODEL, usage: null,
+            phone: e164, durationMs: Date.now() - extractStartedAt,
+            error: String(e?.message ?? e).slice(0, 300), detail: { callRecordId },
+        });
         return;
     }
 

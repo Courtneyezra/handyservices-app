@@ -1887,6 +1887,14 @@ export const messageDrafts = pgTable("message_drafts", {
     // and never changed after, so approval can tell "edit" from "approve" (draft_verdicts).
     // Null = never edited. Migration 20260902_draft_verdicts.sql.
     originalBody: text("original_body"),
+    // 0.4 (8 Sep 2026): COST PER REPLY. The model spend behind THIS send — the run that drafted it
+    // plus every run DESCENDED from that run (triage, the clerk, the estimator, the estimator's own
+    // web search, vision), summed from agent_runs.cost_pence at send time by modelCostPenceForRun
+    // (server/agent-runs.ts). Whole
+    // pence, an operating signal and not an invoice; null when nothing could be priced. Lets the
+    // activity page and the digest show cost per REPLY rather than per run.
+    // Migration 20260908_run_transcript_and_reply_cost.sql.
+    costPence: integer("cost_pence"),
 }, (table) => [
     index("idx_message_drafts_status").on(table.status, table.createdAt),
     index("idx_message_drafts_phone").on(table.phone),
@@ -2034,6 +2042,13 @@ export const agentRuns = pgTable("agent_runs", {
     costPence: integer("cost_pence"),
     durationMs: integer("duration_ms"),
     transcriptRef: text("transcript_ref"),
+    // 0.4 (8 Sep 2026): THE RUN TRANSCRIPT, KEPT. The lean per-step trail the runner built and
+    // then threw away — tool calls, tool results, assistant text — in the SAME shape the ops
+    // manager stores on ops_messages.transcript (LeanRunStep[], shared/ops-types.ts). Bounded to
+    // 64 KiB by server/agents/transcript-store.ts, largest tool results dropped first. This is
+    // what makes "check the reply against what it read" possible after the run.
+    // Migration 20260908_run_transcript_and_reply_cost.sql.
+    transcript: jsonb("transcript"),
     error: text("error"),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),

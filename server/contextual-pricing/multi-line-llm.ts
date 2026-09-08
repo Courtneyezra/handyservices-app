@@ -16,6 +16,10 @@
  */
 
 import { getAnthropic } from '../anthropic';
+import { recordModelSpend, usageFromResponse, type SpendContext } from '../model-spend';
+
+/** The model every call in this file makes. Named once so the spend rows and the calls cannot drift. */
+const PRICING_MODEL = 'claude-haiku-4-5-20251001';
 import type {
   MultiLineRequest,
   PricingAdjustmentFactor,
@@ -570,7 +574,8 @@ function isGenericSummary(summary: string): boolean {
  * Lightweight LLM retry focused only on generating a proposalSummary.
  * Called when the main LLM response produced a generic/empty summary.
  */
-async function retryProposalSummary(request: MultiLineRequest): Promise<string | null> {
+async function retryProposalSummary(request: MultiLineRequest, spend: SpendContext = {}): Promise<string | null> {
+  const startedAt = Date.now();
   try {
     const client = getAnthropic();
     const linesList = request.lines
@@ -582,7 +587,7 @@ async function retryProposalSummary(request: MultiLineRequest): Promise<string |
       : '';
 
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: PRICING_MODEL,
       temperature: 0.2,
       max_tokens: 200,
       system: `You write professional scope-of-work summaries for a handyman company in Nottingham. Return JSON: {"proposalSummary": "..."}
@@ -601,6 +606,14 @@ RULES:
           content: `Write a proposalSummary for this job:\n${vaContext}\n${linesList}`,
         },
       ],
+    });
+
+    // 0.4: audit site A6 — the Route A pricing engine's Haiku calls never wrote a priced run row.
+    void recordModelSpend({
+      agent: 'pricing-engine', trigger: 'retry_proposal_summary', model: PRICING_MODEL,
+      usage: usageFromResponse((response as any).usage), durationMs: Date.now() - startedAt,
+      conversationId: spend.conversationId ?? null, parentRunId: spend.parentRunId ?? null,
+      detail: { lines: request.lines.length },
     });
 
     const textBlock = response.content.find((block) => block.type === 'text');
@@ -628,6 +641,11 @@ RULES:
       '[multi-line-llm] Proposal summary retry failed:',
       error instanceof Error ? error.message : error,
     );
+    void recordModelSpend({
+      agent: 'pricing-engine', trigger: 'retry_proposal_summary', model: PRICING_MODEL, usage: null,
+      durationMs: Date.now() - startedAt, error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+      conversationId: spend.conversationId ?? null, parentRunId: spend.parentRunId ?? null,
+    });
     return null;
   }
 }
@@ -705,15 +723,17 @@ export async function generateMultiLineLLMPrice(
   request: MultiLineRequest,
   lineReferences: LineReference[],
   approvedClaims?: string[],
+  spend: SpendContext = {},
 ): Promise<MultiLineLLMResult> {
   const expectedLineIds = request.lines.map((l) => l.id);
 
   for (let attempt = 1; attempt <= PRICING_ATTEMPTS; attempt++) {
+    const attemptStartedAt = Date.now();
     try {
       const client = getAnthropic();
 
       const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: PRICING_MODEL,
         temperature: 0.1,
         max_tokens: 8192,
         system: buildSystemPrompt(request, lineReferences, approvedClaims),
@@ -725,6 +745,14 @@ export async function generateMultiLineLLMPrice(
         ],
       });
 
+      // 0.4: audit site A6, the main pricing call — one priced run row per attempt.
+      void recordModelSpend({
+        agent: 'pricing-engine', trigger: 'multi_line_price', model: PRICING_MODEL,
+        usage: usageFromResponse((response as any).usage), durationMs: Date.now() - attemptStartedAt,
+        conversationId: spend.conversationId ?? null, parentRunId: spend.parentRunId ?? null,
+        detail: { attempt, lines: request.lines.length },
+      });
+
       const textBlock = response.content.find((block) => block.type === 'text');
       let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
       raw = extractJSON(raw);
@@ -734,7 +762,7 @@ export async function generateMultiLineLLMPrice(
       // If proposalSummary is generic, retry with a focused LLM call
       if (isGenericSummary(result.messaging.proposalSummary)) {
         console.log('[multi-line-llm] proposalSummary is generic, retrying...');
-        const retrySummary = await retryProposalSummary(request);
+        const retrySummary = await retryProposalSummary(request, spend);
         if (retrySummary) {
           result.messaging.proposalSummary = retrySummary;
         } else {
@@ -749,6 +777,12 @@ export async function generateMultiLineLLMPrice(
         `[multi-line-llm] Pricing attempt ${attempt}/${PRICING_ATTEMPTS} failed:`,
         error instanceof Error ? error.message : error,
       );
+      void recordModelSpend({
+        agent: 'pricing-engine', trigger: 'multi_line_price', model: PRICING_MODEL, usage: null,
+        durationMs: Date.now() - attemptStartedAt, error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+        conversationId: spend.conversationId ?? null, parentRunId: spend.parentRunId ?? null,
+        detail: { attempt },
+      });
       if (attempt < PRICING_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, PRICING_RETRY_DELAY_MS));
       }
@@ -758,7 +792,7 @@ export async function generateMultiLineLLMPrice(
   console.error('[multi-line-llm] All pricing attempts failed, returning fallback');
   const fallback = buildFallbackResult(request, lineReferences);
   // Even in fallback, try to get a real proposalSummary
-  const retrySummary = await retryProposalSummary(request).catch(() => null);
+  const retrySummary = await retryProposalSummary(request, spend).catch(() => null);
   if (retrySummary) {
     fallback.messaging.proposalSummary = retrySummary;
   } else {

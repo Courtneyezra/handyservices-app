@@ -4,7 +4,8 @@ import OpenAI, { toFile } from "openai";
 // on 12 Aug 2026 when the OpenAI account ran out of credits. The OpenAI client
 // below remains ONLY for Whisper audio transcription (transcribeAudioBuffer),
 // which still needs OpenAI credits — Claude has no transcription API.
-import { claudeText, claudeJson } from './llm';
+import { claudeText, claudeJson, claudeTextWithUsage, claudeJsonWithUsage } from './llm';
+import { recordModelSpend } from './model-spend';
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -102,7 +103,9 @@ export async function extractCallMetadata(transcription: string, segments: Segme
             context = `RAW TRANSCRIPT:\n${transcription}`;
         }
 
-        const parsed = await claudeJson<any>({
+        // 0.4 (8 Sep 2026): audit site C4 — call-metadata extraction now writes a priced run row.
+        const metadataStartedAt = Date.now();
+        const metadataAnswer = await claudeJsonWithUsage<any>({
             maxTokens: 1024,
             user: context,
             system: `You are an expert call analyzer. Your goal is to extract structured data about the potential CUSTOMER.
@@ -154,6 +157,12 @@ Example Candidates:
   { "name": "Craig", "confidence": 0.3, "reasoning": "Mentioned earlier, possibly husband" }
 ]
 `,
+        });
+        const parsed = metadataAnswer.data;
+        void recordModelSpend({
+            agent: 'call-metadata', trigger: 'transcript', model: metadataAnswer.model,
+            usage: metadataAnswer.usage, durationMs: Date.now() - metadataStartedAt,
+            detail: { segments: segments.length },
         });
 
         // Normalize postcode format (uppercase, proper spacing)
@@ -243,7 +252,9 @@ export async function extractPostcodeOnly(transcription: string): Promise<string
  */
 export async function extractJobSummary(transcription: string): Promise<string> {
     try {
-        const jobSummary = (await claudeText({
+        // 0.4 (8 Sep 2026): audit site C3 — the job-summary Haiku call now writes a priced run row.
+        const summaryStartedAt = Date.now();
+        const summaryAnswer = await claudeTextWithUsage({
             maxTokens: 60,
             user: `Transcript:\n${transcription}\n\nExtract the job description:`,
             system: `You are an expert at extracting job descriptions from service call transcripts.
@@ -257,7 +268,12 @@ Rules:
 - Examples: "Fixing the leak under the kitchen sink", "Replacing the broken fence panel", "Investigating the odd noise from the boiler"
 - Do NOT return technical metadata
 - Focus on the main outcome desired`,
-        })).trim();
+        });
+        void recordModelSpend({
+            agent: 'call-job-summary', trigger: 'transcript', model: summaryAnswer.model,
+            usage: summaryAnswer.usage, durationMs: Date.now() - summaryStartedAt,
+        });
+        const jobSummary = summaryAnswer.text.trim();
         console.log(`[extractJobSummary] Extracted: "${jobSummary}"`);
         return jobSummary;
     } catch (error) {

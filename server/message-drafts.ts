@@ -25,6 +25,7 @@ import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcome
 import { recordVerdict, approvalVerdict, runIdOfDraft, isVerdictReason } from './verdicts';
 import { VERDICT_REASONS } from '@shared/schema';
 import { logSystemEvent } from './system-events';
+import { modelCostPenceForRun } from './agent-runs';
 import { staleAgainst, selectSuperseded, latestInboundFor, inboundSince, conversationIdForDraft, requestFreshRun, AGENT_DRAFT_SOURCES, STALE_BY_INBOUND, STALE_SYSTEM_ACTOR } from './draft-freshness';
 import { emitCommsEvent, type CommsEvent } from './comms-events';
 
@@ -659,12 +660,20 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             return { ok: false, code: 'SEND_FAILED', message: result.error ?? 'send failed on every channel' };
         }
 
+        // 0.4 (8 Sep 2026): COST PER REPLY. The model spend behind THIS send — the run that wrote
+        // the draft plus every run descended from it — summed from agent_runs and stored on the send's
+        // own row, so the activity page and the digest can read cost per reply instead of per run.
+        // Read here, at send time, because that is when every run in the chain is closed. Best
+        // effort: it returns null rather than throwing, and a null cost never blocks a send.
+        const replyCostPence = await modelCostPenceForRun(draft.runId);
+
         const [sent] = await db.update(messageDrafts)
             .set({
                 status: 'sent', sentAt: new Date(), sentMessageId: result.sid ?? null,
                 // Record the channel that ACTUALLY carried it, not the one we intended, so the
                 // thread and the draft agree about what the customer received.
                 channel: result.channel ?? draft.channel,
+                ...(replyCostPence != null ? { costPence: replyCostPence } : {}),
             })
             .where(eq(messageDrafts.id, draft.id))
             .returning();
@@ -683,7 +692,7 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
             phone: draft.phone,
             conversationId: draft.conversationId,
             summary: draft.body.slice(0, 80),
-            detail: { by: approver, channel: result.channel ?? draft.channel, draftId: draft.id },
+            detail: { by: approver, channel: result.channel ?? draft.channel, draftId: draft.id, costPence: replyCostPence },
             source: 'message-drafts',
         });
         pushCommsEvent({ type: 'draft_delta', draftId: draft.id, conversationId: draft.conversationId ?? undefined, status: 'sent', at: new Date().toISOString() });

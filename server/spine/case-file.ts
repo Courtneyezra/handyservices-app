@@ -12,7 +12,7 @@ import { conversations, messages, calls, agentQuestions, agentRuns, messageDraft
 import { and, desc, eq, sql, isNull, inArray } from 'drizzle-orm';
 import { notQuarantined } from '../message-quarantine';
 import { getSpineConfig, DEFAULT_SPINE_CONFIG } from './config';
-import { isException, isAgentName } from './vocab';
+import { isException, isAgentName, AGENT_NAMES } from './vocab';
 import { customerPromisedMore } from './triage';
 import type { CaseFile, TimelineItem, MediaItem, Audience, Stage, ExceptionKind } from './types';
 import type { MediaBlock } from '../agents/media-context';
@@ -213,8 +213,15 @@ export async function buildCaseFile(conversationId: string, opts: BuildCaseFileO
         note: (f.question ?? '').replace(/^\[[a-z_]+\]\s*/, '').slice(0, 500),
         dueAt: f.dueAt?.toISOString() ?? '',
     }));
+    // "Last agent run" means the last run by one of the spine's own agents. The thread's newest
+    // agent_runs row is often something else — a quote-prep child, and since 0.4 a priced row for
+    // the pricing engine or the job-pack clerk — and asking for the newest row and then rejecting
+    // it by name (isAgentName) rendered "Last agent run: none." for the Scoper whenever one of
+    // those happened to be last. Ask the database for the newest run that IS an agent instead.
     const [last] = await db.select({ id: agentRuns.id, agent: agentRuns.agent, decision: agentRuns.decision, startedAt: agentRuns.startedAt, finishedAt: agentRuns.finishedAt })
-        .from(agentRuns).where(eq(agentRuns.conversationId, conv.id)).orderBy(desc(agentRuns.startedAt)).limit(1);
+        .from(agentRuns)
+        .where(and(eq(agentRuns.conversationId, conv.id), inArray(agentRuns.agent, AGENT_NAMES as unknown as string[])))
+        .orderBy(desc(agentRuns.startedAt)).limit(1);
     const lastRun = last && isAgentName(last.agent)
         ? { runId: last.id, agent: last.agent, decision: last.decision ?? (last.finishedAt ? 'finished' : 'running'), at: last.startedAt.toISOString() }
         : null;

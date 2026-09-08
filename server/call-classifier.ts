@@ -20,7 +20,8 @@
 import { db } from './db';
 import { calls } from '@shared/schema';
 import { eq, or } from 'drizzle-orm';
-import { claudeJson, FAST_MODEL } from './llm';
+import { claudeJsonWithUsage, FAST_MODEL } from './llm';
+import { recordModelSpend } from './model-spend';
 import { logSystemEvent } from './system-events';
 
 /** Transcripts at or below this length are hold music, misdials and "hello? hello?" — unreadable. */
@@ -155,14 +156,28 @@ export async function classifyTranscript(
     }
 
     let raw: unknown;
+    const startedAt = Date.now();
     try {
-        raw = await claudeJson({
+        // 0.4 (8 Sep 2026): audit site C1 — the call classifier's Haiku call now writes a priced
+        // run row, so the phone pipeline's spend is visible in the run ledger and not only in
+        // system_events. `callId` is threaded in by classifyCall; the test hook has none.
+        const answer = await claudeJsonWithUsage({
             model: FAST_MODEL,
             system: direction === 'outbound' ? SYSTEM_PROMPT_OUTBOUND : SYSTEM_PROMPT,
             user: `Call transcript:\n\n${transcript.slice(0, 24_000)}`,
             maxTokens: 500,
         });
+        raw = answer.data;
+        void recordModelSpend({
+            agent: 'call-classifier', trigger: 'transcript', model: answer.model, usage: answer.usage,
+            durationMs: Date.now() - startedAt, detail: { direction, transcriptChars: transcript.length },
+        });
     } catch (e) {
+        void recordModelSpend({
+            agent: 'call-classifier', trigger: 'transcript', model: FAST_MODEL, usage: null,
+            durationMs: Date.now() - startedAt, error: String((e as any)?.message ?? e).slice(0, 300),
+            detail: { direction },
+        });
         // Model down / refused / returned non-JSON — all the same thing to us: no verdict.
         console.warn('[CallClassifier] Model call failed:', e);
         return { ok: false, reason: 'UNPARSEABLE' };
