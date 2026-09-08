@@ -7,13 +7,16 @@
  *   - /api/agents/staff for the /admin/staff page;
  *   - the in-process stale check below, which pages once an hour in UK daytime if the
  *     heartbeat is older than 10 minutes while THIS process believes it is the worker
- *     (its own writes are failing, or its tick has wedged).
+ *     (its own writes are failing, or its tick has wedged);
+ *   - the watchdog below that, which is the same check run from a process that is NOT the
+ *     worker, because the in-worker check can only ever catch a wedged worker — a dead one
+ *     pages nobody (0.6, 8 Sep 2026).
  *
  * The db is imported lazily so this module — and its tests — load without DATABASE_URL.
  */
 import { appSettings } from '@shared/schema';
 import { eq } from 'drizzle-orm';
-import { describeWorkerState, isCommsWorker } from './worker-gate';
+import { describeWorkerState, isCommsWorker, isProductionEnv } from './worker-gate';
 
 export const HEARTBEAT_KEY = 'comms_worker_heartbeat';
 /** How often the worker stamps the row (the fast tick is 15s; this throttles it). */
@@ -94,6 +97,18 @@ export function shouldAlertStale(i: StaleAlertInput): boolean {
     return true;
 }
 
+/**
+ * The same decision seen from OUTSIDE the worker (0.6, 8 Sep 2026). Mirror image of
+ * shouldAlertStale on one field: the watchdog pages only when this process is NOT the worker.
+ * A wedged worker pages itself; a dead one is only ever noticed from outside, and the role test
+ * is what keeps the two alarms off the same episode — no process can satisfy both.
+ */
+export function shouldWatchdogAlert(i: StaleAlertInput): boolean {
+    if (!i.stale || i.isWorker || !i.inWindow) return false;
+    if (i.lastAlertAt !== null && i.now - i.lastAlertAt < STALE_ALERT_EVERY_MS) return false;
+    return true;
+}
+
 // ------------------------------------------------------------------ db-backed
 
 async function getDb() {
@@ -145,6 +160,12 @@ export async function readHeartbeat(): Promise<HeartbeatRecord | null> {
 }
 
 export interface HeartbeatHealth extends HeartbeatAssessment {
+    /**
+     * One word for a machine: 'ok' while the heartbeat is fresh, 'stale' the moment it is older
+     * than HEARTBEAT_STALE_AFTER_SECONDS or unreadable. GET /api/health/comms-worker answers 200
+     * with 'ok' and 503 with 'stale', so a platform healthcheck can act on either field.
+     */
+    status: 'ok' | 'stale';
     /** What the process answering this request is — the worker or a passive HTTP process. */
     thisProcess: { role: 'worker' | 'passive'; pid: number; host: string; version: string | null };
     staleAfterSeconds: number;
@@ -157,10 +178,11 @@ export async function getHeartbeatHealth(now: number = Date.now()): Promise<Hear
     const thisProcess = { role: state.role, pid: state.pid, host: state.host, version: state.version };
     try {
         const record = await readHeartbeat();
-        return { ...assessHeartbeat(record, now), thisProcess, staleAfterSeconds: HEARTBEAT_STALE_AFTER_SECONDS };
+        const assessment = assessHeartbeat(record, now);
+        return { ...assessment, status: assessment.stale ? 'stale' : 'ok', thisProcess, staleAfterSeconds: HEARTBEAT_STALE_AFTER_SECONDS };
     } catch (error: any) {
         return {
-            ...assessHeartbeat(null, now), thisProcess, staleAfterSeconds: HEARTBEAT_STALE_AFTER_SECONDS,
+            ...assessHeartbeat(null, now), status: 'stale', thisProcess, staleAfterSeconds: HEARTBEAT_STALE_AFTER_SECONDS,
             error: `heartbeat unreadable: ${error?.message ?? error}`,
         };
     }
@@ -216,9 +238,123 @@ export function startHeartbeatStaleCheck(): void {
     console.log(`[Heartbeat] Stale check every ${STALE_CHECK_EVERY_MS / 60_000} min (stale > ${HEARTBEAT_STALE_AFTER_SECONDS / 60} min, UK ${ALERT_WINDOW_UK.startHour}–${ALERT_WINDOW_UK.endHour}, one page/hour).`);
 }
 
+// ------------------------------------------------------------------ the watchdog outside the worker
+
+/**
+ * 0.6 (8 Sep 2026, review finding s29 1.6). The check above only ever runs inside the worker,
+ * so it catches a WEDGED worker and never a DEAD one — and every customer-facing clock (the
+ * holding lines, the chase ladder, the passes themselves) is worker-only, so a dead worker is
+ * not a degraded desk, it is a silent one. This is the same check run from a process that is
+ * NOT the worker: any passive process serving HTTP watches the same DB row on its own timer.
+ *
+ * The two alarms cannot fire for the same episode: one requires isCommsWorker(), the other
+ * requires the opposite, and a process is one or the other for its whole life.
+ *
+ * Recovery is not silent: once this watchdog has paged, the first fresh heartbeat sends one
+ * "worker is back", so a resolved outage is a message rather than the absence of one.
+ */
+let watchdogLastAlertAt: number | null = null;
+let watchdogFirstStaleAt: number | null = null;
+let watchdogAlerted = false;
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+
+export type WatchdogResult = 'is-worker' | 'not-production' | 'fresh' | 'stale-quiet' | 'stale-alerted' | 'recovered';
+
+async function pushWorkerHealth(title: string, message: string, notify?: (title: string, message: string) => Promise<void>): Promise<void> {
+    try {
+        const send = notify ?? (async (t: string, m: string) => {
+            const { notifyWorkerHealth } = await import('./pushover');
+            await notifyWorkerHealth({ title: t, message: m });
+        });
+        await send(title, message);
+    } catch (error: any) {
+        console.error('[Heartbeat] watchdog alert failed:', error?.message ?? error);
+    }
+}
+
+/**
+ * One pass of the outside watchdog. Inert in the worker (that process has its own check).
+ * A failed READ counts as stale, exactly as it does inside the worker: we cannot prove the
+ * desk is running, which is the same thing from Ben's side.
+ */
+export async function checkHeartbeatFromOutsideOnce(
+    now: number = Date.now(),
+    notify?: (title: string, message: string) => Promise<void>,
+    readHealth: (now: number) => Promise<HeartbeatHealth> = getHeartbeatHealth,
+): Promise<WatchdogResult> {
+    if (isCommsWorker()) return 'is-worker';
+    // A laptop on a Neon branch is passive and has never seen a heartbeat row: correct, and not
+    // an alarm. Only a passive PRODUCTION process is entitled to speak for the worker's absence.
+    if (!isProductionEnv()) return 'not-production';
+    const health = await readHealth(now);
+
+    if (!health.stale) {
+        if (!watchdogAlerted) {
+            watchdogFirstStaleAt = null;
+            return 'fresh';
+        }
+        const downForMs = watchdogFirstStaleAt === null ? null : now - watchdogFirstStaleAt;
+        watchdogAlerted = false;
+        watchdogLastAlertAt = null;
+        watchdogFirstStaleAt = null;
+        const title = 'comms worker is back';
+        const message = [
+            `Heartbeat fresh again (${health.ageSeconds ?? 0}s old) from ${health.host || '?'} pid ${health.pid ?? '?'}.`,
+            downForMs === null
+                ? 'The silence has ended.'
+                : `It was silent for about ${Math.max(1, Math.round(downForMs / 60_000))} min as seen from ${health.thisProcess.host} pid ${health.thisProcess.pid}.`,
+            'Check the comms desk for anything that queued while it was down.',
+        ].join('\n');
+        await pushWorkerHealth(title, message, notify);
+        console.log(`[Heartbeat] ${title}: ${message.split('\n')[0]}`);
+        return 'recovered';
+    }
+
+    if (watchdogFirstStaleAt === null) watchdogFirstStaleAt = now;
+    const alert = shouldWatchdogAlert({
+        stale: true, isWorker: false, inWindow: isUkAlertWindow(new Date(now)),
+        lastAlertAt: watchdogLastAlertAt, now,
+    });
+    if (!alert) return 'stale-quiet';
+    watchdogLastAlertAt = now;
+    watchdogAlerted = true;
+    const title = 'comms worker is not running';
+    const message = [
+        health.ageSeconds === null
+            ? `No readable heartbeat${health.error ? ` (${health.error})` : ''}.`
+            : `Last heartbeat ${Math.round(health.ageSeconds / 60)} min ago (${health.at}) from ${health.host || '?'} pid ${health.pid ?? '?'}.`,
+        `This process (${health.thisProcess.host} pid ${health.thisProcess.pid}) is not the worker — it is watching from outside, so the worker is not stamping the row at all.`,
+        'Every customer-facing clock lives in the worker: no passes, no holding lines, no chases. The desk is silent, not slow.',
+        'Check Railway logs / restart the service.',
+    ].join('\n');
+    await pushWorkerHealth(title, message, notify);
+    console.error(`[Heartbeat] ${title}: ${message.split('\n')[0]}`);
+    return 'stale-alerted';
+}
+
+/**
+ * Idempotent. Starts the watchdog ONLY in a passive production process; in the worker it
+ * registers nothing and the in-worker check above stands. Returns true when a timer was
+ * registered.
+ */
+export function startHeartbeatWatchdog(): boolean {
+    if (watchdogTimer) return false;
+    if (isCommsWorker() || !isProductionEnv()) return false;
+    const run = () => checkHeartbeatFromOutsideOnce().catch((e) => console.error('[Heartbeat] watchdog failed:', e?.message ?? e));
+    watchdogTimer = setInterval(run, STALE_CHECK_EVERY_MS);
+    watchdogTimer.unref?.();
+    console.log(`[Heartbeat] Watchdog (this process is not the worker) every ${STALE_CHECK_EVERY_MS / 60_000} min: pages if the worker's heartbeat is older than ${HEARTBEAT_STALE_AFTER_SECONDS / 60} min (UK ${ALERT_WINDOW_UK.startHour}–${ALERT_WINDOW_UK.endHour}, one page/hour, one "back" when it returns).`);
+    return true;
+}
+
 /** Test hook. */
 export function _resetHeartbeatStateForTests(): void {
     lastWriteAt = 0;
     lastStaleAlertAt = null;
     staleCheckStarted = false;
+    watchdogLastAlertAt = null;
+    watchdogFirstStaleAt = null;
+    watchdogAlerted = false;
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    watchdogTimer = null;
 }

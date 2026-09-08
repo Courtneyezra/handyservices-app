@@ -87,6 +87,7 @@ import contentRouter from './content';
 import quotePlatformRouter, { autoSeedIfEmpty as autoSeedQuotePlatform } from './quote-platform/routes';
 import { setupCronJobs } from './cron';
 import { assertCommsWorkerAtBoot, gateCustomerLoop, skippedLoops } from './worker-gate';
+import { startHeartbeatWatchdog } from './comms-worker-heartbeat';
 import uploadRouter from "./upload";
 import planRouter from "./plan-routes"; // customer /plan/:slug additional-works deposit checkout
 import invoiceRouter from './invoices'; // B2: Invoice management
@@ -265,20 +266,27 @@ app.get('/api/health', (req, res) => {
 
 // Comms worker dead-man heartbeat (Phase 0, 2 Sep 2026). Answers "is the ONE process that
 // runs customer-facing loops alive?" from the DB row it stamps every 60s, so any process can
-// serve it. 200 while fresh, 503 once stale (> 10 min) — point an uptime check here.
+// serve it. 200 with status 'ok' while fresh, 503 with status 'stale' once the heartbeat is
+// older than 10 min, missing or unreadable — point a platform healthcheck here.
 app.get('/api/health/comms-worker', async (_req, res) => {
     try {
         const { getHeartbeatHealth } = await import('./comms-worker-heartbeat');
         const health = await getHeartbeatHealth();
         res.status(health.stale ? 503 : 200).json({ ...health, skippedLoopsInThisProcess: skippedLoops() });
     } catch (error: any) {
-        res.status(503).json({ ok: false, ageSeconds: null, stale: true, error: error?.message ?? String(error) });
+        res.status(503).json({ ok: false, status: 'stale', ageSeconds: null, stale: true, error: error?.message ?? String(error) });
     }
 });
 
 // Phase 0 boot check: production without COMMS_WORKER=1 pages Ben (no sweeps will run); a dev
 // process on the production DATABASE_URL warns loudly. Never throws, never blocks boot.
 void assertCommsWorkerAtBoot();
+
+// 0.6 (8 Sep 2026): the dead-man watchdog OUTSIDE the worker. The worker's own stale check can
+// only catch a wedged worker; a dead one pages nobody, and every customer-facing clock is
+// worker-only, so that is a silent desk. Inert in the worker itself (it has its own check), so
+// the two alarms can never fire for the same episode.
+startHeartbeatWatchdog();
 
 // Start Cron Jobs
 setupCronJobs();

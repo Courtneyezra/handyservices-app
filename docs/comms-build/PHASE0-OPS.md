@@ -16,8 +16,12 @@ What the code now does, so the checklist makes sense:
 - A non-production boot whose `DATABASE_URL` contains the production Neon host
   (`ep-broad-king`) prints a loud warning banner.
 - The worker stamps `app_settings.comms_worker_heartbeat` every 60 s. `GET /api/health/comms-worker`
-  returns `{ ok, ageSeconds, stale }` (200 fresh, 503 stale > 10 min). The worker pages once an
-  hour in UK daytime (08–20) if its own heartbeat goes stale.
+  returns `{ ok, status, ageSeconds, stale }` (200 + `status: "ok"` fresh, 503 + `status: "stale"`
+  over 10 min, never written, or unreadable). The worker pages once an hour in UK daytime (08–20)
+  if its own heartbeat goes stale — and, since 0.6 (8 Sep 2026), so does any passive **production**
+  process, from outside, which is the only alarm that fires when the worker is dead rather than
+  wedged. It also sends one "comms worker is back" when the heartbeat returns. See
+  `docs/RUNBOOK.md` §4 Health.
 - The V2 pipeline branch in the sweep is deleted; the sweep always runs `runCommsAgent`.
 
 Do these in order. Tick each one.
