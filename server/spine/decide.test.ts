@@ -41,8 +41,12 @@ describe('decide', () => {
     it('flags a proposal that carries its own flag', () => {
         expect(decide({ proposal: prop({ flag: { exception: 'out_of_scope', note: 'asbestos' } }), guards: ok, pack, triage: tri(), caseFile: cf(), now: DAY_NOW })).toMatchObject({ kind: 'flag', exception: 'out_of_scope' });
     });
-    it('DRAFT tier → pending with a due time (launch default for every scoper intent)', () => {
-        const d = decide({ proposal: prop(), guards: ok, pack, triage: tri(), caseFile: cf({ window: { canFreeform: true, templateRequired: false, lastInboundAt: DAY_NOW.toISOString(), channelLastUsed: 'whatsapp' } }), now: DAY_NOW });
+    // T35: ask_gap starts at SEND on this pack, so the DRAFT arm of the truth table is shown with
+    // an intent the pack still drafts (clarify_scope, which is also on neverSend and can never be
+    // anything else). `defaultTier` is unchanged: DRAFT is still what an intent gets by default.
+    it('DRAFT tier → pending with a due time (the pack default for every intent T35 did not name)', () => {
+        expect(pack.defaultTier).toBe('DRAFT');
+        const d = decide({ proposal: prop({ intent: 'clarify_scope' }), guards: ok, pack, triage: tri(), caseFile: cf({ window: { canFreeform: true, templateRequired: false, lastInboundAt: DAY_NOW.toISOString(), channelLastUsed: 'whatsapp' } }), now: DAY_NOW });
         expect(d.kind).toBe('pending'); if (d.kind === 'pending') { expect(d.reason).toMatch(/tier DRAFT/); expect(new Date(d.dueAt).getTime()).toBeGreaterThan(DAY_NOW.getTime()); }
     });
     it('SEND tier + reactive + window open → send with the pack approver', () => {

@@ -31,16 +31,16 @@ export const SPINE_STAFF: StaffCard[] = [
     {
         id: 'rules-layer', agent: 'rules', name: 'Rules layer', roleTitle: 'The Receptionist — content-free sends',
         tier: 'SEND', accent: 'emerald', model: 'none (templates and fixed copy)',
-        cadence: 'First contact on ingest · silence-breaker at 10 min · holding line at flag/draft expiry · asks from the spine exit',
+        cadence: 'First contact on ingest · holding line at flag/draft expiry · asks from the spine exit (the 10-minute silence-breaker was retired, T35)',
         mission: 'Never lets a customer sit in silence. Acknowledges a first touch, asks for a photo or a postcode, and holds the line when a reply is late — from fixed copy or an approved Meta template, so nothing it sends can carry a price, a date or a promise. It is the only SEND-tier component at launch.',
         autonomy: {
-            freely: ['Send the first-contact ack (webform, WhatsApp, SMS, missed call) 24/7', 'Send the 10-minute silence-breaker and the flag/draft-expiry holding line', 'Ask for a photo/video, then a postcode, once per thread per 24h (spine.asks)'],
+            freely: ['Send the first-contact ack (webform, WhatsApp, SMS, missed call) 24/7', 'Send the flag/draft-expiry holding line (the 10-minute silence-breaker is retired, T35)', 'Ask for a photo/video, then a postcode, once per thread per 24h (spine.asks)'],
             approval: ['Nothing: it composes nothing. When it has no channel (window shut, no template, no SMS) it queues for Ben instead'],
             never: ['Write a reply of its own', 'Send twice in two hours on one thread', 'Send to an opted-out, archived or test number', 'Send once a person or an agent has already replied'],
         },
         tools: [
             { name: 'first-contact-ack', blurb: 'server/first-contact-ack.ts — the ack ladder (WhatsApp → template → SMS)', kind: 'gated' },
-            { name: 'sendHoldingLine', blurb: 'server/rules-layer.ts — silence / flag_expiry / draft_expiry copy, approver rules.holding', kind: 'gated' },
+            { name: 'sendHoldingLine', blurb: 'server/rules-layer.ts — flag_expiry / draft_expiry copy (silence copy kept, no longer triggered), approver rules.holding', kind: 'gated' },
             { name: 'sendAsk', blurb: 'ask_media / ask_postcode / ask_name, approver rules.ask', kind: 'gated' },
         ],
         ordersFile: 'server/rules-layer.ts (HOLDING_COPY, ASK_COPY)',
@@ -64,11 +64,11 @@ export const SPINE_STAFF: StaffCard[] = [
     {
         id: 'scoper', agent: 'scoper', name: 'Scoper', roleTitle: 'The Correspondent — customer conversation on the spine',
         tier: 'DRAFT', accent: 'emerald', model: 'claude-sonnet-5',
-        cadence: 'On inbound (debounced ~10 min) via requestRun; shadow or live per the spine mode',
+        cadence: 'On inbound (debounced ~8 s, T35) via requestRun; shadow or live per the spine mode',
         mission: 'The legacy comms agent\'s replacement on the customer thread. Reads one immutable case file and proposes one reply with a named intent (ask a gap, clarify scope, confirm received, FAQ, point to the quote page, closing; after a quote: answer from the quote, point to the picker). Every intent starts at DRAFT and earns SEND from Ben\'s verdicts and the eval family; money and dates are not in its vocabulary at all.',
         autonomy: {
             freely: ['Propose one reply per run (1–3 short bubbles, one question)', 'Flag a thread for Ben with a briefing note', 'Save the customer\'s real name when they state it', 'Propose a dated re-contact into the nudge queue'],
-            approval: ['Every reply while its intent is at DRAFT (all of them at launch)', 'Anything the guard chain refuses — refused proposals become a flag, never silence', 'Proactive sends outside 08–20 wait for the morning'],
+            approval: ['Every reply while its intent is at DRAFT — everything except the four T35 send intents (ask_gap, confirm_received, point_to_quote_page, point_to_picker), which still have to pass the send preconditions', 'Anything the guard chain refuses — refused proposals become a flag, never silence', 'Proactive sends outside 08–20 wait for the morning'],
             never: ['Write a money figure, a discount, a date, a duration or fee terms — refused at the tool', 'Send: the exit sends, and only at SEND tier with an approver and a run id', 'Reply on a thread with an open flag for Ben'],
         },
         tools: [

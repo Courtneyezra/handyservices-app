@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { decide, isReactive, REACTIVE_WINDOW_MINUTES } from './decide';
-import { getPack, PACKS, applyTierOverlay } from './packs';
+import { getPack, PACKS, applyTierOverlay, isNeverSend } from './packs';
 import { sendPrecondition, PRECONDITION, PRECONDITION_REASON_PREFIX, PRECONDITIONED_INTENTS, newestConversationItem, lastInboundBroughtSomething } from './send-preconditions';
 import { triageRules } from './triage';
 import { caseFileFromContext } from '../evals/case-file-from-context';
@@ -154,10 +154,13 @@ describe('decide at SEND tier runs the preconditions; at DRAFT nothing changes',
         if (d.kind === 'pending') expect(new Date(d.dueAt).getTime()).toBeGreaterThan(NOW.getTime());
     });
     it('DRAFT tier is byte-for-byte what it was: the preconditions are never consulted', () => {
-        const before = decide({ proposal: prop(), guards: ok, pack, triage: tri(), caseFile: cf({ quote: QUOTE }), now: NOW });
+        // T35 promoted four intents on this pack, so the DRAFT arm is shown with one it did not
+        // touch. The claim is the same: at DRAFT, decide never reaches sendPrecondition.
+        const draft = prop({ intent: 'clarify_scope' });
+        const before = decide({ proposal: draft, guards: ok, pack, triage: tri(), caseFile: cf({ quote: QUOTE }), now: NOW });
         expect(before).toMatchObject({ kind: 'pending', reason: expect.stringMatching(/tier DRAFT/) });
         expect((before as any).reason).not.toMatch(/precondition/);
-        const proactive = decide({ proposal: prop(), guards: ok, pack, triage: tri(), caseFile: cf({ timeline: [inbound('x', 500)] }), now: NOW });
+        const proactive = decide({ proposal: draft, guards: ok, pack, triage: tri(), caseFile: cf({ timeline: [inbound('x', 500)] }), now: NOW });
         expect((proactive as any).reason).not.toMatch(/precondition/);
     });
     it('a SEND-tier intent on the pack\'s neverSend list is refused as a belt, even if a stored tier says SEND', () => {
@@ -192,13 +195,26 @@ describe('decide at SEND tier runs the preconditions; at DRAFT nothing changes',
     });
 });
 
-describe('nothing sends because of B7a', () => {
-    it('every agent-facing customer pack still has an empty tierByIntent and no SEND default (the rules packs are SEND by construction and unchanged)', () => {
+describe('what may hold a SEND tier at all (B7a, as T35 left it)', () => {
+    it('only customer.default carries a static SEND, only for the four §5.1 intents, and no pack defaults to SEND', () => {
         const agentPacks = Object.values(PACKS).filter((p) => p.audience === 'customer' && p.id.startsWith('customer.'));
         expect(agentPacks.map((p) => p.id).sort()).toEqual(['customer.default', 'customer.exception', 'customer.post_quote']);
         for (const pack of agentPacks) {
-            expect(pack.tierByIntent, pack.id).toEqual({});
             expect(pack.defaultTier, pack.id).not.toBe('SEND');
+            // T35 (8 Sep 2026): customer.default starts the four PRECONDITIONED_INTENTS at SEND
+            // and nothing else; the other two agent-facing customer packs are untouched.
+            const expected = pack.id === 'customer.default'
+                ? Object.fromEntries([...PRECONDITIONED_INTENTS].map((i) => [i, 'SEND']))
+                : {};
+            expect(pack.tierByIntent, pack.id).toEqual(expected);
+        }
+    });
+    it('every statically promoted intent has a precondition rule and is not on neverSend', () => {
+        const pack = getPack('customer.default');
+        for (const [intent, tier] of Object.entries(pack.tierByIntent)) {
+            if (tier !== 'SEND') continue;
+            expect(PRECONDITIONED_INTENTS, `${intent} would refuse with no_rule`).toContain(intent as any);
+            expect(isNeverSend(pack, intent), intent).toBe(false);
         }
     });
 });

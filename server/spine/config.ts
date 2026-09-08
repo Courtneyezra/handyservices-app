@@ -37,8 +37,21 @@ export interface SpineConfig {
     shadow: boolean;
     /** How many due runs one worker tick may execute. */
     sweepLimit: number;
-    /** Inbound debounce: one run after a burst, not three during it. */
-    debounceMinutes: number;
+    /**
+     * Inbound debounce: one run after a burst, not three during it — in SECONDS.
+     *
+     * T35 (8 Sep 2026, the captain's "reply quick"): this was `debounceMinutes`, set to 10. Ten
+     * minutes is not a burst window, it is a wait, and it collided exactly with the rules layer's
+     * ten-minute holding line so the canned template usually reached the customer first. The
+     * field is renamed rather than re-scaled because the LIVE ROW carries whatever the last
+     * `setSpineConfig` wrote (`debounceMinutes: 10`) and a stored key wins over a code default —
+     * changing the constant alone would have changed nothing in production. A key the row does
+     * not have takes the code default the moment the deploy lands, which is the point.
+     *
+     * Bounded by DEBOUNCE_SECONDS on READ (mergeOverDefaults), not just on write: a hand-written
+     * row can never put minutes-scale silence back in front of a customer.
+     */
+    debounceSeconds: number;
     /** The triage model (design §3.8: Haiku 4.5). */
     triageModel: string;
     /** Pack-level city key (§3.4): the second city is config. */
@@ -133,6 +146,26 @@ export function isDeskV4(cfg: Pick<SpineConfig, 'desk'> | null | undefined): boo
  */
 export const VIDEO_MAX_PER_RUN = { min: 1, max: 12 } as const;
 
+/**
+ * T35: what `debounceSeconds` may be, and what it is when the row says nothing.
+ *
+ * `min` is the floor `requestRun` has always applied (`Math.max(3_000, …)`) said once, so the two
+ * cannot drift; `max` is two minutes, well short of the rules layer's ten-minute holding line, so
+ * the template can never again beat the Scoper to the customer by configuration alone. `dflt` is
+ * eight seconds: long enough that "it's the tap in the kitchen" arriving three seconds after
+ * "hi" is one reply, short enough to read as a person typing back.
+ *
+ * Applied on READ (mergeOverDefaults) as well as on write, because the live row was written by a
+ * script and can be written by one again.
+ */
+export const DEBOUNCE_SECONDS = { min: 3, max: 120, dflt: 8 } as const;
+
+/** Clamp to DEBOUNCE_SECONDS; anything unreadable is the default. Pure. */
+export function clampDebounceSeconds(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEBOUNCE_SECONDS.dflt;
+    return Math.min(DEBOUNCE_SECONDS.max, Math.max(DEBOUNCE_SECONDS.min, Math.round(value)));
+}
+
 /** The three-way mode Phase 3 reads: off (nothing runs), shadow (compute + record, never exit), live. */
 export type SpineMode = 'off' | 'shadow' | 'live';
 /** Pure derivation; server/spine/switch.ts wraps it with the DB read. `enabled:false` always wins. */
@@ -147,7 +180,7 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     agents: {},
     shadow: false,
     sweepLimit: 3,
-    debounceMinutes: 10,
+    debounceSeconds: DEBOUNCE_SECONDS.dflt,
     triageModel: 'claude-haiku-4-5',
     city: 'nottingham',
     asks: { enabled: false },
@@ -165,9 +198,16 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
+    // T35: the live row still carries the retired `debounceMinutes`. Nothing reads it, but a
+    // spread would carry it into every object this returns and back into the row on the next
+    // write, so it is dropped here and dies at the next setSpineConfig.
+    const { debounceMinutes: _retired, ...rest } = (patch ?? {}) as Partial<SpineConfig> & { debounceMinutes?: unknown };
     return {
         ...DEFAULT_SPINE_CONFIG,
-        ...(patch ?? {}),
+        ...rest,
+        // T35: bounded on read, so no row — however it was written — can put a minutes-scale
+        // wait back in front of a customer.
+        debounceSeconds: clampDebounceSeconds(rest.debounceSeconds),
         agents: { ...(patch?.agents ?? {}) },
         asks: { ...DEFAULT_SPINE_CONFIG.asks, ...(patch?.asks ?? {}) },
         autonomy: { ...DEFAULT_SPINE_CONFIG.autonomy, ...(patch?.autonomy ?? {}) },

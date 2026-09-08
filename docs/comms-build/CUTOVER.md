@@ -32,7 +32,7 @@ mandatory shadow week").
   "sampler": { "enabled": false },   // 10% next-morning sample review
   "desk": "v3",                      // which desk behaviour is live: v3 = replies wait for Ben (today),
                                      // v4 = replies send by default. Rollback is §4a. (plan v2, 0.5)
-  "sweepLimit": 3, "debounceMinutes": 10, "triageModel": "claude-haiku-4-5", "city": "nottingham"
+  "sweepLimit": 3, "debounceSeconds": 8, "triageModel": "claude-haiku-4-5", "city": "nottingham"
 }
 ```
 

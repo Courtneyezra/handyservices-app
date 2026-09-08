@@ -144,22 +144,27 @@ describe('scoreboard → eval family', () => {
 describe('pack tier overlay', () => {
     const pack = getPack('customer.default');
     it('overlays earned tiers on the static pack and ignores rows it must never honour', () => {
-        const merged = applyTierOverlay(pack, { ask_gap: 'SEND', job_brief: 'SEND', clarify_scope: 'BOGUS' });
-        expect(merged.tierByIntent.ask_gap).toBe('SEND');
+        // T35: ask_gap now STARTS at SEND in the static pack, so the interesting overlay is the
+        // demotion — the half of the ladder that has to keep working when a verdict says unsafe.
+        expect(pack.tierByIntent.ask_gap).toBe('SEND');
+        const merged = applyTierOverlay(pack, { ask_gap: 'DRAFT', job_brief: 'SEND', clarify_scope: 'BOGUS' });
+        expect(merged.tierByIntent.ask_gap).toBe('DRAFT');
         expect((merged.tierByIntent as any).job_brief).toBeUndefined();
         expect(merged.tierByIntent.clarify_scope).toBeUndefined();
-        expect(pack.tierByIntent.ask_gap).toBeUndefined(); // the static pack is untouched
+        expect(pack.tierByIntent.ask_gap).toBe('SEND'); // the static pack is untouched
     });
     it('resolvePack applies the in-process overlay', () => {
         const cf = { conversationId: 'c', phone: '+447700123456', audience: 'customer', stage: 'scoping', timeline: [], media: [], window: { canFreeform: true, templateRequired: false, lastInboundAt: null, channelLastUsed: 'whatsapp' }, client: null, quote: null, openPromises: [], openFlags: [], tags: [], lastRun: null, hash: 'h', builtAt: '' } as CaseFile;
         const tri = { audience: 'customer', intent: 'unknown', lane: 'scoper', exceptions: [], stage: 'scoping', tags: [], reasons: [], source: 'rules' } as TriageResult;
-        setTierOverlayForTests(new Map([['customer.default', { confirm_received: 'SEND' }]]));
+        // T35: the static starting position is SEND, so the overlay is proven by a DEMOTION and
+        // by the value coming back once the overlay is gone.
+        setTierOverlayForTests(new Map([['customer.default', { confirm_received: 'DRAFT' }]]));
         try {
-            expect(resolvePack(cf, tri).tierByIntent.confirm_received).toBe('SEND');
+            expect(resolvePack(cf, tri).tierByIntent.confirm_received).toBe('DRAFT');
         } finally {
             setTierOverlayForTests(null);
         }
-        expect(resolvePack(cf, tri).tierByIntent.confirm_received).toBeUndefined();
+        expect(resolvePack(cf, tri).tierByIntent.confirm_received).toBe('SEND');
     });
 });
 

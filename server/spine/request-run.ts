@@ -19,9 +19,10 @@ import { db } from '../db';
 import { conversations } from '@shared/schema';
 import { eq, sql } from 'drizzle-orm';
 import { isCommsWorker } from '../worker-gate';
-import { getSpineConfig, isSpineEnabled } from './config';
+import { DEBOUNCE_SECONDS, getSpineConfig, isSpineEnabled } from './config';
 import { spineMode } from './switch';
 import { isTrigger } from './vocab';
+import type { SpineConfig } from './config';
 import type { SpineRun, Trigger } from './types';
 
 /** Between-runs floor per conversation, whichever path or process runs it. */
@@ -70,6 +71,28 @@ export interface RequestRunOpts {
     runId?: string;
 }
 
+/** The two triggers a customer's own typing produces — the only ones that wait. */
+export const DEBOUNCED_TRIGGERS: readonly Trigger[] = ['inbound_message', 'media_received'];
+
+/**
+ * T35: how long this request waits, in ms. Pure, exported and tested, because "how long before
+ * the customer hears back" is the question the captain asked and it should have exactly one
+ * readable answer.
+ *
+ * A caller's explicit `delayMs` wins (the sandbox, the clock sweeps, `cadence` at 0). Otherwise
+ * a customer's own message waits the configured debounce, floored at DEBOUNCE_SECONDS.min, and
+ * everything else runs at once.
+ */
+export function debounceDelayMs(
+    cfg: Pick<SpineConfig, 'debounceSeconds'>,
+    trigger: Trigger,
+    override?: number,
+): number {
+    if (override !== undefined) return Math.max(0, override);
+    if (!DEBOUNCED_TRIGGERS.includes(trigger)) return 0;
+    return Math.max(DEBOUNCE_SECONDS.min, cfg.debounceSeconds) * 1_000;
+}
+
 /**
  * Ask for a run. Never runs anything itself; never throws for a business reason (the answer is
  * the return value, which every caller logs).
@@ -93,9 +116,9 @@ export async function requestRun(conversationId: string, trigger: Trigger, opts:
     if (isTestNumber(conv.phoneNumber)) return { queued: false, reason: 'test number' };
 
     const cfg = await getSpineConfig();
-    const debounced = trigger === 'inbound_message' || trigger === 'media_received';
-    const delayMs = opts.delayMs ?? (debounced ? Math.max(3_000, cfg.debounceMinutes * 60_000) : 0);
-    const due = new Date(Date.now() + Math.max(0, delayMs)).toISOString();
+    // T35: seconds, not minutes — one pure function owns the arithmetic (debounceDelayMs above).
+    const delayMs = debounceDelayMs(cfg, trigger, opts.delayMs);
+    const due = new Date(Date.now() + delayMs).toISOString();
 
     const patch = opts.runId
         ? sql`jsonb_build_object('nextTriageAt', ${due}::text, 'nextTriageTrigger', ${trigger}::text, 'nextTriageRunId', ${opts.runId}::text)`
