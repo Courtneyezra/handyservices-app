@@ -65,7 +65,7 @@ solely-automated decision producing a legal or similarly significant effect with
 | Recipient | What it receives | Why | Proof |
 | --- | --- | --- | --- |
 | **Twilio** | Phone number, message body, media, call audio | Delivers WhatsApp, SMS and voice; records calls | `server/twilio-realtime.ts`, `server/sms.ts` |
-| **Meta (WhatsApp Business Platform)** | Phone number, message body, media | Delivers WhatsApp on the Cloud API path | `server/whatsapp-api.ts` |
+| **Meta (WhatsApp Business Platform)** | Phone number, message body, media | Delivers WhatsApp on the Cloud API path | `server/meta-whatsapp.ts`, `server/whatsapp-api.ts` |
 | **Anthropic** | The rendered case file: name, phone, the thread's messages, call summary and transcript excerpt, quote lines, tags — and the reply it drafts | Triage, the Scoper, the quote clerk, the sampler/judge | `server/anthropic.ts`, `server/llm.ts`, `server/spine/` |
 | **Google (Gemini)** | The bytes of a customer's photo or video | Writes the description the desk quotes from | `server/spine/tools/describe-video.ts` |
 | **Google (Maps / Places)** | Address text typed on our forms; quote coordinates | Address look-up, the map on the quote page | `client/src/components/DesktopLeadForm.tsx`, `client/src/pages/PersonalizedQuotePage.tsx` |
