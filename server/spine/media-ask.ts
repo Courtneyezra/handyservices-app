@@ -126,20 +126,47 @@ export function acknowledgesMedia(text: string | null | undefined): boolean {
 export interface MediaAckState {
     /** The newest inbound media item's timestamp, if any. */
     newestMediaAt: string | null;
-    /** Our acknowledgement of it, if one went out after it (and before any newer media). */
+    /** The first item of the newest BATCH — where the thank-you is looked for from. */
+    batchStartedAt: string | null;
+    /** How many media items are in that batch. */
+    batchSize: number;
+    /** Our acknowledgement of that batch, if one went out after it started. */
     acknowledgedAt: string | null;
-    /** We have already thanked them for everything they have sent: do not thank again. */
+    /** We have already thanked them for the newest batch: do not thank again. */
     alreadyThanked: boolean;
 }
 
-/** Pure: has the newest media on the thread already been acknowledged by us? */
+/**
+ * T28: two photos a minute apart are ONE batch, and one batch gets one thank-you. A batch is a run
+ * of inbound media items close together in time; what ends it is the customer moving the
+ * conversation on (an inbound message with no media) or a long gap. Our own outbound in the middle
+ * does NOT end it: the racing case — photo, "got the photo thanks", second photo a minute later —
+ * is exactly the repeat the captain does not want.
+ */
+export const MEDIA_BATCH_GAP_MS = 10 * 60_000;
+
+/** Pure: has the newest media BATCH on the thread already been acknowledged by us? */
 export function mediaAckState(turns: readonly MediaAskTurn[]): MediaAckState {
     const sorted = [...turns].sort((a, b) => ms(a.at) - ms(b.at));
     let mediaIdx = -1;
     sorted.forEach((t, i) => { if (!t.ours && t.hasMedia) mediaIdx = i; });
-    if (mediaIdx < 0) return { newestMediaAt: null, acknowledgedAt: null, alreadyThanked: false };
-    const ack = sorted.slice(mediaIdx + 1).find((t) => t.ours && acknowledgesMedia(t.body)) ?? null;
-    return { newestMediaAt: sorted[mediaIdx].at, acknowledgedAt: ack?.at ?? null, alreadyThanked: !!ack };
+    if (mediaIdx < 0) return { newestMediaAt: null, batchStartedAt: null, batchSize: 0, acknowledgedAt: null, alreadyThanked: false };
+    // Walk back from the newest media item to the start of its batch.
+    let startIdx = mediaIdx;
+    let batchSize = 1;
+    for (let i = mediaIdx - 1; i >= 0; i--) {
+        const t = sorted[i];
+        if (t.ours) continue;                                       // our reply does not break a batch
+        if (!t.hasMedia) break;                                     // they moved the conversation on
+        if (ms(sorted[startIdx].at) - ms(t.at) > MEDIA_BATCH_GAP_MS) break;
+        startIdx = i;
+        batchSize++;
+    }
+    const ack = sorted.slice(startIdx + 1).find((t) => t.ours && acknowledgesMedia(t.body)) ?? null;
+    return {
+        newestMediaAt: sorted[mediaIdx].at, batchStartedAt: sorted[startIdx].at, batchSize,
+        acknowledgedAt: ack?.at ?? null, alreadyThanked: !!ack,
+    };
 }
 
 /** The tool boundary's refusal for a second thank-you. */

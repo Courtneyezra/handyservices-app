@@ -240,7 +240,11 @@ describe('the five incident move failures (BACKLOG D2, rewritten)', () => {
             const pack = sendPack(getPack('customer.post_quote'), 'ask_gap');
             const now = new Date(new Date(caseFile.window.lastInboundAt!).getTime() + 60_000);
             const d = decide({ proposal: recordedReply(c), guards: ok, pack, triage: noLexicon, caseFile, now });
-            expect(d, id).toMatchObject({ kind: 'pending', reason: `${PRECONDITION_REASON_PREFIX}${PRECONDITION.askGapQuoteOnCase}` });
+            // The code is whichever rule fires first, and the fixture records it per case: three
+            // are ask_gap:quote_on_case; the fourth (9bdaa1853b) asks a third time for a postcode
+            // the customer has twice refused, which T28's ask-once belt names first. All four hold.
+            expect(d, id).toMatchObject({ kind: 'pending', reason: `${PRECONDITION_REASON_PREFIX}${c.expected.precondition}` });
+            expect([PRECONDITION.askGapQuoteOnCase, PRECONDITION.postcodeAlreadyAsked], id).toContain(c.expected.precondition);
         }
     });
     it('the fifth ("Tell me price", pre-quote) is laned to Ben by the money lexicon in triageRules before any agent runs', () => {

@@ -1,0 +1,185 @@
+{
+ "cases": [
+  {
+   "id": "ag-t28-postcode-asked-once",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Ok perfect, could we get your postcode and we will get you a quote sent over shortly",
+     "at": "2026-09-08T11:59:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Send me a quote first mate, if I'm happy I'll send you the postcode",
+     "at": "2026-09-08T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "I have a couple of quotes already",
+     "at": "2026-09-08T12:02:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got it. Just need your postcode to factor in travel time.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotContain": ["£", "discount", "% off"],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": "already_asked:postcode",
+    "notes": "T28 (Michael, 31 Aug, seed_9bdaa1853b): we asked for the postcode and he replied twice without giving it. Cross-cutting rule 7: ask once, then proceed. At SEND the belt refuses the second ask; the Scoper's tool refuses it at composition."
+   },
+   "provenance": "eval-cases/guards/incident-v2-unguarded.json guards-incident-9bdaa1853b, scrubbed to the postcode ask alone"
+  },
+  {
+   "id": "ag-t28-first-postcode-ask-still-sends",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Three internal doors need hanging",
+     "at": "2026-09-08T12:00:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi, thanks for getting in touch.",
+     "at": "2026-09-08T12:01:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "They are standard sized ones from B and Q",
+     "at": "2026-09-08T12:04:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Could you send us your postcode please? Just the postcode is fine for now.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "T28: the FIRST postcode ask on a thread is unchanged. The belt fences the repeat, never the ask."
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "ag-t28-postcode-answered-reopens",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Could we get your postcode and we will get a quote over to you?",
+     "at": "2026-09-08T11:59:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Send me a quote first, then I'll send the postcode",
+     "at": "2026-09-08T12:00:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "actually here you go NG7 2AB",
+     "at": "2026-09-08T12:03:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks. Is NG7 2AB the postcode for the job itself or your billing address?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "T28 keeps the media belt's own invalidation rule: an answer that arrived re-opens the subject, exactly as a photo that arrived lets us ask for the one specific missing shot."
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "ag-t28-access-asked-once",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Three internal doors need hanging at a rental of mine",
+     "at": "2026-09-08T11:50:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Will someone be in on the day so we can get in?",
+     "at": "2026-09-08T11:55:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It is a rental, the tenant works shifts",
+     "at": "2026-09-08T12:02:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "No problem. Will the tenant be in on the day, or is there a key safe?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": "already_asked:access",
+    "notes": "T28: nothing on a thread can prove an access ask was answered, so it is never answered by machine. They replied; we do not insist. Access is settled at booking."
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "ag-t28-handoff-said-once",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "what would that come to roughly for the skirting",
+     "at": "2026-09-08T11:40:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Let me check on that and come straight back to you.",
+     "at": "2026-09-08T11:45:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "ok thanks, no rush",
+     "at": "2026-09-08T12:02:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "I'll come straight back to you on that.",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "noExceptions": true,
+    "voiceClean": true,
+    "precondition": "handoff_already_said",
+    "notes": "T28 / s28 finding E: the hand-off line is said ONCE PER OPEN FLAG. Repeated on every turn of a held thread it is the machine answering tickets. Item 1.4 writes the line; this is the slot it lands in. What the desk CAN answer still sends (answer 14)."
+   },
+   "provenance": "invented"
+  }
+ ]
+}
