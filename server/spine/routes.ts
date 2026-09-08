@@ -5,8 +5,9 @@
  *   POST /quote-intake/:conversationId/save-draft   UNSENT draft quote from the card (never prices)
  *   POST /ask/:conversationId { kind }              rules-layer ask (postcode / media / name), approved by the signed-in human
  *   GET  /controls                                  P6: switches + legacy flags + who last changed each + viewer rights
- *   POST /config { mode?, agents?, asks?, autonomy?, sampler?, video?, confirm? }
- *                                                   P6: flip the spine (mode / autonomy owner-only; live needs confirm 'LIVE' + go-live check)
+ *   POST /config { mode?, desk?, agents?, asks?, autonomy?, sampler?, video?, confirm? }
+ *                                                   P6: flip the spine (mode / desk / autonomy owner-only; live needs confirm 'LIVE' + go-live check)
+ *                                                   0.5: `desk` is 'v3' | 'v4' — which desk behaviour is live, separate from the mode
  *   GET  /golive-check?skipEvals=1                  P6: CUTOVER §0 preconditions as a GO / NO-GO table
  *   GET  /shadow-report?days=1|7                    P6: compareShadow() headline + last 10 pairs
  *   GET  /price/:slug                               P8: Ben's price-and-send screen payload (draft + suggestions + band)
@@ -109,6 +110,7 @@ spineRouter.get('/controls', async (req, res) => {
         res.json({
             spine: {
                 mode: spineModeFrom(cfg), enabled: cfg.enabled, shadow: cfg.shadow, explicitMode: cfg.mode ?? null,
+                desk: cfg.desk,
                 agents: cfg.agents, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
                 sweepLimit: cfg.sweepLimit, debounceMinutes: cfg.debounceMinutes, triageModel: cfg.triageModel, city: cfg.city,
             },
@@ -125,10 +127,13 @@ spineRouter.get('/controls', async (req, res) => {
 });
 
 /**
- * POST /config — flip the spine's switches. Partial body { mode?, agents?, asks?, autonomy?,
- * sampler?, video?, confirm? }; unknown fields are refused (server/spine/controls.ts). Mode and
- * autonomy are owner-only; `mode: 'live'` needs confirm 'LIVE' AND a go-live check with no NO-GO.
- * setSpineConfig writes the row and logs the config_change event with `by`.
+ * POST /config — flip the spine's switches. Partial body { mode?, desk?, agents?, asks?,
+ * autonomy?, sampler?, video?, confirm? }; unknown fields are refused (server/spine/controls.ts).
+ * Mode, desk and autonomy are owner-only; `mode: 'live'` needs confirm 'LIVE' AND a go-live check
+ * with no NO-GO. setSpineConfig writes the row and logs the config_change event with `by`.
+ *
+ * 0.5: `desk` ('v3' | 'v4') is the behaviour switch, validated and audited exactly like the rest —
+ * one key, one event, and no effect on `mode`. Nothing reads it yet (see server/spine/config.ts).
  */
 spineRouter.post('/config', async (req, res) => {
     try {
@@ -136,7 +141,7 @@ spineRouter.post('/config', async (req, res) => {
         const v = validateSpineConfigPatch(req.body ?? {});
         if (!v.ok) return res.status(400).json({ ok: false, errors: v.errors });
         const u = viewer(req);
-        if (v.needs === 'owner' && !isOwner(u)) return res.status(403).json({ ok: false, errors: ['The spine mode and the autonomy job are owner-only (the owner account or role admin).'] });
+        if (v.needs === 'owner' && !isOwner(u)) return res.status(403).json({ ok: false, errors: ['The spine mode, the desk behaviour and the autonomy job are owner-only (the owner account or role admin).'] });
         let golive: unknown = null;
         if (v.goesLive) {
             const { runGoLiveCheck } = await import('./golive-check');
@@ -149,7 +154,7 @@ spineRouter.post('/config', async (req, res) => {
         const { humanApprover } = await import('../approver');
         const next = await setSpineConfig(v.patch, humanApprover(u.email ?? u.id ?? 'admin'));
         console.log(`[Spine] config: ${v.changes.join(', ')} by ${u.email ?? u.id ?? 'admin'}`);
-        res.json({ ok: true, changes: v.changes, mode: spineModeFrom(next), spine: { enabled: next.enabled, shadow: next.shadow, mode: next.mode ?? null, agents: next.agents, asks: next.asks, autonomy: next.autonomy, sampler: next.sampler, video: next.video }, golive });
+        res.json({ ok: true, changes: v.changes, mode: spineModeFrom(next), spine: { enabled: next.enabled, shadow: next.shadow, mode: next.mode ?? null, desk: next.desk, agents: next.agents, asks: next.asks, autonomy: next.autonomy, sampler: next.sampler, video: next.video }, golive });
     } catch (error: any) {
         console.error('[Spine] config write failed:', error?.message ?? error);
         res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not save the config'] });

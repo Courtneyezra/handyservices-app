@@ -56,6 +56,54 @@ export interface SpineConfig {
      * The description is the only route. `maxPerRun` is bounded by VIDEO_MAX_PER_RUN on write.
      */
     video: { enabled: boolean; images: boolean; maxPerRun: number };
+    /**
+     * 0.5 "The switch" (build plan v2, 8 Sep 2026; the captain's answer 16 — "sandbox checklist
+     * first, then all live threads", flipped on his word).
+     *
+     * WHICH DESK BEHAVIOUR IS LIVE, not whether the spine runs at all:
+     *   v3  today. The Scoper's replies land as pending drafts and wait for Ben.
+     *   v4  reply by default. The desk answers on its own and holds only on the exceptions.
+     *
+     * The desk is ALREADY live in production, so without this key every behaviour change in
+     * weeks 2–4 would reach real customers the moment its PR deployed, before one checklist line
+     * had passed in the sandbox (reviews s28 C, s29 1.5). Default `v3`: a row that does not carry
+     * the key, or carries anything else, reads as today's behaviour (mergeOverDefaults).
+     *
+     * Read it ONLY through `isDeskV4()`. Nothing consults it yet — the items that gate behaviour
+     * on it (the pack resolver, the lane table, the decision, the ack config, the silence clock)
+     * are plan items 1.x / 2.x and land in their own PRs. Flipping it is 6.2; flipping it back is
+     * the rollback (docs/comms-build/CUTOVER.md §4), which does NOT touch `mode`.
+     */
+    desk: DeskBehaviour;
+}
+
+/**
+ * 0.5: the two desk behaviours. `v3` is what the desk does today (every reply waits for Ben);
+ * `v4` is reply-by-default. There is no third value: anything else is not a behaviour this code
+ * knows how to run, so it is refused on the way in and read as `v3` on the way out.
+ */
+export const DESK_BEHAVIOURS = ['v3', 'v4'] as const;
+export type DeskBehaviour = (typeof DESK_BEHAVIOURS)[number];
+
+/** Narrowing guard — the one place the vocabulary is checked (route validation and row reads). */
+export function isDeskBehaviour(value: unknown): value is DeskBehaviour {
+    return typeof value === 'string' && (DESK_BEHAVIOURS as readonly string[]).includes(value);
+}
+
+/**
+ * 0.5: THE ONLY SANCTIONED WAY TO ASK "is the v4 desk live?".
+ *
+ * Every later item reads the switch through this helper and never `cfg.desk` directly, so there
+ * is exactly one place to change if the question ever grows a second condition, and exactly one
+ * name to grep for when asking what the flip actually moves.
+ *
+ * It is a BEHAVIOUR selector, not a permission: it says nothing about whether the spine may run
+ * on a customer at all. `isSpineEnabled()` / `spineMode()` remain the permission, and an off or
+ * shadow spine sends nothing whatever this returns. Fail closed: absent, unreadable or unknown
+ * is `false`, i.e. today's desk.
+ */
+export function isDeskV4(cfg: Pick<SpineConfig, 'desk'> | null | undefined): boolean {
+    return cfg?.desk === 'v4';
 }
 
 /**
@@ -93,6 +141,8 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     // with room for an earlier item, at half the legacy 12-item ceiling. Applies only where no
     // row is stored: the live row keeps its own value until someone changes it on /admin/staff.
     video: { enabled: false, images: false, maxPerRun: 6 },
+    // 0.5: today's desk. Nothing changes for a customer until someone writes 'v4' into the row.
+    desk: 'v3',
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -104,6 +154,9 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         autonomy: { ...DEFAULT_SPINE_CONFIG.autonomy, ...(patch?.autonomy ?? {}) },
         sampler: { ...DEFAULT_SPINE_CONFIG.sampler, ...(patch?.sampler ?? {}) },
         video: { ...DEFAULT_SPINE_CONFIG.video, ...(patch?.video ?? {}) },
+        // 0.5: the vocabulary is enforced on READ as well as on write. A row that carries no
+        // `desk`, or one a script put a typo in, is today's desk — never an unknown behaviour.
+        desk: isDeskBehaviour(patch?.desk) ? patch.desk : DEFAULT_SPINE_CONFIG.desk,
     };
 }
 

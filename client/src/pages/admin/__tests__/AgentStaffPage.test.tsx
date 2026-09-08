@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import AgentStaffPage, {
     WorkerHeartbeatStrip, SpineSwitchStrip, PackTiersBlock, CategoryGraduationTable,
-    VIDEO_MAX_PER_RUN, type WorkerHeartbeat, type SpineSwitches, type LegacySwitches, type PackTierRow,
+    VIDEO_MAX_PER_RUN, DESK_CODE_DEFAULT, DESK_WORDING, type WorkerHeartbeat, type SpineSwitches, type LegacySwitches, type PackTierRow,
 } from '@/pages/admin/AgentStaffPage';
 
 const spine: SpineSwitches = {
@@ -99,6 +99,63 @@ describe('SpineSwitchStrip', () => {
         unmount();
         renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={legacy} />);
         expect(await screen.findByText(/Spine switches not reported by this server/)).toBeInTheDocument();
+    });
+});
+
+describe('SpineSwitchStrip — 0.5 the desk behaviour switch', () => {
+    const captions = { off: 'OFF', shadow: 'SHADOW', live: 'LIVE' };
+    const controls = (sp: SpineSwitches, isOwner = true) => ({ spine: sp, legacy: null, lastChanges: {}, viewer: { isOwner, email: 'owner@x', role: 'admin' }, captions, confirmWord: 'LIVE' });
+    const okReply = () => ({ json: { ok: true } });
+
+    it('v3: the chip, the plain wording and the code default, and a click posts desk v4', async () => {
+        const fetches = mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, desk: 'v3' }) }) },
+            { url: '/api/spine/config', method: 'POST', reply: okReply },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const row = await screen.findByTestId('desk-behaviour', {}, { timeout: 3000 });
+        const chip = within(row).getByTestId('switch-desk');
+        expect(chip).toHaveTextContent(/^desk v3$/);
+        expect(chip.className).not.toMatch(/bg-slate-900/); // v3 is the resting state
+        expect(row).toHaveTextContent(`Desk behaviour: ${DESK_WORDING.v3}`);
+        expect(row).toHaveTextContent('v3, replies wait for Ben, today');
+        expect(row).toHaveTextContent(`code default: ${DESK_CODE_DEFAULT}`);
+        expect(chip.title).toMatch(/replies send by default/);
+        await userEvent.click(chip);
+        const posts = fetches.of('POST', '/api/spine/config');
+        expect(posts).toHaveLength(1);
+        expect(posts[0].body).toEqual({ desk: 'v4' });
+    });
+
+    it('v4: the chip is lit, the wording changes, and a click posts the rollback to v3', async () => {
+        const fetches = mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls({ ...spine, desk: 'v4' }) }) },
+            { url: '/api/spine/config', method: 'POST', reply: okReply },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const row = await screen.findByTestId('desk-behaviour', {}, { timeout: 3000 });
+        const chip = within(row).getByTestId('switch-desk');
+        expect(chip).toHaveTextContent(/^desk v4$/);
+        expect(chip.className).toMatch(/bg-slate-900/);
+        expect(row).toHaveTextContent(`Desk behaviour: ${DESK_WORDING.v4}`);
+        expect(row).toHaveTextContent(`code default: ${DESK_CODE_DEFAULT}`); // still v3 — the row moved, the code did not
+        await userEvent.click(chip);
+        expect(fetches.of('POST', '/api/spine/config')[0].body).toEqual({ desk: 'v3' });
+    });
+
+    it('owner-only, and a server that does not report the key reads as the code default', async () => {
+        const { desk: _drop, ...withoutDesk } = { ...spine, desk: 'v4' as const };
+        const fetches = mockFetch([
+            { url: '/api/spine/controls', reply: () => ({ json: controls(withoutDesk as SpineSwitches, false) }) },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<SpineSwitchStrip fallbackSpine={null} fallbackLegacy={null} />);
+        const row = await screen.findByTestId('desk-behaviour', {}, { timeout: 3000 });
+        const chip = within(row).getByTestId('switch-desk');
+        expect(chip).toHaveTextContent(`desk ${DESK_CODE_DEFAULT}`);
+        expect(chip).toBeDisabled();
+        expect(chip.title).toMatch(/owner-only/);
+        await userEvent.click(chip);
+        expect(fetches.of('POST', '/api/spine/config')).toHaveLength(0);
     });
 });
 
