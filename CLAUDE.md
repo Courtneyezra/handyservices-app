@@ -160,6 +160,14 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 
 ---
 
+## Data protection
+
+Two files describe what the system does with customer data, and they must be kept true when a data flow changes: the customer-facing notice `client/src/pages/PrivacyPolicyPage.tsx` (`/privacy`) and the internal record `docs/COMMS_RECORD_OF_PROCESSING.md` (Art. 30 record: categories, purposes, bases, every processor with the file that proves it, storage, retention). Adding a provider that receives customer content — a model, a transcriber, a store, an analytics tool — means naming it in both, with its purpose, in the same PR. `client/src/pages/__tests__/PrivacyPolicyPage.test.tsx` asserts each named processor carries a purpose, so a silent deletion fails the suite.
+
+Known gap (8 Sep 2026, not fixed by that work): the notice states retention periods that NO code enforces — there is no deletion job and no erasure tooling. See `docs/COMMS_RECORD_OF_PROCESSING.md` §6 before quoting a retention period anywhere. Owner decision, 7 Sep and answer 24 on 8 Sep: there is deliberately NO bot-disclosure line to customers in chat; the transparency lives on the notice.
+
+---
+
 ## Apple Pay Setup
 
 The Apple Pay domain verification file at `/.well-known/apple-developer-merchantid-domain-association` is served BY THIS APP (explicit Express route in `server/index.ts`, file at `client/public/.well-known/`). Updated 19 Jul 2026: the previously documented Cloudflare-served file was found NOT to exist — the path fell through to the SPA catch-all and returned index.html, which silently broke Apple Pay verification on www.handyservices.app. Cloudflare proxies the path straight through, so the Express route is authoritative. Do not remove the route or the file.
