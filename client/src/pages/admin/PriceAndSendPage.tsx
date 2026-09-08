@@ -91,6 +91,8 @@ export interface PricePayload {
     materials: Material[];
     photos: string[];
     videos: string[];
+    /** T20: what she sent and whether we asked for a photo and she replied without one (server/spine/media-ask.ts). Absent on older payloads. */
+    customerMedia?: { sentPhotos: boolean; sentVideo: boolean; askedAt: string | null; repliedWithoutMedia: boolean };
     builderUrl: string;
     estimate: { id: string | null; status: string | null; confidence: string | null; at: string | null } | null;
     quoteUrl: string;
@@ -113,6 +115,12 @@ export interface SendResult {
 export type Resolution = 'drop_materials' | 'keep_materials';
 
 // ---------------------------------------------------------------- pure helpers (exported for tests)
+
+/**
+ * T20: what the "No photo" pill puts in the "Ask her first" sheet. The rules layer's own photo ask
+ * (server/rules-layer.ts ASK_COPY.ask_media), the two bubbles as one question; Ben edits or queues it.
+ */
+export const PHOTO_ASK_PREFILL = 'Could you send a quick photo or video of the job? A clip of where the problem is helps us get it right first time.';
 
 export function gbp(pence: number | null | undefined): string {
     if (pence == null || !Number.isFinite(pence)) return '—';
@@ -971,6 +979,9 @@ export function PriceAndSend({ slug }: { slug: string }) {
 
     const first = data.customer.firstName;
     const readiness = data.customer.readiness;
+    // T20: "no photo" is the payload's own photos / videos (plus the server's read of the thread), not a new field of missing.
+    const noPhoto = data.status === 'draft' && data.photos.length === 0 && data.videos.length === 0
+        && !(data.customerMedia?.sentPhotos || data.customerMedia?.sentVideo);
     const statusBanner = data.status === 'sent'
         ? { cls: 'border-emerald-200 bg-emerald-50 text-emerald-900', text: 'This quote has already been sent.' }
         : data.status === 'superseded'
@@ -1126,6 +1137,15 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     {data.estimate?.confidence && <span className="text-slate-500">estimate {data.estimate.confidence}</span>}
                     {data.job && (data.job.setupMinutes || data.job.cleanupMinutes) ? <span className="text-slate-500">+{data.job.setupMinutes + data.job.cleanupMinutes} min setup/cleanup</span> : null}
                     {contradictions.length > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800" data-testid="contradiction-count">{contradictions.length} to check</span>}
+                    {/* T20: the missing photo travels here instead of holding the conversation. Read off what the
+                        payload already carries (photos / videos / the thread); a tap opens the existing
+                        "Ask her first" sheet pre-filled, so nothing is sent without Ben. */}
+                    {noPhoto && (
+                        <button type="button" disabled={locked || !!busy} onClick={() => { setSheetText(PHOTO_ASK_PREFILL); setSheet('ask'); }}
+                            className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800 underline decoration-dotted disabled:no-underline disabled:opacity-60" data-testid="no-photo">
+                            No photo{data.customerMedia?.repliedWithoutMedia ? ' · asked, none sent' : ''}
+                        </button>
+                    )}
                 </div>
                 {queueStrip}
                 {!desktop && (

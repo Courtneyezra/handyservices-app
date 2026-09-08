@@ -107,10 +107,11 @@ import { customerPromisedMore, clampTriageModelOutput, RE_PROMISED_MORE } from '
 
 describe('P7 customer promised more', () => {
     it('detects the promise phrases on the customer side', () => {
-        for (const t of ["That's the only cladding, back soon with measurement", 'will send the photos tonight', 'sending now', 'one sec', 'hang on', 'bear with me', 'give me a minute', 'let me get the tape', "I'll get you the size", 'in a minute', 'shortly']) {
+        for (const t of ["That's the only cladding, back soon with measurement", 'will send the photos tonight', 'sending now', 'let me get the tape', "I'll get you the size", 'shortly', "hang on, I'll take a photo"]) {
             expect(customerPromisedMore(t), t).toBe(true);
         }
-        for (const t of ['how much would it cost', 'can you come tuesday', 'thanks!', '', 'the tap is in the kitchen']) {
+        // T20: a bare pause is someone still typing, not a promise (Priya, 7 Sep: "one second let me check").
+        for (const t of ['how much would it cost', 'can you come tuesday', 'thanks!', '', 'the tap is in the kitchen', 'one sec', 'hang on', 'bear with me', 'give me a minute', 'in a minute', 'one second let me check']) {
             expect(customerPromisedMore(t), t).toBe(false);
         }
         expect(RE_PROMISED_MORE.test('The soonest slot?')).toBe(false); // "soonest" is a date word, not a promise

@@ -26,6 +26,7 @@ import {
 } from './price-brief';
 import { labourBandFromMinutes } from './pricing-bridge';
 import { notIncludedFrom } from './job-pack';
+import { mediaAskState, turnsFromThreadMessages } from './media-ask';
 import { depositFor } from '@shared/pricing-settings';
 
 // ---------------------------------------------------------------- shapes (pane A's, described)
@@ -176,6 +177,12 @@ export interface PriceScreenPayload {
     materials: PriceScreenMaterial[];
     photos: string[];
     videos: string[];
+    /**
+     * T20: what the customer sent, read off the same `photos` / `videos` and the embedded thread the
+     * screen already has, plus the ask-once fact (server/spine/media-ask.ts): whether we asked for a
+     * photo and they replied without one. "No photo" on the screen is this, not a new kind of missing.
+     */
+    customerMedia: { sentPhotos: boolean; sentVideo: boolean; askedAt: string | null; repliedWithoutMedia: boolean };
     builderUrl: string;
     estimate: { id: string | null; status: string | null; confidence: string | null; at: string | null } | null;
     quoteUrl: string;
@@ -397,6 +404,9 @@ export function buildPricePayload(input: {
     const videos = Array.isArray(row.customer_video_urls) ? row.customer_video_urls.filter(Boolean) : [];
     const sentPhotos = photos.length > 0 || thread.messages.some((m) => m.direction === 'in' && m.media?.kind === 'image');
     const sentVideo = videos.length > 0 || thread.messages.some((m) => m.direction === 'in' && m.media?.kind === 'video');
+    // T20: the ask-once fact off the thread the screen already embeds; nothing new is read.
+    const mediaAsk = mediaAskState(turnsFromThreadMessages(thread.messages));
+    const customerMedia = { sentPhotos, sentVideo, askedAt: mediaAsk.askedAt, repliedWithoutMedia: mediaAsk.outstanding };
     const job = estimate?.job ?? row.pricing_suggestions?.job ?? null;
     const baseUrl = input.baseUrl ?? process.env.BASE_URL ?? 'https://handyservices.app';
     return {
@@ -414,6 +424,7 @@ export function buildPricePayload(input: {
         settings: { materialsMarginPercent: settings.materialsMarginPercent, depositPercent: settings.depositPercent },
         materials,
         photos, videos,
+        customerMedia,
         builderUrl: `/admin/quotes/${row.short_slug}/edit`,
         estimate: estimate ? { id: estimate.id ?? null, status: estimate.status ?? null, confidence: estimate.confidence ?? null, at: estimate.created_at ?? null } : null,
         quoteUrl: `${baseUrl}/quote/${row.short_slug}`,

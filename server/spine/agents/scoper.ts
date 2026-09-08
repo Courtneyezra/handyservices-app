@@ -40,6 +40,7 @@ import { isPlaceholderName } from '../../first-contact-ack';
 import * as levers from '../../agents/objection-levers';
 import { isLikelyRealName } from '@shared/contact-name';
 import { chatVoiceViolations } from '@shared/chat-voice';
+import { acknowledgesMedia, asksForMedia, mediaAckRefusal, mediaAckState, mediaAskLine, mediaAskRefusal, mediaAskState, turnsFromCaseFile } from '../media-ask';
 import type { Approver } from '../../approver';
 import type {
     CaseFile, ExceptionKind, Intent, PolicyPack, Proposal, SpineAgent, TriageResult, TimelineItem,
@@ -191,6 +192,8 @@ export function renderCaseFile(cf: CaseFile, triage: TriageResult, trigger?: str
         cf.openPromises.length ? `Open promises we made: ${cf.openPromises.map((p) => `"${clip(p.text, 120)}" (due ${p.dueAt})`).join('; ')}.` : 'Open promises: none.',
         cf.openFlags.length ? `Open flags for Ben: ${cf.openFlags.map((f) => `${f.exception}: ${clip(f.note, 120)} (due ${f.dueAt})`).join('; ')}.` : 'Open flags: none.',
         ...(triage.dateAsked ? [dateAskedLine(cf)] : []),
+        // T20: the ask-once fact, stated so the model does not spend a turn asking and being refused.
+        ...((): string[] => { const l = mediaAskLine(mediaAskState(turnsFromCaseFile(cf))); return l ? [l] : []; })(),
         cf.lastRun ? `Last agent run: ${cf.lastRun.agent} ${cf.lastRun.decision} at ${cf.lastRun.at}.` : 'Last agent run: none.',
         cf.media.length ? `Media on file: ${cf.media.map((m) => `${m.id} (${m.kind}${m.description ? `: ${clip(m.description, 160)}` : ''})`).join('; ')}.` : 'Media on file: none.',
         '',
@@ -336,6 +339,19 @@ export function buildScoperTools(ctx: BeltContext, state: BeltState): AgentTool[
                     throw new Error('A live quote is already out; quote_on_its_way would promise a second one. Answer from the quote or flag.');
                 }
                 const bubbles = normaliseBody(input.body);
+                // T20: ask for a photo once. Read off the thread, not the model's view of it: if we
+                // asked and they replied without sending any, no body may ask again, whatever the
+                // intent says. The refusal tells the model to proceed instead.
+                if (asksForMedia(bubbles.join('\n'))) {
+                    const mediaAsk = mediaAskState(turnsFromCaseFile(caseFile));
+                    if (mediaAsk.outstanding) throw new Error(`Refused: ${mediaAskRefusal(mediaAsk)}`);
+                }
+                // T20 (Priya, 7 Sep): thank once. A body that thanks them for media we have already
+                // acknowledged, with nothing new arrived since, is refused the same way.
+                if (acknowledgesMedia(bubbles.join('\n'))) {
+                    const ack = mediaAckState(turnsFromCaseFile(caseFile));
+                    if (ack.alreadyThanked) throw new Error(`Refused: ${mediaAckRefusal(ack)}`);
+                }
                 const refusal = checkProposedBody({ bubbles, intent, caseFile });
                 if (refusal) throw new Error(`Refused: ${refusal} Rewrite and call propose_reply again.`);
                 const reasons = Array.isArray(input.reasons) ? input.reasons.map(String).filter(Boolean) : [];

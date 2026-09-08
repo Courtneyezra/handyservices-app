@@ -1,0 +1,88 @@
+{
+ "cases": [
+  {
+   "id": "ag-t20-media-asked-once",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi, I need a ring doorbell fitting at NG7 2AB",
+     "at": "2026-09-07T17:30:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi, thanks for getting in touch.",
+     "at": "2026-09-07T17:31:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Could you send a photo of the door and the wall around it?",
+     "at": "2026-09-07T17:40:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It's on the front door, left of the frame",
+     "at": "2026-09-07T17:44:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "Front door, to the left as you look at it, brick wall",
+     "at": "2026-09-07T17:48:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks. Could you send a quick photo of the door and the wall around it?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotContain": ["£", "discount", "% off"],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": "media_already_asked",
+    "notes": "T20 (run_b2836d5b, 7 Sep): we asked for a photo once and the customer replied twice with the location and no media. The captain's rule: ask once, then proceed; Ben can ask from the price screen. At SEND the belt refuses the second ask; the Scoper's tool refuses it at composition."
+   },
+   "provenance": "invented"
+  },
+  {
+   "id": "ag-t20-first-media-ask-still-sends",
+   "family": "ask_gap",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "Hi, I need a ring doorbell fitting at NG7 2AB",
+     "at": "2026-09-07T17:30:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Hi, thanks for getting in touch.",
+     "at": "2026-09-07T17:31:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "It's on the front door, left of the frame",
+     "at": "2026-09-07T17:44:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Could you send a photo of the door and the wall around it?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "ask_gap",
+    "mustNotContain": ["£", "discount", "% off"],
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "T20: the first photo ask on a thread is unchanged: pre-quote, reactive, no question asked, nothing asked before."
+   },
+   "provenance": "invented"
+  }
+ ]
+}
