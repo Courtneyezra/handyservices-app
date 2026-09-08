@@ -17,7 +17,10 @@
     "test:client": "vitest run --project client",
     "test:live-call": "npx tsx scripts/test-live-call-fixes.ts",
     "test:e2e": "playwright test",
-    "reconcile:stripe": "tsx scripts/reconcile-stripe.ts"
+    "reconcile:stripe": "tsx scripts/reconcile-stripe.ts",
+    "gate:prompts": "tsx scripts/check-prompt-gate.ts",
+    "evals": "tsx scripts/eval-comms.ts",
+    "evals:scoreboard": "tsx scripts/_eval-scoreboard.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.81.0",

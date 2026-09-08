@@ -91,7 +91,7 @@ npx tsx scripts/_p19-replay-thread.ts <conversationId>   # read-only: no writes,
 | Drafts and flags with due times | `message_drafts.due_at`, `agent_questions.due_at` |
 | Pack tiers (earned autonomy) | `pack_intent_tiers`, append-only `pack_tier_events` |
 | Case files | `server/storage/case-files/` by hash (gitignored); `agent_runs.case_file_ref` |
-| Eval scoreboard | `eval-results/latest.md` + `latest.json` (gitignored); `npx tsx scripts/eval-comms.ts` |
+| Eval scoreboard | table `eval_runs` (0.7, what the autonomy job reads); `eval-results/latest.md` + `latest.json` (gitignored, the fallback); `npx tsx scripts/eval-comms.ts`, `scripts/_eval-scoreboard.ts --status` |
 | Shadow comparison | `npx tsx scripts/_shadow-report.ts --days 7` |
 | Autonomy ladder | `npx tsx scripts/_autonomy-report.ts --dry-run` |
 
@@ -102,7 +102,54 @@ against the target branch, never with `db:push`:
 npx tsx scripts/_apply-migration.ts migrations/20260902_agent_runs_ledger.sql
 ```
 Comms-desk migrations, in order: `20260902_agent_runs_ledger.sql`, `20260902_due_at_holding_line.sql`,
-`20260902_draft_verdicts.sql`, `20260903_pack_intent_tiers.sql`, `20260903_agent_runs_shadow_decision.sql`.
+`20260902_draft_verdicts.sql`, `20260903_pack_intent_tiers.sql`, `20260903_agent_runs_shadow_decision.sql`,
+`20260908_eval_runs.sql`.
+
+### Changing a prompt (build plan v2, 0.7)
+The Scoper's standing orders live in `server/spine/prompts/`. They decide what a customer is told;
+nothing else in the repository does more per line. **A change under `server/spine/prompts/` must
+arrive with a change under `eval-cases/`.** Enforced two ways, both running the same rule
+(`server/evals/prompt-gate.ts`):
+```bash
+npm run gate:prompts     # the same verdict you will get on the pull request
+```
+and the `Prompt gate` check on every pull request (`.github/workflows/prompt-gate.yml`). It names
+the prompt that moved and says its eval family is missing. It is deliberately blunt: it cannot tell
+a good family from a bad one, it only makes the omission impossible to merge in silence.
+
+**Before merge, run the affected families against the model.** The gate cannot do this for you —
+the spine adapter needs a key and costs money, so it stays a person's call:
+```bash
+EVAL_LIVE=1 ANTHROPIC_API_KEY=… npx tsx scripts/eval-comms.ts --adapter spine --family <family>
+```
+**The budget.** One family is 5 to 10 cases × 3 trials, so 15 to 30 Scoper runs. A Scoper run is
+roughly 8k input + 1k output tokens on Sonnet ($2 / $10 per M, `server/agent-cost.ts`), about 2p a
+run: **£0.30 to £0.60 per family**, and **£5 to £8** for every intent family at once. Estimated from
+the token sizes, not measured — the run prints its own `usage`, so read the real figure from
+`eval-results/latest.md` after the first one. A prompt change that touches one behaviour should run
+one or two families, not all of them.
+
+**Provenance.** Every eval run records the digest of `server/spine/prompts/*` it graded
+(`promptHash`) and the Scoper's own per-pack hash (the same value `agent_runs.prompt_hash` carries),
+so a green family is tied to the exact prompt it graded:
+```bash
+npx tsx scripts/_eval-scoreboard.ts --status   # prints STALE when the prompts have moved since
+```
+
+### The eval scoreboard on the server (0.7)
+The daily promotion job (`server/spine/autonomy.ts`) reads its eval evidence from the newest
+`eval_runs` row, falling back to `eval-results/latest.json`, and reads `missing` when there is
+neither — never a green. Until 0.7 it read the file only, and `eval-results/` is gitignored with no
+eval step in the container build, so on Railway the file has never existed: every intent's eval
+family read `missing` and only the two fast-tracked intents (`ask_gap`, `confirm_received`) could
+ever be promoted. To give the table its first row on the server, with the migration applied:
+```bash
+npx tsx scripts/_apply-migration.ts migrations/20260908_eval_runs.sql
+DATABASE_URL=<the server's> npx tsx scripts/eval-comms.ts          # grades and publishes
+DATABASE_URL=<the server's> npx tsx scripts/_eval-scoreboard.ts --publish   # or publish a latest.json you already have
+```
+A local run with no `DATABASE_URL` is unchanged: it writes the file, prints `table: skipped`, and
+touches no database. `--no-publish` skips the table even when one is reachable.
 
 ### Verification rule for every build
 The repo's `npm run check` is red project-wide (~1,882 pre-existing errors) and vitest has 42

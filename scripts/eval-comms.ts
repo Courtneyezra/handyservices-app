@@ -26,7 +26,19 @@
  * eval-results/latest.md (scoreboard, deltas, the §9 guard false-negative report).
  * --judge (with EVAL_LIVE=1) attaches the advisory voice-v1 verdict to replay trials.
  * Exit code: 1 if any REGRESSION case is red; capability reds are improvement targets.
+ *
+ * 0.7 (8 Sep 2026): the run also records the PROMPT it graded (the digest of server/spine/prompts/*
+ * plus the Scoper's own per-pack hash, server/evals/prompt-provenance.ts) and, when a real
+ * DATABASE_URL is in the environment, writes one `eval_runs` row so the autonomy job on the server
+ * has evidence to read at all (server/spine/autonomy.ts readLatestScoreboard). With no database the
+ * run is unchanged: the file is written, the table is skipped, and the reason is printed.
+ * `--no-publish` skips the table even when a database is reachable.
  */
+
+// 0.7: was a REAL database handed to this run? Captured before the placeholder below, which is
+// indistinguishable from a real URL afterwards. No database → the file is the only record, as ever.
+const REAL_DATABASE_URL = !!process.env.DATABASE_URL;
+
 if (!process.env.EVAL_LIVE) {
     // server/db.ts throws without DATABASE_URL at import time; a module we import for a pure
     // function may import it transitively. Point it at nothing so no pool can ever open.
@@ -46,6 +58,8 @@ import {
     scoreboardMarkdown, summarise, familiesSummary, type CaseOutcome, type EvalRunV2, type GuardFalseNegativeReport, type TrialOutcome,
 } from '../server/evals/scoreboard';
 import { chatVoiceViolations } from '@shared/chat-voice';
+import { promptsDigest, scoperPromptHashes } from '../server/evals/prompt-provenance';
+import { saveEvalRun } from '../server/evals/eval-run-store';
 
 const ARGS = process.argv.slice(2);
 const arg = (name: string): string | null => { const i = ARGS.indexOf(`--${name}`); return i >= 0 ? (ARGS[i + 1] ?? null) : null; };
@@ -58,6 +72,7 @@ type AdapterName = 'replay' | 'triage' | 'legacy' | 'spine';
 const ADAPTERS: AdapterName[] = ((arg('adapter') ?? 'all') === 'all' ? ['replay', 'triage', 'legacy', 'spine'] : [arg('adapter') as AdapterName]);
 const JUDGE = flag('judge');
 const LIVE = !!process.env.EVAL_LIVE;
+const NO_PUBLISH = flag('no-publish');
 
 /** Which `expected` keys each adapter can honestly grade. Others are dropped for that adapter. */
 type ExpectedKey = keyof EvalCaseV2['expected'];
@@ -339,8 +354,14 @@ async function main() {
         if (skippedAll.length === selected.length) console.log(`  SKIP  [${adapter}] all ${selected.length} cases — ${skippedAll[0].skipped}`);
     }
 
+    // 0.7 part C: the prompt this run graded, so a family's green is tied to the standing orders
+    // it was measured against and a later prompt edit is visibly a different prompt.
+    const promptHash = promptsDigest();
+    const promptHashes = await scoperPromptHashes();
+
     const run: EvalRunV2 = {
         runId, startedAt, finishedAt: new Date().toISOString(), gitRef, trialsRequested: TRIALS, adapters: ADAPTERS,
+        promptHash, promptHashes,
         cases: outcomes, guardFalseNegative: guardFalseNegatives(selected, outcomes),
         families: familiesSummary(outcomes, TRIALS, new Date().toISOString()),
     };
@@ -351,6 +372,17 @@ async function main() {
     fs.writeFileSync(latestPath, JSON.stringify(run, null, 2));
     const md = scoreboardMarkdown(run, prev && prev.cases ? prev : null);
     fs.writeFileSync(path.join(RESULTS_DIR, 'latest.md'), md);
+
+    // 0.7 part A: the same result into eval_runs, so the promotion job on the server has evidence.
+    // The file above is written first and unconditionally; the table is best effort and never
+    // changes this run's exit code.
+    let published: string;
+    if (NO_PUBLISH) published = 'table: skipped (--no-publish)';
+    else if (!REAL_DATABASE_URL) published = 'table: skipped (no DATABASE_URL — the file is the only record)';
+    else {
+        const r = await saveEvalRun(run);
+        published = r.saved ? `table: eval_runs row ${r.id}` : `table: NOT written — ${r.reason}`;
+    }
 
     if (preconditionTally.size) {
         console.log(`\nSend preconditions at SEND tier (triage adapter, no model; B7a):`);
@@ -363,7 +395,8 @@ async function main() {
     const capabilityRed = outcomes.filter((o) => o.kind === 'capability' && o.passAny === false).length;
     console.log(`\n${md.split('\n## Cases')[0]}`);
     console.log(`\nRegression red: ${regressionRed} · capability red (improvement targets): ${capabilityRed} · skipped: ${sum.skipped}`);
-    console.log(`Results: eval-results/${runId}.json · scoreboard: eval-results/latest.md`);
+    console.log(`Results: eval-results/${runId}.json · scoreboard: eval-results/latest.md · ${published}`);
+    console.log(`Prompt digest graded: ${promptHash ?? 'none (no prompt files found)'}`);
     process.exit(regressionRed > 0 ? 1 : 0);
 }
 

@@ -2113,6 +2113,45 @@ export const jobPacks = pgTable("job_packs", {
 ]);
 export type JobPackRow = typeof jobPacks.$inferSelect;
 
+/**
+ * 0.7 (8 Sep 2026): the eval scoreboard on the SERVER, not on a worker's filesystem.
+ *
+ * `scripts/eval-comms.ts` has always written `eval-results/latest.json`; that directory is
+ * gitignored and the container build has no eval step, so on Railway the file is simply absent
+ * and every intent's `evalFamily` read `missing` — the evidence half of the promotion gate
+ * (server/spine/autonomy.ts) had never once run on real evidence. One row per harness run; the
+ * autonomy job reads the newest row and falls back to the file. Never a false green: no row and
+ * no file still reads `missing`.
+ *
+ * `families` is `Record<family, { cases, graded, green, red }>` counted exactly as
+ * `evalFamilyFrom` counts the file's `cases[]`: every regression case-outcome of that family
+ * across every adapter, `graded` those whose pass^k was decided, `green` those that passed.
+ * `promptHash` is the provenance: the digest of server/spine/prompts/* the run graded, so a later
+ * prompt edit is visibly a different prompt from the one the green came from.
+ * Migration 20260908_eval_runs.sql.
+ */
+export const evalRuns = pgTable("eval_runs", {
+    id: text("id").primaryKey().notNull(),
+    runId: text("run_id").notNull(),                     // the harness run id (an ISO stamp)
+    gitRef: text("git_ref"),                             // the commit it was measured on
+    promptHash: text("prompt_hash"),                     // digest of server/spine/prompts/*
+    promptHashes: jsonb("prompt_hashes"),                // { [packId]: the Scoper's own promptHash }
+    adapters: text("adapters").array().notNull().default([]),
+    trialsRequested: integer("trials_requested"),
+    families: jsonb("families").notNull().default({}),   // Record<family, FamilyCounts>
+    regressionRed: integer("regression_red"),
+    capabilityRed: integer("capability_red"),
+    caseCount: integer("case_count"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex("idx_eval_runs_run_id").on(table.runId),
+    index("idx_eval_runs_finished_at").on(table.finishedAt),
+]);
+export type EvalRunRow = typeof evalRuns.$inferSelect;
+export type InsertEvalRun = typeof evalRuns.$inferInsert;
+
 /** Append-only: every promotion / demotion with the evidence that decided it. */
 export const packTierEvents = pgTable("pack_tier_events", {
     id: text("id").primaryKey().notNull(),
