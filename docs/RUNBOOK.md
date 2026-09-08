@@ -49,8 +49,13 @@ To debug "What the user sees":
 Design: `docs/COMMS_AGENTS_V3_DESIGN.md`. Switching: `docs/comms-build/CUTOVER.md`. People: `docs/comms-build/HANDOVER.md`.
 
 ### Health
-- `GET /api/health/comms-worker` — 200 while the worker's heartbeat is fresh, 503 when stale (> 10 min). Point uptime checks here. The same payload is on `/admin/staff` (strip at the top).
+- `GET /api/health/comms-worker` — 200 with `status: "ok"` while the worker's heartbeat is fresh, 503 with `status: "stale"` when the heartbeat is older than 10 min, has never been written, or is unreadable (then `error` carries the reason). Point uptime checks and the platform healthcheck here. The same payload is on `/admin/staff` (strip at the top).
 - Only a process with `COMMS_WORKER=1` (Railway) registers customer-facing loops. A dev process on the production DB warns loudly at boot and runs none.
+- **Who is paged when the worker dies (0.6, 8 Sep 2026).** Two alarms, and they can never fire for the same episode because one needs `COMMS_WORKER=1` and the other needs its absence:
+  - *inside the worker* — it pages when its OWN heartbeat goes stale, i.e. it is wedged or its DB writes are failing;
+  - *outside the worker* — any passive **production** process (a second Railway service, the web service) polls the same row every 5 min and pages when the heartbeat is more than 10 min old. This is the one that catches a worker that is simply gone. It pages at most once an hour, only in UK daytime (08–20) like the alarm inside, and sends exactly one **"comms worker is back"** when the heartbeat returns, so a resolved outage is a message rather than the absence of one. Titles: `comms worker is not running` / `comms worker is back` (from outside) vs `comms worker heartbeat stale` (from inside).
+  - A laptop never pages: the watchdog requires `NODE_ENV=production`, so a dev process on a Neon branch that has never seen a heartbeat stays quiet.
+  - Today production runs **one** Railway service that is both the web process and the worker, so nothing outside it is watching yet: until a second passive service exists, the covering alarm is the platform/uptime healthcheck on the 503 above.
 
 ### Spine mode
 ```bash
