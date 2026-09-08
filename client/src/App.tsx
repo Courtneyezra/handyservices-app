@@ -75,6 +75,7 @@ const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
 const PriceAndSendPage = lazy(() => import("@/pages/admin/PriceAndSendPage")); // P8: Ben's phone-first price-and-send screen
 const VariationPricePage = lazy(() => import("@/pages/admin/VariationPricePage")); // P15/3: the one-line price screen for an extra found at the door
 const PriceQueuePage = lazy(() => import("@/pages/admin/PriceQueuePage")); // T9: every quote waiting to be priced, oldest first
+const KnowledgeBasePage = lazy(() => import("@/pages/admin/KnowledgeBasePage")); // 3.4: what we tell customers, in Ben's words
 const ActivityPage = lazy(() => import("@/pages/admin/ActivityPage"));
 const VaTasksPage = lazy(() => import("@/pages/admin/VaTasksPage"));
 const PortalInboxPage = lazy(() => import("@/pages/admin/PortalInboxPage"));
@@ -751,6 +752,14 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <AgentStaffPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* 3.4: the knowledge base — the only answers about the business a reply may carry. */}
+                <Route path="/admin/knowledge">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <KnowledgeBasePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

@@ -16,6 +16,9 @@
  *   GET  /price-stats?days=90                       P8: Route B graduation metrics per category (design §6), read-only
  *   GET  /price-queue                               T9: every Route A draft waiting to be priced, oldest first, read-only
  *   GET  /vision-health                             T14: is the describer (Gemini) working? newest vision rows → verdict, read-only
+ *   GET  /kb                                        3.4: every knowledge-base entry, drafts and questions included (Ben's page)
+ *   POST /kb, PATCH /kb/:id                         3.4: write / edit an entry; it always lands unreviewed
+ *   POST /kb/:id/{review|retire|unreview}           3.4: Ben's one deliberate review, and the way back
  *   POST /tiers { packId, intent, tier, reason }    P6: a person promotes / demotes one intent on the ladder
  *                                                   (pack_intent_tiers + pack_tier_events, changed_by human:<id>);
  *                                                   refuses SEND for intents outside the pack or any money/date name
@@ -459,5 +462,106 @@ spineRouter.get('/price-stats', async (req, res) => {
     } catch (error: any) {
         console.error('[Spine] price stats failed:', error?.message ?? error);
         res.status(500).json({ error: error?.message ?? 'Could not compute the price stats' });
+    }
+});
+
+// ------------------------------------------------------- 3.4: the knowledge base (Ben's own words)
+
+/**
+ * The knowledge base's admin surface. Behind requireAdmin like the rest of /api/spine, and every
+ * one of these reads and writes the UNREVIEWED store: this is the page where Ben writes and
+ * reviews, so of course it sees the drafts. Nothing customer-facing goes near these routes; a
+ * reply path reads listReviewedEntries() instead (server/spine/knowledge-base.ts).
+ *
+ *   GET    /kb                        every entry, questions and drafts included, for the page
+ *   POST   /kb                        write a new entry (always lands unreviewed)
+ *   PATCH  /kb/:id                    edit; changing the words unmakes an existing review
+ *   POST   /kb/:id/review             Ben's one deliberate action; records who and when
+ *   POST   /kb/:id/retire             stop using it, keep the row so old citations resolve
+ *   POST   /kb/:id/unreview           put it back in the queue without changing a word
+ */
+spineRouter.get('/kb', async (_req, res) => {
+    try {
+        const { adminListEveryEntryIncludingUnreviewed } = await import('./knowledge-base');
+        const entries = await adminListEveryEntryIncludingUnreviewed();
+        res.json({
+            entries,
+            counts: {
+                unreviewed: entries.filter((e) => e.status === 'unreviewed').length,
+                reviewed: entries.filter((e) => e.status === 'reviewed').length,
+                retired: entries.filter((e) => e.status === 'retired').length,
+                questions: entries.filter((e) => e.kind === 'question' && e.status !== 'retired').length,
+            },
+        });
+    } catch (error: any) {
+        console.error('[Spine] knowledge base read failed:', error?.message ?? error);
+        res.status(500).json({ error: error?.message ?? 'Could not read the knowledge base' });
+    }
+});
+
+spineRouter.post('/kb', async (req, res) => {
+    try {
+        const { createEntry } = await import('./knowledge-base');
+        const r = await createEntry(req.body ?? {});
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        res.json({ ok: true, entry: r.entry });
+    } catch (error: any) {
+        console.error('[Spine] knowledge base write failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not save the entry'] });
+    }
+});
+
+spineRouter.patch('/kb/:id', async (req, res) => {
+    try {
+        const { updateEntry } = await import('./knowledge-base');
+        const r = await updateEntry(String(req.params.id), req.body ?? {});
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        res.json({ ok: true, entry: r.entry });
+    } catch (error: any) {
+        console.error('[Spine] knowledge base edit failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not save the entry'] });
+    }
+});
+
+/**
+ * Ben's review. `by` is the signed-in person, never the request body: the review is the only thing
+ * standing between a draft and a customer, so nobody may sign it on somebody else's behalf.
+ */
+spineRouter.post('/kb/:id/review', async (req, res) => {
+    try {
+        const { reviewEntry } = await import('./knowledge-base');
+        const { humanApprover } = await import('../approver');
+        const u = sessionUser(req);
+        const r = await reviewEntry(String(req.params.id), humanApprover(u.email ?? u.id ?? 'admin'));
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        console.log(`[Spine] knowledge base: ${req.params.id} reviewed by ${u.email ?? u.id ?? 'admin'}`);
+        res.json({ ok: true, entry: r.entry });
+    } catch (error: any) {
+        console.error('[Spine] knowledge base review failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not record the review'] });
+    }
+});
+
+spineRouter.post('/kb/:id/retire', async (req, res) => {
+    try {
+        const { setStatus } = await import('./knowledge-base');
+        const r = await setStatus(String(req.params.id), 'retired');
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        res.json({ ok: true, entry: r.entry });
+    } catch (error: any) {
+        console.error('[Spine] knowledge base retire failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not retire the entry'] });
+    }
+});
+
+spineRouter.post('/kb/:id/unreview', async (req, res) => {
+    try {
+        const { setStatus } = await import('./knowledge-base');
+        const r = await setStatus(String(req.params.id), 'unreviewed');
+        if (!r.ok) return res.status(r.status).json({ ok: false, errors: r.errors });
+        res.json({ ok: true, entry: r.entry });
+    } catch (error: any) {
+        console.error('[Spine] knowledge base unreview failed:', error?.message ?? error);
+        res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not change the entry'] });
     }
 });
