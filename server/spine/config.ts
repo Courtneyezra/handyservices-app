@@ -16,7 +16,17 @@ import { randomUUID } from 'crypto';
 
 export const SPINE_SETTING_KEY = 'spine';
 
-export type SpineAgentKey = 'scoper' | 'quote_clerk' | 'recovery' | 'verifier' | 'triage';
+/**
+ * The per-agent kill switches, `spine.agents.<key>.enabled`, shown on /admin/staff.
+ *
+ * 0.2 (8 Sep 2026) — item G. Until this date these switches named agents and stopped nothing:
+ * `isSpineEnabled('scoper')` was called from ONE place, scoper-adapter.ts, which the live pass does
+ * not go through. A control that does not control is worse than no control, so each key is now
+ * wired to the thing it names (server/spine/index.ts for the lane agents and the triage model,
+ * server/spine/sampler.ts for the verifier), and `contractor_liaison` was added because the
+ * contractor pack is a lane agent like the others and had no switch at all.
+ */
+export type SpineAgentKey = 'scoper' | 'quote_clerk' | 'recovery' | 'contractor_liaison' | 'verifier' | 'triage';
 
 export interface SpineConfig {
     /** Master switch. Off = nothing in server/spine runs against customers. */
@@ -75,6 +85,13 @@ export interface SpineConfig {
      * the rollback (docs/comms-build/CUTOVER.md §4), which does NOT touch `mode`.
      */
     desk: DeskBehaviour;
+    /**
+     * 0.2: the sender registry's switches, keyed by `SenderEntry.switchKey`
+     * (server/sender-registry.ts). Absent = ON — this is the ONE spine setting that fails open,
+     * because it gates a message someone already composed rather than an agent's decision to run,
+     * and a transactional sender never appears here at all. Only `{ enabled: false }` stops a send.
+     */
+    senders: Partial<Record<string, { enabled: boolean }>>;
 }
 
 /**
@@ -143,6 +160,8 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     video: { enabled: false, images: false, maxPerRun: 6 },
     // 0.5: today's desk. Nothing changes for a customer until someone writes 'v4' into the row.
     desk: 'v3',
+    // 0.2: no row = every registered sender is on, which is today's behaviour for all of them.
+    senders: {},
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -157,6 +176,7 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         // 0.5: the vocabulary is enforced on READ as well as on write. A row that carries no
         // `desk`, or one a script put a typo in, is today's desk — never an unknown behaviour.
         desk: isDeskBehaviour(patch?.desk) ? patch.desk : DEFAULT_SPINE_CONFIG.desk,
+        senders: { ...(patch?.senders ?? {}) },
     };
 }
 
@@ -228,7 +248,11 @@ export async function isSpineEnabled(agent?: SpineAgentKey): Promise<boolean> {
 /** Flip or tune the spine. Every change is a system event, so /admin/activity shows who flipped what. */
 export async function setSpineConfig(patch: Partial<SpineConfig>, by = 'system'): Promise<SpineConfig> {
     const current = await getSpineConfig();
-    const next: SpineConfig = mergeOverDefaults({ ...current, ...patch, agents: { ...current.agents, ...(patch.agents ?? {}) } });
+    const next: SpineConfig = mergeOverDefaults({
+        ...current, ...patch,
+        agents: { ...current.agents, ...(patch.agents ?? {}) },
+        senders: { ...current.senders, ...(patch.senders ?? {}) },
+    });
     if (localConfig) {
         localConfig = next;
         return structuredClone(next);
@@ -248,4 +272,28 @@ export async function setSpineConfig(patch: Partial<SpineConfig>, by = 'system')
 /** Per-agent switch (Phase 2 / C name). Same semantics as isSpineEnabled(agent). */
 export async function isSpineAgentEnabled(agent: SpineAgentKey): Promise<boolean> {
     return isSpineEnabled(agent);
+}
+
+/**
+ * 0.2 item G: the per-agent switch ALONE — `spine.agents.<key>.enabled`, and nothing else.
+ *
+ * `isSpineEnabled(agent)` answers a different question: "is the spine on AND this agent not
+ * switched off?". That is the right question for a caller deciding whether to START a pass, and
+ * the wrong one for a pass that is ALREADY running: `runOnce` is called directly by the shadow
+ * runner and by the sandbox (server/spine/sandbox-routes.ts), both of which run with the master
+ * switch off by design. Reading the master switch inside the pass would have silenced every agent
+ * in the sandbox the moment the spine was not live, which is a regression dressed as a control.
+ *
+ * So: only the named row is read. Absent means ON, which is what `agents: {}` has always meant,
+ * and an unreadable settings row means ON too — the caller that started this pass has already
+ * asked the fail-closed question.
+ */
+export async function isAgentSwitchOn(agent: SpineAgentKey): Promise<boolean> {
+    try {
+        const cfg = await getSpineConfig();
+        return cfg.agents?.[agent]?.enabled !== false;
+    } catch (error: any) {
+        console.warn(`[Spine] Could not read the ${agent} switch (treating it as on):`, error?.message ?? error);
+        return true;
+    }
 }

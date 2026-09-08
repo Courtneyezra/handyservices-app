@@ -118,6 +118,56 @@ export function clampTriageModelOutput(raw: unknown): unknown {
     return o;
 }
 
+/**
+ * 0.2 (8 Sep 2026): how far back the GAS lexicon reads.
+ *
+ * Every other rule here reads the newest inbound alone, which is right for them: "call me" or
+ * "how much" is a thing the customer is asking NOW. Gas is not like that. It is a property of the
+ * JOB, stated once, and it does not stop being true because the next message is "so can you come
+ * Tuesday?". The trace found exactly that hole (s30 finding F5): a thread whose first message says
+ * boiler and whose third says Tuesday reached no exception, because only the third was read.
+ *
+ * Three customer texts, plus every media description on the file — a photo of a flue is the same
+ * fact, and with `spine.video` on the describer is the only thing that can see it. Deliberately
+ * NOT applied to any other lexicon: widening the money lexicon over three messages would hold a
+ * thread for Ben long after the money question was answered.
+ */
+export const REGULATED_LOOKBACK = 3;
+
+/** The last `n` customer TEXTS on the case file, newest first. A call transcript is not a text. */
+export function recentCustomerTexts(cf: CaseFile, n: number = REGULATED_LOOKBACK): string[] {
+    const out: string[] = [];
+    for (let i = cf.timeline.length - 1; i >= 0 && out.length < n; i--) {
+        const t = cf.timeline[i];
+        if (t.kind !== 'message_in') continue;
+        const body = (t.body ?? '').trim();
+        if (body) out.push(body);
+    }
+    return out;
+}
+
+/** Every media description on the file, newest first as the case file holds them. */
+export function mediaDescriptions(cf: CaseFile): string[] {
+    return (cf.media ?? []).map((m) => (m.description ?? '').trim()).filter(Boolean);
+}
+
+/**
+ * Does the gas lexicon fire anywhere the desk can see it? Returns WHERE, so the reason line on the
+ * run says which message or photo did it rather than just "gas lexicon".
+ */
+export function regulatedHit(cf: CaseFile): { hit: boolean; where: string | null } {
+    const texts = recentCustomerTexts(cf);
+    for (let i = 0; i < texts.length; i++) {
+        if (RE_REGULATED.test(texts[i])) {
+            return { hit: true, where: i === 0 ? 'the newest customer message' : `a customer message ${i} turn${i === 1 ? '' : 's'} back` };
+        }
+    }
+    for (const d of mediaDescriptions(cf)) {
+        if (RE_REGULATED.test(d)) return { hit: true, where: 'a photo or video description' };
+    }
+    return { hit: false, where: null };
+}
+
 export function lastInbound(cf: CaseFile): TimelineItem | null {
     for (let i = cf.timeline.length - 1; i >= 0; i--) {
         const t = cf.timeline[i];
@@ -186,7 +236,14 @@ export function triageRules(cf: CaseFile): TriageResult {
             if (afterBooking(cf)) { exceptions.push('date_question'); reasons.push('date lexicon on a booked job (PRD §13 open: still Ben\'s)'); }
             else reasons.push('date lexicon: a signal for the Scoper, not Ben\'s (PRD §7)');
         }
-        if (RE_REGULATED.test(text)) { exceptions.push('regulated_trade'); reasons.push('gas lexicon (regulated_trade): the one work we do not do'); }
+    }
+    // 0.2: the gas lexicon reads the last three customer texts and every media description, not
+    // just the newest message — and it sits OUTSIDE the `text &&` guard above, because a photo of a
+    // flue with no words at all is the same fact. Still behind the T21 rule: a message Ben has
+    // since answered on the phone is not re-read.
+    if (!answeredByCall) {
+        const regulated = regulatedHit(cf);
+        if (regulated.hit) { exceptions.push('regulated_trade'); reasons.push(`gas lexicon (regulated_trade) on ${regulated.where}: the one work we do not do`); }
     }
     if (exceptions.length) {
         return { ...base, intent: 'unknown', lane: 'ben', exceptions };
@@ -370,8 +427,21 @@ export async function triage(cf: CaseFile, deps: TriageDeps = {}): Promise<Triag
     let error: string | null = null;
     const model = deps.model ?? (await (async () => { try { return (await import('./config')).DEFAULT_SPINE_CONFIG.triageModel; } catch { return 'claude-haiku-4-5'; } })());
 
+    // 0.2 item G: `spine.agents.triage.enabled = false` stops the MODEL, not triage. The
+    // deterministic rules above have already run and they are what raise every exception; the pass
+    // then proceeds on those alone, which is exactly what happens today when the model call fails.
+    // An unreadable switch is treated as ON, like a model that simply answered.
+    let modelAllowed = true;
+    if (!deps.llm) {
+        try {
+            const { isAgentSwitchOn } = await import('./config');
+            modelAllowed = await isAgentSwitchOn('triage');
+        } catch { modelAllowed = true; }
+        if (!modelAllowed) rules.reasons.push('the triage model is switched off (spine.agents.triage.enabled = false): rules only');
+    }
+
     // Rules found an exception or a drop: Ben (or nobody) gets it before any model spends a token.
-    if (rules.lane !== 'dropped' && rules.exceptions.length === 0 && rules.audience !== 'internal') {
+    if (modelAllowed && rules.lane !== 'dropped' && rules.exceptions.length === 0 && rules.audience !== 'internal') {
         try {
             const llm = deps.llm ?? defaultLlm;
             const out = await llm({ system: TRIAGE_SYSTEM, user: JSON.stringify(caseFileForModel(cf)), model });

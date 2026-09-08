@@ -33,6 +33,7 @@ import { notifyOutboundSendFailure } from './pushover';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
 import { logSystemEvent } from './system-events';
 import { type Approver, isApprover } from './approver';
+import { registryEntryFor, isSenderEnabled } from './sender-registry';
 import { ledgerMessageOut, ledgerDraftSent } from './ledger';
 import { noteHumanSend } from './handover';
 
@@ -84,7 +85,8 @@ export interface SendCustomerMessageResult {
     /** True when WhatsApp was tried, failed, and SMS carried it instead. */
     fellBack: boolean;
     /** Why WhatsApp was skipped or abandoned, in machine-readable form. */
-    reason?: 'UK_LANDLINE' | 'NOT_ON_WHATSAPP' | 'SENDER_MISCONFIGURED' | 'WINDOW_SHUT' | 'EXPLICIT_CHANNEL' | 'OPTED_OUT';
+    reason?: 'UK_LANDLINE' | 'NOT_ON_WHATSAPP' | 'SENDER_MISCONFIGURED' | 'WINDOW_SHUT' | 'EXPLICIT_CHANNEL' | 'OPTED_OUT'
+        | 'NOT_REGISTERED' | 'SWITCHED_OFF';
     error?: string;
     /** Present only on an OPTED_OUT refusal: when they opted out and how far it reaches. */
     optedOut?: { scope: 'marketing' | 'all'; at: string; source: string };
@@ -123,6 +125,15 @@ export interface SendCustomerMessageInput {
     contentVariables?: Record<string, string>;
     /** WhatsApp transport: the Twilio sender, or an onboarded coexistence number. */
     via?: 'twilio' | 'meta';
+    /**
+     * 0.2: a Meta-transport template, by NAME. The coexistence sender has its own template
+     * plumbing (Graph API `type: 'template'`), which is why the composer used to call the wire
+     * function directly and skip this gate entirely. It does not any more: the names travel here.
+     * A named template has no SMS equivalent, so those callers pass `allowSmsFallback: false`.
+     */
+    templateName?: string;
+    templateLanguage?: string;
+    templateComponents?: any[];
     mediaUrl?: string;
     mediaType?: string;
     /**
@@ -137,9 +148,13 @@ export interface SendCustomerMessageInput {
     /**
      * Why this is being sent, which decides whether an opt-out blocks it.
      *
-     * OMITTED MEANS 'marketing' — the suppressible kind. That default is the whole design: a new
-     * call site that never thought about opt-outs fails closed rather than quietly messaging
-     * someone who asked us to stop.
+     * OMITTED MEANS the sender's REGISTERED purpose (server/sender-registry.ts), and 'marketing'
+     * when it has none. The marketing default is still the whole design for an unregistered-purpose
+     * call site: one that never thought about opt-outs fails closed rather than quietly messaging
+     * someone who asked us to stop. What the registry adds is that a sender whose purpose is known
+     * from its NAME — the booking confirmation, a job-lifecycle notification — no longer has to
+     * remember to say so. Before 0.2 the booking confirmation did not, and a paying customer who
+     * had once written STOP never received it (S27 §3.1 A6).
      *
      * 'service_reply' is the deliberate exception and is meant to be hard to trigger by accident.
      * It has to be typed here, it is greppable, it NEVER gets past a 'do not contact' suppression,
@@ -200,6 +215,34 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
         return { ok: false, error: 'MISSING_RUN_ID_OR_APPROVER', attempts: [], fellBack: false };
     }
 
+    // Rule -0.5 (0.2, 8 Sep 2026): is this sender in the registry, and is it switched on?
+    //
+    // `isApprover` above says the NAME is a real one. This says the name is a registered SENDER:
+    // what it is for, and whether anyone has turned it off. The two questions are separate because
+    // the enum is a type and the registry is a policy — and it is the policy that has to be
+    // impossible to skip. Refused, never thrown, like every other rule here.
+    const sender = registryEntryFor(approver);
+    if (!sender) {
+        const summary = `Send refused: ${approver} is not in the sender registry (${input.context ?? 'no context'})`;
+        console.error(`[Outbound] REFUSED send to ${input.to} — ${summary}`);
+        void logSystemEvent({
+            kind: 'send_refused', phone: e164Quietly(input.to), summary,
+            detail: { approver, runId, context: input.context ?? null, purpose: input.purpose ?? null },
+            source: 'outbound',
+        });
+        return { ok: false, error: 'SENDER_NOT_REGISTERED', reason: 'NOT_REGISTERED', attempts: [], fellBack: false };
+    }
+    if (!(await isSenderEnabled(sender.switchKey))) {
+        const summary = `Send refused: ${approver} is switched off (spine.senders.${sender.switchKey}.enabled = false)`;
+        console.warn(`[Outbound] ${summary} — ${input.context ?? 'no context'}`);
+        void logSystemEvent({
+            kind: 'send_refused', phone: e164Quietly(input.to), summary,
+            detail: { approver, runId, switchKey: sender.switchKey, context: input.context ?? null },
+            source: 'outbound',
+        });
+        return { ok: false, error: 'SENDER_SWITCHED_OFF', reason: 'SWITCHED_OFF', attempts: [], fellBack: false };
+    }
+
     let e164: string;
     try {
         e164 = toE164Recipient(input.to);
@@ -215,7 +258,7 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
     //
     // A failure to READ the list is not a licence to send. If the query throws we refuse, because
     // "the database was slow" is not a defence for a message someone asked not to receive.
-    const purpose: OutboundPurpose = input.purpose ?? 'marketing';
+    const purpose: OutboundPurpose = input.purpose ?? sender.purpose ?? 'marketing';
     let suppression;
     try {
         suppression = await blockedByOptOut(e164, purpose);
@@ -273,6 +316,9 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
         const result: any = await sendWhatsAppMessage(input.to, input.body, {
             contentSid: input.contentSid,
             contentVariables: input.contentVariables,
+            templateName: input.templateName,
+            templateLanguage: input.templateLanguage,
+            templateComponents: input.templateComponents,
             via: input.via,
             mediaUrl: input.mediaUrl,
             mediaType: input.mediaType,

@@ -463,7 +463,7 @@ export function startCommsInboundSweep(): void {
         // Phase 1 (2 Sep 2026): the rules layer's sweeps — silence-breaker (10 min, 24/7), flag
         // expiry, draft expiry. Self-throttled to one pass a minute; every send goes through
         // server/rules-layer.ts with a rules.* approver and a run id. "Never nothing."
-        import('./silence-breaker').then((m) => m.runSilenceBreakerTick()).catch((e) => console.error('[CommsSweep] silence-breaker failed:', e?.message ?? e)),
+        import('./silence-breaker').then((m) => m.runSilenceClock()).catch((e) => console.error('[CommsSweep] silence-breaker failed:', e?.message ?? e)),
     ]);
     const fastRegistered = gateCustomerLoop('comms-sweep: fast tick (15s: due triage, morning release, held acks, callback fallback, promise/SLA/call-task sweeps, silence-breaker + expiry)', () => {
         setInterval(fast, TICK_EVERY_MS).unref?.();

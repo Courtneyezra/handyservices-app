@@ -225,7 +225,12 @@ describe('(b) approveAndSendDraft is imported only by the allowed callers', () =
  * Two layers. The wrapper layer is the module-level send functions; the raw layer is the actual
  * HTTP/SDK call to Twilio or Meta. Both must funnel through the three choke points.
  */
-const SEND_ALLOWED_CALLERS = ['server/outbound.ts', 'server/whatsapp-api.ts', 'server/sms.ts'];
+//
+// 0.2 (8 Sep 2026): `server/whatsapp-api.ts` came OFF this list. Its composer route used to call
+// sendWhatsAppMessage directly for the Meta coexistence transport and for a named template — the
+// one route to the wire that carried no approver, no run id and no ledger row (S27 §3.4). It goes
+// through sendCustomerMessage now, so the wire functions are reachable from the gate alone.
+const SEND_ALLOWED_CALLERS = ['server/outbound.ts', 'server/sms.ts'];
 
 const WRAPPERS: Array<{ name: string; definedIn: string }> = [
     { name: 'sendWhatsAppMessage', definedIn: 'server/meta-whatsapp.ts' },

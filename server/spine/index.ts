@@ -22,6 +22,7 @@ import { runRouteAChain, surveyOfferFor, artifactReadiness, type RouteAOutcome }
 import { runEmitter, leanTranscriptEvent, wouldHaveHappened, type RunEmitter } from './run-events';
 import { collectRead, runSources, type RunRead } from './run-sources';
 import { isSandboxPhone, newSandboxRouteARecord, sandboxRouteADeps } from './sandbox';
+import { isAgentSwitchOn, type SpineAgentKey } from './config';
 import type { AgentLoopUsage, AgentName, CaseFile, GuardVerdict, Lane, Proposal, SpineAgent, SpineApi, SpineRun, TriageResult, Trigger } from './types';
 
 /** P7: how long the spine waits for something the customer said was coming before it looks again. */
@@ -50,6 +51,22 @@ export function getAgent(name: AgentName): SpineAgent | undefined {
 
 export function registeredAgents(): AgentName[] {
     return Array.from(registry.keys());
+}
+
+/**
+ * 0.2 item G: which per-agent kill switch (`spine.agents.<key>.enabled`, /admin/staff) governs
+ * each agent. `rules` has none — the rules lane runs no model and its sends have their own switch
+ * in the sender registry (`rules.*`). An agent with no key here cannot be switched off, which is
+ * the honest reading of "there is no switch for it".
+ */
+export function switchKeyForAgent(agent: AgentName): SpineAgentKey | null {
+    switch (agent) {
+        case 'scoper': return 'scoper';
+        case 'quote_clerk': return 'quote_clerk';
+        case 'recovery': return 'recovery';
+        case 'contractor_liaison': return 'contractor_liaison';
+        default: return null;
+    }
 }
 
 /** Which agent a lane runs. Ben and dropped lanes run none. */
@@ -278,7 +295,19 @@ async function runOnceBody(
     // for its artifact only (see above). Costs one read, and only on a lane that runs no agent.
     const benLaneClerk = !laneAgentName && triage.lane === 'ben' ? await benLaneClerkDecisionFor(caseFile, triage) : null;
     const agentName: AgentName | null = laneAgentName ?? (benLaneClerk?.run ? 'quote_clerk' : null);
-    const agent = agentName ? agents[agentName] : undefined;
+    let agent = agentName ? agents[agentName] : undefined;
+    // 0.2 item G: the per-agent switch actually stops the agent now. Off means the pass still runs
+    // — the case file is built, triage writes its tags, the run is recorded — and simply proposes
+    // nothing, which decide() reads as `none`. That is the safe direction: a switched-off agent
+    // says nothing to a customer, it does not fall through to somebody else's words.
+    let agentSwitchedOff: string | null = null;
+    if (agent && agentName) {
+        const switchKey = switchKeyForAgent(agentName);
+        if (switchKey && !(await isAgentSwitchOn(switchKey))) {
+            agentSwitchedOff = `agent ${agentName} is switched off (spine.agents.${switchKey}.enabled = false)`;
+            agent = undefined;
+        }
+    }
     // The run is still recorded as the lane's own (`triage` on Ben's lane): the exit stamps the
     // flag row's source with it, and that row must not move.
     const recordedAgent: AgentName = laneAgentName ?? 'triage';
@@ -302,7 +331,10 @@ async function runOnceBody(
     // (server/spine/run-sources.ts) beside the ids the proposal cites, so a later reader can check
     // the reply against its sources. Filled from the same onEvent listener the live feed uses.
     const reads: RunRead[] = [];
-    if (agentName && !agent) {
+    if (agentSwitchedOff) {
+        console.warn(`[Spine] ${agentSwitchedOff}; run ${runId} proposes nothing`);
+        ev.stage('note', agentSwitchedOff);
+    } else if (agentName && !agent) {
         error = `no agent registered for lane ${triage.lane} (${agentName})${benLaneClerk?.run ? ' — the Ben-lane clerk could not prepare' : ''}`;
         console.warn(`[Spine] ${error}; run ${runId} decides on triage alone`);
     } else if (agent) {

@@ -793,6 +793,12 @@ We're matching your job to the best contractor in your area. You'll receive a Wh
         await conversationEngine.sendMessage(data.customerPhone, message, {
             approver: 'system.notification',
             runId: newRunId('sys'),
+            // 0.2 (8 Sep 2026): the transactional purpose, stated. This message is the receipt for
+            // money the customer has already paid — a deposit, an accepted quote, a cash booking —
+            // and until this line it passed none, so the gate read it as marketing and a plain STOP
+            // recorded any time in the past silently swallowed a paying customer's confirmation
+            // (S27 §3.1 A6, §7.3). A 'do not contact' suppression still blocks it, as it must.
+            purpose: 'service_reply',
         });
 
         console.log(`[WhatsApp] Booking confirmation sent to ${data.customerPhone}`);

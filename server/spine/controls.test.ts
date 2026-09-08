@@ -133,3 +133,33 @@ describe('T7: video.maxPerRun and the photos switch', () => {
         expect(last['video.maxPerRun']).toMatchObject({ at: '2026-09-07T12:00:00.000Z', by: 'human:ben' });
     });
 });
+
+// ---------------------------------------------------------------- 0.2: the sender switches
+
+describe('the sender switches (0.2)', () => {
+    it('accepts a key the registry actually issued', () => {
+        const v = validateSpineConfigPatch({ senders: { lead_automations: { enabled: false } } });
+        expect(v.ok).toBe(true);
+        expect(v.ok && v.patch.senders).toEqual({ lead_automations: { enabled: false } });
+        expect(v.ok && v.changes).toContain('senders.lead_automations → off');
+    });
+
+    it('refuses a key nothing issued — a switch that turns nothing off is the bug this item ends', () => {
+        const v = validateSpineConfigPatch({ senders: { made_up: { enabled: false } } });
+        expect(v.ok).toBe(false);
+        expect(!v.ok && v.errors.join(' ')).toMatch(/unknown sender switch made_up/);
+    });
+
+    it('a transactional sender cannot be named here, because it was never given a key', () => {
+        // system.notification — the booking confirmation, the job notifications, the recovery SMS.
+        for (const guess of ['system.notification', 'notification', 'booking_confirmation']) {
+            const v = validateSpineConfigPatch({ senders: { [guess]: { enabled: false } } });
+            expect(v.ok, guess).toBe(false);
+        }
+    });
+
+    it('refuses a non-boolean, like every other switch', () => {
+        const v = validateSpineConfigPatch({ senders: { lead_automations: { enabled: 'no' } } });
+        expect(v.ok).toBe(false);
+    });
+});

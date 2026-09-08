@@ -239,7 +239,7 @@ function spineSwitches(cfg: SpineConfig) {
         enabled: cfg.enabled, shadow: cfg.shadow, explicitMode: cfg.mode ?? null,
         // 0.5: which desk behaviour is live ('v3' | 'v4'), separate from the mode.
         desk: cfg.desk,
-        agents: cfg.agents, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
+        agents: cfg.agents, senders: cfg.senders, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
         sweepLimit: cfg.sweepLimit, debounceMinutes: cfg.debounceMinutes, triageModel: cfg.triageModel, city: cfg.city,
     };
 }

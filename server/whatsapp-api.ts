@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { conversationEngine } from "./conversation-engine";
-import { sendWhatsAppMessage } from "./meta-whatsapp";
 import { sendCustomerMessage, NOT_A_WHATSAPP_RECIPIENT_CODES } from "./outbound";
 import { newRunId, humanApprover } from "./approver";
 import { notifyIncomingSms, notifyIncomingWhatsApp, notifyOutboundSendFailure } from "./pushover";
@@ -86,20 +85,35 @@ whatsappRouter.post('/send', requireAdmin, async (req, res) => {
             });
         }
 
-        // The Meta coexistence transport has its own template plumbing and no SMS equivalent, so it
-        // keeps the direct path; everything else goes through the router.
+        // The Meta coexistence transport and the named-template send used to call the wire function
+        // directly (S27 §3.4): no approver, no run id, no ledger row, and the release from Ben
+        // hand-rolled below it. It was the one route past the gate, and it made the page's own
+        // sentence — "cannot send without a named approver and a run id" — false.
+        //
+        // 0.2 (8 Sep 2026): the gate carries the Meta template names now, so this goes through it
+        // like everything else. Behaviour is deliberately unchanged: the opt-out check above still
+        // runs first, `allowSmsFallback: false` keeps the no-SMS-equivalent rule the old comment
+        // stated, and the release from Ben happens inside the gate (releaseBenAfterHumanSend →
+        // noteHumanSend) because the approver is a person.
         if (via === 'meta' || templateName) {
-            const result = await sendWhatsAppMessage(to, body, {
+            const result = await sendCustomerMessage({
+                approver: humanApprover((req as any).user?.email || (req as any).user?.id || 'admin'), runId: newRunId('sys'),
+                to,
+                body,
                 templateName,
                 templateLanguage,
                 templateComponents,
                 via: via === 'meta' ? 'meta' : 'twilio',
+                allowSmsFallback: false,
+                context: via === 'meta' ? 'composer:meta' : 'composer:template',
+                purpose: 'service_reply',   // a human's own typed reply, see the gate above
             });
-            // T17: this path bypasses the send gate, so the way back from Ben is taken here. A
-            // person typed this at the composer (requireAdmin above): the thread is answered.
-            const { releaseFromBen } = await import('./handover');
-            await releaseFromBen({ phone: to }, { by: humanApprover((req as any).user?.email || (req as any).user?.id || 'admin'), reason: 'human reply sent (composer, Meta path)' });
-            return res.json({ success: true, messageId: result.messages?.[0]?.id, channel: 'whatsapp' });
+            if (!result.ok) {
+                return res.status(result.reason === 'OPTED_OUT' ? 409 : 500).json({
+                    error: result.error || result.reason || 'Failed to send message', attempts: result.attempts,
+                });
+            }
+            return res.json({ success: true, messageId: result.sid, channel: result.channel ?? 'whatsapp' });
         }
 
         const result = await sendCustomerMessage({
@@ -303,12 +317,17 @@ async function recoverAsyncWhatsAppFailureBySms(args: {
             }
         }
 
-        // No `purpose` on purpose: it defaults to 'marketing', so opt-outs fail closed.
+        // 'marketing' EXPLICITLY (0.2, 8 Sep 2026). This re-sends whatever words Twilio just failed
+        // to deliver, and those words may have been a marketing send — so the sender registry's
+        // transactional purpose for `system.notification` would be the wrong default HERE, even
+        // though it is the right one for the booking confirmation and the lifecycle notifications
+        // that share the name. Saying it out loud keeps today's fail-closed behaviour exactly.
         const result = await sendCustomerMessage({
             approver: 'system.notification', runId: newRunId('sys'),
             to,
             body,
             channel: 'sms',
+            purpose: 'marketing',
             context: `async-recovery:${errorCode}`,
         });
         if (!result.ok) {
