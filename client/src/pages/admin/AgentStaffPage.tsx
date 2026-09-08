@@ -49,11 +49,26 @@ export interface SpineSwitches {
     autonomy: { enabled: boolean };
     sampler: { enabled: boolean; rate: number; min: number; max: number };
     video: { enabled: boolean; images: boolean; maxPerRun: number };
+    /** 0.5: which desk behaviour is live. Absent on a server older than this build → read as v3. */
+    desk?: DeskBehaviour;
     sweepLimit: number; debounceMinutes: number; triageModel: string; city: string;
 }
 export interface LegacySwitches { enabled: boolean; onInbound: boolean; autosend: boolean; firstContactAck: boolean; quotePrep: boolean }
 /** T7: what the media/run stepper may send. Mirrors VIDEO_MAX_PER_RUN in server/spine/config.ts, which the route enforces regardless. */
 export const VIDEO_MAX_PER_RUN = { min: 1, max: 12 } as const;
+
+/**
+ * 0.5 "The switch": which desk behaviour is live. Mirrors DeskBehaviour / DEFAULT_SPINE_CONFIG.desk
+ * in server/spine/config.ts, which the route enforces regardless — the page can only ever send one
+ * of these two, and a server that does not report the key is read as the code default.
+ */
+export type DeskBehaviour = 'v3' | 'v4';
+export const DESK_CODE_DEFAULT: DeskBehaviour = 'v3';
+/** The plain wording on the strip, the captain's own terms (build plan v2, 0.5). */
+export const DESK_WORDING: Record<DeskBehaviour, string> = {
+    v3: 'v3, replies wait for Ben, today',
+    v4: 'v4, replies send by default',
+};
 
 /** Phase 0 heartbeat, same shape as GET /api/health/comms-worker. Every field optional: an older
  *  server answers without it and the strip simply says so. */
@@ -599,6 +614,8 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
         }
     };
 
+    // 0.5: a server older than this build does not report `desk`; that reads as the code default.
+    const desk: DeskBehaviour = spine.desk ?? DESK_CODE_DEFAULT;
     const modeTone = spine.mode === 'live' ? 'bg-emerald-600 text-white' : spine.mode === 'shadow' ? 'bg-amber-500 text-white' : 'bg-slate-700 text-white';
     const modeText = spine.mode === 'live' ? 'LIVE — the spine answers customers; legacy off'
         : spine.mode === 'shadow' ? 'SHADOW — the spine runs dry and records; legacy still drafts'
@@ -717,6 +734,20 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
                 </div>
             )}
 
+            {/*
+              * 0.5 "The switch": which desk behaviour is live, in the mode row's own idiom — the
+              * chip, the plain wording, the code default and who last changed it. Owner-only, like
+              * the mode, because it decides who answers real customers. It is NOT the mode: the
+              * rollback (CUTOVER §4) puts this back to v3 and leaves the pipeline running.
+              */}
+            <div className="flex flex-wrap items-center gap-2" data-testid="desk-behaviour">
+                {toggle('desk', `desk ${desk}`, desk === 'v4',
+                    `spine.desk — which desk behaviour is live.\nv3: ${DESK_WORDING.v3}.\nv4: ${DESK_WORDING.v4}.\nCode default: ${DESK_CODE_DEFAULT}. Nothing reads it yet — the items that gate behaviour on it ship in their own PRs (build plan v2, weeks 2–4).`,
+                    () => flipSpine('desk', { desk: desk === 'v4' ? 'v3' : 'v4' }), { ownerOnly: true })}
+                <span className="text-xs text-slate-600">Desk behaviour: {DESK_WORDING[desk]}</span>
+                <span className="text-[10px] text-slate-400">code default: {DESK_CODE_DEFAULT} · last: {whoWhen(last.desk)}</span>
+            </div>
+
             <div className="flex flex-wrap gap-1.5">
                 {info('enabled ' + (spine.enabled ? 'on' : 'off'), 'spine.enabled — master; follows the mode')}
                 {info('shadow ' + (spine.shadow ? 'on' : 'off'), 'spine.shadow — follows the mode')}
@@ -737,7 +768,7 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
                 <span className="text-[10px] text-slate-400">debounce {spine.debounceMinutes} min · sweep {spine.sweepLimit}/tick · triage {spine.triageModel} · {spine.city}</span>
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-400">
-                {(['asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun'] as const).map((k) => <span key={k}>{k}: {whoWhen(last[k])}</span>)}
+                {(['desk', 'asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun'] as const).map((k) => <span key={k}>{k}: {whoWhen(last[k])}</span>)}
             </div>
 
             {legacy && (
@@ -766,7 +797,7 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
                 </div>
             )}
             {err && <p className="text-xs font-semibold text-red-700" data-testid="switch-error">{err}</p>}
-            {!isOwner && <p className="text-[10px] text-slate-400">🔒 mode, autonomy and legacy autosend are owner-only; asks, sampler, video, photos, media/run and per-agent switches are yours.</p>}
+            {!isOwner && <p className="text-[10px] text-slate-400">🔒 mode, desk behaviour, autonomy and legacy autosend are owner-only; asks, sampler, video, photos, media/run and per-agent switches are yours.</p>}
         </div>
     );
 }

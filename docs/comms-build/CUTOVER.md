@@ -30,6 +30,8 @@ mandatory shadow week").
   "asks": { "enabled": false },      // rules-layer ask_media / ask_postcode from the exit (Phase 3 / C)
   "autonomy": { "enabled": false },  // promotion / demotion job (Phase 3 / A)
   "sampler": { "enabled": false },   // 10% next-morning sample review
+  "desk": "v3",                      // which desk behaviour is live: v3 = replies wait for Ben (today),
+                                     // v4 = replies send by default. Rollback is §4a. (plan v2, 0.5)
   "sweepLimit": 3, "debounceMinutes": 10, "triageModel": "claude-haiku-4-5", "city": "nottingham"
 }
 ```
@@ -69,6 +71,35 @@ UPDATE app_settings SET value = value || '{"enabled": true, "shadow": true}'::js
 
 ## 4. Rollback (one command, any time)
 
+Two different hammers. Take the smaller one first.
+
+### 4a. Desk behaviour back to v3 (the reply-by-default rollback)
+
+`spine.desk` (build plan v2, item 0.5) says which desk behaviour is live: `v3` is today's desk,
+where every Scoper reply lands as a pending draft and waits for Ben; `v4` is reply-by-default.
+Put it back to `v3` and the desk stops replying on its own. **The pipeline keeps running**: the
+holding lines, the rules-layer asks, the flags to Ben, the clerk and the price queue all carry on
+exactly as they do now, because `spine.mode` is untouched.
+
+On `/admin/staff`, the **desk** chip in the spine switch strip (owner-only, logged like every other
+flip). Or:
+
+```sql
+UPDATE app_settings SET value = value || '{"desk": "v3"}'::jsonb, updated_at = now() WHERE key = 'spine';
+```
+
+Read it back with `npx tsx scripts/_spine-mode.ts --status` ("desk behaviour: v3 …"). Anything in
+the row that is not `v3` or `v4` reads as `v3`, so a typo fails to today's behaviour, not to silence.
+
+**What happens to drafts already pending, in EITHER direction.** Nothing. They stay in Ben's queue
+exactly where they are: nothing is auto-sent by the flip, and nothing is auto-cancelled. A flip
+changes what the desk does on the NEXT pass of a thread, never what is already written. A thread
+mid-conversation gets the new behaviour on the customer's next message; a draft written under the
+old behaviour is still Ben's to approve, edit or reject, and its due time does not move. Clear the
+queue by hand before flipping to `v4` if you would rather not answer a customer twice.
+
+### 4b. The whole spine off (the bigger hammer)
+
 ```sql
 UPDATE app_settings SET value = value || '{"enabled": false}'::jsonb, updated_at = now() WHERE key = 'spine';
 ```
@@ -77,6 +108,10 @@ Effect within one tick (≤ 15 s): no spine runs, no exits, no asks, no autonomy
 open flags stay where they are for Ben; nothing is deleted. Re-enable the legacy on-inbound path
 (`comms_agent.onInbound = true`) if it was turned off in step 3.3. Demote a single intent instead of
 the whole spine with `INSERT INTO pack_intent_tiers … tier = 'DRAFT'` (Phase 3 / A writes the event).
+
+Use this one when the pipeline itself is misbehaving. If the only problem is that the desk is
+replying when it should be holding, §4a is the smaller and more reversible act: `mode: 'off'` also
+stops the holding lines and the asks, so customers who would have had a machine receipt get nothing.
 
 ## 5. What to watch (first hour, then daily)
 

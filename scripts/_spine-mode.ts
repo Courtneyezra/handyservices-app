@@ -10,10 +10,14 @@
  * Writes app_settings.spine via setSpineMode → setSpineConfig, which logs a config_change
  * system event. Refuses unless the flag is explicit. NODE_ENV=production and a --live flip
  * additionally require --yes, because it changes who answers real customers.
+ *
+ * --status also prints the DESK BEHAVIOUR (`spine.desk`, build plan v2 item 0.5): v3 = replies
+ * wait for Ben (today), v4 = replies send by default. That switch is flipped on /admin/staff or
+ * POST /api/spine/config, never here — this script owns the mode and nothing else.
  */
 import 'dotenv/config';
 import { parseSpineMode, setSpineMode, spineMode } from '../server/spine/switch';
-import { getSpineConfig } from '../server/spine/config';
+import { DEFAULT_SPINE_CONFIG, getSpineConfig } from '../server/spine/config';
 
 async function main() {
     const argv = process.argv.slice(2);
@@ -21,7 +25,10 @@ async function main() {
     if (argv.includes('--status') || !argv.some((a) => parseSpineMode(a))) {
         const cfg = await getSpineConfig();
         console.log(`spine mode: ${await spineMode()}`);
-        console.log(JSON.stringify({ enabled: cfg.enabled, shadow: cfg.shadow, mode: cfg.mode ?? '(derived)', autonomy: cfg.autonomy, sampler: cfg.sampler, agents: cfg.agents }, null, 2));
+        // 0.5: the desk behaviour is a switch of its own — printed here so --status answers both
+        // "is the spine running?" and "which desk is it running?" (build plan v2, 0.5).
+        console.log(`desk behaviour: ${cfg.desk}${cfg.desk === DEFAULT_SPINE_CONFIG.desk ? ' (code default)' : ` (code default ${DEFAULT_SPINE_CONFIG.desk})`} — ${cfg.desk === 'v4' ? 'replies send by default' : 'replies wait for Ben'}`);
+        console.log(JSON.stringify({ enabled: cfg.enabled, shadow: cfg.shadow, mode: cfg.mode ?? '(derived)', desk: cfg.desk, autonomy: cfg.autonomy, sampler: cfg.sampler, agents: cfg.agents }, null, 2));
         if (!argv.includes('--status')) console.log('\nPass --off, --shadow or --live to change it.');
         process.exit(0);
     }

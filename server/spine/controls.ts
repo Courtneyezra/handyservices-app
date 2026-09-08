@@ -6,8 +6,8 @@
  * already write app_settings and log a `config_change` system event); this module is the PURE part:
  *
  *   validateSpineConfigPatch   what the body may contain, typed, unknown fields refused, and which
- *                              rights it needs (owner-only for mode / autonomy; any admin incl. the
- *                              VA for asks / sampler / video / per-agent switches)
+ *                              rights it needs (owner-only for mode / desk / autonomy; any admin incl.
+ *                              the VA for asks / sampler / video / per-agent switches)
  *   validateCommsConfigPatch   same for the two legacy flags (autosend.enabled, onInbound):
  *                              autosend is owner-only and turning it ON needs the typed word
  *   isOwner                    the owner account or role admin — never `va`
@@ -18,7 +18,7 @@
  * who answers real customers, so the body must carry `confirm: 'LIVE'`; the route additionally runs
  * the go-live check before a live flip and refuses on any NO-GO (server/spine/golive-check.ts).
  */
-import { VIDEO_MAX_PER_RUN, type SpineConfig } from './config';
+import { DESK_BEHAVIOURS, isDeskBehaviour, VIDEO_MAX_PER_RUN, type SpineConfig } from './config';
 import { isSpineMode, type SpineMode } from './switch';
 
 export const OWNER_EMAIL = 'ezramarketingltd@gmail.com';
@@ -48,7 +48,7 @@ export interface SpinePatchVerdict {
 }
 export interface PatchRefusal { ok: false; errors: string[] }
 
-const SPINE_KEYS = ['mode', 'agents', 'asks', 'autonomy', 'sampler', 'video', 'confirm'] as const;
+const SPINE_KEYS = ['mode', 'desk', 'agents', 'asks', 'autonomy', 'sampler', 'video', 'confirm'] as const;
 const AGENT_KEYS = ['scoper', 'quote_clerk', 'recovery', 'verifier', 'triage'] as const;
 
 function boolField(obj: unknown, key: string, errors: string[], label: string): boolean | undefined {
@@ -94,6 +94,12 @@ export function validateSpineConfigPatch(body: unknown): SpinePatchVerdict | Pat
             patch.mode = mode; patch.enabled = mode !== 'off'; patch.shadow = mode === 'shadow';
             needs = 'owner'; goesLive = mode === 'live'; changes.push(`mode → ${mode}`);
         }
+    }
+    // 0.5: the v4 switch. Owner-only for the same reason mode and autonomy are — it decides who
+    // answers real customers — and its own key, so flipping the desk back never touches the mode.
+    if (b.desk !== undefined) {
+        if (!isDeskBehaviour(b.desk)) errors.push(`desk must be ${DESK_BEHAVIOURS.map((d) => `'${d}'`).join(' or ')}`);
+        else { patch.desk = b.desk; needs = 'owner'; changes.push(`desk → ${b.desk}`); }
     }
     if (b.autonomy !== undefined) {
         const v = boolField(b.autonomy, 'enabled', errors, 'autonomy');
@@ -196,7 +202,7 @@ export interface ConfigChangeEvent {
 export interface LastChange { at: string; by: string; summary: string }
 
 /** The controls the strip shows, keyed the way the client addresses them. */
-export const SPINE_CONTROLS = ['mode', 'asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun', 'agents.scoper', 'agents.quote_clerk', 'agents.recovery', 'agents.verifier', 'agents.triage'] as const;
+export const SPINE_CONTROLS = ['mode', 'desk', 'asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun', 'agents.scoper', 'agents.quote_clerk', 'agents.recovery', 'agents.verifier', 'agents.triage'] as const;
 export const COMMS_CONTROLS = ['autosend', 'onInbound'] as const;
 export type ControlKey = (typeof SPINE_CONTROLS)[number] | (typeof COMMS_CONTROLS)[number];
 
@@ -214,6 +220,8 @@ function controlValue(control: ControlKey, cfg: unknown): unknown {
             if (isSpineMode(c.mode)) return c.mode;
             return c.shadow ? 'shadow' : 'live';
         }
+        // 0.5: `desk` is a plain value, not an `.enabled` switch (like the two video sub-controls).
+        case 'desk': return get(cfg, 'desk');
         case 'asks': case 'autonomy': case 'sampler': case 'video': return get(cfg, `${control}.enabled`);
         // T7: the two video sub-controls are plain values, not `.enabled` switches.
         case 'video.images': case 'video.maxPerRun': return get(cfg, control);
