@@ -19,6 +19,7 @@ import { getAnthropic } from '../anthropic';
 import type Anthropic from '@anthropic-ai/sdk';
 import { newRunId } from '../approver';
 import { computeCostPence } from '../agent-cost';
+import { boundRunTranscript } from './transcript-store';
 
 export interface AgentTool {
     name: string;
@@ -74,7 +75,7 @@ interface RunPersistence {
     finishAgentRun: (
         id: string,
         meta: { agent: string; conversationId?: string | null; phone?: string | null },
-        patch: { usage?: AgentRunUsage | null; model?: string | null; error?: string | null; durationMs?: number | null; transcriptRef?: string | null; turns?: number | null },
+        patch: { usage?: AgentRunUsage | null; model?: string | null; error?: string | null; durationMs?: number | null; transcriptRef?: string | null; transcript?: unknown; turns?: number | null },
     ) => Promise<{ costPence: number | null }>;
 }
 
@@ -180,9 +181,15 @@ export async function runAgent(opts: {
     const finish = async (error: string | null): Promise<number | null> => {
         const durationMs = Date.now() - startedAt;
         if (!persistence) return computeCostPence(usage, model);
+        // 0.4 (8 Sep 2026): THE TRANSCRIPT IS KEPT. Until now this trail — the whole point of the
+        // harness, per the header above — existed only in memory and on the live feed, so after a
+        // run nobody could see what the model read or was told. It is shaped and bounded by
+        // transcript-store.ts (64 KiB, largest tool results dropped first) and never fails a run.
+        let storedTranscript: unknown;
+        try { storedTranscript = boundRunTranscript(transcript); } catch { storedTranscript = undefined; }
         const { costPence } = await persistence.finishAgentRun(
             runId, { agent: agentName, conversationId: opts.conversationId ?? null, phone: opts.phone ?? null },
-            { usage, model, error, durationMs, transcriptRef: opts.transcriptRef ?? null, turns },
+            { usage, model, error, durationMs, transcriptRef: opts.transcriptRef ?? null, transcript: storedTranscript, turns },
         ).catch(() => ({ costPence: computeCostPence(usage, model) }));
         return costPence;
     };

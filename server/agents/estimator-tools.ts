@@ -6,6 +6,7 @@ import { db } from '../db';
 import { personalizedQuotes, contractorBookingRequests, diyAdvice } from '@shared/schema';
 import { searchCatalog, searchScrewfix } from '../materials-service';
 import { getAnthropic } from '../anthropic';
+import { recordModelSpend, usageFromResponse, type SpendContext } from '../model-spend';
 import { eq, sql, desc, or, and } from 'drizzle-orm';
 import type { AgentTool } from './runner';
 import type {
@@ -90,13 +91,25 @@ async function searchMaterials(input: { query: string; limit?: number }): Promis
 
 /**
  * search_web — uses Anthropic client with native web_search server tool.
+ *
+ * 0.4 (8 Sep 2026): this is site A5 of the spend audit (S12 §3.3) and the one that mattered — a
+ * Sonnet request WITH the billed native web-search tool, made inside the estimator's own run, up
+ * to 3 searches a call and any number of calls within the run's 12 turns, and never summed into
+ * the estimator's row. `ctx` carries the run it belongs to so its spend rolls up to that reply.
+ * The per-search fee Anthropic charges on top of tokens is in neither price table and is not
+ * claimed here; the tokens are.
  */
-async function searchWeb(input: { query: string }): Promise<{ summary: string; sources: { title: string; url: string }[] }> {
+async function searchWeb(
+    input: { query: string },
+    ctx: SpendContext = {},
+): Promise<{ summary: string; sources: { title: string; url: string }[] }> {
     const client = getAnthropic();
+    const model = 'claude-sonnet-5';
+    const startedAt = Date.now();
 
     try {
         const response = await client.messages.create({
-            model: 'claude-sonnet-5',
+            model,
             max_tokens: 2000,
             tools: [
                 {
@@ -132,10 +145,24 @@ async function searchWeb(input: { query: string }): Promise<{ summary: string; s
             }
         }
 
+        void recordModelSpend({
+            agent: 'estimator-web-search', trigger: 'search_web', model,
+            usage: usageFromResponse((response as any).usage),
+            conversationId: ctx.conversationId ?? null, parentRunId: ctx.parentRunId ?? null,
+            durationMs: Date.now() - startedAt,
+            detail: { query: input.query.slice(0, 200), sources: sources.length },
+        });
+
         return { summary: summary || 'No results found', sources };
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn('[Estimator] Web search failed:', msg);
+        void recordModelSpend({
+            agent: 'estimator-web-search', trigger: 'search_web', model, usage: null,
+            conversationId: ctx.conversationId ?? null, parentRunId: ctx.parentRunId ?? null,
+            durationMs: Date.now() - startedAt, error: msg.slice(0, 300),
+            detail: { query: input.query.slice(0, 200) },
+        });
         return { summary: `Web search failed: ${msg}`, sources: [] };
     }
 }
@@ -432,7 +459,7 @@ export function normalizeQuoteBuild(input: any, conversationId?: string): QuoteB
 /**
  * Build the 5 estimator tools.
  */
-export function buildEstimatorTools(opts: { conversationId?: string }): {
+export function buildEstimatorTools(opts: { conversationId?: string; parentRunId?: string | null }): {
     tools: AgentTool[];
     getBuild: () => QuoteBuild | null;
 } {
@@ -473,7 +500,7 @@ export function buildEstimatorTools(opts: { conversationId?: string }): {
                 },
                 required: ['query'],
             },
-            run: searchWeb,
+            run: (input: { query: string }) => searchWeb(input, { conversationId: opts.conversationId ?? null, parentRunId: opts.parentRunId ?? null }),
         },
         {
             name: 'get_time_history',

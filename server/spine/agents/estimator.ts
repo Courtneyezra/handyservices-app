@@ -179,8 +179,10 @@ export function jobAllowance(build: { quoteNotes?: string[] } | null, flags: str
  * The belt: the legacy estimator's tools, with submit_build replaced by a validator that refuses
  * any price (decision (a)) and captures the build for the fold.
  */
-export function buildEstimatorBelt(conversationId: string | undefined): { tools: AgentTool[]; getBuild: () => any } {
-    const legacy = buildEstimatorTools({ conversationId });
+export function buildEstimatorBelt(conversationId: string | undefined, parentRunId?: string | null): { tools: AgentTool[]; getBuild: () => any } {
+    // 0.4: `parentRunId` is the estimator's OWN run, so the search_web tool's Sonnet spend (audit
+    // site A5) lands as a child of it instead of nowhere.
+    const legacy = buildEstimatorTools({ conversationId, parentRunId: parentRunId ?? null });
     let accepted: any = null;
     const tools = legacy.tools.map((t) => {
         if (t.name !== 'submit_build') return t;
@@ -264,21 +266,25 @@ export async function runEstimateForIntake(input: EstimateRunInput, deps: Estima
         // The runner records its own agent_runs row under this name (a CHILD of the spine's
         // 'estimator' row via parentRunId). A distinct name so the drawer shows one spine run with
         // one model-call child, not two "estimator" rows one second apart.
-        const runnerOpts = (attemptGoal: string, tools: AgentTool[]) => ({
+        // 0.4: the attempt's run id is minted BEFORE the belt so the belt's own model calls can name
+        // it as their parent. Still one fresh id per attempt, exactly as before.
+        const runnerOpts = (attemptGoal: string, tools: AgentTool[], attemptRunId: string) => ({
             name: 'quote-estimator', system: `${ESTIMATOR_SYSTEM}\n\n${COMPACT_RULES}`, goal: attemptGoal, tools, model: ESTIMATOR_MODEL, maxTurns: 12, maxTokens: ESTIMATOR_MAX_TOKENS,
-            runId: newRunId('run'), trigger: ESTIMATOR_TRIGGER, conversationId: input.caseFile.conversationId, phone: input.caseFile.phone,
+            runId: attemptRunId, trigger: ESTIMATOR_TRIGGER, conversationId: input.caseFile.conversationId, phone: input.caseFile.phone,
             packId: input.pack.id, packVersion: input.pack.version, caseFileRef: input.caseFile.hash, parentRunId: input.runId,
         });
-        let belt = buildEstimatorBelt(input.caseFile.conversationId);
+        let attemptRunId = newRunId('run');
+        let belt = buildEstimatorBelt(input.caseFile.conversationId, attemptRunId);
         let result: Awaited<ReturnType<NonNullable<EstimateRunDeps['runAgent']>>>;
         try {
-            result = await runAgent(runnerOpts(goal, belt.tools));
+            result = await runAgent(runnerOpts(goal, belt.tools, attemptRunId));
         } catch (first: any) {
             if (!isMaxTokensError(first)) throw first;
             // ONE retry: submit what you have, compactly. A fresh belt (the truncated attempt accepted nothing).
             console.warn(`[Estimator] ${estimateId} hit max_tokens; retrying once with a submit-now goal`);
-            belt = buildEstimatorBelt(input.caseFile.conversationId);
-            result = await runAgent(runnerOpts([...linesText, '', RETRY_GOAL_SUFFIX].join('\n'), belt.tools));
+            attemptRunId = newRunId('run');
+            belt = buildEstimatorBelt(input.caseFile.conversationId, attemptRunId);
+            result = await runAgent(runnerOpts([...linesText, '', RETRY_GOAL_SUFFIX].join('\n'), belt.tools, attemptRunId));
         }
         const build = belt.getBuild();
         const lines = foldEstimateLines(input.intakeLines, build, hist);

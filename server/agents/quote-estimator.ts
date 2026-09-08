@@ -9,6 +9,7 @@ import { db } from '../db';
 import { conversations } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { runAgent } from './runner';
+import { newRunId } from '../approver';
 import { buildEstimatorTools, normalizeQuoteBuild } from './estimator-tools';
 export { normalizeQuoteBuild }; // Re-export for tests
 import type { QuoteBuild, EstimatorLineInput } from '@shared/quote-build';
@@ -89,8 +90,10 @@ export async function runEstimator(opts: EstimatorRunOpts): Promise<{
         throw new Error('No lines to estimate.');
     }
 
-    // Build tools with conversation context
-    const { tools, getBuild } = buildEstimatorTools({ conversationId });
+    // Build tools with conversation context. 0.4: the run id is minted here rather than inside the
+    // runner so search_web's own Sonnet spend (audit site A5) lands as a child of THIS run.
+    const runId = newRunId('run');
+    const { tools, getBuild } = buildEstimatorTools({ conversationId, parentRunId: runId });
 
     // Format the goal with the lines
     const linesDescription = inputLines
@@ -107,6 +110,7 @@ export async function runEstimator(opts: EstimatorRunOpts): Promise<{
         model: 'claude-sonnet-5',
         maxTurns: 12,
         maxTokens: 8000,
+        runId,
     });
 
     return {

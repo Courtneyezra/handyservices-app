@@ -13,7 +13,7 @@ export interface TokenUsage {
 }
 
 export interface ModelPrice {
-    family: 'haiku-4-5' | 'sonnet-5' | 'opus-5' | 'gemini-3.6-flash';
+    family: 'haiku-4-5' | 'sonnet-4-5' | 'sonnet-5' | 'opus-5' | 'gemini-3.6-flash';
     match: RegExp;
     /** USD per million input tokens. */
     input: number;
@@ -21,8 +21,15 @@ export interface ModelPrice {
     output: number;
 }
 
+// ORDER MATTERS: priceForModel takes the FIRST match, so a dated id must come before the family
+// it would otherwise fall into. `claude-sonnet-4-5-*` is not Sonnet 5 and is not priced like it.
 export const MODEL_PRICES_USD_PER_MTOK: readonly ModelPrice[] = [
     { family: 'haiku-4-5', match: /haiku/i, input: 1, output: 5 },
+    // 0.4 (8 Sep 2026): the one dated model still called anywhere — /api/pricing/parse-job
+    // (server/job-parser.ts, `claude-sonnet-4-5-20250929`). Anthropic's published Sonnet 4.5 rate,
+    // $3 / $15 per M, which is NOT the Sonnet 5 rate below. Before this row it was priced as
+    // Sonnet 5 and understated by a third. Pinned in agent-cost.test.ts.
+    { family: 'sonnet-4-5', match: /sonnet-4-5/i, input: 3, output: 15 },
     { family: 'sonnet-5', match: /sonnet/i, input: 2, output: 10 },
     { family: 'opus-5', match: /opus/i, input: 5, output: 25 },
     // Phase 4 describe_video, on Gemini 3.6 Flash since T14 (7 Sep 2026). Google's pricing page,

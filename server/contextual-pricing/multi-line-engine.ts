@@ -18,6 +18,10 @@ import { getReferencePrice } from './reference-rates';
 import { generateMultiLineLLMPrice, APPROVED_CLAIMS } from './multi-line-llm';
 import type { LineReference, MultiLineLLMResult, MultiLineLLMLineResult } from './multi-line-llm';
 import { getAnthropic } from '../anthropic';
+import { recordModelSpend, usageFromResponse, type SpendContext } from '../model-spend';
+
+/** The model polishDescription calls. Named once so the spend row and the call cannot drift. */
+const POLISH_MODEL = 'claude-haiku-4-5-20251001';
 import {
   getLayoutTier,
 } from '@shared/contextual-pricing-types';
@@ -100,14 +104,15 @@ function formatPence(pence: number): string {
  * Polish a single description via Claude Haiku.
  * Returns the original text on any error (fail-safe).
  */
-async function polishDescription(description: string): Promise<string> {
+async function polishDescription(description: string, spend: SpendContext = {}): Promise<string> {
   const trimmed = description.trim();
   if (trimmed.length < 5) return trimmed;
 
+  const startedAt = Date.now();
   try {
     const claude = getAnthropic();
     const message = await claude.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: POLISH_MODEL,
       max_tokens: 100,
       system: `You are a job description polisher for a UK handyman service.
 Clean up rough notes into a clear, professional one-line scope of work.
@@ -121,9 +126,20 @@ Rules:
 - If it's already clean, return it unchanged.`,
       messages: [{ role: 'user', content: trimmed }],
     });
+    // 0.4: audit site A6 — one Haiku call PER custom line, and none of them wrote a run row.
+    void recordModelSpend({
+      agent: 'pricing-engine', trigger: 'polish_description', model: POLISH_MODEL,
+      usage: usageFromResponse((message as any).usage), durationMs: Date.now() - startedAt,
+      conversationId: spend.conversationId ?? null, parentRunId: spend.parentRunId ?? null,
+    });
     const textBlock = message.content.find((b: any) => b.type === 'text');
     return (textBlock as any)?.text?.trim() || trimmed;
-  } catch {
+  } catch (error: any) {
+    void recordModelSpend({
+      agent: 'pricing-engine', trigger: 'polish_description', model: POLISH_MODEL, usage: null,
+      durationMs: Date.now() - startedAt, error: String(error?.message ?? error).slice(0, 300),
+      conversationId: spend.conversationId ?? null, parentRunId: spend.parentRunId ?? null,
+    });
     return trimmed;
   }
 }
@@ -134,10 +150,11 @@ Rules:
  */
 async function polishAllDescriptions(
   lines: { id: string; description: string }[],
+  spend: SpendContext = {},
 ): Promise<Map<string, string>> {
   const results = await Promise.all(
     lines.map(async (line) => {
-      const polished = await polishDescription(line.description);
+      const polished = await polishDescription(line.description, spend);
       return [line.id, polished] as const;
     }),
   );
@@ -360,6 +377,9 @@ export async function generateMultiLinePrice(
   request: MultiLineRequest,
   approvedClaims?: string[],
   settingsOverride?: Partial<PricingSettings>,
+  /** 0.4: the thread and run this pricing belongs to, so its Haiku spend rolls up to that reply.
+   *  Omitted by the admin click paths, which have neither — those still write their own rows. */
+  spend: SpendContext = {},
 ): Promise<MultiLineResult> {
   // Load configurable pricing settings (falls back to defaults on error).
   // `settingsOverride` lets a single call opt into different settings (e.g. an
@@ -460,10 +480,10 @@ export async function generateMultiLinePrice(
     );
   }
   const [polishedDescriptions, llmResult] = await Promise.all([
-    polishAllDescriptions(customLines),
+    polishAllDescriptions(customLines, spend),
     allLinesSkuResolved
       ? Promise.resolve(buildAllSkuLLMResult(request, skuResolutions, approvedClaims))
-      : generateMultiLineLLMPrice(request, lineReferences, approvedClaims),
+      : generateMultiLineLLMPrice(request, lineReferences, approvedClaims, spend),
   ]);
 
   // Layer 4 — Per-line guardrails (no psychological pricing per line)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSilentBurst, isExpiredFlag, isExpiredDraft, formatDigest, digestNames, digestAge, DIGEST_NAMES_PER_SECTION, SILENCE_AFTER_MINUTES, DUE_EXPIRED } from './silence-breaker';
+import { isSilentBurst, isExpiredFlag, isExpiredDraft, formatDigest, replyCostLine, digestNames, digestAge, DIGEST_NAMES_PER_SECTION, SILENCE_AFTER_MINUTES, DUE_EXPIRED } from './silence-breaker';
 
 const NOW = new Date('2026-09-02T12:00:00.000Z');
 const min = (n: number) => new Date(NOW.getTime() - n * 60_000);
@@ -54,6 +54,42 @@ describe('isExpiredDraft', () => {
 });
 
 const empty = { flags: [], drafts: [], priceDraftsWaiting: 0, priceDrafts: [] };
+
+// 0.4 (8 Sep 2026): cost per REPLY on the digest. message_drafts.cost_pence carries the model spend
+// behind one send; the digest reports yesterday's total as a floor — it says how many of the sends
+// carried a figure, so an unpriced row can never be read as free.
+describe('replyCostLine — cost per reply on the digest', () => {
+    const base = { flagsPastDue: 0, draftsPendingOver2h: 0, holdingOnlyBurstsYesterday: 0, yesterday: 'Tue 01 Sep', ...empty };
+
+    it('names the count and the money when every send was priced', () => {
+        expect(replyCostLine({ ...base, repliesSentYesterday: 12, pricedRepliesYesterday: 12, replyCostPenceYesterday: 34 }))
+            .toBe('12 replies sent Tue 01 Sep · £0.34 of model calls');
+    });
+
+    it('says how many of them the figure covers when some could not be priced', () => {
+        expect(replyCostLine({ ...base, repliesSentYesterday: 12, pricedRepliesYesterday: 9, replyCostPenceYesterday: 34 }))
+            .toBe('12 replies sent Tue 01 Sep · £0.34 of model calls on 9 of them');
+    });
+
+    it('a human-only day is "not recorded", never £0.00 — a missing figure is not a free one', () => {
+        expect(replyCostLine({ ...base, repliesSentYesterday: 3, pricedRepliesYesterday: 0, replyCostPenceYesterday: 0 }))
+            .toBe('3 replies sent Tue 01 Sep · model cost not recorded');
+    });
+
+    it('is silent when nothing was sent or nothing was measured', () => {
+        expect(replyCostLine({ ...base, repliesSentYesterday: 0, pricedRepliesYesterday: 0, replyCostPenceYesterday: 0 })).toBe('');
+        expect(replyCostLine(base)).toBe('');
+    });
+
+    it('rides the digest as a last line and never changes the count of work waiting', () => {
+        const without = formatDigest({ ...base, flagsPastDue: 2 }, NOW);
+        const with_ = formatDigest({ ...base, flagsPastDue: 2, repliesSentYesterday: 1, pricedRepliesYesterday: 1, replyCostPenceYesterday: 5 }, NOW);
+        expect(with_.title).toBe(without.title);
+        expect(with_.lines.slice(0, without.lines.length)).toEqual(without.lines);
+        expect(with_.lines.at(-1)).toBe('1 reply sent Tue 01 Sep · £0.05 of model calls');
+        for (const l of with_.lines) expect(l).not.toMatch(/[—–]/);
+    });
+});
 
 describe('formatDigest', () => {
     it('reads as all clear at zero and counts otherwise, with no em dashes', () => {

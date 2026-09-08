@@ -96,18 +96,32 @@ export function decideFiling(text: string, rule: FiledAnswer | null): FilingVerd
 }
 
 export interface ClerkClassifier {
-    (input: { text: string; missing: string[]; lastAskedField: string | null }): Promise<{ field: string; value: string } | null>;
+    (input: { text: string; missing: string[]; lastAskedField: string | null; conversationId?: string | null; parentRunId?: string | null }): Promise<{ field: string; value: string } | null>;
 }
 
-/** The clerk's decision: one small model call, JSON only, restricted to the fileable fields. */
-export async function clerkClassifier(input: { text: string; missing: string[]; lastAskedField: string | null }): Promise<{ field: string; value: string } | null> {
-    const { claudeText, FAST_MODEL } = await import('../llm');
+/**
+ * The clerk's decision: one small model call, JSON only, restricted to the fileable fields.
+ *
+ * 0.4 (8 Sep 2026): audit site A8 — this Haiku call never wrote a priced run row. It does now,
+ * under the pass it belongs to, so the reply's cost includes it.
+ */
+export async function clerkClassifier(input: { text: string; missing: string[]; lastAskedField: string | null; conversationId?: string | null; parentRunId?: string | null }): Promise<{ field: string; value: string } | null> {
+    const { claudeTextWithUsage, FAST_MODEL } = await import('../llm');
+    const { recordModelSpend } = await import('../model-spend');
+    const startedAt = Date.now();
     const fields = Array.from(CUSTOMER_FILEABLE);
-    const raw = await claudeText({
+    const answer = await claudeTextWithUsage({
         model: FAST_MODEL, maxTokens: 120,
         system: `You file a customer's WhatsApp message into a job pack. Answer ONLY with JSON: {"field": <one of ${JSON.stringify(fields)}>, "value": <the customer's words, short>} when the message plainly answers one of those delivery questions (how we get in, who is on site, parking, pets, prep before we arrive, materials delivery, floor, lift, occupied, water/power). Otherwise answer null. Never invent. Anything about the WORK itself (what to do, sizes, finish, who supplies what) is NOT a delivery answer: answer null.`,
         user: `Fields still missing: ${input.missing.join(', ') || 'none'}. Last question we asked: ${input.lastAskedField ?? 'none'}.\nMessage: ${input.text.slice(0, 400)}`,
     } as any);
+    void recordModelSpend({
+        agent: 'job-pack-clerk', trigger: 'inbound_message', model: answer.model,
+        usage: answer.usage, durationMs: Date.now() - startedAt,
+        conversationId: input.conversationId ?? null, parentRunId: input.parentRunId ?? null,
+        detail: { missing: input.missing.length, lastAskedField: input.lastAskedField ?? null },
+    });
+    const raw = answer.text;
     const m = /\{[\s\S]*\}/.exec(raw ?? '');
     if (!m) return null;
     try {
@@ -131,7 +145,7 @@ export type FilingOutcome = { conversationId: string; verdict: FilingVerdict; qu
  * File one inbound into the thread's pack. Null when the thread has no pack. Never throws and
  * never sends; a rescope is reported for the log only (triage already tagged it).
  */
-export async function fileInboundIntoPack(input: { conversationId: string; text: string | null | undefined }, deps: FilingDeps): Promise<FilingOutcome> {
+export async function fileInboundIntoPack(input: { conversationId: string; text: string | null | undefined; runId?: string | null }, deps: FilingDeps): Promise<FilingOutcome> {
     const text = String(input.text ?? '').trim();
     if (!text) return null;
     let pack: JobPack | null;
@@ -141,7 +155,7 @@ export async function fileInboundIntoPack(input: { conversationId: string; text:
     let verdict = decideFiling(text, parseDeliveryAnswer(text, { lastAskedField: lastAsk?.field ?? null }));
     if (verdict.kind === 'none' && deps.clerk && text.length <= 400) {
         try {
-            const c = await deps.clerk({ text, missing: pack.missing, lastAskedField: lastAsk?.field ?? null });
+            const c = await deps.clerk({ text, missing: pack.missing, lastAskedField: lastAsk?.field ?? null, conversationId: input.conversationId, parentRunId: input.runId ?? null });
             if (c) verdict = { kind: 'filed', answer: { field: c.field, value: c.value, how: 'clerk' } };
         } catch (e: any) {
             console.warn('[JobPackFiling] clerk classifier failed:', e?.message ?? e);

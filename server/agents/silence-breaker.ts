@@ -354,6 +354,12 @@ export interface DigestCounts {
     /** T17: Route A drafts waiting to be priced (WAITING_DRAFT_WHERE, the price queue's rule). */
     priceDraftsWaiting: number;
     priceDrafts: DigestItem[];
+    /** 0.4: replies actually sent yesterday (UK), and what the model calls behind them cost.
+     *  `costPence` counts only the sends whose chain could be priced (`pricedReplies`), so a day
+     *  with unpriced rows reads as a floor and not as a false total. Undefined = not measured. */
+    repliesSentYesterday?: number;
+    pricedRepliesYesterday?: number;
+    replyCostPenceYesterday?: number;
 }
 
 /** How many threads a digest section names before "and N more". Pushover bodies cap at 1,024 chars. */
@@ -426,6 +432,34 @@ export async function digestCounts(now: Date = new Date()): Promise<DigestCounts
                ))::int AS holding_only
         FROM holds h`);
     const row = ((r.rows ?? r) as { label: string | null; holding_only: number | null }[])[0];
+
+    // 0.4: COST PER REPLY, yesterday. message_drafts.cost_pence is the model spend behind that one
+    // send (the drafting run and everything descended from it, summed at send time by
+    // modelCostPenceForRun). Reported as a floor: `priced` says how many of the sends carried a
+    // figure, so an unpriced row can never inflate the total. Best effort — the digest is a push
+    // about work waiting, and a cost query must not be able to stop it going out.
+    let replies: { sent: number; priced: number; pence: number } | null = null;
+    try {
+        const c: any = await db.execute(sql`
+            WITH day AS (
+                SELECT (date_trunc('day', (${now.toISOString()}::timestamptz AT TIME ZONE 'Europe/London') - interval '1 day')) AS start_local
+            ),
+            bounds AS (
+                SELECT (start_local AT TIME ZONE 'Europe/London') AS start_at,
+                       ((start_local + interval '1 day') AT TIME ZONE 'Europe/London') AS end_at
+                FROM day
+            )
+            SELECT count(*)::int AS sent,
+                   count(d.cost_pence)::int AS priced,
+                   coalesce(sum(d.cost_pence), 0)::int AS pence
+            FROM message_drafts d, bounds b
+            WHERE d.status = 'sent' AND d.sent_at >= b.start_at AND d.sent_at < b.end_at`);
+        const cr = ((c.rows ?? c) as { sent: number; priced: number; pence: number }[])[0];
+        if (cr) replies = { sent: Number(cr.sent ?? 0), priced: Number(cr.priced ?? 0), pence: Number(cr.pence ?? 0) };
+    } catch (error: any) {
+        console.warn('[SilenceBreaker] reply-cost roll-up failed (digest continues):', error?.message ?? error);
+    }
+
     return {
         flagsPastDue: flags?.n ?? 0,
         draftsPendingOver2h: drafts?.n ?? 0,
@@ -435,6 +469,7 @@ export async function digestCounts(now: Date = new Date()): Promise<DigestCounts
         drafts: draftItems,
         priceDraftsWaiting,
         priceDrafts: priceItems,
+        ...(replies ? { repliesSentYesterday: replies.sent, pricedRepliesYesterday: replies.priced, replyCostPenceYesterday: replies.pence } : {}),
     };
 }
 
@@ -456,6 +491,22 @@ export function digestNames(items: DigestItem[], total: number, now: Date): stri
     return more > 0 ? `${named} and ${more} more` : named;
 }
 
+/**
+ * 0.4: "12 replies sent Tue 01 Sep · £0.34 of model calls" — cost per REPLY, which is what
+ * message_drafts.cost_pence now carries. `£x.xx of N` when some sends could not be priced, so the
+ * line is never read as a total it is not. Empty string when nothing was measured or nothing was
+ * sent: the digest is about work waiting, and a quiet day should not gain a line saying so.
+ */
+export function replyCostLine(c: DigestCounts): string {
+    const sent = c.repliesSentYesterday;
+    if (typeof sent !== 'number' || sent <= 0) return '';
+    const priced = c.pricedRepliesYesterday ?? 0;
+    const pounds = `£${((c.replyCostPenceYesterday ?? 0) / 100).toFixed(2)}`;
+    const head = `${sent} repl${sent === 1 ? 'y' : 'ies'} sent ${c.yesterday}`;
+    if (!priced) return `${head} · model cost not recorded`;
+    return priced === sent ? `${head} · ${pounds} of model calls` : `${head} · ${pounds} of model calls on ${priced} of them`;
+}
+
 export function formatDigest(c: DigestCounts, now: Date = new Date()): { title: string; lines: string[] } {
     const priceWaiting = c.priceDraftsWaiting ?? 0;
     const total = c.flagsPastDue + c.draftsPendingOver2h + c.holdingOnlyBurstsYesterday + priceWaiting;
@@ -470,6 +521,8 @@ export function formatDigest(c: DigestCounts, now: Date = new Date()): { title: 
             withNames(`${c.draftsPendingOver2h} draft${c.draftsPendingOver2h === 1 ? '' : 's'} pending over 2 hours`, c.drafts, c.draftsPendingOver2h),
             withNames(`${priceWaiting} priced draft${priceWaiting === 1 ? '' : 's'} waiting to be sent`, c.priceDrafts, priceWaiting),
             `${c.holdingOnlyBurstsYesterday} thread${c.holdingOnlyBurstsYesterday === 1 ? '' : 's'} got only a holding line ${c.yesterday}`,
+            // 0.4: last, and only when there is something to say — this line is information, not work.
+            ...(replyCostLine(c) ? [replyCostLine(c)] : []),
         ],
     };
 }
