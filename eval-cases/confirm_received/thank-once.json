@@ -1,0 +1,90 @@
+{
+ "cases": [
+  {
+   "id": "cr-t28-thank-once-per-batch",
+   "family": "confirm_received",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "Could you send a photo of the fan and the ceiling around it?",
+     "at": "2026-09-08T11:50:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "here is the fan",
+     "media": ["image"],
+     "at": "2026-09-08T11:56:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Thanks, got the photo, that is really helpful.",
+     "at": "2026-09-08T11:57:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "and this one of the ceiling",
+     "media": ["image"],
+     "at": "2026-09-08T11:58:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks for the photos, they are really helpful.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "confirm_received",
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": "media_already_acknowledged",
+    "notes": "T28 (Priya, 495577b5, generalised): two photos a minute apart are ONE batch, and one batch gets one thank-you. Our own reply between them does not start a new batch; only the customer moving the conversation on, or a long gap, does. T20 read the newest item alone, so a photo landing just after our thanks earned a second thank-you."
+   },
+   "provenance": "invented, from the Priya thread's shape"
+  },
+  {
+   "id": "cr-t28-new-batch-may-be-thanked",
+   "family": "confirm_received",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "here is the fan",
+     "media": ["image"],
+     "at": "2026-09-08T11:40:00.000Z"
+    },
+    {
+     "direction": "outbound",
+     "body": "Thanks, got the photo, that is really helpful.",
+     "at": "2026-09-08T11:41:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "it is worse on the landing actually",
+     "at": "2026-09-08T11:50:00.000Z"
+    },
+    {
+     "direction": "inbound",
+     "body": "this is the landing one",
+     "media": ["image"],
+     "at": "2026-09-08T12:02:00.000Z"
+    }
+   ],
+   "candidate": {
+    "body": "Got the landing photo too, thanks. That is the same fan run by the looks of it.",
+    "intent": "confirm_received"
+   },
+   "expected": {
+    "lane": "scoper",
+    "intent": "confirm_received",
+    "guardsMustNotTrip": true,
+    "mustNotEscalate": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "precondition": null,
+    "notes": "T28: thank once per BATCH, not once per thread. The customer moved the conversation on and then sent something new, so acknowledging it is right."
+   },
+   "provenance": "invented"
+  }
+ ]
+}

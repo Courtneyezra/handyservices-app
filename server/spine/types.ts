@@ -7,6 +7,7 @@
  */
 import type { Approver } from '../approver';
 import type { TokenUsage } from '../agent-cost';
+import type { AskLedger } from './ask-ledger';
 
 export type Audience = 'customer' | 'contractor' | 'supplier' | 'internal';
 export type Stage = 'enquiry' | 'scoping' | 'quote_sent' | 'booked' | 'closed' | 'won';
@@ -103,6 +104,12 @@ export interface CaseFile {
     lastInboundId?: string | null;
     /** P7 (additive): the customer's last message promised more is coming ("back soon with the measurement"). */
     lastInboundPromisedMore?: boolean;
+    /**
+     * T28 (additive): what has already been ASKED of this thread and already SAID to it — per ask
+     * subject, and the newest acknowledged media batch. Derived from `timeline` alone
+     * (server/spine/ask-ledger.ts), stored so a replay gives the same answer as the run.
+     */
+    asks?: AskLedger;
     hash: string;               // sha256 of the serialised file, stored as agent_runs.case_file_ref
     builtAt: string;
 }

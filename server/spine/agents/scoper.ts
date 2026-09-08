@@ -40,7 +40,8 @@ import { isPlaceholderName } from '../../first-contact-ack';
 import * as levers from '../../agents/objection-levers';
 import { isLikelyRealName } from '@shared/contact-name';
 import { chatVoiceViolations } from '@shared/chat-voice';
-import { acknowledgesMedia, asksForMedia, mediaAckRefusal, mediaAckState, mediaAskLine, mediaAskRefusal, mediaAskState, turnsFromCaseFile } from '../media-ask';
+import { acknowledgesMedia, asksForMedia, mediaAckRefusal, mediaAskRefusal } from '../media-ask';
+import { askLedgerLines, askLedgerOf, askSubjectRefusal, bodyAsksFor, mediaAskStateOf, type AskSubject } from '../ask-ledger';
 import type { Approver } from '../../approver';
 import type {
     CaseFile, ExceptionKind, Intent, PolicyPack, Proposal, SpineAgent, TriageResult, TimelineItem,
@@ -74,6 +75,9 @@ const MAX_BODY_CHARS = 700;
  * know what he asked for.
  */
 const MAX_TRANSCRIPT_CHARS = 4000;
+
+/** T28: the ask subjects the tool checks after media, which keeps T20's own refusal wording. */
+const LATER_ASK_SUBJECTS: readonly AskSubject[] = ['postcode', 'access', 'handoff'];
 
 // ---------------------------------------------------------------- prompts
 
@@ -192,8 +196,9 @@ export function renderCaseFile(cf: CaseFile, triage: TriageResult, trigger?: str
         cf.openPromises.length ? `Open promises we made: ${cf.openPromises.map((p) => `"${clip(p.text, 120)}" (due ${p.dueAt})`).join('; ')}.` : 'Open promises: none.',
         cf.openFlags.length ? `Open flags for Ben: ${cf.openFlags.map((f) => `${f.exception}: ${clip(f.note, 120)} (due ${f.dueAt})`).join('; ')}.` : 'Open flags: none.',
         ...(triage.dateAsked ? [dateAskedLine(cf)] : []),
-        // T20: the ask-once fact, stated so the model does not spend a turn asking and being refused.
-        ...((): string[] => { const l = mediaAskLine(mediaAskState(turnsFromCaseFile(cf))); return l ? [l] : []; })(),
+        // T20/T28: what has already been asked and already been thanked for, stated as a fact of
+        // the file so the model does not infer it from the timeline (or spend a turn being refused).
+        ...askLedgerLines(askLedgerOf(cf)),
         cf.lastRun ? `Last agent run: ${cf.lastRun.agent} ${cf.lastRun.decision} at ${cf.lastRun.at}.` : 'Last agent run: none.',
         cf.media.length ? `Media on file: ${cf.media.map((m) => `${m.id} (${m.kind}${m.description ? `: ${clip(m.description, 160)}` : ''})`).join('; ')}.` : 'Media on file: none.',
         '',
@@ -342,15 +347,21 @@ export function buildScoperTools(ctx: BeltContext, state: BeltState): AgentTool[
                 // T20: ask for a photo once. Read off the thread, not the model's view of it: if we
                 // asked and they replied without sending any, no body may ask again, whatever the
                 // intent says. The refusal tells the model to proceed instead.
-                if (asksForMedia(bubbles.join('\n'))) {
-                    const mediaAsk = mediaAskState(turnsFromCaseFile(caseFile));
-                    if (mediaAsk.outstanding) throw new Error(`Refused: ${mediaAskRefusal(mediaAsk)}`);
+                const ledger = askLedgerOf(caseFile);
+                const joined = bubbles.join('\n');
+                if (asksForMedia(joined) && ledger.subjects.media.outstanding) {
+                    throw new Error(`Refused: ${mediaAskRefusal(mediaAskStateOf(ledger))}`);
                 }
                 // T20 (Priya, 7 Sep): thank once. A body that thanks them for media we have already
                 // acknowledged, with nothing new arrived since, is refused the same way.
-                if (acknowledgesMedia(bubbles.join('\n'))) {
-                    const ack = mediaAckState(turnsFromCaseFile(caseFile));
-                    if (ack.alreadyThanked) throw new Error(`Refused: ${mediaAckRefusal(ack)}`);
+                if (acknowledgesMedia(joined) && ledger.mediaAck.alreadyThanked) {
+                    throw new Error(`Refused: ${mediaAckRefusal(ledger.mediaAck)}`);
+                }
+                // T28: the same belt for every other ask (postcode, access) and for the hand-off
+                // line, which must not repeat on every turn of a thread that is sitting with Ben.
+                for (const subject of LATER_ASK_SUBJECTS) {
+                    const state = ledger.subjects[subject];
+                    if (state.outstanding && bodyAsksFor(subject, joined)) throw new Error(`Refused: ${askSubjectRefusal(state)}`);
                 }
                 const refusal = checkProposedBody({ bubbles, intent, caseFile });
                 if (refusal) throw new Error(`Refused: ${refusal} Rewrite and call propose_reply again.`);

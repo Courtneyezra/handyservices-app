@@ -17,6 +17,9 @@
  *                       The Scoper's tool boundary refuses that body first; this is the belt.
  *                       T20: nor does it thank for media we have already acknowledged with nothing
  *                       new arrived since (Priya, 7 Sep: two thank-yous for one photo)
+ *                       T28: the same rule for every other kind of ask (the postcode, access) and
+ *                       for the hand-off line, which is said once per open flag
+ *                       (server/spine/ask-ledger.ts)
  *   ask_gap             no quote on the case file (paid or not); no date asked; no question mark
  *                       in the customer's last message
  *   confirm_received    the last inbound carries media or a UK postcode — something arrived
@@ -35,7 +38,8 @@
  * Nothing here anticipates it.
  */
 import { UK_POSTCODE_RE } from './asks';
-import { acknowledgesMedia, asksForMedia, mediaAckState, mediaAskState, turnsFromCaseFile } from './media-ask';
+import { askLedgerOf, bodyAsksFor, type AskSubject } from './ask-ledger';
+import { acknowledgesMedia, asksForMedia } from './media-ask';
 import type { CaseFile, Proposal, TimelineItem, TriageResult } from './types';
 
 /** How recently the customer must have written for a reply to count as reactive (mirrors comms.ts). */
@@ -55,6 +59,12 @@ export const PRECONDITION = {
     mediaAlreadyAsked: 'media_already_asked',
     /** T20: the body thanks for media we already acknowledged, with nothing new since (Priya, 7 Sep). */
     mediaAlreadyAcknowledged: 'media_already_acknowledged',
+    /** T28: the body asks where the job is while an earlier postcode ask is outstanding. */
+    postcodeAlreadyAsked: 'already_asked:postcode',
+    /** T28: the body asks how we get in while an earlier access ask is outstanding. */
+    accessAlreadyAsked: 'already_asked:access',
+    /** T28: the body repeats the hand-off line ("Ben will come back to you") on the same open flag. */
+    handoffAlreadySaid: 'handoff_already_said',
     askGapQuoteOnCase: 'ask_gap:quote_on_case',
     askGapDateAsked: 'ask_gap:date_asked',
     askGapCustomerQuestion: 'ask_gap:customer_question',
@@ -67,6 +77,20 @@ export const PRECONDITION = {
 export type PreconditionCode = (typeof PRECONDITION)[keyof typeof PRECONDITION] | `no_rule:${string}`;
 
 export const PRECONDITION_REASON_PREFIX = 'precondition: ';
+
+/**
+ * T28: the refusal code per ask subject. Media keeps the two codes B7a/T20 shipped, so the eval
+ * fixtures and the verdict chips are unchanged; the subjects added here get their own named code.
+ */
+export const ASK_PRECONDITION: Record<AskSubject, PreconditionCode> = {
+    media: PRECONDITION.mediaAlreadyAsked,
+    postcode: PRECONDITION.postcodeAlreadyAsked,
+    access: PRECONDITION.accessAlreadyAsked,
+    handoff: PRECONDITION.handoffAlreadySaid,
+};
+
+/** The subjects the belt checks after media (media is checked first, with T20's own codes). */
+const LATER_SUBJECTS: readonly AskSubject[] = ['postcode', 'access', 'handoff'];
 
 /** The intents the preconditions have a rule for. Everything else refuses with no_rule. */
 export const PRECONDITIONED_INTENTS = ['ask_gap', 'confirm_received', 'point_to_quote_page', 'point_to_picker'] as const;
@@ -136,9 +160,15 @@ export function sendPrecondition(input: SendPreconditionInput): PreconditionCode
     // T20: ask for a photo once. Whatever the intent says, a body that asks for media while the
     // customer has already answered an ask without sending any does not move. The Scoper's tool
     // refuses it at composition; this is the belt for any other proposer.
-    if (asksForMedia(body) && mediaAskState(turnsFromCaseFile(caseFile)).outstanding) return PRECONDITION.mediaAlreadyAsked;
+    const ledger = askLedgerOf(caseFile);
+    if (asksForMedia(body) && ledger.subjects.media.outstanding) return PRECONDITION.mediaAlreadyAsked;
     // T20: thank once. A body that thanks for media we have already acknowledged does not move.
-    if (acknowledgesMedia(body) && mediaAckState(turnsFromCaseFile(caseFile)).alreadyThanked) return PRECONDITION.mediaAlreadyAcknowledged;
+    if (acknowledgesMedia(body) && ledger.mediaAck.alreadyThanked) return PRECONDITION.mediaAlreadyAcknowledged;
+    // T28: the same belt, same semantics, for every other kind of ask — and for the hand-off line,
+    // which repeats on every turn of a held thread unless something says it once per open flag.
+    for (const subject of LATER_SUBJECTS) {
+        if (bodyAsksFor(subject, body) && ledger.subjects[subject].outstanding) return ASK_PRECONDITION[subject];
+    }
 
     switch (intent) {
         case 'ask_gap': {

@@ -17,6 +17,7 @@ import { customerPromisedMore } from './triage';
 import type { CaseFile, TimelineItem, MediaItem, Audience, Stage, ExceptionKind } from './types';
 import type { MediaBlock } from '../agents/media-context';
 import { selectMediaToDescribe } from './media-selection';
+import { buildAskLedger } from './ask-ledger';
 
 export const CASE_FILE_DIR = process.env.CASE_FILE_DIR || path.join(process.cwd(), 'server', 'storage', 'case-files');
 const TIMELINE_LIMIT = 80;
@@ -238,6 +239,10 @@ export async function buildCaseFile(conversationId: string, opts: BuildCaseFileO
         // more is coming (customer messages only; a call transcript cannot promise a photo).
         lastInboundId: lastIn ? String(lastIn.id) : null,
         lastInboundPromisedMore: !!lastIn && audienceOf(conv.roleProfile) === 'customer' && customerPromisedMore(lastIn.content),
+        // T28: what we have already asked this thread for and already said to it, derived from the
+        // timeline above and nothing else, so a replay of this file reads exactly what the agent
+        // read. Cross-cutting rule 7: never ask twice, never thank twice, never hand off twice.
+        asks: buildAskLedger({ timeline }),
     };
     const file: CaseFile = { ...body, hash: hashCaseFile(body), builtAt: new Date().toISOString() };
     await persistCaseFile(file);
