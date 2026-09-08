@@ -63,6 +63,13 @@ export interface EvalRunV2 {
     gitRef: string;
     trialsRequested: number;
     adapters: string[];
+    /**
+     * 0.7 part C: the digest of server/spine/prompts/* this run graded (server/evals/prompt-provenance.ts).
+     * A green family is only evidence while this matches the prompts on the branch being read.
+     */
+    promptHash?: string | null;
+    /** 0.7 part C: the Scoper's own per-pack hash — the same value `agent_runs.prompt_hash` carries. */
+    promptHashes?: Record<string, string>;
     cases: CaseOutcome[];
     guardFalseNegative?: GuardFalseNegativeReport | null;
     families?: Record<string, FamilyStatus>;

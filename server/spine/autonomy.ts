@@ -3,7 +3,8 @@
  * job. Nothing ships sending; an intent EARNS SEND from evidence and LOSES it from evidence.
  *
  * Promotion (DRAFT → SEND), per (pack, intent), full gate:
- *   - the intent's eval family passes pass^3 = 100% in the latest scoreboard (eval-results/latest.json)
+ *   - the intent's eval family passes pass^3 = 100% in the latest scoreboard (0.7: the newest
+ *     `eval_runs` row, else eval-results/latest.json, else `missing` — never a green)
  *   - ≥ 30 human verdicts across the PACK in 30 days with unedited approval ≥ 90%
  *   - zero `unsafe` verdicts on this intent, ever
  *   - zero guard escalations attributed to this intent in 14 days
@@ -79,6 +80,10 @@ export interface EvalFamilyStatus {
     passed: number;
     runId?: string | null;
     at?: string | null;
+    /** 0.7: which evidence path this reading came from — the eval_runs table, the file, or neither. */
+    source?: 'db' | 'file' | 'none';
+    /** 0.7 part C: the prompt digest the run graded, so a later prompt change is visibly a different prompt. */
+    promptHash?: string | null;
 }
 export interface TierChange { tier: Tier; at: string; by: string; reason: string | null; /** epoch ms of `at`, when the row carried one (B6 floor) */ atMs?: number | null }
 
@@ -237,24 +242,77 @@ export function decideTier(ev: IntentEvidence, now: Date = new Date()): Autonomy
 
 // ---------------------------------------------------------------- eval scoreboard
 
-interface ScoreboardCase { family: string; kind: 'regression' | 'capability'; passK: boolean | null }
-interface Scoreboard { runId?: string; finishedAt?: string; cases?: ScoreboardCase[] }
+/**
+ * 0.7 (8 Sep 2026): WHERE the eval evidence is read from, and nothing else. The promotion and
+ * demotion rules above are unchanged.
+ *
+ * Until 0.7 this read `eval-results/latest.json` off the worker's filesystem. That directory is
+ * gitignored (.gitignore:67) and the container build has no eval step, so on Railway the file was
+ * simply absent: every intent's evalFamily read `missing` and only the two fast-tracked intents
+ * could ever be promoted. The evidence half of the gate had never once run.
+ *
+ * The order is now: the newest `eval_runs` row, then the file, then nothing. Nothing is still
+ * `missing` — never a false green. `source` on the status says which path answered.
+ */
 
-export function evalFamilyFrom(board: Scoreboard | null, intent: string): EvalFamilyStatus {
-    const cases = (board?.cases ?? []).filter((c) => c.family === intent && c.kind === 'regression');
-    if (!cases.length) return { status: 'missing', cases: 0, passed: 0, runId: board?.runId ?? null, at: board?.finishedAt ?? null };
-    const graded = cases.filter((c) => c.passK !== null);
-    const passed = graded.filter((c) => c.passK === true).length;
-    if (!graded.length) return { status: 'skipped', cases: cases.length, passed: 0, runId: board?.runId ?? null, at: board?.finishedAt ?? null };
-    return { status: passed === cases.length ? 'pass' : 'fail', cases: cases.length, passed, runId: board?.runId ?? null, at: board?.finishedAt ?? null };
+interface ScoreboardCase { family: string; kind: 'regression' | 'capability'; passK: boolean | null }
+/** Counts per family as the table stores them; a complete substitute for `cases[]` (server/evals/eval-run-store.ts). */
+interface ScoreboardFamilyCounts { cases: number; graded: number; green: number; red: number }
+interface Scoreboard {
+    runId?: string;
+    finishedAt?: string;
+    promptHash?: string | null;
+    /** The file's shape. */
+    cases?: ScoreboardCase[];
+    /** The table's shape. */
+    familyCounts?: Record<string, ScoreboardFamilyCounts>;
+    source?: 'db' | 'file';
 }
 
-export function readLatestScoreboard(dir: string = path.resolve(process.cwd(), 'eval-results')): Scoreboard | null {
+export function evalFamilyFrom(board: Scoreboard | null, intent: string): EvalFamilyStatus {
+    const base = { runId: board?.runId ?? null, at: board?.finishedAt ?? null, source: board?.source ?? 'none' as const, promptHash: board?.promptHash ?? null };
+    // The table's counts and the file's case list are counted the same way (familyCountsOf).
+    const counts = board?.familyCounts?.[intent]
+        ?? (board?.cases ? countFamily(board.cases, intent) : null);
+    if (!counts || !counts.cases) return { status: 'missing', cases: 0, passed: 0, ...base };
+    if (!counts.graded) return { status: 'skipped', cases: counts.cases, passed: 0, ...base };
+    return { status: counts.green === counts.cases ? 'pass' : 'fail', cases: counts.cases, passed: counts.green, ...base };
+}
+
+function countFamily(cases: ScoreboardCase[], intent: string): ScoreboardFamilyCounts {
+    const mine = cases.filter((c) => c.family === intent && c.kind === 'regression');
+    const graded = mine.filter((c) => c.passK !== null);
+    return { cases: mine.length, graded: graded.length, green: graded.filter((c) => c.passK === true).length, red: graded.filter((c) => c.passK === false).length };
+}
+
+/** The file, exactly as it was read before 0.7. Kept as the fallback and for a local run. */
+export function readScoreboardFile(dir: string = path.resolve(process.cwd(), 'eval-results')): Scoreboard | null {
     try {
-        return JSON.parse(fs.readFileSync(path.join(dir, 'latest.json'), 'utf8')) as Scoreboard;
+        const board = JSON.parse(fs.readFileSync(path.join(dir, 'latest.json'), 'utf8')) as Scoreboard;
+        return { ...board, source: 'file' };
     } catch {
         return null;
     }
+}
+
+export interface ScoreboardSource {
+    dir?: string;
+    /** Injectable for tests; defaults to the newest eval_runs row (null without a database). */
+    loadRow?: () => Promise<{ runId: string; promptHash: string | null; families: Record<string, ScoreboardFamilyCounts>; finishedAt: string | null } | null>;
+}
+
+/** The table first, the file second, null third. Never throws; never invents a green. */
+export async function readLatestScoreboard(opts: ScoreboardSource = {}): Promise<Scoreboard | null> {
+    const loadRow = opts.loadRow ?? (async () => {
+        const { latestEvalRunRow } = await import('../evals/eval-run-store');
+        return latestEvalRunRow();
+    });
+    let row: Awaited<ReturnType<NonNullable<ScoreboardSource['loadRow']>>> = null;
+    try { row = await loadRow(); } catch { row = null; }
+    if (row) {
+        return { runId: row.runId, finishedAt: row.finishedAt ?? undefined, promptHash: row.promptHash, familyCounts: row.families ?? {}, source: 'db' };
+    }
+    return readScoreboardFile(opts.dir);
 }
 
 // ---------------------------------------------------------------- evidence (db)
@@ -305,9 +363,11 @@ export interface GatherOpts {
     now?: Date;
     evalResultsDir?: string;
     packs?: Record<string, PolicyPack>;
+    /** 0.7: injectable eval_runs reader (tests); defaults to the newest row, null without a database. */
+    loadEvalRun?: ScoreboardSource['loadRow'];
 }
 
-/** Every (pack, intent) on the ladder with its evidence. Five grouped queries + one file read. */
+/** Every (pack, intent) on the ladder with its evidence. Five grouped queries + one scoreboard read (0.7: the table, else the file). */
 export async function gatherEvidence(opts: GatherOpts = {}): Promise<IntentEvidence[]> {
     const now = opts.now ?? new Date();
     const since30 = new Date(now.getTime() - GATE.verdictWindowDays * 86_400_000);
@@ -357,7 +417,7 @@ export async function gatherEvidence(opts: GatherOpts = {}): Promise<IntentEvide
             FROM pack_tier_events ORDER BY pack_id, intent, at DESC`),
     ]);
     await refreshTierOverlay(true);
-    const board = readLatestScoreboard(opts.evalResultsDir);
+    const board = await readLatestScoreboard({ dir: opts.evalResultsDir, ...(opts.loadEvalRun ? { loadRow: opts.loadEvalRun } : {}) });
     const key = (p: string, i: string | null) => `${p}|${i ?? ''}`;
     const unsafeBy = new Map(unsafeEver.map((r) => [key(r.pack_id, r.intent), Number(r.n)]));
     const escBy = new Map(escalations14.map((r) => [key(r.pack_id, r.intent), Number(r.n)]));

@@ -1,0 +1,39 @@
+# The prompt gate (build plan v2, 0.7 part B): no prompt change without its test.
+#
+# This is the repository's first GitHub Actions workflow. The four checks a pull request runs today
+# are Vercel's (three preview deployments plus preview comments) — they build the app, they do not
+# test it — so there was no test CI to extend and this adds the smallest possible one rather than a
+# parallel test runner. It runs one script, the same one an author runs locally:
+#
+#   npm run gate:prompts
+#
+# It fails when a pull request changes a file under server/spine/prompts/ without adding or
+# changing a file under eval-cases/. The rule and its budget: docs/RUNBOOK.md §"Changing a prompt".
+name: Prompt gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  prompt-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate diffs against the merge base, so it needs both sides of the pull request.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Which files changed
+        id: changed
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          git diff --name-only "origin/${{ github.base_ref }}...HEAD" > changed.txt
+          echo "--- changed paths ---"
+          cat changed.txt
+      - name: No prompt change without its test
+        run: |
+          # tsx only; no install of the app's full dependency tree is needed for a pure rule.
+          npx --yes tsx@4 scripts/check-prompt-gate.ts --files $(tr '\n' ' ' < changed.txt)
