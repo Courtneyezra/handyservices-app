@@ -5,6 +5,13 @@ description: Use before editing anything under server/spine/prompts/ or eval-cas
 
 # Changing a spine prompt
 
+## What the customer never reads
+
+**There is deliberately no bot-disclosure line to customers in chat.** That is an owner
+decision: automated messages speak as Handy Services, and the transparency lives on the
+`/privacy` notice, not in the message thread. Never add one to a prompt, an ack or a
+template (`customer-data-processors` skill).
+
 ## The gate
 
 A change under `server/spine/prompts/` must arrive with a change under `eval-cases/`.
