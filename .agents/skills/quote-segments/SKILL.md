@@ -1,6 +1,6 @@
 ---
 name: quote-segments
-description: Use when adding, renaming or changing a customer segment on the personalized quote page — the segment enum, its detection signals, tier structure, framing, add-ons or conversion boosters. Lists every file a new segment must touch and the framework the existing segments follow.
+description: Use when adding, renaming or changing a customer segment on the personalized quote page — the segment enum, its detection signals, tier structure, framing, add-ons or conversion boosters. Lists the files a new segment must touch and the framework the existing segments follow.
 ---
 
 # Quote segments
@@ -8,7 +8,7 @@ description: Use when adding, renaming or changing a customer segment on the per
 A segment drives what the personalized quote page says: hero, proof, guarantee,
 testimonial, the product on offer, its add-ons and its conversion boosters.
 
-## Every file a new segment touches
+## The files a new segment touches on the quote page
 
 | File | What it holds |
 | --- | --- |
@@ -19,9 +19,21 @@ testimonial, the product on offer, its add-ons and its conversion boosters.
 | `client/src/components/quote/SchedulingConfig.ts` | Add-ons |
 | `client/src/pages/GenerateQuoteLink.tsx` | Dropdown selector |
 | `client/src/pages/GenerateQuoteLinkSimple.tsx` | Segment options |
+| `shared/hassle-comparisons.ts` | Hassle rows and the section headline |
 
 Miss one and the segment half-exists: it will be detectable but unselectable, or
-selectable with the default page content.
+selectable with the default page content. That is the minimum set for the quote
+page, not the whole surface — segment values are also read by the live-call
+coach, the pricing engines and the admin tooling.
+
+A map keyed `Record<SegmentType, ...>` fails the build when a value is missing, so
+tsc points you at those itself — `server/segmentation/config.ts`,
+`client/src/config/segment-confirmation-content.ts` and the admin tube-map and
+pipeline colour maps. Everything else is keyed `Record<string, ...>` and falls
+back silently: a segment missing from `shared/hassle-comparisons.ts` renders the
+generic `UNKNOWN` rows on a live quote with no error anywhere. So grep an existing
+value such as `LANDLORD` across the repo and decide each hit deliberately rather
+than trusting the table.
 
 ## The framework the existing segments follow
 
