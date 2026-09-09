@@ -6,6 +6,12 @@
  * claim, and still send the same three fixed lines; what changed is that one function runs them,
  * in a fixed order, and every one of them emits through one place.
  *
+ * T35 (8 Sep 2026): the `silence` lane is RETIRED from the clock — it fired the canned holding
+ * line at the same ten minutes the inbound debounce waited, so the template beat the Scoper to
+ * the customer. `sweepSilence` is still exported and still tested; it is simply not a row in
+ * SILENCE_LANES any more. The assertions below now pin that, so re-adding it is a deliberate act
+ * with a failing test in front of it.
+ *
  * The db is a chainable stub that returns nothing, so each lane runs its real query shape and
  * finds no candidates. That is enough for the structural claims here; the per-lane DECISIONS —
  * ten minutes, the 48-hour ceiling, the due times, the claim — are pure functions and are tested
@@ -60,10 +66,16 @@ beforeEach(() => {
     _resetSilenceClockThrottle();
 });
 
-describe('one clock, three lanes', () => {
-    it('the lanes are the three reasons, in a fixed order', () => {
-        expect(SILENCE_LANES.map((l) => l.reason)).toEqual(['silence', 'flag_expiry', 'draft_expiry']);
+describe('one clock, the lanes that remain', () => {
+    it('the lanes are the two expiry reasons, in a fixed order — silence is retired (T35)', () => {
+        expect(SILENCE_LANES.map((l) => l.reason)).toEqual(['flag_expiry', 'draft_expiry']);
+        // The vocabulary is unchanged: rules-layer still owns `silence` copy, and every holding
+        // line already sent under that name still reads by it in system_events.
         expect(SILENCE_REASONS).toEqual(['silence', 'flag_expiry', 'draft_expiry']);
+    });
+
+    it('T35: no lane fires the ten-minute silence holding line at a customer', () => {
+        expect(SILENCE_LANES.some((l) => l.reason === 'silence')).toBe(false);
     });
 
     it('every lane names a holding line rules-layer still has copy and a template for', () => {
@@ -76,7 +88,7 @@ describe('one clock, three lanes', () => {
         }
     });
 
-    it('the three lane scans are still exported: they are separate scans of separate tables', () => {
+    it('the three lane scans are still exported (sweepSilence included: T35 retires the trigger, not the mechanism)', () => {
         expect(typeof sweepSilence).toBe('function');
         expect(typeof expireFlags).toBe('function');
         expect(typeof expireDrafts).toBe('function');
@@ -86,7 +98,7 @@ describe('one clock, three lanes', () => {
         const order: string[] = [];
         const lanes = SILENCE_LANES.map((l) => ({ ...l, run: async () => { order.push(l.reason); return { acted: 0, note: l.reason }; } }));
         for (const l of lanes) await l.run(new Date());
-        expect(order).toEqual(['silence', 'flag_expiry', 'draft_expiry']);
+        expect(order).toEqual(['flag_expiry', 'draft_expiry']);
     });
 
     it('runs, and finds nothing to say, against an empty desk', async () => {
@@ -109,7 +121,7 @@ describe('one clock, three lanes', () => {
     it('a lane that throws does not stop the ones after it — what the three catch arms used to buy', async () => {
         const ran: string[] = [];
         const boom = vi.spyOn(SILENCE_LANES[0], 'run').mockRejectedValue(new Error('the silence scan fell over'));
-        const after = vi.spyOn(SILENCE_LANES[2], 'run').mockImplementation(async () => { ran.push('draft_expiry'); return { acted: 0, note: '' }; });
+        const after = vi.spyOn(SILENCE_LANES[1], 'run').mockImplementation(async () => { ran.push('draft_expiry'); return { acted: 0, note: '' }; });
         await expect(runSilenceClock(new Date('2026-09-08T09:00:00Z'))).resolves.toBeUndefined();
         expect(ran).toEqual(['draft_expiry']);
         boom.mockRestore();

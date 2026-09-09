@@ -74,7 +74,7 @@ export interface SpineSwitches {
     video: { enabled: boolean; images: boolean; maxPerRun: number };
     /** 0.5: which desk behaviour is live. Absent on a server older than this build → read as v3. */
     desk?: DeskBehaviour;
-    sweepLimit: number; debounceMinutes: number; triageModel: string; city: string;
+    sweepLimit: number; debounceSeconds: number; triageModel: string; city: string;
 }
 export interface LegacySwitches { enabled: boolean; onInbound: boolean; autosend: boolean; firstContactAck: boolean; quotePrep: boolean }
 /** T7: what the media/run stepper may send. Mirrors VIDEO_MAX_PER_RUN in server/spine/config.ts, which the route enforces regardless. */
@@ -796,7 +796,7 @@ export function SpineSwitchStrip({ fallbackSpine, fallbackLegacy }: { fallbackSp
                     `spine.video.maxPerRun — how many photos/videos one case-file build may describe (the NEWEST that many; older ones in a burst are skipped). Each item not already cached is one paid Gemini call the build waits for. ${VIDEO_MAX_PER_RUN.min}–${VIDEO_MAX_PER_RUN.max}.`,
                     (n) => flipSpine('video.maxPerRun', { video: { maxPerRun: n } }))}
                 {agentToggles}
-                <span className="text-[10px] text-slate-400">debounce {spine.debounceMinutes} min · sweep {spine.sweepLimit}/tick · triage {spine.triageModel} · {spine.city}</span>
+                <span className="text-[10px] text-slate-400">debounce {spine.debounceSeconds}s · sweep {spine.sweepLimit}/tick · triage {spine.triageModel} · {spine.city}</span>
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-400">
                 {(['desk', 'asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun'] as const).map((k) => <span key={k}>{k}: {whoWhen(last[k])}</span>)}

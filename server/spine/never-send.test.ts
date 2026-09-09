@@ -58,6 +58,14 @@ describe('the three writers all refuse', () => {
     it('applyTierOverlay ignores a stored SEND row for a neverSend intent and keeps the rest', () => {
         const p = getPack('customer.default');
         const merged = applyTierOverlay(p, { holding: 'SEND', closing: 'SEND', ask_gap: 'SEND', clarify_scope: 'DRAFT' });
-        expect(merged.tierByIntent).toEqual({ ask_gap: 'SEND', clarify_scope: 'DRAFT' });
+        // T35: the pack's own tierByIntent now starts the four §5.1 intents at SEND, so the merge
+        // is the overlay OVER those. The claim under test is unchanged: the two neverSend rows
+        // are dropped, everything else is honoured.
+        expect(merged.tierByIntent).toEqual({
+            ...p.tierByIntent,
+            ask_gap: 'SEND', clarify_scope: 'DRAFT',
+        });
+        expect(merged.tierByIntent.holding).toBeUndefined();
+        expect(merged.tierByIntent.closing).toBeUndefined();
     });
 });

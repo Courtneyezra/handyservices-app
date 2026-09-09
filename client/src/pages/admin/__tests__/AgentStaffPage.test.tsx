@@ -17,7 +17,7 @@ const spine: SpineSwitches = {
     asks: { enabled: false }, autonomy: { enabled: false },
     sampler: { enabled: true, rate: 0.1, min: 3, max: 20 },
     video: { enabled: false, images: false, maxPerRun: 3 },
-    sweepLimit: 10, debounceMinutes: 2, triageModel: 'claude-haiku-4-5', city: 'Nottingham',
+    sweepLimit: 10, debounceSeconds: 8, triageModel: 'claude-haiku-4-5', city: 'Nottingham',
 };
 const legacy: LegacySwitches = { enabled: true, onInbound: true, autosend: false, firstContactAck: true, quotePrep: false };
 const alive: WorkerHeartbeat = { ok: true, ageSeconds: 12, stale: false, at: '2026-09-03T10:00:00Z', host: 'railway-abc', pid: 42, version: 'dfa65aa', staleAfterSeconds: 180, thisProcess: { role: 'passive', pid: 1, host: 'laptop', version: null } };

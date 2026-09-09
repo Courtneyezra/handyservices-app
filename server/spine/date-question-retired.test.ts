@@ -78,7 +78,12 @@ describe('§7 row 1 — before a quote exists, a date question is not Ben\'s', (
         expect(guards.ok).toBe(true);
         const d = decide({ proposal, guards, pack, triage: tri, caseFile: file, now: DAY_NOW });
         expect(d.kind).toBe('pending');
-        if (d.kind === 'pending') expect(d.reason).toMatch(/tier DRAFT/);
+        // T35: ask_gap starts at SEND on customer.default, so what holds this one back is no
+        // longer the tier — it is the send preconditions. The claim of this test is unchanged and
+        // is the stronger one: a date question is a pending draft for Ben, never a flag. Three
+        // separate rules would refuse this move (a photo was already asked for and not sent, the
+        // customer asked about a date, and they asked a question at all); the first one wins.
+        if (d.kind === 'pending') expect(d.reason).toMatch(/^precondition: /);
     });
     it('a first-contact date question still goes to the rules lane (the ack), not to Ben', () => {
         const r = triageRules(cf({ stage: 'enquiry' }, [inbound('Hi, need a tap fixed, when could you come?')]));
@@ -110,14 +115,18 @@ describe('§7 row 2 — a live unpaid quote: point at the picker', () => {
         expect(dateQuestionNeedsBen(cf(), getPack('customer.post_quote'))).toBe(true);   // no quote: nothing to point at
         expect(dateQuestionNeedsBen(cf({ quote: PAID_QUOTE }), getPack('customer.post_quote'))).toBe(true); // paid: no picker
     });
-    it('point_to_picker is DRAFT on both customer packs; nothing moved to SEND', () => {
+    it('the picker is the dates channel on both customer packs, and neither pack sends by default', () => {
         for (const id of ['customer.default', 'customer.post_quote']) {
             const pack = getPack(id);
             expect(pack.allowedIntents).toContain('point_to_picker');
-            expect(pack.tierByIntent.point_to_picker ?? pack.defaultTier).toBe('DRAFT');
-            expect(Object.values(pack.tierByIntent)).not.toContain('SEND');
-            expect(pack.defaultTier).not.toBe('SEND');
+            expect(pack.defaultTier).toBe('DRAFT');
         }
+        // T35: a live quote resolves to customer.post_quote (resolveStaticPack), and that pack is
+        // untouched — the picker line there is still a pending draft for Ben. On customer.default
+        // the intent starts at SEND, and the send precondition still refuses it without a live
+        // unpaid quote whose slug the body names (see send-preconditions.ts).
+        expect(getPack('customer.post_quote').tierByIntent.point_to_picker ?? getPack('customer.post_quote').defaultTier).toBe('DRAFT');
+        expect(getPack('customer.default').tierByIntent.point_to_picker).toBe('SEND');
     });
     it('the picker line passes the pack guards and decides DRAFT-pending, never a flag', () => {
         const tri = triageRules(file);

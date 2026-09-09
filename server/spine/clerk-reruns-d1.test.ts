@@ -71,7 +71,7 @@ vi.mock('../db', async () => {
     return { db: { select, update, execute } };
 });
 vi.mock('./config', () => ({
-    getSpineConfig: async () => ({ debounceMinutes: 10, sweepLimit: 3 }),
+    getSpineConfig: async () => ({ debounceSeconds: 8, sweepLimit: 3 }),
     isSpineEnabled: async () => true,
 }));
 vi.mock('./switch', () => ({ spineMode: async () => 'live' }));

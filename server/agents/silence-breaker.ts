@@ -10,8 +10,9 @@
  * 0.2 (8 Sep 2026): the three lanes below are ONE clock, `runSilenceClock`, carrying a REASON.
  * They were three, fired side by side; every timing, cap, suppression rule and word is unchanged.
  *
- *   sweepSilence   an inbound ≥ 10 min old with no outbound since → holding line ('silence').
- *                  Idempotent via conversations.metadata.silenceBreakerAt: one per inbound burst.
+ *   sweepSilence   RETIRED from the clock, T35 (8 Sep 2026) — it was the ten-minute holding line
+ *                  that beat the Scoper to the customer. Still exported and tested; see the
+ *                  comment on SILENCE_LANES for why, and for the one row that brings it back.
  *   expireFlags    agent_questions past due_at, unanswered → holding line ('flag_expiry'),
  *                  expired_at stamped (the claim), Ben re-pinged ONCE.
  *   expireDrafts   pending message_drafts past due_at → holding line ('draft_expiry'),
@@ -355,8 +356,8 @@ export async function expireDrafts(now: Date = new Date()): Promise<DraftExpiryR
 let lastPassAt = 0;
 
 /**
- * The lanes of the one clock, in the order they run. Each owns its scan and its claim; all three
- * emit through `breakSilence`. `acted` is what the lane counts as having DONE something this pass
+ * The lanes of the one clock, in the order they run. Each owns its scan and its claim; all of
+ * them emit through `breakSilence`. `acted` is what the lane counts as having DONE something this pass
  * (a line sent, a flag expired, a draft marked) — it is what decides whether the pass logs.
  *
  * Adding a fourth trigger is a row here, not a fourth clock.
@@ -367,15 +368,30 @@ export interface SilenceLane {
     run: (now: Date) => Promise<{ acted: number; note: string }>;
 }
 
+/**
+ * T35 (8 Sep 2026), the captain: "stop the templated messages and reply quick".
+ *
+ * The `silence` lane is NOT in this list. It fired the canned holding line at exactly the ten
+ * minutes the inbound debounce also waited (`debounceMinutes: 10`), so the two came due in the
+ * same minute and the template usually reached the customer first. That inverted its stated
+ * purpose — a net for a thread the desk never answered — into the routine first reply, which is
+ * the thing the captain saw on his own WhatsApp and objected to.
+ *
+ * A lane is a ROW, so retiring one is removing a row and restoring it is putting it back:
+ *
+ *     { reason: 'silence', what: '…', run: async (now) => { const r = await sweepSilence(now);
+ *       return { acted: r.sent, note: `silence sent=${r.sent} suppressed=${r.suppressed}` }; } },
+ *
+ * That is why `sweepSilence` and `isSilentBurst` are still here, still exported and still tested:
+ * a row is cheaper and harder to forget than a new settings flag that defaults to off, and the
+ * behaviour under it stays honest if it is ever wanted back at an interval that is a real net
+ * (hours, not minutes). `silence` also stays in `SilenceReason` — `rules-layer.ts` owns that copy
+ * and every past `silence` holding line in system_events still reads by that name.
+ *
+ * `flag_expiry` and `draft_expiry` are untouched: those are threads deliberately held for Ben,
+ * which is a different situation and not what he objected to.
+ */
 export const SILENCE_LANES: readonly SilenceLane[] = [
-    {
-        reason: 'silence',
-        what: 'an inbound ≥ 10 min old with nothing outbound since',
-        run: async (now) => {
-            const r = await sweepSilence(now);
-            return { acted: r.sent, note: `silence sent=${r.sent} suppressed=${r.suppressed}` };
-        },
-    },
     {
         reason: 'flag_expiry',
         what: 'a flag past its due time, unanswered — and Ben re-pinged once',
