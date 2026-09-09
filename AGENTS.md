@@ -1,189 +1,58 @@
 # V6 Switchboard ("The Monitor")
 
-## Project Overview
-Streamlined backend and frontend for the V6 Handyman Operations system. Isolates the "High IQ" components from V5 legacy.
-
-### Core Components
-1. **The Monitor** - Twilio Realtime WebSocket server for call transcription (OpenAI Whisper)
-2. **The Brain** - SKU detector that analyzes transcripts to suggest services/pricing
-3. **The Face** - HandymanLanding page optimized for conversion
+The V6 Handyman Operations system, isolating the "High IQ" components from V5 legacy: **The Monitor** (Twilio Realtime call transcription), **The Brain** (SKU detector turning a transcript into services and pricing), **The Face** (the HandymanLanding conversion page), and the comms desk under `server/spine/`.
 
 ## Tech Stack
-- **Frontend**: React 18, Vite 5, TypeScript, Tailwind CSS, shadcn/ui
-- **Backend**: Express 4, Node.js
-- **Database**: PostgreSQL (Neon) with Drizzle ORM
-- **Integrations**: Twilio, OpenAI, Deepgram, ElevenLabs, Stripe, WhatsApp Web.js, AWS S3
-- **Routing**: Wouter (client), Express (server)
+React 18 + Vite 5 + TypeScript + Tailwind + shadcn/ui + Wouter; Express 4 on Node; PostgreSQL (Neon) with Drizzle. Twilio, OpenAI, Gemini, Deepgram, ElevenLabs, Stripe, WhatsApp Web.js, S3.
 
 ## Project Structure
 ```
-├── client/src/
-│   ├── components/          # UI components
-│   │   └── quote/           # Quote display components
-│   ├── pages/
-│   │   ├── admin/           # Admin dashboard
-│   │   └── contractor/      # Contractor portal
-│   └── lib/
-│       ├── quote-helpers.ts
-│       └── quote-pdf-generator.ts
-├── server/
-│   ├── index.ts             # Server entry
-│   ├── quotes.ts            # Quote routes
-│   ├── quote-engine.ts      # Quote generation logic
-│   └── twilio-realtime.ts   # Call transcription
-├── shared/
-│   └── schema.ts            # Drizzle schema
-├── scripts/                 # Utility scripts
-├── migrations/              # DB migrations
-└── docs/                    # Documentation
+client/src/  pages/admin, pages/contractor, components/quote, lib/quote-*.ts
+server/      index.ts (entry + routes), spine/ (comms desk), agents/ (legacy
+             comms, sweeps), quote-engine.ts, segmentation/
+shared/schema.ts   eval-cases/   scripts/   migrations/   docs/
 ```
 
 ## Commands
 ```bash
-npm run dev          # Start dev server
-npm run build        # Build for production
-npm run db:push      # Push schema to database
-npm run seed         # Seed SKU table
+npm run dev / build / seed   # dev, production build, seed the SKU table
+npm run gate:prompts         # prompt/eval-case gate (see the spine-prompt-change skill)
+npx tsx scripts/_apply-migration.ts migrations/<file>.sql   # apply a migration
+npx tsx scripts/_spine-mode.ts --status   # read the comms desk switches
 ```
 
 ## Key Documentation
-- `docs/ROADMAP_STRATEGY.md` - Phase strategy (Bionic CRM → Co-Pilot → Agentic)
-- `docs/SYSTEMATIC_ROADMAP.md` - Task breakdown (B1-B6, F1-F6)
-- `docs/RUNBOOK.md` - Operations guide
+- `docs/RUNBOOK.md` — operations, health endpoints, the prompt and eval procedure
+- `docs/COMMS_AGENTS_V3_DESIGN.md` — comms desk design; `docs/comms-build/CUTOVER.md` to switch or roll back
+- `docs/comms-desk-log.md` — historical shipping log for the comms desk and the quoting segments. Not loaded into sessions; read it only for the history behind a decision.
+- `docs/ROADMAP_STRATEGY.md`, `docs/SYSTEMATIC_ROADMAP.md` — phase strategy and tasks
 
 ## Current Phase: Phase 1 "Bionic CRM"
-Focus on immediate operational utility before AI autonomy.
-
-### Priorities
-1. **Invoicing & Payments** - Order-to-cash cycle
-2. **Dispatching & Calendar** - Job assignment flow
-3. **Field App** - Contractor job acceptance & completion
+Operational utility before AI autonomy: invoicing and payments, dispatch and calendar, field app.
 
 ## Database
-Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_services` (SKUs), `handyman_profiles`
+`users`, `leads`, `calls`, `messages`, `personalized_quotes`, `productized_services` (SKUs), `handyman_profiles`, `message_drafts`, `draft_verdicts`, `kb_entries`, `eval_runs`, `app_settings`. Never run `db:push`; migrations are idempotent SQL applied with `scripts/_apply-migration.ts`.
 
 ## API Routes
-- `/api/quotes` - Quote CRUD & generation
-- `/api/calls` - Call tracking
-- `/api/leads` - Lead management
-- `/api/twilio/*` - Twilio webhooks
+- `/api/quotes`, `/api/calls`, `/api/leads` — quote, call, lead CRUD; `/api/twilio/*` webhooks
+- `/api/spine/*` — comms desk config, tiers, go-live check, vision health (admin)
+- `/api/comms-sandbox/*` — dry-run harness (admin; see the `comms-sandbox` skill)
+- `/api/health/comms-worker` — worker heartbeat, `status: 'ok' | 'stale'` as 200 / 503
 
----
-
-## Current Work in Progress
-
-### Comms desk — "the spine" (Phases 0–11 shipped 2–4 Sep 2026; production LIVE since 3 Sep 00:31 UK, autonomy + sampler still off)
-- One pipeline for customer messaging under `server/spine/`: case file → triage → policy pack → agent (Scoper / Quote clerk / Recovery / Contractor liaison) → guards → decision → exit. The exit is the only sender; every send carries an `Approver` and a run id.
-- Ships behind `app_settings.spine` (`enabled` / `shadow` / `mode`, plus `asks`, `autonomy`, `sampler`, `video`), all fail-closed off. Flip with `scripts/_spine-mode.ts`. Legacy `server/agents/comms.ts` keeps drafting until Phase 5 deletes it (7 live days, zero unsafe).
-- Ben's approve / edit / reject with reason chips (`draft_verdicts`) plus eval families (`eval-cases/`, `scripts/eval-comms.ts`) are what promote an intent DRAFT → SEND (`server/spine/autonomy.ts`); the 10% sampler and any `unsafe` verdict demote.
-- Only the Railway worker (`COMMS_WORKER=1`) runs customer loops; heartbeat on `/api/health/comms-worker`.
-- Sandbox (T5, 6 Sep): `/admin/sandbox` types as a customer and watches a dry-run pass live. It lives on the reserved drama number `+447700900942` (`server/spine/sandbox.ts`), never reaches the exit, and is excluded from the board, desk, sweeps, sampler and autonomy evidence. The spine emits the live run feed for every pass (`server/spine/run-events.ts`). Report: `docs/comms-build/T5-DONE.md`. First run live 7 Sep (T6): a clean thread now gets the rules layer's ack mirrored so the second message reaches the Scoper, and a refused model belt is recorded as a failed pass. Report and owner re-check list: `docs/comms-build/T6-DONE.md`. Media (T11, 7 Sep): a sandbox message can carry photos or a video (`Attach`); they are stored exactly as a real WhatsApp inbound is (`MEDIA_DIR`, S3 mirror, the same `messages` columns) so Gemini's description reaches the Scoper as it would live, and the pass reports per item what the desk saw or why it saw nothing (`mediaReportFor`; the selection rule is `server/spine/media-selection.ts`, shared with `buildCaseFile`). Report and the owner's check: `docs/comms-build/T11-DONE.md`. Attach fix (T13, 7 Sep): the first real use found the page dropped the picked file before React read it (`addFiles` cleared the input's live FileList ahead of a deferred state updater), so no file ever reached the server; fixed on the page, and every downstream link (multipart, multer, the row, the bubble, the case file) was proven live on the owner's server. Gemini's description failed there for a reason only his console shows (`[describe_video]`); `scripts/_describe-media.ts <photo> --live` prints it. Report and re-check: `docs/comms-build/T13-DONE.md`.
-- Describer model (T14, 7 Sep): `gemini-2.5-flash` answered 404 "no longer available to new users" on every call for this account, so photo and video description had never produced a description since `spine.video` went on (445 failed vision rows in 30 hours, all recorded as the generic `no description`). `server/spine/tools/describe-video.ts` now calls `gemini-3.6-flash` (the model Google's error named; still `generateContent` v1beta, no `temperature`, thinking tokens counted as output; price in `server/agent-cost.ts`, $0.75 / $3.75 per M to 31 Dec 2026) and classifies a failure: `describeMediaDetailed` marks HTTP 400 / 401 / 403 / 404 as `config` (permanent, not retried) and the vision row's `error` carries the real reason with its class first. `server/spine/vision-health.ts` reads the newest 20 vision rows into one verdict shown in three places: a red **VISION FAILING** badge on the sidebar's *AI Staff* item (`GET /api/spine/vision-health`), the Vision card on `/admin/staff`, and the sandbox banner. Not proven live (no key here): the owner's check is in `docs/comms-build/T14-DONE.md`.
-- Sandbox doors, window and funnel (T16, 7 Sep): the sandbox opens through one of the four real front doors (`POST /api/comms-sandbox/start { door }`: inbound WhatsApp, post-call with WhatsApp agreed, webform, inbound SMS), each seeded as the live writer seeds it and each reporting the first thing the customer would receive and by which rung of which ladder (`server/spine/sandbox-scenarios.ts`, pure plans over the live decision functions and the real template cache). The 24 h window is shown as the case file reads it and can be shut honestly (`/age` moves every timestamp back) and observed (`/run` is a clock pass with no new message). Route A now RUNS in the sandbox with Ben's Pushover and the job pack recorded on the run instead of done (`sandboxRouteADeps`); `/price` and `/accept` carry the thread to a sent quote and a paid deposit. The sandbox number is excluded from the price queue (`WAITING_DRAFT_WHERE`) and the price screen's send refuses it. Report and the owner's walkthrough: `docs/comms-build/T16-DONE.md`.
-- Sandbox first message (T19, 8 Sep): the inbound WhatsApp door starts from the customer's own opening message, typed by the owner with no default, because on that door the customer starts the conversation: `POST /api/comms-sandbox/start { door: 'whatsapp', text }` inserts it as the WhatsApp inbound (the window opens), runs the first pass, and mirrors the freeform ack only if the pass landed on first contact, through the same helper `/message` uses (`mirrorFirstContactAck`). The Door box says the message opened the window. The other three doors keep seeding their originating event. Report and re-check: `docs/comms-build/T19-DONE.md`.
-- After Ben's own call (T21, 8 Sep): the ladder (`server/post-call-ladder.ts`) hands an ANSWERED outbound call with a transcript to the spine as `call_ended`, as an inbound answered call always was, so the Scoper resumes from what Ben established on the phone (he asks for photos there; the follow-up is what collects them, freeform when the customer wrote first and the window is open). The hand-off sits behind every post-call outreach rail (`outboundHandoffVerdict`: minimum duration, mobile only, suppression list, `no_auto_messages`, a classification on the row, no decline or objection, not a complaint or a dropped call, the 30-day dedupe, quiet hours), gathered fail-closed by `ingestCallRow` (`gatherOutboundRails`): an input that cannot be read refuses. An answered outbound call on a thread waiting for a call also settles `callback_requested` (tag and flag, through `releaseFromBen`, by `system:outbound_call`) as it already settled `callback_due`. Triage does not re-run its text lexicons on a customer message an outbound call has since answered (`server/spine/answered-by-call.ts`; two lines in `triage.ts`), and the Scoper now sees a call's summary line plus up to 4,000 characters of transcript (was 700, head only). On the `call_ended` pass after Ben's call every Scoper reply is a pending draft for Ben: the call is the newest turn, so `ours_is_newest` holds it; nothing new sends unattended. Sandbox: **Ben rings them** (`POST /api/comms-sandbox/call`) writes the call through the live `ingestCallRow` and runs the pass. Report and the walkthrough: `docs/comms-build/T21-DONE.md`.
-- Reach the Scoper (T20, 8 Sep): the `rules` lane runs no agent (`RULES_PLACEHOLDER`), so a thread the triage MODEL moved onto it got nothing (run_e5372115…: the reply to our ack, tagged needs_quote, laned `rules`). `mergeTriage` now keeps the rules' lane when the model says `rules` on a thread that is not first contact, and `triageRules`' first-contact branch fires only while the customer's message is the thread's only text message (a second one with nothing from us means the ack did not land). Ask for a photo ONCE, off the thread: `server/spine/media-ask.ts` (pure) reads the newest outbound that asks for media and whether the customer replied without sending any; the Scoper's `propose_reply` refuses a second media ask and a repeat thank-you for media already acknowledged (Priya, 495577b5), the rendered case file states the fact, `send-preconditions.ts` belts both (`media_already_asked`, `media_already_acknowledged`), the clerk's `get_thread` carries `mediaAsk`, and the price payload carries `customerMedia` (the page shows a "No photo · asked, none sent" pill that opens the existing Ask-her-first sheet pre-filled). A bare pause ("one second let me check", `RE_PAUSE_ONLY`) is no longer a promise; a named deliverable or a deferred return (`RE_PROMISED_MORE`) still is. No tier, prompt wording, template, guard or ack copy changed. Report and the walkthrough: `docs/comms-build/T20-DONE.md`.
-- Ask once, thank once, hand off once (T28, 8 Sep, plan v2 item 0.3): the captain's cross-cutting rule 7 generalised off photos. `server/spine/ask-ledger.ts` is the one ledger — four subjects (`media`, `postcode`, `access`, `handoff`), each with T20's exact shape (asked → repliedSince → answeredSince → outstanding), derived from the thread's own timeline and nothing else. The case file stores what it derived (`CaseFile.asks`, hashed with the rest) so a replay reads what the agent read; `askLedgerOf` falls back to deriving for an older file or a fixture. `send-preconditions.ts` keeps T20's two media codes and adds `already_asked:postcode`, `already_asked:access`, `handoff_already_said`, before the intent switch as the media belts already were. `access` is never answered by machine (they replied; we do not insist); `handoff` is said once per OPEN FLAG, not once per thread, and is the named slot item 1.4's "Ben will come back to you" line lands in. `mediaAckState` now reads the newest media BATCH (our own reply in the middle does not end it; a non-media inbound or a 10-minute gap does), so two photos a minute apart get one thank-you. `renderCaseFile` states each outstanding ask and `scoper.core.md` tells the model to read the fact, not infer it. Two guards-incident fixtures now report `already_asked:postcode` instead of `ask_gap:quote_on_case` — both still hold at SEND. Report and the owner's check: `docs/comms-build/T28-DONE.md`.
-- Send preconditions (B7a, 7 Sep): `server/spine/send-preconditions.ts` is the deterministic gate on the *move* of a SEND-tier customer reply (reactive, customer's turn newest, `ask_gap` only pre-quote with no date or question asked, `confirm_received` only when something arrived, the pointing intents only with the quote's slug in the body). `decide` runs it only at SEND on a customer pack, so nothing changes until a person sets a tier; `PolicyPack.neverSend` (holding, clarify_scope, faq_from_kb, closing, offer_survey, answer_from_quote) can never be set to SEND by anyone. Eval cases carry `expected.precondition`, graded by `--adapter triage` with no key. Report: `docs/comms-build/B7a-DONE.md`.
-- Clerk re-runs (D1 / D10, 7 Sep): every live or shadow pass leaves `metadata.lastSpinePass` (`{ at, trigger, runId, quoteTags }`, written by `runDue` in the same UPDATE that clears the lease, and by `runShadow`); the untriggered-quote net (`sweepUntriggeredQuotes`, the only clock that can request a `cadence` run) refuses a quote-tagged thread whose last pass started after the customer's latest inbound and found every quote tag now on the row. A new customer turn, a quote tag the pass did not find, or a `manual` run re-opens it; a clock never does. The direct requesters never read it. Report: `docs/comms-build/D1-DONE.md`; further loop shapes are BACKLOG D11–D13.
-- Price queue (T9, 7 Sep): `/admin/price` lists every Route A draft waiting to be priced, oldest first, with its age and the price screen's own signals; a count badge in the sidebar (DISPATCH CONSOLE) and a one-line strip in the price screen's header ("N more waiting · Next: …") read the same query. "Waiting" is `WAITING_DRAFT_WHERE` in `server/spine/price-brief.ts`, the confirm screen's own rule; there is no second definition. Read-only, no notification, no price value. Report: `docs/comms-build/T9-DONE.md`.
-- After the handover (T17, 7 Sep): the S15 review found the desk delivers "nobody left in silence" for one message per turn and that a thread handed to Ben never came back. `server/agents/sla-sweep.ts` now carries the chase ladder as three lanes (`ben_flag` from the flag's due time, `pending_draft` from the draft's due time, `price_draft` from the Route A draft's creation; `WAITING_DRAFT_WHERE` is still the one rule): re-pinged every 4 working hours (BEN_HOURS) with a numbered title on the `chase` Pushover key, from 12 working hours on the owner-facing `chase_escalation` key, backlog after 3 days (`chase` in `sla_sweep` config; defaults in code). `server/handover.ts` is the way back: `releaseFromBen` clears `needs_ben`, dismisses the open flag rows and ledgers it, called from `sendCustomerMessage` on any `human:*` send, from the composer's Meta path, and as a belt from the sweep's needs_ben scan; the page no longer PATCHes tags. The exit dedupes a flag on the open flag row and its exception, not the tag (`flagAlreadyOpen`). The board's clock treats a rules-layer holding line as a machine receipt like an ack (`auto-ack-window.ts`), the card carries the flag's note and due chip (`flagNote` / `flagDueAt`), and the digest names threads. No customer-facing line; the expiry claim order stays with the D1 decision. Report and the owner's check: `docs/comms-build/T17-DONE.md`; follow-ups BACKLOG Lane 13.
-- Scope is gas only (T18, 7 Sep): the captain decided "we do handle plumbing … gas only, the rest is ours". The only work the desk treats as not ours is gas (and asbestos, which he was not asked about): `RE_REGULATED` in `server/spine/triage.ts` is now the gas lexicon and is the ONE path by which a gas job reaches Ben (`regulated_trade`, raised by the rules before the model runs). `out_of_scope` is no longer the model's to add: `mergeTriage` drops it on every thread and records why; it stays in the vocab for flags already on the board. Plumbing, water heaters, roofing, structural and electrical work go to the Scoper. `DeclineReason` is `gas_work` only (`server/agents/quote-prep.ts`; `docs/DECLINE_CRITERIA.md` carries the dated note). Fixtures: `eval-cases/scope/`. Report, the check and what the boundary now lets through: `docs/comms-build/T18-DONE.md`.
-- The v4 switch (0.5, 8 Sep): `spine.desk` in `app_settings.spine` is `'v3' | 'v4'` — WHICH DESK BEHAVIOUR is live, not whether the spine runs. `v3` (the code default, and what any unreadable or unknown value reads as) is today's desk, where every Scoper reply waits for Ben; `v4` is reply-by-default. Ask the question ONLY through `isDeskV4(cfg)` in `server/spine/config.ts` — it is the single sanctioned reader, and `server/spine/desk-switch.test.ts` fails if a behaviour module reads `cfg.desk` itself. Owner-only on `POST /api/spine/config` and on the `/admin/staff` switch strip, printed by `scripts/_spine-mode.ts --status`, rolled back at `docs/comms-build/CUTOVER.md` §4a (which does NOT touch `spine.mode`; drafts already pending stay in Ben's queue either way). Nothing consults it yet: the build-plan-v2 items in weeks 2–4 gate their behaviour on it.
-- Someone is paged when the worker dies (0.6, 8 Sep): the stale-heartbeat alarm only ever ran inside the worker, so it caught a WEDGED worker and never a dead one — and every customer-facing clock (passes, holding lines, chases) is worker-only, so a dead worker is a silent desk. `checkHeartbeatFromOutsideOnce` / `startHeartbeatWatchdog` in `server/comms-worker-heartbeat.ts` run the same check from a passive **production** process (called once from `server/index.ts`): a heartbeat older than 10 min pages Ben on the same `worker_health` key, at most once an hour in the same UK 08–20 window, and the first fresh heartbeat after a page sends one "comms worker is back". The two alarms can never fire for the same episode — `shouldAlertStale` needs `isCommsWorker()`, `shouldWatchdogAlert` needs its absence. A laptop never pages (`NODE_ENV=production` required). `/api/health/comms-worker` now also carries `status: 'ok' | 'stale'` (200 / 503, unchanged codes) for a platform healthcheck. Nothing about the write path, its interval or any customer clock changed. Report, the endpoint's states and the ops choice still open (production is one service that is both web and worker): `docs/comms-build/0.6-DONE.md`; ops summary in `docs/RUNBOOK.md` §4 Health.
-- Prompt gate + eval scoreboard (0.7, 8 Sep): a change under `server/spine/prompts/` must arrive with a change under `eval-cases/` — enforced by `npm run gate:prompts` and the `Prompt gate` pull-request check (`.github/workflows/prompt-gate.yml`, this repo's first GitHub Actions workflow; the four checks a PR ran before are Vercel's preview deploys). Before merging a prompt change, run the affected families against the model (`EVAL_LIVE=1 npx tsx scripts/eval-comms.ts --adapter spine --family <family>`, roughly £0.30–£0.60 a family). The scoreboard now lives in `eval_runs` as well as `eval-results/latest.json`: the autonomy job reads the row first, the file second, `missing` third — it read a file that has never existed on the server, so the evidence half of the promotion gate had never run. Rule, budget and how the server gets its first row: `docs/RUNBOOK.md` §"Changing a prompt" and §"The eval scoreboard on the server".
-- One sender registry (0.2, 8 Sep): the desk had one send gate and 30+ callers, eight of them unswitchable, one route to the wire past the gate, and a booking confirmation that passed no purpose so a plain STOP swallowed a paying customer's receipt. `server/sender-registry.ts` is the second half of `server/approver.ts`: a `Record<AutomatedApprover, { what, purpose, switchKey, kind }>`, so an approver with no row does not compile. `transactional` (`system.notification` — the booking confirmation, the job-lifecycle notifications, the Twilio failure-recovery SMS) can never carry a switch key; every `operational` / `agent` sender must, at `spine.senders.<key>.enabled` in the same `app_settings.spine` row, validated against the keys the registry issued. The gate refuses an unregistered approver, refuses a switched-off one, and applies the REGISTERED purpose when the caller passes none (was: default to marketing). This is the one spine read that fails open. The composer's Meta / named-template route no longer calls the wire directly — it goes through the gate with a `human:*` approver and a run id, so `server/whatsapp-api.ts` came off `SEND_ALLOWED_CALLERS`. `server/__tests__/sender-registry.test.ts` walks every call site of `sendCustomerMessage` and every direct call of the two wire functions and fails when someone adds an unregistered sender. Also: the three holding-line clocks are ONE clock carrying a reason (`runSilenceClock`, `SILENCE_LANES`; timings, caps, suppression, wording and the flag-expiry re-ping all unchanged); `RE_REGULATED` reads the last three customer texts and the media descriptions, no other lexicon widened; and the per-agent switches on /admin/staff now STOP the agent they name (`isAgentSwitchOn` — the per-agent row alone, never the master switch, or the sandbox loses its agents). Report and the owner's check: `docs/comms-build/0.2-DONE.md`.
-- WhatsApp templates for a shut window (4.1, 8 Sep, plan v2 week one): outside WhatsApp's 24-hour window only a template Meta approved in advance can send at all, and approval takes days to weeks, so the five are DEFINED and submitted before anything reads them. `server/window-templates.ts` carries the definitions — name, Meta category, named trigger (`id` / `when` / `source` / `wired`), variables with Meta's sample values, wording — and `server/template-status.ts` derives its window-shut `EXPECTED_TEMPLATES` rows from them, so there is still ONE registry; live status always comes from the hourly Twilio poll (`server/whatsapp-template-sync.ts`), never from these files. Two of the five reuse a name the account already has (`quote_ready_link`, `web_enquiry_ack_context`) because Meta rejects a near-duplicate of a template it already approved: one template per purpose. Only the chase (`enquiry_followup_optin_v1`) is MARKETING, submitted that way from the start with a STOP line and `purpose: 'marketing'`, so a send path branches on a FIELD and not on a name (a plain STOP blocks `marketing` only, `server/opt-out.ts`). Every body is asserted against `shared/chat-voice.ts` and `checkDraft` with its own sample values. Submitting is owner-only and has NEVER been run: `npx tsx scripts/_submit-window-templates.ts` is dry-run by default; steps in `docs/META-TEMPLATE-RUNBOOK.md`, wording and rationale in `docs/comms-build/TEMPLATES-WINDOW-SHUT.md`, Meta's own content rules in `docs/TWILIO_TEMPLATES.md`. Nothing is wired to a trigger yet; that is plan item 4.2.
-- The knowledge base (3.4, 8 Sep): `kb_entries` (migration `20260908_kb_entries.sql`) is where Ben writes what is true about the business — the topic, the APPROVED WORDS that may be sent verbatim, banned phrases for that topic, a status, who reviewed it and when, and a readable citation id. Item 3.2 will make a factual answer BE those words, selected, not paraphrased, because s10 established nothing here can check whether a claim about the business is true. Anything customer-facing reads `listReviewedEntries` / `getReviewedEntry` / `getFixedLine` in `server/spine/knowledge-base.ts`, which return REVIEWED ANSWERS only; the drafts need the deliberately named `adminListEveryEntryIncludingUnreviewed`, whose caller list is pinned by `knowledge-base-access.test.ts`. The rule is enforced three times: the SQL, a code re-filter, and the table's own CHECKs (a question, a blank, or a row with no named reviewer can never be `reviewed`). Ben's page is `/admin/knowledge`; the seed is `server/spine/knowledge-base-seed.ts`, written by `scripts/seed-knowledge-base.ts` (re-runnable, never overwrites a row he has touched), all UNREVIEWED. The four things the website says that the desk's rules forbid (a free quote, no call-out charge, Gas Safe engineers, a no-charge fix) are seeded as `question` rows for him to settle, never as facts. The four fixed lines for gas, complaints, refunds and trust (answer 21) are entries with constant ids, read by item 1.4 through `getFixedLine`. NOT wired into any reply path, prompt, guard or pack — that is 3.1. Report: `docs/comms-build/T32-KB-DONE.md`.
-- Reply in seconds, in the Scoper's words (T35, 8 Sep): the desk waited ten minutes and then said something canned. Three coupled changes. (1) `spine.debounceMinutes` is now **`debounceSeconds`**, default 8, bounded by `DEBOUNCE_SECONDS` {min 3, max 120} and clamped ON READ; the arithmetic is one pure function, `debounceDelayMs` (`server/spine/request-run.ts`). It was RENAMED, not re-scaled, because the live `app_settings.spine` row carries `debounceMinutes: 10` and a stored key beats a code default — a key the row lacks takes the default at deploy, so the captain has to do nothing. It is still a debounce: two inbounds three seconds apart leave ONE due time (latest-writer-wins on `nextTriageAt`). Not settable through `POST /api/spine/config` (never was); change it with a settings write, read it back with `scripts/_spine-mode.ts --status`. (2) The `silence` lane is removed from `SILENCE_LANES` (`server/agents/silence-breaker.ts`) — it fired the canned holding line at the same ten minutes the debounce waited, so the template beat the Scoper to the customer. `flag_expiry` / `draft_expiry`, `sendHoldingLine`, its copy and the `holding_line` template are untouched: this retires a TRIGGER. Restoring it is one row, pasted in the comment above `SILENCE_LANES`; `silence-clock.test.ts` fails if someone re-adds it silently. (3) `customer.default` starts the four PRD v3 §5.1 intents (`ask_gap`, `confirm_received`, `point_to_quote_page`, `point_to_picker` — exactly `PRECONDITIONED_INTENTS`) at SEND. `defaultTier` is still DRAFT, `guardSet` (money first), `neverSend`, `exceptionsToBen` and `send-preconditions.ts` are unchanged, `customer.post_quote` / `customer.exception` are still all-DRAFT, and the ladder still demotes — `demoteOnUnsafeVerdict` fires synchronously on Ben's `unsafe` verdict and is NOT gated on `spine.autonomy.enabled`. Rollback is four `POST /api/spine/tiers … tier: 'DRAFT'` calls; it does NOT sit behind `spine.desk`. What still delays a reply and was deliberately left alone (fast tick 15s, the VA call-task lane's 15-working-minute triage hold, `ask_gap`'s refusal on a customer question mark, the first-contact ack making `ours_is_newest` true, the 5-minute `claimTriageTurn` floor): `docs/comms-build/T35-DONE.md`.
-- Docs: design `docs/COMMS_AGENTS_V3_DESIGN.md` · switching `docs/comms-build/CUTOVER.md` · people `docs/comms-build/HANDOVER.md` · ops `docs/RUNBOOK.md` §4 · per-pane reports `docs/comms-build/P*-DONE.md` · delete list `docs/comms-build/PHASE5-DELETE.md`.
-- Build gate: zero NEW tsc errors vs your start commit (the repo has ~1,882 pre-existing), vitest 42 pre-existing failures unchanged, esbuild bundles. Never `db:push`; migrations are idempotent SQL applied with `npx tsx scripts/_apply-migration.ts migrations/<file>.sql`.
-
-### Quoting System - PROP_MGR Segment (Completed Feb 4, 2025)
-
-**What was done**:
-- Improved PROP_MGR segment following Madhavan's single-product framework
-- Updated hero/proof/guarantee messaging (removed "Landlord Safety Net")
-- Single product "Property Service" instead of tier comparison
-- Job-focused features: 48-72hr scheduling, photo report, tenant coordination
-- Add-ons: Tenant Coordination (free), Photo Report (free), Key Collection (£30)
-- Partner Program = post-job upsell (not first-quote pitch)
-- Added PDF download buttons to QuoteCard and QuotesList
-- Added PROP_MGR BOF conversion boosters (Feb 4, 2025):
-  - Trust badge strip: £2M Insured • 4.9★ Google (127 reviews) • 230+ properties serviced
-  - Risk reversal statement: "Not right? We return and fix it free. No questions."
-  - Landlord PDF download button: "Download quote for landlord approval"
-
-**Key files changed**:
-- `client/src/pages/PersonalizedQuotePage.tsx` - Segment content & features
-- `client/src/components/quote/SchedulingConfig.ts` - Add-ons config
-- `server/segmentation/config.ts` - Tier structure & framing
-
-**Design decisions**:
-- Tenant coordination is OPTIONAL (property may be empty/Airbnb)
-- First quote = win the job, Partner Program = retention upsell after proving value
-- "Land and expand" strategy
-
-**Next steps**:
-- Test PROP_MGR quote flow end-to-end
-- Consider Partner Program upsell automation (after X completed jobs)
-
-### Quoting System - LANDLORD Segment (Added Feb 4, 2025)
-
-**What was done**:
-- Created new LANDLORD segment following Madhavan's single-product framework
-- Distinct from PROP_MGR: Individual landlords with 1-3 properties (not portfolio managers)
-- "Hassle-Free Landlord" angle: "Your Rental. Handled. One text. We sort it."
-
-**Segment Configuration**:
-- Hero: "Your Rental. Handled." / "One text. We sort it."
-- Proof: "You don't need to be there." - Photo proof, tenant coordination, tax-ready invoice
-- Guarantee: "Protect Your Investment" - 48-72hr response, photo report, tax-ready invoice
-- Testimonial: "I live 2 hours away. They coordinated with my tenant, sent photos, invoice was in my email by 5pm."
-
-**Single Product**: "Landlord Service"
-- Features: 48-72hr scheduling, photo report included, tenant coordination available, tax-ready invoice
-- Add-ons: Tenant Coordination (free), Photo Report (free), Key Collection (£30)
-
-**Conversion Boosters**:
-- Trust strip: £2M Insured • 4.9★ Google (127 reviews) • 180+ landlords trust us
-- Risk reversal: "Not right? We return and fix it free. No questions."
-- PDF download: "Download quote for your records"
-
-**Key files changed**:
-- `shared/schema.ts` - Added LANDLORD to segmentEnum
-- `server/segmentation/config.ts` - Profile, detection signals, tier structure, pricing, framing
-- `client/src/pages/PersonalizedQuotePage.tsx` - Segment content, features, conversion boosters
-- `client/src/components/quote/SchedulingConfig.ts` - Add-ons config
-- `server/openai.ts` - Added to segment types
-- `client/src/pages/GenerateQuoteLink.tsx` - Added to dropdown selector
-- `client/src/pages/GenerateQuoteLinkSimple.tsx` - Added to segment options
-
-**Detection signals**:
-- Keywords: landlord, my rental, buy to let, btl, tenant, investment property
-- Patterns: "my rental property", "I'm a landlord", "can't be there", "send me photos"
-
----
-
-## Data protection
-
-Two files describe what the system does with customer data, and they must be kept true when a data flow changes: the customer-facing notice `client/src/pages/PrivacyPolicyPage.tsx` (`/privacy`) and the internal record `docs/COMMS_RECORD_OF_PROCESSING.md` (Art. 30 record: categories, purposes, bases, every processor with the file that proves it, storage, retention). Adding a provider that receives customer content — a model, a transcriber, a store, an analytics tool — means naming it in both, with its purpose, in the same PR. `client/src/pages/__tests__/PrivacyPolicyPage.test.tsx` asserts each named processor carries a purpose, so a silent deletion fails the suite.
-
-Known gap (8 Sep 2026, not fixed by that work): the notice states retention periods that NO code enforces — there is no deletion job and no erasure tooling. See `docs/COMMS_RECORD_OF_PROCESSING.md` §6 before quoting a retention period anywhere. Owner decision, 7 Sep and answer 24 on 8 Sep: there is deliberately NO bot-disclosure line to customers in chat; the transparency lives on the notice.
-
----
-
-## Apple Pay Setup
-
-The Apple Pay domain verification file at `/.well-known/apple-developer-merchantid-domain-association` is served BY THIS APP (explicit Express route in `server/index.ts`, file at `client/public/.well-known/`). Updated 19 Jul 2026: the previously documented Cloudflare-served file was found NOT to exist — the path fell through to the SPA catch-all and returned index.html, which silently broke Apple Pay verification on www.handyservices.app. Cloudflare proxies the path straight through, so the Express route is authoritative. Do not remove the route or the file.
-
-To register a new domain: Stripe Dashboard → Settings → Payment method domains → Add domain (or `POST /v1/payment_method_domains` with the secret key, then `/validate`). Stripe's universal association file (same for all Stripe merchants) downloads from https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association.
-
----
-
-## Session Notes
-<!-- Add notes about current work here before closing -->
-
+## Invariants and gotchas
+- **One pipeline, one sender.** `server/spine/` is the only customer-messaging path: case file → triage → policy pack → agent → guards → decision → exit. The exit is the only sender; every send carries an `Approver` and a run id. Legacy `server/agents/comms.ts` still drafts until Phase 5.
+- **Every automated sender needs a row in `server/sender-registry.ts`** or it does not compile. `transactional` may never carry a switch key; `operational` and `agent` must. The gate refuses an unregistered or switched-off approver, and is the one spine read that fails open.
+- **Desk switches live in the `app_settings` row keyed `spine`** (`server/spine/config.ts`), fail-closed and clamped on read. Ask about `desk` only through `isDeskV4()`; a test fails direct reads.
+- **Tiers cannot be made unsafe.** A pack's `neverSend` intents can never reach SEND (`server/spine/packs.ts`); `server/spine/send-preconditions.ts` gates the SEND move itself, belted by `server/spine/ask-ledger.ts`, the one ledger for the four ask subjects (`media`, `postcode`, `access`, `handoff`).
+- **Only gas and asbestos are out of scope** (`RE_REGULATED` in `server/spine/triage.ts`; `DeclineReason` is `gas_work` only). Plumbing, roofing, structural and electrical work go to the Scoper.
+- **Only the process with `COMMS_WORKER=1` runs customer clocks**, so a dead worker is a silent desk. Two alarms in `server/comms-worker-heartbeat.ts` cover wedged and dead separately, both needing production.
+- **An answered outbound call re-enters the desk** as `call_ended` behind `outboundHandoffVerdict`'s fail-closed rails (`server/post-call-ladder.ts`). The call is then the newest turn, so replies stay drafts.
+- **A handover comes back through `releaseFromBen`** (`server/handover.ts`) on any `human:*` send. Chase lanes are in `server/agents/sla-sweep.ts`; `WAITING_DRAFT_WHERE` in `server/spine/price-brief.ts` is the only definition of a waiting price draft.
+- **Outside WhatsApp's 24-hour window only a Meta-approved template sends.** One registry (`server/window-templates.ts`), one template per purpose; live status only from `server/whatsapp-template-sync.ts`. Send paths branch on the `purpose` field, never a name: a plain STOP blocks `marketing`, and an omitted purpose defaults to it.
+- **Facts about the business come from `kb_entries`** (migration `20260908_kb_entries.sql`), read through the reviewed-only helpers in `server/spine/knowledge-base.ts`. Ben's page is `/admin/knowledge`; not wired into a reply path yet.
+- **Media descriptions come from Gemini** (`server/spine/tools/describe-video.ts`); model prices live only in `server/agent-cost.ts`. Check `server/spine/vision-health.ts` before debugging an empty one.
+- **Build gate:** no new tsc errors or vitest failures against your own start commit; esbuild still bundles. The pre-existing baseline of both is large; measure it first.
+- Two data-protection files must stay true when a data flow changes (`customer-data-processors` skill). Apple Pay's domain association file is served by a route in `server/index.ts`; never remove it (`apple-pay-domain` skill).
 
 ## Maintaining this file
 
