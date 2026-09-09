@@ -3,7 +3,7 @@
 A historical shipping log kept for reference. It is not loaded into sessions; `AGENTS.md` carries the standing facts.
 
 
-## Current Work in Progress
+## Shipped work
 
 ### Comms desk — "the spine" (Phases 0–11 shipped 2–4 Sep 2026; production LIVE since 3 Sep 00:31 UK, autonomy + sampler still off)
 - One pipeline for customer messaging under `server/spine/`: case file → triage → policy pack → agent (Scoper / Quote clerk / Recovery / Contractor liaison) → guards → decision → exit. The exit is the only sender; every send carries an `Approver` and a run id.
