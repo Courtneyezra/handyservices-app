@@ -120,7 +120,7 @@ export function sentencesOf(ps: PlannedSend): string[] {
 }
 
 /** A clause that waves the subject away, so its mention there is not an ask of it. */
-const RE_DISMISSIVE = /\b(?:no worries about|don'?t worry about|do not worry about|no need for|forget the)\b/i;
+const RE_DISMISSIVE = /\b(?:no worries about|don'?t worry about|do not worry about|no need for|(?<!\b(?:don'?t|do not|never|won'?t)\s)forget the)\b/i;
 
 function clausesOf(sentence: string): string[] {
     return sentence.split(/[,;:]|\s+[-–—]\s+/).map((c) => c.trim()).filter(Boolean);

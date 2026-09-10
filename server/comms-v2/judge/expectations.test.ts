@@ -56,6 +56,14 @@ describe('subjects', () => {
             expect(asksSubject(ps({ bubbles: [t] }), 'media'), t).toBe(false);
         }
     });
+    it('a negated reminder is not dismissive: do not forget the photo is an ask', () => {
+        for (const t of ['Do not forget the photo, could you pop one over?', "Don't forget the photo, could you pop one over?"]) {
+            const reminder = ps({ bubbles: [t] });
+            expect(asksSubject(reminder, 'media'), t).toBe(true);
+            expect(evaluate(e({ kind: 'asked_at_most_once', subject: 'media' }), ctx({ plannedSend: reminder, history: [ps({ bubbles: ['Can you send a photo?'] })] })).status, t).toBe('fail');
+        }
+        expect(asksSubject(ps({ bubbles: ['No worries about photos, could you tell me roughly the tile size?'] }), 'media')).toBe(false);
+    });
     it('any means any question', () => {
         expect(asksSubject(ps(), 'any')).toBe(true);
         expect(asksSubject(ps({ bubbles: ['Great, Ben will be in touch.'] }), 'any')).toBe(false);
