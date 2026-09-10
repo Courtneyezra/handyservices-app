@@ -54,6 +54,10 @@ describe('the scenario schema', () => {
         expect(() => parseScenario({ ...ok, turns: [{ from: 'system', kind: 'clock', expect: [] }] })).toThrow(/first turn/);
         expect(() => parseScenario({ ...ok, turns: [{ ...ok.turns[0], expect: [{ line: '2.7', kind: 'reply_sent' }] }] })).toThrow(/not in the scenario/);
     });
+    it('refuses a line id that is not stage dot line', () => {
+        expect(() => parseScenario({ ...ok, lines: ['x.1'], turns: [{ ...ok.turns[0], expect: [{ line: 'x.1', kind: 'reply_sent' }] }] })).toThrow(/lines/);
+        expect(() => parseScenario({ ...ok, lines: ['2.1'], turns: [{ ...ok.turns[0], expect: [{ line: '2.1', kind: 'no_hold' }] }] })).toThrow(/kind/);
+    });
     it('refuses a bad regex', () => {
         expect(() => parseScenario({ ...ok, turns: [{ ...ok.turns[0], expect: [{ line: '2.1', kind: 'text_matches', pattern: '(' }] }] })).toThrow(/bad pattern/);
     });

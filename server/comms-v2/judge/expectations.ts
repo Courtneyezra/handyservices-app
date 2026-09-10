@@ -57,17 +57,22 @@ export interface EvalContext {
 export const RE_FIGURE = /(?:£\s*\d[\d,]*(?:\.\d+)?)|(?:\b\d[\d,]*(?:\.\d+)?\s*(?:pounds?|quid|gbp)\b)|(?:\b\d+p\b)/i;
 
 const MONTH = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
-const WEEKDAY = '(?:mon|tues?|wed(?:nes)?|thur?s?|fri|sat(?:ur)?|sun)(?:day)?';
+const WEEKDAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)day';
+/** An abbreviated weekday reads as a day only beside a time-context word: "sat" on its own is a verb. */
+const WEEKDAY_ABBR = '(?:mon|tues?|weds?|thur?s?|fri|sat|sun)';
+const TIME_CONTEXT_BEFORE = '(?:on|this|next|by|for|from|until|till|every|coming)';
+const TIME_CONTEXT_AFTER = '(?:morning|afternoon|evening|night|week|\\d{1,2}(?:st|nd|rd|th)?)';
 /** A date, a time, a lead time or a duration. */
 export const RE_DATE_TIME_DURATION = new RegExp([
-    `\\b(?:${WEEKDAY})\\b`,
+    `\\b${WEEKDAY}\\b`,
+    `\\b${TIME_CONTEXT_BEFORE}\\s+${WEEKDAY_ABBR}\\b`,
+    `\\b${WEEKDAY_ABBR}\\s+${TIME_CONTEXT_AFTER}\\b`,
     `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH}\\b`,
     `\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`,
     `\\b\\d{1,2}[/.-]\\d{1,2}(?:[/.-]\\d{2,4})?\\b`,
-    `\\b(?:tomorrow|tonight|this (?:morning|afternoon|evening|week|weekend)|next (?:week|month|day|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|end of (?:the )?(?:week|month)|first thing)\\b`,
-    `\\b(?:at|by|from|around|about)\\s+\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|o'?clock)?\\b`,
-    `\\b\\d{1,2}(?::\\d{2})\\s*(?:am|pm)\\b`,
-    `\\b\\d{1,2}\\s*(?:am|pm)\\b`,
+    `\\b(?:tomorrow|tonight|this (?:morning|afternoon|evening|week|weekend)|next (?:week|month|day)|end of (?:the )?(?:week|month)|first thing)\\b`,
+    `\\b(?:at|by|from|around|about)\\s+\\d{1,2}(?::\\d{2}\\b|(?::\\d{2})?\\s*(?:am|pm|o'?clock)\\b)`,
+    `\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b`,
     `\\b(?:\\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half a|couple of|few)\\s+(?:working\\s+)?(?:mins?|minutes?|hours?|hrs?|days?|weeks?|months?)\\b`,
     `\\b(?:within|in)\\s+(?:\\d+|a|an|one|two|three|four|five|six|seven|a couple of|a few)\\s+(?:working\\s+)?(?:days?|weeks?|hours?)\\b`,
     `\\blead[- ]time\\b`,
@@ -94,6 +99,9 @@ export const RE_CALL_OFFER = new RegExp([
     `\\bcall (?:would|might) (?:help|be (?:easier|quicker|best))\\b`,
     `\\b(?:best|easiest|quickest) (?:to|if we) (?:have a )?(?:call|chat|ring)\\b`,
 ].join('|'), 'i');
+
+/** A negation before a call phrase in the same clause: "we won't call you" declines a call, it does not offer one. */
+const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|no need to|not going to|rather than|instead of|never)\b/i;
 
 /** A template placeholder, which a reply "in its own words" never carries. */
 const RE_PLACEHOLDER = /\{\{\s*\d+\s*\}\}/;
@@ -151,11 +159,29 @@ export function questionCount(ps: PlannedSend): number {
 
 /** Questions about the job: every question except an offer of a call, which is not a scoping question. */
 export function scopingQuestionCount(ps: PlannedSend): number {
-    return sentencesOf(ps).filter((s) => s.includes('?') && !RE_CALL_OFFER.test(s)).length;
+    return sentencesOf(ps).filter((s) => s.includes('?') && callOfferIn(s) === null).length;
+}
+
+/** The call phrase a sentence offers with, or null when it has none or every one is negated in its clause. */
+function callOfferIn(sentence: string): string | null {
+    for (const clause of clausesOf(sentence)) {
+        const m = RE_CALL_OFFER.exec(clause);
+        if (m && !RE_CALL_NEGATION.test(clause.slice(0, m.index))) return m[0];
+    }
+    return null;
+}
+
+export function callOfferMatch(ps: PlannedSend): string | null {
+    if (!ps.delivered) return null;
+    for (const s of sentencesOf(ps)) {
+        const m = callOfferIn(s);
+        if (m) return m;
+    }
+    return null;
 }
 
 export function offersCall(ps: PlannedSend): boolean {
-    return ps.delivered && RE_CALL_OFFER.test(bubblesText(ps));
+    return callOfferMatch(ps) !== null;
 }
 
 // ---------------------------------------------------------------- the evaluator
@@ -225,10 +251,6 @@ export function evaluate(e: Expectation, ctx: EvalContext): ExpectationResult {
                 ? result(e, 'pass', `held for ${ps.hold.approver}: ${ps.hold.reason}`, { hold: ps.hold })
                 : result(e, 'fail', `held for ${ps.hold.approver}, not ${e.approver}`, { hold: ps.hold });
         }
-        case 'no_hold': {
-            if (ps.hold === UNAVAILABLE) return unavailable(e, 'hold');
-            return ps.hold ? result(e, 'fail', `a hold was raised for ${ps.hold.approver}: ${ps.hold.reason}`, { hold: ps.hold }) : result(e, 'pass', 'no hold');
-        }
         case 'template_used': {
             if (ps.templateId === UNAVAILABLE) return unavailable(e, 'templateId');
             if (ps.templateId === null) return result(e, 'fail', 'the reply is freeform, no template', { templateId: null });
@@ -262,12 +284,16 @@ export function evaluate(e: Expectation, ctx: EvalContext): ExpectationResult {
             if (!ps.delivered) return result(e, 'fail', 'no reply would go');
             return m ? result(e, 'pass', `matches /${e.pattern}/: "${m[0]}"`, { match: m[0] }) : result(e, 'fail', `no match for /${e.pattern}/`, { bubbles: ps.bubbles });
         }
-        case 'offers_call':
-            return offersCall(ps) ? result(e, 'pass', 'the reply offers a call', { match: RE_CALL_OFFER.exec(text)?.[0] })
+        case 'offers_call': {
+            const m = callOfferMatch(ps);
+            return m !== null ? result(e, 'pass', 'the reply offers a call', { match: m })
                 : result(e, 'fail', ps.delivered ? 'the reply does not offer a call' : 'no reply would go', { bubbles: ps.bubbles });
-        case 'not_offers_call':
-            return offersCall(ps) ? result(e, 'fail', `the reply offers a call: "${RE_CALL_OFFER.exec(text)?.[0]}"`, { bubbles: ps.bubbles })
+        }
+        case 'not_offers_call': {
+            const m = callOfferMatch(ps);
+            return m !== null ? result(e, 'fail', `the reply offers a call: "${m}"`, { bubbles: ps.bubbles })
                 : result(e, 'pass', 'the reply does not offer a call');
+        }
         case 'own_words': {
             // The deterministic half: one thing at a time (exactly one question about the job, a
             // call offer not counted) and no template placeholder. The model verdict sits beside it.

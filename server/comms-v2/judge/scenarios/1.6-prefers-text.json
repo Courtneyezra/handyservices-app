@@ -14,13 +14,15 @@
       "from": "customer", "kind": "message",
       "text": "Text only please, I can't take calls at work.",
       "expect": [
-        { "line": "1.6", "kind": "not_offers_call", "note": "checklist: reply text only please, then continue" }
+        { "line": "1.6", "kind": "reply_sent", "note": "checklist: reply text only please, then continue" },
+        { "line": "1.6", "kind": "not_offers_call" }
       ]
     },
     {
       "from": "customer", "kind": "message",
       "text": "It's one 6ft panel, the posts are fine. We're NG9 2AB.",
       "expect": [
+        { "line": "1.6", "kind": "reply_sent" },
         { "line": "1.6", "kind": "not_offers_call" }
       ]
     },
@@ -28,6 +30,7 @@
       "from": "customer", "kind": "message",
       "text": "Do you need anything else from me?",
       "expect": [
+        { "line": "1.6", "kind": "reply_sent" },
         { "line": "1.6", "kind": "not_offers_call" }
       ]
     }

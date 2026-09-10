@@ -164,6 +164,18 @@ describe('runAll', () => {
         expect(res.exitCode).toBe(1);
     });
 
+    it('a door error on a turn with no expectation still makes the exit code non-zero', async () => {
+        const trailing = parseScenario({ id: '2.1-t', title: 't', lines: ['2.1'], turns: [
+            { from: 'customer', kind: 'message', text: 'hi', expect: [{ line: '2.1', kind: 'reply_sent' }] },
+            { from: 'customer', kind: 'message', text: 'more', expect: [] },
+        ] });
+        const door = scriptedDoor([pass(), new DoorError('timeout', 'POST /message timed out'), pass(), new DoorError('timeout', 'POST /message timed out')]);
+        const res = await runAll([trailing], { door, judge: null, requiredLines: [] });
+        expect(res.scenarios.map((s) => s.error)).toEqual([expect.stringMatching(/timed out/), expect.stringMatching(/timed out/)]);
+        expect(res.summary).toEqual({ pass: 1, fail: 0, error: 0 });
+        expect(res.exitCode).toBe(1);
+    });
+
     it('a fail is not an error: exit code 0 with failing lines', async () => {
         const door = scriptedDoor([pass('pending'), pass('pending'), pass('pending'), pass('pending')]);
         const res = await runAll([twoTurns], { door, judge: null, requiredLines: [] });

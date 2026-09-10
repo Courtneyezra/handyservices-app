@@ -316,7 +316,7 @@ export async function runAll(scenarios: readonly Scenario[], opts: RunAllOptions
         desk: opts.desk ?? CURRENT_DESK,
         door: { mode: opts.door.mode, host: opts.door.host },
         runs: RUNS, lines, scenarios: results, summary,
-        exitCode: summary.error > 0 ? 1 : 0,
+        exitCode: summary.error > 0 || results.some((r) => r.error !== null) ? 1 : 0,
     };
 }
 
@@ -355,6 +355,6 @@ export function lineResults(results: readonly ScenarioRunResult[], runs: number,
 
 function compareLines(a: string, b: string): number {
     const [a1, a2] = a.split('.'); const [b1, b2] = b.split('.');
-    if (a1 !== b1) return a1 === 'x' ? -1 : b1 === 'x' ? 1 : Number(a1) - Number(b1);
+    if (a1 !== b1) return Number(a1) - Number(b1);
     return Number(a2) - Number(b2);
 }

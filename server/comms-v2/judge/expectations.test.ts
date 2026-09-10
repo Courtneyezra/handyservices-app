@@ -93,10 +93,12 @@ describe('figures, dates, commitments', () => {
         expect(evaluate(e({ kind: 'no_figure' }), ctx({ plannedSend: ps({ bubbles: ['We are in NG7 2PQ, 20cm tile.'] }) })).status).toBe('pass');
     });
     it('no_date catches dates, times and lead times', () => {
-        for (const t of ['We can come Tuesday.', 'Probably within 3 days.', 'Around 2 hours on site.', 'First thing tomorrow.', 'At 9am.', 'The lead time is short.']) {
+        for (const t of ['We can come Tuesday.', 'Probably within 3 days.', 'Around 2 hours on site.', 'First thing tomorrow.', 'At 9am.', 'The lead time is short.', 'Around 4pm suits.', 'By 10:30 at the latest.', 'On Sat if that suits.', 'Fri morning is free.', 'Thurs 12th works.']) {
             expect(evaluate(e({ kind: 'no_date' }), ctx({ plannedSend: ps({ bubbles: [t] }) })).status, t).toBe('fail');
         }
-        expect(evaluate(e({ kind: 'no_date' }), ctx({ plannedSend: ps({ bubbles: ['Dates come with your quote. Whereabouts are you?'] }) })).status).toBe('pass');
+        for (const t of ['Dates come with your quote. Whereabouts are you?', 'Dates come with your quote. Is the fan around 4 inch or 6 inch?', 'About 10 tiles, or more?', 'Has the old fan sat in the ceiling long?', 'Is the sun on that wall in the afternoon?']) {
+            expect(evaluate(e({ kind: 'no_date' }), ctx({ plannedSend: ps({ bubbles: [t] }) })).status, t).toBe('pass');
+        }
     });
     it('no_commitment catches promises and admissions', () => {
         for (const t of ["We'll fix it no problem.", 'We guarantee the work.', 'That was our fault, sorry.', 'Free of charge.']) {
@@ -112,8 +114,6 @@ describe('holds, templates, window, stage, bubbles, fixed line', () => {
         expect(evaluate(e({ kind: 'hold_for_approver', approver: 'Ben' }), ctx({ plannedSend: held })).status).toBe('pass');
         expect(evaluate(e({ kind: 'hold_for_approver', approver: 'landlord' }), ctx({ plannedSend: held })).status).toBe('fail');
         expect(evaluate(e({ kind: 'hold_for_approver', approver: 'ben' }), ctx()).status).toBe('fail');
-        expect(evaluate(e({ kind: 'no_hold' }), ctx({ plannedSend: held })).status).toBe('fail');
-        expect(evaluate(e({ kind: 'no_hold' }), ctx()).status).toBe('pass');
     });
     it('template_used and freeform', () => {
         expect(evaluate(e({ kind: 'freeform' }), ctx()).status).toBe('pass');
@@ -150,6 +150,14 @@ describe('call offers', () => {
         expect(offersCall(ps())).toBe(false);
         expect(offersCall(ps({ bubbles: ['No call-out fee for that.'] }))).toBe(false);
     });
+    it('a declined call is not an offer of one', () => {
+        for (const t of ["No problem, we won't call you, text is fine.", "We'll keep it to text rather than over the phone.", 'No need to call you, this works.', "We're not going to ring you, text is fine."]) {
+            expect(offersCall(ps({ bubbles: [t] })), t).toBe(false);
+            expect(evaluate(e({ kind: 'not_offers_call' }), ctx({ plannedSend: ps({ bubbles: [t] }) })).status, t).toBe('pass');
+        }
+        expect(offersCall(ps({ bubbles: ['No rush, but shall we ring you?'] }))).toBe(true);
+        expect(scopingQuestionCount(ps({ bubbles: ["We won't call you, what size is the panel?"] }))).toBe(1);
+    });
     it('offers_call / not_offers_call', () => {
         const offer = ps({ bubbles: ['Thanks. Would a quick call help, or a photo if easy?'] });
         expect(evaluate(e({ kind: 'offers_call' }), ctx({ plannedSend: offer })).status).toBe('pass');
@@ -175,7 +183,7 @@ describe('own_words (deterministic half)', () => {
 describe('unavailable fields and unsupported seeds', () => {
     it('an expectation on an unavailable field fails with the fixed reason, never errors', () => {
         const un = ps({ hold: UNAVAILABLE, templateId: UNAVAILABLE, windowState: UNAVAILABLE, evidence: { ...ps().evidence, stageAfter: null } });
-        for (const x of [{ kind: 'hold_for_approver', approver: 'ben' }, { kind: 'no_hold' }, { kind: 'template_used' }, { kind: 'freeform' }, { kind: 'window_state', state: 'open' }, { kind: 'stage_after', stage: 'scoping' }]) {
+        for (const x of [{ kind: 'hold_for_approver', approver: 'ben' }, { kind: 'template_used' }, { kind: 'freeform' }, { kind: 'window_state', state: 'open' }, { kind: 'stage_after', stage: 'scoping' }]) {
             const r = evaluate(e(x), ctx({ plannedSend: un }));
             expect(r.status, x.kind).toBe('fail');
             expect(r.reason, x.kind).toBe(UNAVAILABLE_REASON);

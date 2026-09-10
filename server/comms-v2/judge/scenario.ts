@@ -23,8 +23,8 @@ import { z } from 'zod';
 export const GOAL_1_LINES = ['1.1', '1.6', '1.7', '2.1', '2.2', '2.3', '2.4', '2.5', '2.6', '2.7', '2.8'] as const;
 export type Goal1Line = (typeof GOAL_1_LINES)[number];
 
-/** Any checklist line id, e.g. "2.3" or a cross-cutting "x.1". */
-export const lineIdSchema = z.string().regex(/^(x|\d)\.\d{1,2}$/);
+/** A checklist line id: stage dot line, e.g. "2.3". */
+export const lineIdSchema = z.string().regex(/^\d\.\d{1,2}$/);
 
 // ---------------------------------------------------------------- the seed
 
@@ -80,7 +80,6 @@ export const expectationSchema = z.discriminatedUnion('kind', [
     z.object({ ...base, kind: z.literal('no_date') }),
     z.object({ ...base, kind: z.literal('no_commitment') }),
     z.object({ ...base, kind: z.literal('hold_for_approver'), approver: z.string() }),
-    z.object({ ...base, kind: z.literal('no_hold') }),
     z.object({ ...base, kind: z.literal('template_used'), templateId: z.string().optional() }),
     z.object({ ...base, kind: z.literal('freeform') }),
     z.object({ ...base, kind: z.literal('window_state'), state: z.enum(['open', 'shut']) }),
