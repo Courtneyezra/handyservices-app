@@ -69,6 +69,20 @@ describe('runScenario', () => {
         expect(door.calls).toEqual(['start']);
     });
 
+    it('a Ben price turn may carry no pass and no planned send, never a shape error', async () => {
+        const priced = parseScenario({ id: 'p-1', title: 't', lines: ['2.1'], seed: {}, turns: [
+            { from: 'customer', kind: 'message', text: 'hi', expect: [{ line: '2.1', kind: 'reply_sent' }] },
+            { from: 'ben', kind: 'price', totalPence: 12000, expect: [] },
+        ] });
+        const door = scriptedDoor([pass(), { ok: true, slug: 'q', totalPence: 12000, state: pass().state }]);
+        const r = await runScenario(priced, { door, judge: null, run: 1 });
+        expect(r.error).toBeNull();
+        expect(door.calls).toEqual(['start', 'price']);
+        expect(r.turns[1].error).toBeNull();
+        expect(r.turns[1].plannedSend?.delivered).toBe(false);
+        expect(r.turns[1].expectations).toEqual([]);
+    });
+
     it('a shut-window seed ages the thread after the opening turn and records whether the door honoured it', async () => {
         const shut = parseScenario({ id: 'w-1', title: 't', lines: ['2.1'], seed: { window: 'shut' }, turns: [{ from: 'customer', kind: 'message', text: 'hi', expect: [{ line: '2.1', kind: 'window_state', state: 'shut' }] }] });
         const honoured = await runScenario(shut, { door: scriptedDoor([pass()], { ageShuts: true }), judge: null, run: 1 });

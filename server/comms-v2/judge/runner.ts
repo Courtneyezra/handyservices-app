@@ -269,12 +269,13 @@ export async function runScenario(scenario: Scenario, opts: RunScenarioOptions):
 /**
  * The planned send for a turn. The current door answers synchronously with the pass inside the
  * response; a response with no pass on a turn that must produce one is an error, not a silent
- * "nothing sent". Turns that are not customer messages may legitimately carry no pass (age).
+ * "nothing sent". Turns that are not customer messages may legitimately carry no pass (age, price).
  */
 export function waitForPlannedSend(raw: unknown, t: Turn): { pass: DoorPass; plannedSend: PlannedSend } {
     const r = raw as { run?: unknown } | null;
-    if (t.kind === 'age' && (!r || r.run == null)) {
-        // Time passing sends nothing by itself; the planned send is empty, read off the state.
+    if ((t.kind === 'age' || t.kind === 'price') && (!r || r.run == null)) {
+        // Time passing and Ben pricing send nothing through the desk by themselves; the planned
+        // send is empty, read off the state.
         return plannedSendFromDoorResponse({ ...(r ?? {}), run: null });
     }
     if (!r || r.run == null) throw new DoorError('shape', `the door returned no pass for a ${t.from}/${t.kind} turn`);

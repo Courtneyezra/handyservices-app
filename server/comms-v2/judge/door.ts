@@ -164,7 +164,7 @@ class LoopbackDoor implements DoorClient {
 
 /** Open the door: the exported sandbox router in-process, on the judge's own database. */
 export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
-    const timeoutMs = opts.timeoutMs ?? Number(process.env.COMMS_V2_DOOR_TIMEOUT_MS ?? DEFAULT_DOOR_TIMEOUT_MS);
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_DOOR_TIMEOUT_MS;
     // The router's database module reads DATABASE_URL at import, so the branch is put there first;
     // whatever .env held is never consulted.
     const judgeDatabase = process.env[JUDGE_DATABASE_ENV];
