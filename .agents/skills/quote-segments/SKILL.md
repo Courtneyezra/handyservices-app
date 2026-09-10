@@ -26,14 +26,16 @@ selectable with the default page content. That is the minimum set for the quote
 page, not the whole surface — segment values are also read by the live-call
 coach, the pricing engines and the admin tooling.
 
-A map keyed `Record<SegmentType, ...>` fails the build when a value is missing, so
-tsc points you at those itself — `server/segmentation/config.ts`,
-`client/src/config/segment-confirmation-content.ts` and the admin tube-map and
-pipeline colour maps. Everything else is keyed `Record<string, ...>` and falls
-back silently: a segment missing from `shared/hassle-comparisons.ts` renders the
-generic `UNKNOWN` rows on a live quote with no error anywhere. So grep an existing
-value such as `LANDLORD` across the repo and decide each hit deliberately rather
-than trusting the table.
+tsc will not catch a segment you missed anywhere, so do not wait for it. The
+`Record<SegmentType, ...>` maps in `server/segmentation/config.ts` and
+`client/src/config/segment-confirmation-content.ts` each carry an `UNKNOWN` key
+that is not in `segmentEnum`, and an excess property suppresses TypeScript's
+missing-key error on that same literal; the admin tube-map and pipeline colour
+maps declare their own local `SegmentType` union and never see the enum at all.
+Everything keyed `Record<string, ...>` falls back silently: a segment missing
+from `shared/hassle-comparisons.ts` renders the generic `UNKNOWN` rows on a live
+quote with no error anywhere. So grep an existing value such as `LANDLORD` across
+the repo and decide each hit deliberately — that grep is the only check you have.
 
 ## The framework the existing segments follow
 
