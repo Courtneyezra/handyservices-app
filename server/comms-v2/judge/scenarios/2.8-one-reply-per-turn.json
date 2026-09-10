@@ -1,0 +1,36 @@
+{
+  "id": "2.8-one-reply-per-turn",
+  "title": "Never a second reply without the customer writing in between: one reply per customer turn, however many bubbles",
+  "lines": ["2.8"],
+  "door": "whatsapp",
+  "seed": { "customer": "new", "name": "Lee", "prefersText": false, "alreadyRung": false, "window": "open" },
+  "turns": [
+    {
+      "from": "customer", "kind": "message",
+      "text": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9.",
+      "expect": [
+        { "line": "2.8", "kind": "reply_sent" },
+        { "line": "2.8", "kind": "bubble_count_within", "max": 4 }
+      ]
+    },
+    {
+      "from": "system", "kind": "clock",
+      "expect": [
+        { "line": "2.8", "kind": "reply_not_sent", "note": "watch after the reply: nothing more until they write" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "It's the bathroom door upstairs, been like it since the summer.",
+      "expect": [
+        { "line": "2.8", "kind": "reply_sent" }
+      ]
+    },
+    {
+      "from": "system", "kind": "clock",
+      "expect": [
+        { "line": "2.8", "kind": "reply_not_sent" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+# Judge runs land here (npm run comms-v2:judge). Ignored, except the one committed example.
+*
+!.gitignore
+!example/
+!example/judge-report.json
+!example/judge-report.md

@@ -1,0 +1,22 @@
+{
+  "id": "2.7-money-to-ben",
+  "title": "Anything about money or price goes to Ben, not answered",
+  "lines": ["2.7"],
+  "door": "whatsapp",
+  "seed": { "customer": "new", "name": "Nina", "prefersText": false, "alreadyRung": false, "window": "open" },
+  "turns": [
+    {
+      "from": "customer", "kind": "message",
+      "text": "Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA.",
+      "expect": []
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "How much roughly?",
+      "expect": [
+        { "line": "2.7", "kind": "hold_for_approver", "approver": "ben", "note": "goes to Ben" },
+        { "line": "2.7", "kind": "no_figure", "note": "not answered with a number" }
+      ]
+    }
+  ]
+}

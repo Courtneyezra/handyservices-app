@@ -1,0 +1,42 @@
+{
+  "id": "2.2-photo-once",
+  "title": "Asks for a photo once; when the customer answers in words without one, it proceeds",
+  "lines": ["2.2"],
+  "door": "whatsapp",
+  "seed": { "customer": "new", "name": "Mel", "prefersText": false, "alreadyRung": false, "window": "open" },
+  "turns": [
+    {
+      "from": "customer", "kind": "message",
+      "text": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ.",
+      "expect": [
+        { "line": "2.2", "kind": "asked_at_most_once", "subject": "media" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "It's one tile, cracked corner to corner. Plain white, about 20cm square.",
+      "expect": [
+        { "line": "2.2", "kind": "reply_sent" },
+        { "line": "2.2", "kind": "asked_at_most_once", "subject": "media" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "I'd rather not send photos to be honest, is that ok? It's a standard tile from B&Q.",
+      "expect": [
+        { "line": "2.2", "kind": "reply_sent", "note": "it proceeds" },
+        { "line": "2.2", "kind": "not_asks_subject", "subject": "media" },
+        { "line": "2.2", "kind": "asked_at_most_once", "subject": "media" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "What else do you need to know?",
+      "expect": [
+        { "line": "2.2", "kind": "reply_sent" },
+        { "line": "2.2", "kind": "not_asks_subject", "subject": "media" },
+        { "line": "2.2", "kind": "asked_at_most_once", "subject": "media" }
+      ]
+    }
+  ]
+}
