@@ -1,8 +1,8 @@
 # Comms v2 judge report
 
-Generated 2026-09-10T22:26:29.571Z. Desk: current desk (server/spine via /api/comms-sandbox, dry run). Door: in_process at 127.0.0.1:50225. Runs: 2.
+Generated 2026-09-10T23:50:29.617Z. Desk: current desk (server/spine via /api/comms-sandbox, dry run). Door: in_process at 127.0.0.1:52194. Runs: 2.
 
-Lines: 3 pass, 8 fail, 0 error. Exit code 0 (non-zero only on an error; a fail is not an error).
+Lines: 2 pass, 9 fail, 0 error. Exit code 0 (non-zero only on an error; a fail is not an error).
 
 A line passes only when every expectation on it passes in every run. Fails against the current desk are expected: Goal 0 proves the judge, not the desk.
 
@@ -13,7 +13,7 @@ Known limitation of this door: it did not put every planned reply on the thread 
 | Line | Expected | Result | Run 1 | Run 2 |
 |---|---|---|---|---|
 | 1.1 | The customer's first WhatsApp message gets one acknowledgement that quotes their enquiry back and offers a call, freeform. | **FAIL** | FAIL | FAIL |
-| 1.6 | A customer who has said text-only is never asked for a call again. | **PASS** | PASS | PASS |
+| 1.6 | A customer who has said text-only is never asked for a call again. | **FAIL** | FAIL | FAIL |
 | 1.7 | Photos arriving with the first message are acknowledged as photos, not as a bare enquiry. | **FAIL** | FAIL | FAIL |
 | 2.1 | It replies to every customer turn, whether or not the reply is a question. | **FAIL** | FAIL | FAIL |
 | 2.2 | It asks for a photo once. If they reply without sending one, it proceeds. | **FAIL** | FAIL | FAIL |
@@ -44,20 +44,26 @@ Run 2: FAIL
 - 1.1-inbound-whatsapp turn 1 freeform: pass - freeform, no template
 - 1.1-inbound-whatsapp turn 1 bubble_count_within: pass - 2 bubbles, ceiling 4
 
-### Line 1.6: PASS
+### Line 1.6: FAIL
 
 A customer who has said text-only is never asked for a call again.
 
-Run 1: PASS
+Run 1: FAIL
 
+- 1.6-prefers-text turn 2 reply_sent: pass - a reply would go (3 bubbles, desk)
 - 1.6-prefers-text turn 2 not_offers_call: pass - the reply does not offer a call
+- 1.6-prefers-text turn 3 reply_sent: pass - a reply would go (2 bubbles, desk)
 - 1.6-prefers-text turn 3 not_offers_call: pass - the reply does not offer a call
+- 1.6-prefers-text turn 4 reply_sent: fail - no reply would go: decision pending
 - 1.6-prefers-text turn 4 not_offers_call: pass - the reply does not offer a call
 
-Run 2: PASS
+Run 2: FAIL
 
+- 1.6-prefers-text turn 2 reply_sent: fail - no reply would go: decision none
 - 1.6-prefers-text turn 2 not_offers_call: pass - the reply does not offer a call
+- 1.6-prefers-text turn 3 reply_sent: fail - no reply would go: decision none
 - 1.6-prefers-text turn 3 not_offers_call: pass - the reply does not offer a call
+- 1.6-prefers-text turn 4 reply_sent: fail - no reply would go: decision none
 - 1.6-prefers-text turn 4 not_offers_call: pass - the reply does not offer a call
 
 ### Line 1.7: FAIL
@@ -66,8 +72,8 @@ Photos arriving with the first message are acknowledged as photos, not as a bare
 
 Run 1: FAIL
 
-- 1.7-photos-first turn 1 reply_sent: fail - no reply would go: decision pending
-- 1.7-photos-first turn 1 text_matches: fail - no reply would go
+- 1.7-photos-first turn 1 reply_sent: pass - a reply would go (2 bubbles, rules_layer_mirror)
+- 1.7-photos-first turn 1 text_matches: fail - no match for /\b(?:photo|photos|picture|pictures|pic|pics|image|images|snap)\b/
 
 Run 2: FAIL
 
@@ -81,7 +87,7 @@ It replies to every customer turn, whether or not the reply is a question.
 Run 1: FAIL
 
 - 2.1-replies-to-statements turn 1 reply_sent: pass - a reply would go (2 bubbles, rules_layer_mirror)
-- 2.1-replies-to-statements turn 2 reply_sent: pass - a reply would go (3 bubbles, desk)
+- 2.1-replies-to-statements turn 2 reply_sent: pass - a reply would go (2 bubbles, desk)
 - 2.1-replies-to-statements turn 3 reply_sent: pass - a reply would go (3 bubbles, desk)
 - 2.1-replies-to-statements turn 4 reply_sent: fail - no reply would go: decision pending
 
@@ -89,7 +95,7 @@ Run 2: FAIL
 
 - 2.1-replies-to-statements turn 1 reply_sent: pass - a reply would go (2 bubbles, rules_layer_mirror)
 - 2.1-replies-to-statements turn 2 reply_sent: pass - a reply would go (3 bubbles, desk)
-- 2.1-replies-to-statements turn 3 reply_sent: pass - a reply would go (3 bubbles, desk)
+- 2.1-replies-to-statements turn 3 reply_sent: pass - a reply would go (2 bubbles, desk)
 - 2.1-replies-to-statements turn 4 reply_sent: fail - no reply would go: decision pending
 
 ### Line 2.2: FAIL
@@ -128,13 +134,13 @@ Run 1: FAIL
 
 - 2.3-own-words turn 2 asks_subject: fail - no reply would go
 - 2.3-own-words turn 2 own_words: fail - no reply would go [model claude-haiku-4-5: skipped - no reply to judge]
-- 2.3-own-words turn 3 own_words: pass - one scoping question, no placeholder (deterministic half; the model verdict is recorded beside this) [model claude-haiku-4-5: no - The reply fails by asking multiple unrelated things at once (video of bannister, photos of door and tap) when the customer only mentioned the bannister issue, making it read like a template form rather than a natural conversation about the specific problem described.]
+- 2.3-own-words turn 3 own_words: pass - one scoping question, no placeholder (deterministic half; the model verdict is recorded beside this) [model claude-haiku-4-5: no - The reply asks about multiple unrelated issues (sticky door and leaking tap) that the customer never mentioned, treating this like a template rather than responding naturally to what was actually said.]
 
 Run 2: FAIL
 
 - 2.3-own-words turn 2 asks_subject: fail - no reply would go
 - 2.3-own-words turn 2 own_words: fail - no reply would go [model claude-haiku-4-5: skipped - no reply to judge]
-- 2.3-own-words turn 3 own_words: pass - one scoping question, no placeholder (deterministic half; the model verdict is recorded beside this) [model claude-haiku-4-5: no - The reply asks for photos of three different issues (bannister, sticking door, tap) at once, but the customer only mentioned the bannister problem, making it read like a template rather than a natural response to what was actually said.]
+- 2.3-own-words turn 3 own_words: pass - one scoping question, no placeholder (deterministic half; the model verdict is recorded beside this) [model claude-haiku-4-5: no - The reply mentions 'the door and tap details' which the customer never mentioned, suggesting a template response, and it asks for a photo/video without first clarifying the specific repair needed or acknowledging the safety concern of the rocking bannister.]
 
 ### Line 2.4: PASS
 
@@ -147,7 +153,7 @@ Run 1: PASS
 
 Run 2: PASS
 
-- 2.4-short-pause turn 3 reply_sent: pass - a reply would go (3 bubbles, desk)
+- 2.4-short-pause turn 3 reply_sent: pass - a reply would go (2 bubbles, desk)
 - 2.4-short-pause turn 3 asks_subject: pass - the reply asks about any
 
 ### Line 2.5: FAIL
@@ -206,31 +212,31 @@ It never sends a second reply without the customer writing in between.
 
 Run 1: FAIL
 
-- 2.8-one-reply-per-turn turn 1 reply_sent: fail - no reply would go: decision none
-- 2.8-one-reply-per-turn turn 1 bubble_count_within: fail - no reply would go
+- 2.8-one-reply-per-turn turn 1 reply_sent: pass - a reply would go (2 bubbles, rules_layer_mirror)
+- 2.8-one-reply-per-turn turn 1 bubble_count_within: pass - 2 bubbles, ceiling 4
 - 2.8-one-reply-per-turn turn 2 reply_not_sent: pass - nothing goes: decision none
-- 2.8-one-reply-per-turn turn 3 reply_sent: pass - a reply would go (2 bubbles, desk)
+- 2.8-one-reply-per-turn turn 3 reply_sent: pass - a reply would go (3 bubbles, desk)
 - 2.8-one-reply-per-turn turn 4 reply_not_sent: fail - artefact: dry-run reply not landed on thread
 
 Run 2: FAIL
 
-- 2.8-one-reply-per-turn turn 1 reply_sent: fail - no reply would go: decision none
-- 2.8-one-reply-per-turn turn 1 bubble_count_within: fail - no reply would go
-- 2.8-one-reply-per-turn turn 2 reply_not_sent: fail - a reply would go (desk): Hiya, thanks for the message.
-- 2.8-one-reply-per-turn turn 3 reply_sent: pass - a reply would go (2 bubbles, desk)
+- 2.8-one-reply-per-turn turn 1 reply_sent: pass - a reply would go (2 bubbles, rules_layer_mirror)
+- 2.8-one-reply-per-turn turn 1 bubble_count_within: pass - 2 bubbles, ceiling 4
+- 2.8-one-reply-per-turn turn 2 reply_not_sent: pass - nothing goes: decision none
+- 2.8-one-reply-per-turn turn 3 reply_sent: pass - a reply would go (3 bubbles, desk)
 - 2.8-one-reply-per-turn turn 4 reply_not_sent: fail - artefact: dry-run reply not landed on thread
 
 ## Scenarios, turn by turn
 
 ### 1.1-inbound-whatsapp run 1: Inbound WhatsApp: the opening message gets one freeform acknowledgement that quotes the enquiry back and offers a call
 
-Lines 1.1. Started 2026-09-10T21:53:51.621Z, 41039 ms.
+Lines 1.1. Started 2026-09-10T23:17:17.781Z, 25906 ms.
 
 Seed: customer new, name Sam, prefers text false, already rung false, window open. customer: honoured (name "Sam" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, can I get a quote for a leaking kitchen tap? It's dripping from the base and won't stop.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_3d4c417b-359c-46dd-bb09-ab25e0b87af9.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_16a82a9e-0a3f-4188-b3e8-bd85259b5e1d.
 
 > Hi Sam, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -245,7 +251,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "b1398743-362d-4a65-a8ff-6268c9a3ae2f",
+  "caseId": "f7c704e7-6c63-4d39-a5fc-90814119932f",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -303,7 +309,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_3d4c417b-359c-46dd-bb09-ab25e0b87af9",
+  "runId": "run_16a82a9e-0a3f-4188-b3e8-bd85259b5e1d",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -328,13 +334,13 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "b1398743-362d-4a65-a8ff-6268c9a3ae2f",
+  "conversationId": "f7c704e7-6c63-4d39-a5fc-90814119932f",
   "stage": "enquiry",
   "tags": [
     "sandbox",
     "tap_repair",
     "leak",
-    "kitchen"
+    "needs_quote"
   ],
   "contactName": "Sam",
   "window": {
@@ -346,14 +352,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Sam",
-      "at": "2026-09-10T21:54:03.126Z",
+      "at": "2026-09-10T23:17:23.891Z",
       "content": "Hi, can I get a quote for a leaking kitchen tap? It's dripping from the base and won't stop."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:54:26.331Z",
+      "at": "2026-09-10T23:17:37.854Z",
       "content": "Hi Sam, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -368,13 +374,13 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ### 1.6-prefers-text run 1: Prefers text: once the customer says text only, a call is never offered again
 
-Lines 1.6. Started 2026-09-10T21:54:32.660Z, 119607 ms.
+Lines 1.6. Started 2026-09-10T23:17:43.687Z, 131425 ms.
 
 Seed: customer new, name Jo, prefers text true, already rung false, window open. customer: honoured (name "Jo" passed to POST /start as the pushname); prefersText: unsupported (no seed field on the current door; the scenario states it in a customer turn ("text only please")).
 
 #### Turn 1 (customer/message): Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_97eee546-1c2c-4f7c-adf8-b4837cfd25ee.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_dd719f57-ba91-458f-bfdc-a1566967991a.
 
 > Hi Jo, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -383,7 +389,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
+  "caseId": "54624214-5b2f-4f54-9232-e32030458f93",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -441,7 +447,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_97eee546-1c2c-4f7c-adf8-b4837cfd25ee",
+  "runId": "run_dd719f57-ba91-458f-bfdc-a1566967991a",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -466,13 +472,13 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
+  "conversationId": "54624214-5b2f-4f54-9232-e32030458f93",
   "stage": "enquiry",
   "tags": [
     "sandbox",
     "fence_repair",
-    "beeston",
-    "needs_quote"
+    "needs_quote",
+    "beeston"
   ],
   "contactName": "Jo",
   "window": {
@@ -484,14 +490,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:54:36.206Z",
+      "at": "2026-09-10T23:17:49.623Z",
       "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:54:52.148Z",
+      "at": "2026-09-10T23:18:03.794Z",
       "content": "Hi Jo, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -506,19 +512,20 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): Text only please, I can't take calls at work.
 
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_08b6b8f7-dd59-4572-b4db-4cad33adcd71. Not landed on the thread by the door.
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_b62963e3-d10c-4063-8120-a127e8738602. Not landed on the thread by the door.
 
 > No problem Jo, text is fine.
-> Could you send a photo of the blown down panel and the fence line either side?
-> That'll help me get everything sorted for your quote.
+> Could you send a photo of the fence panel and the posts either side?
+> That'll help me see what's needed to replace it.
 
+- [1.6] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
 - [1.6] not_offers_call: **PASS** - the reply does not offer a call
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
+  "caseId": "54624214-5b2f-4f54-9232-e32030458f93",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -529,8 +536,8 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
   "templateId": null,
   "bubbles": [
     "No problem Jo, text is fine.",
-    "Could you send a photo of the blown down panel and the fence line either side?",
-    "That'll help me get everything sorted for your quote."
+    "Could you send a photo of the fence panel and the posts either side?",
+    "That'll help me see what's needed to replace it."
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -592,7 +599,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_08b6b8f7-dd59-4572-b4db-4cad33adcd71",
+  "runId": "run_b62963e3-d10c-4063-8120-a127e8738602",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -601,7 +608,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     "intent": "ask_gap",
     "lane": "scoper",
     "pack": "customer.default",
-    "stageAfter": "scoping",
+    "stageAfter": "enquiry",
     "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
@@ -617,40 +624,40 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
-  "stage": "scoping",
+  "conversationId": "54624214-5b2f-4f54-9232-e32030458f93",
+  "stage": "enquiry",
   "tags": [
     "sandbox",
     "fence_repair",
-    "beeston",
     "needs_quote",
+    "beeston",
     "text_only"
   ],
   "contactName": "Jo",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:54:36.206Z",
+      "at": "2026-09-10T23:17:49.623Z",
       "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:54:52.148Z",
+      "at": "2026-09-10T23:18:03.794Z",
       "content": "Hi Jo, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:55:00.475Z",
+      "at": "2026-09-10T23:18:11.309Z",
       "content": "Text only please, I can't take calls at work."
     }
   ],
@@ -665,19 +672,19 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 #### Turn 3 (customer/message): It's one 6ft panel, the posts are fine. We're NG9 2AB.
 
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_7296aada-89a5-4f78-bb58-dced24b4f71a. Not landed on the thread by the door.
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_1aea6736-53c7-4a66-8ad5-b1f571ad8fe0. Not landed on the thread by the door.
 
-> Thanks Jo, that's really helpful.
-> Could you send a quick photo of the fallen panel and the posts either side?
-> Once I've seen that I'll get your quote sorted.
+> Got it, one 6ft panel down and the posts are fine, that's helpful.
+> Could you send a quick photo of the fence so I can see the panel and fixings before I quote it 🙂
 
+- [1.6] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
 - [1.6] not_offers_call: **PASS** - the reply does not offer a call
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
+  "caseId": "54624214-5b2f-4f54-9232-e32030458f93",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -687,9 +694,8 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Thanks Jo, that's really helpful.",
-    "Could you send a quick photo of the fallen panel and the posts either side?",
-    "Once I've seen that I'll get your quote sorted."
+    "Got it, one 6ft panel down and the posts are fine, that's helpful.",
+    "Could you send a quick photo of the fence so I can see the panel and fixings before I quote it 🙂"
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -751,7 +757,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_7296aada-89a5-4f78-bb58-dced24b4f71a",
+  "runId": "run_1aea6736-53c7-4a66-8ad5-b1f571ad8fe0",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -761,7 +767,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -776,15 +782,15 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
+  "conversationId": "54624214-5b2f-4f54-9232-e32030458f93",
   "stage": "scoping",
   "tags": [
     "sandbox",
     "fence_repair",
-    "beeston",
     "needs_quote",
+    "beeston",
     "text_only",
-    "postcode_received"
+    "postcode_provided"
   ],
   "contactName": "Jo",
   "window": {
@@ -796,28 +802,28 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:54:36.206Z",
+      "at": "2026-09-10T23:17:49.623Z",
       "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:54:52.148Z",
+      "at": "2026-09-10T23:18:03.794Z",
       "content": "Hi Jo, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:55:00.475Z",
+      "at": "2026-09-10T23:18:11.309Z",
       "content": "Text only please, I can't take calls at work."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:55:28.233Z",
+      "at": "2026-09-10T23:18:47.405Z",
       "content": "It's one 6ft panel, the posts are fine. We're NG9 2AB."
     }
   ],
@@ -832,15 +838,16 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 #### Turn 4 (customer/message): Do you need anything else from me?
 
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_8ad37d23-0298-4f93-a5ed-1096c35b1288.
+Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_56e42525-b53e-4d43-9e2b-047236b27785.
 
+- [1.6] reply_sent: **FAIL** - no reply would go: decision pending
 - [1.6] not_offers_call: **PASS** - the reply does not offer a call
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
+  "caseId": "54624214-5b2f-4f54-9232-e32030458f93",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -910,7 +917,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     }
   },
   "approver": null,
-  "runId": "run_8ad37d23-0298-4f93-a5ed-1096c35b1288",
+  "runId": "run_56e42525-b53e-4d43-9e2b-047236b27785",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -920,7 +927,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:customer_question",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:49.462Z) — precondition: ask_gap:customer_question",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -935,16 +942,16 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "conversationId": "5e6e2baa-393b-4726-a629-ab307d8bbee5",
+  "conversationId": "54624214-5b2f-4f54-9232-e32030458f93",
   "stage": "scoping",
   "tags": [
     "sandbox",
     "fence_repair",
-    "beeston",
     "needs_quote",
+    "beeston",
     "text_only",
-    "postcode_received",
-    "photos_needed"
+    "postcode_provided",
+    "photos_pending"
   ],
   "contactName": "Jo",
   "window": {
@@ -956,35 +963,35 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:54:36.206Z",
+      "at": "2026-09-10T23:17:49.623Z",
       "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:54:52.148Z",
+      "at": "2026-09-10T23:18:03.794Z",
       "content": "Hi Jo, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:55:00.475Z",
+      "at": "2026-09-10T23:18:11.309Z",
       "content": "Text only please, I can't take calls at work."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:55:28.233Z",
+      "at": "2026-09-10T23:18:47.405Z",
       "content": "It's one 6ft panel, the posts are fine. We're NG9 2AB."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Jo",
-      "at": "2026-09-10T21:56:02.718Z",
+      "at": "2026-09-10T23:19:25.767Z",
       "content": "Do you need anything else from me?"
     }
   ],
@@ -999,105 +1006,96 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ### 1.7-photos-first run 1: Photos with the first message are acknowledged as photos, not as a bare enquiry
 
-Lines 1.7. Started 2026-09-10T21:56:32.267Z, 45933 ms.
+Lines 1.7. Started 2026-09-10T23:19:55.112Z, 63830 ms.
 
 Seed: customer new, name Priya, prefers text false, already rung false, window open. customer: honoured (name "Priya" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, this is the tap that's leaking under our kitchen sink. Can you quote for fixing it? [+1 media]
 
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_a0520a31-cca3-4ffa-b925-d0eac80cbd1a.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_photos; window open; template none; approver rules_layer; hold none; run run_94a1d2fd-e444-41cb-97c9-caaee58063d8.
 
-- [1.7] reply_sent: **FAIL** - no reply would go: decision pending
-- [1.7] text_matches: **FAIL** - no reply would go
+> Hi, thanks for sending those over.
+> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
+
+- [1.7] reply_sent: **PASS** - a reply would go (2 bubbles, rules_layer_mirror)
+- [1.7] text_matches: **FAIL** - no match for /\b(?:photo|photos|picture|pictures|pic|pics|image|images|snap)\b/
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "57bb3bcc-d7ba-4b0e-af8f-fd0deeafe8d2",
+  "caseId": "421bab61-b4ff-4f92-a33e-24d95341c9ee",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
     "name": "Sandbox customer (not real)"
   },
-  "channel": "unavailable",
+  "channel": "whatsapp",
   "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
+  "templateId": null,
+  "bubbles": [
+    "Hi, thanks for sending those over.",
+    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+  ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
   "guards": {
     "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     },
     "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     },
     "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     },
     "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     },
     "disclosure": {
       "result": "unavailable",
       "via": [],
-      "note": "the current desk has no guard of this kind"
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     },
     "one_reply": {
       "result": "unavailable",
       "via": [],
-      "note": "the current desk has no guard of this kind"
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     },
     "ask_ledger": {
       "result": "unavailable",
       "via": [],
-      "note": "the current desk has no guard of this kind"
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     },
     "regulated": {
       "result": "unavailable",
       "via": [],
-      "note": "the current desk has no guard of this kind"
+      "note": "no guard ran on this pass (no proposal reached the guards)"
     }
   },
-  "approver": null,
-  "runId": "run_a0520a31-cca3-4ffa-b925-d0eac80cbd1a",
+  "approver": "rules_layer",
+  "runId": "run_94a1d2fd-e444-41cb-97c9-caaee58063d8",
   "hold": null,
-  "delivered": false,
-  "origin": "none",
+  "delivered": true,
+  "origin": "rules_layer_mirror",
   "evidence": {
-    "decision": "pending",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
+    "decision": "none",
+    "intent": "ack_photos",
+    "lane": "rules",
+    "pack": "rules.first_contact",
     "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:customer_question",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
+    "mirrorLiveWouldSend": true,
     "error": null
   }
 }
@@ -1109,7 +1107,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "conversationId": "57bb3bcc-d7ba-4b0e-af8f-fd0deeafe8d2",
+  "conversationId": "421bab61-b4ff-4f92-a33e-24d95341c9ee",
   "stage": "enquiry",
   "tags": [
     "sandbox",
@@ -1127,8 +1125,15 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Sandbox customer (not real)",
-      "at": "2026-09-10T21:56:41.697Z",
+      "at": "2026-09-10T23:20:05.698Z",
       "content": "Hi, this is the tap that's leaking under our kitchen sink. Can you quote for fixing it?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:20:54.536Z",
+      "content": "Hi, thanks for sending those over.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
   "quote": null,
@@ -1142,13 +1147,13 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ### 2.1-replies-to-statements run 1: Replies to every customer turn, whether or not the reply is a question
 
-Lines 2.1. Started 2026-09-10T21:57:18.201Z, 133084 ms.
+Lines 2.1. Started 2026-09-10T23:20:58.943Z, 136629 ms.
 
 Seed: customer new, name Dan, prefers text false, already rung false, window open. customer: honoured (name "Dan" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, my bathroom extractor fan has stopped working, can you sort it?
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_87d1fa76-1e2b-4400-9afd-e93acb1d506a.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_5d063db9-0fbb-4699-b87a-e829ae713fbf.
 
 > Hi Dan, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -1159,7 +1164,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
+  "caseId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -1217,7 +1222,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_87d1fa76-1e2b-4400-9afd-e93acb1d506a",
+  "runId": "run_5d063db9-0fbb-4699-b87a-e829ae713fbf",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -1242,10 +1247,12 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
+  "conversationId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
   "stage": "enquiry",
   "tags": [
-    "sandbox"
+    "sandbox",
+    "bathroom_extractor",
+    "electrical"
   ],
   "contactName": "Dan",
   "window": {
@@ -1257,14 +1264,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:57:23.174Z",
+      "at": "2026-09-10T23:21:02.787Z",
       "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:57:37.094Z",
+      "at": "2026-09-10T23:21:13.728Z",
       "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -1279,19 +1286,18 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): It's a ceiling fan, about four inch. The light still works but the fan is dead.
 
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_e1a501e3-c976-499f-a8d2-d266888c27fa. Not landed on the thread by the door.
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_dcf924a4-39a7-4d47-bf3f-32ac2ff35104. Not landed on the thread by the door.
 
-> Thanks Dan, that helps.
-> Could you send a quick photo of the fan and the switch that controls it?
-> That'll help me see what we're working with.
+> Thanks Dan, that's useful. Could you send a quick photo or video of the fan and ceiling area?
+> That'll help me see the unit and how it's fitted before quoting.
 
-- [2.1] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
+- [2.1] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
+  "caseId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -1301,9 +1307,8 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Thanks Dan, that helps.",
-    "Could you send a quick photo of the fan and the switch that controls it?",
-    "That'll help me see what we're working with."
+    "Thanks Dan, that's useful. Could you send a quick photo or video of the fan and ceiling area?",
+    "That'll help me see the unit and how it's fitted before quoting."
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -1365,7 +1370,165 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_e1a501e3-c976-499f-a8d2-d266888c27fa",
+  "runId": "run_dcf924a4-39a7-4d47-bf3f-32ac2ff35104",
+  "hold": null,
+  "delivered": true,
+  "origin": "desk",
+  "evidence": {
+    "decision": "send",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "bathroom_extractor",
+    "electrical",
+    "needs_quote"
+  ],
+  "contactName": "Dan",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Dan",
+      "at": "2026-09-10T23:21:02.787Z",
+      "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:21:13.728Z",
+      "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Dan",
+      "at": "2026-09-10T23:21:24.432Z",
+      "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 3 (customer/message): We're in NG7 2PQ.
+
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_d90a0b76-0ce9-4c22-8c7c-1428be2dcf90. Not landed on the thread by the door.
+
+> Ta Dan, NG7 2PQ noted.
+> Could you send a couple of photos of the fan, one close up and one standing back?
+> That's usually enough for us to get it priced up.
+
+- [2.1] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Dan"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Ta Dan, NG7 2PQ noted.",
+    "Could you send a couple of photos of the fan, one close up and one standing back?",
+    "That's usually enough for us to get it priced up."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": "agent.scoper",
+  "runId": "run_d90a0b76-0ce9-4c22-8c7c-1428be2dcf90",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -1390,170 +1553,12 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
+  "conversationId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "electrical_work",
-    "extractor_fan",
-    "needs_quote"
-  ],
-  "contactName": "Dan",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Dan",
-      "at": "2026-09-10T21:57:23.174Z",
-      "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:57:37.094Z",
-      "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Dan",
-      "at": "2026-09-10T21:57:44.631Z",
-      "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 3 (customer/message): We're in NG7 2PQ.
-
-Planned send: 3 bubbles (desk); decision send; intent confirm_received; window open; template none; approver agent.scoper; hold none; run run_f24705d6-745f-4369-a21e-df5a29c22c52. Not landed on the thread by the door.
-
-> Perfect, got all that, thanks Dan.
-> Four inch ceiling fan, light still fine just the fan dead, NG7 2PQ.
-> I'll get your quote over shortly.
-
-- [2.1] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Dan"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Perfect, got all that, thanks Dan.",
-    "Four inch ceiling fan, light still fine just the fan dead, NG7 2PQ.",
-    "I'll get your quote over shortly."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_f24705d6-745f-4369-a21e-df5a29c22c52",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "confirm_received",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
-  "stage": "scoping",
-  "tags": [
-    "sandbox",
-    "electrical_work",
-    "extractor_fan",
+    "bathroom_extractor",
+    "electrical",
     "needs_quote",
     "postcode_received"
   ],
@@ -1567,28 +1572,28 @@ Planned send: 3 bubbles (desk); decision send; intent confirm_received; window o
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:57:23.174Z",
+      "at": "2026-09-10T23:21:02.787Z",
       "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:57:37.094Z",
+      "at": "2026-09-10T23:21:13.728Z",
       "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:57:44.631Z",
+      "at": "2026-09-10T23:21:24.432Z",
       "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:58:19.578Z",
+      "at": "2026-09-10T23:21:55.362Z",
       "content": "We're in NG7 2PQ."
     }
   ],
@@ -1603,7 +1608,7 @@ Planned send: 3 bubbles (desk); decision send; intent confirm_received; window o
 
 #### Turn 4 (customer/message): Ok thanks, that all makes sense.
 
-Planned send: nothing goes; decision pending; intent closing; window open; template unavailable; approver none; hold none; run run_83f2ddd2-7134-4827-a756-e407f1f4ae9a.
+Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_04813730-4cac-4567-a8b2-6adca3a6eedd.
 
 - [2.1] reply_sent: **FAIL** - no reply would go: decision pending
 
@@ -1611,7 +1616,7 @@ Planned send: nothing goes; decision pending; intent closing; window open; templ
 
 ```json
 {
-  "caseId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
+  "caseId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -1681,17 +1686,17 @@ Planned send: nothing goes; decision pending; intent closing; window open; templ
     }
   },
   "approver": null,
-  "runId": "run_83f2ddd2-7134-4827-a756-e407f1f4ae9a",
+  "runId": "run_04813730-4cac-4567-a8b2-6adca3a6eedd",
   "hold": null,
   "delivered": false,
   "origin": "none",
   "evidence": {
     "decision": "pending",
-    "intent": "closing",
+    "intent": "confirm_received",
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — intent closing is at tier DRAFT in pack customer.default",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:10.235Z) — precondition: confirm_received:nothing_arrived",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -1706,14 +1711,15 @@ Planned send: nothing goes; decision pending; intent closing; window open; templ
 
 ```json
 {
-  "conversationId": "005cfba8-4cb7-4ac6-9c7e-470cc89d2ed7",
+  "conversationId": "fbed9b6f-699c-4107-aa24-c07344dd5e7d",
   "stage": "scoping",
   "tags": [
     "sandbox",
-    "electrical_work",
-    "extractor_fan",
+    "bathroom_extractor",
+    "electrical",
     "needs_quote",
-    "postcode_received"
+    "postcode_received",
+    "scope_clarified"
   ],
   "contactName": "Dan",
   "window": {
@@ -1725,35 +1731,35 @@ Planned send: nothing goes; decision pending; intent closing; window open; templ
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:57:23.174Z",
+      "at": "2026-09-10T23:21:02.787Z",
       "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:57:37.094Z",
+      "at": "2026-09-10T23:21:13.728Z",
       "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:57:44.631Z",
+      "at": "2026-09-10T23:21:24.432Z",
       "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:58:19.578Z",
+      "at": "2026-09-10T23:21:55.362Z",
       "content": "We're in NG7 2PQ."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T21:58:56.269Z",
+      "at": "2026-09-10T23:22:36.790Z",
       "content": "Ok thanks, that all makes sense."
     }
   ],
@@ -1768,13 +1774,13 @@ Planned send: nothing goes; decision pending; intent closing; window open; templ
 
 ### 2.2-photo-once run 1: Asks for a photo once; when the customer answers in words without one, it proceeds
 
-Lines 2.2. Started 2026-09-10T21:59:31.285Z, 129919 ms.
+Lines 2.2. Started 2026-09-10T23:23:15.573Z, 122340 ms.
 
 Seed: customer new, name Mel, prefers text false, already rung false, window open. customer: honoured (name "Mel" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_2ac8d46d-cc5b-4c34-90e3-7a8f8b1da6ea.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_633c55a3-c18a-46f9-afff-a0f7807225b7.
 
 > Hi Mel, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -1785,7 +1791,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
+  "caseId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -1843,7 +1849,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_2ac8d46d-cc5b-4c34-90e3-7a8f8b1da6ea",
+  "runId": "run_633c55a3-c18a-46f9-afff-a0f7807225b7",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -1868,12 +1874,12 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
+  "conversationId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "tile_repair",
-    "postcode_provided"
+    "postcode_provided",
+    "tile_repair"
   ],
   "contactName": "Mel",
   "window": {
@@ -1885,14 +1891,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T21:59:35.265Z",
+      "at": "2026-09-10T23:23:19.607Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:59:47.081Z",
+      "at": "2026-09-10T23:23:33.068Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -1907,10 +1913,10 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): It's one tile, cracked corner to corner. Plain white, about 20cm square.
 
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_35be877a-2304-42dc-9c48-194dacaa12b6. Not landed on the thread by the door.
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_4aa2d6b1-7760-471f-a673-f096eb1163f4. Not landed on the thread by the door.
 
-> Thanks Mel, that's clear, one cracked corner tile, 20cm plain white.
-> Could you send a quick photo of it so I can check the match and access?
+> Got it, one cracked white tile above the bath.
+> Could you send a quick photo of it so I can see the crack and the surrounding tiles?
 
 - [2.2] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
 - [2.2] asked_at_most_once: **PASS** - media asked 1 time so far
@@ -1919,7 +1925,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "caseId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
+  "caseId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -1929,8 +1935,8 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Thanks Mel, that's clear, one cracked corner tile, 20cm plain white.",
-    "Could you send a quick photo of it so I can check the match and access?"
+    "Got it, one cracked white tile above the bath.",
+    "Could you send a quick photo of it so I can see the crack and the surrounding tiles?"
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -1992,7 +1998,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_35be877a-2304-42dc-9c48-194dacaa12b6",
+  "runId": "run_4aa2d6b1-7760-471f-a673-f096eb1163f4",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -2001,7 +2007,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
     "intent": "ask_gap",
     "lane": "scoper",
     "pack": "customer.default",
-    "stageAfter": "enquiry",
+    "stageAfter": "scoping",
     "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
@@ -2017,39 +2023,40 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
-  "stage": "enquiry",
+  "conversationId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
+  "stage": "scoping",
   "tags": [
     "sandbox",
-    "tile_repair",
     "postcode_provided",
-    "scoping_detail"
+    "tile_repair",
+    "needs_quote",
+    "scoping_in_progress"
   ],
   "contactName": "Mel",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T21:59:35.265Z",
+      "at": "2026-09-10T23:23:19.607Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:59:47.081Z",
+      "at": "2026-09-10T23:23:33.068Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T21:59:55.648Z",
+      "at": "2026-09-10T23:23:38.719Z",
       "content": "It's one tile, cracked corner to corner. Plain white, about 20cm square."
     }
   ],
@@ -2064,7 +2071,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 #### Turn 3 (customer/message): I'd rather not send photos to be honest, is that ok? It's a standard tile from B&Q.
 
-Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_35c0e12f-6e4f-4d24-b629-a827ddf010f0.
+Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_3a947508-58cb-41a7-9fb4-9641ce3846c8.
 
 - [2.2] reply_sent: **FAIL** - no reply would go: decision pending
 - [2.2] not_asks_subject: **FAIL** - artefact: dry-run reply not landed on thread
@@ -2074,7 +2081,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "caseId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
+  "caseId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -2144,7 +2151,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     }
   },
   "approver": null,
-  "runId": "run_35c0e12f-6e4f-4d24-b629-a827ddf010f0",
+  "runId": "run_3a947508-58cb-41a7-9fb4-9641ce3846c8",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -2153,8 +2160,8 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     "intent": "confirm_received",
     "lane": "scoper",
     "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: confirm_received:nothing_arrived",
+    "stageAfter": "scoping",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:30.518Z) — precondition: confirm_received:nothing_arrived",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -2169,48 +2176,48 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "conversationId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
-  "stage": "enquiry",
+  "conversationId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
+  "stage": "scoping",
   "tags": [
     "sandbox",
-    "tile_repair",
     "postcode_provided",
-    "scoping_detail",
-    "no_photos",
-    "needs_quote"
+    "tile_repair",
+    "needs_quote",
+    "scoping_in_progress",
+    "no_photos"
   ],
   "contactName": "Mel",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T21:59:35.265Z",
+      "at": "2026-09-10T23:23:19.607Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:59:47.081Z",
+      "at": "2026-09-10T23:23:33.068Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T21:59:55.648Z",
+      "at": "2026-09-10T23:23:38.719Z",
       "content": "It's one tile, cracked corner to corner. Plain white, about 20cm square."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:00:28.549Z",
+      "at": "2026-09-10T23:24:05.730Z",
       "content": "I'd rather not send photos to be honest, is that ok? It's a standard tile from B&Q."
     }
   ],
@@ -2225,7 +2232,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 #### Turn 4 (customer/message): What else do you need to know?
 
-Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_35ea9231-85c1-4a49-b552-21faed83ad4b.
+Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_948d6e60-1c40-453f-90f8-9cf344df5000.
 
 - [2.2] reply_sent: **FAIL** - no reply would go: decision pending
 - [2.2] not_asks_subject: **FAIL** - artefact: dry-run reply not landed on thread
@@ -2235,7 +2242,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "caseId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
+  "caseId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -2305,7 +2312,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     }
   },
   "approver": null,
-  "runId": "run_35ea9231-85c1-4a49-b552-21faed83ad4b",
+  "runId": "run_948d6e60-1c40-453f-90f8-9cf344df5000",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -2315,7 +2322,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: confirm_received:nothing_arrived",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:10.003Z) — precondition: confirm_received:nothing_arrived",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -2330,15 +2337,15 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "conversationId": "35be38ed-5da4-40af-ac83-599d4e2d29ec",
+  "conversationId": "26209d8b-5ed3-418f-8c66-230ea9534c08",
   "stage": "scoping",
   "tags": [
     "sandbox",
-    "tile_repair",
     "postcode_provided",
-    "scoping_detail",
-    "no_photos",
-    "needs_quote"
+    "tile_repair",
+    "needs_quote",
+    "scoping_in_progress",
+    "no_photos"
   ],
   "contactName": "Mel",
   "window": {
@@ -2350,35 +2357,35 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T21:59:35.265Z",
+      "at": "2026-09-10T23:23:19.607Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T21:59:47.081Z",
+      "at": "2026-09-10T23:23:33.068Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T21:59:55.648Z",
+      "at": "2026-09-10T23:23:38.719Z",
       "content": "It's one tile, cracked corner to corner. Plain white, about 20cm square."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:00:28.549Z",
+      "at": "2026-09-10T23:24:05.730Z",
       "content": "I'd rather not send photos to be honest, is that ok? It's a standard tile from B&Q."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:00:56.833Z",
+      "at": "2026-09-10T23:24:40.878Z",
       "content": "What else do you need to know?"
     }
   ],
@@ -2393,13 +2400,13 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ### 2.3-own-words run 1: Asks about the job one thing at a time, in its own words (model verdict recorded beside the deterministic one)
 
-Lines 2.3. Started 2026-09-10T22:01:41.205Z, 99120 ms.
+Lines 2.3. Started 2026-09-10T23:25:17.913Z, 86575 ms.
 
 Seed: customer new, name Alex, prefers text false, already rung false, window open. customer: honoured (name "Alex" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_b415db5c-c60c-42b3-9ba1-65426ea83b9b.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_3dea13dd-b690-48f9-9e9a-d5ee5e9a843e.
 
 > Hi Alex, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -2408,7 +2415,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "2772ea0e-5235-4e36-8c73-5859338a280b",
+  "caseId": "5069474c-253a-4cef-97ff-8c7a0b1184f8",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -2466,7 +2473,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_b415db5c-c60c-42b3-9ba1-65426ea83b9b",
+  "runId": "run_3dea13dd-b690-48f9-9e9a-d5ee5e9a843e",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -2491,11 +2498,11 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "2772ea0e-5235-4e36-8c73-5859338a280b",
+  "conversationId": "5069474c-253a-4cef-97ff-8c7a0b1184f8",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "first_contact",
+    "initial_contact",
     "multiple_jobs",
     "beeston"
   ],
@@ -2509,14 +2516,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:01:51.309Z",
+      "at": "2026-09-10T23:25:25.042Z",
       "content": "Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:02:03.632Z",
+      "at": "2026-09-10T23:25:35.611Z",
       "content": "Hi Alex, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -2531,7 +2538,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): Which one do you want to know about first?
 
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_7fe9b95c-9108-41f3-85d8-cd136c446582.
+Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_5c54337c-ed57-469d-ac63-2cd859813e09.
 
 - [2.3] asks_subject: **FAIL** - no reply would go
 - [2.3] own_words: **FAIL** - no reply would go
@@ -2541,7 +2548,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "caseId": "2772ea0e-5235-4e36-8c73-5859338a280b",
+  "caseId": "5069474c-253a-4cef-97ff-8c7a0b1184f8",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -2611,7 +2618,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     }
   },
   "approver": null,
-  "runId": "run_7fe9b95c-9108-41f3-85d8-cd136c446582",
+  "runId": "run_5c54337c-ed57-469d-ac63-2cd859813e09",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -2621,7 +2628,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:customer_question",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:06.055Z) — precondition: ask_gap:customer_question",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -2636,40 +2643,40 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "conversationId": "2772ea0e-5235-4e36-8c73-5859338a280b",
+  "conversationId": "5069474c-253a-4cef-97ff-8c7a0b1184f8",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "first_contact",
+    "initial_contact",
     "multiple_jobs",
     "beeston",
-    "needs_scoping"
+    "needs_photos"
   ],
   "contactName": "Alex",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:01:51.309Z",
+      "at": "2026-09-10T23:25:25.042Z",
       "content": "Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:02:03.632Z",
+      "at": "2026-09-10T23:25:35.611Z",
       "content": "Hi Alex, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:02:11.060Z",
+      "at": "2026-09-10T23:25:48.272Z",
       "content": "Which one do you want to know about first?"
     }
   ],
@@ -2684,20 +2691,20 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 #### Turn 3 (customer/message): The bannister is at the top of the stairs, two of the spindles have come loose and it rocks when you lean on it.
 
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_b0a072f6-31ef-436c-9474-1a99d9d53857. Not landed on the thread by the door.
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_b420ceec-eafe-4c3d-a985-90799a6cfe48. Not landed on the thread by the door.
 
-> Thanks Alex, that's helpful. Could you send a quick video of the bannister, showing it rock when you lean on it?
-> While you're at it, a photo of the sticking door and the leaking tap would help too.
-> Then I can get one quote sorted for all three.
+> Thanks, that's clear on the bannister.
+> Could you send a quick video of the spindles rocking, plus photos of the sticky door and the leaking tap?
+> That'll let me get all three scoped properly.
 
 - [2.3] own_words: **PASS** - one scoping question, no placeholder (deterministic half; the model verdict is recorded beside this)
-  - model judge (beside, not instead): claude-haiku-4-5, prompt 8648a0b3ffb6, verdict **no** - The reply fails by asking multiple unrelated things at once (video of bannister, photos of door and tap) when the customer only mentioned the bannister issue, making it read like a template form rather than a natural conversation about the specific problem described.
+  - model judge (beside, not instead): claude-haiku-4-5, prompt a3338aebed23, verdict **no** - The reply asks about multiple unrelated issues (sticky door and leaking tap) that the customer never mentioned, treating this like a template rather than responding naturally to what was actually said.
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "2772ea0e-5235-4e36-8c73-5859338a280b",
+  "caseId": "5069474c-253a-4cef-97ff-8c7a0b1184f8",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -2707,9 +2714,9 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Thanks Alex, that's helpful. Could you send a quick video of the bannister, showing it rock when you lean on it?",
-    "While you're at it, a photo of the sticking door and the leaking tap would help too.",
-    "Then I can get one quote sorted for all three."
+    "Thanks, that's clear on the bannister.",
+    "Could you send a quick video of the spindles rocking, plus photos of the sticky door and the leaking tap?",
+    "That'll let me get all three scoped properly."
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -2771,7 +2778,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_b0a072f6-31ef-436c-9474-1a99d9d53857",
+  "runId": "run_b420ceec-eafe-4c3d-a985-90799a6cfe48",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -2796,47 +2803,48 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "2772ea0e-5235-4e36-8c73-5859338a280b",
+  "conversationId": "5069474c-253a-4cef-97ff-8c7a0b1184f8",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "first_contact",
+    "initial_contact",
     "multiple_jobs",
     "beeston",
-    "needs_scoping"
+    "needs_photos",
+    "bannister_detail"
   ],
   "contactName": "Alex",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:01:51.309Z",
+      "at": "2026-09-10T23:25:25.042Z",
       "content": "Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:02:03.632Z",
+      "at": "2026-09-10T23:25:35.611Z",
       "content": "Hi Alex, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:02:11.060Z",
+      "at": "2026-09-10T23:25:48.272Z",
       "content": "Which one do you want to know about first?"
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:02:42.971Z",
+      "at": "2026-09-10T23:26:12.943Z",
       "content": "The bannister is at the top of the stairs, two of the spindles have come loose and it rocks when you lean on it."
     }
   ],
@@ -2851,13 +2859,13 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ### 2.4-short-pause run 1: A short pause ("one sec") does not stop it: the real answer that follows is scoped
 
-Lines 2.4. Started 2026-09-10T22:03:20.325Z, 74475 ms.
+Lines 2.4. Started 2026-09-10T23:26:44.488Z, 79232 ms.
 
 Seed: customer new, name Chris, prefers text false, already rung false, window open. customer: honoured (name "Chris" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_060e3c33-5c65-4f4b-bec4-82a40fcf538f.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_4b44da31-ea13-4eb8-afdb-2056a9a32b98.
 
 > Hi Chris, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -2866,7 +2874,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "0805b3a1-6f2b-4a0e-8149-39eb7f09fdd4",
+  "caseId": "60c31972-9dbe-4780-8418-92e0d34476de",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -2924,7 +2932,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_060e3c33-5c65-4f4b-bec4-82a40fcf538f",
+  "runId": "run_4b44da31-ea13-4eb8-afdb-2056a9a32b98",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -2949,7 +2957,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "0805b3a1-6f2b-4a0e-8149-39eb7f09fdd4",
+  "conversationId": "60c31972-9dbe-4780-8418-92e0d34476de",
   "stage": "enquiry",
   "tags": [
     "sandbox",
@@ -2966,14 +2974,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:03:24.576Z",
+      "at": "2026-09-10T23:26:48.399Z",
       "content": "Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:03:36.837Z",
+      "at": "2026-09-10T23:27:02.713Z",
       "content": "Hi Chris, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -2988,13 +2996,13 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): one sec, let me check
 
-Planned send: nothing goes; decision none; intent unknown; window open; template unavailable; approver none; hold none; run run_8b386bdd-32fb-4f5d-b110-c3263d3a576c.
+Planned send: nothing goes; decision none; intent unknown; window open; template unavailable; approver none; hold none; run run_3e9e56f9-adce-4492-8712-a06e59e920ff.
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "0805b3a1-6f2b-4a0e-8149-39eb7f09fdd4",
+  "caseId": "60c31972-9dbe-4780-8418-92e0d34476de",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -3049,7 +3057,7 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
     }
   },
   "approver": null,
-  "runId": "run_8b386bdd-32fb-4f5d-b110-c3263d3a576c",
+  "runId": "run_3e9e56f9-adce-4492-8712-a06e59e920ff",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -3074,13 +3082,13 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
 
 ```json
 {
-  "conversationId": "0805b3a1-6f2b-4a0e-8149-39eb7f09fdd4",
+  "conversationId": "60c31972-9dbe-4780-8418-92e0d34476de",
   "stage": "enquiry",
   "tags": [
     "sandbox",
     "gate_repair",
     "postcode_provided",
-    "awaiting_response"
+    "awaiting_customer_response"
   ],
   "contactName": "Chris",
   "window": {
@@ -3092,21 +3100,21 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:03:24.576Z",
+      "at": "2026-09-10T23:26:48.399Z",
       "content": "Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:03:36.837Z",
+      "at": "2026-09-10T23:27:02.713Z",
       "content": "Hi Chris, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:03:45.010Z",
+      "at": "2026-09-10T23:27:10.176Z",
       "content": "one sec, let me check"
     }
   ],
@@ -3121,10 +3129,10 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
 
 #### Turn 3 (customer/message): Right, it's a wooden gate. The post has rotted at the bottom so the whole thing leans.
 
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_44d71ddc-5654-453d-a86e-28e5dea015e5. Not landed on the thread by the door.
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_a9ae71a5-8ca9-4f0c-a1a6-06dfc1faa783. Not landed on the thread by the door.
 
-> That'll be the post causing it to lean, makes sense.
-> Could you send a photo or quick video of the post and where it's rotted, plus the whole gate?
+> Thanks Chris, that helps. Could you send a photo of the post and the gate, showing where it's rotted?
+> That'll let me see what we're dealing with.
 
 - [2.4] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
 - [2.4] asks_subject: **PASS** - the reply asks about any
@@ -3133,7 +3141,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "caseId": "0805b3a1-6f2b-4a0e-8149-39eb7f09fdd4",
+  "caseId": "60c31972-9dbe-4780-8418-92e0d34476de",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -3143,2903 +3151,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "That'll be the post causing it to lean, makes sense.",
-    "Could you send a photo or quick video of the post and where it's rotted, plus the whole gate?"
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_44d71ddc-5654-453d-a86e-28e5dea015e5",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "0805b3a1-6f2b-4a0e-8149-39eb7f09fdd4",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "gate_repair",
-    "postcode_provided",
-    "awaiting_response",
-    "needs_photos",
-    "wooden_gate",
-    "rotted_post"
-  ],
-  "contactName": "Chris",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Chris",
-      "at": "2026-09-10T22:03:24.576Z",
-      "content": "Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area."
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:03:36.837Z",
-      "content": "Hi Chris, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Chris",
-      "at": "2026-09-10T22:03:45.010Z",
-      "content": "one sec, let me check"
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Chris",
-      "at": "2026-09-10T22:04:08.839Z",
-      "content": "Right, it's a wooden gate. The post has rotted at the bottom so the whole thing leans."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 2.5-promise-then-quiet run 1: A real promise ("I'll send photos tomorrow") gets one acknowledgement, then quiet until the customer writes
-
-Lines 2.5. Started 2026-09-10T22:04:34.800Z, 139403 ms.
-
-Seed: customer new, name Sara, prefers text false, already rung false, window open. customer: honoured (name "Sara" passed to POST /start as the pushname).
-
-#### Turn 1 (customer/message): Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?
-
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_42274f95-0833-40fa-bce2-a98d872b6df4.
-
-> Hi Sara, thanks for getting in touch.
-> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Sara"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hi Sara, thanks for getting in touch.",
-    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": "rules_layer",
-  "runId": "run_42274f95-0833-40fa-bce2-a98d872b6df4",
-  "hold": null,
-  "delivered": true,
-  "origin": "rules_layer_mirror",
-  "evidence": {
-    "decision": "none",
-    "intent": "ack_enquiry",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": true,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "needs_quote",
-    "postcode_provided"
-  ],
-  "contactName": "Sara",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:04:39.431Z",
-      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:04:56.890Z",
-      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 2 (customer/message): I'll send photos tomorrow when I'm home.
-
-Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_6295271c-03e4-477b-a003-b17e5af25f32.
-
-- [2.5] reply_sent: **FAIL** - no reply would go: decision none
-- [2.5] bubble_count_within: **FAIL** - no reply would go
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Sara"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": null,
-  "runId": "run_6295271c-03e4-477b-a003-b17e5af25f32",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "none",
-    "intent": "holding",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "stage": "scoping",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "needs_quote",
-    "postcode_provided",
-    "photos_pending"
-  ],
-  "contactName": "Sara",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:04:39.431Z",
-      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:04:56.890Z",
-      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:05:11.638Z",
-      "content": "I'll send photos tomorrow when I'm home."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 3 (system/clock): clock pass
-
-Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_456875b8-4780-4efb-862c-86815431e9cd.
-
-- [2.5] reply_not_sent: **PASS** - nothing goes: decision none
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Sara"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": null,
-  "runId": "run_456875b8-4780-4efb-862c-86815431e9cd",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "none",
-    "intent": "holding",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "stage": "scoping",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "needs_quote",
-    "postcode_provided",
-    "photos_pending"
-  ],
-  "contactName": "Sara",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:04:39.431Z",
-      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:04:56.890Z",
-      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:05:11.638Z",
-      "content": "I'll send photos tomorrow when I'm home."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 4 (system/clock): clock pass
-
-Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_6ed68063-92d3-42a7-b25b-c54b10dc619e.
-
-- [2.5] reply_not_sent: **PASS** - nothing goes: decision none
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Sara"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": null,
-  "runId": "run_6ed68063-92d3-42a7-b25b-c54b10dc619e",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "none",
-    "intent": "holding",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "8d5930f3-e99c-4dd6-9abd-d5dafc4be328",
-  "stage": "scoping",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "needs_quote",
-    "postcode_provided",
-    "photos_pending"
-  ],
-  "contactName": "Sara",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 2 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:04:39.431Z",
-      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:04:56.890Z",
-      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:05:11.638Z",
-      "content": "I'll send photos tomorrow when I'm home."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 2.6-date-question run 1: A date question gets "dates come with your quote" and scoping continues; no lead-time guess
-
-Lines 2.6. Started 2026-09-10T22:06:54.203Z, 59030 ms.
-
-Seed: customer new, name Tom, prefers text false, already rung false, window open. customer: honoured (name "Tom" passed to POST /start as the pushname).
-
-#### Turn 1 (customer/message): Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ.
-
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_3f538c77-fed4-4368-b3c3-567482fccec2. Not landed on the thread by the door.
-
-> Hiya Tom, no problem, we can help with that.
-> Could you send a quick photo of the current extractor fan, and the ceiling or wall it's fitted in?
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "746e74e6-0c07-4990-80d2-e89c58f2003d",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Tom"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hiya Tom, no problem, we can help with that.",
-    "Could you send a quick photo of the current extractor fan, and the ceiling or wall it's fitted in?"
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_3f538c77-fed4-4368-b3c3-567482fccec2",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "746e74e6-0c07-4990-80d2-e89c58f2003d",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "postcode_provided",
-    "extractor_fan",
-    "needs_photos"
-  ],
-  "contactName": "Tom",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Tom",
-      "at": "2026-09-10T22:06:58.648Z",
-      "content": "Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 2 (customer/message): When can you come?
-
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_94cfc752-8efa-4dc7-9c66-e4649ac2eaef.
-
-- [2.6] reply_sent: **FAIL** - no reply would go: decision pending
-- [2.6] no_date: **PASS** - no date, time or duration in the reply
-- [2.6] text_matches: **FAIL** - no reply would go
-- [2.6] asks_subject: **FAIL** - no reply would go
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "746e74e6-0c07-4990-80d2-e89c58f2003d",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Tom"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": null,
-  "runId": "run_94cfc752-8efa-4dc7-9c66-e4649ac2eaef",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "pending",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:date_asked",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "746e74e6-0c07-4990-80d2-e89c58f2003d",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "postcode_provided",
-    "extractor_fan",
-    "needs_photos",
-    "availability_asked"
-  ],
-  "contactName": "Tom",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Tom",
-      "at": "2026-09-10T22:06:58.648Z",
-      "content": "Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Tom",
-      "at": "2026-09-10T22:07:27.841Z",
-      "content": "When can you come?"
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 2.7-money-to-ben run 1: Anything about money or price goes to Ben, not answered
-
-Lines 2.7. Started 2026-09-10T22:07:53.233Z, 52889 ms.
-
-Seed: customer new, name Nina, prefers text false, already rung false, window open. customer: honoured (name "Nina" passed to POST /start as the pushname).
-
-#### Turn 1 (customer/message): Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA.
-
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_5b6b99e6-665f-49e5-9794-ac4295971aef.
-
-> Hi Nina, thanks for getting in touch.
-> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "a03e1de3-48f6-4479-be73-8dae4f687865",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Nina"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hi Nina, thanks for getting in touch.",
-    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": "rules_layer",
-  "runId": "run_5b6b99e6-665f-49e5-9794-ac4295971aef",
-  "hold": null,
-  "delivered": true,
-  "origin": "rules_layer_mirror",
-  "evidence": {
-    "decision": "none",
-    "intent": "ack_enquiry",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": true,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "a03e1de3-48f6-4479-be73-8dae4f687865",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "tap_replacement",
-    "customer_supplied_materials"
-  ],
-  "contactName": "Nina",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Nina",
-      "at": "2026-09-10T22:07:57.632Z",
-      "content": "Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA."
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:08:13.858Z",
-      "content": "Hi Nina, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 2 (customer/message): How much roughly?
-
-Planned send: nothing goes; decision flag; intent unknown; window open; template unavailable; approver none; hold ben (money_question); run run_b454589f-9abc-4f7c-a74d-86c83985fd9a.
-
-- [2.7] hold_for_approver: **PASS** - held for ben: money_question
-- [2.7] no_figure: **PASS** - no figure in the reply
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "a03e1de3-48f6-4479-be73-8dae4f687865",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Nina"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": null,
-  "runId": "run_b454589f-9abc-4f7c-a74d-86c83985fd9a",
-  "hold": {
-    "approver": "ben",
-    "reason": "money_question",
-    "since": "2026-09-11T11:00:00.000Z"
-  },
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "flag",
-    "intent": "unknown",
-    "lane": "ben",
-    "pack": "customer.exception",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: flagged for Ben (money_question), due 2026-09-11T11:00:00.000Z: a question on his phone, nothing to the customer",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "a03e1de3-48f6-4479-be73-8dae4f687865",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "tap_replacement",
-    "customer_supplied_materials"
-  ],
-  "contactName": "Nina",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Nina",
-      "at": "2026-09-10T22:07:57.632Z",
-      "content": "Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA."
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:08:13.858Z",
-      "content": "Hi Nina, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Nina",
-      "at": "2026-09-10T22:08:22.634Z",
-      "content": "How much roughly?"
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 2.8-one-reply-per-turn run 1: Never a second reply without the customer writing in between: one reply per customer turn, however many bubbles
-
-Lines 2.8. Started 2026-09-10T22:08:46.122Z, 109241 ms.
-
-Seed: customer new, name Lee, prefers text false, already rung false, window open. customer: honoured (name "Lee" passed to POST /start as the pushname).
-
-#### Turn 1 (customer/message): Hi, I need an internal door rehung, it's catching on the frame. We're in NG9.
-
-Planned send: nothing goes; decision none; intent ask_postcode; window open; template unavailable; approver none; hold none; run run_6fe9e0d0-8005-4650-abdb-663e3ec9b3eb.
-
-- [2.8] reply_sent: **FAIL** - no reply would go: decision none
-- [2.8] bubble_count_within: **FAIL** - no reply would go
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Lee"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": null,
-  "runId": "run_6fe9e0d0-8005-4650-abdb-663e3ec9b3eb",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "none",
-    "intent": "ask_postcode",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "door_rehang",
-    "postcode_provided"
-  ],
-  "contactName": "Lee",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:08:56.624Z",
-      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 2 (system/clock): clock pass
-
-Planned send: nothing goes; decision none; intent ack_enquiry; window open; template unavailable; approver none; hold none; run run_f9d8a410-89a9-4eaf-a965-42b70b883d75.
-
-- [2.8] reply_not_sent: **PASS** - nothing goes: decision none
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Lee"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": null,
-  "runId": "run_f9d8a410-89a9-4eaf-a965-42b70b883d75",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "none",
-    "intent": "ack_enquiry",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "door_rehang",
-    "postcode_provided"
-  ],
-  "contactName": "Lee",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:08:56.624Z",
-      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 3 (customer/message): It's the bathroom door upstairs, been like it since the summer.
-
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_3572cc70-de23-44b1-a758-51df8dd19877. Not landed on the thread by the door.
-
-> Hiya Lee, sounds like a simple rehang job.
-> Could you send a quick video of the door where it's catching on the frame?
-
-- [2.8] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Lee"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hiya Lee, sounds like a simple rehang job.",
-    "Could you send a quick video of the door where it's catching on the frame?"
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_3572cc70-de23-44b1-a758-51df8dd19877",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "door_rehang",
-    "postcode_provided",
-    "bathroom_door"
-  ],
-  "contactName": "Lee",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:08:56.624Z",
-      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:09:38.295Z",
-      "content": "It's the bathroom door upstairs, been like it since the summer."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 4 (system/clock): clock pass
-
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_df1b5030-23e5-4f5d-97be-a702334c645f. Not landed on the thread by the door.
-
-> Hiya Lee, thanks for that. Sounds like it's just dropped on its hinges over time, very common.
-> Could you send a quick photo or video of where it's catching on the frame?
-
-- [2.8] reply_not_sent: **FAIL** - artefact: dry-run reply not landed on thread
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Lee"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hiya Lee, thanks for that. Sounds like it's just dropped on its hinges over time, very common.",
-    "Could you send a quick photo or video of where it's catching on the frame?"
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_df1b5030-23e5-4f5d-97be-a702334c645f",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "5cc68796-64ab-4f98-ab0d-9f28ad5b52f7",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "door_rehang",
-    "postcode_provided",
-    "bathroom_door",
-    "internal_door"
-  ],
-  "contactName": "Lee",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:08:56.624Z",
-      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:09:38.295Z",
-      "content": "It's the bathroom door upstairs, been like it since the summer."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 1.1-inbound-whatsapp run 2: Inbound WhatsApp: the opening message gets one freeform acknowledgement that quotes the enquiry back and offers a call
-
-Lines 1.1. Started 2026-09-10T22:10:35.363Z, 28147 ms.
-
-Seed: customer new, name Sam, prefers text false, already rung false, window open. customer: honoured (name "Sam" passed to POST /start as the pushname).
-
-#### Turn 1 (customer/message): Hi, can I get a quote for a leaking kitchen tap? It's dripping from the base and won't stop.
-
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_b79d0e6b-1d47-4ccd-86e5-005e8d356b99.
-
-> Hi Sam, thanks for getting in touch.
-> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
-
-- [1.1] reply_sent: **PASS** - a reply would go (2 bubbles, rules_layer_mirror)
-- [1.1] text_matches: **FAIL** - no match for /\btap\b/
-- [1.1] offers_call: **PASS** - the reply offers a call
-- [1.1] freeform: **PASS** - freeform, no template
-- [1.1] bubble_count_within: **PASS** - 2 bubbles, ceiling 4
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "bab01dcd-e0ff-40c0-9db0-d2b79fbbf413",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Sam"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hi Sam, thanks for getting in touch.",
-    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": "rules_layer",
-  "runId": "run_b79d0e6b-1d47-4ccd-86e5-005e8d356b99",
-  "hold": null,
-  "delivered": true,
-  "origin": "rules_layer_mirror",
-  "evidence": {
-    "decision": "none",
-    "intent": "ack_enquiry",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": true,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "bab01dcd-e0ff-40c0-9db0-d2b79fbbf413",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "tap_leak",
-    "needs_quote"
-  ],
-  "contactName": "Sam",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sam",
-      "at": "2026-09-10T22:10:42.269Z",
-      "content": "Hi, can I get a quote for a leaking kitchen tap? It's dripping from the base and won't stop."
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:10:56.265Z",
-      "content": "Hi Sam, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 1.6-prefers-text run 2: Prefers text: once the customer says text only, a call is never offered again
-
-Lines 1.6. Started 2026-09-10T22:11:03.510Z, 170936 ms.
-
-Seed: customer new, name Jo, prefers text true, already rung false, window open. customer: honoured (name "Jo" passed to POST /start as the pushname); prefersText: unsupported (no seed field on the current door; the scenario states it in a customer turn ("text only please")).
-
-#### Turn 1 (customer/message): Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?
-
-Planned send: nothing goes; decision none; intent ask_postcode; window open; template unavailable; approver none; hold none; run run_e7125ed8-cfa0-46e6-bcb0-c3943b4c41c7.
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Jo"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": null,
-  "runId": "run_e7125ed8-cfa0-46e6-bcb0-c3943b4c41c7",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "none",
-    "intent": "ask_postcode",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "first_contact"
-  ],
-  "contactName": "Jo",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:07.362Z",
-      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 2 (customer/message): Text only please, I can't take calls at work.
-
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_b633f275-7f8f-4fc4-b0e3-f447b779a887. Not landed on the thread by the door.
-
-> Hiya Jo, sorry to hear that, blown down fence panels are a common one this time of year.
-> Could you send a photo of the damaged panel and the posts either side?
-> No problem on text only, we'll keep it all here.
-
-- [1.6] not_offers_call: **PASS** - the reply does not offer a call
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Jo"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hiya Jo, sorry to hear that, blown down fence panels are a common one this time of year.",
-    "Could you send a photo of the damaged panel and the posts either side?",
-    "No problem on text only, we'll keep it all here."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_b633f275-7f8f-4fc4-b0e3-f447b779a887",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "first_contact",
-    "no_calls"
-  ],
-  "contactName": "Jo",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:07.362Z",
-      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:26.733Z",
-      "content": "Text only please, I can't take calls at work."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 3 (customer/message): It's one 6ft panel, the posts are fine. We're NG9 2AB.
-
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_8b752768-25c9-41b0-973e-c229e5c3901d. Not landed on the thread by the door.
-
-> Hiya Jo, thanks, that's a good bit of detail already.
-> Could you send a quick photo of the blown down panel and the gap?
-> That'll help me get the quote spot on for you.
-
-- [1.6] not_offers_call: **PASS** - the reply does not offer a call
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Jo"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hiya Jo, thanks, that's a good bit of detail already.",
-    "Could you send a quick photo of the blown down panel and the gap?",
-    "That'll help me get the quote spot on for you."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_8b752768-25c9-41b0-973e-c229e5c3901d",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "first_contact",
-    "no_calls",
-    "postcode_provided",
-    "scope_clear"
-  ],
-  "contactName": "Jo",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:07.362Z",
-      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:26.733Z",
-      "content": "Text only please, I can't take calls at work."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:53.627Z",
-      "content": "It's one 6ft panel, the posts are fine. We're NG9 2AB."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 4 (customer/message): Do you need anything else from me?
-
-Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_3007e6ca-737a-4356-9846-44faa06328a5.
-
-- [1.6] not_offers_call: **PASS** - the reply does not offer a call
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Jo"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": null,
-  "runId": "run_3007e6ca-737a-4356-9846-44faa06328a5",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "pending",
-    "intent": "confirm_received",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: confirm_received:nothing_arrived",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "4688cbbb-1681-4bf2-99b7-f30a041f2f6c",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "first_contact",
-    "no_calls",
-    "postcode_provided",
-    "scope_clear",
-    "text_only",
-    "needs_quote"
-  ],
-  "contactName": "Jo",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:07.362Z",
-      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:26.733Z",
-      "content": "Text only please, I can't take calls at work."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:11:53.627Z",
-      "content": "It's one 6ft panel, the posts are fine. We're NG9 2AB."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Jo",
-      "at": "2026-09-10T22:13:08.116Z",
-      "content": "Do you need anything else from me?"
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 1.7-photos-first run 2: Photos with the first message are acknowledged as photos, not as a bare enquiry
-
-Lines 1.7. Started 2026-09-10T22:13:54.446Z, 30993 ms.
-
-Seed: customer new, name Priya, prefers text false, already rung false, window open. customer: honoured (name "Priya" passed to POST /start as the pushname).
-
-#### Turn 1 (customer/message): Hi, this is the tap that's leaking under our kitchen sink. Can you quote for fixing it? [+1 media]
-
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_89d6a72c-f21c-4afd-acbe-7e88cabccdb2.
-
-- [1.7] reply_sent: **FAIL** - no reply would go: decision pending
-- [1.7] text_matches: **FAIL** - no reply would go
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "f6cbaa8e-300f-4d87-823f-942329e2dac2",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Sandbox customer (not real)"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": null,
-  "runId": "run_89d6a72c-f21c-4afd-acbe-7e88cabccdb2",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "pending",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:customer_question",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "f6cbaa8e-300f-4d87-823f-942329e2dac2",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "photos_received",
-    "needs_quote",
-    "plumbing"
-  ],
-  "contactName": "Sandbox customer (not real)",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox customer (not real)",
-      "at": "2026-09-10T22:14:03.951Z",
-      "content": "Hi, this is the tap that's leaking under our kitchen sink. Can you quote for fixing it?"
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-### 2.1-replies-to-statements run 2: Replies to every customer turn, whether or not the reply is a question
-
-Lines 2.1. Started 2026-09-10T22:14:25.440Z, 127705 ms.
-
-Seed: customer new, name Dan, prefers text false, already rung false, window open. customer: honoured (name "Dan" passed to POST /start as the pushname).
-
-#### Turn 1 (customer/message): Hi, my bathroom extractor fan has stopped working, can you sort it?
-
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_efbe5a48-6fef-4915-8352-9cc379879422.
-
-> Hi Dan, thanks for getting in touch.
-> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
-
-- [2.1] reply_sent: **PASS** - a reply would go (2 bubbles, rules_layer_mirror)
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Dan"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hi Dan, thanks for getting in touch.",
-    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "date_time_duration": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "commitment_fault": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "business_claim": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "no guard ran on this pass (no proposal reached the guards)"
-    }
-  },
-  "approver": "rules_layer",
-  "runId": "run_efbe5a48-6fef-4915-8352-9cc379879422",
-  "hold": null,
-  "delivered": true,
-  "origin": "rules_layer_mirror",
-  "evidence": {
-    "decision": "none",
-    "intent": "ack_enquiry",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": true,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "bathroom_electrical",
-    "extractor_fan"
-  ],
-  "contactName": "Dan",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Dan",
-      "at": "2026-09-10T22:14:30.930Z",
-      "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:14:41.891Z",
-      "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 2 (customer/message): It's a ceiling fan, about four inch. The light still works but the fan is dead.
-
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_3ad299b5-b1b1-4555-a102-948c82d107e0. Not landed on the thread by the door.
-
-> Thanks Dan, that helps.
-> Could you send a quick photo of the fan and the switch that runs it?
-> That'll let me see what we're dealing with.
-
-- [2.1] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Dan"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Thanks Dan, that helps.",
-    "Could you send a quick photo of the fan and the switch that runs it?",
+    "Thanks Chris, that helps. Could you send a photo of the post and the gate, showing where it's rotted?",
     "That'll let me see what we're dealing with."
   ],
   "factIds": "unavailable",
@@ -6102,7 +3214,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_3ad299b5-b1b1-4555-a102-948c82d107e0",
+  "runId": "run_a9ae71a5-8ca9-4f0c-a1a6-06dfc1faa783",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -6111,8 +3223,8 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     "intent": "ask_gap",
     "lane": "scoper",
     "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
+    "stageAfter": "scoping",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -6127,15 +3239,17 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
-  "stage": "enquiry",
+  "conversationId": "60c31972-9dbe-4780-8418-92e0d34476de",
+  "stage": "scoping",
   "tags": [
     "sandbox",
-    "bathroom_electrical",
-    "extractor_fan",
-    "needs_quote"
+    "gate_repair",
+    "postcode_provided",
+    "awaiting_customer_response",
+    "wood_rot",
+    "needs_photos"
   ],
-  "contactName": "Dan",
+  "contactName": "Chris",
   "window": {
     "canFreeform": true,
     "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
@@ -6144,23 +3258,30 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     {
       "direction": "inbound",
       "channel": "whatsapp",
-      "sender": "Dan",
-      "at": "2026-09-10T22:14:30.930Z",
-      "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
+      "sender": "Chris",
+      "at": "2026-09-10T23:26:48.399Z",
+      "content": "Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:14:41.891Z",
-      "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+      "at": "2026-09-10T23:27:02.713Z",
+      "content": "Hi Chris, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
-      "sender": "Dan",
-      "at": "2026-09-10T22:14:48.263Z",
-      "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
+      "sender": "Chris",
+      "at": "2026-09-10T23:27:10.176Z",
+      "content": "one sec, let me check"
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Chris",
+      "at": "2026-09-10T23:27:34.399Z",
+      "content": "Right, it's a wooden gate. The post has rotted at the bottom so the whole thing leans."
     }
   ],
   "quote": null,
@@ -6172,33 +3293,627 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 </details>
 
-#### Turn 3 (customer/message): We're in NG7 2PQ.
+### 2.5-promise-then-quiet run 1: A real promise ("I'll send photos tomorrow") gets one acknowledgement, then quiet until the customer writes
 
-Planned send: 3 bubbles (desk); decision send; intent confirm_received; window open; template none; approver agent.scoper; hold none; run run_c777ccb8-7b0a-4ab6-a87b-278e15bfa75d. Not landed on the thread by the door.
+Lines 2.5. Started 2026-09-10T23:28:03.720Z, 150735 ms.
 
-> Cheers, that's clear, a 4 inch bathroom extractor, light still working but the fan's dead.
-> Got your postcode too, NG7 2PQ noted.
-> I'll get your quote sorted and sent over shortly.
+Seed: customer new, name Sara, prefers text false, already rung false, window open. customer: honoured (name "Sara" passed to POST /start as the pushname).
 
-- [2.1] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
+#### Turn 1 (customer/message): Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?
+
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_9d77f110-b6cf-49dd-bf60-28a253caac2a.
+
+> Hi Sara, thanks for getting in touch.
+> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
+  "caseId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
-    "name": "Dan"
+    "name": "Sara"
   },
   "channel": "whatsapp",
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Cheers, that's clear, a 4 inch bathroom extractor, light still working but the fan's dead.",
-    "Got your postcode too, NG7 2PQ noted.",
-    "I'll get your quote sorted and sent over shortly."
+    "Hi Sara, thanks for getting in touch.",
+    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": "rules_layer",
+  "runId": "run_9d77f110-b6cf-49dd-bf60-28a253caac2a",
+  "hold": null,
+  "delivered": true,
+  "origin": "rules_layer_mirror",
+  "evidence": {
+    "decision": "none",
+    "intent": "ack_enquiry",
+    "lane": "rules",
+    "pack": "rules.first_contact",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": true,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "fence_panels",
+    "storm_damage",
+    "needs_quote"
+  ],
+  "contactName": "Sara",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:28:11.116Z",
+      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:28:24.572Z",
+      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 2 (customer/message): I'll send photos tomorrow when I'm home.
+
+Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_00c8be33-70e0-40a5-9db6-a288b760f8d3.
+
+- [2.5] reply_sent: **FAIL** - no reply would go: decision none
+- [2.5] bubble_count_within: **FAIL** - no reply would go
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Sara"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_00c8be33-70e0-40a5-9db6-a288b760f8d3",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "holding",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "scoping",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
+  "stage": "scoping",
+  "tags": [
+    "sandbox",
+    "fence_panels",
+    "storm_damage",
+    "needs_quote",
+    "photos_pending"
+  ],
+  "contactName": "Sara",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:28:11.116Z",
+      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:28:24.572Z",
+      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:28:35.121Z",
+      "content": "I'll send photos tomorrow when I'm home."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 3 (system/clock): clock pass
+
+Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_385b7c29-32a7-4986-ab11-4044c1b355c2.
+
+- [2.5] reply_not_sent: **PASS** - nothing goes: decision none
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Sara"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_385b7c29-32a7-4986-ab11-4044c1b355c2",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "holding",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "scoping",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
+  "stage": "scoping",
+  "tags": [
+    "sandbox",
+    "fence_panels",
+    "storm_damage",
+    "needs_quote",
+    "photos_pending"
+  ],
+  "contactName": "Sara",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:28:11.116Z",
+      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:28:24.572Z",
+      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:28:35.121Z",
+      "content": "I'll send photos tomorrow when I'm home."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 4 (system/clock): clock pass
+
+Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_f97255bf-217a-4003-8e6d-db59ba6840b3.
+
+- [2.5] reply_not_sent: **PASS** - nothing goes: decision none
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Sara"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_f97255bf-217a-4003-8e6d-db59ba6840b3",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "holding",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "scoping",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "9fb25201-ba41-49dd-9e35-f7f01624ae96",
+  "stage": "scoping",
+  "tags": [
+    "sandbox",
+    "fence_panels",
+    "storm_damage",
+    "needs_quote",
+    "photos_pending"
+  ],
+  "contactName": "Sara",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 2 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:28:11.116Z",
+      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:28:24.572Z",
+      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:28:35.121Z",
+      "content": "I'll send photos tomorrow when I'm home."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+### 2.6-date-question run 1: A date question gets "dates come with your quote" and scoping continues; no lead-time guess
+
+Lines 2.6. Started 2026-09-10T23:30:34.455Z, 64254 ms.
+
+Seed: customer new, name Tom, prefers text false, already rung false, window open. customer: honoured (name "Tom" passed to POST /start as the pushname).
+
+#### Turn 1 (customer/message): Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ.
+
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_9ba029b7-c3e8-43f6-999d-1e77ec0d4ae7. Not landed on the thread by the door.
+
+> Hiya Tom, no problem, we can sort that.
+> Could you send a quick photo of the current extractor fan and where it sits, so I can see what we're working with?
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "d85bf851-20b2-4e1e-911e-c0df61de0025",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Tom"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Hiya Tom, no problem, we can sort that.",
+    "Could you send a quick photo of the current extractor fan and where it sits, so I can see what we're working with?"
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -6260,16 +3975,854 @@ Planned send: 3 bubbles (desk); decision send; intent confirm_received; window o
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_c777ccb8-7b0a-4ab6-a87b-278e15bfa75d",
+  "runId": "run_9ba029b7-c3e8-43f6-999d-1e77ec0d4ae7",
   "hold": null,
   "delivered": true,
   "origin": "desk",
   "evidence": {
     "decision": "send",
-    "intent": "confirm_received",
+    "intent": "ask_gap",
     "lane": "scoper",
     "pack": "customer.default",
-    "stageAfter": "scoping",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "d85bf851-20b2-4e1e-911e-c0df61de0025",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "first_contact",
+    "postcode_provided",
+    "extractor_fan"
+  ],
+  "contactName": "Tom",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Tom",
+      "at": "2026-09-10T23:30:38.545Z",
+      "content": "Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 2 (customer/message): When can you come?
+
+Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_d99dc8f3-5b75-43f2-9baf-b6234f5eae04.
+
+- [2.6] reply_sent: **FAIL** - no reply would go: decision pending
+- [2.6] no_date: **PASS** - no date, time or duration in the reply
+- [2.6] text_matches: **FAIL** - no reply would go
+- [2.6] asks_subject: **FAIL** - no reply would go
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "d85bf851-20b2-4e1e-911e-c0df61de0025",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Tom"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_d99dc8f3-5b75-43f2-9baf-b6234f5eae04",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "pending",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:33.690Z) — precondition: ask_gap:date_asked",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "d85bf851-20b2-4e1e-911e-c0df61de0025",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "first_contact",
+    "postcode_provided",
+    "extractor_fan",
+    "availability_ask"
+  ],
+  "contactName": "Tom",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Tom",
+      "at": "2026-09-10T23:30:38.545Z",
+      "content": "Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Tom",
+      "at": "2026-09-10T23:31:13.228Z",
+      "content": "When can you come?"
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+### 2.7-money-to-ben run 1: Anything about money or price goes to Ben, not answered
+
+Lines 2.7. Started 2026-09-10T23:31:38.709Z, 43130 ms.
+
+Seed: customer new, name Nina, prefers text false, already rung false, window open. customer: honoured (name "Nina" passed to POST /start as the pushname).
+
+#### Turn 1 (customer/message): Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA.
+
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_b1955282-db7e-4bed-a36d-9861c876ce63.
+
+> Hi Nina, thanks for getting in touch.
+> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "bc1d85d4-57f4-4d4a-95c0-48f5fffb8b5c",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Nina"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Hi Nina, thanks for getting in touch.",
+    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": "rules_layer",
+  "runId": "run_b1955282-db7e-4bed-a36d-9861c876ce63",
+  "hold": null,
+  "delivered": true,
+  "origin": "rules_layer_mirror",
+  "evidence": {
+    "decision": "none",
+    "intent": "ack_enquiry",
+    "lane": "rules",
+    "pack": "rules.first_contact",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": true,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "bc1d85d4-57f4-4d4a-95c0-48f5fffb8b5c",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "first_contact",
+    "tap_replacement",
+    "own_materials",
+    "postcode_provided"
+  ],
+  "contactName": "Nina",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Nina",
+      "at": "2026-09-10T23:31:44.357Z",
+      "content": "Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:32:01.202Z",
+      "content": "Hi Nina, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 2 (customer/message): How much roughly?
+
+Planned send: nothing goes; decision flag; intent unknown; window open; template unavailable; approver none; hold ben (money_question); run run_e2f63b70-152d-4654-b202-09725ead4d0a.
+
+- [2.7] hold_for_approver: **PASS** - held for ben: money_question
+- [2.7] no_figure: **PASS** - no figure in the reply
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "bc1d85d4-57f4-4d4a-95c0-48f5fffb8b5c",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Nina"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": null,
+  "runId": "run_e2f63b70-152d-4654-b202-09725ead4d0a",
+  "hold": {
+    "approver": "ben",
+    "reason": "money_question",
+    "since": "2026-09-11T11:00:13.692Z"
+  },
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "flag",
+    "intent": "unknown",
+    "lane": "ben",
+    "pack": "customer.exception",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: flagged for Ben (money_question), due 2026-09-11T11:00:13.692Z: a question on his phone, nothing to the customer",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "bc1d85d4-57f4-4d4a-95c0-48f5fffb8b5c",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "first_contact",
+    "tap_replacement",
+    "own_materials",
+    "postcode_provided"
+  ],
+  "contactName": "Nina",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Nina",
+      "at": "2026-09-10T23:31:44.357Z",
+      "content": "Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:32:01.202Z",
+      "content": "Hi Nina, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Nina",
+      "at": "2026-09-10T23:32:08.690Z",
+      "content": "How much roughly?"
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+### 2.8-one-reply-per-turn run 1: Never a second reply without the customer writing in between: one reply per customer turn, however many bubbles
+
+Lines 2.8. Started 2026-09-10T23:32:21.840Z, 125683 ms.
+
+Seed: customer new, name Lee, prefers text false, already rung false, window open. customer: honoured (name "Lee" passed to POST /start as the pushname).
+
+#### Turn 1 (customer/message): Hi, I need an internal door rehung, it's catching on the frame. We're in NG9.
+
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_8c8f7e05-f0de-4f92-aff6-90754a164a3b.
+
+> Hi Lee, thanks for getting in touch.
+> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
+
+- [2.8] reply_sent: **PASS** - a reply would go (2 bubbles, rules_layer_mirror)
+- [2.8] bubble_count_within: **PASS** - 2 bubbles, ceiling 4
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Lee"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Hi Lee, thanks for getting in touch.",
+    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": "rules_layer",
+  "runId": "run_8c8f7e05-f0de-4f92-aff6-90754a164a3b",
+  "hold": null,
+  "delivered": true,
+  "origin": "rules_layer_mirror",
+  "evidence": {
+    "decision": "none",
+    "intent": "ack_enquiry",
+    "lane": "rules",
+    "pack": "rules.first_contact",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": true,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "door_rehang",
+    "postcode_provided"
+  ],
+  "contactName": "Lee",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:32:27.674Z",
+      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:32:53.204Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 2 (system/clock): clock pass
+
+Planned send: nothing goes; decision none; intent unknown; window open; template unavailable; approver none; hold none; run run_7f8d1bbc-d383-4a8d-8867-8fb0cefe2f36.
+
+- [2.8] reply_not_sent: **PASS** - nothing goes: decision none
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Lee"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": null,
+  "runId": "run_7f8d1bbc-d383-4a8d-8867-8fb0cefe2f36",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "unknown",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — no proposal",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "door_rehang",
+    "postcode_provided"
+  ],
+  "contactName": "Lee",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:32:27.674Z",
+      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:32:53.204Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 3 (customer/message): It's the bathroom door upstairs, been like it since the summer.
+
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_718b9518-88d4-4f84-a1cb-9334596b1a25. Not landed on the thread by the door.
+
+> Thanks Lee, that helps.
+> Could you send a quick photo or video of where it's catching on the frame?
+> That'll let me see exactly what's going on with it.
+
+- [2.8] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Lee"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Thanks Lee, that helps.",
+    "Could you send a quick photo or video of where it's catching on the frame?",
+    "That'll let me see exactly what's going on with it."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": "agent.scoper",
+  "runId": "run_718b9518-88d4-4f84-a1cb-9334596b1a25",
+  "hold": null,
+  "delivered": true,
+  "origin": "desk",
+  "evidence": {
+    "decision": "send",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
     "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
@@ -6285,16 +4838,172 @@ Planned send: 3 bubbles (desk); decision send; intent confirm_received; window o
 
 ```json
 {
-  "conversationId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
-  "stage": "scoping",
+  "conversationId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "stage": "enquiry",
   "tags": [
     "sandbox",
-    "bathroom_electrical",
-    "extractor_fan",
-    "needs_quote",
-    "postcode_received"
+    "door_rehang",
+    "postcode_provided",
+    "photos_needed"
   ],
-  "contactName": "Dan",
+  "contactName": "Lee",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:32:27.674Z",
+      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:32:53.204Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:33:33.109Z",
+      "content": "It's the bathroom door upstairs, been like it since the summer."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 4 (system/clock): clock pass
+
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_62ef5bfd-1344-4505-9cad-a512d1e0b2df. Not landed on the thread by the door.
+
+> Thanks Lee, that helps. Could you send a quick video of the door catching on the frame?
+> That'll help me see exactly where it's rubbing.
+
+- [2.8] reply_not_sent: **FAIL** - artefact: dry-run reply not landed on thread
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Lee"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Thanks Lee, that helps. Could you send a quick video of the door catching on the frame?",
+    "That'll help me see exactly where it's rubbing."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": "agent.scoper",
+  "runId": "run_62ef5bfd-1344-4505-9cad-a512d1e0b2df",
+  "hold": null,
+  "delivered": true,
+  "origin": "desk",
+  "evidence": {
+    "decision": "send",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "308e612f-8032-425f-9b13-0533bf7f3838",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "door_rehang",
+    "postcode_provided",
+    "photos_needed",
+    "bathroom_door"
+  ],
+  "contactName": "Lee",
   "window": {
     "canFreeform": true,
     "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
@@ -6303,29 +5012,1361 @@ Planned send: 3 bubbles (desk); decision send; intent confirm_received; window o
     {
       "direction": "inbound",
       "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:32:27.674Z",
+      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:32:53.204Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:33:33.109Z",
+      "content": "It's the bathroom door upstairs, been like it since the summer."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+### 1.1-inbound-whatsapp run 2: Inbound WhatsApp: the opening message gets one freeform acknowledgement that quotes the enquiry back and offers a call
+
+Lines 1.1. Started 2026-09-10T23:34:27.523Z, 29725 ms.
+
+Seed: customer new, name Sam, prefers text false, already rung false, window open. customer: honoured (name "Sam" passed to POST /start as the pushname).
+
+#### Turn 1 (customer/message): Hi, can I get a quote for a leaking kitchen tap? It's dripping from the base and won't stop.
+
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_c4fe0cdf-aab9-4f43-a22b-fc8e2aa748ae.
+
+> Hi Sam, thanks for getting in touch.
+> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
+
+- [1.1] reply_sent: **PASS** - a reply would go (2 bubbles, rules_layer_mirror)
+- [1.1] text_matches: **FAIL** - no match for /\btap\b/
+- [1.1] offers_call: **PASS** - the reply offers a call
+- [1.1] freeform: **PASS** - freeform, no template
+- [1.1] bubble_count_within: **PASS** - 2 bubbles, ceiling 4
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "1f7d8035-dadc-49e8-9213-6d4202827593",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Sam"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Hi Sam, thanks for getting in touch.",
+    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": "rules_layer",
+  "runId": "run_c4fe0cdf-aab9-4f43-a22b-fc8e2aa748ae",
+  "hold": null,
+  "delivered": true,
+  "origin": "rules_layer_mirror",
+  "evidence": {
+    "decision": "none",
+    "intent": "ack_enquiry",
+    "lane": "rules",
+    "pack": "rules.first_contact",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": true,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "1f7d8035-dadc-49e8-9213-6d4202827593",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "plumbing",
+    "leaking_tap",
+    "needs_quote"
+  ],
+  "contactName": "Sam",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sam",
+      "at": "2026-09-10T23:34:32.786Z",
+      "content": "Hi, can I get a quote for a leaking kitchen tap? It's dripping from the base and won't stop."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:34:50.885Z",
+      "content": "Hi Sam, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+### 1.6-prefers-text run 2: Prefers text: once the customer says text only, a call is never offered again
+
+Lines 1.6. Started 2026-09-10T23:34:57.248Z, 219180 ms.
+
+Seed: customer new, name Jo, prefers text true, already rung false, window open. customer: honoured (name "Jo" passed to POST /start as the pushname); prefersText: unsupported (no seed field on the current door; the scenario states it in a customer turn ("text only please")).
+
+#### Turn 1 (customer/message): Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?
+
+Planned send: nothing goes; decision none; intent ask_postcode; window open; template unavailable; approver none; hold none; run run_0fa3960f-dcaf-4916-ba8f-84b14effc92c.
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Jo"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": null,
+  "runId": "run_0fa3960f-dcaf-4916-ba8f-84b14effc92c",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "ask_postcode",
+    "lane": "rules",
+    "pack": "rules.first_contact",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "fence_repair",
+    "needs_quote"
+  ],
+  "contactName": "Jo",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:35:02.628Z",
+      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 2 (customer/message): Text only please, I can't take calls at work.
+
+Planned send: nothing goes; decision none; intent propose_intake; window open; template unavailable; approver none; hold none; run run_633c1750-57bc-4c17-be59-5a2974514ba3.
+
+- [1.6] reply_sent: **FAIL** - no reply would go: decision none
+- [1.6] not_offers_call: **PASS** - the reply does not offer a call
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Jo"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_633c1750-57bc-4c17-be59-5a2974514ba3",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "propose_intake",
+    "lane": "quote_clerk",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — artifact quote_intake recorded (tier PROPOSE); nothing goes to the customer",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [
+      "intent propose_intake is not allowed in pack customer.default"
+    ],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "fence_repair",
+    "needs_quote",
+    "no_calls"
+  ],
+  "contactName": "Jo",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:35:02.628Z",
+      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:35:23.620Z",
+      "content": "Text only please, I can't take calls at work."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 3 (customer/message): It's one 6ft panel, the posts are fine. We're NG9 2AB.
+
+Planned send: nothing goes; decision none; intent propose_intake; window open; template unavailable; approver none; hold none; run run_95b62f65-e7dc-4afd-8dc4-4ed91e1f84bf.
+
+- [1.6] reply_sent: **FAIL** - no reply would go: decision none
+- [1.6] not_offers_call: **PASS** - the reply does not offer a call
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Jo"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_95b62f65-e7dc-4afd-8dc4-4ed91e1f84bf",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "propose_intake",
+    "lane": "quote_clerk",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — artifact quote_intake recorded (tier PROPOSE); nothing goes to the customer",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [
+      "intent propose_intake is not allowed in pack customer.default"
+    ],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "fence_repair",
+    "needs_quote",
+    "no_calls",
+    "postcode_provided"
+  ],
+  "contactName": "Jo",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:35:02.628Z",
+      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:35:23.620Z",
+      "content": "Text only please, I can't take calls at work."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:36:17.606Z",
+      "content": "It's one 6ft panel, the posts are fine. We're NG9 2AB."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 4 (customer/message): Do you need anything else from me?
+
+Planned send: nothing goes; decision none; intent propose_intake; window open; template unavailable; approver none; hold none; run run_0f10ef57-79dc-428d-abf3-395d2b12da8b.
+
+- [1.6] reply_sent: **FAIL** - no reply would go: decision none
+- [1.6] not_offers_call: **PASS** - the reply does not offer a call
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Jo"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_0f10ef57-79dc-428d-abf3-395d2b12da8b",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "propose_intake",
+    "lane": "quote_clerk",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — artifact quote_intake recorded (tier PROPOSE); nothing goes to the customer",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [
+      "intent propose_intake is not allowed in pack customer.default"
+    ],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "91d5e90d-92d3-4e86-acf3-d8300d68aa83",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "fence_repair",
+    "needs_quote",
+    "no_calls",
+    "postcode_provided",
+    "photos_needed"
+  ],
+  "contactName": "Jo",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 2 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:35:02.628Z",
+      "content": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?"
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:35:23.620Z",
+      "content": "Text only please, I can't take calls at work."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:36:17.606Z",
+      "content": "It's one 6ft panel, the posts are fine. We're NG9 2AB."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Jo",
+      "at": "2026-09-10T23:37:01.652Z",
+      "content": "Do you need anything else from me?"
+    }
+  ],
+  "quote": {
+    "slug": "u33cbcdo",
+    "basePrice": null,
+    "isDraft": true
+  },
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+### 1.7-photos-first run 2: Photos with the first message are acknowledged as photos, not as a bare enquiry
+
+Lines 1.7. Started 2026-09-10T23:38:36.428Z, 33776 ms.
+
+Seed: customer new, name Priya, prefers text false, already rung false, window open. customer: honoured (name "Priya" passed to POST /start as the pushname).
+
+#### Turn 1 (customer/message): Hi, this is the tap that's leaking under our kitchen sink. Can you quote for fixing it? [+1 media]
+
+Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_7f249e87-7a0c-4c67-bfb1-0ffb72fac81c.
+
+- [1.7] reply_sent: **FAIL** - no reply would go: decision pending
+- [1.7] text_matches: **FAIL** - no reply would go
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "53b40eef-107e-4ce6-93d2-f82ff27dbfd1",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Sandbox customer (not real)"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_7f249e87-7a0c-4c67-bfb1-0ffb72fac81c",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "pending",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:04.996Z) — precondition: ask_gap:customer_question",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "53b40eef-107e-4ce6-93d2-f82ff27dbfd1",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "photos_received",
+    "needs_quote",
+    "plumbing"
+  ],
+  "contactName": "Sandbox customer (not real)",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox customer (not real)",
+      "at": "2026-09-10T23:38:45.680Z",
+      "content": "Hi, this is the tap that's leaking under our kitchen sink. Can you quote for fixing it?"
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+### 2.1-replies-to-statements run 2: Replies to every customer turn, whether or not the reply is a question
+
+Lines 2.1. Started 2026-09-10T23:39:10.204Z, 117707 ms.
+
+Seed: customer new, name Dan, prefers text false, already rung false, window open. customer: honoured (name "Dan" passed to POST /start as the pushname).
+
+#### Turn 1 (customer/message): Hi, my bathroom extractor fan has stopped working, can you sort it?
+
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_e926f57c-4026-45a9-b190-8514425c55f4.
+
+> Hi Dan, thanks for getting in touch.
+> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
+
+- [2.1] reply_sent: **PASS** - a reply would go (2 bubbles, rules_layer_mirror)
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "6a52d79c-9824-4eb1-a338-106308624732",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Dan"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Hi Dan, thanks for getting in touch.",
+    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": "rules_layer",
+  "runId": "run_e926f57c-4026-45a9-b190-8514425c55f4",
+  "hold": null,
+  "delivered": true,
+  "origin": "rules_layer_mirror",
+  "evidence": {
+    "decision": "none",
+    "intent": "ack_enquiry",
+    "lane": "rules",
+    "pack": "rules.first_contact",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": true,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "6a52d79c-9824-4eb1-a338-106308624732",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "extractor_fan",
+    "electrical"
+  ],
+  "contactName": "Dan",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T22:14:30.930Z",
+      "at": "2026-09-10T23:39:13.365Z",
       "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:14:41.891Z",
+      "at": "2026-09-10T23:39:26.165Z",
+      "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 2 (customer/message): It's a ceiling fan, about four inch. The light still works but the fan is dead.
+
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_efbb69f8-7b04-4423-a9c0-c2a470b4a9d2. Not landed on the thread by the door.
+
+> Thanks Dan, that helps.
+> Could you send a quick photo of the fan and its ceiling plate? Helps me see the setup.
+> I'll get a quote sorted once I've seen that.
+
+- [2.1] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "6a52d79c-9824-4eb1-a338-106308624732",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Dan"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Thanks Dan, that helps.",
+    "Could you send a quick photo of the fan and its ceiling plate? Helps me see the setup.",
+    "I'll get a quote sorted once I've seen that."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": "agent.scoper",
+  "runId": "run_efbb69f8-7b04-4423-a9c0-c2a470b4a9d2",
+  "hold": null,
+  "delivered": true,
+  "origin": "desk",
+  "evidence": {
+    "decision": "send",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "6a52d79c-9824-4eb1-a338-106308624732",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "extractor_fan",
+    "electrical",
+    "first_contact"
+  ],
+  "contactName": "Dan",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Dan",
+      "at": "2026-09-10T23:39:13.365Z",
+      "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:39:26.165Z",
       "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T22:14:48.263Z",
+      "at": "2026-09-10T23:39:35.200Z",
+      "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 3 (customer/message): We're in NG7 2PQ.
+
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_9b30f1ec-923f-455a-9b42-b546d6d792b7. Not landed on the thread by the door.
+
+> Thanks Dan, that helps.
+> Could you send a quick photo of the fan and the ceiling round it? Helps us see the fitting before quoting.
+
+- [2.1] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "6a52d79c-9824-4eb1-a338-106308624732",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Dan"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Thanks Dan, that helps.",
+    "Could you send a quick photo of the fan and the ceiling round it? Helps us see the fitting before quoting."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": "agent.scoper",
+  "runId": "run_9b30f1ec-923f-455a-9b42-b546d6d792b7",
+  "hold": null,
+  "delivered": true,
+  "origin": "desk",
+  "evidence": {
+    "decision": "send",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "scoping",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "6a52d79c-9824-4eb1-a338-106308624732",
+  "stage": "scoping",
+  "tags": [
+    "sandbox",
+    "extractor_fan",
+    "electrical",
+    "first_contact",
+    "postcode_received",
+    "needs_quote"
+  ],
+  "contactName": "Dan",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Dan",
+      "at": "2026-09-10T23:39:13.365Z",
+      "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:39:26.165Z",
+      "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Dan",
+      "at": "2026-09-10T23:39:35.200Z",
       "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T22:15:18.049Z",
+      "at": "2026-09-10T23:40:04.293Z",
       "content": "We're in NG7 2PQ."
     }
   ],
@@ -6340,7 +6381,7 @@ Planned send: 3 bubbles (desk); decision send; intent confirm_received; window o
 
 #### Turn 4 (customer/message): Ok thanks, that all makes sense.
 
-Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_cfbaf220-95c6-4849-bde2-4d41a2e5b7fc.
+Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_87db8c5f-c1a6-4896-aa2b-adf4c6eb98d0.
 
 - [2.1] reply_sent: **FAIL** - no reply would go: decision pending
 
@@ -6348,7 +6389,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "caseId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
+  "caseId": "6a52d79c-9824-4eb1-a338-106308624732",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -6418,7 +6459,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     }
   },
   "approver": null,
-  "runId": "run_cfbaf220-95c6-4849-bde2-4d41a2e5b7fc",
+  "runId": "run_87db8c5f-c1a6-4896-aa2b-adf4c6eb98d0",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -6428,7 +6469,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: confirm_received:nothing_arrived",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:01.762Z) — precondition: confirm_received:nothing_arrived",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -6443,15 +6484,15 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "conversationId": "9f434183-0f02-44c5-a2b3-de0a0451aeb0",
+  "conversationId": "6a52d79c-9824-4eb1-a338-106308624732",
   "stage": "scoping",
   "tags": [
     "sandbox",
-    "bathroom_electrical",
     "extractor_fan",
-    "needs_quote",
+    "electrical",
+    "first_contact",
     "postcode_received",
-    "description_received"
+    "needs_quote"
   ],
   "contactName": "Dan",
   "window": {
@@ -6463,35 +6504,35 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T22:14:30.930Z",
+      "at": "2026-09-10T23:39:13.365Z",
       "content": "Hi, my bathroom extractor fan has stopped working, can you sort it?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:14:41.891Z",
+      "at": "2026-09-10T23:39:26.165Z",
       "content": "Hi Dan, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T22:14:48.263Z",
+      "at": "2026-09-10T23:39:35.200Z",
       "content": "It's a ceiling fan, about four inch. The light still works but the fan is dead."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T22:15:18.049Z",
+      "at": "2026-09-10T23:40:04.293Z",
       "content": "We're in NG7 2PQ."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Dan",
-      "at": "2026-09-10T22:15:59.121Z",
+      "at": "2026-09-10T23:40:36.224Z",
       "content": "Ok thanks, that all makes sense."
     }
   ],
@@ -6506,13 +6547,13 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ### 2.2-photo-once run 2: Asks for a photo once; when the customer answers in words without one, it proceeds
 
-Lines 2.2. Started 2026-09-10T22:16:33.145Z, 129296 ms.
+Lines 2.2. Started 2026-09-10T23:41:07.911Z, 93841 ms.
 
 Seed: customer new, name Mel, prefers text false, already rung false, window open. customer: honoured (name "Mel" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_f92a3833-427d-4348-ba91-04fce52d6932.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_9b57a9f1-c35d-4158-b8f1-fe8ed19437b7.
 
 > Hi Mel, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -6523,7 +6564,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
+  "caseId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -6581,7 +6622,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_f92a3833-427d-4348-ba91-04fce52d6932",
+  "runId": "run_9b57a9f1-c35d-4158-b8f1-fe8ed19437b7",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -6606,11 +6647,11 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
+  "conversationId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "first_contact",
+    "tile_repair",
     "postcode_provided"
   ],
   "contactName": "Mel",
@@ -6623,14 +6664,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:16:38.138Z",
+      "at": "2026-09-10T23:41:11.976Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:16:52.346Z",
+      "at": "2026-09-10T23:41:22.390Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -6645,10 +6686,10 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): It's one tile, cracked corner to corner. Plain white, about 20cm square.
 
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_a0ae0969-47ac-44c3-9d1e-94aa19fa9904. Not landed on the thread by the door.
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_6b46a8eb-b405-42ed-81f5-c73ed705c2bd. Not landed on the thread by the door.
 
-> Thanks Mel, that helps.
-> Could you send a quick photo of the cracked tile so I can see it properly?
+> Perfect, that helps.
+> Could you send a quick photo of the tile and the area around it, so we can match it up properly?
 
 - [2.2] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
 - [2.2] asked_at_most_once: **PASS** - media asked 1 time so far
@@ -6657,7 +6698,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "caseId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
+  "caseId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -6667,8 +6708,8 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Thanks Mel, that helps.",
-    "Could you send a quick photo of the cracked tile so I can see it properly?"
+    "Perfect, that helps.",
+    "Could you send a quick photo of the tile and the area around it, so we can match it up properly?"
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -6730,7 +6771,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_a0ae0969-47ac-44c3-9d1e-94aa19fa9904",
+  "runId": "run_6b46a8eb-b405-42ed-81f5-c73ed705c2bd",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -6739,7 +6780,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
     "intent": "ask_gap",
     "lane": "scoper",
     "pack": "customer.default",
-    "stageAfter": "enquiry",
+    "stageAfter": "scoping",
     "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
@@ -6755,14 +6796,13 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
-  "stage": "enquiry",
+  "conversationId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
+  "stage": "scoping",
   "tags": [
     "sandbox",
-    "first_contact",
+    "tile_repair",
     "postcode_provided",
-    "tile_replacement",
-    "needs_photos"
+    "needs_quote"
   ],
   "contactName": "Mel",
   "window": {
@@ -6774,21 +6814,21 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:16:38.138Z",
+      "at": "2026-09-10T23:41:11.976Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:16:52.346Z",
+      "at": "2026-09-10T23:41:22.390Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:17:01.872Z",
+      "at": "2026-09-10T23:41:27.142Z",
       "content": "It's one tile, cracked corner to corner. Plain white, about 20cm square."
     }
   ],
@@ -6803,7 +6843,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 #### Turn 3 (customer/message): I'd rather not send photos to be honest, is that ok? It's a standard tile from B&Q.
 
-Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_e1b19c14-611d-4cf5-b2cd-6c03161ea245.
+Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_fc721931-835d-497b-8588-326a9bc51802.
 
 - [2.2] reply_sent: **FAIL** - no reply would go: decision pending
 - [2.2] not_asks_subject: **FAIL** - artefact: dry-run reply not landed on thread
@@ -6813,7 +6853,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "caseId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
+  "caseId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -6883,7 +6923,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     }
   },
   "approver": null,
-  "runId": "run_e1b19c14-611d-4cf5-b2cd-6c03161ea245",
+  "runId": "run_fc721931-835d-497b-8588-326a9bc51802",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -6893,7 +6933,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: confirm_received:nothing_arrived",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:11.503Z) — precondition: confirm_received:nothing_arrived",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -6908,49 +6948,47 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 ```json
 {
-  "conversationId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
+  "conversationId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
   "stage": "scoping",
   "tags": [
     "sandbox",
-    "first_contact",
+    "tile_repair",
     "postcode_provided",
-    "tile_replacement",
-    "needs_photos",
-    "photo_declined",
-    "needs_quote"
+    "needs_quote",
+    "no_photos"
   ],
   "contactName": "Mel",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:16:38.138Z",
+      "at": "2026-09-10T23:41:11.976Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:16:52.346Z",
+      "at": "2026-09-10T23:41:22.390Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:17:01.872Z",
+      "at": "2026-09-10T23:41:27.142Z",
       "content": "It's one tile, cracked corner to corner. Plain white, about 20cm square."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:17:28.295Z",
+      "at": "2026-09-10T23:41:51.193Z",
       "content": "I'd rather not send photos to be honest, is that ok? It's a standard tile from B&Q."
     }
   ],
@@ -6965,7 +7003,7 @@ Planned send: nothing goes; decision pending; intent confirm_received; window op
 
 #### Turn 4 (customer/message): What else do you need to know?
 
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_ce9672ea-9d64-4cdb-a762-7d1e311e3987.
+Planned send: nothing goes; decision pending; intent confirm_received; window open; template unavailable; approver none; hold none; run run_89f5524f-8596-43fb-b748-60c2529c1f5f.
 
 - [2.2] reply_sent: **FAIL** - no reply would go: decision pending
 - [2.2] not_asks_subject: **FAIL** - artefact: dry-run reply not landed on thread
@@ -6975,7 +7013,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "caseId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
+  "caseId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -7045,17 +7083,17 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     }
   },
   "approver": null,
-  "runId": "run_ce9672ea-9d64-4cdb-a762-7d1e311e3987",
+  "runId": "run_89f5524f-8596-43fb-b748-60c2529c1f5f",
   "hold": null,
   "delivered": false,
   "origin": "none",
   "evidence": {
     "decision": "pending",
-    "intent": "ask_gap",
+    "intent": "confirm_received",
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:customer_question",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:37.019Z) — precondition: confirm_received:nothing_arrived",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -7070,56 +7108,54 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "conversationId": "b43e8ecf-4188-4d38-90cb-84505dde99dc",
+  "conversationId": "11d7356f-7793-4254-a4ce-ff8fb20cec1e",
   "stage": "scoping",
   "tags": [
     "sandbox",
-    "first_contact",
+    "tile_repair",
     "postcode_provided",
-    "tile_replacement",
-    "needs_photos",
-    "photo_declined",
-    "needs_quote"
+    "needs_quote",
+    "no_photos"
   ],
   "contactName": "Mel",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:16:38.138Z",
+      "at": "2026-09-10T23:41:11.976Z",
       "content": "Hi, can you replace a cracked tile above our bath? We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:16:52.346Z",
+      "at": "2026-09-10T23:41:22.390Z",
       "content": "Hi Mel, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:17:01.872Z",
+      "at": "2026-09-10T23:41:27.142Z",
       "content": "It's one tile, cracked corner to corner. Plain white, about 20cm square."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:17:28.295Z",
+      "at": "2026-09-10T23:41:51.193Z",
       "content": "I'd rather not send photos to be honest, is that ok? It's a standard tile from B&Q."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Mel",
-      "at": "2026-09-10T22:18:05.320Z",
+      "at": "2026-09-10T23:42:16.790Z",
       "content": "What else do you need to know?"
     }
   ],
@@ -7134,13 +7170,13 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ### 2.3-own-words run 2: Asks about the job one thing at a time, in its own words (model verdict recorded beside the deterministic one)
 
-Lines 2.3. Started 2026-09-10T22:18:42.442Z, 91594 ms.
+Lines 2.3. Started 2026-09-10T23:42:41.753Z, 78558 ms.
 
 Seed: customer new, name Alex, prefers text false, already rung false, window open. customer: honoured (name "Alex" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_d25321eb-e956-4e4e-8e0b-9b64b2b185c5.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_7079cbec-fcc1-48f7-a95e-41b0f146fd2a.
 
 > Hi Alex, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -7149,7 +7185,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "39644753-1cee-411d-9a7c-fcc41f7aab64",
+  "caseId": "c21507be-e4e0-43c0-bbdd-a1e0d5d4d903",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -7207,7 +7243,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_d25321eb-e956-4e4e-8e0b-9b64b2b185c5",
+  "runId": "run_7079cbec-fcc1-48f7-a95e-41b0f146fd2a",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -7232,13 +7268,13 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "39644753-1cee-411d-9a7c-fcc41f7aab64",
+  "conversationId": "c21507be-e4e0-43c0-bbdd-a1e0d5d4d903",
   "stage": "enquiry",
   "tags": [
     "sandbox",
     "first_contact",
     "multiple_jobs",
-    "postcode_provided"
+    "beeston"
   ],
   "contactName": "Alex",
   "window": {
@@ -7250,14 +7286,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:18:46.428Z",
+      "at": "2026-09-10T23:42:44.926Z",
       "content": "Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:18:58.633Z",
+      "at": "2026-09-10T23:42:54.786Z",
       "content": "Hi Alex, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -7272,7 +7308,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): Which one do you want to know about first?
 
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_3ba0811b-b3d0-445b-8a61-da94cdf153eb.
+Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_cd31b625-b0a2-46fc-b7ee-5516b79769f2.
 
 - [2.3] asks_subject: **FAIL** - no reply would go
 - [2.3] own_words: **FAIL** - no reply would go
@@ -7282,7 +7318,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "caseId": "39644753-1cee-411d-9a7c-fcc41f7aab64",
+  "caseId": "c21507be-e4e0-43c0-bbdd-a1e0d5d4d903",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -7352,7 +7388,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     }
   },
   "approver": null,
-  "runId": "run_3ba0811b-b3d0-445b-8a61-da94cdf153eb",
+  "runId": "run_cd31b625-b0a2-46fc-b7ee-5516b79769f2",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -7362,7 +7398,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:customer_question",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:20.298Z) — precondition: ask_gap:customer_question",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -7377,40 +7413,40 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "conversationId": "39644753-1cee-411d-9a7c-fcc41f7aab64",
+  "conversationId": "c21507be-e4e0-43c0-bbdd-a1e0d5d4d903",
   "stage": "enquiry",
   "tags": [
     "sandbox",
     "first_contact",
     "multiple_jobs",
-    "postcode_provided",
-    "clarification_needed"
+    "beeston",
+    "needs_scoping"
   ],
   "contactName": "Alex",
   "window": {
     "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 1 min ago; shuts 24.0 h from now"
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
   },
   "messages": [
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:18:46.428Z",
+      "at": "2026-09-10T23:42:44.926Z",
       "content": "Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:18:58.633Z",
+      "at": "2026-09-10T23:42:54.786Z",
       "content": "Hi Alex, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:19:07.837Z",
+      "at": "2026-09-10T23:43:00.344Z",
       "content": "Which one do you want to know about first?"
     }
   ],
@@ -7425,20 +7461,20 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 #### Turn 3 (customer/message): The bannister is at the top of the stairs, two of the spindles have come loose and it rocks when you lean on it.
 
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_5e5ec23a-496d-44e9-8827-79986a15bd88. Not landed on the thread by the door.
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_a2841b8c-7913-4eb9-afa7-040901d4b1e1. Not landed on the thread by the door.
 
-> Got it, loose spindles at the top making it rock, thanks Alex.
-> Could you send a quick photo or video of the bannister, plus the sticking door and the tap?
-> That'll help us scope all three properly.
+> Thanks Alex, that's useful.
+> Could you send a quick photo or video of the bannister and the loose spindles?
+> We'll sort the door and tap details next.
 
 - [2.3] own_words: **PASS** - one scoping question, no placeholder (deterministic half; the model verdict is recorded beside this)
-  - model judge (beside, not instead): claude-haiku-4-5, prompt 5c7817bc5130, verdict **no** - The reply asks for photos of three different issues (bannister, sticking door, tap) at once, but the customer only mentioned the bannister problem, making it read like a template rather than a natural response to what was actually said.
+  - model judge (beside, not instead): claude-haiku-4-5, prompt 020b9840ef19, verdict **no** - The reply mentions 'the door and tap details' which the customer never mentioned, suggesting a template response, and it asks for a photo/video without first clarifying the specific repair needed or acknowledging the safety concern of the rocking bannister.
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "39644753-1cee-411d-9a7c-fcc41f7aab64",
+  "caseId": "c21507be-e4e0-43c0-bbdd-a1e0d5d4d903",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -7448,9 +7484,9 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Got it, loose spindles at the top making it rock, thanks Alex.",
-    "Could you send a quick photo or video of the bannister, plus the sticking door and the tap?",
-    "That'll help us scope all three properly."
+    "Thanks Alex, that's useful.",
+    "Could you send a quick photo or video of the bannister and the loose spindles?",
+    "We'll sort the door and tap details next."
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -7512,7 +7548,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_5e5ec23a-496d-44e9-8827-79986a15bd88",
+  "runId": "run_a2841b8c-7913-4eb9-afa7-040901d4b1e1",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -7537,15 +7573,15 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "39644753-1cee-411d-9a7c-fcc41f7aab64",
+  "conversationId": "c21507be-e4e0-43c0-bbdd-a1e0d5d4d903",
   "stage": "enquiry",
   "tags": [
     "sandbox",
     "first_contact",
     "multiple_jobs",
-    "postcode_provided",
-    "clarification_needed",
-    "bannister_detail"
+    "beeston",
+    "needs_scoping",
+    "bannister_loose"
   ],
   "contactName": "Alex",
   "window": {
@@ -7557,28 +7593,28 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:18:46.428Z",
+      "at": "2026-09-10T23:42:44.926Z",
       "content": "Hello, I've got a few odd jobs: a wobbly bannister, a door that sticks, and a leaking outside tap. We're in Beeston, NG9."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:18:58.633Z",
+      "at": "2026-09-10T23:42:54.786Z",
       "content": "Hi Alex, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:19:07.837Z",
+      "at": "2026-09-10T23:43:00.344Z",
       "content": "Which one do you want to know about first?"
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Alex",
-      "at": "2026-09-10T22:19:46.893Z",
+      "at": "2026-09-10T23:43:28.671Z",
       "content": "The bannister is at the top of the stairs, two of the spindles have come loose and it rocks when you lean on it."
     }
   ],
@@ -7593,13 +7629,13 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ### 2.4-short-pause run 2: A short pause ("one sec") does not stop it: the real answer that follows is scoped
 
-Lines 2.4. Started 2026-09-10T22:20:14.036Z, 70550 ms.
+Lines 2.4. Started 2026-09-10T23:44:00.312Z, 64542 ms.
 
 Seed: customer new, name Chris, prefers text false, already rung false, window open. customer: honoured (name "Chris" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_148c665b-cfbf-4176-9bc9-617075b3b017.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_d3ee0e46-08fa-458c-9d00-2327cc364ac3.
 
 > Hi Chris, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -7608,7 +7644,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "6fe35459-7974-4974-945a-7e581e1d6364",
+  "caseId": "d4c2cedd-9b6f-448b-aff6-bb31d27401ec",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -7666,7 +7702,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_148c665b-cfbf-4176-9bc9-617075b3b017",
+  "runId": "run_d3ee0e46-08fa-458c-9d00-2327cc364ac3",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -7691,12 +7727,11 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "6fe35459-7974-4974-945a-7e581e1d6364",
+  "conversationId": "d4c2cedd-9b6f-448b-aff6-bb31d27401ec",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "gate_repair",
-    "dropped",
+    "garden_gate",
     "postcode_provided"
   ],
   "contactName": "Chris",
@@ -7709,14 +7744,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:20:18.682Z",
+      "at": "2026-09-10T23:44:04.725Z",
       "content": "Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:20:31.849Z",
+      "at": "2026-09-10T23:44:15.368Z",
       "content": "Hi Chris, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -7731,13 +7766,13 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): one sec, let me check
 
-Planned send: nothing goes; decision none; intent unknown; window open; template unavailable; approver none; hold none; run run_d27ea6f3-ca1c-4218-b714-a086f1483d1a.
+Planned send: nothing goes; decision none; intent ask_media; window open; template unavailable; approver none; hold none; run run_fceef51e-35a7-4e4f-9dd6-24e0b25ce808.
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "6fe35459-7974-4974-945a-7e581e1d6364",
+  "caseId": "d4c2cedd-9b6f-448b-aff6-bb31d27401ec",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -7792,13 +7827,13 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
     }
   },
   "approver": null,
-  "runId": "run_d27ea6f3-ca1c-4218-b714-a086f1483d1a",
+  "runId": "run_fceef51e-35a7-4e4f-9dd6-24e0b25ce808",
   "hold": null,
   "delivered": false,
   "origin": "none",
   "evidence": {
     "decision": "none",
-    "intent": "unknown",
+    "intent": "ask_media",
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "enquiry",
@@ -7817,12 +7852,11 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
 
 ```json
 {
-  "conversationId": "6fe35459-7974-4974-945a-7e581e1d6364",
+  "conversationId": "d4c2cedd-9b6f-448b-aff6-bb31d27401ec",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "gate_repair",
-    "dropped",
+    "garden_gate",
     "postcode_provided",
     "awaiting_response"
   ],
@@ -7836,21 +7870,21 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:20:18.682Z",
+      "at": "2026-09-10T23:44:04.725Z",
       "content": "Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:20:31.849Z",
+      "at": "2026-09-10T23:44:15.368Z",
       "content": "Hi Chris, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:20:38.040Z",
+      "at": "2026-09-10T23:44:20.856Z",
       "content": "one sec, let me check"
     }
   ],
@@ -7865,20 +7899,19 @@ Planned send: nothing goes; decision none; intent unknown; window open; template
 
 #### Turn 3 (customer/message): Right, it's a wooden gate. The post has rotted at the bottom so the whole thing leans.
 
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_90007cc6-db4e-4e8d-be6f-0c2c362b8714. Not landed on the thread by the door.
+Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_c1494d86-7559-4524-879b-a3c93731701f. Not landed on the thread by the door.
 
-> Ah, that'll do it if the post's gone at the base.
-> Could you send a photo of the post where it's rotted, and one of the whole gate?
+> Ah, rotten post, that'll do it. Could you send a photo or quick video of the gate and the post where it's rotted?
 > That'll help me see what we're dealing with.
 
-- [2.4] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
+- [2.4] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
 - [2.4] asks_subject: **PASS** - the reply asks about any
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "6fe35459-7974-4974-945a-7e581e1d6364",
+  "caseId": "d4c2cedd-9b6f-448b-aff6-bb31d27401ec",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -7888,8 +7921,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Ah, that'll do it if the post's gone at the base.",
-    "Could you send a photo of the post where it's rotted, and one of the whole gate?",
+    "Ah, rotten post, that'll do it. Could you send a photo or quick video of the gate and the post where it's rotted?",
     "That'll help me see what we're dealing with."
   ],
   "factIds": "unavailable",
@@ -7952,7 +7984,7 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_90007cc6-db4e-4e8d-be6f-0c2c362b8714",
+  "runId": "run_c1494d86-7559-4524-879b-a3c93731701f",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -7961,8 +7993,8 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
     "intent": "ask_gap",
     "lane": "scoper",
     "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
+    "stageAfter": "scoping",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -7977,17 +8009,16 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "6fe35459-7974-4974-945a-7e581e1d6364",
-  "stage": "enquiry",
+  "conversationId": "d4c2cedd-9b6f-448b-aff6-bb31d27401ec",
+  "stage": "scoping",
   "tags": [
     "sandbox",
-    "gate_repair",
-    "dropped",
+    "garden_gate",
     "postcode_provided",
     "awaiting_response",
-    "needs_photos",
     "wooden_gate",
-    "structural"
+    "rot_damage",
+    "needs_photos"
   ],
   "contactName": "Chris",
   "window": {
@@ -7999,28 +8030,28 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:20:18.682Z",
+      "at": "2026-09-10T23:44:04.725Z",
       "content": "Hi, my garden gate has dropped and won't latch any more. We're in the NG9 area."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:20:31.849Z",
+      "at": "2026-09-10T23:44:15.368Z",
       "content": "Hi Chris, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:20:38.040Z",
+      "at": "2026-09-10T23:44:20.856Z",
       "content": "one sec, let me check"
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Chris",
-      "at": "2026-09-10T22:20:59.059Z",
+      "at": "2026-09-10T23:44:41.479Z",
       "content": "Right, it's a wooden gate. The post has rotted at the bottom so the whole thing leans."
     }
   ],
@@ -8035,13 +8066,13 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ### 2.5-promise-then-quiet run 2: A real promise ("I'll send photos tomorrow") gets one acknowledgement, then quiet until the customer writes
 
-Lines 2.5. Started 2026-09-10T22:21:24.586Z, 129413 ms.
+Lines 2.5. Started 2026-09-10T23:45:04.854Z, 146232 ms.
 
 Seed: customer new, name Sara, prefers text false, already rung false, window open. customer: honoured (name "Sara" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_f4b9bc63-c0c5-4e7c-bc74-98fe4e685569.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_428525eb-3f71-4fb5-a27d-913e0290891d.
 
 > Hi Sara, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -8050,7 +8081,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
+  "caseId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -8108,7 +8139,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_f4b9bc63-c0c5-4e7c-bc74-98fe4e685569",
+  "runId": "run_428525eb-3f71-4fb5-a27d-913e0290891d",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -8133,7 +8164,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
+  "conversationId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
   "stage": "enquiry",
   "tags": [
     "sandbox",
@@ -8151,14 +8182,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Sara",
-      "at": "2026-09-10T22:21:30.233Z",
+      "at": "2026-09-10T23:45:11.521Z",
       "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:21:43.278Z",
+      "at": "2026-09-10T23:45:22.215Z",
       "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -8173,7 +8204,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): I'll send photos tomorrow when I'm home.
 
-Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_777cd40d-cd81-46e6-9f98-66f20a17cf2d.
+Planned send: nothing goes; decision none; intent propose_intake; window open; template unavailable; approver none; hold none; run run_e1a096aa-5a41-496b-885c-c1b6d75c9054.
 
 - [2.5] reply_sent: **FAIL** - no reply would go: decision none
 - [2.5] bubble_count_within: **FAIL** - no reply would go
@@ -8182,7 +8213,7 @@ Planned send: nothing goes; decision none; intent holding; window open; template
 
 ```json
 {
-  "caseId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
+  "caseId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -8252,19 +8283,21 @@ Planned send: nothing goes; decision none; intent holding; window open; template
     }
   },
   "approver": null,
-  "runId": "run_777cd40d-cd81-46e6-9f98-66f20a17cf2d",
+  "runId": "run_e1a096aa-5a41-496b-885c-c1b6d75c9054",
   "hold": null,
   "delivered": false,
   "origin": "none",
   "evidence": {
     "decision": "none",
-    "intent": "holding",
-    "lane": "scoper",
+    "intent": "propose_intake",
+    "lane": "quote_clerk",
     "pack": "customer.default",
-    "stageAfter": "scoping",
+    "stageAfter": "enquiry",
     "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
     "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
+    "legacyGuardNotes": [
+      "intent propose_intake is not allowed in pack customer.default"
+    ],
     "mirrorLiveWouldSend": null,
     "error": null
   }
@@ -8277,159 +8310,8 @@ Planned send: nothing goes; decision none; intent holding; window open; template
 
 ```json
 {
-  "conversationId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
-  "stage": "scoping",
-  "tags": [
-    "sandbox",
-    "fence_repair",
-    "needs_quote",
-    "postcode_provided",
-    "photos_pending"
-  ],
-  "contactName": "Sara",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:21:30.233Z",
-      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
-    },
-    {
-      "direction": "outbound",
-      "channel": "whatsapp",
-      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:21:43.278Z",
-      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Sara",
-      "at": "2026-09-10T22:21:50.287Z",
-      "content": "I'll send photos tomorrow when I'm home."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 3 (system/clock): clock pass
-
-Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_0d402780-8a50-480c-80ed-9a8c550990c2.
-
-- [2.5] reply_not_sent: **PASS** - nothing goes: decision none
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Sara"
-  },
-  "channel": "unavailable",
-  "windowState": "open",
-  "templateId": "unavailable",
-  "bubbles": [],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": null,
-  "runId": "run_0d402780-8a50-480c-80ed-9a8c550990c2",
-  "hold": null,
-  "delivered": false,
-  "origin": "none",
-  "evidence": {
-    "decision": "none",
-    "intent": "holding",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "scoping",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
-  "stage": "scoping",
+  "conversationId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
+  "stage": "enquiry",
   "tags": [
     "sandbox",
     "fence_repair",
@@ -8447,21 +8329,21 @@ Planned send: nothing goes; decision none; intent holding; window open; template
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Sara",
-      "at": "2026-09-10T22:21:30.233Z",
+      "at": "2026-09-10T23:45:11.521Z",
       "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:21:43.278Z",
+      "at": "2026-09-10T23:45:22.215Z",
       "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Sara",
-      "at": "2026-09-10T22:21:50.287Z",
+      "at": "2026-09-10T23:45:30.737Z",
       "content": "I'll send photos tomorrow when I'm home."
     }
   ],
@@ -8474,9 +8356,9 @@ Planned send: nothing goes; decision none; intent holding; window open; template
 
 </details>
 
-#### Turn 4 (system/clock): clock pass
+#### Turn 3 (system/clock): clock pass
 
-Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_a3ffc719-6a8d-4a9a-a91d-37462cf3235f.
+Planned send: nothing goes; decision none; intent propose_intake; window open; template unavailable; approver none; hold none; run run_13e5ee72-d402-4bff-88e5-58743c67525e.
 
 - [2.5] reply_not_sent: **PASS** - nothing goes: decision none
 
@@ -8484,7 +8366,7 @@ Planned send: nothing goes; decision none; intent holding; window open; template
 
 ```json
 {
-  "caseId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
+  "caseId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -8554,19 +8436,21 @@ Planned send: nothing goes; decision none; intent holding; window open; template
     }
   },
   "approver": null,
-  "runId": "run_a3ffc719-6a8d-4a9a-a91d-37462cf3235f",
+  "runId": "run_13e5ee72-d402-4bff-88e5-58743c67525e",
   "hold": null,
   "delivered": false,
   "origin": "none",
   "evidence": {
     "decision": "none",
-    "intent": "holding",
-    "lane": "scoper",
+    "intent": "propose_intake",
+    "lane": "quote_clerk",
     "pack": "customer.default",
-    "stageAfter": "scoping",
+    "stageAfter": "enquiry",
     "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
     "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
+    "legacyGuardNotes": [
+      "intent propose_intake is not allowed in pack customer.default"
+    ],
     "mirrorLiveWouldSend": null,
     "error": null
   }
@@ -8579,8 +8463,8 @@ Planned send: nothing goes; decision none; intent holding; window open; template
 
 ```json
 {
-  "conversationId": "da828012-e0b0-4b25-a9c2-19120b3bf26b",
-  "stage": "scoping",
+  "conversationId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
+  "stage": "enquiry",
   "tags": [
     "sandbox",
     "fence_repair",
@@ -8598,21 +8482,172 @@ Planned send: nothing goes; decision none; intent holding; window open; template
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Sara",
-      "at": "2026-09-10T22:21:30.233Z",
+      "at": "2026-09-10T23:45:11.521Z",
       "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:21:43.278Z",
+      "at": "2026-09-10T23:45:22.215Z",
       "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Sara",
-      "at": "2026-09-10T22:21:50.287Z",
+      "at": "2026-09-10T23:45:30.737Z",
+      "content": "I'll send photos tomorrow when I'm home."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 4 (system/clock): clock pass
+
+Planned send: nothing goes; decision none; intent holding; window open; template unavailable; approver none; hold none; run run_f797a189-1229-43fa-912c-f08bbc88aea9.
+
+- [2.5] reply_not_sent: **PASS** - nothing goes: decision none
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Sara"
+  },
+  "channel": "unavailable",
+  "windowState": "open",
+  "templateId": "unavailable",
+  "bubbles": [],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": null,
+  "runId": "run_f797a189-1229-43fa-912c-f08bbc88aea9",
+  "hold": null,
+  "delivered": false,
+  "origin": "none",
+  "evidence": {
+    "decision": "none",
+    "intent": "holding",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — waiting_for_promised",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "31636f15-bfe5-44ee-bffe-9e0281cd67f1",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "fence_repair",
+    "needs_quote",
+    "postcode_provided",
+    "photos_pending"
+  ],
+  "contactName": "Sara",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 2 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:45:11.521Z",
+      "content": "Hi, three fence panels have blown down in the storm. We're NG9 5AB, can you quote to replace them?"
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:45:22.215Z",
+      "content": "Hi Sara, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Sara",
+      "at": "2026-09-10T23:45:30.737Z",
       "content": "I'll send photos tomorrow when I'm home."
     }
   ],
@@ -8627,13 +8662,13 @@ Planned send: nothing goes; decision none; intent holding; window open; template
 
 ### 2.6-date-question run 2: A date question gets "dates come with your quote" and scoping continues; no lead-time guess
 
-Lines 2.6. Started 2026-09-10T22:23:33.999Z, 47270 ms.
+Lines 2.6. Started 2026-09-10T23:47:31.086Z, 43066 ms.
 
 Seed: customer new, name Tom, prefers text false, already rung false, window open. customer: honoured (name "Tom" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_d18972f5-269b-43ce-a7ab-d8777eebd55f.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_c9db599a-8f7d-4fc6-924a-19b4810cba59.
 
 > Hi Tom, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -8642,7 +8677,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "587ab5be-018d-4c1c-8374-101104687eb8",
+  "caseId": "a9308d82-e27b-4aa3-a201-c04490459570",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -8700,7 +8735,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_d18972f5-269b-43ce-a7ab-d8777eebd55f",
+  "runId": "run_c9db599a-8f7d-4fc6-924a-19b4810cba59",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -8725,11 +8760,11 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "587ab5be-018d-4c1c-8374-101104687eb8",
+  "conversationId": "a9308d82-e27b-4aa3-a201-c04490459570",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "first_contact",
+    "extractor_fan",
     "postcode_provided"
   ],
   "contactName": "Tom",
@@ -8742,14 +8777,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Tom",
-      "at": "2026-09-10T22:23:37.986Z",
+      "at": "2026-09-10T23:47:34.189Z",
       "content": "Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:23:49.658Z",
+      "at": "2026-09-10T23:47:44.700Z",
       "content": "Hi Tom, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -8764,7 +8799,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): When can you come?
 
-Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_8093e967-bbff-462f-be73-9fa0ff114244.
+Planned send: nothing goes; decision pending; intent ask_gap; window open; template unavailable; approver none; hold none; run run_c7879067-eb51-4cc6-97ad-71e6c0fed96d.
 
 - [2.6] reply_sent: **FAIL** - no reply would go: decision pending
 - [2.6] no_date: **PASS** - no date, time or duration in the reply
@@ -8775,7 +8810,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "caseId": "587ab5be-018d-4c1c-8374-101104687eb8",
+  "caseId": "a9308d82-e27b-4aa3-a201-c04490459570",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -8845,7 +8880,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     }
   },
   "approver": null,
-  "runId": "run_8093e967-bbff-462f-be73-9fa0ff114244",
+  "runId": "run_c7879067-eb51-4cc6-97ad-71e6c0fed96d",
   "hold": null,
   "delivered": false,
   "origin": "none",
@@ -8855,7 +8890,7 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:00.000Z) — precondition: ask_gap:date_asked",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: queued as a DRAFT for Ben to approve (due 2026-09-11T11:00:09.812Z) — precondition: ask_gap:date_asked",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -8870,13 +8905,13 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ```json
 {
-  "conversationId": "587ab5be-018d-4c1c-8374-101104687eb8",
+  "conversationId": "a9308d82-e27b-4aa3-a201-c04490459570",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "first_contact",
+    "extractor_fan",
     "postcode_provided",
-    "extractor_fan"
+    "availability_question"
   ],
   "contactName": "Tom",
   "window": {
@@ -8888,21 +8923,21 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Tom",
-      "at": "2026-09-10T22:23:37.986Z",
+      "at": "2026-09-10T23:47:34.189Z",
       "content": "Hi, I need a bathroom extractor fan replacing. We're in NG7 2PQ."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:23:49.658Z",
+      "at": "2026-09-10T23:47:44.700Z",
       "content": "Hi Tom, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Tom",
-      "at": "2026-09-10T22:23:56.726Z",
+      "at": "2026-09-10T23:47:49.563Z",
       "content": "When can you come?"
     }
   ],
@@ -8917,13 +8952,13 @@ Planned send: nothing goes; decision pending; intent ask_gap; window open; templ
 
 ### 2.7-money-to-ben run 2: Anything about money or price goes to Ben, not answered
 
-Lines 2.7. Started 2026-09-10T22:24:21.270Z, 34706 ms.
+Lines 2.7. Started 2026-09-10T23:48:14.153Z, 32501 ms.
 
 Seed: customer new, name Nina, prefers text false, already rung false, window open. customer: honoured (name "Nina" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA.
 
-Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_2e7ce642-5885-436c-9c34-d18b15260247.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_42cb9047-10cc-460e-8c6d-18180afff80e.
 
 > Hi Nina, thanks for getting in touch.
 > You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
@@ -8932,7 +8967,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "caseId": "adb6cc55-0459-4106-8a47-9057a5aef7dd",
+  "caseId": "d2a3407c-00d7-44b1-a517-ff69f68db27f",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -8990,7 +9025,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
     }
   },
   "approver": "rules_layer",
-  "runId": "run_2e7ce642-5885-436c-9c34-d18b15260247",
+  "runId": "run_42cb9047-10cc-460e-8c6d-18180afff80e",
   "hold": null,
   "delivered": true,
   "origin": "rules_layer_mirror",
@@ -9015,13 +9050,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 ```json
 {
-  "conversationId": "adb6cc55-0459-4106-8a47-9057a5aef7dd",
+  "conversationId": "d2a3407c-00d7-44b1-a517-ff69f68db27f",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "postcode_provided",
-    "materials_supplied",
-    "kitchen_tap"
+    "first_contact",
+    "tap_replacement",
+    "customer_supplied_materials",
+    "postcode_provided"
   ],
   "contactName": "Nina",
   "window": {
@@ -9033,14 +9069,14 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Nina",
-      "at": "2026-09-10T22:24:25.765Z",
+      "at": "2026-09-10T23:48:18.485Z",
       "content": "Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:24:38.958Z",
+      "at": "2026-09-10T23:48:32.354Z",
       "content": "Hi Nina, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
@@ -9055,7 +9091,7 @@ Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry;
 
 #### Turn 2 (customer/message): How much roughly?
 
-Planned send: nothing goes; decision flag; intent unknown; window open; template unavailable; approver none; hold ben (money_question); run run_e5cb136d-7558-497f-92b7-44e2597ea554.
+Planned send: nothing goes; decision flag; intent unknown; window open; template unavailable; approver none; hold ben (money_question); run run_fdc66087-8c20-4567-ba2e-fff814127169.
 
 - [2.7] hold_for_approver: **PASS** - held for ben: money_question
 - [2.7] no_figure: **PASS** - no figure in the reply
@@ -9064,7 +9100,7 @@ Planned send: nothing goes; decision flag; intent unknown; window open; template
 
 ```json
 {
-  "caseId": "adb6cc55-0459-4106-8a47-9057a5aef7dd",
+  "caseId": "d2a3407c-00d7-44b1-a517-ff69f68db27f",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -9119,11 +9155,11 @@ Planned send: nothing goes; decision flag; intent unknown; window open; template
     }
   },
   "approver": null,
-  "runId": "run_e5cb136d-7558-497f-92b7-44e2597ea554",
+  "runId": "run_fdc66087-8c20-4567-ba2e-fff814127169",
   "hold": {
     "approver": "ben",
     "reason": "money_question",
-    "since": "2026-09-11T11:00:00.000Z"
+    "since": "2026-09-11T11:00:42.223Z"
   },
   "delivered": false,
   "origin": "none",
@@ -9133,7 +9169,7 @@ Planned send: nothing goes; decision flag; intent unknown; window open; template
     "lane": "ben",
     "pack": "customer.exception",
     "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: flagged for Ben (money_question), due 2026-09-11T11:00:00.000Z: a question on his phone, nothing to the customer",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: flagged for Ben (money_question), due 2026-09-11T11:00:42.223Z: a question on his phone, nothing to the customer",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -9148,13 +9184,14 @@ Planned send: nothing goes; decision flag; intent unknown; window open; template
 
 ```json
 {
-  "conversationId": "adb6cc55-0459-4106-8a47-9057a5aef7dd",
+  "conversationId": "d2a3407c-00d7-44b1-a517-ff69f68db27f",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "postcode_provided",
-    "materials_supplied",
-    "kitchen_tap"
+    "first_contact",
+    "tap_replacement",
+    "customer_supplied_materials",
+    "postcode_provided"
   ],
   "contactName": "Nina",
   "window": {
@@ -9166,21 +9203,21 @@ Planned send: nothing goes; decision flag; intent unknown; window open; template
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Nina",
-      "at": "2026-09-10T22:24:25.765Z",
+      "at": "2026-09-10T23:48:18.485Z",
       "content": "Hi, can you fit a new kitchen tap? I've already bought the tap. We're NG7 1AA."
     },
     {
       "direction": "outbound",
       "channel": "whatsapp",
       "sender": "Sandbox (rules layer ack, mirrored, never sent)",
-      "at": "2026-09-10T22:24:38.958Z",
+      "at": "2026-09-10T23:48:32.354Z",
       "content": "Hi Nina, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Nina",
-      "at": "2026-09-10T22:24:44.784Z",
+      "at": "2026-09-10T23:48:36.925Z",
       "content": "How much roughly?"
     }
   ],
@@ -9195,22 +9232,155 @@ Planned send: nothing goes; decision flag; intent unknown; window open; template
 
 ### 2.8-one-reply-per-turn run 2: Never a second reply without the customer writing in between: one reply per customer turn, however many bubbles
 
-Lines 2.8. Started 2026-09-10T22:24:55.976Z, 93593 ms.
+Lines 2.8. Started 2026-09-10T23:48:46.654Z, 102961 ms.
 
 Seed: customer new, name Lee, prefers text false, already rung false, window open. customer: honoured (name "Lee" passed to POST /start as the pushname).
 
 #### Turn 1 (customer/message): Hi, I need an internal door rehung, it's catching on the frame. We're in NG9.
 
-Planned send: nothing goes; decision none; intent ask_postcode; window open; template unavailable; approver none; hold none; run run_e685ef8b-e0e2-4cf4-8f7a-73c1eaf907db.
+Planned send: 2 bubbles (rules_layer_mirror); decision none; intent ack_enquiry; window open; template none; approver rules_layer; hold none; run run_21e45b94-3e6e-45a1-9401-37a996f54ca2.
 
-- [2.8] reply_sent: **FAIL** - no reply would go: decision none
-- [2.8] bubble_count_within: **FAIL** - no reply would go
+> Hi Lee, thanks for getting in touch.
+> You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details.
+
+- [2.8] reply_sent: **PASS** - a reply would go (2 bubbles, rules_layer_mirror)
+- [2.8] bubble_count_within: **PASS** - 2 bubbles, ceiling 4
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "14fd66de-cca5-4412-8765-f2af05460436",
+  "caseId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Lee"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Hi Lee, thanks for getting in touch.",
+    "You've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "date_time_duration": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "commitment_fault": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "business_claim": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "no guard ran on this pass (no proposal reached the guards)"
+    }
+  },
+  "approver": "rules_layer",
+  "runId": "run_21e45b94-3e6e-45a1-9401-37a996f54ca2",
+  "hold": null,
+  "delivered": true,
+  "origin": "rules_layer_mirror",
+  "evidence": {
+    "decision": "none",
+    "intent": "ack_enquiry",
+    "lane": "rules",
+    "pack": "rules.first_contact",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": true,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "door_rehang",
+    "ng9"
+  ],
+  "contactName": "Lee",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:48:56.655Z",
+      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:49:09.365Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 2 (system/clock): clock pass
+
+Planned send: nothing goes; decision none; intent unknown; window open; template unavailable; approver none; hold none; run run_46130704-73a7-4c4a-b445-a0bb7cc19b15.
+
+- [2.8] reply_not_sent: **PASS** - nothing goes: decision none
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -9265,158 +9435,17 @@ Planned send: nothing goes; decision none; intent ask_postcode; window open; tem
     }
   },
   "approver": null,
-  "runId": "run_e685ef8b-e0e2-4cf4-8f7a-73c1eaf907db",
+  "runId": "run_46130704-73a7-4c4a-b445-a0bb7cc19b15",
   "hold": null,
   "delivered": false,
   "origin": "none",
   "evidence": {
     "decision": "none",
-    "intent": "ask_postcode",
-    "lane": "rules",
-    "pack": "rules.first_contact",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing from this pass — no proposal. First contact is the rules layer's (the first-contact ack), which answers outside the spine; the desk takes over once it has",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "14fd66de-cca5-4412-8765-f2af05460436",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "door_rehung",
-    "postcode_provided"
-  ],
-  "contactName": "Lee",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:25:00.899Z",
-      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 2 (system/clock): clock pass
-
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_aac241b3-25b4-4fe6-8e4c-57f36f8fe3f2. Not landed on the thread by the door.
-
-> Hiya, thanks for the message.
-> Could you send a quick video of where the door is catching on the frame?
-
-- [2.8] reply_not_sent: **FAIL** - a reply would go (desk): Hiya, thanks for the message.
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "14fd66de-cca5-4412-8765-f2af05460436",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Lee"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hiya, thanks for the message.",
-    "Could you send a quick video of where the door is catching on the frame?"
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_aac241b3-25b4-4fe6-8e4c-57f36f8fe3f2",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
+    "intent": "unknown",
     "lane": "scoper",
     "pack": "customer.default",
     "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: nothing sent — no proposal",
     "legacyGuardsHit": [],
     "legacyGuardNotes": [],
     "mirrorLiveWouldSend": null,
@@ -9431,13 +9460,13 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "14fd66de-cca5-4412-8765-f2af05460436",
+  "conversationId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "door_rehung",
-    "postcode_provided",
-    "needs_photos"
+    "door_rehang",
+    "ng9",
+    "enquiry_received"
   ],
   "contactName": "Lee",
   "window": {
@@ -9449,8 +9478,15 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Lee",
-      "at": "2026-09-10T22:25:00.899Z",
+      "at": "2026-09-10T23:48:56.655Z",
       "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:49:09.365Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     }
   ],
   "quote": null,
@@ -9464,18 +9500,19 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 #### Turn 3 (customer/message): It's the bathroom door upstairs, been like it since the summer.
 
-Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_d31348f0-f81b-40d5-a044-91405d0a9a56. Not landed on the thread by the door.
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_c1dc64ff-90c4-4d48-9f7e-eac8c64f845b. Not landed on the thread by the door.
 
-> Hiya Lee, thanks for that. Sounds like a straightforward rehang.
+> Thanks Lee, that helps.
 > Could you send a quick photo or video of where it's catching on the frame?
+> That'll let me see exactly what needs planing or rehanging.
 
-- [2.8] reply_sent: **PASS** - a reply would go (2 bubbles, desk)
+- [2.8] reply_sent: **PASS** - a reply would go (3 bubbles, desk)
 
 <details><summary>Planned send (full)</summary>
 
 ```json
 {
-  "caseId": "14fd66de-cca5-4412-8765-f2af05460436",
+  "caseId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
   "party": {
     "role": "homeowner",
     "address": "+447700900942",
@@ -9485,8 +9522,9 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
   "windowState": "open",
   "templateId": null,
   "bubbles": [
-    "Hiya Lee, thanks for that. Sounds like a straightforward rehang.",
-    "Could you send a quick photo or video of where it's catching on the frame?"
+    "Thanks Lee, that helps.",
+    "Could you send a quick photo or video of where it's catching on the frame?",
+    "That'll let me see exactly what needs planing or rehanging."
   ],
   "factIds": "unavailable",
   "kbIds": "unavailable",
@@ -9548,159 +9586,7 @@ Planned send: 2 bubbles (desk); decision send; intent ask_gap; window open; temp
     }
   },
   "approver": "agent.scoper",
-  "runId": "run_d31348f0-f81b-40d5-a044-91405d0a9a56",
-  "hold": null,
-  "delivered": true,
-  "origin": "desk",
-  "evidence": {
-    "decision": "send",
-    "intent": "ask_gap",
-    "lane": "scoper",
-    "pack": "customer.default",
-    "stageAfter": "enquiry",
-    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 2 bubbles",
-    "legacyGuardsHit": [],
-    "legacyGuardNotes": [],
-    "mirrorLiveWouldSend": null,
-    "error": null
-  }
-}
-```
-
-</details>
-
-<details><summary>Case-file snapshot</summary>
-
-```json
-{
-  "conversationId": "14fd66de-cca5-4412-8765-f2af05460436",
-  "stage": "enquiry",
-  "tags": [
-    "sandbox",
-    "door_rehung",
-    "postcode_provided",
-    "needs_photos",
-    "upstairs_bathroom"
-  ],
-  "contactName": "Lee",
-  "window": {
-    "canFreeform": true,
-    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
-  },
-  "messages": [
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:25:00.899Z",
-      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
-    },
-    {
-      "direction": "inbound",
-      "channel": "whatsapp",
-      "sender": "Lee",
-      "at": "2026-09-10T22:25:40.301Z",
-      "content": "It's the bathroom door upstairs, been like it since the summer."
-    }
-  ],
-  "quote": null,
-  "openFlags": [],
-  "openPromises": [],
-  "lastCall": null
-}
-```
-
-</details>
-
-#### Turn 4 (system/clock): clock pass
-
-Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_01ac1f7b-dccf-47a8-9d2a-25b3e5577305. Not landed on the thread by the door.
-
-> Hiya Lee, thanks for that.
-> Could you send a quick video or photo of the door where it's catching the frame?
-> That'll help me see what's needed to sort it.
-
-- [2.8] reply_not_sent: **FAIL** - artefact: dry-run reply not landed on thread
-
-<details><summary>Planned send (full)</summary>
-
-```json
-{
-  "caseId": "14fd66de-cca5-4412-8765-f2af05460436",
-  "party": {
-    "role": "homeowner",
-    "address": "+447700900942",
-    "name": "Lee"
-  },
-  "channel": "whatsapp",
-  "windowState": "open",
-  "templateId": null,
-  "bubbles": [
-    "Hiya Lee, thanks for that.",
-    "Could you send a quick video or photo of the door where it's catching the frame?",
-    "That'll help me see what's needed to sort it."
-  ],
-  "factIds": "unavailable",
-  "kbIds": "unavailable",
-  "guards": {
-    "figure": {
-      "result": "pass",
-      "via": [
-        "money",
-        "discount",
-        "price_objection",
-        "money_to_customer"
-      ],
-      "note": null
-    },
-    "date_time_duration": {
-      "result": "pass",
-      "via": [
-        "date_promise",
-        "duration_claim"
-      ],
-      "note": null
-    },
-    "commitment_fault": {
-      "result": "pass",
-      "via": [
-        "policy_commitment",
-        "soft_commitment",
-        "liability",
-        "capitulation"
-      ],
-      "note": null
-    },
-    "business_claim": {
-      "result": "pass",
-      "via": [
-        "capability_claim"
-      ],
-      "note": null
-    },
-    "disclosure": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "one_reply": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "ask_ledger": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    },
-    "regulated": {
-      "result": "unavailable",
-      "via": [],
-      "note": "the current desk has no guard of this kind"
-    }
-  },
-  "approver": "agent.scoper",
-  "runId": "run_01ac1f7b-dccf-47a8-9d2a-25b3e5577305",
+  "runId": "run_c1dc64ff-90c4-4d48-9f7e-eac8c64f845b",
   "hold": null,
   "delivered": true,
   "origin": "desk",
@@ -9725,14 +9611,174 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
 
 ```json
 {
-  "conversationId": "14fd66de-cca5-4412-8765-f2af05460436",
+  "conversationId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
   "stage": "enquiry",
   "tags": [
     "sandbox",
-    "door_rehung",
-    "postcode_provided",
-    "needs_photos",
-    "upstairs_bathroom"
+    "door_rehang",
+    "ng9",
+    "enquiry_received",
+    "bathroom_door"
+  ],
+  "contactName": "Lee",
+  "window": {
+    "canFreeform": true,
+    "summary": "OPEN — last customer WhatsApp 0 min ago; shuts 24.0 h from now"
+  },
+  "messages": [
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:48:56.655Z",
+      "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:49:09.365Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
+    },
+    {
+      "direction": "inbound",
+      "channel": "whatsapp",
+      "sender": "Lee",
+      "at": "2026-09-10T23:49:38.615Z",
+      "content": "It's the bathroom door upstairs, been like it since the summer."
+    }
+  ],
+  "quote": null,
+  "openFlags": [],
+  "openPromises": [],
+  "lastCall": null
+}
+```
+
+</details>
+
+#### Turn 4 (system/clock): clock pass
+
+Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; template none; approver agent.scoper; hold none; run run_6e57a39f-351c-4e66-b9a5-1172c03dea51. Not landed on the thread by the door.
+
+> Thanks Lee, that helps.
+> Could you send a quick photo or video of where it's catching on the frame?
+> That'll let me see what's needed to sort it.
+
+- [2.8] reply_not_sent: **FAIL** - artefact: dry-run reply not landed on thread
+
+<details><summary>Planned send (full)</summary>
+
+```json
+{
+  "caseId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
+  "party": {
+    "role": "homeowner",
+    "address": "+447700900942",
+    "name": "Lee"
+  },
+  "channel": "whatsapp",
+  "windowState": "open",
+  "templateId": null,
+  "bubbles": [
+    "Thanks Lee, that helps.",
+    "Could you send a quick photo or video of where it's catching on the frame?",
+    "That'll let me see what's needed to sort it."
+  ],
+  "factIds": "unavailable",
+  "kbIds": "unavailable",
+  "guards": {
+    "figure": {
+      "result": "pass",
+      "via": [
+        "money",
+        "discount",
+        "price_objection",
+        "money_to_customer"
+      ],
+      "note": null
+    },
+    "date_time_duration": {
+      "result": "pass",
+      "via": [
+        "date_promise",
+        "duration_claim"
+      ],
+      "note": null
+    },
+    "commitment_fault": {
+      "result": "pass",
+      "via": [
+        "policy_commitment",
+        "soft_commitment",
+        "liability",
+        "capitulation"
+      ],
+      "note": null
+    },
+    "business_claim": {
+      "result": "pass",
+      "via": [
+        "capability_claim"
+      ],
+      "note": null
+    },
+    "disclosure": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "one_reply": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "ask_ledger": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    },
+    "regulated": {
+      "result": "unavailable",
+      "via": [],
+      "note": "the current desk has no guard of this kind"
+    }
+  },
+  "approver": "agent.scoper",
+  "runId": "run_6e57a39f-351c-4e66-b9a5-1172c03dea51",
+  "hold": null,
+  "delivered": true,
+  "origin": "desk",
+  "evidence": {
+    "decision": "send",
+    "intent": "ask_gap",
+    "lane": "scoper",
+    "pack": "customer.default",
+    "stageAfter": "enquiry",
+    "exitNote": "DRY RUN — nothing sent, nothing queued, nobody pinged. Live, this would have: SENT to the customer with no human approval (agent.scoper): 3 bubbles",
+    "legacyGuardsHit": [],
+    "legacyGuardNotes": [],
+    "mirrorLiveWouldSend": null,
+    "error": null
+  }
+}
+```
+
+</details>
+
+<details><summary>Case-file snapshot</summary>
+
+```json
+{
+  "conversationId": "e3baadf6-2fe3-4b16-aae3-5fafac0002c8",
+  "stage": "enquiry",
+  "tags": [
+    "sandbox",
+    "door_rehang",
+    "ng9",
+    "enquiry_received",
+    "bathroom_door",
+    "catching_frame"
   ],
   "contactName": "Lee",
   "window": {
@@ -9744,14 +9790,21 @@ Planned send: 3 bubbles (desk); decision send; intent ask_gap; window open; temp
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Lee",
-      "at": "2026-09-10T22:25:00.899Z",
+      "at": "2026-09-10T23:48:56.655Z",
       "content": "Hi, I need an internal door rehung, it's catching on the frame. We're in NG9."
+    },
+    {
+      "direction": "outbound",
+      "channel": "whatsapp",
+      "sender": "Sandbox (rules layer ack, mirrored, never sent)",
+      "at": "2026-09-10T23:49:09.365Z",
+      "content": "Hi Lee, thanks for getting in touch.\n---\nYou've caught us out of hours. Is it OK if we give you a quick call first thing to run through it? Or just reply here with the details."
     },
     {
       "direction": "inbound",
       "channel": "whatsapp",
       "sender": "Lee",
-      "at": "2026-09-10T22:25:40.301Z",
+      "at": "2026-09-10T23:49:38.615Z",
       "content": "It's the bathroom door upstairs, been like it since the summer."
     }
   ],

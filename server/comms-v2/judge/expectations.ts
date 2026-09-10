@@ -108,7 +108,7 @@ export const RE_CALL_OFFER = new RegExp([
  * decline a call. An earlier negation about something else ("won't be able to get there today
  * but happy to call you") does not.
  */
-const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|cannot|can'?t(?!\s+wait)|can not|no need (?:to|for)|not going to|rather than|instead of|never|(?:don'?t|do not|won'?t|will not) (?:need|have|want) to|not necessary to)(?:\s+\S+){0,2}\s*$/i;
+const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|(?:cannot|can'?t|can not)(?!\s+(?:wait|hurt))|no need (?:to|for)|not going to|rather than|instead of|never(?!\s+hurts?)|(?:don'?t|do not|won'?t|will not) (?:need|have|want) to|not necessary to)(?:\s+\S+){0,2}\s*$/i;
 
 /** A template placeholder, which a reply "in its own words" never carries. */
 const RE_PLACEHOLDER = /\{\{\s*\d+\s*\}\}/;

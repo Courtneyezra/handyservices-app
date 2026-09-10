@@ -155,7 +155,7 @@ describe('call offers', () => {
             expect(offersCall(ps({ bubbles: [t] })), t).toBe(false);
             expect(evaluate(e({ kind: 'not_offers_call' }), ctx({ plannedSend: ps({ bubbles: [t] }) })).status, t).toBe('pass');
         }
-        for (const t of ['No rush, but shall we ring you?', 'Instead of photos we could give you a quick ring.', "We won't be able to get there today but happy to call you.", "Can't wait to give you a call."]) {
+        for (const t of ['No rush, but shall we ring you?', 'Instead of photos we could give you a quick ring.', "We won't be able to get there today but happy to call you.", "Can't wait to give you a call.", "Can't hurt to give you a quick ring?", 'Cannot hurt to ring you?', 'Can not hurt to give you a quick ring.', 'Never hurts to call you.']) {
             expect(offersCall(ps({ bubbles: [t] })), t).toBe(true);
         }
         expect(scopingQuestionCount(ps({ bubbles: ["We won't call you, what size is the panel?"] }))).toBe(1);
