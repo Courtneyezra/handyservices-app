@@ -13,13 +13,15 @@
  *    COMMS_V2_DOOR_TOKEN as the admin bearer token requireAdmin expects.
  *  - otherwise in-process: the exported router is mounted on a loopback express server for the
  *    length of the run. The router is the real one, so it needs the model keys, and it connects
- *    only to COMMS_V2_JUDGE_DATABASE_URL (a Neon branch): the judge refuses to open without it
- *    and never reads DATABASE_URL, so a production .env cannot be driven by mistake.
+ *    only to COMMS_V2_JUDGE_DATABASE_URL (a Neon branch): the judge refuses to open without it,
+ *    refuses a value that names the production database, and never reads DATABASE_URL, so a
+ *    production .env cannot be driven by mistake.
  *
  * Neither door reports a variable's value: a client carries its mode and host only.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { isProductionDatabaseUrl } from '../../worker-gate';
 import type { Seed } from './scenario';
 import type { SeedFeature } from './expectations';
 import { FIXTURES_DIR } from './scenario';
@@ -182,6 +184,9 @@ export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
     const judgeDatabase = process.env[JUDGE_DATABASE_ENV];
     if (!judgeDatabase) {
         throw new DoorError('refused', `${JUDGE_DATABASE_ENV} is not set. The in-process door connects only to the Neon branch it names, never to DATABASE_URL. Set it, or set COMMS_V2_DOOR_URL to a running server.`);
+    }
+    if (isProductionDatabaseUrl(judgeDatabase)) {
+        throw new DoorError('refused', `${JUDGE_DATABASE_ENV} points at the production database. The judge runs only against a Neon branch; put the branch's connection string there.`);
     }
     process.env.DATABASE_URL = judgeDatabase;
     let router: unknown;
