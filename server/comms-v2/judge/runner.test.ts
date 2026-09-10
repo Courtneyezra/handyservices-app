@@ -39,7 +39,7 @@ function scriptedDoor(script: Array<unknown | Error>, opts: { ageShuts?: boolean
         return r ?? pass();
     };
     return {
-        mode: 'http', host: 'scripted', calls,
+        mode: 'in_process', host: 'scripted', calls,
         reset: () => next('reset'), start: () => next('start'), message: () => next('message'), clock: () => next('clock'),
         age: async (h) => { calls.push(`age ${h}`); return { ok: true, state: pass('send', !opts.ageShuts).state }; },
         call: () => next('call'), price: () => next('price'), state: () => next('state'), close: async () => undefined,
@@ -135,7 +135,7 @@ describe('runAll', () => {
         expect(res.runs).toBe(2);
         expect(res.scenarios.map((s) => s.run)).toEqual([1, 2]);
         expect(door.calls).toEqual(['start', 'message', 'start', 'message']);
-        expect(res.door).toEqual({ mode: 'http', host: 'scripted' });
+        expect(res.door).toEqual({ mode: 'in_process', host: 'scripted' });
         expect(res.lines.find((l) => l.line === '2.1')!.status).toBe('pass');
         expect(res.exitCode).toBe(0);
     });

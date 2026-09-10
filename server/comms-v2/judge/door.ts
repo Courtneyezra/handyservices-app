@@ -8,16 +8,14 @@
  * runner never touches a specialist, a prompt or a model, and a door that cannot be reached is an
  * error, never a mocked pass.
  *
- * Two ways to reach it:
- *  - COMMS_V2_DOOR_URL set: a running server (e.g. http://localhost:5000/api/comms-sandbox) with
- *    COMMS_V2_DOOR_TOKEN as the admin bearer token requireAdmin expects.
- *  - otherwise in-process: the exported router is mounted on a loopback express server for the
- *    length of the run. The router is the real one, so it needs the model keys, and it connects
- *    only to COMMS_V2_JUDGE_DATABASE_URL (a Neon branch): the judge refuses to open without it,
- *    refuses a value that names the production database, and never reads DATABASE_URL, so a
- *    production .env cannot be driven by mistake.
+ * One way to reach it: the exported router is mounted on a loopback express server for the length
+ * of the run. The router is the real one, so it needs the model keys, and it connects only to
+ * COMMS_V2_JUDGE_DATABASE_URL (a Neon branch): the judge refuses to open without it, refuses a
+ * value that names the production database, and never reads DATABASE_URL, so a production .env
+ * cannot be driven by mistake. There is no door to a running server: the judge cannot see which
+ * database a remote server is on, so it never drives one.
  *
- * Neither door reports a variable's value: a client carries its mode and host only.
+ * The door reports no variable's value: a client carries its mode and host only.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,7 +36,7 @@ export class DoorError extends Error {
 export interface DoorMedia { file: string; mime: string; bytes: Buffer }
 
 export interface DoorClient {
-    readonly mode: 'http' | 'in_process';
+    readonly mode: 'in_process';
     /** Host and port of the door, the only thing about its address a log or a report carries. */
     readonly host: string;
     /** A clean thread with no message on it yet (for an opening turn that carries photos). */
@@ -61,8 +59,6 @@ export interface DoorClient {
 }
 
 export interface DoorOptions {
-    url?: string;
-    token?: string;
     timeoutMs?: number;
 }
 
@@ -112,11 +108,12 @@ export function loadFixture(file: string, mime: string): DoorMedia {
     return { file: path.basename(file), mime, bytes: fs.readFileSync(p) };
 }
 
-// ---------------------------------------------------------------- HTTP client
+// ---------------------------------------------------------------- the loopback client
 
-class HttpDoor implements DoorClient {
+class LoopbackDoor implements DoorClient {
+    readonly mode = 'in_process' as const;
     readonly host: string;
-    constructor(public readonly mode: 'http' | 'in_process', private readonly baseUrl: string, private readonly token: string | null, private readonly timeoutMs: number, private readonly onClose: () => Promise<void>) {
+    constructor(private readonly baseUrl: string, private readonly timeoutMs: number, private readonly onClose: () => Promise<void>) {
         this.host = new URL(baseUrl).host;
     }
 
@@ -125,7 +122,6 @@ class HttpDoor implements DoorClient {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
         const headers: Record<string, string> = { accept: 'application/json' };
-        if (this.token) headers.authorization = `Bearer ${this.token}`;
         if (body !== undefined) headers['content-type'] = 'application/json';
         let res: Response;
         try {
@@ -166,24 +162,14 @@ class HttpDoor implements DoorClient {
     close() { return this.onClose(); }
 }
 
-/** Reach the door: a running server when COMMS_V2_DOOR_URL is set, else the exported router in-process. */
+/** Open the door: the exported sandbox router in-process, on the judge's own database. */
 export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
     const timeoutMs = opts.timeoutMs ?? Number(process.env.COMMS_V2_DOOR_TIMEOUT_MS ?? DEFAULT_DOOR_TIMEOUT_MS);
-    const url = opts.url ?? process.env.COMMS_V2_DOOR_URL;
-    if (url) {
-        const token = opts.token ?? process.env.COMMS_V2_DOOR_TOKEN ?? null;
-        try {
-            return new HttpDoor('http', url, token, timeoutMs, async () => undefined);
-        } catch {
-            throw new DoorError('refused', 'COMMS_V2_DOOR_URL is not an absolute URL');
-        }
-    }
-    // In-process: the real router on a loopback port, connected to the judge's own database. The
-    // router's database module reads DATABASE_URL at import, so the branch is put there first;
+    // The router's database module reads DATABASE_URL at import, so the branch is put there first;
     // whatever .env held is never consulted.
     const judgeDatabase = process.env[JUDGE_DATABASE_ENV];
     if (!judgeDatabase) {
-        throw new DoorError('refused', `${JUDGE_DATABASE_ENV} is not set. The in-process door connects only to the Neon branch it names, never to DATABASE_URL. Set it, or set COMMS_V2_DOOR_URL to a running server.`);
+        throw new DoorError('refused', `${JUDGE_DATABASE_ENV} is not set. The door connects only to the Neon branch it names, never to DATABASE_URL.`);
     }
     if (isProductionDatabaseUrl(judgeDatabase)) {
         throw new DoorError('refused', `${JUDGE_DATABASE_ENV} points at the production database. The judge runs only against a Neon branch; put the branch's connection string there.`);
@@ -193,7 +179,7 @@ export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
     try {
         ({ commsSandboxRouter: router } = await import('../../spine/sandbox-routes'));
     } catch (err: any) {
-        throw new DoorError('unreachable', `the sandbox router could not be loaded in-process: ${err?.message ?? err}. Set COMMS_V2_DOOR_URL to a running server, or give this process ${JUDGE_DATABASE_ENV} and the model keys.`);
+        throw new DoorError('unreachable', `the sandbox router could not be loaded in-process: ${err?.message ?? err}. This process needs ${JUDGE_DATABASE_ENV} and the model keys.`);
     }
     const express = (await import('express')).default;
     const app = express();
@@ -205,5 +191,5 @@ export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
     });
     const addr = server.address();
     const port = typeof addr === 'object' && addr ? addr.port : 0;
-    return new HttpDoor('in_process', `http://127.0.0.1:${port}/api/comms-sandbox`, null, timeoutMs, () => new Promise((resolve) => server.close(() => resolve())));
+    return new LoopbackDoor(`http://127.0.0.1:${port}/api/comms-sandbox`, timeoutMs, () => new Promise((resolve) => server.close(() => resolve())));
 }

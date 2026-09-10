@@ -116,8 +116,13 @@ describe('the markdown report', () => {
         sr.turns[0].expectations[0] = { line: '2.3', kind: 'own_words', status: 'pass', reason: 'one question', modelJudge: { model: 'claude-haiku-4-5', promptHash: 'abc123def456', verdict: 'yes', reason: 'natural' } };
         sr.turns[0].snapshot = { conversationId: 'c', stage: 'scoping', tags: [], contactName: null, window: { canFreeform: true, summary: 'OPEN' }, messages: [], quote: null, openFlags: [], openPromises: [], lastCall: null };
         const lines = lineResults([sr], 1, scen);
-        const md = renderMarkdown({ generatedAt: 'now', desk: 'd', door: { mode: 'http', host: 'door.example:5000' }, runs: 1, lines, scenarios: [sr], summary: { pass: 1, fail: 0, error: 10 }, exitCode: 1 });
-        expect(md).toContain('Door: http at door.example:5000.');
+        const render = () => renderMarkdown({ generatedAt: 'now', desk: 'd', door: { mode: 'in_process', host: '127.0.0.1:5000' }, runs: 1, lines, scenarios: [sr], summary: { pass: 1, fail: 0, error: 10 }, exitCode: 1 });
+        let md = render();
+        expect(md).toContain('Door: in_process at 127.0.0.1:5000.');
+        expect(md).not.toContain('artefact: dry-run reply not landed on thread');
+        sr.turns[0].landed = false;
+        md = render();
+        expect(md).toContain('Known limitation of this door');
         expect(md).toContain('artefact: dry-run reply not landed on thread');
         expect(md).toContain('| 2.3 |');
         expect(md).toContain('> hi?');

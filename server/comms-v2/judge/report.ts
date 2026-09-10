@@ -65,8 +65,10 @@ export function renderMarkdown(r: JudgeResult): string {
     out.push('');
     out.push('A line passes only when every expectation on it passes in every run. Fails against the current desk are expected: Goal 0 proves the judge, not the desk.');
     out.push('');
-    out.push(`Known limitation of the current door: it puts only the rules-layer first-contact ack on the thread, never a desk reply planned in dry run. On the turns after such a reply, the expectations that only hold when the desk has seen its own reply (${Array.from(POST_SEND_DEPENDENT).join(', ')}) are recorded as fail with the reason "${ARTEFACT_REASON}". Those verdicts judge the door, not the desk.`);
-    out.push('');
+    if (r.scenarios.some((s) => s.turns.some((t) => t.landed === false))) {
+        out.push(`Known limitation of this door: it did not put every planned reply on the thread (the current sandbox lands only the rules-layer first-contact ack, never a desk reply planned in dry run). On the turns after such a reply, the expectations that only hold when the desk has seen its own reply (${Array.from(POST_SEND_DEPENDENT).join(', ')}) are recorded as fail with the reason "${ARTEFACT_REASON}". Those verdicts judge the door, not the desk.`);
+        out.push('');
+    }
     out.push('## Lines');
     out.push('');
     out.push('| Line | Expected | Result | ' + Array.from({ length: r.runs }, (_, i) => `Run ${i + 1}`).join(' | ') + ' |');

@@ -39,14 +39,22 @@ describe('subjects', () => {
         expect(asksSubject(ps({ bubbles: ['Could you send a quick photo of the tap?'] }), 'media')).toBe(true);
         expect(asksSubject(ps({ bubbles: ['Thanks for the photo, that is clear.'] }), 'media')).toBe(false);
     });
-    it('a subject is asked only in the clause that asks: mentioning photos beside a tile-size question is not a photo ask', () => {
+    it('a subject word and an asking phrase anywhere in one sentence is an ask, across clauses', () => {
+        for (const t of ['Photos would really help, any chance you could send one?', 'Got a photo, by any chance?', 'Thanks for that, could you send a photo of the tile?', 'Any chance of a photo, or a quick video?']) {
+            expect(asksSubject(ps({ bubbles: [t] }), 'media'), t).toBe(true);
+        }
+        const twice = ps({ bubbles: ['Photos would really help, any chance you could send one?'] });
+        expect(evaluate(e({ kind: 'asked_at_most_once', subject: 'media' }), ctx({ plannedSend: twice, history: [ps({ bubbles: ['Can you send a photo?'] })] })).status).toBe('fail');
+    });
+    it('a subject mentioned only in a dismissive clause is not an ask: waving photos away beside a tile-size question', () => {
         const tile = ps({ bubbles: ['No worries about photos, could you tell me roughly the tile size?'] });
         expect(asksSubject(tile, 'media')).toBe(false);
         expect(asksSubject(tile, 'any')).toBe(true);
         expect(evaluate(e({ kind: 'not_asks_subject', subject: 'media' }), ctx({ plannedSend: tile })).status).toBe('pass');
         expect(evaluate(e({ kind: 'asked_at_most_once', subject: 'media' }), ctx({ plannedSend: tile, history: [ps({ bubbles: ['Can you send a photo?'] })] })).status).toBe('pass');
-        expect(asksSubject(ps({ bubbles: ['Thanks for that, could you send a photo of the tile?'] }), 'media')).toBe(true);
-        expect(asksSubject(ps({ bubbles: ['Any chance of a photo, or a quick video?'] }), 'media')).toBe(true);
+        for (const t of ["Don't worry about a photo, whereabouts are you?", 'No need for pictures; which road is it?', 'Forget the photos: is there parking outside?']) {
+            expect(asksSubject(ps({ bubbles: [t] }), 'media'), t).toBe(false);
+        }
     });
     it('any means any question', () => {
         expect(asksSubject(ps(), 'any')).toBe(true);

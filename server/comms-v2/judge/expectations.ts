@@ -119,13 +119,22 @@ export function sentencesOf(ps: PlannedSend): string[] {
     return ps.bubbles.flatMap((b) => b.split(/(?<=[.?!])\s+|\n+/)).map((s) => s.trim()).filter(Boolean);
 }
 
-/**
- * Clauses within a sentence. A subject is asked for only when its word and the asking phrase sit
- * in the same clause: "No worries about photos, could you tell me the tile size?" mentions photos
- * and asks about the tile.
- */
-export function clausesOf(sentence: string): string[] {
+/** A clause that waves the subject away, so its mention there is not an ask of it. */
+const RE_DISMISSIVE = /\b(?:no worries about|don'?t worry about|do not worry about|no need for|forget the)\b/i;
+
+function clausesOf(sentence: string): string[] {
     return sentence.split(/[,;:]|\s+[-–—]\s+/).map((c) => c.trim()).filter(Boolean);
+}
+
+/**
+ * A sentence asks for a subject when it carries the subject word and an asking phrase anywhere in
+ * it ("Photos would really help, any chance you could send one?"), unless the subject word appears
+ * only inside a dismissive clause ("No worries about photos, could you tell me the tile size?").
+ */
+function sentenceAsks(sentence: string, subject: AskSubject): boolean {
+    const words = SUBJECT_WORDS[subject];
+    if (!words.test(sentence) || !RE_ASKING.test(sentence)) return false;
+    return clausesOf(sentence).filter((c) => words.test(c)).some((c) => !RE_DISMISSIVE.test(c));
 }
 
 export function asksSubject(ps: PlannedSend, subject: AskSubject | 'any'): boolean {
@@ -133,7 +142,7 @@ export function asksSubject(ps: PlannedSend, subject: AskSubject | 'any'): boole
     const sentences = sentencesOf(ps);
     if (subject === 'any') return sentences.some((s) => s.includes('?'));
     if (subject === 'handoff') return sentences.some((s) => SUBJECT_WORDS.handoff.test(s));
-    return sentences.flatMap(clausesOf).some((c) => SUBJECT_WORDS[subject].test(c) && RE_ASKING.test(c));
+    return sentences.some((s) => sentenceAsks(s, subject));
 }
 
 export function questionCount(ps: PlannedSend): number {

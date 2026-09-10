@@ -6,10 +6,9 @@
  *   npm run comms-v2:judge -- --only 2.3,2.7    a subset
  *   npm run comms-v2:judge -- --out example     reports/example/ (the committed evidence)
  *
- * Environment: COMMS_V2_DOOR_URL and COMMS_V2_DOOR_TOKEN reach a running server's
- * /api/comms-sandbox; without them the exported router runs in-process against
- * COMMS_V2_JUDGE_DATABASE_URL (a Neon branch; DATABASE_URL is never read) with the model keys
- * from .env. No variable's value is printed or written to a report: only the door's mode and host.
+ * Environment: the exported sandbox router runs in-process against COMMS_V2_JUDGE_DATABASE_URL
+ * (a Neon branch; DATABASE_URL is never read) with the model keys from .env. No variable's value
+ * is printed or written to a report: only the door's mode and host.
  */
 import 'dotenv/config';
 import path from 'node:path';
