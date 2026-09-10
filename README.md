@@ -37,8 +37,9 @@ TWILIO_PHONE_NUMBER=...
 ```
 
 ### 3. Database Migration
+Migrations are idempotent SQL applied one file at a time; never `db:push` (see `docs/RUNBOOK.md` § Migrations).
 ```bash
-npm run db:push
+npx tsx scripts/_apply-migration.ts migrations/<file>.sql
 npm run seed  # Populates the SKU table
 ```
 
