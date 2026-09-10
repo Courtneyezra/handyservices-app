@@ -24,7 +24,7 @@ npx tsx scripts/_spine-mode.ts --status   # read the comms desk switches
 ## Key Documentation
 - `docs/RUNBOOK.md` — operations, health endpoints, the prompt and eval procedure
 - `docs/COMMS_AGENTS_V3_DESIGN.md` — comms desk design; `docs/comms-build/CUTOVER.md` to switch or roll back
-- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map); it lands in a new directory under `server/` beside `server/spine/`, never inside it
+- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map, the seven contracts); it lands in a new directory under `server/` beside `server/spine/`, never inside it
 - `docs/comms-desk-log.md` — historical shipping log for the comms desk and the quoting segments. Not loaded into sessions; read it only for the history behind a decision.
 - `docs/ROADMAP_STRATEGY.md`, `docs/SYSTEMATIC_ROADMAP.md` — phase strategy and tasks
 

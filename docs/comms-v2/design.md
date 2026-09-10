@@ -104,7 +104,7 @@ Right-hand side, fed from the desk:
   Desk area -> [model] THIRD-PARTY MODELS:
       Text models: Fable 5.1 writes, Sonnet 5 reasons, Haiku 4.5 routes
       Vision model: photos, video
-  Desk area -> [sw] Case file: one per customer, every channel
+  Desk area -> [sw] Case file: one per job, every channel, every party on it
       conversation history - inter-agent shared state
       the ask ledger - the hold
 
@@ -124,7 +124,7 @@ know which channel they are on. Nothing else can reach a customer.
 - `[guard]` Rails - comms-specific
 - `[model]` Models
 - `[cap]` Capabilities
-- `[reserved]` Reserved - for the landlord service, not built now
+- `[reserved]` Reserved - for the landlord service, not built now, marked "later"
 
 ## Box for box
 
@@ -155,7 +155,7 @@ imposes. The specialists never see any of this; the adapters and the sender own 
 
 | Channel | In | Out | The rail | Reply goes where |
 |---|---|---|---|---|
-| WhatsApp | Text, photos, video, voice notes. Opens the 24-hour window. | Freeform inside the window as one reply, split into bubbles as a person would separate messages, with a soft ceiling and no fixed count. Outside it, an approved template only. | The window. A platform limit, not a policy. | Back on WhatsApp. |
+| WhatsApp | Text, photos, video, voice notes. Opens the 24-hour window. | Freeform inside the window as one reply, split into bubbles as a person would separate messages, no fixed count. Outside it, an approved template only. | The window. A platform limit, not a policy. | Back on WhatsApp. |
 | SMS | Text only. No media, no read receipts. | One message, kept short. No window to worry about, but every segment costs. | Length and cost. No way to send a photo back. | Back on SMS. If a known customer also has WhatsApp, prefer it. |
 | Calls | A live transcript from the call, plus the outcome when Ben rings out. | Nothing on the call itself. The desk never speaks. After the call, one follow-up on a text channel. | A call does not open the WhatsApp window, so the follow-up is a template or an SMS. | WhatsApp template if they have it, else SMS. |
 | Web form | Name, phone, email, the job, sometimes photos. Creates the lead. | Nothing on the form. It has no reply path of its own. | One-shot. The first reply has to open a real channel. | WhatsApp if the number is on it, else SMS, else email. |
@@ -189,10 +189,8 @@ reply in a human voice.
 
 ## Settle these before building
 
-Every decision the fresh design needed, in the captain's words where they are his. One question is
-still open, where a reply goes when the customer's channel cannot carry it or the WhatsApp window
-is shut; it does not block Goal 1, which is WhatsApp inside the window. The three landlord
-questions are parked in their own section below.
+Every decision the fresh design needed, in the captain's words where they are his. Nothing here is
+open. The three landlord questions are parked in their own section above.
 
 **Send by default, hold on exceptions** - *Settled*
 "Send everything; hold on exceptions." Every reply type sends on its own. Money, complaints,
@@ -218,12 +216,12 @@ Calls are an inbound channel only: the transcript becomes a turn in the case fil
 outbound calls. The follow-up after his call "sends unattended" on a text channel, which needs a
 template because a call does not open the WhatsApp window.
 
-**Where does the reply go?** - *Open - recommendation on the page*
-Three channels can carry a reply and two cannot, so the sender needs a rule. Recommended default:
-reply on the channel the customer wrote on. For the two that cannot reply, and for a shut WhatsApp
-window, fall through in order: WhatsApp if the number is on it, then SMS, then email. The one call
-worth making explicitly is whether a shut window should fall to SMS rather than to an approved
-template, because SMS carries a freeform reply and a template does not.
+**Where does the reply go?** - *Settled - 10 Sep*
+Reply on the channel the customer wrote on. For a call or a web form, which cannot carry a reply,
+open a real channel: WhatsApp if the number is on it, then SMS, then email. When the WhatsApp
+window is shut, an approved template, "as decided before": the desk picks one of the common-case
+templates and freeform resumes when the customer replies. The current sender's silent fallback to
+SMS with freeform text goes.
 
 **One case file per job, never per channel, with every party on it** - *Settled - 10 Sep*
 "Agreed" on one file across channels, and "one per issue, two parties" for the landlord service.
@@ -263,18 +261,71 @@ role moves down only when quality holds. Fable 5.1 requires thirty-day data rete
 privacy notice must say so, and its safety classifiers can decline a request, so the composer needs
 a fallback route rather than a silent empty reply.
 
-**Remove the old desk, keep the channel plumbing, land beside then delete** - *Settled - 10 Sep*
-"Completely remove existing comms and build new." The desk itself, the pipeline, the legacy
-drafting agents, handover, post-call, the comms worker, is replaced from a blank file. The channel
-plumbing stays, because it is not comms-specific: the Twilio webhooks, WhatsApp sending, template
-sync, and the sender registry that gates every customer send, quotes and invoices included. Order:
-build beside in the sandbox, cut over on the desk switch, keep the old desk as roll-back for the
-first weeks, then delete. Knowledge carries over, code does not.
+**Delete the old comms entirely; fix nothing in it; build new** - *Settled - 10 Sep*
+"We are not fixing anything that is here and existing. We are deleting the complete old comms and
+building new to the new framework." Everything that talks to a customer is new: the gateway and
+its adapters, identity, the case file, the desk, the guards, the sender. No defect in the old
+comms is fixed; where a defect named a real requirement, that requirement lives in the new
+contract instead. What survives is only what is not comms: the quote engine, the price book, Ben's
+price screen, invoicing, and the send path those already use, which is re-pointed at the new
+sender at cutover. Order: build beside in the sandbox, cut over on the switch, keep the old desk
+as roll-back for the first weeks, then delete it. Knowledge carries over, code does not.
+
+**Connect the old inputs to the new plumbing; flip on the switch** - *Settled - 10 Sep*
+"Completely build comms again, make the old one obsolete, and connect the old input to the new
+plumbing." The addresses already registered with Twilio, Meta and the web form do not change;
+their handlers become thin forwards into the new gateway. The desk switch decides which desk a
+turn reaches: the sandbox first, the flip on your word, the old desk obsolete from that moment,
+then deleted. Nothing is re-registered with a provider.
+
+**Ben's desk is a kanban board** - *Settled - 10 Sep*
+"Front end kanban style UI is fine for now." One column per stage of the case file, held items
+surfaced at the top, one tap to release or answer. It doubles as the window onto the sandbox while
+the desk is being built, which is why it comes early in the plan. Not polished, just visible and
+operable.
 
 **First goal: skeleton plus Scoping, WhatsApp only** - *Settled - 10 Sep*
 Gateway, identity, case file, router and composer, guards, sender with bubble rendering, and the
 Scoping specialist with its tool server. Done when every Stage 1 and Stage 2 line of the checklist
 passes in the sandbox. The build plan below is written to that stop condition.
+
+## One quote, box by box
+
+A customer writes "Hi, can I get a quote for a leaking tap?" on WhatsApp. This is what every box
+on the map does, turn by turn, under the decisions above. Nothing here is a new rule; it is the
+rules already settled, run end to end.
+
+| Turn | What happens, box by box | The customer sees |
+|---|---|---|
+| 1 - first contact | **Gateway** normalises the WhatsApp turn; the window is open. **Identity** resolves the number: new customer, homeowner. **Case file** opens one job, stage first contact. **Router** (Haiku) reads the turn: subject is scoping, not quoting, because a quote needs the job and the location and only the job is known. **Scoping** (Sonnet) reads its tools: ask ledger empty, nothing to describe. Returns: job is a leaking tap; next question is where; a call is worth offering; a photo would help, ask once. **Composer** (Fable) writes one reply. **Guards**: no figure, no date, no commitment. Pass. **Sender** splits it into bubbles. | Three bubbles: the tap acknowledged in its own words, where are you, and would a quick call help or a photo if easy. |
+| 2 - scoping | Customer sends a postcode and a photo. **Scoping**: *describe photo* via the vision model returns "kitchen mixer tap, dripping at the base"; *confirm location* resolves the postcode; the *ask ledger* records photo received, so it is thanked once and never asked for again. Job and location are now known, which is the captain's test for ready: "the job and the location, photos optional." Scoping returns ready-to-quote as a fact. **Router** moves the stage to ready and routes to **Quoting**. Quoting's tools: *price book lookup* matches the job to catalogue lines, allowed here because this feeds Ben's screen and not the chat; *draft quote* writes a priced draft onto Ben's price screen. Returns: draft created, with Ben. **Composer** writes the reply. **Guards**: no figure may appear, because no live quote exists yet; no date. Pass. **Ben's desk** now holds the draft. | Thanks for the photo, that is everything needed, Ben will have your quote over shortly. No price, no date. |
+| Ben | Ben reviews the draft on his price screen, adjusts what he likes, and sends the quote. Quote acceptance and editing stay human, permanently. The **case file** now carries a live quote with lines and figures. | The quote link, with the booking picker on it. |
+| 3 - after the quote | Customer asks "what does that include, and how much is the labour?" **Router**: subject is quoting, stage post-quote. **Quoting**: *read a quote line* returns the labour line in pence with its label. Returns two facts with their sources. **Composer** voices them. **Guards** verify the figure equals one line of the live quote to the penny, cited as that line, and that nothing else numeric appears. Pass. | What is included, read back from the quote, and the labour figure exactly as it appears on it. |
+| 3 - two subjects | Customer asks "and when could you come?" in the same turn. **Router** sees two subjects. **Scheduling** (once built, Goal 5): *typical lead time* from the diary, and a pointer to the picker; it never offers a slot. Until Goal 5 exists the answer is "dates come with your quote", which the checklist still expects. **Composer** writes one reply from both specialists. | One reply, two bubbles: the quote answer, then lead time and the picker link. |
+| Exceptions | "Can you do it for less?" is a money question beyond a quote line: the **approver slot** holds it for Ben and the composer says Ben will come back on that. A complaint, a refund, a trust doubt or gas: one fixed line in Ben's words, then Ben only. "I'll get back to you next month": one acknowledgement, then nothing, "no chasing." The desk pursues within a conversation, one question at a time, never across silence. | Ben will come back to you on that. Or: no problem, whenever you are ready. |
+
+The quote engine, the price book and Ben's price screen are not comms and are not deleted. The
+new Quoting tool server wraps them. Everything that talks to the customer is new.
+
+## Contracts
+
+What a goal loop builds against, in full, is `contracts.md`; this page names each contract and
+points there so the calls, refusals and invariants live in one place.
+
+- **Contract 1 - Identity.** Turns an address on a channel into a person with a role, before the
+  desk replies. See `contracts.md`.
+- **Contract 2 - Case file.** The job's folder: one per job, never per channel, with every party
+  on it. See `contracts.md`.
+- **Contract 3 - Router and composer.** The coordinator's two jobs: the router decides who works,
+  the composer is the only thing that ever writes to a customer. See `contracts.md`.
+- **Contract 4 - Guards and the approver slot.** Deterministic code, no model, that every composed
+  reply passes before the sender. See `contracts.md`.
+- **Contract 5 - Sender and bubble rules.** The only exit: chooses the channel per party, renders
+  for it, respects the window, records the send. See `contracts.md`.
+- **Contract 6 - The Scoping tool server.** The first specialist's shelf, read-only against the
+  world, writing only through its calls. See `contracts.md`.
+- **Contract 7 - Evaluation, the judge.** What Goal 0 builds: the planned-send object, the
+  scripted runner, the stop condition a goal loop checks itself against. See `contracts.md`.
 
 ## Where the landlord service attaches
 
@@ -291,11 +342,36 @@ of the landlord-side boxes are built now.
 | Open lanes | The coordinator routes by subject to whichever specialists exist. | The DIY-first specialist: one quick check before scoping, with the troubleshooting flows as its tool server and deflection counted as the saving. One more box, no change to the coordinator. |
 | Reply channel per party | The sender chooses the channel per person on the file, not per file. | A tenant on WhatsApp, a landlord on WhatsApp, email or the portal, in the same job. |
 | Desk-initiated turns | The sender has an *initiate* entry next to *reply*, unused. The homeowner desk never starts a thread. | Chasing a landlord for approval, and proactive maintenance reminders to tenants. Both open a shut window, so both are template sends. |
-| The portal channel | An adapter slot is reserved in the gateway. | Approvals and declines come in as turns; notifications go out on it for landlords who prefer the dashboard. |
+| The portal channel | An adapter slot is reserved in the gateway ("later"). | Approvals and declines come in as turns; notifications go out on it for landlords who prefer the dashboard. |
 
 Parked until the landlord service is built: whether the desk may book an emergency job on its own
 within the landlord's rules, how hard it chases an unresponsive landlord, and whether letting
 agents and proactive maintenance are in the first version.
+
+## What the code can answer today
+
+A scout inventoried the eleven capabilities the design names against the current code, so the
+contracts are grounded rather than invented. Three exist, six are partial, two are missing. The
+full report cites a file and line for every claim.
+
+| Capability | Today | What a v2 contract must add |
+|---|---|---|
+| Read a quote line | *partial* - Quote loader and per-line totals exist; the case file keeps only the total | A reader keyed by quote and line label, because older quotes have no stable line id. A refusal set: draft, revoked, superseded, expired. A citation format the guard can verify to the penny. Today the guard is presence-only and three belts forbid any figure; your answer on quote figures reverses that, so all three change together. |
+| Price book lookup | *partial* - Three SKU matchers exist; the desk calls none of them | A decision first: the catalog is not one of your four sources. See the call below. |
+| Draft quote for Ben | *exists* - The clerk chain and the price screen | The re-run defect is confirmed at the line: a re-asserted ready tag is treated as already seen. Filed as its own fix. The chain is not callable outside a pass. |
+| Diary read | *partial / missing* - One authoritative booked date, read only by the contractor side. No lead time anywhere | A read that is allowed to return nothing. Five quote-side date columns are preferences, not bookings, and nothing reconciles them. Lead time is a new computation over completed bookings, which you already ordered before the flip. |
+| Knowledge base answer | *partial* - Table, reviewed-only helpers, Ben's page; wired into nothing | A selection by question, a verbatim-body guard, and editing the test that deliberately forbids any reply path from importing it. |
+| Describe photo / video | *exists, unproven* - Gemini, structured output, health check | Persist descriptions where a tool can read them by message; today the Scoper sees 160 characters. Photos arriving on the Meta path are never downloaded, so they cannot be described at all. Filed as its own fix. No live success on record. |
+| Ask ledger | *exists* - Four subjects, stored on the case file | It does not hear calls: after Ben asks for photos on a call, the desk may ask again. Record asks as structured events at send time so the ledger spans the whole job, as you decided. |
+| Sender, approver, templates | *partial* - One send function, a registry, approver and run id, five template definitions | The sender performs no window check and, when the window is shut, falls back to SMS carrying freeform text. The window decision moves inside the sender. Three of five templates are unwired and none has a recorded approval status. See the call below. |
+| Identity | *partial* - Phone to customer, contractor or staff; UK phone canonicalisation | No tenant or landlord role, no email as an identity key outside one file, and the web form writes a client but not a conversation. The seam the landlord service needs is confirmed missing. |
+| Sandbox and evaluation | *exists* - Doors, fixtures, a prompt gate, a scoreboard | A goal loop has nothing structured to judge a send by: dry runs produce a sentence, fixtures are single-turn, the window is hard-coded open, and the judge scores voice only. See the call below. |
+| Channel adapters | *exists / missing* - Twilio and Meta WhatsApp webhooks, voice, web form | No email inbound at all. Five inbound writers with no shared envelope and no canonicalisation on the way in. Which WhatsApp webhook is live cannot be proven from the repo. |
+
+**Three calls came out of this, all answered on 10 Sep.** Goal 0 builds the judge before Goal 1:
+"yes, build the judge first." A shut window falls to an approved template, "as decided before",
+and the current sender's silent fallback to SMS goes. The price catalog is never a source for a
+figure in chat: "the four sources stand."
 
 ## The build plan, written for a goal loop
 
@@ -303,25 +379,34 @@ A goal loop needs three things a human reader does not: the knowledge in the rep
 contracts it can build against, and a stop condition it can check. That is the order below.
 
 **Before the loop - Land the knowledge in the repo**
-The thirty-two recorded answers, the seven-stage checklist, and this page's decisions go into the
-project as docs. Today they live outside it, where a loop cannot read them.
+The thirty-eight recorded answers, the seven-stage checklist, and this page's decisions go into
+the project as docs. Today they live outside it, where a loop cannot read them.
 
 **Before the loop - Write the contracts**
 Identity, case file, router and composer, guards and the approver slot, sender and bubble rules,
-and the Scoping tool server. Named calls with inputs and outputs, grounded in what the code can
-answer today.
+the Scoping tool server, and evaluation. Named calls with inputs and outputs, grounded in the
+inventory above, in `contracts.md`.
+
+**Goal 0 - The judge**
+A planned-send object from a dry run, a scripted multi-turn runner over the sandbox doors, and a
+window that can be shut. Stop: the runner drives the eleven Goal 1 lines against the current desk
+and reports pass or fail per line without a person reading a sentence.
 
 **Goal 1 - Skeleton plus Scoping, WhatsApp**
 New directory, nothing under the old desk touched. Stop: every line below passes in the sandbox,
-twice in a row.
+twice in a row, as judged by Goal 0's runner.
 
-**Goal 2 - The other four channels**
-SMS, email, form and voice adapters against the same desk, and the remaining Stage 1 lines. Nothing
-below the gateway changes.
+**Goal 2 - Ben's desk, kanban**
+A board over case files, one column per stage, holds on top, one tap to release or answer. Stop:
+every sandbox thread from Goal 1 is visible and a held draft can be released from the board.
 
-**Goals 3 to 5 - Quoting, Scheduling, Service**
+**Goal 3 - The other four channels**
+SMS, email, form and voice adapters against the same desk, the old handlers forwarding into the
+new gateway, and the remaining Stage 1 lines. Nothing below the gateway changes.
+
+**Goals 4 to 6 - Quoting, Scheduling, Service**
 One specialist per goal, each with its stage of the checklist as the stop. Then ten real threads
-read, and the switch on the word.
+read, the switch on the word, and the old desk deleted.
 
 ### Goal 1's stop condition, line by line
 
@@ -338,11 +423,11 @@ redesign changes a line. A line either passes in the sandbox or it does not.
 | 2.3 | It asks about the job one thing at a time, in its own words. | Scoping returns the next question; the composer voices it. |
 | 2.4 | A short pause ("one sec") does not stop it. | Unchanged. |
 | 2.5 | A real promise ("I'll send photos tomorrow") gets one acknowledgement, then quiet until they write. | Reworded to the later answer: one acknowledgement, then quiet. |
-| 2.6 | A date question gets "dates come with your quote" and scoping continues. No lead-time guess. | Right for Goal 1, because Scheduling is not built yet. Goal 4 replaces it with the diary read. |
-| 2.7 | Anything about money goes to Ben, not answered. | Right for Goal 1, because Quoting is not built yet. Goal 3 replaces it with the quote-line read. |
+| 2.6 | A date question gets "dates come with your quote" and scoping continues. No lead-time guess. | Right for Goal 1, because Scheduling is not built yet. Goal 5 replaces it with the diary read. |
+| 2.7 | Anything about money goes to Ben, not answered. | Right for Goal 1, because Quoting is not built yet. Goal 4 replaces it with the quote-line read. |
 | 2.8 | It never sends a second *reply* without the customer writing in between. | **Reworded.** The old line said "two messages in a row", which the bubble rule now allows within one reply. The rule is one reply per customer turn, however many bubbles. |
 
-Deferred to Goal 2 because they need a second channel: 1.2 the web form acknowledgement, 1.3 the
+Deferred to Goal 3 because they need a second channel: 1.2 the web form acknowledgement, 1.3 the
 post-call template, 1.4 replying on SMS and moving them to WhatsApp, 1.5 not asking a caller
 whether we may call.
 

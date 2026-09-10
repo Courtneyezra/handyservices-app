@@ -174,3 +174,31 @@ replaced from a blank file; the channel plumbing (Twilio webhooks, WhatsApp send
 sender registry that gates every customer send) stays because quotes and invoices send through it.
 Order: build beside in the sandbox, cut over on the switch, keep the old desk as rollback, then delete.
 Crew models for the build: Fable 5.1 for backend/complex, cheaper models for frontend/easier tasks.
+
+## Batch 7, answered 10 Sep (the three calls from the code inventory, report hsa-comms-v2-tools-s)
+
+**33. Goal 0, the judge.** "Yes, build the judge first." A structured planned-send object from a dry
+run, a scripted multi-turn runner over the sandbox doors, and a window that can be shut. Stop: the
+runner drives the eleven Goal 1 lines against the current desk and reports pass or fail per line.
+
+**34. Shut window.** "Approved template, as decided before." Reaffirms answer 13. The current
+sender's silent fallback to SMS with freeform text goes.
+
+**35. Price catalog.** "No, the four sources stand." Figures in chat come only from a line of the
+live quote, to the penny. The catalog supports Ben's price screen and the quote builder only.
+
+**36. Nothing existing is fixed.** "We are not fixing anything that is here and existing. We are
+deleting the complete old comms and building new to the new framework." Sharpens answer 32: every
+customer-facing piece is new, including the gateway, adapters and sender. Defects found in the old
+comms are not fixed; their real requirements move into the v2 contracts. Only non-comms code survives
+(quote engine, price book, Ben's price screen, invoicing) and its send path is re-pointed at cutover.
+
+**37. Cutover wiring.** "Completely build comms again, make the old one obsolete, and connect the old
+input to the new plumbing." The inbound entry points already registered with Twilio, Meta and the
+web form stay as addresses; their handlers become thin forwards into the new gateway. The desk
+switch decides which desk a turn reaches: sandbox first, flip on the word, old desk obsolete, then
+deleted. Nothing is re-registered with a provider.
+
+**38. Ben's desk UI.** "Front end kanban style UI is fine for now." Ben's desk is a kanban board over
+case files: one column per stage, held items surfaced at the top, one tap to release or answer. Not
+polished, just visible and operable.
