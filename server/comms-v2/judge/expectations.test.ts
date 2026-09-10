@@ -93,10 +93,10 @@ describe('figures, dates, commitments', () => {
         expect(evaluate(e({ kind: 'no_figure' }), ctx({ plannedSend: ps({ bubbles: ['We are in NG7 2PQ, 20cm tile.'] }) })).status).toBe('pass');
     });
     it('no_date catches dates, times and lead times', () => {
-        for (const t of ['We can come Tuesday.', 'Probably within 3 days.', 'Around 2 hours on site.', 'First thing tomorrow.', 'At 9am.', 'The lead time is short.', 'Around 4pm suits.', 'By 10:30 at the latest.', 'On Sat if that suits.', 'Fri morning is free.', 'Thurs 12th works.']) {
+        for (const t of ['We can come Tuesday.', 'Probably within 3 days.', 'Around 2 hours on site.', 'First thing tomorrow.', 'At 9am.', 'The lead time is short.', 'Around 4pm suits.', 'By 10:30 at the latest.', 'On Sat if that suits.', 'Fri morning is free.', 'Thurs 12th works.', 'On 12/3 if that suits.', '12-03-2026 works.', 'By 3/4/26.']) {
             expect(evaluate(e({ kind: 'no_date' }), ctx({ plannedSend: ps({ bubbles: [t] }) })).status, t).toBe('fail');
         }
-        for (const t of ['Dates come with your quote. Whereabouts are you?', 'Dates come with your quote. Is the fan around 4 inch or 6 inch?', 'About 10 tiles, or more?', 'Has the old fan sat in the ceiling long?', 'Is the sun on that wall in the afternoon?']) {
+        for (const t of ['Dates come with your quote. Whereabouts are you?', 'Dates come with your quote. Is the fan around 4 inch or 6 inch?', 'About 10 tiles, or more?', 'Has the old fan sat in the ceiling long?', 'Is the sun on that wall in the afternoon?', 'Is it a 4-6 inch fan?', 'Is the gap 5-10 mm?', 'Roughly 1/2 of the wall?', 'What about 3.30?', 'Has the box sat 6 inches proud of the wall?']) {
             expect(evaluate(e({ kind: 'no_date' }), ctx({ plannedSend: ps({ bubbles: [t] }) })).status, t).toBe('pass');
         }
     });
@@ -151,11 +151,13 @@ describe('call offers', () => {
         expect(offersCall(ps({ bubbles: ['No call-out fee for that.'] }))).toBe(false);
     });
     it('a declined call is not an offer of one', () => {
-        for (const t of ["No problem, we won't call you, text is fine.", "We'll keep it to text rather than over the phone.", 'No need to call you, this works.', "We're not going to ring you, text is fine."]) {
+        for (const t of ["No problem, we won't call you, text is fine.", "We'll keep it to text rather than over the phone.", 'No need to call you, this works.', "We're not going to ring you, text is fine.", "There's no need for a call, text works.", "We can't call you at work, so text it is.", "We don't need to call you, text is fine.", 'We will not need to call you.', "We won't need to call you."]) {
             expect(offersCall(ps({ bubbles: [t] })), t).toBe(false);
             expect(evaluate(e({ kind: 'not_offers_call' }), ctx({ plannedSend: ps({ bubbles: [t] }) })).status, t).toBe('pass');
         }
-        expect(offersCall(ps({ bubbles: ['No rush, but shall we ring you?'] }))).toBe(true);
+        for (const t of ['No rush, but shall we ring you?', 'Instead of photos we could give you a quick ring.', "We won't be able to get there today but happy to call you.", "Can't wait to give you a call."]) {
+            expect(offersCall(ps({ bubbles: [t] })), t).toBe(true);
+        }
         expect(scopingQuestionCount(ps({ bubbles: ["We won't call you, what size is the panel?"] }))).toBe(1);
     });
     it('offers_call / not_offers_call', () => {

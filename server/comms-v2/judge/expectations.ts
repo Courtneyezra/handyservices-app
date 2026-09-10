@@ -61,7 +61,9 @@ const WEEKDAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)day';
 /** An abbreviated weekday reads as a day only beside a time-context word: "sat" on its own is a verb. */
 const WEEKDAY_ABBR = '(?:mon|tues?|weds?|thur?s?|fri|sat|sun)';
 const TIME_CONTEXT_BEFORE = '(?:on|this|next|by|for|from|until|till|every|coming)';
-const TIME_CONTEXT_AFTER = '(?:morning|afternoon|evening|night|week|\\d{1,2}(?:st|nd|rd|th)?)';
+const TIME_CONTEXT_AFTER = '(?:morning|afternoon|evening|night|week|\\d{1,2}(?:st|nd|rd|th))';
+const DAY = '(?:0?[1-9]|[12]\\d|3[01])';
+const MONTH_NUM = '(?:0?[1-9]|1[0-2])';
 /** A date, a time, a lead time or a duration. */
 export const RE_DATE_TIME_DURATION = new RegExp([
     `\\b${WEEKDAY}\\b`,
@@ -69,7 +71,8 @@ export const RE_DATE_TIME_DURATION = new RegExp([
     `\\b${WEEKDAY_ABBR}\\s+${TIME_CONTEXT_AFTER}\\b`,
     `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH}\\b`,
     `\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`,
-    `\\b\\d{1,2}[/.-]\\d{1,2}(?:[/.-]\\d{2,4})?\\b`,
+    `\\b${TIME_CONTEXT_BEFORE}\\s+${DAY}/${MONTH_NUM}(?:/\\d{2,4})?\\b`,
+    `\\b${DAY}[/.-]${MONTH_NUM}[/.-]\\d{2,4}\\b`,
     `\\b(?:tomorrow|tonight|this (?:morning|afternoon|evening|week|weekend)|next (?:week|month|day)|end of (?:the )?(?:week|month)|first thing)\\b`,
     `\\b(?:at|by|from|around|about)\\s+\\d{1,2}(?::\\d{2}\\b|(?::\\d{2})?\\s*(?:am|pm|o'?clock)\\b)`,
     `\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b`,
@@ -100,8 +103,12 @@ export const RE_CALL_OFFER = new RegExp([
     `\\b(?:best|easiest|quickest) (?:to|if we) (?:have a )?(?:call|chat|ring)\\b`,
 ].join('|'), 'i');
 
-/** A negation before a call phrase in the same clause: "we won't call you" declines a call, it does not offer one. */
-const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|no need to|not going to|rather than|instead of|never)\b/i;
+/**
+ * A negation within two words of the call phrase: "we won't call you" and "no need for a call"
+ * decline a call. An earlier negation about something else ("won't be able to get there today
+ * but happy to call you") does not.
+ */
+const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|cannot|can'?t(?!\s+wait)|can not|no need (?:to|for)|not going to|rather than|instead of|never|(?:don'?t|do not|won'?t|will not) (?:need|have|want) to|not necessary to)(?:\s+\S+){0,2}\s*$/i;
 
 /** A template placeholder, which a reply "in its own words" never carries. */
 const RE_PLACEHOLDER = /\{\{\s*\d+\s*\}\}/;
