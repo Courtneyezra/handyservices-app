@@ -1,7 +1,7 @@
 # The comms desk: what should happen, stage by stage
 
-Goal 1 of the build is judged against the WhatsApp lines of Stage 1 (1.1, 1.6, 1.7) and all of
-Stage 2. Lines 1.2 to 1.5 belong to Goal 2, once a second channel exists.
+Which lines Goal 1 of the build is judged against is defined once, in `design.md` under Goal 1's
+stop condition.
 
 The test oracle for sandbox threads. A thread either matches a line here or it does not, and a
 mismatch is a finding rather than a discussion.

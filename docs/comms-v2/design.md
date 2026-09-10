@@ -19,58 +19,55 @@ capabilities each server exposes at the bottom. Cross-cutting concerns sit to th
 ```
 [sw] WhatsApp        [sw] SMS             [sw] Calls           [sw] Web form        [sw] Email           [reserved] Portal
  two-way, media        two-way, text        transcript in         one-shot, no reply    two-way, threaded     landlord, later
-      |                    |                     |                     |                     |                     :
-      v                    v                     v                     v                     v                     :
-+--------------------------------------------------------------------------------------------------------------+   :
-| [sw] Channel gateway                                            every channel -> one normalised turn         |   :
-|  +----------------+  +----------------+  +----------------+  +----------------+  +----------------+  +------:--+ |
-|  | WhatsApp       |  | SMS adapter    |  | Voice adapter  |  | Form adapter   |  | Email adapter  |  |[reserved]| |
-|  | adapter        |  | no window,text |  | transcript,    |  | creates the    |  | no window,     |  | Portal   | |
-|  | window,        |  |                |  | no send        |  | lead           |  | files          |  | adapter  | |
-|  | templates      |  |                |  |                |  |                |  |                |  | taps in, | |
-|  +----------------+  +----------------+  +----------------+  +----------------+  +----------------+  | notices  | |
-+--------------------------------------------------------------------------------------------------|out+--------+ |
-                                                                                                          |          |
-      +--------------------------------------------------------------------------------------------------+         |
-      |                                                                                                             |
-      v                                                                                                             |
-+------------------------+                                                                          +---------------------------+
-| [sw] Sender             |                                                                          | [sw] Identity              |
-| the only exit -         |                                                                          | phone or email -> a person |
-| approver + run id       |                                                                          | and a role                 |
-| reply-channel policy    |                                                                          | homeowner, tenant of a     |
-| splits into bubbles as  |                                                                          | property, landlord         |
-| a person would          |                                                                          | every channel -> one case  |
-+-----------+--------------+                                                                          | file                       |
-            ^                                                                                         +---------------------------+
-            | cleared
-            |
-                                     +-------------------------+
-                                     | [sw] Desk API            |
-                                     | one entry per customer   |
-                                     | turn                     |
-                                     +------------+--------------+
-                                                  |
-                                                  v
-   ================================== THE DESK - ONE PIPELINE, ONE EXIT ==================================
-   :                                                                                                        :
-   :   +----------------------+        every drafted reply        +------------------------+               :
-   :   | [ag] Desk coordinator | ---------------------------------> | [guard] Guards &       |               :
-   :   | routes: subject,      |                                    | approver               |               :
-   :   | stage                 |                                    | no unlooked-up figure,  |               :
-   :   | composes the one      |                                    | date, duration,         |               :
-   :   | reply                 |                                    | commitment, fault, claim|               :
-   :   +-----------+------------+                                   | approver slot: Ben, or  |               :
-   :               |                                                | a landlord's rules      |               :
-   :               |    +----------------------------+              +------------------------+               :
-   :               +--->| [reserved] DIY-first        |                                                       :
-   :               |    | specialist                  |                                                       :
-   :               |    | one quick check before       |                                                       :
-   :               |    | scoping - landlord service,  |                                                       :
-   :               |    | later                        |                                                       :
-   :               |    +----------------------------+                                                       :
-   :               |                                                                                          :
-   :               v                                                                                          :
+      |                    |                     |                     |                     |               :
+      v                    v                     v                     v                     v               :
++------------------------------------------------------------------------------------------------------------:--------+
+| [sw] Channel gateway                                            every channel -> one normalised turn       :        |
+|  +----------------+  +----------------+  +----------------+  +----------------+  +----------------+  +-----:-----+  |
+|  | WhatsApp       |  | SMS adapter    |  | Voice adapter  |  | Form adapter   |  | Email adapter  |  | [reserved]|  |
+|  | adapter        |  | no window,text |  | transcript,    |  | creates the    |  | no window,     |  | Portal    |  |
+|  | window,        |  |                |  | no send        |  | lead           |  | files          |  | adapter   |  |
+|  | templates      |  |                |  |                |  |                |  |                |  | taps in,  |  |
+|  +----------------+  +----------------+  +----------------+  +----------------+  +----------------+  | notices   |  |
+|                                                                                                      +-----------+  |
++---------------------------------------------------------------------------------------------------------------------+
+            ^                                                       |                                                    |
+            |                                                       |                                                    |
+            |                                                       v                                                    v
++-----------+-------------+                             +-----------+------------+                    +------------------+---------+
+| [sw] Sender             |                             | [sw] Desk API          |                    | [sw] Identity              |
+| the only exit -         |                             | one entry per customer |                    | phone or email -> a person |
+| approver + run id       |                             | turn                   |                    | and a role                 |
+| reply-channel policy    |                             +-----------+------------+                    | homeowner, tenant of a     |
+| splits into bubbles as  |                                         |                                 | property, landlord         |
+| a person would          |                                         |                                 | every channel -> one case  |
++-----------+-------------+                                         |                                 | file                       |
+            ^                                                       |                                 +----------------------------+
+            |                                                       |
+            | cleared                                               |
+            |                                                       |
+   =========|======= THE DESK - ONE PIPELINE, ONE EXIT =============|==========================================
+   :        |                                                       v                                         :
+   :   +----+--------------------+                      +------------------------+                            :
+   :   | [guard] Guards &        |  every drafted reply | [ag] Desk coordinator  |                            :
+   :   | approver                | <--------------------| routes: subject,       |                            :
+   :   | no unlooked-up figure,  |                      | stage                  |                            :
+   :   | date, duration,         |                      | composes the one       |                            :
+   :   | commitment, fault, claim|                      | reply                  |                            :
+   :   | approver slot: Ben, or  |                      +-----------+------------+                            :
+   :   | a landlord's rules      |                                  |                                         :
+   :   +-------------------------+                                  |                                         :
+   :                                                                |                                         :
+   :   +------------------------------+                             |                                         :
+   :   | [reserved] DIY-first         |                             |                                         :
+   :   | specialist                   |                             |                                         :
+   :   | one quick check before       |<----------------------------+                                         :
+   :   | scoping - landlord service,  |                             |                                         :
+   :   | later                        |                             |                                         :
+   :   +------------------------------+                             |                                         :
+   :                                                                |                                         :
+   :         +---------------+----------------+----------------+-----+                                        :
+   :         v               v                v                v                                              :
    :   +------------+  +------------+  +--------------+  +------------+                                       :
    :   | [ag]       |  | [ag]       |  | [ag]         |  | [ag]       |                                       :
    :   | Scoping    |  | Quoting    |  | Scheduling   |  | Service    |                                       :
@@ -102,7 +99,7 @@ capabilities each server exposes at the bottom. Cross-cutting concerns sit to th
    ==========================================================================================================
 
 Right-hand side, fed from the desk:
-  Guards -> [sw] Ben's desk: held: money, complaints, regulated, trust doubts, guard hits
+  Desk coordinator row -> [sw] Ben's desk: held: money, complaints, regulated, trust doubts, guard hits
   Desk coordinator area -> [ag] Evaluation suite: eval cases, prompt gate, sandbox dry runs
   Desk area -> [model] THIRD-PARTY MODELS:
       Text models: Fable 5.1 writes, Sonnet 5 reasons, Haiku 4.5 routes

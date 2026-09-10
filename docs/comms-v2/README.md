@@ -10,5 +10,5 @@ loop has it to read from the repo instead of from outside sources.
   specialist roster, the landlord seams, the settled decisions, and the build plan.
 
 The build lands in a new directory under `server/` beside `server/spine/` (working name
-`server/desk/`); it never goes inside `server/spine/`. The old desk stays live as rollback until
+`server/comms-v2/`); it never goes inside `server/spine/`. The old desk stays live as rollback until
 the new one is proven and cut over.
