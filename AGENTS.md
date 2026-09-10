@@ -31,7 +31,7 @@ npx tsx scripts/_spine-mode.ts --status   # read the comms desk switches
 Operational utility before AI autonomy: invoicing and payments, dispatch and calendar, field app.
 
 ## Database
-`users`, `leads`, `calls`, `messages`, `personalized_quotes`, `productized_services` (SKUs), `handyman_profiles`, `message_drafts`, `draft_verdicts`, `kb_entries`, `eval_runs`, `app_settings`. Never run `db:push`; migrations are idempotent SQL applied with `scripts/_apply-migration.ts`.
+Key tables: `users`, `leads`, `calls`, `messages`, `personalized_quotes`, `productized_services` (SKUs), `handyman_profiles`, `message_drafts`, `draft_verdicts`, `kb_entries`, `eval_runs`, `app_settings`. Never `db:push`; migrations are idempotent SQL applied with the runner above.
 
 ## API Routes
 - `/api/quotes`, `/api/calls`, `/api/leads` — quote, call, lead CRUD; `/api/twilio/*` webhooks
