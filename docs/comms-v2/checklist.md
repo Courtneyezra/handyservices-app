@@ -6,7 +6,7 @@ stop condition.
 The test oracle for sandbox threads. A thread either matches a line here or it does not, and a
 mismatch is a finding rather than a discussion.
 
-Sources, marked per line: **[C]** the captain's direct answer (`comms-expected-behaviour.md`),
+Sources, marked per line: **[C]** the captain's direct answer (`behaviour.md`),
 **[O]** an owner decision already in PRD v3, **[?]** firstmate's inference and NOT yet confirmed.
 Correct any **[?]** and it becomes **[C]**.
 
