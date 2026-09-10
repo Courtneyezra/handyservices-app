@@ -104,6 +104,9 @@ Right-hand side, fed from the desk:
   Desk area -> [model] THIRD-PARTY MODELS:
       Text models: Fable 5.1 writes, Sonnet 5 reasons, Haiku 4.5 routes
       Vision model: photos, video
+  Desk area -> [sw] Case file: one per job, every channel, every party on it
+      conversation history - inter-agent shared state
+      the ask ledger - the hold
 
 Left-hand side, fed from the desk:
   [sw]/[ag] Observability: Prompts, agent calls, tool calls (ag) | Worker heartbeat, queue, latency (sw)
