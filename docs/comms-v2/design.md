@@ -158,7 +158,7 @@ imposes. The specialists never see any of this; the adapters and the sender own 
 
 | Channel | In | Out | The rail | Reply goes where |
 |---|---|---|---|---|
-| WhatsApp | Text, photos, video, voice notes. Opens the 24-hour window. | Freeform inside the window as one reply of up to three bubbles. Outside it, an approved template only. | The window. A platform limit, not a policy. | Back on WhatsApp. |
+| WhatsApp | Text, photos, video, voice notes. Opens the 24-hour window. | Freeform inside the window as one reply, split into bubbles as a person would separate messages, with a soft ceiling and no fixed count. Outside it, an approved template only. | The window. A platform limit, not a policy. | Back on WhatsApp. |
 | SMS | Text only. No media, no read receipts. | One message, kept short. No window to worry about, but every segment costs. | Length and cost. No way to send a photo back. | Back on SMS. If a known customer also has WhatsApp, prefer it. |
 | Calls | A live transcript from the call, plus the outcome when Ben rings out. | Nothing on the call itself. The desk never speaks. After the call, one follow-up on a text channel. | A call does not open the WhatsApp window, so the follow-up is a template or an SMS. | WhatsApp template if they have it, else SMS. |
 | Web form | Name, phone, email, the job, sometimes photos. Creates the lead. | Nothing on the form. It has no reply path of its own. | One-shot. The first reply has to open a real channel. | WhatsApp if the number is on it, else SMS, else email. |
@@ -192,8 +192,10 @@ reply in a human voice.
 
 ## Settle these before building
 
-Every decision the fresh design needed, in the captain's words where they are his. Nothing here is
-open; the three landlord questions are parked in their own section below.
+Every decision the fresh design needed, in the captain's words where they are his. One question is
+still open, where a reply goes when the customer's channel cannot carry it or the WhatsApp window
+is shut; it does not block Goal 1, which is WhatsApp inside the window. The three landlord
+questions are parked in their own section below.
 
 **Send by default, hold on exceptions** - *Settled*
 "Send everything; hold on exceptions." Every reply type sends on its own. Money, complaints,

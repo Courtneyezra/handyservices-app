@@ -17,7 +17,8 @@ Written 8 Sep 2026 against `941f467` plus PRs 17, 19 and 20 pending.
 ## Cross-cutting, true at every stage
 
 1. If a customer writes, they hear something back. Silence is almost never correct. **[C]**
-2. One reply per customer turn, up to three bubbles. Not one reply per inbound message. **[C]**
+2. One reply per customer turn, not one reply per inbound message. On WhatsApp it is broken into
+   bubbles as a person would separate messages, with a soft ceiling; no fixed count. **[C]** (answer 27)
 3. Hours do not decide whether we reply. Inside the messaging window we answer at any hour. **[C]**
    Outside the 24h window only an approved Meta template can send at all. Platform limit, not policy.
 4. Never a figure that was not looked up, a date, a time, a duration, a commitment, an admission of
@@ -49,7 +50,7 @@ Written 8 Sep 2026 against `941f467` plus PRs 17, 19 and 20 pending.
 | 2.5 | A real promise ("I'll send photos tomorrow") gets **one acknowledgement, then quiet** until the customer writes. Not silence. **[C]** | Send that and expect one reply, then nothing until you write again |
 | 2.6 | A date question gets "dates come with your quote" and scoping continues; no lead-time guess **[O]** (§7) | Ask "when can you come?" |
 | 2.7 | Anything about money or price goes to Ben, not answered **[O]** (§8, under review) | Ask "how much roughly?" |
-| 2.8 | It never sends a second **reply** without the customer writing in between. One reply per customer turn, however many bubbles. **[?]** | Watch after any reply |
+| 2.8 | It never sends a second **reply** without the customer writing in between. One reply per customer turn, however many bubbles. **[C]** (answer 27) | Watch after any reply |
 
 ## Stage 3 - The call
 

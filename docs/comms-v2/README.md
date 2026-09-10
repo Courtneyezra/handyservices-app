@@ -9,5 +9,6 @@ loop has it to read from the repo instead of from outside sources.
 - `design.md` is the shape: the agent-map architecture, the box-for-box mapping, the channels, the
   specialist roster, the landlord seams, the settled decisions, and the build plan.
 
-The build lands in a new directory beside the current desk under `server/spine/` - it never goes
-inside it. The old desk stays live as rollback until the new one is proven and cut over.
+The build lands in a new directory under `server/` beside `server/spine/` (working name
+`server/desk/`); it never goes inside `server/spine/`. The old desk stays live as rollback until
+the new one is proven and cut over.
