@@ -9,9 +9,9 @@
  * The runner never calls a specialist, a prompt or a model directly. The one model call it makes
  * is the own-words judge for line 2.3, recorded beside the deterministic result (model-judge.ts).
  */
-import { DoorError, loadFixture, seedPlan, type DoorClient, type SeedPlan } from './door';
+import { DoorError, loadFixture, seedPlan, type DoorClient, type DoorErrorKind, type SeedPlan } from './door';
 import { evaluate, type EvalContext, type ExpectationResult, type SeedFeature } from './expectations';
-import type { ModelJudge, ModelVerdict } from './model-judge';
+import { OWN_WORDS_MODEL, buildOwnWordsPrompt, type ModelJudge, type ModelVerdict } from './model-judge';
 import { doorStateSchema, plannedSendFromDoorResponse, type DoorPass, type PlannedSend } from './planned-send';
 import { GOAL_1_LINES, type Scenario, type Turn } from './scenario';
 
@@ -58,6 +58,10 @@ export interface ScenarioRunResult {
     seed: { requested: Scenario['seed']; plan: SeedPlan; unsupported: SeedFeature[] };
     turns: TurnResult[];
     error: string | null;
+    /** The door error's kind when the scenario failed at the door, so the runner can tell a blip from a bug. */
+    errorKind: DoorErrorKind | 'other' | null;
+    /** Set when this result came from a second attempt: the first attempt's door error, kept as evidence. */
+    retriedAfter: string | null;
     startedAt: string;
     durationMs: number;
 }
@@ -180,7 +184,7 @@ export async function runScenario(scenario: Scenario, opts: RunScenarioOptions):
     const unsupported = new Set<SeedFeature>(Object.keys(plan.unsupported) as SeedFeature[]);
     const result: ScenarioRunResult = {
         scenarioId: scenario.id, title: scenario.title, lines: scenario.lines, run: opts.run,
-        seed: { requested: scenario.seed, plan, unsupported: [] }, turns: [], error: null,
+        seed: { requested: scenario.seed, plan, unsupported: [] }, turns: [], error: null, errorKind: null, retriedAfter: null,
         startedAt: startedAt.toISOString(), durationMs: 0,
     };
     const history: PlannedSend[] = [];
@@ -223,7 +227,11 @@ export async function runScenario(scenario: Scenario, opts: RunScenarioOptions):
                 let rec: ExpectationRecord;
                 try { rec = evaluate(e, ctx); } catch (err: any) { rec = { line: e.line, kind: e.kind, status: 'error', reason: `evaluator threw: ${err?.message ?? err}` }; }
                 if (e.kind === 'own_words' && opts.judge && t.kind === 'message') {
-                    rec.modelJudge = await opts.judge.ownWords({ customerText: t.text, bubbles: plannedSend.bubbles });
+                    // The model judges wording, so it is only asked when there are words: an undelivered
+                    // reply is already a deterministic fail, recorded above.
+                    rec.modelJudge = plannedSend.delivered
+                        ? await opts.judge.ownWords({ customerText: t.text, bubbles: plannedSend.bubbles })
+                        : { model: OWN_WORDS_MODEL, promptHash: buildOwnWordsPrompt({ customerText: t.text, bubbles: [] }).hash, verdict: 'skipped', reason: 'no reply to judge' };
                 }
                 tr.expectations.push(rec);
             }
@@ -234,6 +242,7 @@ export async function runScenario(scenario: Scenario, opts: RunScenarioOptions):
             tr.expectations = t.expect.map((e) => ({ line: e.line, kind: e.kind, status: 'error' as const, reason: msg }));
             aborted = msg;
             result.error = msg;
+            result.errorKind = err instanceof DoorError ? err.kind : 'other';
             log(`  ERROR ${msg}`);
         }
         tr.durationMs = Date.now() - t0;
@@ -269,7 +278,12 @@ export interface RunAllOptions {
     desk?: string;
     /** Lines that must have a verdict (an unjudged one is an error). Goal 1's eleven by default; empty for a subset run. */
     requiredLines?: readonly string[];
+    /** Retry a scenario once after a transient door failure (default true). */
+    retryOnce?: boolean;
 }
+
+/** Door failures worth one retry: the door was there and then was not. A refusal (400/409) or a bad shape is a bug, not a blip. */
+export const RETRY_ONCE_ON: readonly (DoorErrorKind | 'other')[] = ['timeout', 'unreachable', 'http'];
 
 export const CURRENT_DESK = 'current desk (server/spine via /api/comms-sandbox, dry run)';
 
@@ -281,7 +295,17 @@ export async function runAll(scenarios: readonly Scenario[], opts: RunAllOptions
         log(`run ${run}/${runs}`);
         for (const s of scenarios) {
             log(` scenario ${s.id}: ${s.title}`);
-            results.push(await runScenario(s, { door: opts.door, judge: opts.judge, run, log }));
+            let r = await runScenario(s, { door: opts.door, judge: opts.judge, run, log });
+            if (r.errorKind && RETRY_ONCE_ON.includes(r.errorKind) && opts.retryOnce !== false) {
+                // One transient door failure (a dropped database connection, a timed-out pass) does not
+                // decide a line; the scenario restarts from its first turn, which resets the thread. A
+                // second failure stands as the error. The first attempt's error is kept on the result.
+                log(`  retrying ${s.id} once after ${r.error}`);
+                const first = r;
+                r = await runScenario(s, { door: opts.door, judge: opts.judge, run, log });
+                r.retriedAfter = first.error;
+            }
+            results.push(r);
         }
     }
     const lines = lineResults(results, runs, scenarios, opts.requiredLines ?? GOAL_1_LINES);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    CONTRACT_GUARDS, UNAVAILABLE, allGuardsUnavailable, guardsFrom, plannedSendFrom, plannedSendFromDoorResponse, plannedSendSchema,
+    CONTRACT_GUARDS, UNAVAILABLE, allGuardsUnavailable, guardsFrom, plannedSendFrom, plannedSendFromDoorResponse, plannedSendSchema, splitAckBubbles,
 } from './planned-send';
 
 /** A door response shaped like POST /message on the current sandbox, with the desk sending. */
@@ -113,6 +113,14 @@ describe('plannedSendFrom (adapter over the sandbox dry run)', () => {
         expect(ps.templateId).toBeNull();
         expect(ps.approver).toBe('rules_layer');
         expect(ps.evidence.mirrorLiveWouldSend).toBe(true);
+    });
+
+    it('a mirrored ack is split into bubbles on the rules layer\'s --- line', () => {
+        const raw = doorSend({ decision: { kind: 'none', reason: 'first contact' }, proposal: null, guards: null });
+        raw.mirrored = { intent: 'ack_enquiry', body: 'Hi Sam, thanks for getting in touch.\n---\nIs it OK if we give you a quick call?', messageId: 'm', plan: { mode: 'freeform', channel: 'whatsapp', templateName: null } } as any;
+        const { plannedSend: ps } = plannedSendFromDoorResponse(raw);
+        expect(ps.bubbles).toEqual(['Hi Sam, thanks for getting in touch.', 'Is it OK if we give you a quick call?']);
+        expect(splitAckBubbles('one')).toEqual(['one']);
     });
 
     it('a mirrored template ack names the template', () => {

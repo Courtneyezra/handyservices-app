@@ -98,7 +98,7 @@ function renderScenario(s: ScenarioRunResult): string[] {
     const out: string[] = [];
     out.push(`### ${s.scenarioId} run ${s.run}: ${s.title}`);
     out.push('');
-    out.push(`Lines ${s.lines.join(', ')}. Started ${s.startedAt}, ${s.durationMs} ms.${s.error ? ` **Scenario error: ${s.error}**` : ''}`);
+    out.push(`Lines ${s.lines.join(', ')}. Started ${s.startedAt}, ${s.durationMs} ms.${s.error ? ` **Scenario error: ${s.error}**` : ''}${s.retriedAfter ? ` Second attempt; the first failed at the door: ${s.retriedAfter}` : ''}`);
     out.push('');
     const seedBits = Object.entries(s.seed.plan.honoured).map(([k, v]) => `${k}: honoured (${v})`)
         .concat(Object.entries(s.seed.plan.unsupported).map(([k, v]) => `${k}: unsupported (${v})`));

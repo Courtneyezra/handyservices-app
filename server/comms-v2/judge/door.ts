@@ -60,7 +60,11 @@ export interface DoorOptions {
     timeoutMs?: number;
 }
 
-export const DEFAULT_DOOR_TIMEOUT_MS = 240_000;
+/**
+ * Ten minutes. One pass on the current desk can run the quote clerk chain (intake, estimator,
+ * material and web searches) and take several minutes; a door that is truly wedged still errors.
+ */
+export const DEFAULT_DOOR_TIMEOUT_MS = 600_000;
 
 // ---------------------------------------------------------------- the seed, as the door can honour it
 

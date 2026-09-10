@@ -87,7 +87,7 @@ function scenarioRun(id: string, run: number, status: 'pass' | 'fail' | 'error',
         scenarioId: id, title: id, lines: [line], run, seed: { requested: seedSchema.parse({}), plan: { honoured: {}, unsupported: {}, afterStart: [] }, unsupported: [] },
         turns: [{ index: 0, from: 'customer', kind: 'message', input: 'hi', plannedSend: fakePs(status === 'pass'), snapshot: null, durationMs: 1, error: status === 'error' ? 'door unreachable' : null,
             expectations: [{ line, kind: 'reply_sent', status, reason: status }] }],
-        error: status === 'error' ? 'door unreachable' : null, startedAt: 'now', durationMs: 1,
+        error: status === 'error' ? 'door unreachable' : null, errorKind: status === 'error' ? 'unreachable' : null, retriedAfter: null, startedAt: 'now', durationMs: 1,
     };
 }
 

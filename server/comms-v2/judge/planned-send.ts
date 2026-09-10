@@ -231,7 +231,7 @@ export function plannedSendFrom(input: AdapterInput): PlannedSend {
         // The old desk picks a template inside the exit, which a dry run never reaches.
         templateId = windowOpen === true ? null : UNAVAILABLE;
     } else if (mirror && mirror.plan.channel && mirror.body.trim()) {
-        bubbles = [mirror.body];
+        bubbles = splitAckBubbles(mirror.body);
         origin = 'rules_layer_mirror';
         delivered = true;
         channel = mirror.plan.channel;
@@ -276,6 +276,15 @@ export function plannedSendFrom(input: AdapterInput): PlannedSend {
             error: run?.error ?? null,
         },
     };
+}
+
+/**
+ * The old rules layer composes its first-contact ack as bubbles joined by a line holding `---`
+ * (server/first-contact-ack.ts); the sender splits on it. The planned send carries the rendered
+ * bubbles, so the same split applies here. Pure.
+ */
+export function splitAckBubbles(body: string): string[] {
+    return body.split(/\n\s*---\s*\n/).map((b) => b.trim()).filter(Boolean);
 }
 
 function approverName(raw: unknown): string | null {
