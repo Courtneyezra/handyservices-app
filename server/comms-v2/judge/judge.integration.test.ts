@@ -2,17 +2,17 @@
  * One scenario end to end against the sandbox door, and the Contract 7 check that a dry run
  * against the current desk yields one planned send per customer turn.
  *
- * Needs the real door: the server's environment (DATABASE_URL and the model keys) for the
+ * Needs the real door: COMMS_V2_JUDGE_DATABASE_URL (a Neon branch) and the model keys for the
  * in-process router, or COMMS_V2_DOOR_URL and COMMS_V2_DOOR_TOKEN for a running server, and
  * COMMS_V2_JUDGE_LIVE=1 to opt in. Without it the file is skipped, never green by pretending.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { openDoor, type DoorClient } from './door';
+import { JUDGE_DATABASE_ENV, openDoor, type DoorClient } from './door';
 import { plannedSendSchema } from './planned-send';
 import { runScenario } from './runner';
 import { loadScenarios } from './scenario';
 
-const live = process.env.COMMS_V2_JUDGE_LIVE === '1' && !!(process.env.COMMS_V2_DOOR_URL || process.env.DATABASE_URL);
+const live = process.env.COMMS_V2_JUDGE_LIVE === '1' && !!(process.env.COMMS_V2_DOOR_URL || process.env[JUDGE_DATABASE_ENV]);
 
 describe.skipIf(!live)('judge against the sandbox door (live)', () => {
     let door: DoorClient;

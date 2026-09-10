@@ -12,8 +12,11 @@
  *  - COMMS_V2_DOOR_URL set: a running server (e.g. http://localhost:5000/api/comms-sandbox) with
  *    COMMS_V2_DOOR_TOKEN as the admin bearer token requireAdmin expects.
  *  - otherwise in-process: the exported router is mounted on a loopback express server for the
- *    length of the run. This needs the same environment the server needs (DATABASE_URL and the
- *    model keys), because the router is the real one.
+ *    length of the run. The router is the real one, so it needs the model keys, and it connects
+ *    only to COMMS_V2_JUDGE_DATABASE_URL (a Neon branch): the judge refuses to open without it
+ *    and never reads DATABASE_URL, so a production .env cannot be driven by mistake.
+ *
+ * Neither door reports a variable's value: a client carries its mode and host only.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,7 +37,8 @@ export interface DoorMedia { file: string; mime: string; bytes: Buffer }
 
 export interface DoorClient {
     readonly mode: 'http' | 'in_process';
-    readonly baseUrl: string;
+    /** Host and port of the door, the only thing about its address a log or a report carries. */
+    readonly host: string;
     /** A clean thread with no message on it yet (for an opening turn that carries photos). */
     reset(): Promise<unknown>;
     /** The customer's opening WhatsApp message: resets the sandbox and opens the thread. */
@@ -65,6 +69,9 @@ export interface DoorOptions {
  * material and web searches) and take several minutes; a door that is truly wedged still errors.
  */
 export const DEFAULT_DOOR_TIMEOUT_MS = 600_000;
+
+/** The one database variable the judge reads. The in-process door refuses to open without it. */
+export const JUDGE_DATABASE_ENV = 'COMMS_V2_JUDGE_DATABASE_URL';
 
 // ---------------------------------------------------------------- the seed, as the door can honour it
 
@@ -106,7 +113,10 @@ export function loadFixture(file: string, mime: string): DoorMedia {
 // ---------------------------------------------------------------- HTTP client
 
 class HttpDoor implements DoorClient {
-    constructor(public readonly mode: 'http' | 'in_process', public readonly baseUrl: string, private readonly token: string | null, private readonly timeoutMs: number, private readonly onClose: () => Promise<void>) {}
+    readonly host: string;
+    constructor(public readonly mode: 'http' | 'in_process', private readonly baseUrl: string, private readonly token: string | null, private readonly timeoutMs: number, private readonly onClose: () => Promise<void>) {
+        this.host = new URL(baseUrl).host;
+    }
 
     private async request(method: 'GET' | 'POST', route: string, body?: unknown, form?: FormData): Promise<unknown> {
         const url = `${this.baseUrl.replace(/\/$/, '')}${route}`;
@@ -159,14 +169,26 @@ export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
     const timeoutMs = opts.timeoutMs ?? Number(process.env.COMMS_V2_DOOR_TIMEOUT_MS ?? DEFAULT_DOOR_TIMEOUT_MS);
     const url = opts.url ?? process.env.COMMS_V2_DOOR_URL;
     if (url) {
-        return new HttpDoor('http', url, opts.token ?? process.env.COMMS_V2_DOOR_TOKEN ?? null, timeoutMs, async () => undefined);
+        const token = opts.token ?? process.env.COMMS_V2_DOOR_TOKEN ?? null;
+        try {
+            return new HttpDoor('http', url, token, timeoutMs, async () => undefined);
+        } catch {
+            throw new DoorError('refused', 'COMMS_V2_DOOR_URL is not an absolute URL');
+        }
     }
-    // In-process: the real router on a loopback port. The import is what needs the server's environment.
+    // In-process: the real router on a loopback port, connected to the judge's own database. The
+    // router's database module reads DATABASE_URL at import, so the branch is put there first;
+    // whatever .env held is never consulted.
+    const judgeDatabase = process.env[JUDGE_DATABASE_ENV];
+    if (!judgeDatabase) {
+        throw new DoorError('refused', `${JUDGE_DATABASE_ENV} is not set. The in-process door connects only to the Neon branch it names, never to DATABASE_URL. Set it, or set COMMS_V2_DOOR_URL to a running server.`);
+    }
+    process.env.DATABASE_URL = judgeDatabase;
     let router: unknown;
     try {
         ({ commsSandboxRouter: router } = await import('../../spine/sandbox-routes'));
     } catch (err: any) {
-        throw new DoorError('unreachable', `the sandbox router could not be loaded in-process: ${err?.message ?? err}. Set COMMS_V2_DOOR_URL to a running server, or give this process the server's environment (DATABASE_URL and the model keys).`);
+        throw new DoorError('unreachable', `the sandbox router could not be loaded in-process: ${err?.message ?? err}. Set COMMS_V2_DOOR_URL to a running server, or give this process ${JUDGE_DATABASE_ENV} and the model keys.`);
     }
     const express = (await import('express')).default;
     const app = express();

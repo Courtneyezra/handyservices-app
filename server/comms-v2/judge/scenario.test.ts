@@ -85,9 +85,9 @@ function fakePs(delivered: boolean): PlannedSend {
 function scenarioRun(id: string, run: number, status: 'pass' | 'fail' | 'error', line = '2.1'): ScenarioRunResult {
     return {
         scenarioId: id, title: id, lines: [line], run, seed: { requested: seedSchema.parse({}), plan: { honoured: {}, unsupported: {}, afterStart: [] }, unsupported: [] },
-        turns: [{ index: 0, from: 'customer', kind: 'message', input: 'hi', plannedSend: fakePs(status === 'pass'), snapshot: null, durationMs: 1, error: status === 'error' ? 'door unreachable' : null,
+        turns: [{ index: 0, from: 'customer', kind: 'message', input: 'hi', plannedSend: fakePs(status === 'pass'), landed: status === 'pass' ? true : null, snapshot: null, durationMs: 1, error: status === 'error' ? 'door unreachable' : null,
             expectations: [{ line, kind: 'reply_sent', status, reason: status }] }],
-        error: status === 'error' ? 'door unreachable' : null, errorKind: status === 'error' ? 'unreachable' : null, retriedAfter: null, startedAt: 'now', durationMs: 1,
+        error: status === 'error' ? 'door unreachable' : null, startedAt: 'now', durationMs: 1,
     };
 }
 
@@ -116,7 +116,9 @@ describe('the markdown report', () => {
         sr.turns[0].expectations[0] = { line: '2.3', kind: 'own_words', status: 'pass', reason: 'one question', modelJudge: { model: 'claude-haiku-4-5', promptHash: 'abc123def456', verdict: 'yes', reason: 'natural' } };
         sr.turns[0].snapshot = { conversationId: 'c', stage: 'scoping', tags: [], contactName: null, window: { canFreeform: true, summary: 'OPEN' }, messages: [], quote: null, openFlags: [], openPromises: [], lastCall: null };
         const lines = lineResults([sr], 1, scen);
-        const md = renderMarkdown({ generatedAt: 'now', desk: 'd', door: { mode: 'http', baseUrl: 'u' }, runs: 1, lines, scenarios: [sr], summary: { pass: 1, fail: 0, error: 10 }, exitCode: 1 });
+        const md = renderMarkdown({ generatedAt: 'now', desk: 'd', door: { mode: 'http', host: 'door.example:5000' }, runs: 1, lines, scenarios: [sr], summary: { pass: 1, fail: 0, error: 10 }, exitCode: 1 });
+        expect(md).toContain('Door: http at door.example:5000.');
+        expect(md).toContain('artefact: dry-run reply not landed on thread');
         expect(md).toContain('| 2.3 |');
         expect(md).toContain('> hi?');
         expect(md).toContain('model judge (beside, not instead): claude-haiku-4-5');

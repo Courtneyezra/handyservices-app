@@ -4,13 +4,12 @@
  *
  *   npm run comms-v2:judge                      all scenarios, two runs, reports/<stamp>/
  *   npm run comms-v2:judge -- --only 2.3,2.7    a subset
- *   npm run comms-v2:judge -- --runs 1          one run (a line still needs every run to pass)
  *   npm run comms-v2:judge -- --out example     reports/example/ (the committed evidence)
- *   npm run comms-v2:judge -- --no-model-judge  skip the own-words model verdict on 2.3
  *
  * Environment: COMMS_V2_DOOR_URL and COMMS_V2_DOOR_TOKEN reach a running server's
- * /api/comms-sandbox; without them the exported router runs in-process and needs the server's
- * own environment (.env is loaded).
+ * /api/comms-sandbox; without them the exported router runs in-process against
+ * COMMS_V2_JUDGE_DATABASE_URL (a Neon branch; DATABASE_URL is never read) with the model keys
+ * from .env. No variable's value is printed or written to a report: only the door's mode and host.
  */
 import 'dotenv/config';
 import path from 'node:path';
@@ -20,17 +19,15 @@ import { REPORTS_DIR, reportStamp, writeReports } from './report';
 import { runAll } from './runner';
 import { GOAL_1_LINES, loadScenarios, uncoveredGoal1Lines } from './scenario';
 
-interface Args { runs: number; only: string[] | null; out: string; modelJudge: boolean }
+interface Args { only: string[] | null; out: string }
 
 export function parseArgs(argv: readonly string[]): Args {
-    const a: Args = { runs: 2, only: null, out: reportStamp(), modelJudge: true };
+    const a: Args = { only: null, out: reportStamp() };
     for (let i = 0; i < argv.length; i++) {
         const k = argv[i];
         const v = () => { const x = argv[++i]; if (x === undefined) throw new Error(`${k} needs a value`); return x; };
-        if (k === '--runs') { a.runs = Number(v()); if (!Number.isInteger(a.runs) || a.runs < 1 || a.runs > 10) throw new Error('--runs must be 1 to 10'); }
-        else if (k === '--only') a.only = v().split(',').map((s) => s.trim()).filter(Boolean);
+        if (k === '--only') a.only = v().split(',').map((s) => s.trim()).filter(Boolean);
         else if (k === '--out') a.out = v();
-        else if (k === '--no-model-judge') a.modelJudge = false;
         else throw new Error(`unknown argument ${k}`);
     }
     return a;
@@ -52,9 +49,9 @@ export async function main(argv: readonly string[]): Promise<number> {
         console.error(`ERROR: the door could not be opened: ${err?.message ?? err}`);
         return 1;
     }
-    log(`door: ${door.mode} at ${door.baseUrl}`);
+    log(`door: ${door.mode} at ${door.host}`);
     try {
-        const result = await runAll(scenarios, { door, judge: args.modelJudge ? makeModelJudge() : null, runs: args.runs, log, requiredLines: args.only ? [] : GOAL_1_LINES });
+        const result = await runAll(scenarios, { door, judge: makeModelJudge(), log, requiredLines: args.only ? [] : GOAL_1_LINES });
         const dir = path.isAbsolute(args.out) ? args.out : path.join(REPORTS_DIR, args.out);
         const written = writeReports(result, dir);
         log('');

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { UNAVAILABLE, allGuardsUnavailable, type PlannedSend } from './planned-send';
-import { UNAVAILABLE_REASON, WINDOW_SEED_REASON, asksSubject, evaluate, offersCall, scopingQuestionCount, type EvalContext } from './expectations';
+import { ARTEFACT_REASON, POST_SEND_DEPENDENT, UNAVAILABLE_REASON, WINDOW_SEED_REASON, asksSubject, evaluate, offersCall, scopingQuestionCount, type EvalContext } from './expectations';
 import { seedSchema, type Expectation } from './scenario';
 
 function ps(over: Partial<PlannedSend> = {}): PlannedSend {
@@ -14,7 +14,7 @@ function ps(over: Partial<PlannedSend> = {}): PlannedSend {
 }
 
 function ctx(over: Partial<EvalContext> = {}): EvalContext {
-    return { plannedSend: ps(), history: [], seed: seedSchema.parse({}), seedUnsupported: [], ...over };
+    return { plannedSend: ps(), history: [], seed: seedSchema.parse({}), seedUnsupported: [], priorSendNotLanded: false, ...over };
 }
 
 const silent = (): PlannedSend => ps({ bubbles: [], delivered: false, origin: 'none', evidence: { ...ps().evidence, decision: 'pending' } });
@@ -38,6 +38,15 @@ describe('subjects', () => {
         expect(asksSubject(ps(), 'media')).toBe(false);
         expect(asksSubject(ps({ bubbles: ['Could you send a quick photo of the tap?'] }), 'media')).toBe(true);
         expect(asksSubject(ps({ bubbles: ['Thanks for the photo, that is clear.'] }), 'media')).toBe(false);
+    });
+    it('a subject is asked only in the clause that asks: mentioning photos beside a tile-size question is not a photo ask', () => {
+        const tile = ps({ bubbles: ['No worries about photos, could you tell me roughly the tile size?'] });
+        expect(asksSubject(tile, 'media')).toBe(false);
+        expect(asksSubject(tile, 'any')).toBe(true);
+        expect(evaluate(e({ kind: 'not_asks_subject', subject: 'media' }), ctx({ plannedSend: tile })).status).toBe('pass');
+        expect(evaluate(e({ kind: 'asked_at_most_once', subject: 'media' }), ctx({ plannedSend: tile, history: [ps({ bubbles: ['Can you send a photo?'] })] })).status).toBe('pass');
+        expect(asksSubject(ps({ bubbles: ['Thanks for that, could you send a photo of the tile?'] }), 'media')).toBe(true);
+        expect(asksSubject(ps({ bubbles: ['Any chance of a photo, or a quick video?'] }), 'media')).toBe(true);
     });
     it('any means any question', () => {
         expect(asksSubject(ps(), 'any')).toBe(true);
@@ -109,12 +118,11 @@ describe('holds, templates, window, stage, bubbles, fixed line', () => {
         expect(evaluate(e({ kind: 'bubble_count_within', max: 1 }), ctx()).status).toBe('fail');
         expect(evaluate(e({ kind: 'bubble_count_within', max: 4 }), ctx({ plannedSend: silent() })).status).toBe('fail');
     });
-    it('fixed_line, text_matches, text_not_matches', () => {
+    it('fixed_line and text_matches', () => {
         expect(evaluate(e({ kind: 'fixed_line', text: 'Whereabouts are you?' }), ctx()).status).toBe('pass');
         expect(evaluate(e({ kind: 'fixed_line', text: 'Ben will come back to you' }), ctx()).status).toBe('fail');
         expect(evaluate(e({ kind: 'text_matches', pattern: '\\btap\\b' }), ctx()).status).toBe('pass');
         expect(evaluate(e({ kind: 'text_matches', pattern: '\\bfan\\b' }), ctx()).status).toBe('fail');
-        expect(evaluate(e({ kind: 'text_not_matches', pattern: '\\bfan\\b' }), ctx()).status).toBe('pass');
     });
 });
 
@@ -169,5 +177,18 @@ describe('unavailable fields and unsupported seeds', () => {
     });
     it('an open-window seed never trips the window reason', () => {
         expect(evaluate(e({ kind: 'freeform' }), ctx({ seedUnsupported: ['window'] })).status).toBe('pass');
+    });
+    it('after a planned reply the door never landed, only the post-send-dependent kinds fail with the artefact reason', () => {
+        const c = ctx({ plannedSend: silent(), history: [ps({ bubbles: ['Can you send a photo?'] })], priorSendNotLanded: true });
+        expect(Array.from(POST_SEND_DEPENDENT).sort()).toEqual(['asked_at_most_once', 'not_asks_subject', 'reply_not_sent']);
+        for (const x of [{ kind: 'reply_not_sent' }, { kind: 'not_asks_subject', subject: 'media' }, { kind: 'asked_at_most_once', subject: 'media' }]) {
+            const r = evaluate(e(x), c);
+            expect(r.status, x.kind).toBe('fail');
+            expect(r.reason, x.kind).toBe(ARTEFACT_REASON);
+        }
+        expect(evaluate(e({ kind: 'reply_sent' }), c).status).toBe('fail');
+        expect(evaluate(e({ kind: 'reply_sent' }), c).reason).not.toBe(ARTEFACT_REASON);
+        expect(evaluate(e({ kind: 'no_figure' }), c).status).toBe('pass');
+        expect(evaluate(e({ kind: 'reply_not_sent' }), ctx({ plannedSend: silent(), priorSendNotLanded: false })).status).toBe('pass');
     });
 });

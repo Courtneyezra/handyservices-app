@@ -8,7 +8,10 @@
  * An expectation that needs a field the current desk cannot supply evaluates to `fail` with the
  * reason "unavailable from current desk", not `error`: the judge ran, the desk did not answer.
  * A seed the door could not honour fails the expectations that depend on it the same way
- * ("window seed unsupported by current desk").
+ * ("window seed unsupported by current desk"). So does a door that could not put the desk's
+ * earlier planned reply on the thread: on the turns after it, the kinds that only hold when the
+ * desk has seen its own reply (reply_not_sent, not_asks_subject, asked_at_most_once) fail with
+ * "artefact: dry-run reply not landed on thread". That verdict judges the door, not the desk.
  *
  * The lexicons below are the judge's own. They are deliberately not imported from the old desk's
  * guards or ask ledger: the old desk is being replaced, and the judge must outlive it.
@@ -18,6 +21,10 @@ import type { AskSubject, Expectation, Seed } from './scenario';
 
 export const UNAVAILABLE_REASON = 'unavailable from current desk';
 export const WINDOW_SEED_REASON = 'window seed unsupported by current desk';
+export const ARTEFACT_REASON = 'artefact: dry-run reply not landed on thread';
+
+/** Kinds that only hold when the thread carries the desk's earlier reply, so the desk knows it has already spoken. */
+export const POST_SEND_DEPENDENT: ReadonlySet<Expectation['kind']> = new Set<Expectation['kind']>(['reply_not_sent', 'not_asks_subject', 'asked_at_most_once']);
 
 export type ExpectationStatus = 'pass' | 'fail' | 'error';
 
@@ -40,6 +47,8 @@ export interface EvalContext {
     seed: Seed;
     /** Seed features the door could not honour on this run. */
     seedUnsupported: readonly SeedFeature[];
+    /** True once an earlier turn's planned reply was never put on the thread by the door. */
+    priorSendNotLanded: boolean;
 }
 
 // ---------------------------------------------------------------- lexicons
@@ -110,12 +119,21 @@ export function sentencesOf(ps: PlannedSend): string[] {
     return ps.bubbles.flatMap((b) => b.split(/(?<=[.?!])\s+|\n+/)).map((s) => s.trim()).filter(Boolean);
 }
 
+/**
+ * Clauses within a sentence. A subject is asked for only when its word and the asking phrase sit
+ * in the same clause: "No worries about photos, could you tell me the tile size?" mentions photos
+ * and asks about the tile.
+ */
+export function clausesOf(sentence: string): string[] {
+    return sentence.split(/[,;:]|\s+[-–—]\s+/).map((c) => c.trim()).filter(Boolean);
+}
+
 export function asksSubject(ps: PlannedSend, subject: AskSubject | 'any'): boolean {
     if (!ps.delivered) return false;
     const sentences = sentencesOf(ps);
     if (subject === 'any') return sentences.some((s) => s.includes('?'));
     if (subject === 'handoff') return sentences.some((s) => SUBJECT_WORDS.handoff.test(s));
-    return sentences.some((s) => SUBJECT_WORDS[subject].test(s) && RE_ASKING.test(s));
+    return sentences.flatMap(clausesOf).some((c) => SUBJECT_WORDS[subject].test(c) && RE_ASKING.test(c));
 }
 
 export function questionCount(ps: PlannedSend): number {
@@ -152,6 +170,7 @@ export function evaluate(e: Expectation, ctx: EvalContext): ExpectationResult {
     const ps = ctx.plannedSend;
     const dep = seedDependency(e.kind, ctx.seed);
     if (dep && ctx.seedUnsupported.includes(dep)) return result(e, 'fail', dep === 'window' ? WINDOW_SEED_REASON : `${dep} seed unsupported by current desk`, { seed: dep });
+    if (ctx.priorSendNotLanded && POST_SEND_DEPENDENT.has(e.kind)) return result(e, 'fail', ARTEFACT_REASON, { bubbles: ps.bubbles });
 
     const text = bubblesText(ps);
     switch (e.kind) {
@@ -233,11 +252,6 @@ export function evaluate(e: Expectation, ctx: EvalContext): ExpectationResult {
             const m = re.exec(text);
             if (!ps.delivered) return result(e, 'fail', 'no reply would go');
             return m ? result(e, 'pass', `matches /${e.pattern}/: "${m[0]}"`, { match: m[0] }) : result(e, 'fail', `no match for /${e.pattern}/`, { bubbles: ps.bubbles });
-        }
-        case 'text_not_matches': {
-            const re = new RegExp(e.pattern, e.flags ?? 'i');
-            const m = re.exec(text);
-            return m ? result(e, 'fail', `matches /${e.pattern}/: "${m[0]}"`, { match: m[0] }) : result(e, 'pass', `no match for /${e.pattern}/`);
         }
         case 'offers_call':
             return offersCall(ps) ? result(e, 'pass', 'the reply offers a call', { match: RE_CALL_OFFER.exec(text)?.[0] })

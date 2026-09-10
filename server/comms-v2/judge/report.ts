@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ARTEFACT_REASON, POST_SEND_DEPENDENT } from './expectations';
 import type { JudgeResult, LineResult, ScenarioRunResult, TurnResult } from './runner';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -58,11 +59,13 @@ export function renderMarkdown(r: JudgeResult): string {
     const out: string[] = [];
     out.push('# Comms v2 judge report');
     out.push('');
-    out.push(`Generated ${r.generatedAt}. Desk: ${r.desk}. Door: ${r.door.mode} at ${r.door.baseUrl}. Runs: ${r.runs}.`);
+    out.push(`Generated ${r.generatedAt}. Desk: ${r.desk}. Door: ${r.door.mode} at ${r.door.host}. Runs: ${r.runs}.`);
     out.push('');
     out.push(`Lines: ${r.summary.pass} pass, ${r.summary.fail} fail, ${r.summary.error} error. Exit code ${r.exitCode} (non-zero only on an error; a fail is not an error).`);
     out.push('');
     out.push('A line passes only when every expectation on it passes in every run. Fails against the current desk are expected: Goal 0 proves the judge, not the desk.');
+    out.push('');
+    out.push(`Known limitation of the current door: it puts only the rules-layer first-contact ack on the thread, never a desk reply planned in dry run. On the turns after such a reply, the expectations that only hold when the desk has seen its own reply (${Array.from(POST_SEND_DEPENDENT).join(', ')}) are recorded as fail with the reason "${ARTEFACT_REASON}". Those verdicts judge the door, not the desk.`);
     out.push('');
     out.push('## Lines');
     out.push('');
@@ -98,7 +101,7 @@ function renderScenario(s: ScenarioRunResult): string[] {
     const out: string[] = [];
     out.push(`### ${s.scenarioId} run ${s.run}: ${s.title}`);
     out.push('');
-    out.push(`Lines ${s.lines.join(', ')}. Started ${s.startedAt}, ${s.durationMs} ms.${s.error ? ` **Scenario error: ${s.error}**` : ''}${s.retriedAfter ? ` Second attempt; the first failed at the door: ${s.retriedAfter}` : ''}`);
+    out.push(`Lines ${s.lines.join(', ')}. Started ${s.startedAt}, ${s.durationMs} ms.${s.error ? ` **Scenario error: ${s.error}**` : ''}`);
     out.push('');
     const seedBits = Object.entries(s.seed.plan.honoured).map(([k, v]) => `${k}: honoured (${v})`)
         .concat(Object.entries(s.seed.plan.unsupported).map(([k, v]) => `${k}: unsupported (${v})`));
@@ -115,7 +118,7 @@ function renderTurn(t: TurnResult): string[] {
     if (t.error) { out.push(`**Error:** ${t.error}`); out.push(''); }
     const ps = t.plannedSend;
     if (ps) {
-        out.push(`Planned send: ${ps.delivered ? `${ps.bubbles.length} bubble${ps.bubbles.length === 1 ? '' : 's'} (${ps.origin})` : 'nothing goes'}; decision ${ps.evidence.decision ?? 'none'}; intent ${ps.evidence.intent ?? '-'}; window ${ps.windowState}; template ${ps.templateId === null ? 'none' : ps.templateId}; approver ${ps.approver ?? 'none'}; hold ${ps.hold && ps.hold !== 'unavailable' ? `${ps.hold.approver} (${ps.hold.reason})` : ps.hold ?? 'none'}; run ${ps.runId}.`);
+        out.push(`Planned send: ${ps.delivered ? `${ps.bubbles.length} bubble${ps.bubbles.length === 1 ? '' : 's'} (${ps.origin})` : 'nothing goes'}; decision ${ps.evidence.decision ?? 'none'}; intent ${ps.evidence.intent ?? '-'}; window ${ps.windowState}; template ${ps.templateId === null ? 'none' : ps.templateId}; approver ${ps.approver ?? 'none'}; hold ${ps.hold && ps.hold !== 'unavailable' ? `${ps.hold.approver} (${ps.hold.reason})` : ps.hold ?? 'none'}; run ${ps.runId}.${t.landed === false ? ' Not landed on the thread by the door.' : ''}`);
         out.push('');
         for (const b of ps.bubbles) out.push(`> ${b.replace(/\n/g, '\n> ')}`);
         if (ps.bubbles.length) out.push('');

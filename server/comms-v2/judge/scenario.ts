@@ -60,9 +60,9 @@ export type Seed = z.infer<typeof seedSchema>;
  * line appears verbatim. Deterministic assertions over the planned send and the file.
  *
  * Two kinds check the rendered text directly beyond that list, which the old desk can supply:
- * `text_matches` / `text_not_matches` (a regex over the bubbles) and `offers_call` /
- * `not_offers_call` (1.1 and 1.6 are about the call offer). `asked_at_most_once` reads the
- * scenario's history so 2.2 ("asks for a photo once") is checkable without a ledger.
+ * `text_matches` (a regex over the bubbles) and `offers_call` / `not_offers_call` (1.1 and 1.6
+ * are about the call offer). `asked_at_most_once` reads the scenario's history so 2.2 ("asks for
+ * a photo once") is checkable without a ledger.
  *
  * `own_words` is the one expectation that carries a model verdict, beside a deterministic
  * assertion (one question at a time, no template placeholder), never instead of it. The schema
@@ -88,7 +88,6 @@ export const expectationSchema = z.discriminatedUnion('kind', [
     z.object({ ...base, kind: z.literal('bubble_count_within'), max: z.number().int().positive() }),
     z.object({ ...base, kind: z.literal('fixed_line'), text: z.string().min(1) }),
     z.object({ ...base, kind: z.literal('text_matches'), pattern: z.string().min(1), flags: z.string().optional() }),
-    z.object({ ...base, kind: z.literal('text_not_matches'), pattern: z.string().min(1), flags: z.string().optional() }),
     z.object({ ...base, kind: z.literal('offers_call') }),
     z.object({ ...base, kind: z.literal('not_offers_call') }),
     z.object({ ...base, kind: z.literal('own_words') }),
@@ -96,7 +95,7 @@ export const expectationSchema = z.discriminatedUnion('kind', [
     if (e.kind === 'own_words' && e.line !== '2.3') {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'own_words (the model judge) is allowed on line 2.3 only' });
     }
-    if ((e.kind === 'text_matches' || e.kind === 'text_not_matches')) {
+    if (e.kind === 'text_matches') {
         try { new RegExp(e.pattern, e.flags ?? 'i'); } catch (err: any) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: `bad pattern: ${err?.message ?? err}` }); }
     }
 });

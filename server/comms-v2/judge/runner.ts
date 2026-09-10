@@ -9,7 +9,7 @@
  * The runner never calls a specialist, a prompt or a model directly. The one model call it makes
  * is the own-words judge for line 2.3, recorded beside the deterministic result (model-judge.ts).
  */
-import { DoorError, loadFixture, seedPlan, type DoorClient, type DoorErrorKind, type SeedPlan } from './door';
+import { DoorError, loadFixture, seedPlan, type DoorClient, type SeedPlan } from './door';
 import { evaluate, type EvalContext, type ExpectationResult, type SeedFeature } from './expectations';
 import { OWN_WORDS_MODEL, buildOwnWordsPrompt, type ModelJudge, type ModelVerdict } from './model-judge';
 import { doorStateSchema, plannedSendFromDoorResponse, type DoorPass, type PlannedSend } from './planned-send';
@@ -44,6 +44,8 @@ export interface TurnResult {
     /** What entered the door: the customer's words, the transcript's first line, the clock, the hours. */
     input: string;
     plannedSend: PlannedSend | null;
+    /** Whether the door put the planned reply on the thread; null when nothing was to go. */
+    landed: boolean | null;
     snapshot: CaseFileSnapshot | null;
     expectations: ExpectationRecord[];
     durationMs: number;
@@ -58,10 +60,6 @@ export interface ScenarioRunResult {
     seed: { requested: Scenario['seed']; plan: SeedPlan; unsupported: SeedFeature[] };
     turns: TurnResult[];
     error: string | null;
-    /** The door error's kind when the scenario failed at the door, so the runner can tell a blip from a bug. */
-    errorKind: DoorErrorKind | 'other' | null;
-    /** Set when this result came from a second attempt: the first attempt's door error, kept as evidence. */
-    retriedAfter: string | null;
     startedAt: string;
     durationMs: number;
 }
@@ -92,7 +90,7 @@ export interface LineResult {
 export interface JudgeResult {
     generatedAt: string;
     desk: string;
-    door: { mode: string; baseUrl: string };
+    door: { mode: string; host: string };
     runs: number;
     lines: LineResult[];
     scenarios: ScenarioRunResult[];
@@ -134,6 +132,19 @@ export function snapshotFrom(pass: DoorPass): CaseFileSnapshot {
         openPromises: run?.caseFile?.openPromises ?? [],
         lastCall: s.lastCall ? { callId: String(s.lastCall.callId), preview: String(s.lastCall.preview ?? '') } : null,
     };
+}
+
+/**
+ * Whether the door put this turn's planned reply on the thread, read from the door's own state:
+ * an outbound message carrying the first bubble. The current sandbox lands only the rules-layer
+ * first-contact ack; a desk send in dry run never reaches the exit, so it is not there. Pure.
+ */
+export function sendLanded(ps: PlannedSend, pass: DoorPass): boolean {
+    const first = ps.bubbles[0]?.trim();
+    if (!first) return false;
+    const messages = (pass.state as { messages?: unknown }).messages;
+    if (!Array.isArray(messages)) return false;
+    return messages.some((m) => m && typeof m === 'object' && (m as { direction?: unknown }).direction === 'outbound' && typeof (m as { content?: unknown }).content === 'string' && ((m as { content: string }).content).includes(first));
 }
 
 async function enter(door: DoorClient, scenario: Scenario, t: Turn, index: number): Promise<unknown> {
@@ -184,15 +195,16 @@ export async function runScenario(scenario: Scenario, opts: RunScenarioOptions):
     const unsupported = new Set<SeedFeature>(Object.keys(plan.unsupported) as SeedFeature[]);
     const result: ScenarioRunResult = {
         scenarioId: scenario.id, title: scenario.title, lines: scenario.lines, run: opts.run,
-        seed: { requested: scenario.seed, plan, unsupported: [] }, turns: [], error: null, errorKind: null, retriedAfter: null,
+        seed: { requested: scenario.seed, plan, unsupported: [] }, turns: [], error: null,
         startedAt: startedAt.toISOString(), durationMs: 0,
     };
     const history: PlannedSend[] = [];
+    let priorSendNotLanded = false;
     let aborted: string | null = null;
 
     for (let i = 0; i < scenario.turns.length; i++) {
         const t = scenario.turns[i];
-        const tr: TurnResult = { index: i, from: t.from, kind: t.kind, input: turnInput(t), plannedSend: null, snapshot: null, expectations: [], durationMs: 0, error: null };
+        const tr: TurnResult = { index: i, from: t.from, kind: t.kind, input: turnInput(t), plannedSend: null, landed: null, snapshot: null, expectations: [], durationMs: 0, error: null };
         const t0 = Date.now();
         if (aborted) {
             tr.error = `not run: ${aborted}`;
@@ -222,7 +234,7 @@ export async function runScenario(scenario: Scenario, opts: RunScenarioOptions):
             const { pass, plannedSend } = waitForPlannedSend(raw, t);
             tr.plannedSend = plannedSend;
             tr.snapshot = snapshotFrom(pass);
-            const ctx: EvalContext = { plannedSend, history, seed: scenario.seed, seedUnsupported: Array.from(unsupported) };
+            const ctx: EvalContext = { plannedSend, history, seed: scenario.seed, seedUnsupported: Array.from(unsupported), priorSendNotLanded };
             for (const e of t.expect) {
                 let rec: ExpectationRecord;
                 try { rec = evaluate(e, ctx); } catch (err: any) { rec = { line: e.line, kind: e.kind, status: 'error', reason: `evaluator threw: ${err?.message ?? err}` }; }
@@ -236,13 +248,14 @@ export async function runScenario(scenario: Scenario, opts: RunScenarioOptions):
                 tr.expectations.push(rec);
             }
             history.push(plannedSend);
+            tr.landed = plannedSend.delivered ? sendLanded(plannedSend, pass) : null;
+            if (tr.landed === false) priorSendNotLanded = true;
         } catch (err: any) {
             const msg = err instanceof DoorError ? `door ${err.kind}: ${err.message}` : `turn failed: ${err?.message ?? err}`;
             tr.error = msg;
             tr.expectations = t.expect.map((e) => ({ line: e.line, kind: e.kind, status: 'error' as const, reason: msg }));
             aborted = msg;
             result.error = msg;
-            result.errorKind = err instanceof DoorError ? err.kind : 'other';
             log(`  ERROR ${msg}`);
         }
         tr.durationMs = Date.now() - t0;
@@ -273,49 +286,35 @@ export function waitForPlannedSend(raw: unknown, t: Turn): { pass: DoorPass; pla
 export interface RunAllOptions {
     door: DoorClient;
     judge: ModelJudge | null;
-    runs?: number;
     log?: (line: string) => void;
     desk?: string;
     /** Lines that must have a verdict (an unjudged one is an error). Goal 1's eleven by default; empty for a subset run. */
     requiredLines?: readonly string[];
-    /** Retry a scenario once after a transient door failure (default true). */
-    retryOnce?: boolean;
 }
 
-/** Door failures worth one retry: the door was there and then was not. A refusal (400/409) or a bad shape is a bug, not a blip. */
-export const RETRY_ONCE_ON: readonly (DoorErrorKind | 'other')[] = ['timeout', 'unreachable', 'http'];
+/** The whole set runs this many times; a line passes only when it passes every run. */
+export const RUNS = 2;
 
 export const CURRENT_DESK = 'current desk (server/spine via /api/comms-sandbox, dry run)';
 
 export async function runAll(scenarios: readonly Scenario[], opts: RunAllOptions): Promise<JudgeResult> {
-    const runs = opts.runs ?? 2;
     const log = opts.log ?? (() => undefined);
     const results: ScenarioRunResult[] = [];
-    for (let run = 1; run <= runs; run++) {
-        log(`run ${run}/${runs}`);
+    for (let run = 1; run <= RUNS; run++) {
+        log(`run ${run}/${RUNS}`);
         for (const s of scenarios) {
             log(` scenario ${s.id}: ${s.title}`);
-            let r = await runScenario(s, { door: opts.door, judge: opts.judge, run, log });
-            if (r.errorKind && RETRY_ONCE_ON.includes(r.errorKind) && opts.retryOnce !== false) {
-                // One transient door failure (a dropped database connection, a timed-out pass) does not
-                // decide a line; the scenario restarts from its first turn, which resets the thread. A
-                // second failure stands as the error. The first attempt's error is kept on the result.
-                log(`  retrying ${s.id} once after ${r.error}`);
-                const first = r;
-                r = await runScenario(s, { door: opts.door, judge: opts.judge, run, log });
-                r.retriedAfter = first.error;
-            }
-            results.push(r);
+            results.push(await runScenario(s, { door: opts.door, judge: opts.judge, run, log }));
         }
     }
-    const lines = lineResults(results, runs, scenarios, opts.requiredLines ?? GOAL_1_LINES);
+    const lines = lineResults(results, RUNS, scenarios, opts.requiredLines ?? GOAL_1_LINES);
     const summary = { pass: 0, fail: 0, error: 0 };
     for (const l of lines) summary[l.status]++;
     return {
         generatedAt: new Date().toISOString(),
         desk: opts.desk ?? CURRENT_DESK,
-        door: { mode: opts.door.mode, baseUrl: opts.door.baseUrl },
-        runs, lines, scenarios: results, summary,
+        door: { mode: opts.door.mode, host: opts.door.host },
+        runs: RUNS, lines, scenarios: results, summary,
         exitCode: summary.error > 0 ? 1 : 0,
     };
 }
