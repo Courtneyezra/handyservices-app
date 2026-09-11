@@ -17,6 +17,7 @@ function card(over: Partial<BoardCard> = {}): BoardCard {
         held: false,
         holdReason: null,
         holdApprover: null,
+        holdApproverAssigned: false,
         holdSince: null,
         customerName: 'Sam',
         customerAddress: 'phone:07700900942',
@@ -36,7 +37,11 @@ function boardWithOneCardPerStage(): Board {
     for (const stage of STAGES) columns[stage].push(card({ stage, customerName: `Customer ${stage}` }));
     columns.first_contact.unshift(card({
         stage: 'first_contact', id: 'case_held', customerName: 'Held Customer', held: true,
-        holdReason: 'a complaint', holdApprover: 'ben',
+        holdReason: 'a complaint', holdApprover: 'ben', holdApproverAssigned: true,
+    }));
+    columns.scoping.unshift(card({
+        stage: 'scoping', id: 'case_unassigned', customerName: 'Unassigned Customer', held: true,
+        holdReason: 'a refund', holdApprover: 'ben', holdApproverAssigned: false,
     }));
     return { stages: STAGES, columns };
 }
@@ -54,8 +59,10 @@ describe('<CommsV2BoardPage>', () => {
             await waitFor(() => expect(screen.getByTestId(`board-column-${stage}`)).toBeTruthy());
         }
         expect(screen.getByText('Held Customer')).toBeTruthy();
-        expect(screen.getByText(/Held for ben/)).toBeTruthy();
+        expect(screen.getAllByText(/Held for ben/)).toHaveLength(2);
         expect(screen.getByText('a complaint')).toBeTruthy();
+        expect(screen.getByTestId('board-card-hold-case_unassigned').textContent).toContain('No approver assigned');
+        expect(screen.getByTestId('board-card-hold-case_held').textContent).not.toContain('No approver assigned');
         expect(screen.getByText('Customer scoping')).toBeTruthy();
         expect(screen.getByText('Customer done')).toBeTruthy();
     });
@@ -70,6 +77,7 @@ describe('<CommsV2BoardPage>', () => {
             turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?' }],
             facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint', since: new Date().toISOString(), draft: 'Hi, I can knock a little off for you.' },
+            holdApproverAssigned: true,
         };
 
         const { calls } = mockFetch([
@@ -105,6 +113,7 @@ describe('<CommsV2BoardPage>', () => {
             job: { type: null, location: null, quoteRef: null, bookingRef: null },
             turns: [], facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
         };
         mockFetch([
             { url: '/api/comms-v2/board', reply: () => ({ json: board }) },

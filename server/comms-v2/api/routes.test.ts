@@ -1,7 +1,8 @@
 /**
  * Goal 2 - the board API driven the way the page drives it: a thread started through the mounted
  * sandbox door shows on the board (the door replaces its gateway on every start, so the board must
- * read the live one), a money turn holds it for ben, and release is by the signed-in session only.
+ * read the live one), a money turn holds it for ben, and release is by the signed-in session only,
+ * and only when the comms_v2_approvers row lists that session for the slot.
  */
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -10,10 +11,12 @@ import { FakeModelClient } from '../desk/models';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
+import type { ApproverAssignments } from './approvers';
 import { createCommsV2ApiRouter } from './routes';
 
 let server: import('node:http').Server;
 let base: string;
+let assignments: ApproverAssignments = {};
 
 beforeAll(async () => {
     const client = new FakeModelClient({
@@ -26,10 +29,10 @@ beforeAll(async () => {
     app.use(express.json());
     app.use((req, _res, next) => {
         const email = req.header('x-test-user');
-        if (email) (req as any).user = { id: `user_${email}`, email, role: email.startsWith('ben') ? 'admin' : 'va' };
+        if (email) (req as any).user = { id: `user_${email}`, email, role: 'admin' };
         next();
     });
-    app.use('/api/comms-v2', createCommsV2ApiRouter(door));
+    app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => assignments));
     server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/comms-v2`;
 });
@@ -72,37 +75,51 @@ describe('the board over the sandbox door', () => {
 
         const held = await call('GET', '/board?held=true');
         expect(cardsOn(held.json).map((c) => c.id)).toEqual([id]);
-        expect(cardsOn(held.json)[0]).toMatchObject({ held: true, holdApprover: 'ben', lastCustomerMessage: 'How much roughly?' });
+        expect(cardsOn(held.json)[0]).toMatchObject({ held: true, holdApprover: 'ben', holdApproverAssigned: false, lastCustomerMessage: 'How much roughly?' });
 
         const detail = await call('GET', `/case-files/${id}`);
         expect(detail.json.hold).toMatchObject({ approver: { kind: 'human', id: 'ben' } });
+        expect(detail.json.holdApproverAssigned).toBe(false);
         expect(detail.json).not.toHaveProperty('ledger');
         expect(detail.json).not.toHaveProperty('sends');
     });
 
-    it('a session that is not the hold approver cannot release, even naming ben in the body', async () => {
+    it('with no approvers row, nobody can release, not even an account whose email is ben@', async () => {
         const board = await call('GET', '/board?held=true');
         const id = cardsOn(board.json)[0].id as string;
 
         const anonymous = await call('POST', `/case-files/${id}/release`, { words: 'fine' });
         expect(anonymous.status).toBe(401);
 
-        const va = await call('POST', `/case-files/${id}/release`, { approver: 'ben', words: 'Checked, all fine' }, 'va@handyservices.app');
-        expect(va.status).toBe(409);
-        expect(va.json.error).toMatch(/only ben may release/);
+        const ben = await call('POST', `/case-files/${id}/release`, { words: 'Checked, all fine' }, 'ben@handyservices.app');
+        expect(ben.status).toBe(403);
+        expect(ben.json.error).toMatch(/no approver slot/);
 
         const still = await call('GET', '/board?held=true');
         expect(cardsOn(still.json).map((c) => c.id)).toEqual([id]);
     });
 
-    it('ben\'s session releases with the words recorded, and the card leaves the held filter', async () => {
+    it('once the row lists a user for ben, the card shows the slot assigned and an unlisted session still cannot release', async () => {
+        assignments = { ben: ['user_Ben.Real@handyservices.app'] };
+        const board = await call('GET', '/board?held=true');
+        const id = cardsOn(board.json)[0].id as string;
+        expect(cardsOn(board.json)[0].holdApproverAssigned).toBe(true);
+
+        const unlisted = await call('POST', `/case-files/${id}/release`, { approver: 'ben', words: 'Checked, all fine' }, 'ben@handyservices.app');
+        expect(unlisted.status).toBe(403);
+
+        const still = await call('GET', '/board?held=true');
+        expect(cardsOn(still.json).map((c) => c.id)).toEqual([id]);
+    });
+
+    it('the listed session releases with the words recorded, and the card leaves the held filter', async () => {
         const board = await call('GET', '/board?held=true');
         const id = cardsOn(board.json)[0].id as string;
 
-        const noWords = await call('POST', `/case-files/${id}/release`, { words: '   ' }, 'ben@handyservices.app');
+        const noWords = await call('POST', `/case-files/${id}/release`, { words: '   ' }, 'Ben.Real@handyservices.app');
         expect(noWords.status).toBe(409);
 
-        const ok = await call('POST', `/case-files/${id}/release`, { words: 'Spoke to the customer, resolved.' }, 'ben@handyservices.app');
+        const ok = await call('POST', `/case-files/${id}/release`, { words: 'Spoke to the customer, resolved.' }, 'Ben.Real@handyservices.app');
         expect(ok.status).toBe(200);
         expect(ok.json.release).toMatchObject({ approver: { kind: 'human', id: 'ben' }, words: 'Spoke to the customer, resolved.' });
         expect(ok.json.card.held).toBe(false);

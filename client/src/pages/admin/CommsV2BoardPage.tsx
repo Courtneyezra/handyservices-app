@@ -48,6 +48,7 @@ export interface BoardCard {
     held: boolean;
     holdReason: string | null;
     holdApprover: string | null;
+    holdApproverAssigned: boolean;
     holdSince: string | null;
     customerName: string | null;
     customerAddress: string;
@@ -91,6 +92,7 @@ export interface CaseFileDetail {
     turns: Turn[];
     facts: Fact[];
     hold: { approver: { kind: string; id: string }; reason: string; since: string; draft: string | null } | null;
+    holdApproverAssigned: boolean;
 }
 
 // ---------------------------------------------------------------- filters
@@ -141,6 +143,7 @@ export function BoardCardView({ card, onOpen }: { card: BoardCard; onOpen: () =>
                 <div data-testid={`board-card-hold-${card.id}`} className="mb-2 rounded bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-600">
                     <div className="flex items-center gap-1"><AlertTriangle className="h-3 w-3 shrink-0" /> Held for {card.holdApprover ?? 'approval'}</div>
                     <div className="mt-0.5 font-normal text-red-600/90">{card.holdReason}</div>
+                    {!card.holdApproverAssigned && <div className="mt-0.5 font-normal text-red-600/90">No approver assigned</div>}
                 </div>
             )}
             <div className="flex items-center justify-between gap-2">
@@ -188,10 +191,11 @@ export function BoardColumn({ stage, cards, onOpenCard }: { stage: Stage; cards:
 
 // ---------------------------------------------------------------- release form
 
-export function ReleaseForm({ fileId, holdReason, holdApprover, draft, onReleased }: {
+export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssigned, draft, onReleased }: {
     fileId: string;
     holdReason: string;
     holdApprover: string;
+    holdApproverAssigned: boolean;
     draft: string | null;
     onReleased: () => void;
 }) {
@@ -221,6 +225,9 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, draft, onRelease
     return (
         <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3">
             <p className="flex items-center gap-1 text-sm font-semibold text-red-600"><AlertTriangle className="h-4 w-4" /> Held for {holdApprover}: {holdReason}</p>
+            {!holdApproverAssigned && (
+                <p className="mt-1 text-xs text-red-600/90">No approver assigned to the {holdApprover} slot, so nobody can release this yet. Set the comms_v2_approvers row.</p>
+            )}
             {draft && (
                 <div className="mt-3">
                     <p className="text-xs font-medium text-muted-foreground">The reply the desk held back</p>
@@ -275,6 +282,7 @@ export function CaseFileDetailView({ fileId, onReleased }: { fileId: string; onR
                     fileId={data.id}
                     holdReason={data.hold.reason}
                     holdApprover={data.hold.approver.id}
+                    holdApproverAssigned={data.holdApproverAssigned}
                     draft={data.hold.draft}
                     onReleased={onReleased}
                 />
@@ -435,7 +443,7 @@ export default function CommsV2BoardPage() {
         <div className="flex h-[calc(100vh-64px)] flex-col overflow-hidden">
             <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background px-4 py-3">
                 <div>
-                    <h1 className="text-xl font-bold tracking-tight">Comms Desk v2 — Board</h1>
+                    <h1 className="text-xl font-bold tracking-tight">Comms Desk v2 - Board</h1>
                     <p className="text-xs text-muted-foreground">{total} case file{total === 1 ? '' : 's'} · sandbox window onto the clean-sheet desk</p>
                 </div>
                 <FilterBar filters={filters} onChange={setFilters} />
@@ -446,7 +454,7 @@ export default function CommsV2BoardPage() {
 
             {error ? (
                 <div className="m-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-500">
-                    <AlertTriangle className="h-4 w-4" /> Could not load the board — retrying automatically.
+                    <AlertTriangle className="h-4 w-4" /> Could not load the board - retrying automatically.
                 </div>
             ) : isLoading ? (
                 <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>

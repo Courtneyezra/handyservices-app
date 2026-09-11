@@ -98,7 +98,7 @@ describe('detailOf', () => {
         expect(detail.turns).toHaveLength(1);
         expect(detail.facts).toHaveLength(1);
         expect(detail.party?.name).toBe('Sam');
-        expect(Object.keys(detail).sort()).toEqual(['facts', 'hold', 'id', 'job', 'mode', 'party', 'stage', 'turns']);
+        expect(Object.keys(detail).sort()).toEqual(['facts', 'hold', 'holdApproverAssigned', 'id', 'job', 'mode', 'party', 'stage', 'turns']);
     });
 
     it('a held file carries the hold with the draft the desk held back', () => {
@@ -108,17 +108,34 @@ describe('detailOf', () => {
     });
 });
 
-describe('sessionApprover', () => {
-    it('is the short label of the signed-in email, so Ben\'s account is the ben slot', () => {
-        expect(sessionApprover({ email: 'ben@handyservices.app', id: 'user_1' })).toEqual({ kind: 'human', id: 'ben' });
-        expect(sessionApprover({ email: 'va@handyservices.app', id: 'user_2' })).toEqual({ kind: 'human', id: 'va' });
-        expect(sessionApprover({ email: null, id: 'user_3' })).toEqual({ kind: 'human', id: 'user_3' });
+describe('sessionApprover - the comms_v2_approvers row decides the slot', () => {
+    const assignments = { ben: ['user_ben'] };
+
+    it('a user the row lists for a slot occupies that slot', () => {
+        expect(sessionApprover({ id: 'user_ben' }, assignments)).toEqual({ kind: 'human', id: 'ben' });
+    });
+
+    it('a user the row does not list has no slot, whatever their email looks like', () => {
+        expect(sessionApprover({ id: 'user_va', email: 'ben@handyservices.app' } as any, assignments)).toBeNull();
+        expect(sessionApprover({ id: 'user_ben' }, {})).toBeNull();
     });
 
     it('is nothing without a session', () => {
-        expect(sessionApprover(null)).toBeNull();
-        expect(sessionApprover(undefined)).toBeNull();
-        expect(sessionApprover({ email: '', id: '' })).toBeNull();
+        expect(sessionApprover(null, assignments)).toBeNull();
+        expect(sessionApprover(undefined, assignments)).toBeNull();
+        expect(sessionApprover({ id: '' }, assignments)).toBeNull();
+    });
+});
+
+describe('a held card knows whether its slot has anyone assigned', () => {
+    it('assigned when the row lists a user for the hold approver, else not', () => {
+        const file = openFile();
+        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint' }, { now });
+        expect(cardOf(file, { ben: ['user_ben'] }).holdApproverAssigned).toBe(true);
+        expect(cardOf(file, {}).holdApproverAssigned).toBe(false);
+        expect(detailOf(file, { ben: ['user_ben'] }).holdApproverAssigned).toBe(true);
+        expect(detailOf(file).holdApproverAssigned).toBe(false);
+        expect(boardOf([file], {}, { ben: ['user_ben'] }).columns.first_contact[0].holdApproverAssigned).toBe(true);
     });
 });
 

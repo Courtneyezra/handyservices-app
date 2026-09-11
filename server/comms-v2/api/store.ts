@@ -16,15 +16,10 @@
  * each time and never captured.
  */
 import { createSandboxDoor, type DoorDeps, type SandboxDoor } from '../desk/sandbox-door';
-import type { CaseFileStore } from '../desk/store';
 
 let door: SandboxDoor | null = null;
 
 export function commsV2BoardDoor(deps: DoorDeps = {}): SandboxDoor {
     if (!door) door = createSandboxDoor(deps);
     return door;
-}
-
-export function commsV2BoardStore(): CaseFileStore {
-    return commsV2BoardDoor().gateway.store;
 }

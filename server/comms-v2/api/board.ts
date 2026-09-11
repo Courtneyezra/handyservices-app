@@ -10,7 +10,7 @@ import {
     type ApproverSlot, type CaseFile, type Fact, type Hold, type HoldRelease, type Job, type Outcome,
     type ReplyChannel, type Stage, type Turn,
 } from '../desk/case-file';
-import { approverLabel as legacyApproverLabel, humanApprover } from '../../approver';
+import { slotAssigned, slotOf, type ApproverAssignments } from './approvers';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -21,6 +21,7 @@ export interface BoardCard {
     held: boolean;
     holdReason: string | null;
     holdApprover: string | null;
+    holdApproverAssigned: boolean;
     holdSince: string | null;
     customerName: string | null;
     customerAddress: string;
@@ -42,6 +43,7 @@ export interface CaseFileDetail {
     turns: Turn[];
     facts: Fact[];
     hold: Hold | null;
+    holdApproverAssigned: boolean;
 }
 
 /** live once any send on the file actually delivered; sandbox otherwise, including before the first send. */
@@ -64,7 +66,7 @@ export function lastCustomerTurn(file: CaseFile): Turn | null {
     return null;
 }
 
-export function cardOf(file: CaseFile): BoardCard {
+export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}): BoardCard {
     const party = file.parties[0] ?? null;
     const last = lastCustomerTurn(file);
     return {
@@ -74,6 +76,7 @@ export function cardOf(file: CaseFile): BoardCard {
         held: !!file.hold,
         holdReason: file.hold?.reason ?? null,
         holdApprover: file.hold ? approverLabel(file.hold.approver) : null,
+        holdApproverAssigned: file.hold ? slotAssigned(file.hold.approver, assignments) : false,
         holdSince: file.hold?.since ?? null,
         customerName: party?.name ?? null,
         customerAddress: party?.canonical ?? '',
@@ -98,10 +101,10 @@ export interface Board {
 }
 
 /** One column per Contract 2 stage. Held cards float to the top of their column. */
-export function boardOf(files: CaseFile[], filter: BoardFilter = {}): Board {
+export function boardOf(files: CaseFile[], filter: BoardFilter = {}, assignments: ApproverAssignments = {}): Board {
     const columns = Object.fromEntries(STAGES.map((s) => [s, [] as BoardCard[]])) as Record<Stage, BoardCard[]>;
     for (const file of files) {
-        const card = cardOf(file);
+        const card = cardOf(file, assignments);
         if (filter.held && !card.held) continue;
         if (filter.mode && card.mode !== filter.mode) continue;
         columns[card.stage].push(card);
@@ -116,7 +119,7 @@ export function boardOf(files: CaseFile[], filter: BoardFilter = {}): Board {
 }
 
 /** The file's turns and facts, read-only, for a card opened in detail. */
-export function detailOf(file: CaseFile): CaseFileDetail {
+export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}): CaseFileDetail {
     const party = file.parties[0] ?? null;
     return {
         id: file.id,
@@ -127,19 +130,16 @@ export function detailOf(file: CaseFile): CaseFileDetail {
         turns: file.turns,
         facts: file.facts,
         hold: file.hold,
+        holdApproverAssigned: file.hold ? slotAssigned(file.hold.approver, assignments) : false,
     };
 }
 
 /**
- * The approver slot a signed-in admin session occupies: the same short label the legacy desk
- * stamps on a human send (server/approver.ts: 'ben' for `human:ben@handyservices.app`), so the
- * session for Ben's own account is the `ben` slot the desk holds for (server/comms-v2/desk/guards.ts).
- * No session, no slot.
+ * The approver slot a signed-in session occupies, by the `comms_v2_approvers` row (approvers.ts).
+ * No session, or a session no slot lists: no slot.
  */
-export function sessionApprover(user: { email?: string | null; id?: string | null } | null | undefined): ApproverSlot | null {
-    const id = (user?.email || user?.id || '').trim();
-    if (!id) return null;
-    return { kind: 'human', id: legacyApproverLabel(humanApprover(id)) };
+export function sessionApprover(user: { id?: string | null } | null | undefined, assignments: ApproverAssignments): ApproverSlot | null {
+    return slotOf(user, assignments);
 }
 
 /** Releases a hold on the file, through the case file's own `release` call. */
