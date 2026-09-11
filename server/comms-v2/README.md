@@ -64,14 +64,24 @@ alone (`seed.whatsapp`); the live intake's reads the inbound WhatsApp messages t
 
 ### The old inputs, behind one switch
 
-`COMMS_V2_INTAKE` (`channels/intake.ts`). Off (unset, 0, false): nothing runs and nothing old
-changes. On (1, true, on, yes): each old entry point also forwards its raw event here, fire and
-forget, and the matching adapter hands the turn to the channel gateway; the old handler still runs.
-The forwarding call is the one edit in old code: server/whatsapp-api.ts `/incoming` (Twilio, WhatsApp
-and SMS), server/meta-whatsapp.ts `/webhook`, server/leads.ts `POST /api/leads` (the web form), and
-server/call-logger.ts `finalizeCall` (a finished call; the call row is read for its outcome). The desk
-behind the intake runs in dry run on an in-memory store: everything up to delivery, nothing leaves.
-The cutover that turns the old handler off and this desk's delivery on is a later task.
+`COMMS_V2_INTAKE` (`channels/intake.ts`), read the way `COMMS_WORKER` is (server/worker-gate.ts):
+exactly `1` is on, anything else is off. Off: nothing runs and nothing old changes. On: each old
+entry point also forwards its raw event here, fire and forget, and the matching adapter hands the
+turn to the channel gateway; the old handler still runs. The forwarding call is the one edit in old
+code: server/whatsapp-api.ts `/incoming` (Twilio, WhatsApp and SMS), server/meta-whatsapp.ts
+`/webhook`, server/leads.ts `POST /api/leads` (the web form), and server/call-logger.ts
+`finalizeCall` (a finished call; the call row is read for its outcome). The desk behind the intake
+runs in dry run: everything up to delivery, nothing leaves. The cutover that turns the old handler
+off and this desk's delivery on is a later task.
+
+**The switch alone does not start it.** `INTAKE_REQUIREMENTS` (`channels/intake.ts`) is what the
+intake must have before it reads one live turn, and both entries are outstanding: a persistent case
+file store, because the desk's store holds every file, turn, media path and model call for the
+length of the process, which is right for the sandbox door host and wrong for a server that runs for
+weeks; and a populated internal-number directory, because the identity here has never been told
+which numbers are ours, so Ben's own handset would resolve as a customer. Until both land the
+gateway refuses to be built and every forward logs what is missing. The persistence task is the one
+that lifts the first; server/internal-numbers.ts already holds the numbers for the second.
 
 ### Inbound email
 

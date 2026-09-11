@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from './channel-gateway';
-import { INTAKE_ENV, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, resetLiveChannelGateway } from './intake';
+import { INTAKE_ENV, INTAKE_REQUIREMENTS, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, resetLiveChannelGateway } from './intake';
 
 const turns: Turn[] = [];
 const fakeDesk: DeskLike = {
@@ -15,14 +15,23 @@ const fakeDesk: DeskLike = {
 };
 
 describe('the intake switch', () => {
-    it('is off unless COMMS_V2_INTAKE says on, and off means a forward does nothing', () => {
+    it('is off unless COMMS_V2_INTAKE is exactly 1, the way COMMS_WORKER is read, and off means a forward does nothing', () => {
         expect(intakeEnabled({})).toBe(false);
-        expect(intakeEnabled({ [INTAKE_ENV]: '0' })).toBe(false);
-        expect(intakeEnabled({ [INTAKE_ENV]: 'false' })).toBe(false);
-        for (const v of ['1', 'true', 'on', 'yes', 'TRUE']) expect(intakeEnabled({ [INTAKE_ENV]: v })).toBe(true);
+        for (const v of ['0', 'false', 'true', 'on', 'yes', 'TRUE', '11']) expect({ v, on: intakeEnabled({ [INTAKE_ENV]: v }) }).toEqual({ v, on: false });
+        for (const v of ['1', ' 1 ']) expect({ v, on: intakeEnabled({ [INTAKE_ENV]: v }) }).toEqual({ v, on: true });
         const before = turns.length;
         forwardToCommsV2({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } }, {});
         expect(turns.length).toBe(before);
+    });
+    it('refuses to start while a requirement is outstanding: nothing is read, nothing reaches a desk, and the refusal names what is missing', async () => {
+        expect(INTAKE_REQUIREMENTS.length).toBeGreaterThan(0);
+        resetLiveChannelGateway();
+        const before = turns.length;
+        await expect(forwardNow({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } })).rejects.toThrow(new RegExp(`${INTAKE_ENV} is on but the intake refuses to start`));
+        await expect(forwardNow({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } })).rejects.toThrow(/persistent case file store/);
+        await expect(forwardNow({ kind: 'call_finished', callRecordId: 'c1' })).rejects.toThrow(/internal-number directory/);
+        expect(turns.length).toBe(before);
+        resetLiveChannelGateway();
     });
     it('shapes each event through its adapter: an SMS and a WhatsApp on the Twilio webhook, a form', async () => {
         const sms = await envelopesOf({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi', MessageSid: 'SM1' } });

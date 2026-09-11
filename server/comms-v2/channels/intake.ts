@@ -1,13 +1,19 @@
 /**
  * The old inputs connected to the new plumbing, behind one switch (behaviour.md answer 37).
  *
- * `COMMS_V2_INTAKE` off (unset, 0, false): nothing here runs and nothing old changes. On (1,
- * true, on, yes): each old inbound entry point (the Twilio webhook for WhatsApp and SMS, the
- * Meta WhatsApp webhook, the web form, a finished call) also forwards its raw event here, where
- * the matching adapter builds the gateway's envelope and the channel gateway hands the turn to
- * the desk. The old handler still runs today. The desk here runs in dry run: it does everything
- * up to delivery and lands its reply on its own in-memory case file, nothing leaves. The cutover
+ * `COMMS_V2_INTAKE` is read the way `COMMS_WORKER` is (server/worker-gate.ts): exactly '1' is on,
+ * anything else is off. Off: nothing here runs and nothing old changes. On: each old inbound entry
+ * point (the Twilio webhook for WhatsApp and SMS, the Meta WhatsApp webhook, the web form, a
+ * finished call) also forwards its raw event here, where the matching adapter builds the gateway's
+ * envelope and the channel gateway hands the turn to the desk. The old handler still runs today.
+ * The desk here runs in dry run: it does everything up to delivery, nothing leaves. The cutover
  * that turns the old handler off and this desk's delivery on is a later task.
+ *
+ * The switch alone does not start the intake: `INTAKE_REQUIREMENTS` below is what the intake must
+ * have before it reads one live turn, and until every one of them is met the gateway refuses to be
+ * built and every forward says so. Fail closed on purpose: with the switch flipped early the intake
+ * would otherwise run live traffic through a store that only lasts as long as the process, in a
+ * server that runs for weeks, against an identity that has never been told which numbers are ours.
  *
  * `forwardToCommsV2` never throws and never blocks: an old handler's response does not wait on
  * the new desk, and a failure here is one log line. No value from an event is logged, only the
@@ -18,8 +24,17 @@ import type { InboundEnvelope } from './envelope';
 export const INTAKE_ENV = 'COMMS_V2_INTAKE';
 
 export function intakeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-    return /^(1|true|on|yes)$/i.test((env[INTAKE_ENV] ?? '').trim());
+    return (env[INTAKE_ENV] ?? '').trim() === '1';
 }
+
+/**
+ * What the intake must have before it may read a live turn, each outstanding. A line is deleted
+ * here by the task that satisfies it, and the intake starts when the list is empty.
+ */
+export const INTAKE_REQUIREMENTS: readonly string[] = [
+    'a persistent case file store: the desk\'s store holds every file, turn, media path and model call for the length of the process, which is right for the sandbox door host and wrong for a server that runs for weeks (the persistence task lifts this)',
+    'a populated internal-number directory: the identity here has never been told which numbers are the business\'s own or its staff, so Ben\'s own handset would resolve as a customer and open a case file (server/internal-numbers.ts holds the numbers; registerInternal takes them)',
+];
 
 export type IntakeEvent =
     | { kind: 'twilio_incoming'; body: Record<string, unknown> }
@@ -31,10 +46,14 @@ export interface IntakeReport { forwarded: number; skipped: string[] }
 
 let live: Promise<import('./channel-gateway').ChannelGateway> | null = null;
 
-/** The one live gateway, built on first use: a dry-run desk on the desk's own in-memory store. */
+/**
+ * The one live gateway, built on first use. Refuses while any of `INTAKE_REQUIREMENTS` is
+ * outstanding, so a switch flipped before they land forwards nothing and says what is missing.
+ */
 export function liveChannelGateway(): Promise<import('./channel-gateway').ChannelGateway> {
     if (!live) {
         live = (async () => {
+            if (INTAKE_REQUIREMENTS.length) throw new Error(`${INTAKE_ENV} is on but the intake refuses to start until it has: ${INTAKE_REQUIREMENTS.join('; ')}`);
             const { ChannelGateway } = await import('./channel-gateway');
             const { ChannelDesk } = await import('./channel-desk');
             const { Desk } = await import('../desk/desk');
@@ -99,13 +118,13 @@ export async function envelopesOf(event: IntakeEvent, deps: { fetch?: typeof fet
 /** Forward one old-input event into the new desk. Fire and forget: returns at once, never throws. */
 export function forwardToCommsV2(event: IntakeEvent, env: NodeJS.ProcessEnv = process.env): void {
     if (!intakeEnabled(env)) return;
-    void forwardNow(event).catch((err) => console.warn(`[comms-v2 intake] ${event.kind} failed: ${err?.message ?? err}`));
+    void forwardNow(event).catch((err) => console.error(`[comms-v2 intake] ${event.kind} failed: ${err?.message ?? err}`));
 }
 
 /** The same forward, awaited: the tests use it. */
 export async function forwardNow(event: IntakeEvent): Promise<IntakeReport> {
-    const { envelopes, skipped } = await envelopesOf(event);
     const gateway = await liveChannelGateway();
+    const { envelopes, skipped } = await envelopesOf(event);
     let forwarded = 0;
     for (const envelope of envelopes) {
         const out = await gateway.inbound(envelope);
