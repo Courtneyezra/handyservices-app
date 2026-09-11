@@ -3,7 +3,8 @@
 Landed knowledge for the clean-sheet rebuild of the comms desk, so an autonomous `/goal` build
 loop has it to read from the repo instead of from outside sources.
 
-- `behaviour.md` is the oracle: the captain's 38 recorded answers on how the desk should behave.
+- `behaviour.md` is the oracle: the captain's recorded answers on how the desk should behave,
+  batch by batch, each numbered as he gave it.
 - `checklist.md` is the stop condition: the seven-stage, line-by-line checklist a sandbox thread
   either passes or fails against.
 - `design.md` is the shape: the agent-map architecture, the box-for-box mapping, the channels, the

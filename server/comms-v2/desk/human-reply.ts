@@ -51,7 +51,8 @@ export interface HumanSend {
     approver: Approver;
     channel: ReplyChannel;
     bubbles: RenderedBubble[];
-    turnId: string;
+    /** The outbound turn the send landed on the thread, as the send record carries it. */
+    turnId: string | null;
 }
 
 export type HumanReplyOutcome =

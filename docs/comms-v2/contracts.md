@@ -127,13 +127,15 @@ send.
 |---|---|---|
 | `choose_channel` | the channel the party wrote on; for a form or a call, which cannot carry a reply: WhatsApp if the number is on it, then SMS, then email | the party has no channel that can carry a reply |
 | `window` | for WhatsApp, open or shut with the reason, from the party's channel record on the file | never guessed; a channel with no recorded window state is shut |
-| `render` | WhatsApp: splits the one reply into bubbles at the breaks a person would use, sentence and thought boundaries, no bubble longer than about three hundred characters, a soft ceiling of four, typing gaps of one to three seconds scaled to length. SMS: one message, two segments at most. Email: greeting, body, sign-off, on the same thread | a split that cuts mid-sentence; a ceiling reached, which returns the reply to the composer to shorten rather than sending a wall |
+| `render` | WhatsApp: splits the one reply into bubbles at the breaks a person would use, sentence and thought boundaries, no bubble longer than about three hundred characters, a soft ceiling of four, typing gaps of one to three seconds scaled to length. A person's own words are rendered as typed instead: a blank line still starts a new bubble, nothing inside one is reflowed. SMS: one message, two segments at most. Email: greeting, body, sign-off, on the same thread | a split that cuts mid-sentence; a ceiling reached, which returns the reply to the composer to shorten rather than sending a wall |
 | `pick_template` | when the window is shut: one approved template for the reply's purpose from the registry, branching on purpose never on name; freeform resumes when the customer replies | no approved template for that purpose: the reply is held as a pending draft for Ben and recorded. Never an SMS fallback. |
-| `send` | delivers the rendered reply with an approver and a run id, then records the send on the file with the facts it was written from | no approver or run id; guards not passed; window shut and no template; the party not on the file; a run id already sent |
+| `send` | delivers the rendered reply with an approver and a run id, then records the send on the file with the facts it was written from | no approver or run id; guards not passed on anything the desk composed, a person's own `human:` words carrying no verdicts; window shut and no template; the party not on the file; a run id already sent |
 | `initiate` | a desk-started send, template only, for chasing an approver or a maintenance reminder | unused in Goal 1. Exists so the landlord service can attach without a new exit. |
 
-**Invariants.** One run id sends once. Every send on a file has an approver. Nothing reaches a
-customer that did not pass the guards. A shut window never produces freeform text on any channel.
+**Invariants.** One run id sends once. Every send on a file has an approver. Nothing the desk
+composed reaches a customer without passing the guards, and only a person's own words go without
+them, under their own `human:` approver (above, behaviour.md answer 43). A shut window never
+produces freeform text on any channel.
 
 ## Contract 6 - The Scoping tool server
 
