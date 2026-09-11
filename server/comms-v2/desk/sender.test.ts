@@ -92,20 +92,21 @@ describe('renderWhatsApp', () => {
 
 describe('pickTemplate', () => {
     const approvedReopen = { async approved(name: string) { return name === 'answer_ready_reopen_v1' ? { contentSid: 'HX_reopen' } : null; } };
+    const AT = new Date('2026-09-11T10:00:00.000Z');
     it('branches on purpose and refuses when none of that purpose is approved', async () => {
-        const none = await pickTemplate('service_reply', { name: 'Sam', topic: 'a leaking tap' }, noTemplateApproved);
+        const none = await pickTemplate('service_reply', { name: 'Sam', topic: 'a leaking tap', at: AT }, noTemplateApproved);
         expect(none.ok).toBe(false);
-        const some = await pickTemplate('service_reply', { name: 'Sam', topic: 'a leaking tap' }, approvedReopen);
+        const some = await pickTemplate('service_reply', { name: 'Sam', topic: 'a leaking tap', at: AT }, approvedReopen);
         expect(some.ok).toBe(true);
         if (some.ok) {
             expect(some.template).toEqual({ name: 'answer_ready_reopen_v1', language: 'en_GB', contentSid: 'HX_reopen', variables: { '1': 'Sam', '2': 'a leaking tap' } });
             expect(some.body).toContain('Sam'); expect(some.body).toContain('a leaking tap'); expect(some.body).not.toMatch(/\{\{/);
         }
-        const marketingOnly = await pickTemplate('service_reply', { name: null, topic: 'x' }, { async approved(name) { return name === 'enquiry_followup_optin_v1' ? { contentSid: 'HX_mkt' } : null; } });
+        const marketingOnly = await pickTemplate('service_reply', { name: null, topic: 'x', at: AT }, { async approved(name) { return name === 'enquiry_followup_optin_v1' ? { contentSid: 'HX_mkt' } : null; } });
         expect(marketingOnly.ok).toBe(false);
     });
     it('sends the words and the variables of the rung that is actually approved, not the best rung\'s', async () => {
-        const vars = { name: 'Marc', topic: 'the kitchen door' };
+        const vars = { name: 'Marc', topic: 'the kitchen door', at: AT };
         const first = await pickTemplate('post_call_followup', vars, { async approved(name) { return name === 'post_call_followup_v1' ? { contentSid: 'HX_v1' } : null; } });
         expect(first.ok).toBe(true);
         if (first.ok) {
@@ -123,6 +124,22 @@ describe('pickTemplate', () => {
             expect(fallback.body).not.toContain('the kitchen door');
             expect(fallback.body).toContain('Marc');
             expect(fallback.body).not.toMatch(/\{\{/);
+        }
+    });
+    it('fills the web form acknowledgement\'s call-timing slot by the UK hour: shortly inside Ben\'s hours, in the morning outside them', async () => {
+        const approvedAck = { async approved(name: string) { return name === 'web_enquiry_ack_context' ? { contentSid: 'HX_ack' } : null; } };
+        const daytime = await pickTemplate('web_form_ack', { name: 'Sam', topic: 'a dead bathroom fan', at: new Date('2026-09-11T10:00:00.000Z') }, approvedAck);
+        expect(daytime.ok).toBe(true);
+        if (daytime.ok) {
+            expect(daytime.template.variables['3']).toBe('shortly');
+            expect(daytime.body).toContain('a quick call shortly');
+        }
+        // 23:40 in London: nobody is going to ring at that hour, so the acknowledgement must not promise it.
+        const night = await pickTemplate('web_form_ack', { name: 'Sam', topic: 'a dead bathroom fan', at: new Date('2026-09-11T22:40:00.000Z') }, approvedAck);
+        expect(night.ok).toBe(true);
+        if (night.ok) {
+            expect(night.template.variables['3']).toBe('in the morning');
+            expect(night.body).toContain('a quick call in the morning');
         }
     });
     it('shapes the template for the transport: content SID and variables for Twilio, name, language and body components for Meta', () => {

@@ -50,7 +50,10 @@ missed-call acknowledgement and the web form acknowledgement without the call of
 channels added to it; a second list would hide an unattended send from the go-live surface.
 `channels/templates.ts` only chooses the purpose. The sender's `pickTemplate` branches on purpose
 (`service_reply`, `web_form_ack`, `web_form_ack_no_call`, `post_call_followup`, `missed_call`),
-never on a name, and fills `{{1}}` name, `{{2}}` topic, `{{3}}` "shortly". A party who has already
+never on a name, and fills `{{1}}` name, `{{2}}` topic, `{{3}}` when we would ring: "shortly"
+inside Ben's hours and "in the morning" outside them, by the UK hour of the desk's own clock
+(server/working-hours.ts), which is the meaning the registry row declares and the rule the live
+acknowledgement already follows. A party who has already
 rung us, prefers text, or has been offered a call takes `web_form_ack_no_call` (checklist 1.5), the
 same acknowledgement with the offer taken out; that name is not approved yet, so today the
 acknowledgement holds for Ben with its words as the draft rather than asking to call. Off WhatsApp

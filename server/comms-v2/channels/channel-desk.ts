@@ -136,8 +136,8 @@ export class ChannelDesk implements DeskLike {
         let window: WindowState;
         if (choice.channel === 'whatsapp') {
             window = windowOf(party, 'whatsapp', this.now());
-            const pick = await pickTemplate(purpose, { name: party.name, topic }, this.deps.templates ?? liveTemplateStatus);
-            const words = pick.ok ? null : await templateBodyFor(purpose, { name: party.name, topic });
+            const pick = await pickTemplate(purpose, { name: party.name, topic, at: this.now() }, this.deps.templates ?? liveTemplateStatus);
+            const words = pick.ok ? null : await templateBodyFor(purpose, { name: party.name, topic, at: this.now() });
             if (pick.ok) { template = pick.template; body = pick.body; }
             else if (window.state === 'open' && words) {
                 // The customer wrote on WhatsApp within the day, so the window is open and the same words go as a plain message; the template is only needed on a shut window.
@@ -148,7 +148,7 @@ export class ChannelDesk implements DeskLike {
             }
         } else {
             window = { state: 'open', reason: `${choice.channel} has no window`, opensUntil: null };
-            const words = await templateBodyFor(purpose, { name: party.name, topic });
+            const words = await templateBodyFor(purpose, { name: party.name, topic, at: this.now() });
             if (!words) {
                 setHold(file, { approver: BEN, reason: `${purpose}: no template row for the purpose` }, deps);
                 return this.result(file, party.personId, runId, calls, { decision: 'hold', channel: choice.channel, factIds, summary, note: 'no template row for the purpose' });

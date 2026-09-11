@@ -14,7 +14,6 @@
  */
 import { partyOf, type CaseFile, type Turn } from '../desk/case-file';
 import { offerCall } from '../desk/scoping-tools';
-import { CALL_OUTCOME_KEY, callOutcomeOnFile } from './call-adapter';
 import { truncateWords } from './envelope';
 
 /**
@@ -28,7 +27,11 @@ export const MISSED_CALL_ACK_SUBJECT = 'missed_call_ack';
 /** The reply purposes the four channels add to the sender's `service_reply`. */
 export type ChannelReplyPurpose = 'web_form_ack' | 'web_form_ack_no_call' | 'post_call_followup' | 'missed_call';
 
-/** Which purpose a turn's shut-window template carries, and the topic its second variable takes. */
+/**
+ * Which purpose a turn's shut-window template carries, and the topic its second variable takes.
+ * A call turn never reaches here: the channel desk intercepts it and picks the follow-up's purpose
+ * itself (channel-desk.ts), which is the one definition of that rule.
+ */
 export function templateChoiceFor(file: CaseFile, turn: Turn): { purpose: 'service_reply' | ChannelReplyPurpose; topic: string } {
     if (turn.kind === 'form') {
         // The web form acknowledgement quotes the enquiry back: the words they typed, cut on a word boundary.
@@ -42,12 +45,5 @@ export function templateChoiceFor(file: CaseFile, turn: Turn): { purpose: 'servi
         const purpose = party && !offerCall(party) ? 'web_form_ack_no_call' : 'web_form_ack';
         return { purpose, topic: enquiry || file.job.type || 'your enquiry' };
     }
-    if (turn.kind === 'call_transcript') {
-        const outcome = callOutcomeOnFile(file, turn);
-        return { purpose: outcome === 'missed' ? 'missed_call' : 'post_call_followup', topic: file.job.type ?? 'your job' };
-    }
     return { purpose: 'service_reply', topic: file.job.type ?? truncateWords(turn.body, 60) };
 }
-
-/** The `call_outcome` key, re-exported so a reader of the file need not import the adapter. */
-export const CALL_OUTCOME_FACT = CALL_OUTCOME_KEY;

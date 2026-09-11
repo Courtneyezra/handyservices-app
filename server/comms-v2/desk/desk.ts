@@ -192,7 +192,7 @@ export class Desk implements DeskLike {
         let template: TemplateSend | null = null;
         if (window.state === 'shut') {
             const tmpl = templateChoiceFor(file, turn);
-            const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic }, this.deps.templates ?? liveTemplateStatus);
+            const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic, at: this.now() }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
                 setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };

@@ -161,7 +161,6 @@ describe('the call adapter', () => {
         expect(callOutcomeOnFile(file, turn)).toBe('answered_inbound');
         file.facts.push({ id: 'f1', key: 'call_outcome', value: 'missed', source: { kind: 'thread', turnId: turn.id }, at: turn.at, by: 'call_adapter' });
         expect(callOutcomeOnFile(file, turn)).toBe('missed');
-        expect(templateChoiceFor(file, turn)).toEqual({ purpose: 'missed_call', topic: 'your job' });
         // This file was opened by a call, so the party has already rung us: the acknowledgement that
         // offers a call is never the one they get (checklist 1.5).
         const form = { ...turn, kind: 'form' as const, body: 'Bathroom extractor fan has died and the light works but the fan does nothing at all' };

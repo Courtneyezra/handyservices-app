@@ -29,6 +29,7 @@ import { isHumanApprover, type Approver } from '../../approver';
 import { emailThreadingFor, renderEmail, type EmailThreading } from '../channels/email-adapter';
 import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
 import type { ChannelReplyPurpose } from '../channels/templates';
+import { isOutOfHours, ukHour } from '../../working-hours';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -188,18 +189,27 @@ const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = {
     post_call_followup: ['post_call_followup'], missed_call: ['missed_call'],
 };
 
+/** What a template body is filled from: the party's name, the turn's topic, and the instant the reply goes. */
+export interface TemplateVars { name: string | null; topic: string; at: Date }
+
 /** The rows of the one registry (server/window-templates.ts) that carry a reply of this purpose. */
 export function templateRowsFor<T extends { purpose: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): T[] {
     return registry.filter((t) => t.purpose === 'service_reply' && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
 }
 
-/** The variables a template body takes: {{1}} the first name or 'there', {{2}} the topic, {{3}} 'shortly' (the web form's "a quick call {{3}}"). */
-export function templateVariables(body: string, vars: { name: string | null; topic: string }): Record<string, string> {
+/**
+ * The variables a template body takes: {{1}} the first name or 'there', {{2}} the topic, {{3}} when
+ * we would ring (the web form's "a quick call {{3}}"), by the UK hour of the desk's own clock:
+ * 'shortly' inside Ben's hours, 'in the morning' outside them. The same rule and the same words the
+ * live acknowledgement fills this template with today (server/first-contact-ack.ts).
+ */
+export function templateVariables(body: string, vars: TemplateVars): Record<string, string> {
     const first = (vars.name ?? '').trim().split(/\s+/)[0] || 'there';
+    const when = isOutOfHours(ukHour(vars.at)) ? 'in the morning' : 'shortly';
     const out: Record<string, string> = {};
     const re = /\{\{\s*(\d+)\s*\}\}/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(body)) !== null) out[m[1]] = m[1] === '1' ? first : m[1] === '2' ? vars.topic.slice(0, 120) : 'shortly';
+    while ((m = re.exec(body)) !== null) out[m[1]] = m[1] === '1' ? first : m[1] === '2' ? vars.topic.slice(0, 120) : when;
     return out;
 }
 
@@ -209,7 +219,7 @@ export function fillTemplate(body: string, variables: Record<string, string>): s
 }
 
 /** The words a template of this purpose carries off WhatsApp, where no approval is needed: the best rung's body as one SMS or one email. Null when no row exists. */
-export async function templateBodyFor(purpose: ReplyPurpose, vars: { name: string | null; topic: string }): Promise<{ name: string; body: string } | null> {
+export async function templateBodyFor(purpose: ReplyPurpose, vars: TemplateVars): Promise<{ name: string; body: string } | null> {
     const { WINDOW_TEMPLATES } = await import('../../window-templates');
     const t = templateRowsFor(purpose, WINDOW_TEMPLATES)[0];
     if (!t) return null;
@@ -241,7 +251,7 @@ export function templateWire(transport: WhatsAppTransport, t: TemplateSend): Tem
  * rung: a fallback rung is a different template with different wording, and filling a variable it
  * has no slot for would send one message while the file, the board and the send record another.
  */
-export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string | null; topic: string }, status: TemplateStatusSource = liveTemplateStatus): Promise<TemplatePick> {
+export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, status: TemplateStatusSource = liveTemplateStatus): Promise<TemplatePick> {
     const { WINDOW_TEMPLATES } = await import('../../window-templates');
     for (const t of templateRowsFor(purpose, WINDOW_TEMPLATES)) for (const rung of t.rungs) {
         const live = await status.approved(rung.name);
