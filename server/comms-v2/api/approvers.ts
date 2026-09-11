@@ -6,8 +6,9 @@
  * the `users` table. A session maps to a slot only when listed there; unlisted, it has no slot and
  * cannot release. Fail closed: a row that cannot be read assigns nobody.
  *
- * Set it with the migration runner's SQL path, for example:
- *   insert into app_settings (key, value) values ('comms_v2_approvers', '{"ben": ["<ben user id>"]}')
+ * Set it with the migration runner's SQL path; app_settings.id has no default, so supply one:
+ *   insert into app_settings (id, key, value)
+ *   values (gen_random_uuid()::text, 'comms_v2_approvers', '{"ben": ["<ben user id>"]}')
  *   on conflict (key) do update set value = excluded.value;
  */
 import type { ApproverSlot } from '../desk/case-file';
