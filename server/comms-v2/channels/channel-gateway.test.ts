@@ -48,19 +48,7 @@ describe('the channel gateway', () => {
         expect(g.store.all()).toHaveLength(1);
         expect(seen).toHaveLength(3);
     });
-    it('the form joins in both orders: after an email and after a WhatsApp it lands on the file that person already has', async () => {
-        const byEmail = new ChannelGateway({ desk: fakeDesk });
-        const a = await byEmail.inbound(fromDoorEmail({ address: 'Priya@Example.com', subject: 'My kitchen fan', text: 'the kitchen fan is dead', at: '2026-09-11T09:00:00.000Z', messageId: '<e1@x>' }));
-        if (a.kind !== 'handled') throw new Error(a.kind);
-        const b = await byEmail.inbound(await fromWebForm({ customerName: 'Priya K', phone: '07700 900942', email: 'priya@example.com', jobDescription: 'kitchen fan dead', at: '2026-09-11T09:05:00.000Z' }), { whatsapp: false });
-        if (b.kind !== 'handled') throw new Error(b.kind);
-        expect(b.file.id).toBe(a.file.id);
-        expect(b.file.parties).toHaveLength(1);
-        expect(b.file.turns.map((t) => t.channel)).toEqual(['email', 'form']);
-        expect(byEmail.store.all()).toHaveLength(1);
-        expect(byEmail.identity.directory.all()).toHaveLength(1);
-        expect(byEmail.identity.directory.all()[0].keys.slice().sort()).toEqual(['email:priya@example.com', 'phone:07700900942']);
-
+    it('a form whose phone the business already knows joins that person, and its email is linked on the way past', async () => {
         const byWhatsApp = new ChannelGateway({ desk: fakeDesk });
         const c = await byWhatsApp.inbound(wa('my kitchen fan is dead', '2026-09-11T09:00:00.000Z'));
         if (c.kind !== 'handled') throw new Error(c.kind);
@@ -69,6 +57,21 @@ describe('the channel gateway', () => {
         expect(d.file.id).toBe(c.file.id);
         expect(byWhatsApp.store.all()).toHaveLength(1);
         expect(byWhatsApp.identity.directory.all()).toHaveLength(1);
+        expect(byWhatsApp.identity.directory.all()[0].keys.slice().sort()).toEqual(['email:priya@example.com', 'phone:07700900942']);
+    });
+    it('a key the turn only asserts never binds to someone else: the form is held as candidates for Ben, and no file is touched', async () => {
+        // A shared household address, or a typo. Without this the stranger's enquiry is appended to
+        // Priya's file and the reply, written from her whole thread, can be addressed to his phone.
+        const g = new ChannelGateway({ desk: fakeDesk });
+        const hers = await g.inbound(fromDoorEmail({ address: 'priya@example.com', subject: 'My kitchen fan', text: 'the kitchen fan is dead', at: '2026-09-11T09:00:00.000Z', messageId: '<e1@x>' }));
+        if (hers.kind !== 'handled') throw new Error(hers.kind);
+        const turnsBefore = hers.file.turns.length;
+        const stranger = await g.inbound(await fromWebForm({ customerName: 'Marc', phone: '+447700900123', email: 'priya@example.com', jobDescription: 'gate hinge', at: '2026-09-11T09:05:00.000Z' }));
+        expect(stranger).toEqual({ kind: 'candidates', candidates: 1, address: '+447700900123' });
+        expect(g.store.all()).toHaveLength(1);
+        expect(g.store.all()[0].turns).toHaveLength(turnsBefore);
+        expect(g.identity.directory.all()).toHaveLength(1);
+        expect(g.identity.directory.all()[0].keys).toEqual(['email:priya@example.com']);
     });
     it('a WhatsApp channel goes on a form or call party when the seed or the presence source says the number is on it, never otherwise', async () => {
         const known = new ChannelGateway({ desk: fakeDesk, presence: { async knownOnWhatsApp() { return true; } } });

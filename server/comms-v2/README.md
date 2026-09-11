@@ -11,7 +11,7 @@ for the length of the process (the sandbox door runs in process); a durable stor
 
 | Contract | File | What it is |
 |---|---|---|
-| 1 Identity | `desk/identity.ts` | `resolve`, `canonical`, `link`, `registerInternal`. Keys are `phone:<national>` or `email:<lowercase>`, the convention the customer record already uses (server/clients.ts); the E.164 form is the channel address. Candidates mean no reply. Only `homeowner` and `internal` are live. |
+| 1 Identity | `desk/identity.ts` | `resolve`, `canonical`, `link`, `registerInternal`. Keys are `phone:<national>` or `email:<lowercase>`, the convention the customer record already uses (server/clients.ts); the E.164 form is the channel address. Candidates mean no reply, and a key the turn only asserts (the form's typed email) names candidates for Ben rather than binding to that person; only the address the turn arrived on, or a key the business already holds for them, binds. Only `homeowner` and `internal` are live. |
 | 2 Case file | `desk/case-file.ts`, `desk/store.ts` | One file per job with parties, append-only turns, the seven stages through `setStage`, facts refused without a source, the ask ledger (asked, answered, thanked), the hold as a flag with a named approver, sends with run id and approver and the model calls behind them. `invariantViolations` is the contract's invariants paragraph as one check. |
 | gateway | `desk/whatsapp-adapter.ts`, `desk/gateway.ts` | Twilio and Meta webhook shapes to one turn, media downloaded on arrival on both paths; the door hands bytes over. The gateway resolves identity, opens or appends to the one file, hands the turn to the desk; clock and age enter here too. Not wired to a live webhook yet (cutover, behaviour.md answer 37). |
 | 3 Router, composer | `desk/router.ts`, `desk/composer.ts`, `desk/models.ts` | Haiku 4.5 routes (structured output, two deterministic belts under it: regulated and money); Fable 5.1 at medium effort composes one reply from facts on the file, a blank line where a bubble breaks. Every call records model, tokens and cost (`ModelCallRecord`). Haiku takes no effort control; "low" is the recorded intent. |
@@ -32,7 +32,9 @@ SMS, email, the web form and calls against the same desk (docs/comms-v2/design.m
 one desk"). Nothing below the gateway changed: each adapter produces the gateway's envelope
 (`channels/envelope.ts`, the WhatsApp turn is one already) and `channels/channel-gateway.ts`
 extends the gateway to take any channel: Identity resolves the address with the turn's hints and
-links a phone and an email the same turn proves belong together (the form is the join), the turn
+links a phone and an email the same turn proves belong together (the form is the join; a form whose
+phone is already known joins that person and its asserted email is linked on the way past, while a
+form that only asserts a known email is held as candidates for Ben), the turn
 lands on the person's one open file whatever the channel (answer 25), the addresses the turn proves
 go on the party's channels, the adapter's facts are recorded with the turn as their source.
 
