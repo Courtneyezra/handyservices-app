@@ -5,6 +5,13 @@
  * held, the release form (Contract 2's release: the signed-in approver and their words, enforced
  * by the case file itself, not here).
  *
+ * Beside release, the answer form: Ben writes to the customer in his own words and they go out
+ * through the desk's one sender with him as approver (POST /case-files/:id/answer, over
+ * server/comms-v2/desk/human-reply.ts). The desk never rewrites his words; the guards still run
+ * over them, and a guard failure comes back here to be shown and fixed, never held silently. When
+ * the file carries a live quote, its lines are offered to cite, because the figure guard passes a
+ * figure only against a cited quote line.
+ *
  * Not polished, just visible and operable: it doubles as the window onto the sandbox while the
  * rest of the desk is built, so the header carries a control that starts a sandbox thread and
  * sends the next customer message through the board's own sandbox door. Polls every fifteen
@@ -12,7 +19,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Clock, Loader2, MessageSquare } from 'lucide-react';
+import { AlertTriangle, Clock, Loader2, MessageSquare, Send } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -83,6 +90,13 @@ export interface Fact {
     source: { kind: string;[key: string]: unknown };
 }
 
+export interface QuoteLine {
+    factId: string;
+    quoteRef: string;
+    line: string;
+    value: string;
+}
+
 export interface CaseFileDetail {
     id: string;
     stage: Stage;
@@ -93,6 +107,7 @@ export interface CaseFileDetail {
     facts: Fact[];
     hold: { approver: { kind: string; id: string }; reason: string; since: string; draft: string | null } | null;
     holdApproverAssigned: boolean;
+    quoteLines?: QuoteLine[];
 }
 
 // ---------------------------------------------------------------- filters
@@ -252,9 +267,116 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssi
     );
 }
 
+// ---------------------------------------------------------------- answer form
+
+/**
+ * Ben's own reply to the customer, sent through the desk's one sender with him as approver. The
+ * guards run over his words server side and a failure comes back named, so it is shown here for
+ * him to fix rather than held quietly. A quote line is cited by tapping it, which is what lets the
+ * figure guard pass a figure he types.
+ */
+export function AnswerForm({ fileId, quoteLines, held, onAnswered }: {
+    fileId: string;
+    quoteLines: QuoteLine[];
+    held: boolean;
+    onAnswered: () => void;
+}) {
+    const [words, setWords] = useState('');
+    const [cited, setCited] = useState<string[]>([]);
+    const [failures, setFailures] = useState<string[]>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [sent, setSent] = useState<string[] | null>(null);
+    const [busy, setBusy] = useState(false);
+
+    const toggle = (factId: string) => setCited((c) => (c.includes(factId) ? c.filter((x) => x !== factId) : [...c, factId]));
+
+    const answer = async () => {
+        setBusy(true);
+        setError(null);
+        setFailures([]);
+        setSent(null);
+        try {
+            const res = await fetch(`/api/comms-v2/case-files/${fileId}/answer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ words, factIds: cited }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setFailures(Array.isArray(data?.failures) ? data.failures : []);
+                throw new Error(data?.error || `Answer failed (${res.status})`);
+            }
+            setSent(Array.isArray(data?.sent?.bubbles) ? data.sent.bubbles : []);
+            setWords('');
+            setCited([]);
+            onAnswered();
+        } catch (e: any) {
+            setError(e?.message || 'Answer failed');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="rounded-lg border p-3" data-testid="answer-form">
+            <p className="text-sm font-semibold">Answer the customer yourself</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+                Your words go out as written, from you. {held ? 'Sending clears the hold and hands the thread back to the desk.' : 'The thread stays with the desk after it goes.'}
+            </p>
+            {quoteLines.length > 0 && (
+                <div className="mt-3">
+                    <p className="text-xs font-medium text-muted-foreground">Quote lines you can quote from</p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                        {quoteLines.map((q) => (
+                            <button
+                                key={q.factId}
+                                type="button"
+                                data-testid={`quote-line-${q.factId}`}
+                                aria-pressed={cited.includes(q.factId)}
+                                onClick={() => toggle(q.factId)}
+                                className={cn(
+                                    'rounded-full border px-2 py-0.5 text-xs',
+                                    cited.includes(q.factId) ? 'border-primary bg-primary/10 font-medium' : 'text-muted-foreground',
+                                )}
+                            >
+                                {q.line}: {q.value}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+            <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="answer-words">Your reply to the customer</label>
+            <Textarea
+                id="answer-words"
+                value={words}
+                onChange={(e) => setWords(e.target.value)}
+                placeholder="Write it as you would on your phone. A blank line starts a new message."
+                className="mt-1"
+                rows={4}
+            />
+            {failures.length > 0 && (
+                <ul data-testid="answer-failures" className="mt-2 space-y-1 text-xs text-red-600">
+                    {failures.map((f) => <li key={f}>{f}</li>)}
+                </ul>
+            )}
+            {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+            {sent && (
+                <div data-testid="answer-sent" className="mt-2 space-y-1">
+                    <p className="text-xs text-muted-foreground">Sent as {sent.length} message{sent.length === 1 ? '' : 's'}</p>
+                    {sent.map((b, i) => <p key={i} className="rounded-md bg-primary/5 px-2 py-1 text-sm">{b}</p>)}
+                </div>
+            )}
+            <Button size="sm" className="mt-3" disabled={busy || !words.trim()} onClick={answer}>
+                {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                Send as me
+            </Button>
+        </div>
+    );
+}
+
 // ---------------------------------------------------------------- case file detail
 
-export function CaseFileDetailView({ fileId, onReleased }: { fileId: string; onReleased: () => void }) {
+export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId: string; onReleased: () => void; onAnswered: () => void }) {
     const { data, isLoading, error } = useQuery<CaseFileDetail>({
         queryKey: ['comms-v2-case-file', fileId],
         queryFn: async () => {
@@ -287,6 +409,8 @@ export function CaseFileDetailView({ fileId, onReleased }: { fileId: string; onR
                     onReleased={onReleased}
                 />
             )}
+
+            <AnswerForm fileId={data.id} quoteLines={data.quoteLines ?? []} held={!!data.hold} onAnswered={onAnswered} />
 
             <div>
                 <h4 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase text-muted-foreground">
@@ -480,9 +604,9 @@ export default function CommsV2BoardPage() {
                 <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
                     <SheetHeader>
                         <SheetTitle>Case file</SheetTitle>
-                        <SheetDescription>Turns and facts, read-only.</SheetDescription>
+                        <SheetDescription>Turns and facts, with the release and answer actions.</SheetDescription>
                     </SheetHeader>
-                    {openCardId && <div className="mt-4"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} /></div>}
+                    {openCardId && <div className="mt-4"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} /></div>}
                 </SheetContent>
             </Sheet>
         </div>

@@ -2,6 +2,10 @@
  * The new desk's sandbox door, driven over HTTP the way the pipeline's test step drives it: start,
  * message (with media), run, age, reset, state. Every response carries a planned send that fits
  * the schema in planned-send.ts, and a dry-run reply lands on the thread so the next turn sees it.
+ *
+ * The answer action is Ben's own reply on the thread (human-reply.ts): its planned send names him
+ * as approver and human as author, a guard failure is refused with the reasons and nothing goes,
+ * and the desk answers the next customer turn itself (checklist 7.4).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -90,6 +94,41 @@ describe('the new desk\'s sandbox door', () => {
         expect(r.json.state.caseFile.facts.some((f: any) => f.key === 'media_image')).toBe(true);
         expect(fs.readdirSync(dir).length).toBe(1);
     });
+    it('answer sends Ben\'s own words: the planned send names him as approver and human as author, and it lands on the thread', async () => {
+        await post('/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
+        await post('/message', { text: 'How much roughly?', channel: 'whatsapp' });
+
+        const r = await post('/answer', { words: 'Morning Sam, I will take a look and come back to you myself.' });
+        expect(r.status).toBe(200);
+        const plannedSend = plannedSendOfResponse(r.json);
+        expect(plannedSend.approver).toBe('human:ben');
+        expect(plannedSend.author).toBe('human');
+        expect(plannedSend.bubbles).toEqual(['Morning Sam, I will take a look and come back to you myself.']);
+        expect(plannedSend.hold).toBeNull();
+        expect(plannedSend.delivered).toBe(true);
+        expect(sendLanded(plannedSend, r.json.state)).toBe(true);
+        expect(r.json.state.caseFile.hold).toBeNull();
+        expect(r.json.state.caseFile.releases).toHaveLength(1);
+
+        // 7.4: the thread is back with automation, so the desk answers the next customer turn.
+        const next = await post('/message', { text: 'Thanks, it is the kitchen one', channel: 'whatsapp' });
+        expect(plannedSendOfResponse(next.json).approver).toBe('agent.comms_v2');
+        expect(plannedSendOfResponse(next.json).author).toBe('desk');
+    });
+
+    it('answer refuses an unsourced figure with the guard\'s reasons, sends nothing, and refuses empty words or no thread', async () => {
+        const before = await (await fetch(`${base}/`)).json() as any;
+        const refused = await post('/answer', { words: 'It would be about £120 all in.' });
+        expect(refused.status).toBe(409);
+        expect(refused.json.failures.join(' ')).toMatch(/figure/);
+        expect(refused.json.plannedSend.guards.figure.result).toBe('fail');
+        expect(refused.json.state.messages.length).toBe(before.messages.length);
+
+        expect((await post('/answer', { words: '  ' })).status).toBe(400);
+        await post('/reset');
+        expect((await post('/answer', { words: 'Hi' })).status).toBe(409);
+    });
+
     it('refuses the doors that are not open in Goal 1', async () => {
         expect((await post('/call', { transcript: 'x'.repeat(50) })).status).toBe(409);
         expect((await post('/price', {})).status).toBe(409);

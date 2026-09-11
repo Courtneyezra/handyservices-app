@@ -52,6 +52,8 @@ export const plannedSendSchema = z.object({
     kbIds: z.array(z.string()),
     guards: z.record(z.enum(CONTRACT_GUARDS), guardResultSchema),
     approver: z.string().nullable(),
+    /** Who wrote the words: the desk's composer, or a person answering from Ben's board (approver `human:<slot>`). */
+    author: z.enum(['desk', 'human']).default('desk'),
     runId: z.string().min(1),
     hold: holdSchema.nullable(),
     /** True when a reply would reach the customer on this turn (bubbles non-empty and the desk decided to send). */

@@ -41,7 +41,17 @@ test:
     For a comms change, run the relevant lines of docs/comms-v2/checklist.md as sandbox
     conversations. For the new desk under server/comms-v2 use its own door: `npm run
     comms-v2:door` serves it on a loopback port (the URL is printed once; POST /start, /message,
-    /run, /age, /reset). Model calls are live; a refused or rate-limited model is a finding, not a pass.
+    /run, /age, /reset, /answer). Model calls are live; a refused or rate-limited model is a finding, not a pass.
+
+    For a change to Ben's board (/admin/comms-v2, server/comms-v2/api), drive the board itself in
+    the browser as Ben and run the scenario list the goal's section of server/comms-v2/README.md
+    carries. The pipeline's admin account has the VA role on the branch database, so its sidebar
+    does not carry the board: open /admin/comms-v2 by URL. For Ben answering a customer from a
+    card: a held sandbox card, Ben taps it, writes a reply and sends; the planned send on the door
+    names him as approver and human as author with the bubbles as the sender rendered them; the
+    file carries his turn and the cleared hold; the next customer message is answered by the desk
+    again; and a reply carrying an unsourced figure is refused with the guard's reason shown on the
+    board and nothing sent.
 
     Evidence is screenshots of the sandbox thread and the sandbox data pages only; never
     screenshot another admin list or page, and never attach the server log. If the log matters,
