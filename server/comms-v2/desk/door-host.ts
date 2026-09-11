@@ -12,6 +12,11 @@
  * production .env cannot be driven by mistake.
  *
  * Nothing here reports a variable's value: a host carries its address only.
+ *
+ * It is the only caller that names an approver slot itself: this process has no sign-in, so the
+ * door's "Ben replies" action runs as Ben here. On the router the app mounts the approver is the
+ * signed-in session's slot (server/comms-v2/api/approvers.ts), and an unlisted session cannot
+ * release.
  */
 import { isProductionDatabaseUrl } from '../../worker-gate';
 
@@ -81,7 +86,8 @@ export async function openDoorHost(opts: DoorHostOptions = {}): Promise<DoorHost
     let router: unknown;
     try {
         const { commsV2SandboxRouter } = await import('./sandbox-door');
-        router = commsV2SandboxRouter();
+        const { BEN } = await import('./guards');
+        router = commsV2SandboxRouter({ approver: () => BEN });
     } catch (err: any) {
         throw new DoorHostError('unreachable', `the desk's sandbox router could not be loaded in-process: ${err?.message ?? err}. This process needs the branch database string and the model keys.`);
     }

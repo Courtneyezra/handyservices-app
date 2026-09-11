@@ -5,10 +5,10 @@
  * freeform. The recipients are approvers, not parties, so the record lives here in the chase
  * ledger and not on the file's thread; the run id is still spent on the file.
  *
- * The intervals and the recipients are configuration. Production values come from the
- * environment (chaseConfigFromEnv); the sandbox door sets test values (service-door.ts, POST
- * /chase-intervals) and drama numbers for Ben and the owner. A missing address is a refusal that
- * is recorded, never a silent skip.
+ * The intervals and the recipients are configuration: the sandbox door sets test values
+ * (service-door.ts, POST /chase-intervals) and drama numbers for Ben and the owner, and the
+ * production values land at cutover with the caller that reads them. A missing address is a
+ * refusal that is recorded, never a silent skip.
  *
  * The chase runs on the desk's clock pass (desk.ts clockPass), the one pass that never messages a
  * customer. Ben's reply (return-to-automation.ts) clears the ledger for the file.
@@ -31,19 +31,6 @@ export interface ChaseConfig {
 export const DEFAULT_CHASE_AFTER_MS = 30 * 60_000;
 export const DEFAULT_ESCALATE_AFTER_MS = 60 * 60_000;
 
-/** The variable names the chase reads; values are never logged. */
-export const CHASE_ENV = { ben: 'COMMS_V2_CHASE_BEN_WHATSAPP', owner: 'COMMS_V2_CHASE_OWNER_WHATSAPP', chaseAfter: 'COMMS_V2_CHASE_AFTER_MINUTES', escalateAfter: 'COMMS_V2_ESCALATE_AFTER_MINUTES' } as const;
-
-export function chaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ChaseConfig {
-    const minutes = (v: string | undefined, fallbackMs: number) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n * 60_000 : fallbackMs; };
-    return {
-        chaseAfterMs: minutes(env[CHASE_ENV.chaseAfter], DEFAULT_CHASE_AFTER_MS),
-        escalateAfterMs: minutes(env[CHASE_ENV.escalateAfter], DEFAULT_ESCALATE_AFTER_MS),
-        ben: { address: env[CHASE_ENV.ben]?.trim() || null, name: 'Ben' },
-        owner: { address: env[CHASE_ENV.owner]?.trim() || null, name: null },
-    };
-}
-
 /**
  * The desk's own templates for a desk-started send. Defined here (they go to an approver, never a
  * customer, so they are not customer window templates in server/window-templates.ts); approval
@@ -57,7 +44,6 @@ export const CHASE_TEMPLATES: Record<InitiatePurpose, TemplateDefinition> = {
 
 export interface ChaseRecord {
     caseId: string;
-    holdSince: string;
     /** How many releases the file had when this hold was raised: a later hold has more, and starts a fresh record. Timestamps are not the key because the sandbox ages them. */
     releasesBefore: number;
     chased: InitiatedSend | null;
@@ -109,8 +95,7 @@ export async function chaseIfDue(file: CaseFile, state: ChaseState, deps: ChaseD
     const now = deps.now ?? (() => new Date());
     if (!file.hold) { state.ledger.clear(file.id); return { action: 'none', reason: 'the file is not held', record: null }; }
     let record = state.ledger.get(file.id);
-    if (!record || record.releasesBefore !== file.releases.length) { record = { caseId: file.id, holdSince: file.hold.since, releasesBefore: file.releases.length, chased: null, escalated: null, attempts: [] }; state.ledger.put(record); }
-    else record.holdSince = file.hold.since;
+    if (!record || record.releasesBefore !== file.releases.length) { record = { caseId: file.id, releasesBefore: file.releases.length, chased: null, escalated: null, attempts: [] }; state.ledger.put(record); }
     const age = now().getTime() - Date.parse(file.hold.since);
     const cfg = state.config;
     const attempt = async (purpose: InitiatePurpose, to: { address: string | null; name: string | null }): Promise<ChaseOutcome> => {

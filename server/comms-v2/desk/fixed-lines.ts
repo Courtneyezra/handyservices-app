@@ -7,14 +7,14 @@
  * Ben has reviewed one, because the captain's rule is "almost never silent, always acknowledge".
  * Live, the sender refuses a default for those four: only words from the four sources reach a
  * customer. The Goal 1 lines below them are the checklist's own wording and send live.
- * The rest are Goal 1's: money goes to Ben (checklist 2.7), dates come with the quote (2.6), and
+ * The rest are Goal 1's: money goes to Ben (checklist 2.7), a booked date change goes to Ben too
+ * (`date_change_to_ben`, the Scheduling specialist's line), dates come with the quote (2.6), and
  * the acknowledgement a guard hold sends (Contract 4, second failure).
  *
  * Goal 6 (server/comms-v2/service) adds the Service specialist's hold vocabulary: a question we
  * have no source for, scoping that is not converging, a requested change of details, and a
- * customer asking for a call (checklist 7.1, 7.2). Their defaults are the checklist's own wording
- * and send live; a reviewed knowledge-base row with the id `fixed-line-<kind, hyphenated>`
- * replaces the default with Ben's words when he writes one.
+ * customer asking for a call (checklist 7.1, 7.2). Those are the checklist's own wording and send
+ * live; the knowledge base is not read for them.
  */
 export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben';
 
@@ -37,15 +37,7 @@ export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
 /** The four whose words are Ben's to review; a default for one of these sends in dry run only. The other kinds are Goal 1 wording and send live. */
 export const KB_BACKED: ReadonlySet<FixedLineKind> = new Set<FixedLineKind>(['gas', 'complaint', 'refund', 'trust']);
 
-/** Goal 6's lines: a default sends live; a reviewed row `fixed-line-<kind>` replaces it with Ben's words when one exists. */
-export const KB_OPTIONAL: ReadonlySet<FixedLineKind> = new Set<FixedLineKind>(['no_source', 'not_converging', 'change_of_details', 'callback_to_ben']);
-
-export type KbFixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben';
-
-/** The knowledge-base row id a fixed line is read from: the four contract ids, then `fixed-line-<kind>` hyphenated for Goal 6's. */
-export function fixedLineKbId(kind: KbFixedLineKind): string {
-    return `fixed-line-${kind.replace(/_/g, '-')}`;
-}
+export type KbFixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust';
 
 export interface FixedLineSource {
     /** A reviewed knowledge-base row for the kind, or null when none is reviewed. */
@@ -57,7 +49,7 @@ export const knowledgeBaseFixedLines: FixedLineSource = {
     async reviewed(kind) {
         try {
             const kb = await import('../../spine/knowledge-base');
-            const e = kind === 'gas' || kind === 'complaint' || kind === 'refund' || kind === 'trust' ? await kb.getFixedLine(kind) : await kb.getReviewedEntry(fixedLineKbId(kind));
+            const e = await kb.getFixedLine(kind);
             return e && e.approvedWords.trim() ? { id: e.id, words: e.approvedWords.trim() } : null;
         } catch {
             return null;
@@ -70,7 +62,7 @@ export const noFixedLineSource: FixedLineSource = { async reviewed() { return nu
 export interface FixedLine { kind: FixedLineKind; text: string; kbId: string | null }
 
 export async function fixedLine(kind: FixedLineKind, source: FixedLineSource = knowledgeBaseFixedLines): Promise<FixedLine> {
-    if (KB_BACKED.has(kind) || KB_OPTIONAL.has(kind)) {
+    if (KB_BACKED.has(kind)) {
         const row = await source.reviewed(kind as KbFixedLineKind);
         if (row) return { kind, text: row.words, kbId: row.id };
     }

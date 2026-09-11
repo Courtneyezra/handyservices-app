@@ -33,7 +33,8 @@ import { ChannelGateway } from '../channels/channel-gateway';
 import { schedulingDoor, withScheduling } from '../scheduling/scheduling-door';
 import { createChaseState } from '../service/chase';
 import { automationState } from '../service/return-to-automation';
-import { serviceDoorRouter } from '../service/service-door';
+import { serviceDoorRouter, type ApproverForRequest } from '../service/service-door';
+import { sessionApprover } from '../api/approvers';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -46,6 +47,8 @@ export const SANDBOX_OWNER_E164 = '+447700900902';
 
 export interface DoorDeps extends DeskDeps {
     mediaDir?: string;
+    /** Who may release a hold here. Left unset, it is the signed-in session's slot, the rule every app-mounted router follows. */
+    approver?: ApproverForRequest;
 }
 
 // ---------------------------------------------------------------- the planned send the desk emits
@@ -204,7 +207,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, hours, window: st.window, state: st });
     });
 
-    router.use(serviceDoorRouter({ currentFile, chase, stateOf, now, newId: deps.newId }));
+    router.use(serviceDoorRouter({ currentFile, chase, stateOf, now, newId: deps.newId, approver: deps.approver ?? sessionApprover() }));
 
     router.post('/price', (_req, res) => { res.status(409).json({ error: 'pricing is Goal 4; the new desk has no quote yet' }); });
 
@@ -224,7 +227,7 @@ function seedOf(raw: unknown): SeedInput {
 
 /** The router the door host mounts in-process. Built on first use so importing this module opens nothing. */
 let shared: SandboxDoor | null = null;
-export function commsV2SandboxRouter(): Router {
-    if (!shared) shared = createSandboxDoor();
+export function commsV2SandboxRouter(deps: DoorDeps = {}): Router {
+    if (!shared) shared = createSandboxDoor(deps);
     return shared.router;
 }

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { hold, open, release, type CaseFile } from '../desk/case-file';
 import { BEN } from '../desk/guards';
 import { noTemplateApproved } from '../desk/sender';
-import { CHASE_ENV, CHASE_TEMPLATES, chaseConfigFromEnv, chaseIfDue, createChaseState } from './chase';
+import { CHASE_TEMPLATES, chaseIfDue, createChaseState } from './chase';
 
 function held(at = '2026-09-11T10:00:00.000Z'): CaseFile {
     const r = open({
@@ -88,10 +88,6 @@ describe('chaseIfDue', () => {
         const failing = { async deliver() { return { ok: false as const, reason: 'switch off', delivered: [] }; } };
         const refused = await chaseIfDue(held(), state(), { templates: approved, now: at('2026-09-11T10:31:00.000Z'), mode: 'live', sender: { deliverer: failing } });
         expect(refused).toMatchObject({ action: 'refused', reason: 'switch off' });
-    });
-    it('reads production intervals and addresses from the environment by name, with defaults and no address when unset', () => {
-        const cfg = chaseConfigFromEnv({ [CHASE_ENV.ben]: '+447700900111', [CHASE_ENV.chaseAfter]: '15' } as NodeJS.ProcessEnv);
-        expect(cfg).toMatchObject({ chaseAfterMs: 15 * 60_000, escalateAfterMs: 60 * 60_000, ben: { address: '+447700900111', name: 'Ben' }, owner: { address: null } });
     });
     it('the chase templates carry no date, time, duration, figure or commitment', async () => {
         const { RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_FIGURE } = await import('../desk/lexicon');

@@ -2,7 +2,9 @@
  * Goal 2 - the board API driven the way the page drives it: a thread started through the mounted
  * sandbox door shows on the board (the door replaces its gateway on every start, so the board must
  * read the live one), a money turn holds it for ben, and release is by the signed-in session only,
- * and only when the comms_v2_approvers row lists that session for the slot.
+ * and only when the comms_v2_approvers row lists that session for the slot. The sandbox door the
+ * board mounts follows the same rule: "Ben replies" releases as the session's slot, never as a
+ * name in the request body.
  *
  * Then the answer half: Ben writes the reply himself and it goes out through the desk's one sender
  * with him as approver - the signed-in person, not the slot - and the guards not applied, lands on the file
@@ -16,7 +18,7 @@ import { FakeModelClient } from '../desk/models';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
-import type { ApproverAssignments } from './approvers';
+import { sessionApprover, type ApproverAssignments } from './approvers';
 import { createCommsV2ApiRouter } from './routes';
 
 let server: import('node:http').Server;
@@ -29,7 +31,7 @@ beforeAll(async () => {
         specialist: () => ({ facts: [{ key: 'job_type', value: 'leaking tap' }], jobUnknowns: [], answeredSubjects: [] }),
         composer: () => ({ reply: 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
     });
-    const door = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb });
+    const door = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, approver: sessionApprover(async () => assignments) });
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
@@ -133,6 +135,25 @@ describe('the board over the sandbox door', () => {
         expect(cardsOn(held.json)).toEqual([]);
         const detail = await call('GET', `/case-files/${id}`);
         expect(detail.json.hold).toBeNull();
+    });
+
+    it('the door\'s "Ben replies" releases as the session\'s slot only, never as a name in the body', async () => {
+        await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
+        await call('POST', '/sandbox/message', { text: 'How much roughly?', channel: 'whatsapp' });
+        const board = await call('GET', '/board?held=true');
+        const id = cardsOn(board.json)[0].id as string;
+
+        const anonymous = await call('POST', '/sandbox/ben-replies', { text: 'Leave it with me', by: 'ben' });
+        expect(anonymous.status).toBe(403);
+        const unlisted = await call('POST', '/sandbox/ben-replies', { text: 'Leave it with me', by: 'ben' }, 'ben@handyservices.app');
+        expect(unlisted.status).toBe(403);
+        expect((await call('GET', `/case-files/${id}`)).json.hold).not.toBeNull();
+        expect((await call('GET', `/case-files/${id}`)).json.turns.map((t: any) => t.direction)).toEqual(['inbound', 'outbound', 'inbound', 'outbound']);
+
+        const listed = await call('POST', '/sandbox/ben-replies', { text: 'Leave it with me, Sam', surface: 'kanban' }, 'Ben.Real@handyservices.app');
+        expect(listed.status).toBe(200);
+        expect(listed.json).toMatchObject({ event: 'return_to_automation', approver: 'human:ben', automation: { state: 'automated' } });
+        expect((await call('GET', `/case-files/${id}`)).json.hold).toBeNull();
     });
 });
 
