@@ -17,6 +17,8 @@ export interface ColumnInfo {
     isPrimaryKey: boolean;
     /** True when the column is on either side of a foreign key, so its value must not move. */
     isForeignKey: boolean;
+    /** Declared character limit, when the column has one. A synthetic value has to fit it. */
+    maxLength: number | null;
 }
 
 export interface TableInfo {
@@ -31,6 +33,7 @@ const COLUMNS_SQL = `
          c.column_name,
          c.data_type,
          c.ordinal_position,
+         c.character_maximum_length,
          e.data_type                                as element_type,
          coalesce(t.typtype = 'e', false)           as is_enum
     from information_schema.columns c
@@ -100,6 +103,7 @@ export async function readSchema(client: Client): Promise<TableInfo[]> {
             isEnum: r.is_enum === true,
             isPrimaryKey: primaryKeys.has(`${r.table_name}.${r.column_name}`),
             isForeignKey: foreignKeys.has(`${r.table_name}.${r.column_name}`),
+            maxLength: r.character_maximum_length ?? null,
         });
     }
     return [...byTable.values()].sort((a, b) => a.table.localeCompare(b.table));

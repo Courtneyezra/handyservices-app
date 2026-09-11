@@ -12,7 +12,7 @@
  *                     database that was scrubbed months ago.
  */
 import {
-    isSyntheticEmail, isSyntheticPhone, isSyntheticPostcode, nationalDigits,
+    isReservedWord, isSyntheticEmail, isSyntheticPhone, isSyntheticPostcode, nationalDigits,
 } from './synthetic';
 
 /** A UK number as people actually type it: +44…, 0044…, 07…, with spaces, dashes or brackets. */
@@ -82,10 +82,15 @@ export class Substitutions {
     /** Real tokens that were deliberately not swept because a match would be ambiguous. */
     readonly skipped = new Set<string>();
 
-    /** Add one real value and the synthetic value that replaced it. */
+    /**
+     * Add one real value and the synthetic value that replaced it, unless the real value is a
+     * word the generators themselves write. Sweeping such a term would rewrite invented text and
+     * counting it would report a leak that is not there, so it is recorded as unswept.
+     */
     add(real: string | null | undefined, synthetic: string): void {
         const t = (real ?? '').trim();
         if (!t || t === synthetic) return;
+        if (isReservedWord(t)) { this.skipped.add(t); return; }
         this.map.set(t, synthetic);
     }
 
@@ -101,7 +106,7 @@ export class Substitutions {
         const fakeWords = synthetic.split(/\s+/).filter(Boolean);
         if (realWords.length < 2) return;
         realWords.forEach((w, i) => {
-            if (isSweepableName(w)) this.map.set(w, fakeWords[Math.min(i, fakeWords.length - 1)]);
+            if (isSweepableName(w) && !isReservedWord(w)) this.map.set(w, fakeWords[Math.min(i, fakeWords.length - 1)]);
             else this.skipped.add(w);
         });
     }

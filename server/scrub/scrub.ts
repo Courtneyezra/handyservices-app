@@ -159,7 +159,7 @@ export async function scrubDatabase(client: Client, opts: ScrubOptions): Promise
     // ---- pass 4: prove it. A dry run has written nothing, so there is nothing to prove yet and
     // scanning would only report the real data the operator already knows is there.
     const scan = opts.scanResiduals ?? !dryRun;
-    const residuals = scan ? await findResiduals(client, tables, subs) : [];
+    const residuals = scan ? await findResiduals(client, tables, subs, preserveEmail) : [];
 
     return {
         databaseHost: databaseHostOf(opts.connectionString),
@@ -438,16 +438,27 @@ function scrubColumnValue(
 
     if (col.dataType === 'ARRAY') {
         if (!Array.isArray(before)) return undefined;
-        const after = before.map((v, i) => v === null ? v : scrubScalar(
+        const after = before.map((v, i) => v === null ? v : fit(scrubScalar(
             treatment === 'url_list' ? 'url' : treatment,
             String(v),
             { ...ctx, column: `${ctx.column}.${i}` },
-        ));
+        ), col.maxLength));
         return JSON.stringify(after) === JSON.stringify(before) ? undefined : after;
     }
 
-    const after = scrubScalar(treatment, asText(before), ctx);
+    const after = fit(scrubScalar(treatment, asText(before), ctx), col.maxLength);
     return after === asText(before) ? undefined : after;
+}
+
+/**
+ * Keep a synthetic value inside the column's declared width. Several columns are narrow on
+ * purpose — a twelve-character access code, a ten-character postcode — and a value that does not
+ * fit would abort the whole scrub. Truncation is deterministic, so a second run produces the same
+ * short value and still writes nothing.
+ */
+function fit(value: string | null, maxLength: number | null): string | null {
+    if (value === null || maxLength === null || value.length <= maxLength) return value;
+    return value.slice(0, maxLength);
 }
 
 function scrubUrlList(value: unknown, ctx: ValueContext): unknown {
@@ -461,7 +472,9 @@ function scrubUrlList(value: unknown, ctx: ValueContext): unknown {
 
 // ---------------------------------------------------------------------------- pass 4
 
-async function findResiduals(client: Client, tables: TableInfo[], subs: Substitutions): Promise<ResidualReport[]> {
+async function findResiduals(
+    client: Client, tables: TableInfo[], subs: Substitutions, preserveEmail: string | null,
+): Promise<ResidualReport[]> {
     const out: ResidualReport[] = [];
     for (const table of tables) {
         for (const col of table.columns) {
@@ -477,8 +490,11 @@ async function findResiduals(client: Client, tables: TableInfo[], subs: Substitu
                 for (const row of r.rows) {
                     const text = String(row.v ?? '');
                     if (!text) continue;
-                    literals += subs.countIn(text);
-                    for (const res of residualsIn(text)) {
+                    // The one administrator account the pipeline logs in with is deliberately left
+                    // alone, so its address is not a leak and must not be counted as one.
+                    const scanned = preserveEmail ? text.split(preserveEmail).join('') : text;
+                    literals += subs.countIn(scanned);
+                    for (const res of residualsIn(scanned)) {
                         patterns[res.kind] = (patterns[res.kind] ?? 0) + res.count;
                     }
                 }
