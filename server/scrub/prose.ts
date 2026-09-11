@@ -152,6 +152,63 @@ function fakeTranscript(seed: string, key: string[], ctx: ProseContext, target: 
     return turns.join('\n');
 }
 
+/**
+ * Is this text something `fakeProse` wrote?
+ *
+ * Needed because invented prose is deliberately shaped like the text it replaces — same rough
+ * length — which means the generator's output is not a fixed point of the generator: feeding it
+ * back gives a different length target and therefore a different number of sentences. So
+ * recognition cannot be "regenerate and compare"; it has to be structural. Every sentence a
+ * generator can write comes from the pools above, so a body is synthetic when each of its
+ * sentences matches one of those templates with the variable slots wildcarded.
+ *
+ * The test only has to be right for text this file wrote. A first scrub rewrites everything
+ * regardless (see `force` in values.ts), so a real message can never be spared by a false match
+ * here unless it is word for word one of the templates.
+ */
+export function isSyntheticProse(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    for (const line of trimmed.split('\n')) {
+        const body = line.replace(/^(Agent|Caller):\s*/, '').trim();
+        if (!body) continue;
+        if (!sentencesAreOurs(body)) return false;
+    }
+    return true;
+}
+
+/**
+ * Templates as regular expressions, built once: `{job}`, `{town}` and `{address}` are wildcards.
+ *
+ * Several templates are two sentences long ("Booked in. You will get a reminder the day before."),
+ * and the recogniser works one sentence at a time, so each template contributes its own sentences
+ * as well as itself.
+ */
+const TEMPLATE_RES: RegExp[] = [...CUSTOMER_LINES, ...OPERATOR_LINES, ...NARRATIVE_LINES, ...NOTE_LINES]
+    .flatMap((line) => [line, ...(line.match(/[^.?!]+[.?!]/g) ?? [])].map((s) => s.trim()))
+    .filter((s, i, all) => s.length > 0 && all.indexOf(s) === i)
+    .map((line) => new RegExp('^' + line
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\\\{job\\\}/g, '.+')
+        .replace(/\\\{town\\\}/g, '.+')
+        .replace(/\\\{address\\\}/g, '.+') + '$'));
+
+function sentencesAreOurs(body: string): boolean {
+    // `fakeProse` joins whole sentences with a single space, and may prefix one greeting.
+    const withoutGreeting = body.replace(/^Hi [A-Z][a-zà-ÿ'’-]*, /, '');
+    const sentences = withoutGreeting.match(/[^.?!]+[.?!]/g);
+    if (!sentences) return false;
+    // A truncated preview ends in an ellipsis, so allow a trailing fragment there.
+    const joined = sentences.join(' ').trim();
+    const remainder = withoutGreeting.slice(joined.length).trim();
+    if (remainder && remainder !== '...') return false;
+    return sentences.every((s) => {
+        const t = s.trim();
+        const capitalised = t.charAt(0).toUpperCase() + t.slice(1);
+        return TEMPLATE_RES.some((re) => re.test(t) || re.test(capitalised));
+    });
+}
+
 /** A short thread preview, the shape `conversations.last_message_preview` holds. */
 export function fakePreview(seed: string, parts: string[], ctx: ProseContext = {}): string {
     const body = fakeProse(seed, 'message', parts, { ...ctx, targetLength: 90 });

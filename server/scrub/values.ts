@@ -17,7 +17,7 @@
  */
 import type { Treatment } from './plan';
 import type { Substitutions } from './detect';
-import { fakeProse, fakePreview, type ProseKind } from './prose';
+import { fakeProse, fakePreview, isSyntheticProse, type ProseKind } from './prose';
 import {
     fakeAddressLine1, fakeBusinessName, fakeCoordinate, fakeEmail, fakeExternalId, fakeFirstName,
     fakeFullName, fakeLastName, fakePostcode, fakeToken, fakeTown, fakeUrl, isSyntheticAddress,
@@ -178,10 +178,12 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
         case 'narrative':
         case 'note':
         case 'transcript':
+            if (settled(isSyntheticProse(raw))) return raw;
             return fakeProse(seed, PROSE_KIND[treatment]!, rowParts, {
                 name: ctx.rowName, town: ctx.rowTown, targetLength: raw.length,
             });
         case 'preview':
+            if (settled(isSyntheticProse(raw))) return raw;
             return fakePreview(seed, rowParts, { name: ctx.rowName, town: ctx.rowTown });
 
         case 'actor':

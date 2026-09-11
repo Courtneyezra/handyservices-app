@@ -360,10 +360,14 @@ async function scrubTable(client: Client, table: TableInfo, state: RunState): Pr
             const syntheticName = rowName
                 ? scrubScalar('person_name', rowName, { ...ctxBase, column: nameCol! })
                 : null;
-            const syntheticTown = rowTown
-                ? (townCol ? fakeTown(state.seed, 'town', rowTown.trim().toLowerCase())
-                    : fakeTown(state.seed, 'town-of', rowTown.replace(/\s+/g, '').toUpperCase()))
-                : null;
+            // Derive the town from the SCRUBBED postcode, not the real one. Keying it on the real
+            // value would give a different town on a second run, once the column holds the fake
+            // postcode, and the invented prose that mentions the town would change with it.
+            const syntheticTown = !rowTown ? null
+                : townCol ? scrubScalar('town', rowTown, { ...ctxBase, column: townCol })
+                    : fakeTown(state.seed, 'town-of',
+                        (scrubScalar('postcode', rowTown, { ...ctxBase, column: postcodeCol! }) ?? rowTown)
+                            .replace(/\s+/g, '').toUpperCase());
 
             const sets: string[] = [];
             const params: unknown[] = [];
