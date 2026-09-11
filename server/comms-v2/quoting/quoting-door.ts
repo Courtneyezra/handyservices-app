@@ -75,7 +75,9 @@ type QuoteSentOutcome =
  */
 async function composeQuoteSent(file: CaseFile, party: Party, quoteUrl: string, deps: DeskDeps): Promise<QuoteSentOutcome> {
     const client = deps.client ?? new AnthropicModelClient();
-    const turn = file.turns[file.turns.length - 1];
+    // The newest thing the customer said: the thread context the composer writes against, and the
+    // turn the regulated guard reads. The desk's own last reply is not it.
+    const turn = [...file.turns].reverse().find((t) => t.direction === 'inbound' && t.partyId === party.personId) ?? file.turns[file.turns.length - 1];
     const calls: ModelCallRecord[] = [];
     const brief = [
         'quoting: Ben has priced the quote and is sending it now',
