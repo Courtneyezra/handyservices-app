@@ -6,16 +6,39 @@
  * pipeline's end-to-end test step, a script, or Ben's sandbox can drive it over HTTP: POST /start,
  * /message, /run, /age, /reset, GET /.
  *
- * It connects only to the Neon branch named by COMMS_V2_DATABASE_URL: it refuses to open without
+ * It connects only to the Neon branch named by COMMS_V2_DATABASE_URL, read from the ordinary
+ * environment (the pipeline's run copies inherit it through direnv): it refuses to open without
  * it, refuses a value that names the production database, and never reads DATABASE_URL, so a
- * production .env cannot be driven by mistake. The machine-local env is loaded first, without
- * overriding anything.
+ * production .env cannot be driven by mistake.
  *
  * Nothing here reports a variable's value: a host carries its address only.
  */
-import { loadCommsV2Env, resolveCommsV2Database } from '../env';
+import { isProductionDatabaseUrl } from '../../worker-gate';
 
 export const DOOR_MOUNT = '/api/comms-v2-sandbox';
+
+/** The one database variable the desk reads. */
+export const COMMS_V2_DATABASE_ENV = 'COMMS_V2_DATABASE_URL';
+
+export type DatabaseResolution =
+    | { ok: true; url: string; from: string }
+    | { ok: false; reason: 'missing' | 'production'; message: string };
+
+/**
+ * The branch database string the desk may connect to: COMMS_V2_DATABASE_URL. Refuses a missing
+ * value and a value that names the production database (the pure check in server/worker-gate.ts).
+ * Never reads DATABASE_URL. The message never carries a value.
+ */
+export function resolveCommsV2Database(env: NodeJS.ProcessEnv = process.env): DatabaseResolution {
+    const url = env[COMMS_V2_DATABASE_ENV];
+    if (!url) {
+        return { ok: false, reason: 'missing', message: `${COMMS_V2_DATABASE_ENV} is not set. The desk connects only to the Neon branch it names, never to DATABASE_URL.` };
+    }
+    if (isProductionDatabaseUrl(url)) {
+        return { ok: false, reason: 'production', message: `${COMMS_V2_DATABASE_ENV} points at the production database. The desk runs only against a Neon branch; put the branch's connection string there.` };
+    }
+    return { ok: true, url, from: COMMS_V2_DATABASE_ENV };
+}
 
 export class DoorHostError extends Error {
     constructor(public readonly kind: 'refused' | 'unreachable', message: string) {
@@ -37,16 +60,13 @@ export interface DoorHost {
 export interface DoorHostOptions {
     /** A fixed port; 0 (the default) takes any free one. */
     port?: number;
-    /** Skip the machine-local file (tests). */
-    loadMachineEnv?: boolean;
 }
 
 /**
  * Check the environment and put the branch string where the database module reads it. Split out
  * so the refusal rules are testable without opening a port; `openDoorHost` calls it first.
  */
-export function prepareDoorEnv(env: NodeJS.ProcessEnv = process.env, loadMachineEnv = true): { databaseFrom: string } {
-    if (loadMachineEnv) loadCommsV2Env({ env });
+export function prepareDoorEnv(env: NodeJS.ProcessEnv = process.env): { databaseFrom: string } {
     const db = resolveCommsV2Database(env);
     if (!db.ok) throw new DoorHostError('refused', db.message);
     // The database module reads DATABASE_URL at import, so the branch is put there first; whatever
@@ -57,7 +77,7 @@ export function prepareDoorEnv(env: NodeJS.ProcessEnv = process.env, loadMachine
 
 /** Open the door: the desk's sandbox router in-process, on the desk's own branch database. */
 export async function openDoorHost(opts: DoorHostOptions = {}): Promise<DoorHost> {
-    const { databaseFrom } = prepareDoorEnv(process.env, opts.loadMachineEnv ?? true);
+    const { databaseFrom } = prepareDoorEnv(process.env);
     let router: unknown;
     try {
         const { commsV2SandboxRouter } = await import('./sandbox-door');
