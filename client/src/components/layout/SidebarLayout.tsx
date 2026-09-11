@@ -185,6 +185,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
                                 { icon: PoundSterling, label: "Price queue", href: "/admin/price", badge: priceQueueCount > 0 ? String(priceQueueCount) : null },
                                 { icon: FlaskConical, label: "Sandbox", href: "/admin/sandbox", badge: "NEW" },
+                                { icon: Kanban, label: "Comms Desk v2", href: "/admin/comms-v2", badge: "NEW" },
                                 { icon: Bot, label: "AI Staff", href: "/admin/staff", badge: visionFailing ?? "NEW", alarm: !!visionFailing },
                                 { icon: BookOpen, label: "What we tell customers", href: "/admin/knowledge", badge: kbWaiting > 0 ? String(kbWaiting) : "NEW" },
                                 { icon: Activity, label: "Activity", href: "/admin/activity", badge: "NEW" },

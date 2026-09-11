@@ -1,6 +1,7 @@
 /**
  * Where case files live. Goal 1 runs the desk in the sandbox, in process, so the store is a Map;
- * the interface is what a durable store (Goal 2's kanban needs one) implements later. The one
+ * the interface is what a durable store implements later (Ben's kanban reads this in-process one
+ * through its own sandbox door for now, server/comms-v2/api/store.ts). The one
  * cross-file rule lives here: a person with an open file for a job that is not done has their
  * turn appended there, never a second file opened.
  */

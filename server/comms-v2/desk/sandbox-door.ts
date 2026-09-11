@@ -61,7 +61,14 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
 
 // ---------------------------------------------------------------- the door
 
-export function createSandboxDoor(deps: DoorDeps = {}): { router: Router; gateway: Gateway; reset(): void } {
+export interface SandboxDoor {
+    router: Router;
+    /** The live gateway: /start and /reset replace it, so read it each time rather than holding one. */
+    readonly gateway: Gateway;
+    reset(): void;
+}
+
+export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
     const now = deps.now ?? (() => new Date());
     let gateway = new Gateway({ desk: new Desk({ ...deps, mode: 'dry_run' }), now, newId: deps.newId });
     const reset = () => { gateway = new Gateway({ desk: new Desk({ ...deps, mode: 'dry_run' }), now, newId: deps.newId }); };
@@ -168,7 +175,7 @@ export function createSandboxDoor(deps: DoorDeps = {}): { router: Router; gatewa
     router.post('/call', (_req, res) => { res.status(409).json({ error: 'the call door is Goal 3; the new desk carries whatsapp only in Goal 1' }); });
     router.post('/price', (_req, res) => { res.status(409).json({ error: 'pricing is Goal 4; the new desk has no quote yet' }); });
 
-    return { router, gateway, reset };
+    return { router, get gateway() { return gateway; }, reset };
 }
 
 function seedOf(raw: unknown): SeedInput {
@@ -183,7 +190,7 @@ function seedOf(raw: unknown): SeedInput {
 }
 
 /** The router the door host mounts in-process. Built on first use so importing this module opens nothing. */
-let shared: ReturnType<typeof createSandboxDoor> | null = null;
+let shared: SandboxDoor | null = null;
 export function commsV2SandboxRouter(): Router {
     if (!shared) shared = createSandboxDoor();
     return shared.router;

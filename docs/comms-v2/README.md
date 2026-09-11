@@ -18,6 +18,7 @@ exercises, and the captain reviews sandbox threads before any flip. Goals with i
 run in parallel.
 
 The build lands in `server/comms-v2/` beside `server/spine/`; it never goes inside `server/spine/`.
-Goal 1's desk (sandbox-only until cutover) is there already; `server/comms-v2/README.md` covers it
-contract by contract, with its sandbox door, the door host and the environment they read. The old desk
-stays live as rollback until the new one is proven and cut over.
+Goal 1's desk (sandbox-only until cutover) and Goal 2's board over it (`/admin/comms-v2`) are there
+already; `server/comms-v2/README.md` covers them, the desk contract by contract with its sandbox door,
+the door host and the environment they read, and the board piece by piece. The old desk stays live
+as rollback until the new one is proven and cut over.
