@@ -41,7 +41,39 @@ test:
     For a comms change, run the relevant lines of docs/comms-v2/checklist.md as sandbox
     conversations. For the new desk under server/comms-v2 use its own door: `npm run
     comms-v2:door` serves it on a loopback port (the URL is printed once; POST /start, /message,
-    /run, /age, /reset). Model calls are live; a refused or rate-limited model is a finding, not a pass.
+    /run, /age, /reset, and for Goal 4 POST /price, POST /accept, GET /quote). Model calls are live;
+    a refused or rate-limited model is a finding, not a pass.
+
+    Goal 4, the Quoting specialist, on the comms-v2 door, one thread in this order (the ready
+    turn runs the estimator and the pricing engine and can take up to two minutes):
+    4.1 and 4.2: POST /start with a job and a postcode in one message and no photo ("my kitchen
+    mixer tap is dripping at the base and needs replacing, NG9 2AB"); expect a reply with no
+    figure, state.conversation.stage ready, state.quote.slug set and plannedSend.evidence.summary
+    containing "quoting: drafted".
+    4.3: state.quote.notifications has exactly one entry of kind ready_to_price whose link is
+    /admin/price/<slug>; GET /quote shows record.status draft with every pricePence null.
+    4.4: open http://127.0.0.1:$PORT/admin/price/<slug> in the app as Ben and screenshot it: the
+    lines, the suggestions, and the missing list ("Missing, yours to request") on the first line's
+    notes.
+    4.5: POST /run (expect the note "not due"), POST /age {"hours": 5}, POST /run again: the note
+    says "chase 1 recorded for Ben" and state.quote.notifications gains a chase; nothing is sent
+    to the customer on either pass.
+    5.2: POST /message "Does that include a new tap?": the reply answers from the draft's scope
+    (what the line covers, what is not included) with no figure; a money hold for Ben beside it
+    is 2.7 still standing before the quote, not a failure of 5.2.
+    5.1: POST /price {} : plannedSend.approver human:ben, the bubbles carry /quote/<slug>, the
+    stage is quoted, the guards pass; GET /quote shows record.status sent and every line priced.
+    5.3: POST /message "What does that include, and how much is the labour?": the reply's figure
+    equals one line of GET /quote's record to the penny (£x.xx), plannedSend.factIds names a
+    quote_line fact carrying that figure, the figure guard passes, no hold.
+    2.7 still after the quote: POST /message "Can you do it any cheaper?": a hold for ben whose
+    reason names money beyond a quote line, and no figure in the reply.
+    6.2: POST /message "Leave it with me, I'll get back to you next month": one acknowledgement
+    with no question; POST /run sends nothing.
+    6.1 and 6.3: POST /accept: response.notice.title "Quote accepted", state.conversation.stage
+    accepted, state.quote.notifications gains accepted, and the planned send is one acknowledgement
+    whose only promise is that Ben has been told, with no date, time or duration. A second POST
+    /accept answers 409.
 
     Evidence is screenshots of the sandbox thread and the sandbox data pages only; never
     screenshot another admin list or page, and never attach the server log. If the log matters,

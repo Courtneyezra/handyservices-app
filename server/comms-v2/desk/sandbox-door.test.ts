@@ -14,6 +14,10 @@ import { plannedSendOfResponse, sendLanded } from './planned-send';
 import { createSandboxDoor } from './sandbox-door';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
+import { recordingNotifier } from '../quoting/ben-notifier';
+import { FakeDrafter } from '../quoting/draft-quote';
+import { MemoryQuoteStore } from '../quoting/quote-store';
+import { emptyPriceBook } from '../quoting/quoting-tools';
 
 let server: import('node:http').Server;
 let base: string;
@@ -26,7 +30,8 @@ beforeAll(async () => {
         specialist: () => ({ facts: [{ key: 'job_type', value: 'leaking tap' }], jobUnknowns: [], answeredSubjects: [] }),
         composer: ({ user }) => ({ reply: user.includes('thank for media: yes') ? 'Thanks for the photo, that helps.\n\nWhereabouts are you?' : 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?\n\nHappy to give you a quick call if easier.', factIds: [], kbIds: [] }),
     });
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir: dir, scoping: { describe: async () => ({ ok: true, description: 'a dripping tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) } });
+    const store = new MemoryQuoteStore();
+    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir: dir, scoping: { describe: async () => ({ ok: true, description: 'a dripping tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier, priceBook: emptyPriceBook } });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);

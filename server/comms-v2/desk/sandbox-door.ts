@@ -23,6 +23,8 @@ import { Gateway, type SeedInput } from './gateway';
 import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
 import type { PlannedSend } from './planned-send';
+import { createQuotingDoor } from '../quoting/quoting-door';
+import { quoteStateOf } from '../quoting/quoting-specialist';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -93,7 +95,7 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
             conversation: file ? { id: file.id, stage: file.stage, tags: [] as string[], contactName: party?.name ?? null, createdAt: file.openedAt } : null,
             messages: file ? file.turns.map((t) => ({ id: t.id, direction: t.direction, content: t.body, createdAt: t.at, senderName: t.direction === 'inbound' ? (party?.name ?? null) : 'desk', channel: t.channel, type: t.kind, mediaUrl: t.media[0]?.url ?? null, mediaType: t.media[0]?.mime ?? null })) : [],
             window: window ? { canFreeform: window.state === 'open', summary: window.reason } : null,
-            quote: null,
+            quote: file ? quoteStateOf(file) : null,
             lastCall: null,
             caseFile: file ? snapshot(file) : null,
         };
@@ -104,9 +106,11 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, ...extra, run: { runId: result.runId, agent: 'comms_v2', decision: { kind: result.decision, approver: result.approver, reason: result.note ?? undefined }, guards: null, proposal: null, error: result.error, caseFile: { stage: file.stage } }, plannedSend, mirrored: null, state: stateOf() });
     };
 
+    const quoting = createQuotingDoor({ current: currentFile, gateway: () => gateway, state: stateOf, plannedSend: plannedSendOf, now, deps });
+
     router.get('/', (_req, res) => { res.json(stateOf()); });
 
-    router.post('/reset', (_req, res) => { reset(); res.json({ ok: true, deleted: 1, state: stateOf() }); });
+    router.post('/reset', async (_req, res) => { reset(); const quotes = await quoting.reset(); res.json({ ok: true, deleted: 1, quotes, state: stateOf() }); });
 
     router.post('/start', async (req, res) => {
         try {
@@ -173,7 +177,7 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
     });
 
     router.post('/call', (_req, res) => { res.status(409).json({ error: 'the call door is Goal 3; the new desk carries whatsapp only in Goal 1' }); });
-    router.post('/price', (_req, res) => { res.status(409).json({ error: 'pricing is Goal 4; the new desk has no quote yet' }); });
+    router.use(quoting.router);
 
     return { router, get gateway() { return gateway; }, reset };
 }

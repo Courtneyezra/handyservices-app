@@ -10,6 +10,7 @@ import { z } from 'zod/v4';
 import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES } from './case-file';
 import { moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';
+import { applyQuotingRoute } from '../quoting/quoting-specialist';
 
 export const SUBJECTS = ['scoping', 'quoting', 'scheduling', 'service'] as const;
 export type Subject = (typeof SUBJECTS)[number];
@@ -65,6 +66,8 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient): Pr
     // The belts: regulated and money are holds the model cannot unsay.
     if (belts.regulated) out.exception = 'regulated';
     else if (belts.money && !out.exception) out.exception = 'money';
+    // Goal 4: a sent quote answers its own figures (checklist 5.3 replaces 2.7); an acceptance is Quoting's turn.
+    applyQuotingRoute(file, turn, out);
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
     return { ...out, belts, call: res.record, error: res.error };
 }

@@ -25,6 +25,52 @@ for the length of the process (the sandbox door runs in process); a durable stor
 Cost: every model call prices through server/agent-cost.ts, the one price table (Fable 5.1 has its row
 there).
 
+## Goal 4: the Quoting specialist and its tool server (`quoting/`)
+
+Contract 7 (docs/comms-v2/contracts.md). Registered with the desk by one import and one gather
+step in `desk/desk.ts`, one call in `desk/router.ts`, a `brief` on `SpecialistReturn` that the
+composer prints, and a mount in `desk/sandbox-door.ts`. Nothing under server/spine/ is edited; the
+quote machinery that survives the rebuild is wrapped.
+
+| Piece | File | What it is |
+|---|---|---|
+| the specialist | `quoting/quoting-specialist.ts` | Sonnet 5 at medium effort, two structured outputs and never a figure in front of it: before the draft, the clerk's intake (lines, what matters for pricing, what is not included, what Ben may want to request); after the quote, which labels a question concerns, whether it is money beyond a line, acceptance in chat, not ready. Returns facts cited to the quote and a `brief` for the composer; never a sentence. Runs once the job and location are known; owns the thread once the quote is sent (Scoping stops). `applyQuotingRoute` is the router's hook: a sent quote answers its own figures (5.3 replaces 2.7), a portal action is Quoting's turn. |
+| the tool server | `quoting/quoting-tools.ts`, `quoting/quote-record.ts` | quote_readiness (job type and location, photos optional, the missing list for Ben), price_book (read-only, never a fact), draft_quote (once per job, refused beside a live quote), notify_ben (once, with the price screen link, recorded on the file), chase (four hours, then daily, three times; never a customer send), quote_status, read_quote_line (to the penny with its citation; refuses draft, revoked, superseded, expired, an unknown label), read_quote_scope (draft allowed; no figure), record_quote_facts (each line, its labour and materials halves, the total, the deposit, the link, scope, not included, assumptions, once each, cited `quote_line` with the label), price_quote (Ben's prices through the price screen's own `confirmPrices`), record_acceptance (a human witness only: the row, quoted to accepted, one push to Ben). |
+| the chain wrapper | `quoting/draft-quote.ts` | Calls server/spine/route-a.ts `runRouteAChain` with what a spine pass would supply (the intake as the clerk's artifact, a case-file shape carrying the v2 case id and the party's number) and its own injection points: the draft row is written here from the chain's pure `pricedDraftRow` (no old conversation needed), Ben's notification is captured for notify_ben, the job pack is skipped and said so. The estimator and the one pricing engine run for real. `FakeDrafter` for tests. |
+| the store | `quoting/quote-store.ts` | The personalized_quotes row: read, insert the draft, price (server/spine/price-screen.ts `loadPriceScreen` and `confirmPrices`), accept (what the Stripe webhook writes, for the sandbox), add photos to a draft, delete the sandbox's own rows. `MemoryQuoteStore` for tests. |
+| Ben's notifications | `quoting/ben-notifier.ts` | ready to price (with the price screen link and the missing list), chase, accepted. Dry run records; live dispatches through server/pushover.ts. Each is a fact on the file (`ben_notified`, `ben_chased`, `quote_accepted`), which is what the door shows as the recorded push. |
+| the door | `quoting/quoting-door.ts` | `POST /price` (Ben prices and sends: the price screen write, then the desk's drafted message with the link through the one sender in dry run under `human:ben`; stage to quoted), `POST /accept` (the human event: the row, the stage, Ben's push, then one acknowledgement through the desk as the customer's turn), `GET /quote` (the file's quote facts and the row's lines to the penny). `/reset` removes the sandbox's quote rows. |
+
+Facts the specialist writes carry the quote and the line as their source: `quote_line:<label> = £x.xx`
+(`source: { kind: 'quote_line', quoteRef, line }`), `quote_scope:<label>`, `quote_not_included:<label>`,
+`quote_assumption:<label>`, `quote_link`, `quote_status`. The composer copies a figure exactly as
+written and cites the fact; the figure guard passes only that.
+
+### Driving Goal 4's checklist lines
+
+The pipeline reads `test.instructions` from the default branch, so the scenarios are spelled out
+here too. One thread on the comms-v2 door, in this order; the ready turn runs the estimator and
+the pricing engine, so allow up to five minutes for it.
+
+| Line | Drive | Passes when |
+|---|---|---|
+| 4.1, 4.2 | `POST /start` with a job and a postcode in one message and no photo ("my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB") | the reply carries no figure, `state.conversation.stage` is `ready`, `state.quote.slug` is set, and the planned send's summary contains `quoting: drafted` |
+| 4.3 | `GET /quote` | `state.quote.notifications` holds exactly one `ready_to_price` whose link is `/admin/price/<slug>`; the record is `draft` with every `pricePence` null |
+| 4.4 | open `/admin/price/<slug>` in the app as Ben | the lines, the suggestions and the missing list ("Missing, yours to request") on the first line's notes |
+| 4.5 | `POST /run`, then `POST /age {"hours": 5}`, then `POST /run` | the first note says "not due", the second "chase 1 recorded for Ben"; nothing reaches the customer on either pass |
+| 5.2 | `POST /message` "Does that include a new tap?" | answered from the draft's scope with no figure (a money hold for Ben beside it is 2.7 still standing before the quote, not a failure) |
+| 5.1 | `POST /price {}` | the planned send's approver is `human:ben`, the bubbles carry `/quote/<slug>`, the stage is `quoted`, every guard passes, and `GET /quote` now reads `sent` with every line priced |
+| 5.3 | `POST /message` "What does that include, and how much is the labour?" | the figure equals one line of the record to the penny (£x.xx), `factIds` names a `quote_line` fact carrying that figure, the figure guard passes, no hold |
+| 2.7 after | `POST /message` "Can you do it any cheaper?" | held for Ben, reason names money beyond a quote line, and no figure in the reply |
+| 6.2 | `POST /message` "Leave it with me, I'll get back to you next month", then `POST /run` | one acknowledgement with no question, then nothing |
+| 6.1, 6.3 | `POST /accept`, then `POST /accept` again | `notice.title` "Quote accepted", stage `accepted`, an `accepted` notification recorded, and one acknowledgement whose only promise is that Ben has been told (no date, time or duration); the second answers 409 |
+
+What the price screen shows for a v2 draft: the lines, suggestions and band, the missing list on the
+first line's notes, the photos on the draft. Its thread pane, the "asked, none sent" pill and its
+send button read the old conversation and messages tables, so they stay empty or refuse for a
+sandbox draft until cutover re-points them at the case file; the door's `/price` is the send in the
+meantime.
+
 ## Driving the door
 
 ```
@@ -34,9 +80,13 @@ npm run comms-v2:door -- --port 4747  # a fixed port
 
 Then over HTTP at the printed URL: `POST /start` (`{ door: 'whatsapp', text, name, seed }`, the seed
 being `customer: 'known'`, `prefersText`, `alreadyRung`, `facts`, `ledger`), `POST /message`
-(`{ text, channel: 'whatsapp' }`, or multipart with `media` files), `POST /run` (a clock pass),
-`POST /age` (`{ hours }`), `POST /reset`, `GET /` (the thread and the case file). Every response
-carries `plannedSend` and `state`.
+(`{ text, channel: 'whatsapp' }`, or multipart with `media` files), `POST /run` (a clock pass; the
+unpriced-quote chase fires here once due), `POST /age` (`{ hours }`), `POST /reset`, `GET /` (the
+thread and the case file; `state.quote` is the quote as the file records it, with Ben's recorded
+pushes). Goal 4 adds `POST /price` (`{}` for the chain's suggestions, or `{ totalPence }`, or
+`{ lines: [{ lineId, finalPence }] }`), `POST /accept` and `GET /quote`. Every response carries
+`plannedSend` and `state`. The ready turn runs the estimator and the pricing engine before it
+replies, so allow up to two minutes for it.
 
 This is the surface the no-mistakes pipeline's end-to-end test step drives to validate a goal. The
 checklist lines for the goal (docs/comms-v2/design.md, Goal 1's stop condition) are the scenarios

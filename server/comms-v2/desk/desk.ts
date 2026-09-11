@@ -26,6 +26,7 @@ import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
+import { quote as quoteGather, quotingClock, quotingOwnsThread, quotingSummary, type QuotingSpecialistDeps } from '../quoting/quoting-specialist';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -33,6 +34,7 @@ export interface DeskDeps extends CaseFileDeps {
     templates?: TemplateStatusSource;
     kb?: KbReader;
     scoping?: ScopingDeps;
+    quoting?: QuotingSpecialistDeps;
     sender?: SenderDeps;
     mode?: 'dry_run' | 'live';
     log?: (line: string) => void;
@@ -58,11 +60,13 @@ export class Desk implements DeskLike {
     }
 
     private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.deps.newId }; }
+    private quotingDeps(): QuotingSpecialistDeps { return { ...this.deps.quoting, now: this.now, newId: this.deps.newId, mode: this.deps.mode ?? 'dry_run' }; }
 
-    /** A clock pass with no new message: the desk never chases, so nothing goes. */
+    /** A clock pass with no new message: the desk never chases the customer, so nothing goes; an unpriced draft is chased for Ben (4.5). */
     async clockPass(file: CaseFile): Promise<DeskResult> {
         const party = file.parties[0];
-        return this.nothing(file, party.personId, `run_${randomUUID()}`, [], 'clock pass: no customer turn, nothing to reply to; the desk never chases');
+        const chased = await quotingClock(file, this.quotingDeps());
+        return this.nothing(file, party.personId, `run_${randomUUID()}`, [], `clock pass: no customer turn, nothing to reply to; the desk never chases the customer; ${chased.note}`);
     }
 
     private nothing(file: CaseFile, partyId: string, runId: string, calls: ModelCallRecord[], note: string, decision: 'none' | 'hold' = 'none'): DeskResult {
@@ -98,6 +102,7 @@ export class Desk implements DeskLike {
         let reply: string | null = null;
         let factIds: string[] = [];
         const specialists: SpecialistReturn[] = [];
+        let scoping: SpecialistReturn | null = null;
 
         if (exception && FIXED_LINE_ONLY.has(exception)) {
             const kind: FixedLineKind = exception === 'regulated' ? 'gas' : exception === 'trust_doubt' ? 'trust' : exception === 'refund' ? 'refund' : 'complaint';
@@ -107,26 +112,31 @@ export class Desk implements DeskLike {
             this.holdFor(file, exception, `${exception}: ${route.belts.regulated ?? turn.body.slice(0, 80)}`);
             reply = line.text;
         } else {
-            // 3. Gather: the Scoping specialist and its tool server.
-            const scoping = await scope(file, turn, party, this.client, { ...this.deps.scoping, now: this.now });
-            calls.push(...scoping.calls);
-            specialists.push(scoping);
-            if (scoping.error) log(`scoping: ${scoping.error}`);
-            if (scoping.proposal.hold) {
+            // 3. Gather: Scoping until the quote is sent; Quoting once the job and the location are known (Goal 4).
+            scoping = quotingOwnsThread(file) ? null : await scope(file, turn, party, this.client, { ...this.deps.scoping, now: this.now });
+            if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
+            if (scoping?.proposal.hold) {
                 const line = await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines);
                 fixedLines.push(line);
                 if (line.kbId) kbIds.push(line.kbId);
                 this.holdFor(file, 'regulated', `regulated: ${scoping.proposal.hold.match}`);
                 reply = line.text;
             } else {
+                const quoting = await quoteGather(file, turn, party, route, this.client, this.quotingDeps());
+                if (quoting) { calls.push(...quoting.calls); specialists.push(quoting); if (quoting.error) log(`quoting: ${quoting.error}`); }
                 if (exception && ANSWER_THE_REST.has(exception)) {
                     const line = await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines);
                     fixedLines.push(line);
                     this.holdFor(file, exception, `${exception}: ${route.belts.money ?? turn.body.slice(0, 80)}`);
+                } else if (quoting?.proposal.hold?.reason === 'money') {
+                    fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    this.holdFor(file, 'money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
+                } else if (quoting?.proposal.hold?.reason === 'acceptance' && !file.hold) {
+                    setHold(file, { approver: approverFor(file, null), reason: `acceptance in chat: ${quoting.proposal.hold.match}; acceptance stays on the quote page and with Ben` }, this.fileDeps());
                 }
                 if (route.subjects.includes('scheduling')) fixedLines.push(await fixedLine('dates_with_quote', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
-                if (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready') {
+                if (scoping && (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready')) {
                     scoping.proposal.nextQuestion = null;
                     scoping.proposal.mentionPhotos = false;
                     if (route.turnKind === 'not_ready') scoping.proposal.offerCall = false;
@@ -147,7 +157,7 @@ export class Desk implements DeskLike {
         const summary = summarise(route, specialists);
         // 5. Guards, with one retry to the composer.
         const kbRows = await this.kbRows(kbIds);
-        const proposedSubject = specialists[0]?.proposal.nextQuestion?.subject ?? null;
+        const proposedSubject = scoping?.proposal.nextQuestion?.subject ?? null;
         const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, proposedSubject });
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
@@ -155,7 +165,7 @@ export class Desk implements DeskLike {
             return n > 1 ? { ok: false, guards: g.guards, failures: [...g.failures, `one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`] } : g;
         };
         let guards: GuardOutcome = withOneThing(runGuards(guardInput(reply!, factIds)), reply!);
-        if (!guards.ok && !(exception && FIXED_LINE_ONLY.has(exception)) && !specialists[0]?.proposal.hold) {
+        if (!guards.ok && !(exception && FIXED_LINE_ONLY.has(exception)) && !scoping?.proposal.hold) {
             const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures }, this.client);
             calls.push(again.record);
             composerCalls++;
@@ -237,7 +247,7 @@ export class Desk implements DeskLike {
     private afterSend(file: CaseFile, partyId: string, reply: string, specialists: SpecialistReturn[]): void {
         const deps = this.fileDeps();
         const party = partyOf(file, partyId)!;
-        const proposal = specialists[0]?.proposal ?? null;
+        const proposal = specialists.find((s) => s.specialist === 'scoping')?.proposal ?? null;
         for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(reply, subject)) ledgerAsk(file, subject, deps);
         if (proposal?.nextQuestion && reply.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
         if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(reply)) ledgerAsk(file, 'media', deps);
@@ -255,10 +265,12 @@ export class Desk implements DeskLike {
 
 /** One line of evidence: the route and the proposal behind a reply. */
 function summarise(route: Route, specialists: SpecialistReturn[]): string {
-    const p = specialists[0]?.proposal;
+    const p = specialists.find((s) => s.specialist === 'scoping')?.proposal;
     const bits = [`turn ${route.turnKind}`, `subjects ${route.subjects.join('+')}`, `exception ${route.exception ?? 'none'}`];
     if (p) bits.push(`ask ${p.nextQuestion ? `${p.nextQuestion.subject}${p.nextQuestion.unknowns.length ? ' (' + p.nextQuestion.unknowns.join(', ') + ')' : ''}` : 'none'}`, `call ${p.offerCall ? 'yes' : 'no'}`, `photos ${p.mentionPhotos ? 'mention' : p.thankForMedia ? 'thank' : 'no'}`, `ready ${p.ready ? 'yes' : 'no'}`);
-    if (specialists[0]?.error) bits.push(`specialist error: ${specialists[0].error}`);
+    const q = quotingSummary(specialists.find((s) => s.specialist === 'quoting'));
+    if (q) bits.push(q);
+    for (const s of specialists) if (s.error) bits.push(`${s.specialist} error: ${s.error}`);
     if (route.error) bits.push(`router error: ${route.error}`);
     return bits.join('; ');
 }

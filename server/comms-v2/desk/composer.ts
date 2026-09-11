@@ -46,7 +46,7 @@ export const COMPOSER_SYSTEM = [
     '',
     'What you may say:',
     '- Only what the customer wrote, the facts listed on the file, and the fixed lines you are given. Nothing else about the business.',
-    '- Never a price, a figure, a cost, a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees.',
+    '- Never a price, a figure or a cost of your own. A figure may appear only when a fact on the file whose key starts with quote_line carries it: copy it exactly as written on that fact, to the penny (£120.00, never £120 or "about £120"), cite the fact id, and never add figures up or work one out. Never a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees.',
     '- Never say or hint that you are an assistant, a bot, AI or automated. No disclosure line. Never sign off with a name.',
     '',
     'How to sound:',
@@ -101,6 +101,11 @@ export function buildComposerUser(input: ComposeInput): string {
         lines.push(`- offer a call: ${proposal.offerCall ? 'yes' : 'no, do not mention calling'}`);
         lines.push(`- mention photos once: ${proposal.mentionPhotos ? 'yes, say a photo would help if easy, not as a question' : 'no'}`);
         lines.push(`- thank for media: ${proposal.thankForMedia ? 'yes' : 'no'}`);
+    }
+    for (const s of specialists) {
+        if (s.specialist === 'scoping' || !s.brief?.length) continue;
+        lines.push(`Proposal from ${s.specialist[0].toUpperCase()}${s.specialist.slice(1)}:`);
+        for (const b of s.brief) lines.push(`- ${b}`);
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);

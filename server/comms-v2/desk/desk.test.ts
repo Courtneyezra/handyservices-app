@@ -13,6 +13,10 @@ import { FakeModelClient } from './models';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
 import type { InboundTurn } from './whatsapp-adapter';
+import { recordingNotifier } from '../quoting/ben-notifier';
+import { FakeDrafter } from '../quoting/draft-quote';
+import { MemoryQuoteStore } from '../quoting/quote-store';
+import { emptyPriceBook } from '../quoting/quoting-tools';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
 const specialistFacts = (facts: Array<{ key: string; value: string }>, answered: string[] = []) => ({ facts, jobUnknowns: [], answeredSubjects: answered });
@@ -24,7 +28,8 @@ function turn(text: string, at: string, media: InboundTurn['media'] = []): Inbou
 function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], clock = { t: Date.parse('2026-09-11T10:00:00.000Z') }, extra: Partial<DeskDeps> = {}) {
     const client = new FakeModelClient(handlers);
     const now = () => new Date(clock.t += 1000);
-    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, ...extra });
+    const store = new MemoryQuoteStore();
+    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier, priceBook: emptyPriceBook }, ...extra });
     return { client, gateway: new Gateway({ desk: d, now }), now };
 }
 

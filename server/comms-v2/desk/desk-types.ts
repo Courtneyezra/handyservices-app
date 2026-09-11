@@ -55,14 +55,17 @@ export interface Proposal {
     mentionPhotos: boolean;
     thankForMedia: boolean;
     ready: boolean;
-    hold: { reason: 'regulated'; match: string } | null;
+    /** regulated from Scoping; money beyond a quote line and acceptance in chat from Quoting. */
+    hold: { reason: 'regulated' | 'money' | 'acceptance'; match: string } | null;
 }
 
 export interface SpecialistReturn {
-    specialist: 'scoping';
+    specialist: 'scoping' | 'quoting';
     /** Ids of the facts this pass recorded on the file. */
     factIds: string[];
     proposal: Proposal;
+    /** A specialist other than Scoping briefs the composer here: fact ids and what to do this turn. Never a sentence for the customer. */
+    brief?: string[];
     calls: ModelCallRecord[];
     error: string | null;
 }
