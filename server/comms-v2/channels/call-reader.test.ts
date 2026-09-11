@@ -49,8 +49,12 @@ describe('the call reader', () => {
         recordCallFacts(file, file.turns[0], { jobPhrase: null, jobType: 'leaking tap', location: '12345', benAskedFor: [], callbackAgreed: true, customerName: 'Priya', prefersText: true });
         expect(file.facts.map((f) => f.key)).toEqual(['callback_agreed', 'prefers_text', 'customer_name']);
         expect(file.parties[0].prefersText).toBe(true);
-        recordCallFacts(file, file.turns[0], { jobPhrase: null, jobType: 'and a sticking door', location: 'Beeston', benAskedFor: [], callbackAgreed: false, customerName: null, prefersText: false });
+        expect(file.parties[0].name).toBe('Priya');
+        recordCallFacts(file, file.turns[0], { jobPhrase: null, jobType: 'and a sticking door', location: 'Beeston', benAskedFor: [], callbackAgreed: false, customerName: 'Someone Else', prefersText: false });
         expect(file.facts.map((f) => f.key)).toContain('job_detail');
         expect(file.job.location).toBe('Beeston');
+        // A name already on the file is never overwritten by a later reading of a call.
+        expect(file.facts.filter((f) => f.key === 'customer_name')).toHaveLength(1);
+        expect(file.parties[0].name).toBe('Priya');
     });
 });

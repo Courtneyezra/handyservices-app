@@ -157,6 +157,19 @@ describe('the channel desk on a call', () => {
         expect(b.file.ledger.find((l) => l.subject === 'media')).toMatchObject({ answeredAt: expect.any(String), thankedAt: expect.any(String) });
         expect(b.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(2);
     });
+    it('a name only the transcript carries names the party, so the follow-up greets them by it (1.3)', async () => {
+        const { gateway } = rig({
+            specialist: () => read({ customerName: 'Sam' }),
+            router: () => routeScoping(),
+            composer: () => ({ reply: 'unused', factIds: [], kbIds: [] }),
+        }, approvedAll);
+        const anonymous = fromDoorCall({ outcome: 'ben_rang', transcript: TRANSCRIPT, durationSeconds: 120, name: null, address: '+447700900942', at: '2026-09-11T10:00:00.000Z' });
+        expect(anonymous.name).toBeNull();
+        const a = await gateway.inbound(anonymous, { whatsapp: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.parties[0].name).toBe('Sam');
+        expect(a.result.bubbles[0].text).toBe('Hi Sam, good to speak just now about the bathroom fan. Whenever you get a chance, send over the photos we talked about and we will get your price to you. Just reply to this message.');
+    });
     it('an earlier "yes please call me" does not send the thread back to Ben after the call happened', async () => {
         const { gateway } = rig({
             router: () => routeScoping({ turnKind: 'enquiry' }),
