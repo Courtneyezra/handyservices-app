@@ -20,8 +20,7 @@ export const CONTRACT_GUARDS = [
 export type ContractGuard = (typeof CONTRACT_GUARDS)[number];
 
 export const guardResultSchema = z.object({
-    /** not_applied: a person wrote the words, so Contract 4 never ran over them (behaviour.md answer 43). */
-    result: z.enum(['pass', 'fail', 'not_applied']),
+    result: z.enum(['pass', 'fail']),
     note: z.string().nullable().default(null),
 });
 export type GuardResult = z.infer<typeof guardResultSchema>;
@@ -53,8 +52,6 @@ export const plannedSendSchema = z.object({
     kbIds: z.array(z.string()),
     guards: z.record(z.enum(CONTRACT_GUARDS), guardResultSchema),
     approver: z.string().nullable(),
-    /** Who wrote the words: the desk's composer, or a person answering from Ben's board (approver `human:<slot>`). */
-    author: z.enum(['desk', 'human']).default('desk'),
     runId: z.string().min(1),
     hold: holdSchema.nullable(),
     /** True when a reply would reach the customer on this turn (bubbles non-empty and the desk decided to send). */

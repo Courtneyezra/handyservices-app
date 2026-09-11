@@ -194,7 +194,6 @@ describe('Ben answers from the board', () => {
         const next = await call('POST', '/sandbox/message', { text: 'Thanks, it is in the kitchen', channel: 'whatsapp' });
         expect(next.status).toBe(200);
         expect(next.json.plannedSend.approver).toBe('agent.comms_v2');
-        expect(next.json.plannedSend.author).toBe('desk');
         expect(next.json.plannedSend.delivered).toBe(true);
     });
 });

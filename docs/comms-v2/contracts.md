@@ -77,8 +77,9 @@ slot is one function so the landlord service can attach without touching the gua
 
 **A composed reply only.** The guards exist to stop the composer inventing a figure, a date, a
 commitment or a claim about the business. Words a person typed on Ben's board are not composed:
-they go straight to the sender, with the send recording that a person authored them and that no
-guard ran over them, never a pass no guard gave (behaviour.md answer 43, `desk/human-reply.ts`).
+they go straight to the sender. The `human:<slot>` approver on the send, which no automated path
+can produce, is the record that a person wrote them; guard results are not persisted on any send,
+so nothing reads as a pass no guard gave (behaviour.md answer 43, `desk/human-reply.ts`).
 What still holds for those words is everything the sender owns: the window rule, an approver and a
 run id on every send, the party being on the file, and one run id sending once.
 

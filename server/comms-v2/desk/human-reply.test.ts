@@ -2,9 +2,8 @@
  * Ben's own reply from the board, through the one sender (human-reply.ts): his words go out as
  * written with him as approver and a fresh run id, land on the file as his turn, clear the hold
  * with his words recorded as the release, and leave the thread to automation (checklist 7.4). The
- * guards never run over them (behaviour.md answer 43), and the send says so: a figure, a date or a
- * commitment Ben types goes as he wrote it, recorded as human-authored with the guards not
- * applied. What still refuses him is what the sender owns: a shut window, a wall of bubbles, a
+ * guards never run over them (behaviour.md answer 43): a figure, a date or a commitment Ben types
+ * goes as he wrote it, under his own human approver, with no guard verdict recorded anywhere. What still refuses him is what the sender owns: a shut window, a wall of bubbles, a
  * hold that is someone else's.
  */
 import { describe, expect, it } from 'vitest';

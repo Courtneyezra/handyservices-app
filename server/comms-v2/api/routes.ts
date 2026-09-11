@@ -60,9 +60,9 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
     });
 
     /**
-     * Ben answers the customer from the card. His words go out through the one sender with him as
-     * approver, recorded as human-authored with the guards not applied; a refusal from the sender
-     * is returned for the board to show, never held silently (checklist 7.3, 7.4).
+     * Ben answers the customer from the card. His words go out through the one sender under his own
+     * `human:<slot>` approver, with the guards not run over them; a refusal from the sender is
+     * returned for the board to show, never held silently (checklist 7.3, 7.4).
      */
     router.post('/case-files/:id/answer', async (req, res) => {
         const user = (req as any).user;

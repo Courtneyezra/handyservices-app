@@ -19,8 +19,8 @@ for the length of the process (the sandbox door runs in process); a durable stor
 | 5 Sender | `desk/sender.ts` | `chooseChannel`, `windowOf` (no recorded state is shut), `render` (WhatsApp only in Goal 1, other channels refused; blank lines, then sentence boundaries over ~300 characters, soft ceiling of four back to the composer, typing gaps 1 to 3 s), `pickTemplate` on a shut window by purpose (named by server/window-templates.ts, approved and given its content SID by server/whatsapp-template-sync.ts) with a hold when none is approved; `templateWire` shapes it for the transport the customer wrote on, Twilio's content SID and variables or Meta's name, language and body components, `send` (dry run lands the reply on the thread as an outbound turn; live goes through server/outbound.ts as `agent.comms_v2`, switch key `comms_v2`, which the desk treats as off until `spine.senders.comms_v2.enabled` is written true; a default for one of the four fixed lines that are Ben's to review sends in dry run only, the Goal 1 lines send live; a live delivery that fails part way records the bubbles that went as a partial send), `initiate` present and unused. |
 | 6 Scoping | `desk/scoping-tools.ts`, `desk/scoping-specialist.ts` | The shelf: describe_media (Gemini via server/spine/tools/describe-video.ts, once per media), confirm_location, readiness (job type and location; photos optional), next_question (job, location, access, photos; photos once), offer_call, regulated (gas and asbestos only), kb_lookup (reviewed rows, read-only). The specialist on Sonnet 5 returns facts with the turn they came from and short labels of what is unknown; the proposal comes from the tools. Never prose. |
 | the desk | `desk/desk.ts`, `desk/fixed-lines.ts` | route, gather, compose, guards, render, window, send, then the ledger and the stage from what actually went. Money and date changes hold for Ben and the reply answers the rest; complaints, refunds, trust doubts and gas send one fixed line and no composer runs, and while that hold stands no specialist runs either: each later turn gets the short acknowledgement that Ben will come back; a composer refusal or failure, or a reply the sender refuses (live, one of Ben's four lines he has not reviewed), takes that same acknowledgement. A clock pass never sends. The four fixed lines come from the knowledge base when reviewed, else the defaults here. |
-| a person's reply | `desk/human-reply.ts` | `humanReply`: Ben's own words from the board out through the one sender. The eight guards never run over them (behaviour.md answer 43): they gate a composed reply so the composer cannot invent what Ben himself is the source of, and the send records that, `author: human` with every guard `not_applied`, rather than a pass no guard gave. What still holds is what the sender owns: the sender renders and sends with approver `human:<slot>` and a fresh run id, one run id sends once, the party must be on the file, and a shut window never carries his freeform words. The send lands as his turn, any hold clears with his words as the release, and the thread is automation's again (checklist 7.4). A refusal sends and records nothing and comes back with its reason for the board to show. |
-| the door | `desk/sandbox-door.ts`, `desk/planned-send.ts` | start, message (multipart media), run, age, reset, state. Every response carries the planned send the desk emits itself (case id, party, channel, window state, template id, bubbles, fact and knowledge-base ids, every guard's result, approver, run id, author (`desk` or `human`), hold, delivered), typed with a zod schema; `plannedSendOfResponse` is the one way a reader takes it and `sendLanded` checks the reply is on the thread. WhatsApp only; call and price answer 409. |
+| a person's reply | `desk/human-reply.ts` | `humanReply`: Ben's own words from the board out through the one sender. The eight guards never run over them (behaviour.md answer 43): they gate a composed reply so the composer cannot invent what Ben himself is the source of. No send record claims otherwise: the `human:<slot>` approver on the send is the record that a person wrote the words, and guard results are not persisted on any send, so nothing anywhere reads as a pass no guard gave. What still holds is what the sender owns: the sender renders and sends with approver `human:<slot>` and a fresh run id, one run id sends once, the party must be on the file, and a shut window never carries his freeform words. The send lands as his turn, any hold clears with his words as the release, and the thread is automation's again (checklist 7.4). A refusal sends and records nothing and comes back with its reason for the board to show. |
+| the door | `desk/sandbox-door.ts`, `desk/planned-send.ts` | start, message (multipart media), run, age, reset, state. Every response carries the planned send the desk emits itself (case id, party, channel, window state, template id, bubbles, fact and knowledge-base ids, every guard's result, approver, run id, hold, delivered), typed with a zod schema; `plannedSendOfResponse` is the one way a reader takes it and `sendLanded` checks the reply is on the thread. WhatsApp only; call and price answer 409. |
 | the door host | `desk/door-host.ts`, `door-cli.ts` | Mounts the door on a loopback port for the length of a run. Connects only to the branch named by `COMMS_V2_DATABASE_URL`, refuses a missing value and a production one (server/worker-gate.ts's `isProductionDatabaseUrl`), never reads `DATABASE_URL`, and logs an address and variable names, never a value. |
 
 Cost: every model call prices through server/agent-cost.ts, the one price table (Fable 5.1 has its row
@@ -37,9 +37,9 @@ Then over HTTP at the printed URL: `POST /start` (`{ door: 'whatsapp', text, nam
 being `customer: 'known'`, `prefersText`, `alreadyRung`, `facts`, `ledger`), `POST /message`
 (`{ text, channel: 'whatsapp' }`, or multipart with `media` files), `POST /run` (a clock pass),
 `POST /age` (`{ hours }`), `POST /reset`, `GET /` (the thread and the case file). Every response
-carries `plannedSend` and `state`; the planned send names the `approver` and the `author`, `desk`
-or `human`. The door has no session, so it has no answer action of its own: Ben's reply goes
-through the board's authenticated route, which only his approver slot may call.
+carries `plannedSend` and `state`; the planned send names the `approver`, always the desk's own.
+The door has no session, so it has no answer action of its own: Ben's reply goes through the
+board's authenticated route, which only his approver slot may call.
 
 This is the surface the no-mistakes pipeline's end-to-end test step drives to validate a goal. The
 checklist lines for the goal (docs/comms-v2/design.md, Goal 1's stop condition) are the scenarios
@@ -79,7 +79,8 @@ the board's own sandbox door under `/api/comms-v2/sandbox` seeding the thread:
    as the release.
 4. The next customer message is answered by the desk again, approver `agent.comms_v2` (7.4).
 5. A figure Ben types goes as he wrote it: his own words are never checked against the quote, and
-   the send records `author: human` with the guards not applied.
+   the send carries the `human:ben` approver that no automated path can produce. No send record
+   stores a guard result, so nothing claims a pass.
 
 ## Environment
 
@@ -93,7 +94,7 @@ desk loads a file of its own or prints a value.
 ## Tests
 
 `npx vitest run server/comms-v2`: every invariant in the contracts with a scripted model client,
-the door driven over HTTP the way the test step drives it (its answer action included), the door
+the door driven over HTTP the way the test step drives it, the door
 host's refusal rules, a person's reply through the one sender with no guards over it, and the
 board's queries, approver mapping and routes. The page's own test is
 `npx vitest run --project client client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx`.

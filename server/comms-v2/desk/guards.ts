@@ -1,7 +1,7 @@
 /**
  * Contract 4 - Guards and the approver slot. Deterministic code, no model. Every composed reply
  * passes here before the sender. Only a composed reply: words a person typed on Ben's board go
- * straight to the sender with their authorship recorded (behaviour.md answer 43, human-reply.ts),
+ * straight to the sender under their own human approver (behaviour.md answer 43, human-reply.ts),
  * because these guards exist to stop the composer inventing what Ben himself is the source of.
  *
  * Eight guards, each checked against the file: figure, date/time/duration, commitment and fault,

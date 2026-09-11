@@ -23,7 +23,6 @@ import { Gateway, type SeedInput } from './gateway';
 import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
 import type { PlannedSend } from './planned-send';
-import { isAutomatedApprover } from '../../approver';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -41,7 +40,10 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
     const party = file.parties.find((p) => p.personId === r.partyId) ?? file.parties[0];
     const address = party.channels.find((c) => c.kind === 'whatsapp')?.address ?? party.channels[0]?.address ?? '';
     const guards = {} as PlannedSend['guards'];
-    for (const [name, v] of Object.entries(r.guards)) guards[name as keyof PlannedSend['guards']] = { result: v.result, note: v.note };
+    for (const [name, v] of Object.entries(r.guards)) {
+        if (v.result === 'not_applied') throw new Error(`the door carries the desk's own turns only, so guard ${name} must have run`);
+        guards[name as keyof PlannedSend['guards']] = { result: v.result, note: v.note };
+    }
     return {
         caseId: file.id,
         party: { role: party.role, address, name: party.name },
@@ -53,7 +55,6 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
         kbIds: r.kbIds,
         guards,
         approver: r.approver,
-        author: r.approver && !isAutomatedApprover(r.approver) ? 'human' : 'desk',
         runId: r.runId,
         hold: r.hold ? { approver: r.hold.approver.kind === 'human' ? r.hold.approver.id : `rules:${r.hold.approver.id}`, reason: r.hold.reason, since: r.hold.since } : null,
         delivered: r.delivered,

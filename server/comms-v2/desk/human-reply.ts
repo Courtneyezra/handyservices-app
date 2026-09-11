@@ -8,9 +8,9 @@
  *
  * The eight guards of Contract 4 do not run over his words (answer 43). They exist to stop the
  * composer inventing a figure, a date, a commitment or a claim about the business; Ben is the
- * source they check against, so over his own words they have nothing to say. The send records that
- * honestly: the author is a person and every guard is recorded as not applied, never as a pass it
- * never ran.
+ * source they check against, so over his own words they have nothing to say. The record is honest
+ * without any extra field: the send carries the `human:<slot>` approver, which no automated path
+ * can produce, and no send record stores a guard result, so nothing claims a pass.
  *
  * What does hold is everything the sender owns: the window rule, so a shut window never carries
  * freeform words; an approver and a run id on every send; the party being on the file; and one run
