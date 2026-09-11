@@ -221,4 +221,8 @@ one-reply carve-out goes with the guards, nothing left to override; the sandbox 
 endpoint goes, because the board already has an authenticated answer route and the door only added
 a second unauthenticated path to the same function on a router any admin session can reach; and the
 quote-line citation shelf goes, because the desk keeps one structured spelling of a fact source and
-a shelf that offers every quote line would let Ben cite a price the customer was never given.
+a shelf that offers every quote line would let Ben cite a price the customer was never given. The
+record he asks for is the `human:<slot>` approver on the send, which no automated path can produce:
+that is what says a person wrote the words. The send record was deliberately not widened to say more,
+because no send stores a guard result at all, so none of them claims a pass, and that shape is the
+shared case-file contract every goal is building against.
