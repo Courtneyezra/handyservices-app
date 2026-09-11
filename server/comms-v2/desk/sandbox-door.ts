@@ -1,16 +1,18 @@
 /**
- * The new desk's sandbox door: the same door shape the judge already drives (start, message,
- * run, age, reset, state, and the planned send), for the desk under server/comms-v2/desk.
+ * The new desk's sandbox door: start, message, run, age, reset, state, and the planned send, for
+ * the desk under server/comms-v2/desk. The surface the pipeline's end-to-end test step and Ben's
+ * sandbox drive.
  *
  * Everything up to delivery runs for real: identity, the case file, the router, the Scoping
  * specialist and its tools (Gemini for a photo), the composer, the guards, the render, the
  * window. Nothing leaves: the sender runs in dry run and lands the planned reply on the case
  * file's thread as an outbound turn, so the next turn sees it. Every response carries the
- * Contract 7 planned send the desk emits itself, and a state the judge's snapshot reads.
+ * planned send (planned-send.ts) the desk emits itself, and the thread's state.
  *
  * Case files live in memory for the length of the process; /start clears them. The door is
- * mounted only by the judge (in-process, on COMMS_V2_JUDGE_DATABASE_URL) and by whoever wires
- * /admin/sandbox to it later; it is never on the production server's routes in Goal 1.
+ * mounted only by the door host (door-host.ts, in-process on COMMS_V2_DATABASE_URL) and by
+ * whoever wires /admin/sandbox to it later; it is never on the production server's routes in
+ * Goal 1.
  */
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
@@ -20,7 +22,7 @@ import type { DeskResult } from './desk-types';
 import { Gateway, type SeedInput } from './gateway';
 import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
-import type { PlannedSend } from '../judge/planned-send';
+import type { PlannedSend } from './planned-send';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -38,7 +40,7 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
     const party = file.parties.find((p) => p.personId === r.partyId) ?? file.parties[0];
     const address = party.channels.find((c) => c.kind === 'whatsapp')?.address ?? party.channels[0]?.address ?? '';
     const guards = {} as PlannedSend['guards'];
-    for (const [name, v] of Object.entries(r.guards)) guards[name as keyof PlannedSend['guards']] = { result: v.result, via: ['comms_v2'], note: v.note };
+    for (const [name, v] of Object.entries(r.guards)) guards[name as keyof PlannedSend['guards']] = { result: v.result, note: v.note };
     return {
         caseId: file.id,
         party: { role: party.role, address, name: party.name },
@@ -53,11 +55,7 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
         runId: r.runId,
         hold: r.hold ? { approver: r.hold.approver.kind === 'human' ? r.hold.approver.id : `rules:${r.hold.approver.id}`, reason: r.hold.reason, since: r.hold.since } : null,
         delivered: r.delivered,
-        origin: r.delivered ? 'desk' : 'none',
-        evidence: {
-            decision: r.decision, intent: r.summary, lane: 'comms_v2', pack: null, stageAfter: r.stageAfter, exitNote: r.note,
-            legacyGuardsHit: [], legacyGuardNotes: [], mirrorLiveWouldSend: null, error: r.error,
-        },
+        evidence: { decision: r.decision, summary: r.summary, stageAfter: r.stageAfter, note: r.note, error: r.error },
     };
 }
 
@@ -184,7 +182,7 @@ function seedOf(raw: unknown): SeedInput {
     };
 }
 
-/** The router the judge mounts in-process. Built on first use so importing this module opens nothing. */
+/** The router the door host mounts in-process. Built on first use so importing this module opens nothing. */
 let shared: ReturnType<typeof createSandboxDoor> | null = null;
 export function commsV2SandboxRouter(): Router {
     if (!shared) shared = createSandboxDoor();

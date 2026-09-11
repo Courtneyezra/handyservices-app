@@ -324,8 +324,9 @@ points there so the calls, refusals and invariants live in one place.
   for it, respects the window, records the send. See `contracts.md`.
 - **Contract 6 - The Scoping tool server.** The first specialist's shelf, read-only against the
   world, writing only through its calls. See `contracts.md`.
-- **Contract 7 - Evaluation, the judge.** What Goal 0 builds: the planned-send object, the
-  scripted runner, the stop condition a goal loop checks itself against. See `contracts.md`.
+- **Validation.** Each goal is validated by the pipeline's end-to-end test step against the
+  desk's sandbox door, with recorded evidence in the PR; the goal's checklist lines are the
+  scenarios; the captain reviews sandbox threads before any flip. See `contracts.md`.
 
 ## Where the landlord service attaches
 
@@ -365,18 +366,23 @@ full report cites a file and line for every claim.
 | Ask ledger | *exists* - Four subjects, stored on the case file | It does not hear calls: after Ben asks for photos on a call, the desk may ask again. Record asks as structured events at send time so the ledger spans the whole job, as you decided. |
 | Sender, approver, templates | *partial* - One send function, a registry, approver and run id, five template definitions | The sender performs no window check and, when the window is shut, falls back to SMS carrying freeform text. The window decision moves inside the sender. Three of five templates are unwired and none has a recorded approval status. See the call below. |
 | Identity | *partial* - Phone to customer, contractor or staff; UK phone canonicalisation | No tenant or landlord role, no email as an identity key outside one file, and the web form writes a client but not a conversation. The seam the landlord service needs is confirmed missing. |
-| Sandbox and evaluation | *exists* - Doors, fixtures, a prompt gate, a scoreboard | A goal loop has nothing structured to judge a send by: dry runs produce a sentence, fixtures are single-turn, the window is hard-coded open, and the judge scores voice only. See the call below. |
+| Sandbox and evaluation | *exists* - Doors, fixtures, a prompt gate, a scoreboard | Nothing structured to check a send by: dry runs produce a sentence, fixtures are single-turn, the window is hard-coded open. The new desk's door emits a planned send per turn and can shut the window; the pipeline's test step drives it. See the call below. |
 | Channel adapters | *exists / missing* - Twilio and Meta WhatsApp webhooks, voice, web form | No email inbound at all. Five inbound writers with no shared envelope and no canonicalisation on the way in. Which WhatsApp webhook is live cannot be proven from the repo. |
 
-**Three calls came out of this, all answered on 10 Sep.** Goal 0 builds the judge before Goal 1:
-"yes, build the judge first." A shut window falls to an approved template, "as decided before",
-and the current sender's silent fallback to SMS goes. The price catalog is never a source for a
-figure in chat: "the four sources stand."
+**Three calls came out of this, all answered on 10 Sep.** A judge was to be built before Goal 1:
+"yes, build the judge first"; withdrawn on 11 Sep ("remove the judge, push parallelism, we will
+use lavish when needed"), because it duplicated the pipeline's own end-to-end test step, so that
+step now validates each goal (see the build plan). A shut window falls to an approved template,
+"as decided before", and the current sender's silent fallback to SMS goes. The price catalog is
+never a source for a figure in chat: "the four sources stand."
 
 ## The build plan, written for a goal loop
 
 A goal loop needs three things a human reader does not: the knowledge in the repo it can read,
-contracts it can build against, and a stop condition it can check. That is the order below.
+contracts it can build against, and a stop condition it can check. That is the order below. Every
+stop condition is checked the same way: the pipeline's end-to-end test step passes the goal's
+checklist lines against the desk's sandbox door, with recorded evidence in the PR, and the
+captain reviews the sandbox threads before any flip.
 
 **Before the loop - Land the knowledge in the repo**
 The thirty-eight recorded answers, the seven-stage checklist, and this page's decisions go into
@@ -384,34 +390,39 @@ the project as docs. Today they live outside it, where a loop cannot read them.
 
 **Before the loop - Write the contracts**
 Identity, case file, router and composer, guards and the approver slot, sender and bubble rules,
-the Scoping tool server, and evaluation. Named calls with inputs and outputs, grounded in the
-inventory above, in `contracts.md`.
-
-**Goal 0 - The judge**
-A planned-send object from a dry run, a scripted multi-turn runner over the sandbox doors, and a
-window that can be shut. Stop: the runner drives the eleven Goal 1 lines against the current desk
-and reports pass or fail per line without a person reading a sentence.
+and the Scoping tool server. Named calls with inputs and outputs, grounded in the inventory
+above, in `contracts.md`, with how a goal is validated.
 
 **Goal 1 - Skeleton plus Scoping, WhatsApp**
-New directory, nothing under the old desk touched. Stop: every line below passes in the sandbox,
-twice in a row, as judged by Goal 0's runner.
+New directory, nothing under the old desk touched. Stop: the pipeline's test step passes every
+line below, with evidence.
 
 **Goal 2 - Ben's desk, kanban**
 A board over case files, one column per stage, holds on top, one tap to release or answer. Stop:
-every sandbox thread from Goal 1 is visible and a held draft can be released from the board.
+the pipeline's test step passes the goal's checklist lines with evidence: every sandbox thread
+from Goal 1 is visible and a held draft can be released from the board.
 
 **Goal 3 - The other four channels**
 SMS, email, form and voice adapters against the same desk, the old handlers forwarding into the
-new gateway, and the remaining Stage 1 lines. Nothing below the gateway changes.
+new gateway, and the remaining Stage 1 lines. Nothing below the gateway changes. Stop: the
+pipeline's test step passes the remaining Stage 1 lines with evidence, through each new door.
 
 **Goals 4 to 6 - Quoting, Scheduling, Service**
-One specialist per goal, each with its stage of the checklist as the stop. Then ten real threads
-read, the switch on the word, and the old desk deleted.
+One specialist per goal. Stop for each: the pipeline's test step passes that specialist's stage
+of the checklist with evidence. Then ten real threads read, the switch on the word, and the old
+desk deleted.
+
+**Goals with independent files run in parallel.** A goal is dispatched as soon as the files it
+touches are free, not when the goal before it is done: Goal 2's board and Goal 3's adapters share
+nothing with each other, and the three specialists of Goals 4 to 6 each own their tool server, so
+they run side by side against the same desk. Only a goal that edits a file another goal is
+editing waits. Each lands as its own PR with its own evidence.
 
 ### Goal 1's stop condition, line by line
 
 The WhatsApp lines of Stage 1 and all of Stage 2, from the checklist as it stands. Marked where the
-redesign changes a line. A line either passes in the sandbox or it does not.
+redesign changes a line. A line either passes in the sandbox or it does not; these lines are the
+scenarios the pipeline's test step exercises for Goal 1.
 
 | # | Expected | Note for the redesign |
 |---|---|---|

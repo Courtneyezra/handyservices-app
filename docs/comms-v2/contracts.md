@@ -1,7 +1,7 @@
 # The comms desk contracts
 
-The seven contracts for the clean-sheet comms desk rebuild: a record shape, its named calls, what
-each call refuses, and an invariants paragraph, for each.
+The six contracts for the clean-sheet comms desk rebuild: a record shape, its named calls, what
+each call refuses, and an invariants paragraph, for each. Then how a goal is validated.
 
 A goal loop builds against these calls; a test checks the invariants. Written from the code
 inventory, not from scratch.
@@ -134,21 +134,16 @@ case file through its calls. The specialist itself, on Sonnet 5, returns facts a
 source. A proposal: the next question, whether to offer a call, whether to thank for media,
 whether the job is ready, or a hold with the reason regulated. Never a sentence for the customer.
 
-## Contract 7 - Evaluation, the judge
+## Validation
 
-What Goal 0 builds. A dry run produces a structured planned send instead of a sentence, and a
-runner drives scripted conversations through the sandbox doors and marks each checklist line pass
-or fail. This is what lets a goal loop stop itself.
+Each goal is validated by the no-mistakes pipeline's end-to-end test step against the desk's
+sandbox door (`server/comms-v2/desk/sandbox-door.ts`, served by `npm run comms-v2:door`), with the
+recorded evidence in the PR. The checklist lines for the goal (`checklist.md`; which lines belong
+to Goal 1 is in `design.md` under Goal 1's stop condition) are the scenarios the test step
+exercises: a line either passes in the sandbox or it does not, and a mismatch is a finding. The
+captain reviews sandbox threads before any flip.
 
-| Piece | Shape | Rule |
-|---|---|---|
-| planned send | what the sender emits in dry-run mode instead of delivering: case id, party, channel, window state, template id if any, the rendered bubbles, the fact ids and knowledge-base ids cited, every guard's result, the approver, the run id, and the hold if one was raised | Everything up to delivery runs for real, including the guards. Nothing leaves. A dry run that emits prose instead of this object is a contract failure. |
-| scenario | a scripted conversation: the checklist lines it exercises; a seed for the party, their channels, the window state, any prior facts and ledger entries; then turns from the customer, from Ben, or from the system, each with an expectation | One scenario may cover several lines; every Goal 1 line has at least one scenario. Seeds make "already rang us", "prefers text" and "window shut" reproducible. |
-| expectation | per turn, any of: a reply is or is not sent; the reply asks a named subject, or does not; no figure, no date, no commitment appears; a hold is raised for a named approver; a template is used; the stage after the turn; the bubble count is within the ceiling; a fixed line appears verbatim | Deterministic assertions over the planned send and the file. A model judge is used only for lines about wording and tone, such as "in its own words", and its verdict is recorded next to the assertion, never in place of one. |
-| runner | drives scenarios through the sandbox doors one turn at a time, waits for the planned send, checks the expectation, and writes a report: per line pass or fail with the planned send and a file snapshot as evidence, in a machine-readable form and a readable one, with an exit code | Runs the whole set twice; a line passes only when it passes both times. A run that cannot reach a door, or times out, is reported as error, never as pass. |
-| doors | WhatsApp for Goal 1; web form, post-call, SMS and missed-call for Goal 3; a tenant door later | A door is the only way a scenario turn enters. The runner never calls a specialist or the composer directly. |
-
-**Goal 0's stop condition.** The runner executes every Goal 1 scenario against the current desk and
-produces the report. Most lines are expected to fail against the old desk; that is fine. Goal 0
-proves the judge, not the desk. Goal 1 is done when the same runner reports all eleven lines
-passing, twice in a row, against the new one.
+The door emits a planned send for every turn instead of a sentence (case id, party, channel,
+window state, template id, bubbles, fact and knowledge-base ids, every guard's result, approver,
+run id, hold, delivered), so a turn can be checked without reading prose. Everything up to
+delivery runs for real, including the guards; nothing leaves.

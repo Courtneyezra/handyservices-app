@@ -21,7 +21,7 @@
     "gate:prompts": "tsx scripts/check-prompt-gate.ts",
     "evals": "tsx scripts/eval-comms.ts",
     "evals:scoreboard": "tsx scripts/_eval-scoreboard.ts",
-    "comms-v2:judge": "tsx server/comms-v2/judge/cli.ts"
+    "comms-v2:door": "tsx server/comms-v2/door-cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.81.0",

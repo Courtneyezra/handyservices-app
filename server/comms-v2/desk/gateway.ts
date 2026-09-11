@@ -109,7 +109,7 @@ export class Gateway {
         return file;
     }
 
-    /** The judge's seed, honoured as facts and ledger rows on the file (Contract 7 seeds). */
+    /** The door's seed (POST /start), honoured as facts and ledger rows on the file. */
     private applySeed(file: CaseFile, seed: SeedInput): void {
         const by = 'seed';
         const deps = this.fileDeps();

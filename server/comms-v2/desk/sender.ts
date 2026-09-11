@@ -2,7 +2,7 @@
  * Contract 5 - Sender and bubble rules. The only exit. Chooses the channel per party, renders
  * for it, respects the window, picks a template when the window is shut, and records the send.
  *
- * Dry run (the sandbox, the judge) runs everything up to delivery for real and then lands the
+ * Dry run (the sandbox door) runs everything up to delivery for real and then lands the
  * planned reply on the case file's thread as an outbound turn, so later turns see it. Live
  * delivery goes through the surviving outbound send (server/outbound.ts) under the desk's own
  * registered approver, and only once its switch has been turned on by hand: the desk is

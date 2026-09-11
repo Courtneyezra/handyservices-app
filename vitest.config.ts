@@ -2,11 +2,14 @@ import { defineConfig } from 'vitest/config';
 import path from 'path';
 
 /**
- * Two vitest projects (close-out pane P6):
- *   server — the original node suite, byte-for-byte the previous config (42 pre-existing failures
- *            are the baseline; see docs/RUNBOOK.md "Verification rule").
- *   client — jsdom + Testing Library for the admin UI (`npm run test:client`); must stay green.
- * `npx vitest run` runs both; `--project server|client` runs one.
+ * Three vitest projects (close-out pane P6, then the new comms desk):
+ *   server   — the original node suite, byte-for-byte the previous config (42 pre-existing failures
+ *              are the baseline; see docs/RUNBOOK.md "Verification rule").
+ *   comms-v2 — server/comms-v2/** with the same node setup plus the machine-local env
+ *              (server/comms-v2/test-setup.ts), so the new desk's tests may run live on this machine
+ *              while the rest of the server suite never sees those keys.
+ *   client   — jsdom + Testing Library for the admin UI (`npm run test:client`); must stay green.
+ * `npx vitest run` runs all three; `--project server|comms-v2|client` runs one.
  */
 export default defineConfig({
   test: {
@@ -23,6 +26,18 @@ export default defineConfig({
           environment: 'node',
           setupFiles: ['server/__tests__/setup.ts'],
           include: ['server/**/*.test.ts', 'server/**/*.spec.ts'],
+          exclude: ['**/node_modules/**', '**/dist/**', 'server/comms-v2/**'],
+          testTimeout: 10000,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'comms-v2',
+          globals: true,
+          environment: 'node',
+          setupFiles: ['server/comms-v2/test-setup.ts'],
+          include: ['server/comms-v2/**/*.test.ts'],
           exclude: ['**/node_modules/**', '**/dist/**'],
           testTimeout: 10000,
         },

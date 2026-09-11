@@ -8,9 +8,16 @@ loop has it to read from the repo instead of from outside sources.
   either passes or fails against.
 - `design.md` is the shape: the agent-map architecture, the box-for-box mapping, the channels, the
   specialist roster, the landlord seams, the settled decisions, and the build plan.
-- `contracts.md` is what a goal loop builds against: the seven contracts, each a record shape, its
-  named calls, what each call refuses, and the invariants a test can check.
+- `contracts.md` is what a goal loop builds against: the six contracts, each a record shape, its
+  named calls, what each call refuses, and the invariants a test can check; then how a goal is
+  validated.
+
+Each goal is validated by the no-mistakes pipeline's end-to-end test step against the desk's
+sandbox door, with recorded evidence in the PR; the goal's checklist lines are the scenarios it
+exercises, and the captain reviews sandbox threads before any flip. Goals with independent files
+run in parallel.
 
 The build lands in `server/comms-v2/` beside `server/spine/`; it never goes inside `server/spine/`.
-Goal 0's judge and Goal 1's desk (sandbox-only until cutover) are there already; `server/comms-v2/README.md`
-covers both. The old desk stays live as rollback until the new one is proven and cut over.
+Goal 1's desk (sandbox-only until cutover) is there already; `server/comms-v2/README.md` covers it
+contract by contract, with its sandbox door, the door host and the machine-local env. The old desk
+stays live as rollback until the new one is proven and cut over.

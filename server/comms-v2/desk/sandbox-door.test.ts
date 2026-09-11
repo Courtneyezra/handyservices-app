@@ -1,17 +1,16 @@
 /**
- * The new desk's sandbox door, driven the way the judge drives it: start, message (with media),
- * run, age, reset, state. Every response carries a Contract 7 planned send that fits the judge's
- * schema, and a dry-run reply lands on the thread so the judge's sendLanded reads true.
+ * The new desk's sandbox door, driven over HTTP the way the pipeline's test step drives it: start,
+ * message (with media), run, age, reset, state. Every response carries a planned send that fits
+ * the schema in planned-send.ts, and a dry-run reply lands on the thread so the next turn sees it.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { plannedSendFromDoorResponse } from '../judge/planned-send';
-import { sendLanded, snapshotFrom } from '../judge/runner';
 import { noFixedLineSource } from './fixed-lines';
 import { FakeModelClient } from './models';
+import { plannedSendOfResponse, sendLanded } from './planned-send';
 import { createSandboxDoor } from './sandbox-door';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
@@ -43,33 +42,32 @@ async function post(route: string, body?: unknown, form?: FormData) {
 }
 
 describe('the new desk\'s sandbox door', () => {
-    it('start opens the thread, replies, and the response carries a planned send the judge accepts, landed on the thread', async () => {
+    it('start opens the thread, replies, and the response carries a planned send that fits the schema, landed on the thread', async () => {
         const r = await post('/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam', seed: { prefersText: false } });
         expect(r.status).toBe(200);
-        const { pass, plannedSend } = plannedSendFromDoorResponse(r.json);
+        const plannedSend = plannedSendOfResponse(r.json);
         expect(plannedSend.delivered).toBe(true);
         expect(plannedSend.bubbles).toHaveLength(3);
         expect(plannedSend.party).toEqual({ role: 'homeowner', address: '+447700900942', name: 'Sam' });
         expect(plannedSend.approver).toBe('agent.comms_v2');
         expect(plannedSend.factIds).toEqual([]);
         expect(Object.keys(plannedSend.guards)).toHaveLength(8);
-        expect(sendLanded(plannedSend, pass)).toBe(true);
-        const snap = snapshotFrom(pass);
-        expect(snap.stage).toBe('scoping');
-        expect(snap.messages.map((m) => m.direction)).toEqual(['inbound', 'outbound']);
-        expect(snap.window?.canFreeform).toBe(true);
+        expect(sendLanded(plannedSend, r.json.state)).toBe(true);
+        expect(r.json.state.conversation.stage).toBe('scoping');
+        expect(r.json.state.messages.map((m: any) => m.direction)).toEqual(['inbound', 'outbound']);
+        expect(r.json.state.window.canFreeform).toBe(true);
     });
     it('a clock pass sends nothing and still returns a pass; the window state is on the response', async () => {
         const r = await post('/run', { trigger: 'manual' });
         expect(r.status).toBe(200);
-        const { plannedSend } = plannedSendFromDoorResponse(r.json);
+        const plannedSend = plannedSendOfResponse(r.json);
         expect(plannedSend.delivered).toBe(false);
         expect(plannedSend.bubbles).toEqual([]);
         expect(plannedSend.evidence.decision).toBe('none');
     });
     it('a money turn holds for ben on the planned send', async () => {
         const r = await post('/message', { text: 'How much roughly?', channel: 'whatsapp' });
-        const { plannedSend } = plannedSendFromDoorResponse(r.json);
+        const plannedSend = plannedSendOfResponse(r.json);
         expect(plannedSend.hold).toMatchObject({ approver: 'ben' });
     });
     it('age shuts the window; a later customer turn reopens it', async () => {
@@ -86,7 +84,7 @@ describe('the new desk\'s sandbox door', () => {
         form.append('media', new Blob([new Uint8Array(Buffer.from('89504e470d0a1a0a', 'hex'))], { type: 'image/png' }), 'tap.png');
         const r = await post('/message', undefined, form);
         expect(r.status).toBe(200);
-        const { plannedSend } = plannedSendFromDoorResponse(r.json);
+        const plannedSend = plannedSendOfResponse(r.json);
         expect(plannedSend.bubbles[0]).toMatch(/photo/);
         expect(r.json.state.caseFile.turns[0].media[0].description.description).toBe('a dripping tap');
         expect(r.json.state.caseFile.facts.some((f: any) => f.key === 'media_image')).toBe(true);

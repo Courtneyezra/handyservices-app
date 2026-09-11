@@ -19,13 +19,13 @@ npm run dev / build / seed   # dev, production build, seed the SKU table
 npm run gate:prompts         # prompt/eval-case gate (see the spine-prompt-change skill)
 npx tsx scripts/_apply-migration.ts migrations/<file>.sql   # apply a migration
 npx tsx scripts/_spine-mode.ts --status   # read the comms desk switches
-npm run comms-v2:judge       # Goal 0 judge: the eleven Goal 1 checklist lines through the sandbox door, twice
+npm run comms-v2:door        # serve the new desk's sandbox door on a loopback port (branch database only)
 ```
 
 ## Key Documentation
 - `docs/RUNBOOK.md` — operations, health endpoints, the prompt and eval procedure
 - `docs/COMMS_AGENTS_V3_DESIGN.md` — comms desk design; `docs/comms-build/CUTOVER.md` to switch or roll back
-- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map, the seven contracts); it lands in `server/comms-v2/` beside `server/spine/`, never inside it. `server/comms-v2/README.md` covers the judge (how to run it, `--desk v2|current`, where the reports go) and the new desk under `server/comms-v2/desk/`, contract by contract. The new desk is sandbox-only until cutover; nothing in it is fixed by editing `server/spine/`
+- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map, the six contracts and how a goal is validated); it lands in `server/comms-v2/` beside `server/spine/`, never inside it. `server/comms-v2/README.md` covers the new desk under `server/comms-v2/desk/` contract by contract, its sandbox door and door host, and the machine-local env. The new desk is sandbox-only until cutover; nothing in it is fixed by editing `server/spine/`
 - `docs/comms-desk-log.md` — historical shipping log for the comms desk and the quoting segments. Not loaded into sessions; read it only for the history behind a decision.
 - `docs/ROADMAP_STRATEGY.md`, `docs/SYSTEMATIC_ROADMAP.md` — phase strategy and tasks
 

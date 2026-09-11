@@ -180,6 +180,11 @@ Crew models for the build: Fable 5.1 for backend/complex, cheaper models for fro
 **33. Goal 0, the judge.** "Yes, build the judge first." A structured planned-send object from a dry
 run, a scripted multi-turn runner over the sandbox doors, and a window that can be shut. Stop: the
 runner drives the eleven Goal 1 lines against the current desk and reports pass or fail per line.
+*Withdrawn 11 Sep:* "remove the judge, push parallelism, we will use lavish when needed." The judge
+duplicated the no-mistakes pipeline's own end-to-end test step and forced a forty-five-minute
+evidence regeneration after every review fix round. The pipeline's test step with recorded
+evidence now validates each goal, and the captain's own review of sandbox threads is the bar. The
+checklist stays the written oracle; the planned send stays, emitted by the desk's own door.
 
 **34. Shut window.** "Approved template, as decided before." Reaffirms answer 13. The current
 sender's silent fallback to SMS with freeform text goes.
