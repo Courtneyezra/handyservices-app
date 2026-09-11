@@ -9,11 +9,16 @@
  * sandbox-only until cutover. Goal 1 renders for WhatsApp only.
  *
  * Invariants: one run id sends once; every send has an approver; nothing reaches a customer that
- * did not pass the guards; a shut window never produces freeform text on any channel; a fixed
- * line that Ben has not reviewed sends in dry run only.
+ * did not pass the guards; a shut window never produces freeform text on any channel; one of the
+ * four fixed lines that are Ben's to review sends in dry run only until he has.
+ *
+ * A template is named by the registry (server/window-templates.ts) and approved by the live sync
+ * (server/whatsapp-template-sync.ts), which also holds Twilio's content SID for it. The wire shape
+ * follows the transport the customer wrote on: Twilio takes the content SID and variables, Meta
+ * takes the name, language and body components.
  */
-import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps } from './case-file';
-import type { FixedLine } from './fixed-lines';
+import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps, type WhatsAppTransport } from './case-file';
+import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import type { Approver } from '../../approver';
 
@@ -107,8 +112,8 @@ export function render(channel: ReplyChannel, reply: string): RenderResult {
 // ---------------------------------------------------------------- pick_template
 
 export interface TemplateStatusSource {
-    /** Whether Meta has approved this template name, from the live sync, never from the registry's own idea of itself. */
-    approved(name: string): Promise<boolean>;
+    /** Meta's approval for this template name and Twilio's content SID for it, from the live sync, never from the registry's own idea of itself. Null: not approved. */
+    approved(name: string): Promise<{ contentSid: string } | null>;
 }
 
 /** The live status from server/whatsapp-template-sync.ts, loaded on first use: it opens the database. */
@@ -116,26 +121,33 @@ export const liveTemplateStatus: TemplateStatusSource = {
     async approved(name) {
         try {
             const { findApprovedTemplate } = await import('../../whatsapp-template-sync');
-            return !!(await findApprovedTemplate(name));
+            const row = await findApprovedTemplate(name);
+            return row ? { contentSid: row.contentSid } : null;
         } catch {
-            return false;
+            return null;
         }
     },
 };
 
-export const noTemplateApproved: TemplateStatusSource = { async approved() { return false; } };
+export const noTemplateApproved: TemplateStatusSource = { async approved() { return null; } };
 
 /** Which registry triggers carry a reply of each purpose. Branches on purpose, never on a name. */
 const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = { service_reply: ['question_unanswered'] };
 
-export type TemplatePick = { ok: true; templateId: string; language: string; body: string; variables: Record<string, string> } | { ok: false; reason: string };
+/** An approved template with everything either transport needs to carry it. */
+export interface TemplateSend { name: string; language: string; contentSid: string; variables: Record<string, string> }
 
-/** What the deliverer sends when the window is shut: the template by name, with its variables as Meta's body components. */
-export interface TemplateSend { name: string; language: string; components: unknown[] }
+export type TemplatePick = { ok: true; template: TemplateSend; body: string } | { ok: false; reason: string };
 
-export function templateSend(pick: Extract<TemplatePick, { ok: true }>): TemplateSend {
-    const parameters = Object.keys(pick.variables).sort((a, b) => Number(a) - Number(b)).map((n) => ({ type: 'text', text: pick.variables[n] }));
-    return { name: pick.templateId, language: pick.language, components: [{ type: 'body', parameters }] };
+/** The fields the outbound gate needs for this template on this transport, and nothing for the other one. */
+export type TemplateWire =
+    | { via: 'twilio'; contentSid: string; contentVariables: Record<string, string> }
+    | { via: 'meta'; templateName: string; templateLanguage: string; templateComponents: Array<{ type: 'body'; parameters: Array<{ type: 'text'; text: string }> }> };
+
+export function templateWire(transport: WhatsAppTransport, t: TemplateSend): TemplateWire {
+    if (transport === 'twilio') return { via: 'twilio', contentSid: t.contentSid, contentVariables: t.variables };
+    const parameters = Object.keys(t.variables).sort((a, b) => Number(a) - Number(b)).map((n) => ({ type: 'text' as const, text: t.variables[n] }));
+    return { via: 'meta', templateName: t.name, templateLanguage: t.language, templateComponents: [{ type: 'body', parameters }] };
 }
 
 /** When the window is shut: one approved template for the reply's purpose from the registry. None approved: the reply is held as a pending draft for Ben. Never an SMS fallback. */
@@ -143,9 +155,10 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string |
     const { WINDOW_TEMPLATES } = await import('../../window-templates');
     const candidates = WINDOW_TEMPLATES.filter((t) => t.purpose === purpose && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
     for (const t of candidates) for (const name of t.names) {
-        if (await status.approved(name)) {
+        const live = await status.approved(name);
+        if (live) {
             const variables = { '1': vars.name ?? 'there', '2': vars.topic.slice(0, 120) };
-            return { ok: true, templateId: name, language: t.language, body: t.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n as '1' | '2'] ?? ''), variables };
+            return { ok: true, template: { name, language: t.language, contentSid: live.contentSid, variables }, body: t.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n as '1' | '2'] ?? '') };
         }
     }
     return { ok: false, reason: `no approved template for purpose ${purpose}; held as a pending draft for Ben` };
@@ -154,7 +167,7 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string |
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    deliver(input: { to: string; channel: ReplyChannel; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver }): Promise<DeliveryOutcome>;
+    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver }): Promise<DeliveryOutcome>;
 }
 
 /** A failure names the bubbles that had already reached the customer, so the file can record them. */
@@ -181,8 +194,8 @@ export const liveDeliverer: Deliverer = {
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
             const res = await sendCustomerMessage({
-                approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
-                ...(input.template ? { templateName: input.template.name, templateLanguage: input.template.language, templateComponents: input.template.components } : {}),
+                approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, via: input.transport, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
+                ...(input.template ? templateWire(input.transport, input.template) : {}),
             });
             if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed', delivered };
             delivered.push(b);
@@ -204,7 +217,7 @@ export interface SendInput {
     guards: GuardOutcome | null;
     factIds: string[];
     kbIds: string[];
-    /** The fixed lines the reply carries; one Ben has not reviewed sends in dry run only. */
+    /** The fixed lines the reply carries; one of the four that are Ben's to review sends in dry run only until he has. */
     fixedLines: FixedLine[];
     calls: ModelCallRecord[];
     mode: 'dry_run' | 'live';
@@ -219,9 +232,9 @@ export interface SenderDeps extends CaseFileDeps {
 /**
  * Delivers the rendered reply with an approver and a run id, then records the send on the file
  * with the facts it was written from. Refuses: no approver or run id; guards not passed; window
- * shut and no template; the party not on the file; a run id already sent; live, a fixed line Ben
- * has not reviewed. A live delivery that fails part way records the bubbles that went, marked
- * partial, before the failure is returned.
+ * shut and no template; the party not on the file; a run id already sent; live, one of the four
+ * fixed lines Ben has not yet reviewed. A live delivery that fails part way records the bubbles
+ * that went, marked partial, before the failure is returned.
  */
 export async function send(input: SendInput, deps: SenderDeps = {}): Promise<SendOutcome> {
     const now = deps.now ?? (() => new Date());
@@ -233,10 +246,10 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     if (!party) return { ok: false, reason: 'the party is not on the file' };
     if (input.file.sentRunIds.includes(input.runId)) return { ok: false, reason: `run ${input.runId} has already sent` };
     if (!input.bubbles.length) return { ok: false, reason: 'nothing to send' };
-    const address = party.channels.find((c) => c.kind === input.channel)?.address;
-    if (!address) return { ok: false, reason: `the party has no ${input.channel} address` };
-    const unreviewed = input.fixedLines.filter((l) => !l.kbId).map((l) => l.kind);
-    if (input.mode === 'live' && unreviewed.length) return { ok: false, reason: `fixed line ${unreviewed.join(', ')} has no reviewed knowledge-base row; a default line sends in dry run only` };
+    const channel = party.channels.find((c) => c.kind === input.channel);
+    if (!channel) return { ok: false, reason: `the party has no ${input.channel} address` };
+    const unreviewed = input.fixedLines.filter((l) => KB_BACKED.has(l.kind) && !l.kbId).map((l) => l.kind);
+    if (input.mode === 'live' && unreviewed.length) return { ok: false, reason: `fixed line ${unreviewed.join(', ')} has no reviewed knowledge-base row; a default for one of Ben's four lines sends in dry run only` };
 
     // In dry run and live alike the reply lands on the thread as an outbound turn, so later turns see it.
     // A reply is never dated before the turn it answers: a provider's own timestamp can run ahead of this clock.
@@ -255,7 +268,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: address, channel: input.channel, bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };

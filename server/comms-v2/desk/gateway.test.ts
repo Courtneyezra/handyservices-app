@@ -17,8 +17,8 @@ const fakeDesk: DeskLike = {
 function result(file: CaseFile): DeskResult {
     return { runId: 'run_x', decision: 'none', partyId: file.parties[0].personId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards: {} as any, approver: null, hold: null, delivered: false, stageAfter: file.stage, calls: [], note: null, summary: null, error: null, landedTurnId: null, composerCalls: 0 };
 }
-function turn(text: string, address = '+447700900942', at = '2026-09-11T10:00:00.000Z'): InboundTurn {
-    return { channel: 'whatsapp', address, name: 'Sam', text, media: [], at, providerMessageId: null, via: 'door', mediaFailures: [] };
+function turn(text: string, address = '+447700900942', at = '2026-09-11T10:00:00.000Z', via: InboundTurn['via'] = 'door'): InboundTurn {
+    return { channel: 'whatsapp', address, name: 'Sam', text, media: [], at, providerMessageId: null, via, mediaFailures: [] };
 }
 
 describe('Gateway.inbound', () => {
@@ -33,6 +33,18 @@ describe('Gateway.inbound', () => {
         expect(b.file.turns).toHaveLength(2);
         expect(c.file.id).not.toBe(a.file.id);
         expect(g.store.all()).toHaveLength(2);
+    });
+    it('remembers which WhatsApp sender the customer wrote to on the party\'s channel; the sandbox door leaves it unknown', async () => {
+        const g = new Gateway({ desk: fakeDesk });
+        const a = await g.inbound(turn('hi'));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.parties[0].channels[0].transport ?? null).toBeNull();
+        const b = await g.inbound(turn('more', '+447700900942', '2026-09-11T10:01:00.000Z', 'meta'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.file.parties[0].channels[0].transport).toBe('meta');
+        const c = await g.inbound(turn('again', '+447700900942', '2026-09-11T10:02:00.000Z', 'twilio'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.file.parties[0].channels[0].transport).toBe('twilio');
     });
     it('sends nothing when identity returns candidates, and refuses an internal number', async () => {
         const g = new Gateway({ desk: fakeDesk });

@@ -5,7 +5,8 @@
  * refund, a trust doubt. Their reviewed wording lives in the knowledge base (server/spine/
  * knowledge-base.ts getFixedLine, reviewed rows only); the defaults here stand in dry run until
  * Ben has reviewed one, because the captain's rule is "almost never silent, always acknowledge".
- * Live, the sender refuses a default: only words from the four sources reach a customer.
+ * Live, the sender refuses a default for those four: only words from the four sources reach a
+ * customer. The Goal 1 lines below them are the checklist's own wording and send live.
  * The rest are Goal 1's: money goes to Ben (checklist 2.7), dates come with the quote (2.6), and
  * the acknowledgement a guard hold sends (Contract 4, second failure).
  */
@@ -21,7 +22,8 @@ export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     held_ack: "Thanks, I've passed this to Ben and he'll come back to you.",
 };
 
-const KB_BACKED: ReadonlySet<FixedLineKind> = new Set<FixedLineKind>(['gas', 'complaint', 'refund', 'trust']);
+/** The four whose words are Ben's to review; a default for one of these sends in dry run only. The other kinds are Goal 1 wording and send live. */
+export const KB_BACKED: ReadonlySet<FixedLineKind> = new Set<FixedLineKind>(['gas', 'complaint', 'refund', 'trust']);
 
 export interface FixedLineSource {
     /** A reviewed knowledge-base row for one of the four, or null when none is reviewed. */

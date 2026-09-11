@@ -78,6 +78,10 @@ export class Gateway {
             if (!appended.ok) return { kind: 'refused', reason: appended.reason };
             landed = appended.value;
         }
+        if (turn.via === 'twilio' || turn.via === 'meta') {
+            const ch = partyOf(file, resolved.personId)!.channels.find((c) => c.kind === 'whatsapp');
+            if (ch) ch.transport = turn.via;
+        }
         const result = await this.desk.handleTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result };
     }

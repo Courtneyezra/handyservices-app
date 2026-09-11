@@ -23,7 +23,7 @@ import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, Route } from './router';
 import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
-import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, templateSend, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
+import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 
 export interface DeskDeps extends CaseFileDeps {
@@ -192,7 +192,7 @@ export class Desk implements DeskLike {
                 setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
-            template = templateSend(pick);
+            template = pick.template;
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
         }
 

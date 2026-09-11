@@ -31,6 +31,8 @@ export function stageMoveAllowed(from: Stage, to: Stage): boolean {
 }
 
 export type ReplyChannel = 'whatsapp' | 'sms' | 'email';
+/** Which WhatsApp sender carries the thread: the Twilio number, or the coexistence number Meta serves directly. */
+export type WhatsAppTransport = 'twilio' | 'meta';
 
 export interface PartyChannel {
     kind: ChannelKind;
@@ -38,6 +40,8 @@ export interface PartyChannel {
     address: string;
     /** WhatsApp only: when the customer last wrote, which opens the 24-hour window. Null: never. */
     lastInboundAt: string | null;
+    /** WhatsApp only: the sender the customer last wrote to, so the reply goes back the same way. Null: not yet known, Twilio is assumed. */
+    transport?: WhatsAppTransport | null;
 }
 
 export interface Party {
