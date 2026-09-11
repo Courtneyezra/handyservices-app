@@ -13,7 +13,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { CanonicalKey, ChannelKind, ResolveResult, Role } from './identity';
-import type { Exception } from './router';
+import type { HoldException } from './router';
 
 // ---------------------------------------------------------------- the record
 
@@ -137,7 +137,7 @@ export interface Hold {
     approver: ApproverSlot;
     reason: string;
     /** The router exception that raised it, when one did: a fixed-line exception keeps the specialists off the thread until release. */
-    exception: Exception | null;
+    exception: HoldException | null;
     since: string;
     /** The draft and the failures when a guard hold raised it. */
     draft: string | null;
@@ -418,7 +418,7 @@ export function sameApprover(a: ApproverSlot, b: ApproverSlot): boolean {
 }
 
 /** Sets the hold with the approver. Refuses a second hold; the first stands until released. */
-export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: string; exception?: Exception | null; draft?: string | null; failures?: string[] }, deps: CaseFileDeps = {}): Outcome<Hold> {
+export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: string; exception?: HoldException | null; draft?: string | null; failures?: string[] }, deps: CaseFileDeps = {}): Outcome<Hold> {
     const now = deps.now ?? (() => new Date());
     if (file.hold) return refuse(`the file is already held for ${approverLabel(file.hold.approver)}: ${file.hold.reason}`);
     if (!input.reason.trim()) return refuse('a hold needs a reason');

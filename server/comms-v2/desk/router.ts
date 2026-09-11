@@ -8,13 +8,16 @@
  */
 import { z } from 'zod/v4';
 import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES } from './case-file';
-import { moneyQuestionMatch, regulatedMatch } from './lexicon';
+import { callbackRequestMatch, moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';
 
 export const SUBJECTS = ['scoping', 'quoting', 'scheduling', 'service'] as const;
 export type Subject = (typeof SUBJECTS)[number];
-export const EXCEPTIONS = ['money', 'complaint', 'refund', 'trust_doubt', 'regulated', 'date_change'] as const;
+export const EXCEPTIONS = ['money', 'complaint', 'refund', 'trust_doubt', 'regulated', 'date_change', 'callback'] as const;
 export type Exception = (typeof EXCEPTIONS)[number];
+/** Everything a hold can be raised for: the router's exceptions plus the reasons a specialist's tools raise (Goal 6, server/comms-v2/service). */
+export const HOLD_EXCEPTIONS = [...EXCEPTIONS, 'date_unconfirmed', 'no_source', 'not_converging', 'change_of_details'] as const;
+export type HoldException = (typeof HOLD_EXCEPTIONS)[number];
 export const TURN_KINDS = ['enquiry', 'answer', 'question', 'short_pause', 'promise_of_more', 'acknowledgement', 'decline', 'not_ready', 'other'] as const;
 export type TurnKind = (typeof TURN_KINDS)[number];
 
@@ -29,7 +32,7 @@ export type RouterOutput = z.infer<typeof routerOutputSchema>;
 
 export interface Route extends RouterOutput {
     /** What the deterministic belts found, beside the model's reading. */
-    belts: { regulated: string | null; money: string | null };
+    belts: { regulated: string | null; money: string | null; callback: string | null };
     call: ModelCallRecord;
     error: string | null;
 }
@@ -39,7 +42,7 @@ const SYSTEM = [
     'Subjects, in order of primacy for this turn: scoping (what the job is and where, access, photos, a call), quoting (price, what a quote includes), scheduling (dates, when we can come, lead time), service (facts about the business, changes of details, invoices, aftercare).',
     'A turn can touch two subjects ("how much, and when can you come?"): list both, primary first. A bare statement about the job, an answer to a question, a pause or a thanks is scoping while the job is being scoped.',
     'proposedStage: first_contact for the opening message; scoping once the conversation is under way; ready only when the job type and the location are both known; quoted, accepted, booked, done are later stages you do not propose unless the file already shows them.',
-    'exception, or null: money (asks a price, a cost, a discount, anything beyond reading a quote line back), complaint (unhappy with us or our work), refund, trust_doubt (are you legit, are you insured, a scam worry), regulated (gas or asbestos work), date_change (changing a booked date). "Can I get a quote for X" is an enquiry, not money.',
+    'exception, or null: money (asks a price, a cost, a discount, anything beyond reading a quote line back), complaint (unhappy with us or our work), refund, trust_doubt (are you legit, a scam worry, doubting we are who we say), regulated (gas or asbestos work), date_change (changing a booked date), callback (asks us to call or ring them, or accepts a call we offered). "Can I get a quote for X" is an enquiry, not money. "Are you insured" is a factual question for service, not a trust doubt.',
     'turnKind: enquiry (a new job), answer (details in reply to a question), question (asks us something), short_pause ("one sec", "let me check", "hang on"), promise_of_more ("I\'ll send photos tomorrow", "I\'ll get back to you with the measurements"), acknowledgement ("ok thanks", "makes sense"), decline (declines a photo, a call or a suggestion), not_ready ("I\'ll get back to you next month"), other.',
     'Reply with the JSON object only.',
 ].join('\n');
@@ -50,7 +53,7 @@ function threadFor(file: CaseFile, turn: Turn): string {
 }
 
 export async function route(file: CaseFile, turn: Turn, client: ModelClient): Promise<Route> {
-    const belts = { regulated: regulatedMatch(turn.body), money: moneyQuestionMatch(turn.body) };
+    const belts = { regulated: regulatedMatch(turn.body), money: moneyQuestionMatch(turn.body), callback: callbackRequestMatch(turn.body) };
     const user = [
         `Stage now: ${file.stage}. Job type known: ${file.job.type ? 'yes' : 'no'}. Location known: ${file.job.location ? 'yes' : 'no'}.`,
         `Thread (the turn to route is marked >>):`,
@@ -65,6 +68,7 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient): Pr
     // The belts: regulated and money are holds the model cannot unsay.
     if (belts.regulated) out.exception = 'regulated';
     else if (belts.money && !out.exception) out.exception = 'money';
+    else if (belts.callback && !out.exception) out.exception = 'callback';
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
     return { ...out, belts, call: res.record, error: res.error };
 }

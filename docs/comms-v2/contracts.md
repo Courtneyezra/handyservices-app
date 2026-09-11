@@ -1,7 +1,8 @@
 # The comms desk contracts
 
-The six contracts for the clean-sheet comms desk rebuild: a record shape, its named calls, what
-each call refuses, and an invariants paragraph, for each. Then how a goal is validated.
+The contracts for the clean-sheet comms desk rebuild: a record shape, its named calls, what
+each call refuses, and an invariants paragraph, for each. Then how a goal is validated. Contracts
+1 to 6 are Goal 1's; Contract 7, the Service tool server, is Goal 6's.
 
 A goal loop builds against these calls; a test checks the invariants. Written from the code
 inventory, not from scratch.
@@ -227,6 +228,43 @@ source the date guard recognises; the picker link cited as the quote; a change r
 customer's words from the thread. A proposal: the fixed lines to include (`dates_with_quote`,
 `date_change_to_ben`) and a hold for Ben on a date change while the file is still
 answered on everything else. Never a sentence for the customer.
+
+## Contract 7 - The Service tool server
+
+The specialist for facts and aftercare (Goal 6). Every call is read-only against the world and
+writes only to the case file through its calls. The specialist itself, on Sonnet 5, returns
+selections and facts with sources, never prose; it runs its deterministic tools every turn and its
+model when the router sends the turn to `service`.
+
+| Tool | Input | Returns | Refuses when |
+|---|---|---|---|
+| `kb_lookup` | the customer's question | reviewed knowledge-base rows selected by question, best first, by id with the body verbatim | read-only; an unreviewed, retired or blank row is invisible; may return nothing |
+| `customer_record` | the case file and the party | the party's own details: name, the phone and email addresses on the file, and facts whose source is the customer record | another party's record is never read |
+| `change_of_details` | a field, the new value, the turn | a fact `change_of_details` with the turn as its source, and a hold for Ben | a field not on the record; an empty value; a figure; a value the record already holds. The record itself is never written here. |
+| `convergence` | the case file | converging, or not with why | not converging when the job has been asked JOB_ASKS_MAX times with no job type, or SCOPING_REPLIES_MAX replies have gone while the file is not ready; a ready file, or one past scoping, always converges |
+
+**What the specialist returns.** Facts: each answer as a fact whose value is the reviewed row's
+body verbatim (source `knowledge_base` by id) or the record's own value (source `customer_record`),
+and a requested change as a fact. A proposal: a hold with its reason from the vocabulary
+(`complaint`, `refund`, `trust_doubt`, `no_source`, `not_converging`, `change_of_details`), or none.
+A brief for the composer naming the exact words and the id to cite. An id the lookup did not return
+is no source. Never a sentence for the customer.
+
+**Holds and what the customer hears.** Fixed line only, no composer, no specialist until Ben
+releases: complaint, refund, trust doubt, gas, not converging. Answer the rest, with the fixed line
+in the reply: money, a date change, a customer asking for a call (`callback`, a router exception
+with a deterministic belt), no source, a change of details. Every later turn on a held thread is
+acknowledged (checklist 7.3).
+
+**Return to automation (7.4).** `human_reply(file, by, surface, words)`: any human's reply from any
+surface lands on the thread as an outbound turn with a `human:<id>` approver and a run id, is
+recorded as a send, releases the hold with those words (only from the named approver), and records
+the surface as a fact. The next customer turn is routed as any other.
+
+**Ben's chase (7.5).** On the desk's clock pass, a held thread chases Ben after one interval and
+the owner after a second, through the sender's `initiate`: template only, an approver and a run id
+on each, never freeform, never on the customer's thread. Intervals and addresses are configuration;
+a missing address or an unapproved template is a refusal on the chase record, never a silent skip.
 
 ## Validation
 
