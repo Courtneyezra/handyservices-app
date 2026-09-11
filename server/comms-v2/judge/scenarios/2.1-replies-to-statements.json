@@ -1,0 +1,37 @@
+{
+  "id": "2.1-replies-to-statements",
+  "title": "Replies to every customer turn, whether or not the reply is a question",
+  "lines": ["2.1"],
+  "door": "whatsapp",
+  "seed": { "customer": "new", "name": "Dan", "prefersText": false, "alreadyRung": false, "window": "open" },
+  "turns": [
+    {
+      "from": "customer", "kind": "message",
+      "text": "Hi, my bathroom extractor fan has stopped working, can you sort it?",
+      "expect": [
+        { "line": "2.1", "kind": "reply_sent" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "It's a ceiling fan, about four inch. The light still works but the fan is dead.",
+      "expect": [
+        { "line": "2.1", "kind": "reply_sent", "note": "a statement, not a question: still expects a reply" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "We're in NG7 2PQ.",
+      "expect": [
+        { "line": "2.1", "kind": "reply_sent" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "Ok thanks, that all makes sense.",
+      "expect": [
+        { "line": "2.1", "kind": "reply_sent", "note": "an acknowledgement from the customer still gets something back" }
+      ]
+    }
+  ]
+}

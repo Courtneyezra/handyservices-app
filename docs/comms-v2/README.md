@@ -11,6 +11,6 @@ loop has it to read from the repo instead of from outside sources.
 - `contracts.md` is what a goal loop builds against: the seven contracts, each a record shape, its
   named calls, what each call refuses, and the invariants a test can check.
 
-The build lands in a new directory under `server/` beside `server/spine/` (working name
-`server/comms-v2/`); it never goes inside `server/spine/`. The old desk stays live as rollback until
-the new one is proven and cut over.
+The build lands in `server/comms-v2/` beside `server/spine/`; it never goes inside `server/spine/`.
+Goal 0's judge is there already; `server/comms-v2/README.md` says how to run it. The old desk stays
+live as rollback until the new one is proven and cut over.

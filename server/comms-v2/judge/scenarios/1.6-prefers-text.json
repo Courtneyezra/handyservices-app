@@ -1,0 +1,38 @@
+{
+  "id": "1.6-prefers-text",
+  "title": "Prefers text: once the customer says text only, a call is never offered again",
+  "lines": ["1.6"],
+  "door": "whatsapp",
+  "seed": { "customer": "new", "name": "Jo", "prefersText": true, "alreadyRung": false, "window": "open" },
+  "turns": [
+    {
+      "from": "customer", "kind": "message",
+      "text": "Hi, a fence panel has blown down at the back of our house in Beeston, can you replace it?",
+      "expect": []
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "Text only please, I can't take calls at work.",
+      "expect": [
+        { "line": "1.6", "kind": "reply_sent", "note": "checklist: reply text only please, then continue" },
+        { "line": "1.6", "kind": "not_offers_call" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "It's one 6ft panel, the posts are fine. We're NG9 2AB.",
+      "expect": [
+        { "line": "1.6", "kind": "reply_sent" },
+        { "line": "1.6", "kind": "not_offers_call" }
+      ]
+    },
+    {
+      "from": "customer", "kind": "message",
+      "text": "Do you need anything else from me?",
+      "expect": [
+        { "line": "1.6", "kind": "reply_sent" },
+        { "line": "1.6", "kind": "not_offers_call" }
+      ]
+    }
+  ]
+}
