@@ -73,7 +73,10 @@ export class Desk implements DeskLike {
         const party = file.parties[0];
         const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], 'clock pass: no customer turn, nothing to reply to; the desk never chases a customer');
         const chase = this.deps.service?.chase;
-        if (!chase || !file.hold) return { ...base, chase: null };
+        if (!chase) return { ...base, chase: null };
+        // A release from any surface, the board included, leaves the old record behind: clear it here,
+        // the one pass that runs whether or not the file is held.
+        if (!file.hold) { chase.ledger.clear(file.id); return { ...base, chase: null }; }
         const outcome = await chaseIfDue(file, chase, { templates: this.deps.templates, sender: { ...this.deps.sender, now: this.now, newId: this.deps.newId }, mode: this.deps.mode ?? 'dry_run', now: this.now });
         const note = outcome.action === 'none' ? `chase: ${outcome.reason}` : outcome.action === 'refused' ? `chase ${outcome.purpose} refused: ${outcome.reason}` : `${outcome.action === 'chased' ? 'Ben chased' : 'escalated to the owner'} by template ${outcome.send.templateId} (${outcome.send.runId})`;
         return { ...base, note: `${base.note}; ${note}`, chase: outcome };
