@@ -1,6 +1,6 @@
 /**
- * The channel desk in front of the desk: a missed call gets one text back and an answered
- * inbound call none (3.5); a caller is never asked whether we may call (1.5); Ben's outbound
+ * The channel desk in front of the desk: a missed call gets one text back, a second missed call on
+ * the same thread none, and an answered inbound call none (3.5); a caller is never asked whether we may call (1.5); Ben's outbound
  * call is read for what he asked for (3.3), the post-call template opens WhatsApp with the name
  * and the job (1.3) or its words go on SMS, the thread continues from the file and collects what
  * he asked for (3.2) with nothing held for Ben (3.4); every other turn reaches the desk unchanged.
@@ -53,6 +53,23 @@ describe('the channel desk on a call', () => {
         expect(b.result).toMatchObject({ decision: 'send', channel: 'sms', templateId: null, windowState: 'open' });
         expect(b.result.bubbles[0].text).toMatch(/^Hi Sam, sorry we missed your call\./);
         expect(b.file.parties[0].channels.map((c) => c.kind)).toEqual(['call', 'sms']);
+    });
+    it('a second missed call on the same thread sends nothing: one text back per thread, whatever the number of calls (3.5)', async () => {
+        const boom = () => { throw new Error('no model may run on a missed call'); };
+        const { gateway } = rig({ router: boom, specialist: boom, composer: boom }, approvedAll);
+        const a = await gateway.inbound(call('missed', '2026-09-11T10:00:00.000Z', null), { whatsapp: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result.decision).toBe('send');
+        const b = await gateway.inbound(call('missed', '2026-09-11T10:03:00.000Z', null));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.decision).toBe('none');
+        expect(b.result.delivered).toBe(false);
+        expect(b.result.note).toMatch(/already went on this thread/);
+        expect(b.file.sends).toHaveLength(1);
+        expect(b.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+        const c = await gateway.inbound(call('missed', '2026-09-11T10:09:00.000Z', null));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.file.sends).toHaveLength(1);
     });
     it('an answered inbound call gets no acknowledgement; the transcript is read for facts and the caller is never offered a call again', async () => {
         const { gateway, client } = rig({

@@ -6,10 +6,11 @@
  * only; a live delivery that fails part way records what went as a partial send; a template is
  * shaped for the transport the customer wrote on.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { open, type CaseFile, type Party } from './case-file';
 import { DEFAULT_FIXED_LINES, type FixedLine } from './fixed-lines';
-import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, chooseChannel, initiate, noTemplateApproved, pickTemplate, render, renderWhatsApp, send, templateWire, windowOf, type SendInput, type TemplateSend } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, chooseChannel, initiate, liveDeliverer, noTemplateApproved, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type SendInput, type TemplateSend } from './sender';
+import { renderSms, UCS2_MULTI, GSM7_MULTI, SMS_MAX_SEGMENTS } from '../channels/sms-adapter';
 
 function fixture(): { file: CaseFile; party: Party } {
     const r = open({
@@ -213,5 +214,34 @@ describe('send', () => {
     it('initiate exists and is unused in Goal 1', async () => {
         const { file } = fixture();
         expect((await initiate({ file, partyId: 'p1', purpose: 'service_reply', runId: 'r', approver: 'agent.comms_v2' })).ok).toBe(false);
+    });
+});
+
+describe('liveDeliverer', () => {
+    it('refuses a live send on any channel but WhatsApp and SMS, even with the desk\'s switch on, and delivers nothing', async () => {
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        const r = await liveDeliverer.deliver({
+            to: 'sam@example.com', channel: 'email', transport: 'twilio', bubbles: [{ text: 'Hi Sam,\n\nabout the tap.', gapMs: 0 }],
+            template: null, runId: 'r_email', approver: DESK_APPROVER,
+        });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+            expect(r.reason).toMatch(/live delivery on email is refused/);
+            expect(r.reason).toMatch(/opt-out ledger/);
+            expect(r.delivered).toEqual([]);
+        }
+        vi.doUnmock('../../spine/config');
+    });
+});
+
+describe('shortenBriefFor', () => {
+    it('quotes the refusing text\'s own encoding: GSM7 gets the GSM7 budget, one character outside it halves the budget', () => {
+        const long = Array.from({ length: 8 }, () => 'This sentence is long enough to push the message over two segments.').join(' ');
+        const gsm7 = shortenBriefFor('sms', long, renderSms(long).bubbles);
+        expect(gsm7).toMatchObject({ channel: 'sms', ceiling: SMS_MAX_SEGMENTS, charBudget: GSM7_MULTI * SMS_MAX_SEGMENTS });
+        const ucs2Text = `${long} \u{1F44D}`;
+        const ucs2 = shortenBriefFor('sms', ucs2Text, renderSms(ucs2Text).bubbles);
+        expect(ucs2).toMatchObject({ channel: 'sms', charBudget: UCS2_MULTI * SMS_MAX_SEGMENTS });
+        if (ucs2.channel === 'sms') expect(ucs2.charBudget).toBeLessThan(gsm7.channel === 'sms' ? gsm7.charBudget : 0);
     });
 });

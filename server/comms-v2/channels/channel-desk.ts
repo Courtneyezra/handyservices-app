@@ -6,10 +6,13 @@
  * speaks on a call"; behaviour.md answer 20).
  *
  *   missed            one text back (checklist 3.5): the missed-call template on WhatsApp if the
- *                     number is on it, else the same words as one SMS, else email. Never a second.
- *                     On WhatsApp with the window open (they wrote within the day) the template's
- *                     words go as a plain message; a shut window needs the approved template, and
- *                     none approved holds the follow-up for Ben with the words as the draft.
+ *                     number is on it, else the same words as one SMS, else email. One per thread,
+ *                     never a second: a customer who rings three times gets one text, because the
+ *                     acknowledgement is written to the ask ledger and a later missed call finds it
+ *                     there. On WhatsApp with the window open (they wrote within the day) the
+ *                     template's words go as a plain message; a shut window needs the approved
+ *                     template, and none approved holds the follow-up for Ben with the words as the
+ *                     draft.
  *   answered_inbound  the transcript is read for facts; no acknowledgement (3.5). They rang us,
  *                     so the call is never offered again (1.5).
  *   ben_rang          the transcript is read for what Ben asked for (3.3); the post-call template
@@ -22,12 +25,13 @@
  * own shut-window path. Facts from the call carry the call turn as their source.
  */
 import { randomUUID } from 'node:crypto';
-import { hold as setHold, isReady, partyOf, setStage, type CaseFile, type CaseFileDeps, type ModelCallRecord, type Turn } from '../desk/case-file';
+import { ask as ledgerAsk, everAsked, hold as setHold, isReady, partyOf, setStage, type CaseFile, type CaseFileDeps, type ModelCallRecord, type Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict } from '../desk/desk-types';
 import { BEN } from '../desk/guards';
 import { AnthropicModelClient, type ModelClient } from '../desk/models';
 import { DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, templateBodyFor, windowOf, type ReplyPurpose, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from '../desk/sender';
 import { callOutcomeOnFile, type CallOutcome } from './call-adapter';
+import { MISSED_CALL_ACK_SUBJECT } from './templates';
 import { benAskedSubjects, ledgerAfterCall, readCall, recordCallFacts } from './call-reader';
 
 export interface ChannelDeskDeps extends CaseFileDeps {
@@ -113,6 +117,12 @@ export class ChannelDesk implements DeskLike {
         // A thread held for Ben stays with him; a call is his, not the desk's, to follow up.
         if (file.hold) return this.result(file, party.personId, runId, calls, { decision: 'hold', factIds, summary, note: `held for ${file.hold.approver.id} (${file.hold.reason}); no follow-up from the desk` });
 
+        // One text back per thread (checklist 3.5). They may ring three times in five minutes; they hear back once.
+        if (outcome === 'missed' && everAsked(file, MISSED_CALL_ACK_SUBJECT)) {
+            ledgerAfterCall(file, asked, deps);
+            return this.result(file, party.personId, runId, calls, { decision: 'none', factIds, summary, note: 'the missed-call text already went on this thread; one text back, never a second (checklist 3.5)' });
+        }
+
         // The follow-up: a template, on WhatsApp if the number is on it, else its words on SMS, else email.
         const purpose: ReplyPurpose = outcome === 'missed' ? 'missed_call' : 'post_call_followup';
         const choice = chooseChannel(party, 'call', this.now());
@@ -154,6 +164,10 @@ export class ChannelDesk implements DeskLike {
             return this.result(file, party.personId, runId, calls, { decision: 'hold', channel: choice.channel, windowState: window.state, factIds, summary, note: `send refused: ${sent.reason}` });
         }
         ledgerAfterCall(file, asked, deps);
+        if (purpose === 'missed_call') {
+            const marked = ledgerAsk(file, MISSED_CALL_ACK_SUBJECT, deps);
+            if (!marked.ok) log(`missed-call acknowledgement not recorded: ${marked.reason}`);
+        }
         return this.result(file, party.personId, runId, calls, {
             decision: 'send', channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles, factIds, guards, approver: DESK_APPROVER,
             delivered: true, landedTurnId: sent.record.turnId, summary: `${summary}; follow-up ${purpose} on ${choice.channel}${template ? ` (template ${template.name})` : ' (the template\'s words)'}`, note: null,

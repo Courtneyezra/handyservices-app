@@ -27,7 +27,7 @@ import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
 import { emailThreadingFor, renderEmail, type EmailThreading } from '../channels/email-adapter';
-import { renderSms, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI } from '../channels/sms-adapter';
+import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
 import { CHANNEL_TEMPLATES, type ChannelReplyPurpose } from '../channels/templates';
 
 export const WINDOW_HOURS = 24;
@@ -135,20 +135,29 @@ export function render(channel: ReplyChannel, reply: string, opts: RenderOptions
     return { ok: false, reason: 'channel', bubbles: [] };
 }
 
-/** What the composer is told when a render refuses for length, in the refusing channel's own measure. */
-export interface ShortenBrief { previous: string; channel: ReplyChannel; measured: number; ceiling: number; charBudget: number }
+/**
+ * What the composer is told when a render refuses for length, in the refusing channel's own
+ * measure. Only SMS carries a character budget: the WhatsApp brief counts bubbles, and a character
+ * number there is read by nobody.
+ */
+export type ShortenBrief =
+    | { previous: string; channel: 'sms'; measured: number; ceiling: number; charBudget: number }
+    | { previous: string; channel: Exclude<ReplyChannel, 'sms'>; measured: number; ceiling: number };
 
 /**
  * A reply too long for its channel, described the way that channel counts: WhatsApp counts bubbles
  * against the ceiling, SMS counts segments against the two a single text message may use. Telling
  * the composer the other channel's numbers gives it no reason to shorten, so the retry fails too.
+ * The SMS budget is the refusing text's own encoding: one character outside GSM 03.38 halves what
+ * two segments hold, so a GSM7 number would send the shortened reply back over the ceiling again.
  */
 export function shortenBriefFor(channel: ReplyChannel, previous: string, rendered: RenderedBubble[]): ShortenBrief {
     if (channel === 'sms') {
         const text = rendered[0]?.text ?? '';
-        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: GSM7_MULTI * SMS_MAX_SEGMENTS };
+        const multi = smsCost(text).encoding === 'ucs2' ? UCS2_MULTI : GSM7_MULTI;
+        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: multi * SMS_MAX_SEGMENTS };
     }
-    return { previous, channel, measured: rendered.length, ceiling: BUBBLE_CEILING, charBudget: BUBBLE_MAX_CHARS * BUBBLE_CEILING };
+    return { previous, channel, measured: rendered.length, ceiling: BUBBLE_CEILING };
 }
 
 // ---------------------------------------------------------------- pick_template

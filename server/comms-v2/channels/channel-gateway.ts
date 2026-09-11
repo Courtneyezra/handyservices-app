@@ -82,6 +82,7 @@ export class ChannelGateway extends Gateway {
         const reach = [...(env.reach ?? [])];
         if (env.channel === 'call' || env.channel === 'form') { const phone = e164Of(resolved.canonical); if (phone) reach.push({ kind: 'sms', address: phone }); }
         if (env.channel === 'sms') reach.push({ kind: 'sms', address });
+        if (env.channel === 'email') reach.push({ kind: 'email', address });
         for (const r of reach) if (!party.channels.some((c) => c.kind === r.kind && c.address === r.address)) party.channels.push({ kind: r.kind, address: r.address, lastInboundAt: null });
         const phone = e164Of(resolved.canonical) ?? party.channels.find((c) => c.kind === 'sms')?.address ?? null;
         if (phone && !party.channels.some((c) => c.kind === 'whatsapp')) {

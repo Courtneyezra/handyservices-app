@@ -43,15 +43,32 @@ export interface InboundEmail {
 
 const RE_QUOTE_HEADER = /^(?:On .{3,120}wrote:\s*$|-{2,}\s*Original Message\s*-{2,}\s*$|-{2,}\s*Forwarded message\s*-{2,}\s*$|From:\s.+$|Sent from my \w+.*$|_{5,}\s*$)/i;
 
-/** The new words only: everything from the first quote header or `>` line on is history. */
+/** The most an unstripped body keeps when the history cannot be told from the new words. */
+export const EMAIL_BODY_MAX = 4000;
+
+function capBody(text: string): string {
+    if (text.length <= EMAIL_BODY_MAX) return text;
+    const cut = text.slice(0, EMAIL_BODY_MAX + 1);
+    const at = cut.lastIndexOf(' ');
+    return (at > EMAIL_BODY_MAX / 2 ? cut.slice(0, at) : text.slice(0, EMAIL_BODY_MAX)).trim();
+}
+
+/**
+ * The new words only: everything from the first quote header or `>` line on is history. A
+ * bottom-posted reply puts the new words under the history, so stripping leaves nothing; the whole
+ * body is kept then, capped, because the desk answering a turn with no words in it is worse than
+ * the desk reading the history back.
+ */
 export function stripQuotedHistory(text: string): string {
+    const normalised = text.replace(/\r\n/g, '\n');
     const out: string[] = [];
-    for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
+    for (const raw of normalised.split('\n')) {
         const line = raw.replace(/\s+$/, '');
         if (/^\s*>/.test(line) || RE_QUOTE_HEADER.test(line.trim())) break;
         out.push(line);
     }
-    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    const kept = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    return kept || capBody(normalised.replace(/\n{3,}/g, '\n\n').trim());
 }
 
 /** A rough text from HTML for a message with no text part: block tags to line breaks, tags gone, a few entities back. */

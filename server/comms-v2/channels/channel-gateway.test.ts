@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
+import { chooseChannel } from '../desk/sender';
 import { ChannelGateway } from './channel-gateway';
 import { fromDoorEmail } from './email-adapter';
 import { fromWebForm } from './form-adapter';
@@ -61,6 +62,19 @@ describe('the channel gateway', () => {
         const c = await unknown.inbound(fromDoorSms({ address: '+447700900942', text: 'hi' }));
         if (c.kind !== 'handled') throw new Error(c.kind);
         expect(c.file.parties[0].channels.map((c) => c.kind)).toEqual(['sms']);
+    });
+    it('an email onto a file opened on another channel puts the email channel on the party, so the reply goes back by email on its thread', async () => {
+        const g = new ChannelGateway({ desk: fakeDesk });
+        const a = await g.inbound(fromDoorSms({ address: '+447700900942', name: 'Sam', text: 'my tap drips', at: '2026-09-11T10:00:00.000Z' }));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.parties[0].channels.map((c) => c.kind)).toEqual(['sms']);
+        expect(g.identity.link(a.file.parties[0].canonical, 'email:sam@example.com', 'the same person, proved elsewhere').ok).toBe(true);
+        const b = await g.inbound(fromDoorEmail({ address: 'sam@example.com', subject: 'My dripping tap', text: 'here is the detail', at: '2026-09-11T10:05:00.000Z', messageId: '<e9@x>' }));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.file.id).toBe(a.file.id);
+        expect(b.file.parties[0].channels.map((c) => [c.kind, c.address])).toEqual([['sms', '+447700900942'], ['email', 'sam@example.com']]);
+        expect(b.file.parties[0].channels.find((c) => c.kind === 'email')?.thread).toEqual({ subject: 'My dripping tap', messageId: '<e9@x>', references: ['<e9@x>'] });
+        expect(chooseChannel(b.file.parties[0], 'email')).toEqual({ ok: true, channel: 'email', address: 'sam@example.com' });
     });
     it('an email-only person has an email channel and nothing else; an internal number is refused', async () => {
         const g = new ChannelGateway({ desk: fakeDesk });

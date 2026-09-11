@@ -457,7 +457,7 @@ The remaining Stage 1 lines and all of Stage 3, each through its own door on the
 | 3.2 | After Ben's outbound call the thread continues and collects what he asked for. | The reader records what Ben asked for and puts it on the ask ledger after the follow-up; the next turn's photos are thanked once and scoping continues from the file. |
 | 3.3 | The assistant sees enough of the call to know what Ben asked for. | The transcript is a turn on the file and `ben_asked_for` a fact with that turn as its source; the follow-up names the job. |
 | 3.4 | An earlier "yes please call me" does not send the thread back to Ben after the call. | A callback is not an exception the desk holds on; the call turn settles the `handoff` ask and raises no hold. |
-| 3.5 | A missed call gets one text back; an answered inbound call gets no acknowledgement. | The call door: `missed` sends the missed-call template (or its words on SMS) once; `answered_inbound` reads the transcript for facts and sends nothing. |
+| 3.5 | A missed call gets one text back; an answered inbound call gets no acknowledgement. | The call door: `missed` sends the missed-call template (or its words on SMS) once per thread, the acknowledgement written to the ask ledger so a customer who rings three times still hears back once; `answered_inbound` reads the transcript for facts and sends nothing. |
 
 The old inputs forward into the new gateway behind `COMMS_V2_INTAKE` (off by default; the old
 handler still runs); inbound email is new, a webhook under the new code; see the README.

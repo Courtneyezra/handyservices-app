@@ -19,6 +19,14 @@ import type { CaseFile, Turn } from '../desk/case-file';
 import { CALL_OUTCOME_KEY, callOutcomeOnFile } from './call-adapter';
 import { truncateWords } from './envelope';
 
+/**
+ * The ledger subject the missed-call acknowledgement is recorded under. It is not a question, so it
+ * is not one of the case file's ASK_SUBJECTS; it is in the ledger because the ledger is the one
+ * place a thing the desk does once per thread is written down, and a second missed call must not
+ * put a second identical text out (checklist 3.5).
+ */
+export const MISSED_CALL_ACK_SUBJECT = 'missed_call_ack';
+
 /** A registry row for a purpose the five-row registry does not carry yet. Same shape, its own trigger id. */
 export type ChannelTemplate = Omit<WindowTemplate, 'trigger'> & { trigger: { id: 'missed_call'; when: string; source: string; wired: boolean } };
 
@@ -33,7 +41,7 @@ export const CHANNEL_TEMPLATES: ChannelTemplate[] = [
         variableMeanings: { '1': "the customer's first name, or 'there'" },
         trigger: {
             id: 'missed_call',
-            when: 'The customer rang and nobody spoke to them. One text back, never a second (checklist 3.5). A call never opens the WhatsApp window.',
+            when: 'The customer rang and nobody spoke to them. One text back per thread, never a second however many times they ring (checklist 3.5); the ask ledger holds the record. A call never opens the WhatsApp window.',
             source: 'server/comms-v2/channels/channel-desk.ts, on a call turn whose outcome is missed',
             wired: true,
         },

@@ -77,6 +77,14 @@ describe('the email adapter', () => {
         const env = fromInboundEmail({ from: 'a@b.co', html: '<div>Only html</div>' });
         expect(env.text).toBe('Only html');
     });
+    it('keeps the whole body when stripping leaves nothing, so a bottom-posted reply is not answered as silence', () => {
+        const bottom = 'On Thu, 10 Sep 2026, Handy Services wrote:\n> what is the postcode?\n\nNG9 2AB, and the fan is over the bath.';
+        expect(stripQuotedHistory(bottom)).toContain('NG9 2AB, and the fan is over the bath.');
+        expect(stripQuotedHistory('> only history')).toBe('> only history');
+        const env = fromInboundEmail({ from: 'a@b.co', subject: 'Re: Leaking tap', text: bottom });
+        expect(env.text).toContain('NG9 2AB');
+        expect(stripQuotedHistory(`> quoted\n${'x'.repeat(9000)}`).length).toBeLessThanOrEqual(4000);
+    });
     it('renders one letter with a greeting and a sign-off, and threads the reply on the inbound message', () => {
         const r = renderEmail('Thanks for the detail.\n\nWhereabouts are you?', { name: 'Sam Jones' });
         expect(r.ok).toBe(true);

@@ -7,7 +7,8 @@
  * Every call here is a pure function over the file's record: it returns a refusal or applies the
  * change in place. Turns are append only. A fact without a source is refused. The seven stages
  * move only through `setStage`. The ask ledger refuses a second ask of an unanswered subject and a
- * second thank. The hold is a flag, not a stage, released only with the approver's words. A send
+ * second thank; it is also where anything the desk does once per thread is recorded, so a second
+ * attempt at it is refused by the same row (the missed-call acknowledgement, checklist 3.5). The hold is a flag, not a stage, released only with the approver's words. A send
  * carries a run id, an approver and the facts it was written from.
  */
 import { randomUUID } from 'node:crypto';
@@ -114,6 +115,7 @@ export interface Fact {
     by: string;
 }
 
+/** The subjects the desk asks a customer about. The ledger also carries one-per-thread markers that are not questions. */
 export const ASK_SUBJECTS = ['media', 'postcode', 'access', 'handoff', 'job'] as const;
 export type AskSubject = string;
 

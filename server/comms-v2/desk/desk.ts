@@ -135,7 +135,7 @@ export class Desk implements DeskLike {
                     if (route.turnKind === 'not_ready') scoping.proposal.offerCall = false;
                 }
                 // 4. Compose, once; a guard failure sends it back once; the ceiling sends it back once.
-                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines };
+                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, now: this.now() };
                 const first = await compose(input, this.client);
                 calls.push(first.record);
                 composerCalls++;
@@ -159,7 +159,7 @@ export class Desk implements DeskLike {
         };
         let guards: GuardOutcome = withOneThing(runGuards(guardInput(reply!, factIds)), reply!);
         if (!guards.ok && !(exception && FIXED_LINE_ONLY.has(exception)) && !specialists[0]?.proposal.hold) {
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures }, this.client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, this.client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
@@ -178,7 +178,7 @@ export class Desk implements DeskLike {
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
         let rendered = render(choice.channel, reply!, { name: party.name });
         if (!rendered.ok && rendered.reason === 'ceiling' && !(exception && FIXED_LINE_ONLY.has(exception))) {
-            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles) }, this.client);
+            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, this.client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {

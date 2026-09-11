@@ -97,6 +97,19 @@ describe('the composer\'s brief', () => {
         expect(onEmail).toContain('quote their enquiry back in your own words before anything else');
     });
 
+    it('names the channel by the desk\'s clock, not the wall clock: an SMS answered inside the WhatsApp window gets no SMS line', () => {
+        const file = fixture('Leaking tap');
+        file.turns[0].channel = 'sms';
+        file.parties[0].channels = [
+            { kind: 'sms', address: '+447700900942', lastInboundAt: null },
+            { kind: 'whatsapp', address: '+447700900942', lastInboundAt: '2020-01-01T10:00:00.000Z' },
+        ];
+        const inside = brief({ file, party: file.parties[0], turn: file.turns[0], now: new Date('2020-01-01T12:00:00.000Z') });
+        expect(inside).not.toContain('This reply goes by SMS');
+        const after = brief({ file, party: file.parties[0], turn: file.turns[0], now: new Date('2020-01-03T12:00:00.000Z') });
+        expect(after).toContain('This reply goes by SMS');
+    });
+
     it('asks an over-long SMS to shorten in segments, never in WhatsApp bubbles', () => {
         const file = fixture('Leaking tap');
         file.turns[0].channel = 'sms';
