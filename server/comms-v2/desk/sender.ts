@@ -222,7 +222,10 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
         if (!delivered.ok) return { ok: false, reason: delivered.reason };
     }
     // In dry run and live alike the reply lands on the thread as an outbound turn, so later turns see it.
-    const turn = appendTurn(input.file, { at: now().toISOString(), channel: input.channel, direction: 'outbound', partyId: input.partyId, kind: 'text', body: input.bubbles.map((b) => b.text).join('\n'), media: [], runId: input.runId, approver: input.approver }, deps);
+    // A reply is never dated before the turn it answers: a provider's own timestamp can run ahead of this clock.
+    const last = input.file.turns[input.file.turns.length - 1];
+    const at = new Date(Math.max(now().getTime(), last ? Date.parse(last.at) + 1 : 0)).toISOString();
+    const turn = appendTurn(input.file, { at, channel: input.channel, direction: 'outbound', partyId: input.partyId, kind: 'text', body: input.bubbles.map((b) => b.text).join('\n'), media: [], runId: input.runId, approver: input.approver }, deps);
     if (!turn.ok) return { ok: false, reason: turn.reason };
     const record: SendRecord = {
         runId: input.runId, approver: input.approver, partyId: input.partyId, channel: input.channel, windowState: input.window.state, templateId: input.templateId,

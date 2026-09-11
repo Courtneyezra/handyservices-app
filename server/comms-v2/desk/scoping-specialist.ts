@@ -10,7 +10,7 @@
  * whether to offer a call, whether to thank for media, a hold on regulated work. The specialist
  * never sees the customer and holds no send tool.
  */
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { answered, everAsked, recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn } from './case-file';
 import type { Proposal, SpecialistReturn } from './desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from './models';

@@ -13,7 +13,7 @@
  *
  * The client is a dependency so every module above this line is testable with a scripted fake.
  */
-import type { ZodType } from 'zod';
+import type { ZodType } from 'zod/v4';
 import { computeCostPence } from '../../agent-cost';
 import type { ModelCallRecord } from './case-file';
 
@@ -55,12 +55,30 @@ export function emptyRecord(role: ModelCallRecord['role'], model: string, effort
     return { role, model, effort, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costPence: null, durationMs };
 }
 
+/**
+ * Fable 5.1 is not in server/agent-cost.ts yet (the one price table; a row there is the fix at
+ * cutover, outside this build's boundary). Until then the desk prices it here from Anthropic's
+ * published rate, USD per million tokens, so cost per thread is a number from day one.
+ */
+const FABLE_USD_PER_MTOK = { input: 10, output: 50 };
+const USD_TO_GBP_FALLBACK = 0.78;
+
+export function costPenceFor(model: string, usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }): number | null {
+    const priced = computeCostPence(usage, model);
+    if (priced != null) return priced;
+    if (/fable/i.test(model)) {
+        const usd = (usage.inputTokens * FABLE_USD_PER_MTOK.input + usage.cacheReadTokens * FABLE_USD_PER_MTOK.input * 0.1 + usage.cacheWriteTokens * FABLE_USD_PER_MTOK.input * 1.25 + usage.outputTokens * FABLE_USD_PER_MTOK.output) / 1_000_000;
+        return Math.round(usd * USD_TO_GBP_FALLBACK * 100);
+    }
+    return null;
+}
+
 export function recordFromUsage(role: ModelCallRecord['role'], model: string, effort: Effort | null, usage: { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | null | undefined, durationMs: number): ModelCallRecord {
     const inputTokens = usage?.input_tokens ?? 0;
     const outputTokens = usage?.output_tokens ?? 0;
     const cacheReadTokens = usage?.cache_read_input_tokens ?? 0;
     const cacheWriteTokens = usage?.cache_creation_input_tokens ?? 0;
-    return { role, model, effort, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costPence: computeCostPence({ inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }, model), durationMs };
+    return { role, model, effort, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costPence: costPenceFor(model, { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }), durationMs };
 }
 
 /** The project's client, loaded on first use so a test run without a key never imports it. */
@@ -107,7 +125,7 @@ export class FakeModelClient implements ModelClient {
         this.calls.push({ role: call.role, model: call.model, effort: call.effort, system: call.system, user: call.user });
         const n = this.calls.filter((c) => c.role === call.role).length;
         const h = this.handlers[call.role];
-        const record = { ...emptyRecord(call.role, call.model, call.effort, 1), inputTokens: 100, outputTokens: 50, costPence: computeCostPence({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0 }, call.model) };
+        const record = { ...emptyRecord(call.role, call.model, call.effort, 1), inputTokens: 100, outputTokens: 50, costPence: costPenceFor(call.model, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0 }) };
         if (!h) return { output: null, record, refused: false, error: `no fake handler for ${call.role}` };
         const out = await h({ user: call.user, system: call.system, n });
         if (out && typeof out === 'object' && 'refused' in out) return { output: null, record, refused: true, error: 'the model declined the request' };

@@ -137,8 +137,9 @@ export const emptyKb: KbReader = { async list() { return []; } };
 
 /** Reviewed rows whose topic shares words with the question, verbatim. Read-only; may return nothing. */
 export async function kbLookup(question: string, reader: KbReader = reviewedKb): Promise<Array<{ id: string; topic: string; approvedWords: string }>> {
-    const words = question.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-    if (!words.length) return [];
+    // A cheap stem (the first five letters) so "insured" finds "insurance"; a selection, not a search.
+    const stems = question.toLowerCase().split(/\W+/).filter((w) => w.length > 3).map((w) => w.slice(0, 5));
+    if (!stems.length) return [];
     const rows = await reader.list();
-    return rows.filter((r) => { const t = r.topic.toLowerCase(); return words.some((w) => t.includes(w)); }).slice(0, 5);
+    return rows.filter((r) => { const t = r.topic.toLowerCase(); return stems.some((w) => t.includes(w)); }).slice(0, 5);
 }

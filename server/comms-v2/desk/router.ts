@@ -6,7 +6,7 @@
  * tool. Two deterministic belts sit under it: the regulated matcher (a hold the model cannot
  * unsay) and the money-question matcher (2.7 cannot depend on one model reading).
  */
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES } from './case-file';
 import { moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';

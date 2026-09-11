@@ -10,7 +10,7 @@
  * it back once with the failures named, and the bubble ceiling sends it back once to shorten.
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import type { CaseFile, Party, Turn } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
