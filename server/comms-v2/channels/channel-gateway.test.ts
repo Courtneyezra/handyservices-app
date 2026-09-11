@@ -48,6 +48,28 @@ describe('the channel gateway', () => {
         expect(g.store.all()).toHaveLength(1);
         expect(seen).toHaveLength(3);
     });
+    it('the form joins in both orders: after an email and after a WhatsApp it lands on the file that person already has', async () => {
+        const byEmail = new ChannelGateway({ desk: fakeDesk });
+        const a = await byEmail.inbound(fromDoorEmail({ address: 'Priya@Example.com', subject: 'My kitchen fan', text: 'the kitchen fan is dead', at: '2026-09-11T09:00:00.000Z', messageId: '<e1@x>' }));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        const b = await byEmail.inbound(await fromWebForm({ customerName: 'Priya K', phone: '07700 900942', email: 'priya@example.com', jobDescription: 'kitchen fan dead', at: '2026-09-11T09:05:00.000Z' }), { whatsapp: false });
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.file.id).toBe(a.file.id);
+        expect(b.file.parties).toHaveLength(1);
+        expect(b.file.turns.map((t) => t.channel)).toEqual(['email', 'form']);
+        expect(byEmail.store.all()).toHaveLength(1);
+        expect(byEmail.identity.directory.all()).toHaveLength(1);
+        expect(byEmail.identity.directory.all()[0].keys.slice().sort()).toEqual(['email:priya@example.com', 'phone:07700900942']);
+
+        const byWhatsApp = new ChannelGateway({ desk: fakeDesk });
+        const c = await byWhatsApp.inbound(wa('my kitchen fan is dead', '2026-09-11T09:00:00.000Z'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        const d = await byWhatsApp.inbound(await fromWebForm({ customerName: 'Priya K', phone: '+447700900942', email: 'priya@example.com', jobDescription: 'kitchen fan dead', at: '2026-09-11T09:05:00.000Z' }));
+        if (d.kind !== 'handled') throw new Error(d.kind);
+        expect(d.file.id).toBe(c.file.id);
+        expect(byWhatsApp.store.all()).toHaveLength(1);
+        expect(byWhatsApp.identity.directory.all()).toHaveLength(1);
+    });
     it('a WhatsApp channel goes on a form or call party when the seed or the presence source says the number is on it, never otherwise', async () => {
         const known = new ChannelGateway({ desk: fakeDesk, presence: { async knownOnWhatsApp() { return true; } } });
         const a = await known.inbound(await fromWebForm({ phone: '+447700900942', jobDescription: 'x' }));

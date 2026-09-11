@@ -122,20 +122,35 @@ export class Identity {
         const matches = this.directory.byKey(key);
         const distinct = new Map(matches.map((p) => [p.id, p]));
         if (distinct.size > 1) return { ok: false, reason: 'candidates', candidates: Array.from(distinct.values()) };
-        let person = matches[0] ?? null;
+        let person = matches[0] ?? this.namedByAnotherKey(key, hints);
         let isNew = false;
         if (!person) {
             // Known customer would be looked up in the CRM here; Goal 1 has no seeded record, so a
             // fresh key is a new homeowner.
             person = { id: this.newId(), role: 'homeowner', customerId: null, name: hints.name?.trim() || null, keys: [key], propertyId: null, landlordId: null };
-            this.directory.upsert(person);
             isNew = true;
-        } else if (!person.name && hints.name?.trim()) {
-            person = { ...person, name: hints.name.trim() };
-            this.directory.upsert(person);
+        } else {
+            person = { ...person, keys: person.keys.includes(key) ? person.keys : [...person.keys, key], name: person.name || (hints.name?.trim() || null) };
         }
+        this.directory.upsert(person);
         const role = ROLE_ORDER.find((r) => r === person!.role) ?? 'homeowner';
         return { ok: true, personId: person.id, customerId: person.customerId, role, isNew, canonical: key, propertyId: person.propertyId, landlordId: person.landlordId, name: person.name };
+    }
+
+    /**
+     * The person another key on the same turn already names. The web form is the join (Contract 1):
+     * a turn that carries a phone and an email together belongs to whichever of them the business
+     * already knows, in either order, so no second person is minted for the other key. Two
+     * different people across the turn's keys stay two: merging those is Ben's call, through `link`.
+     */
+    private namedByAnotherKey(key: CanonicalKey, hints: ResolveHints): Person | null {
+        const named = new Map<string, Person>();
+        for (const raw of [hints.phone, hints.email]) {
+            const other = canonical(raw);
+            if (!other || other === key) continue;
+            for (const p of this.directory.byKey(other)) named.set(p.id, p);
+        }
+        return named.size === 1 ? Array.from(named.values())[0]! : null;
     }
 
     /** Two keys belong together, with the evidence. Refused when either already belongs to a different person. */
