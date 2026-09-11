@@ -117,16 +117,6 @@ export function checkRegulated(input: GuardInput): GuardVerdict {
     return fail(`the turn mentions regulated work ("${match}") and the reply does not carry the fixed line`);
 }
 
-/**
- * The eight recorded as not applied, for a send Contract 4 never gated: a person's own words from
- * Ben's board (behaviour.md answer 43, desk/human-reply.ts). Honest about what ran, rather than a
- * pass no guard gave.
- */
-export function guardsNotApplied(): Record<GuardName, GuardVerdict> {
-    const verdicts = GUARD_NAMES.map((g) => [g, { result: 'not_applied' as const, note: 'a person wrote these words; the guards gate a composed reply' }]);
-    return Object.fromEntries(verdicts) as Record<GuardName, GuardVerdict>;
-}
-
 /** Every guard, always all eight, so the planned send records each result. */
 export function runGuards(input: GuardInput): GuardOutcome {
     const guards: Record<GuardName, GuardVerdict> = {

@@ -40,10 +40,7 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
     const party = file.parties.find((p) => p.personId === r.partyId) ?? file.parties[0];
     const address = party.channels.find((c) => c.kind === 'whatsapp')?.address ?? party.channels[0]?.address ?? '';
     const guards = {} as PlannedSend['guards'];
-    for (const [name, v] of Object.entries(r.guards)) {
-        if (v.result === 'not_applied') throw new Error(`the door carries the desk's own turns only, so guard ${name} must have run`);
-        guards[name as keyof PlannedSend['guards']] = { result: v.result, note: v.note };
-    }
+    for (const [name, v] of Object.entries(r.guards)) guards[name as keyof PlannedSend['guards']] = { result: v.result, note: v.note };
     return {
         caseId: file.id,
         party: { role: party.role, address, name: party.name },

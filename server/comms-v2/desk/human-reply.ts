@@ -14,17 +14,23 @@
  * without any extra field: the send carries the `human:<person>` approver, which no automated path
  * can produce, and no send record stores a guard result, so nothing claims a pass.
  *
- * What does hold is everything the sender owns: the window rule, so a shut window never carries
+ * A human reply is not checked, but it is recorded. The ask ledger and `callOffered` are
+ * bookkeeping of what the business has already said, not a check on what may go, and they are the
+ * one place the never-ask-twice rule lives: the same text detectors the desk runs over its own
+ * reply (`textAsks`, `offersCall`) run over Ben's, so the desk does not ask the customer for a
+ * photo Ben has just asked for or offer a call he has just promised.
+ *
+ * What else holds is everything the sender owns: the window rule, so a shut window never carries
  * freeform words; an approver and a run id on every send; the party being on the file; and one run
  * id sending once. A refusal sends nothing and records nothing, and comes back with its reason for
  * the board to show Ben, never a silent hold.
  */
 import { randomUUID } from 'node:crypto';
-import { release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type Turn } from './case-file';
-import type { DeskResult } from './desk-types';
-import { approverFor, guardsNotApplied } from './guards';
+import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
+import { approverFor } from './guards';
+import { offersCall, textAsks } from './lexicon';
 import { BUBBLE_CEILING, chooseChannel, render, send, windowOf, type SenderDeps } from './sender';
-import { humanApprover } from '../../approver';
+import { humanApprover, type Approver } from '../../approver';
 
 export interface HumanReplyInput {
     file: CaseFile;
@@ -41,8 +47,17 @@ export interface HumanReplyDeps extends CaseFileDeps {
     sender?: SenderDeps;
 }
 
+/** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
+export interface HumanSend {
+    runId: string;
+    approver: Approver;
+    channel: ReplyChannel;
+    bubbles: RenderedBubble[];
+    turnId: string;
+}
+
 export type HumanReplyOutcome =
-    | { ok: true; result: DeskResult; release: HoldRelease | null }
+    | { ok: true; result: HumanSend; release: HoldRelease | null }
     /** Nothing sent, nothing recorded; the reason is the board's to show. */
     | { ok: false; reason: string };
 
@@ -93,17 +108,17 @@ export async function humanReply(input: HumanReplyInput, deps: HumanReplyDeps = 
     const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: deps.mode ?? 'dry_run' }, { ...deps.sender, now, newId: deps.newId });
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 
+    // What the business has now said: the ledger and callOffered, from the same detectors the desk runs over its own reply.
+    const fileDeps: CaseFileDeps = { now, newId: deps.newId };
+    for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(words, subject)) ledgerAsk(file, subject, fileDeps);
+    if (offersCall(words)) party.callOffered = true;
+
     // The hold clears with Ben's words as the release; with no hold there is nothing to clear. Either way the thread is automation's again.
     let release: HoldRelease | null = null;
     if (file.hold) {
-        const rel = releaseHold(file, approver, words, { now, newId: deps.newId });
+        const rel = releaseHold(file, approver, words, fileDeps);
         if (rel.ok) release = rel.value;
     }
 
-    const result: DeskResult = {
-        runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: null, bubbles: rendered.bubbles,
-        factIds: [], kbIds: [], guards: guardsNotApplied(), approver: approverName, hold: file.hold, delivered: true, stageAfter: file.stage,
-        calls: [], note: null, summary: `human reply from the board by ${approverName}${release ? `; hold released (${release.reason})` : ''}`, error: null, landedTurnId: sent.record.turnId, composerCalls: 0,
-    };
-    return { ok: true, result, release };
+    return { ok: true, result: { runId, approver: approverName, channel: choice.channel, bubbles: rendered.bubbles, turnId: sent.record.turnId }, release };
 }

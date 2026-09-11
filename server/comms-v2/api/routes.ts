@@ -77,7 +77,7 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!words) { res.status(400).json({ error: 'an answer needs words' }); return; }
         const outcome = await humanReply({ file, approver, person: user.email ?? user.id, words });
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
-        res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.landedTurnId }, release: outcome.release });
+        res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });
     });
 
     return router;
