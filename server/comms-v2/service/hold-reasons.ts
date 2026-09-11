@@ -17,7 +17,6 @@ import type { FixedLineKind } from '../desk/fixed-lines';
 import type { HoldException } from '../desk/router';
 
 export type ServiceHoldReason = Extract<HoldException, 'complaint' | 'refund' | 'trust_doubt' | 'no_source' | 'not_converging' | 'change_of_details'>;
-export const SERVICE_HOLD_REASONS: readonly ServiceHoldReason[] = ['complaint', 'refund', 'trust_doubt', 'no_source', 'not_converging', 'change_of_details'];
 
 export interface ServiceHold { reason: ServiceHoldReason; match: string }
 
@@ -41,7 +40,3 @@ export const FIXED_LINE_ONLY: ReadonlySet<HoldException> = new Set<HoldException
 
 /** Reasons the reply still answers the rest for, carrying the fixed line. */
 export const ANSWER_THE_REST: ReadonlySet<HoldException> = new Set<HoldException>(['money', 'callback', 'no_source', 'change_of_details']);
-
-export function isFixedLineOnly(reason: HoldException | null | undefined): boolean {
-    return !!reason && FIXED_LINE_ONLY.has(reason);
-}

@@ -18,7 +18,7 @@
  *
  * The hold reasons this server can raise are the vocabulary in hold-reasons.ts.
  */
-import { factFor, isReady, ledgerEntry, recordFact, type CaseFile, type CaseFileDeps, type Fact, type Party, type Turn } from '../desk/case-file';
+import { isReady, ledgerEntry, recordFact, type CaseFile, type CaseFileDeps, type Fact, type Party } from '../desk/case-file';
 import { e164Of } from '../desk/identity';
 import { RE_FIGURE } from '../desk/lexicon';
 import { reviewedKb, type KbReader } from '../desk/scoping-tools';
@@ -135,11 +135,3 @@ export function convergence(file: CaseFile): Convergence {
     if (replies >= SCOPING_REPLIES_MAX) return { converging: false, why: `${replies} replies while scoping and the file is still not ready (${!file.job.type ? 'no job type' : 'no location'})`, replies, jobAsks };
     return { converging: true, why: null, replies, jobAsks };
 }
-
-/** The customer's own turn, for a tool that wants the latest text. */
-export function latestInbound(file: CaseFile): Turn | null {
-    for (let i = file.turns.length - 1; i >= 0; i--) if (file.turns[i].direction === 'inbound') return file.turns[i];
-    return null;
-}
-
-export { factFor };

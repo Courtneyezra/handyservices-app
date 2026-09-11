@@ -6,10 +6,12 @@
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_FIXED_LINES, noFixedLineSource } from '../desk/fixed-lines';
+import { BEN } from '../desk/guards';
 import { FakeModelClient } from '../desk/models';
 import { plannedSendOfResponse } from '../desk/planned-send';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
+import { PRODUCTION_DB_HOST_MARKER } from '../../worker-gate';
 import { CHASE_TEMPLATES } from './chase';
 
 let server: import('node:http').Server;
@@ -23,7 +25,7 @@ beforeAll(async () => {
         composer: () => ({ reply: 'Got it, thanks.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
     });
     const templates = { async approved(name: string) { return name === CHASE_TEMPLATES.approver_chase.name || name === CHASE_TEMPLATES.owner_escalation.name ? { contentSid: `HX_${name}` } : null; } };
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) } });
+    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);
@@ -83,9 +85,15 @@ describe('Goal 6 on the door', () => {
         expect(ps.hold).toBeNull();
         expect(ps.bubbles[0]).toMatch(/Got it/);
     });
-    it('the fixture refuses to run without the branch database', async () => {
-        const r = await call('POST', '/fixture');
-        expect(r.status).toBe(500);
-        expect(String(r.json.error)).toBeTruthy();
+    it('the fixture refuses the production database, whatever the run copy has in its environment', async () => {
+        const before = process.env.DATABASE_URL;
+        process.env.DATABASE_URL = `postgres://u:p@${PRODUCTION_DB_HOST_MARKER}-123.eu-west-2.aws.neon.tech/neondb`;
+        try {
+            const r = await call('POST', '/fixture');
+            expect(r.status).toBe(500);
+            expect(String(r.json.error)).toMatch(/refused on the production database/);
+        } finally {
+            if (before === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = before;
+        }
     });
 });
