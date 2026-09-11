@@ -26,7 +26,7 @@ npm run comms-v2:door        # serve the new desk's sandbox door on a loopback p
 - `docs/RUNBOOK.md` — operations, health endpoints, the prompt and eval procedure
 - `.no-mistakes.yaml` - the pipeline's runbook: the test step boots the app in a run copy on the non-production environment its run root provides through direnv, logs in as Ben and drives `/admin/sandbox`; that is the only validation
 - `docs/COMMS_AGENTS_V3_DESIGN.md` — comms desk design; `docs/comms-build/CUTOVER.md` to switch or roll back
-- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map, the six contracts and how a goal is validated); it lands in `server/comms-v2/` beside `server/spine/`, never inside it. `server/comms-v2/README.md` covers the new desk under `server/comms-v2/desk/` contract by contract, its sandbox door and door host, and the environment they read. The new desk is sandbox-only until cutover; nothing in it is fixed by editing `server/spine/`. `server/comms-v2/api/` is Ben's kanban board (`/admin/comms-v2`): a thin read-and-act layer over Contract 2's case file, backed by its own process-local instance of the Goal 1 sandbox door since the desk has no durable case-file store yet. A hold releases only from a session the `comms_v2_approvers` app_settings row lists for the slot (`server/comms-v2/api/approvers.ts`); with no row nobody can release
+- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map, the six contracts and how a goal is validated); it lands in `server/comms-v2/` beside `server/spine/`, never inside it. `server/comms-v2/README.md` covers the new desk under `server/comms-v2/desk/` contract by contract, its sandbox door and door host, and the environment they read. The new desk is sandbox-only until cutover; nothing in it is fixed by editing `server/spine/`. Ben's kanban board over it (`/admin/comms-v2`, `server/comms-v2/api/`) is in the same README: a hold releases only from a session the `comms_v2_approvers` app_settings row lists for the slot, so with no row nobody can release
 - `docs/comms-desk-log.md` — historical shipping log for the comms desk and the quoting segments. Not loaded into sessions; read it only for the history behind a decision.
 - `docs/ROADMAP_STRATEGY.md`, `docs/SYSTEMATIC_ROADMAP.md` — phase strategy and tasks
 
@@ -40,6 +40,7 @@ Key tables: `users`, `leads`, `calls`, `messages`, `personalized_quotes`, `produ
 - `/api/quotes`, `/api/calls`, `/api/leads` — quote, call, lead CRUD; `/api/twilio/*` webhooks
 - `/api/spine/*` — comms desk config, tiers, go-live check, vision health (admin)
 - `/api/comms-sandbox/*` — dry-run harness (admin; see the `comms-sandbox` skill)
+- `/api/comms-v2/*` — the new desk's board, release and its own sandbox door (admin; `server/comms-v2/README.md`)
 - `/api/health/comms-worker` — worker heartbeat, `status: 'ok' | 'stale'` as 200 / 503
 
 ## Invariants and gotchas

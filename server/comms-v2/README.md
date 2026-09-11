@@ -7,7 +7,7 @@ the old desk stays live as rollback until the new one is proven and cut over.
 
 Contracts 1 to 6 (docs/comms-v2/contracts.md), one file per contract. Case files live in memory
 for the length of the process (the sandbox door runs in process); a durable store implements
-`store.ts`'s interface when Ben's kanban (Goal 2) needs one.
+`store.ts`'s interface later. Ben's kanban (Goal 2, below) reads the in-process one for now.
 
 | Contract | File | What it is |
 |---|---|---|
@@ -38,10 +38,27 @@ being `customer: 'known'`, `prefersText`, `alreadyRung`, `facts`, `ledger`), `PO
 `POST /age` (`{ hours }`), `POST /reset`, `GET /` (the thread and the case file). Every response
 carries `plannedSend` and `state`.
 
-This is the surface the no-mistakes pipeline's end-to-end test step drives to validate a goal, and
-the one Ben's sandbox will be wired to. The checklist lines for the goal (docs/comms-v2/design.md,
-Goal 1's stop condition) are the scenarios the test step exercises; its recorded evidence goes in
-the PR. See docs/comms-v2/contracts.md, "Validation".
+This is the surface the no-mistakes pipeline's end-to-end test step drives to validate a goal. The
+checklist lines for the goal (docs/comms-v2/design.md, Goal 1's stop condition) are the scenarios
+the test step exercises; its recorded evidence goes in the PR. See docs/comms-v2/contracts.md,
+"Validation". Ben's board (below) mounts its own instance of the same door under
+`/api/comms-v2/sandbox`, which is how a thread gets onto the board.
+
+## Goal 2: Ben's desk as a kanban board (`api/`)
+
+`/admin/comms-v2` (client/src/pages/admin/CommsV2BoardPage.tsx, in the admin shell) over
+`/api/comms-v2` (`api/routes.ts`, mounted behind `requireAdmin` in server/index.ts): a thin
+read-and-act layer over Contract 2's case file. Not polished, just visible and operable; it
+doubles as the window onto the sandbox while the rest of the desk is built.
+
+| Piece | File | What it is |
+|---|---|---|
+| the board | `api/board.ts` | `GET /board`: one column per Contract 2 stage, exactly the seven; each card is one file (customer, job type and location once known, last customer message and when, reply channel, mode). Held cards float to the top of their column with the hold reason and approver. Filters `?held=true` and `?mode=sandbox\|live`; a file is `live` once any send on it delivered, `sandbox` otherwise. `GET /case-files/:id` is the file's turns and facts, read-only. |
+| release | `api/routes.ts`, `api/approvers.ts` | `POST /case-files/:id/release { words }` calls the case file's own `release`, which enforces the approver-and-words invariant; the route only carries the words and names who is asking. The approver is the slot the signed-in session occupies, never the request body: the app_settings row keyed `comms_v2_approvers` maps slot to user ids (`{ "ben": ["<user id>"] }`, the insert SQL is in `approvers.ts`). A session no slot lists gets 403; with no row nobody can release. Fail closed: an unreadable row assigns nobody. |
+| the store | `api/store.ts` | The desk has no durable case-file store yet, so the board reads a process-local instance of the Goal 1 sandbox door (one Desk, one Gateway, one in-memory store), separate from the door host's own singleton. Its router is mounted under `/sandbox`; the page's header control posts start and message to it. The door replaces its gateway on every start and reset, so the store is read through the door each time and a new start replaces the thread on the board. |
+
+Sandbox threads only until cutover: the board reads the dry-run door, so nothing on it is a live
+customer. The page polls every fifteen seconds; no websockets.
 
 ## Environment
 
@@ -55,5 +72,7 @@ desk loads a file of its own or prints a value.
 ## Tests
 
 `npx vitest run server/comms-v2`: every invariant in the contracts with a scripted model client,
-the door driven over HTTP the way the test step drives it, and the door host's refusal rules.
+the door driven over HTTP the way the test step drives it, the door host's refusal rules, and the
+board's queries, approver mapping and routes. The page's own test is
+`npx vitest run --project client client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx`.
 None of them needs a key or a database; a live desk test reads its keys from the environment.
