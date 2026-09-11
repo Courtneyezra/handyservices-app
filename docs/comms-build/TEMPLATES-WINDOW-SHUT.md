@@ -89,9 +89,18 @@ Hi {{1}}, good to speak just now about {{2}}. Whenever you get a chance, send ov
 ```
 
 `{{1}}` first name, or `there` · `{{2}}` the job phrase from the call classification
-(`calls.classification.jobPhrase`); no phrase means the second name instead, which is the shape
-`pickContinuationTemplate` already has in `server/post-call-outreach.ts`.
-Samples: `Marc` · `the kitchen door`. Language `en_GB`.
+(`calls.classification.jobPhrase`). Samples: `Marc` · `the kitchen door`. Language `en_GB`.
+
+The fallback rung carries its own wording, the body it was already approved with and sends
+unattended under today (`server/post-call-outreach.ts`):
+
+```
+Hi {{1}}, good to speak just now. This is the number to send over any photos or videos of the job, and we'll get your quote moving.
+```
+
+It greets by name and has no second slot, so on that rung the follow-up cannot carry the job phrase
+the call gave us. Whichever rung the cache says is approved is the one that sends, with its own body
+and its own variables; checklist 1.3's "context from the call" needs the first rung approved.
 
 **This one sends unattended** (the captain's answer 20, reversing the one-tap draft T21 left in
 place), so the wording has to stand alone with nobody reading it. It states only what is true of
@@ -100,7 +109,7 @@ nothing: no date, no duration, no price, no method.
 
 **Duplicate risk, named up front.** `post_call_continuation` is close enough that Meta may reject
 this as a near-duplicate. That is survivable rather than blocking, because
-`post_call_continuation_generic` is the second rung on the name list. If it is rejected, do **not**
+`post_call_continuation_generic` is the second rung. If it is rejected, do **not**
 resubmit a reworded twin: use the generic and record it in the runbook's log.
 
 ## 5. `enquiry_followup_optin_v1` — **MARKETING** — **new**

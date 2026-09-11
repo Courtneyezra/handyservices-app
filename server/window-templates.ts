@@ -21,11 +21,14 @@
  *     window-shut equivalent is `docs/comms-build/TEMPLATES-WINDOW-SHUT.md`, and the submission
  *     steps are `docs/META-TEMPLATE-RUNBOOK.md`.
  *
- * NAMES ARE A PREFERENCE LIST, best first, exactly as FIRST_CONTACT_TEMPLATE_PREFERENCE and
+ * RUNGS ARE A PREFERENCE LIST, best first, exactly as FIRST_CONTACT_TEMPLATE_PREFERENCE and
  * READY_TEMPLATE_NAMES already are: approval status is Meta's to change and a name that is pending
  * today is approved tomorrow with no deploy. Two of the five reuse a name the account already has,
  * because Meta rejects a near-duplicate of a template it already approved (that is what killed
- * `first_contact_generic`), and the reused name is already the one the code reads.
+ * `first_contact_generic`), and the reused name is already the one the code reads. Each rung carries
+ * its own body and its own variables, because a fallback rung is a DIFFERENT approved template with
+ * different wording: filling the first rung's words while sending the second rung's name would send
+ * one message and record another, and would hand a variable to a template that has no slot for it.
  *
  * CATEGORY IS NOT DECORATION. Meta categorises every template and re-categorises on review; a
  * re-engagement message to a customer who went quiet is the shape it treats as MARKETING, which is
@@ -52,13 +55,25 @@ export interface WindowTemplateTrigger {
     wired: boolean;
 }
 
+/** One template name and the wording that name carries. A rung is a whole template, never half of one. */
+export interface WindowTemplateRung {
+    /** Twilio `friendly_name` / Meta template name. Lowercase, digits and underscores only. */
+    name: string;
+    /** The exact body that goes to Meta under this name, or that Meta already approved it with. `{{n}}` placeholders, positional. */
+    body: string;
+    /** Sample values Meta reviews this body against, positional, as the Content API wants them. */
+    variables: Record<string, string>;
+    /** What each `{{n}}` of this body is filled from at send time. */
+    variableMeanings: Record<string, string>;
+}
+
 export interface WindowTemplate {
     /**
-     * Twilio `friendly_name` / Meta template name, best first. Lowercase, digits and underscores
-     * only. A second name is a fallback rung for when Meta rejects or has not yet approved the
-     * first, never a second template for the same purpose.
+     * The rungs, best first. A second rung is a fallback for when Meta rejects or has not yet
+     * approved the first, never a second template for the same purpose. Whichever rung is approved
+     * is the one that sends, with its own body and its own variables.
      */
-    names: [string, ...string[]];
+    rungs: [WindowTemplateRung, ...WindowTemplateRung[]];
     category: MetaTemplateCategory;
     /**
      * How the send gate must treat it. 'marketing' is the field that distinguishes the chase from
@@ -67,12 +82,6 @@ export interface WindowTemplate {
     purpose: OutboundPurpose;
     /** Twilio's `language` on the Content resource. Matches what each name was submitted under. */
     language: 'en' | 'en_GB';
-    /** The exact body that goes to Meta. `{{n}}` placeholders, positional. */
-    body: string;
-    /** Sample values Meta reviews the body against, positional, as the Content API wants them. */
-    variables: Record<string, string>;
-    /** What each `{{n}}` is filled from at send time. */
-    variableMeanings: Record<string, string>;
     trigger: WindowTemplateTrigger;
     /**
      * 'existing' — the first name is already a Content resource on the account, so the submission
@@ -94,13 +103,15 @@ export interface WindowTemplate {
  */
 export const WINDOW_TEMPLATES: WindowTemplate[] = [
     {
-        names: ['quote_ready_link'],
+        rungs: [{
+            name: 'quote_ready_link',
+            body: 'Hi {{1}}, your quote is ready. Everything is on the link, the itemised price and the booking: {{2}}. Any questions, just reply here.',
+            variables: { '1': 'Courtnee', '2': 'https://handyservices.app/quote/ab12cd34' },
+            variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'the quote link, https://handyservices.app/quote/<slug>' },
+        }],
         category: 'UTILITY',
         purpose: 'service_reply',
         language: 'en_GB',
-        body: 'Hi {{1}}, your quote is ready. Everything is on the link, the itemised price and the booking: {{2}}. Any questions, just reply here.',
-        variables: { '1': 'Courtnee', '2': 'https://handyservices.app/quote/ab12cd34' },
-        variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'the quote link, https://handyservices.app/quote/<slug>' },
         trigger: {
             id: 'quote_ready',
             when: 'Ben sends the finished quote from the price screen and the WhatsApp window is shut.',
@@ -116,13 +127,15 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'shown on /admin/staff.',
     },
     {
-        names: ['answer_ready_reopen_v1'],
+        rungs: [{
+            name: 'answer_ready_reopen_v1',
+            body: 'Hi {{1}}, you asked us about {{2}} and we have an answer for you. Reply to this message and we will send it straight over.',
+            variables: { '1': 'Priya', '2': 'the extractor fan' },
+            variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'a short noun phrase for what they asked about, from their own message' },
+        }],
         category: 'UTILITY',
         purpose: 'service_reply',
         language: 'en_GB',
-        body: 'Hi {{1}}, you asked us about {{2}} and we have an answer for you. Reply to this message and we will send it straight over.',
-        variables: { '1': 'Priya', '2': 'the extractor fan' },
-        variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'a short noun phrase for what they asked about, from their own message' },
         trigger: {
             id: 'question_unanswered',
             when: 'The customer asked something and the 24-hour window shut before the desk answered.',
@@ -136,17 +149,19 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'stale check. Anyone wiring this must not treat the nudge as the reply.',
     },
     {
-        names: ['web_enquiry_ack_context'],
+        rungs: [{
+            name: 'web_enquiry_ack_context',
+            body: 'Hi {{1}}, thanks for getting in touch. We got your message: "{{2}}". Is it OK if we give you a quick call {{3}} to run through it? Or just reply here with the details and we will price it up.',
+            variables: { '1': 'there', '2': 'need a new bathroom tap fitted', '3': 'shortly' },
+            variableMeanings: {
+                '1': "the customer's first name, or 'there'",
+                '2': 'their enquiry, verbatim, truncated on a word boundary to about 60 characters',
+                '3': "'shortly' or 'in the morning', by the UK hour at send time",
+            },
+        }],
         category: 'UTILITY',
         purpose: 'service_reply',
         language: 'en',
-        body: 'Hi {{1}}, thanks for getting in touch. We got your message: "{{2}}". Is it OK if we give you a quick call {{3}} to run through it? Or just reply here with the details and we will price it up.',
-        variables: { '1': 'there', '2': 'need a new bathroom tap fitted', '3': 'shortly' },
-        variableMeanings: {
-            '1': "the customer's first name, or 'there'",
-            '2': 'their enquiry, verbatim, truncated on a word boundary to about 60 characters',
-            '3': "'shortly' or 'in the morning', by the UK hour at send time",
-        },
         trigger: {
             id: 'webform_first_contact',
             when: 'A webform enquiry arrives. A webform submission never opens the WhatsApp window, so without a template the desk cannot say anything at all on that door.',
@@ -162,16 +177,23 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + "language 'en', not 'en_GB'; keep that or the lookup finds nothing.",
     },
     {
-        names: ['post_call_followup_v1', 'post_call_continuation_generic'],
+        rungs: [{
+            name: 'post_call_followup_v1',
+            body: 'Hi {{1}}, good to speak just now about {{2}}. Whenever you get a chance, send over the photos we talked about and we will get your price to you. Just reply to this message.',
+            variables: { '1': 'Marc', '2': 'the kitchen door' },
+            variableMeanings: {
+                '1': "the customer's first name, or 'there'",
+                '2': 'the job phrase from the call classification (calls.classification.jobPhrase)',
+            },
+        }, {
+            name: 'post_call_continuation_generic',
+            body: "Hi {{1}}, good to speak just now. This is the number to send over any photos or videos of the job, and we'll get your quote moving.",
+            variables: { '1': 'Marc' },
+            variableMeanings: { '1': "the customer's first name, or 'there'" },
+        }],
         category: 'UTILITY',
         purpose: 'service_reply',
         language: 'en_GB',
-        body: 'Hi {{1}}, good to speak just now about {{2}}. Whenever you get a chance, send over the photos we talked about and we will get your price to you. Just reply to this message.',
-        variables: { '1': 'Marc', '2': 'the kitchen door' },
-        variableMeanings: {
-            '1': "the customer's first name, or 'there'",
-            '2': "the job phrase from the call classification (calls.classification.jobPhrase); no phrase means the second name instead",
-        },
         trigger: {
             id: 'post_call_followup',
             when: "Ben's own outbound call was answered and left a transcript, and the follow-up collects what he asked for on the phone. A call never opens the WhatsApp window.",
@@ -182,24 +204,29 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
         notes: 'SENDS UNATTENDED (the captain\'s answer 20), so the wording has to stand alone with nobody '
             + 'reading it: it states only what is true of every answered call Ben makes, asks for the one '
             + 'thing he asks for on the phone, and commits to nothing. {{2}} is the same classifier phrase '
-            + 'post_call_continuation already fills unattended today; when there is no phrase, fall to the '
-            + 'second name, which is the shape pickContinuationTemplate already has '
-            + '(server/post-call-outreach.ts). DUPLICATE RISK: post_call_continuation is close enough that '
-            + 'Meta may reject this as a near-duplicate. That is survivable rather than blocking, because '
-            + 'post_call_continuation_generic is the second rung; if it is rejected, do not resubmit a reworded '
-            + 'twin, use the generic and say so in the runbook\'s log.',
+            + 'post_call_continuation already fills unattended today. DUPLICATE RISK: post_call_continuation '
+            + 'is close enough that Meta may reject this as a near-duplicate. That is survivable rather than '
+            + 'blocking, because post_call_continuation_generic is the second rung; if it is rejected, do not '
+            + 'resubmit a reworded twin, use the generic and say so in the runbook\'s log. THE SECOND RUNG '
+            + 'CARRIES ITS OWN WORDING, which is the body it was approved with and already sends unattended '
+            + 'today (server/post-call-outreach.ts): it greets by name and takes no second variable, so on '
+            + 'that rung the follow-up cannot carry the job phrase the call gave us. Until '
+            + 'post_call_followup_v1 is approved the follow-up is the generic one, and checklist 1.3\'s '
+            + '"context from the call" is met on WhatsApp only once Meta approves the first rung.',
     },
     {
-        names: ['web_enquiry_ack_no_call_v1'],
+        rungs: [{
+            name: 'web_enquiry_ack_no_call_v1',
+            body: 'Hi {{1}}, thanks for getting in touch. We got your message: "{{2}}". Reply here with anything else that helps and we will price it up for you.',
+            variables: { '1': 'there', '2': 'need a new bathroom tap fitted' },
+            variableMeanings: {
+                '1': "the customer's first name, or 'there'",
+                '2': 'their enquiry, verbatim, truncated on a word boundary to about 60 characters',
+            },
+        }],
         category: 'UTILITY',
         purpose: 'service_reply',
         language: 'en_GB',
-        body: 'Hi {{1}}, thanks for getting in touch. We got your message: "{{2}}". Reply here with anything else that helps and we will price it up for you.',
-        variables: { '1': 'there', '2': 'need a new bathroom tap fitted' },
-        variableMeanings: {
-            '1': "the customer's first name, or 'there'",
-            '2': 'their enquiry, verbatim, truncated on a word boundary to about 60 characters',
-        },
         trigger: {
             id: 'webform_first_contact_no_call',
             when: 'A webform enquiry arrives from someone who has already rung us, or who prefers text, or who has been offered a call once already. Same acknowledgement, with the call offer taken out.',
@@ -216,13 +243,15 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'rejects it as a near-duplicate, the hold for Ben stands rather than a reworded twin.',
     },
     {
-        names: ['missed_call_ack'],
+        rungs: [{
+            name: 'missed_call_ack',
+            body: 'Hi {{1}}, sorry we missed your call. Tell us what needs doing and we will price it up for you, or we will try you again shortly.',
+            variables: { '1': 'Sam' },
+            variableMeanings: { '1': "the customer's first name, or 'there'" },
+        }],
         category: 'UTILITY',
         purpose: 'service_reply',
         language: 'en_GB',
-        body: 'Hi {{1}}, sorry we missed your call. Tell us what needs doing and we will price it up for you, or we will try you again shortly.',
-        variables: { '1': 'Sam' },
-        variableMeanings: { '1': "the customer's first name, or 'there'" },
         trigger: {
             id: 'missed_call',
             when: 'The customer rang and nobody spoke to them. One text back per thread, never a second however many times they ring (checklist 3.5); the ask ledger holds the record. A call never opens the WhatsApp window.',
@@ -238,13 +267,15 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'server/template-status.ts rather than adding a second row for the same name.',
     },
     {
-        names: ['enquiry_followup_optin_v1'],
+        rungs: [{
+            name: 'enquiry_followup_optin_v1',
+            body: "Hi {{1}}, it's Handy Services. You got in touch about {{2}} and we have not heard back since. If you still want it doing, reply here and we will pick it up where we left off. If not, no problem at all. Reply STOP and we will not message you again.",
+            variables: { '1': 'Ava', '2': 'the grab rails' },
+            variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'a short noun phrase for the job they enquired about' },
+        }],
         category: 'MARKETING',
         purpose: 'marketing',
         language: 'en_GB',
-        body: "Hi {{1}}, it's Handy Services. You got in touch about {{2}} and we have not heard back since. If you still want it doing, reply here and we will pick it up where we left off. If not, no problem at all. Reply STOP and we will not message you again.",
-        variables: { '1': 'Ava', '2': 'the grab rails' },
-        variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'a short noun phrase for the job they enquired about' },
         trigger: {
             id: 'enquiry_chase',
             when: 'The chase ladder reaches its customer-facing rung on an enquiry that went quiet. Never on a customer who said they were not ready: that thread gets one acknowledgement and then silence (answers 8 and 19).',
@@ -284,8 +315,13 @@ export function templatePlaceholders(body: string): string[] {
 }
 
 /** The body with its sample values filled in — what Meta reviews, and what the guards check. */
-export function renderSample(t: WindowTemplate): string {
-    return t.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, k) => t.variables[k] ?? `{{${k}}}`);
+export function renderSample(r: WindowTemplateRung): string {
+    return r.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, k) => r.variables[k] ?? `{{${k}}}`);
+}
+
+/** Every name a row may send under, best first. */
+export function templateNames(t: WindowTemplate): string[] {
+    return t.rungs.map((r) => r.name);
 }
 
 /**
@@ -297,7 +333,7 @@ export function expectedFromWindowTemplates() {
     return WINDOW_TEMPLATES.map((t) => ({
         purpose: `window shut: ${t.trigger.id.replace(/_/g, ' ')} (${t.category.toLowerCase()})`,
         usedBy: t.trigger.wired ? t.trigger.source : `4.1 definition only, wired by 4.2 — ${t.trigger.source}`,
-        names: [...t.names],
+        names: templateNames(t),
         required: false,
     }));
 }

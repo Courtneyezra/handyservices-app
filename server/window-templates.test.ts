@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    WINDOW_TEMPLATES, windowTemplateFor, templatePlaceholders, renderSample,
+    WINDOW_TEMPLATES, windowTemplateFor, templatePlaceholders, renderSample, templateNames,
     expectedFromWindowTemplates, type WindowTemplate,
 } from './window-templates';
 import { chatVoiceViolations } from '@shared/chat-voice';
@@ -25,6 +25,9 @@ const byTrigger = (id: WindowTemplate['trigger']['id']) => {
     if (!t) throw new Error(`no window template for trigger ${id}`);
     return t;
 };
+
+/** Every rung of every row, with the row it belongs to: a rung is a whole template, so every body rule applies to each. */
+const ALL_RUNGS = WINDOW_TEMPLATES.flatMap((t) => t.rungs.map((r) => ({ row: t, rung: r })));
 
 describe('the window-shut templates', () => {
     it('is exactly the plan\'s five triggers and the clean-sheet desk\'s two, once each', () => {
@@ -62,9 +65,9 @@ describe('the window-shut templates', () => {
 
     it('the marketing one carries a way to stop, and no utility one does', () => {
         const chase = byTrigger('enquiry_chase');
-        expect(chase.body).toMatch(/\bSTOP\b/);
-        for (const t of WINDOW_TEMPLATES.filter((x) => x.category === 'UTILITY')) {
-            expect(t.body).not.toMatch(/\bSTOP\b/);
+        expect(chase.rungs[0].body).toMatch(/\bSTOP\b/);
+        for (const { rung } of ALL_RUNGS.filter((x) => x.row.category === 'UTILITY')) {
+            expect(rung.body).not.toMatch(/\bSTOP\b/);
         }
     });
 
@@ -72,15 +75,18 @@ describe('the window-shut templates', () => {
         const t = byTrigger('question_unanswered');
         expect(t.notes).toMatch(/re-?open nudge/i);
         expect(t.notes).toMatch(/freeform|after the customer replies/i);
-        expect(t.body).toMatch(/repl(y|ies)/i);
+        expect(t.rungs[0].body).toMatch(/repl(y|ies)/i);
     });
 
     it('the post-call one sends unattended, so it commits to nothing a person would have to check', () => {
         const t = byTrigger('post_call_followup');
         expect(t.notes).toMatch(/unattended/i);
         // A second rung, because Meta may read it as a near-duplicate of post_call_continuation.
-        expect(t.names).toHaveLength(2);
-        expect(t.names[1]).toBe('post_call_continuation_generic');
+        expect(templateNames(t)).toEqual(['post_call_followup_v1', 'post_call_continuation_generic']);
+        // Each rung carries its own wording: the generic one greets by name and has no slot for the job phrase,
+        // so sending under that name must never fill the first rung's two-variable body.
+        expect(templatePlaceholders(t.rungs[1].body)).toEqual(['1']);
+        expect(t.rungs[1].body).not.toBe(t.rungs[0].body);
     });
 });
 
@@ -88,7 +94,7 @@ describe('every definition is the shape the existing template code accepts', () 
     it('names are valid Meta template names, unique across the registry', () => {
         const seen = new Set<string>();
         for (const t of WINDOW_TEMPLATES) {
-            for (const n of t.names) {
+            for (const n of templateNames(t)) {
                 expect(n).toMatch(/^[a-z0-9_]{1,512}$/);
                 expect(seen.has(n)).toBe(false);
                 seen.add(n);
@@ -97,21 +103,21 @@ describe('every definition is the shape the existing template code accepts', () 
     });
 
     it('placeholders are 1..n with no gaps and every one has a sample value and a meaning', () => {
-        for (const t of WINDOW_TEMPLATES) {
-            const idx = templatePlaceholders(t.body);
+        for (const { rung } of ALL_RUNGS) {
+            const idx = templatePlaceholders(rung.body);
             expect(idx.length).toBeGreaterThan(0);
             expect(idx).toEqual(idx.map((_, i) => String(i + 1)));
-            expect(Object.keys(t.variables).sort()).toEqual(idx);
-            expect(Object.keys(t.variableMeanings).sort()).toEqual(idx);
-            for (const k of idx) expect(String(t.variables[k]).trim()).not.toBe('');
+            expect(Object.keys(rung.variables).sort()).toEqual(idx);
+            expect(Object.keys(rung.variableMeanings).sort()).toEqual(idx);
+            for (const k of idx) expect(String(rung.variables[k]).trim()).not.toBe('');
         }
     });
 
     it('renders with its sample values and leaves no placeholder behind', () => {
-        for (const t of WINDOW_TEMPLATES) {
-            const rendered = renderSample(t);
+        for (const { rung } of ALL_RUNGS) {
+            const rendered = renderSample(rung);
             expect(rendered).not.toMatch(/\{\{\s*\d+\s*\}\}/);
-            expect(rendered).toContain(t.variables['1']);
+            expect(rendered).toContain(rung.variables['1']);
         }
     });
 
@@ -119,8 +125,8 @@ describe('every definition is the shape the existing template code accepts', () 
         // variableHints (server/whatsapp-template-sync.ts) calls a placeholder 'name' when it sits
         // right after a greeting; buildTemplateVariables then fills it from the contact, degrading a
         // placeholder contact name to 'there'. Every body must present {{1}} in that shape.
-        for (const t of WINDOW_TEMPLATES) {
-            expect(t.body).toMatch(/^(Hi|Hey|Hello|Morning|Afternoon)[,!]?\s*\{\{\s*1\s*\}\}/);
+        for (const { rung } of ALL_RUNGS) {
+            expect(rung.body).toMatch(/^(Hi|Hey|Hello|Morning|Afternoon)[,!]?\s*\{\{\s*1\s*\}\}/);
         }
     });
 
@@ -128,35 +134,35 @@ describe('every definition is the shape the existing template code accepts', () 
         // variableHints calls a placeholder 'link' when its SAMPLE value is a URL, and
         // buildTemplateVariables then replaces it with the thread's own quote URL.
         const t = byTrigger('quote_ready');
-        expect(t.variables['2']).toMatch(/^https:\/\/handyservices\.app\/quote\//);
-        expect(t.variableMeanings['2']).toMatch(/quote link/i);
+        expect(t.rungs[0].variables['2']).toMatch(/^https:\/\/handyservices\.app\/quote\//);
+        expect(t.rungs[0].variableMeanings['2']).toMatch(/quote link/i);
         // No other definition carries a link slot: nothing else has a URL to put in one.
-        for (const other of WINDOW_TEMPLATES.filter((x) => x !== t)) {
-            expect(Object.values(other.variables).some((v) => /^https?:\/\//i.test(v))).toBe(false);
+        for (const { rung } of ALL_RUNGS.filter((x) => x.row !== t)) {
+            expect(Object.values(rung.variables).some((v) => /^https?:\/\//i.test(v))).toBe(false);
         }
     });
 });
 
 describe('every body is safe to send as written', () => {
     it('passes the house chat-voice rules', () => {
-        for (const t of WINDOW_TEMPLATES) {
-            expect({ name: t.names[0], issues: chatVoiceViolations(t.body) }).toEqual({ name: t.names[0], issues: [] });
-            expect(chatVoiceViolations(renderSample(t))).toEqual([]);
+        for (const { rung } of ALL_RUNGS) {
+            expect({ name: rung.name, issues: chatVoiceViolations(rung.body) }).toEqual({ name: rung.name, issues: [] });
+            expect(chatVoiceViolations(renderSample(rung))).toEqual([]);
         }
     });
 
     it('passes the draft guards with its sample values filled in', () => {
-        for (const t of WINDOW_TEMPLATES) {
-            const violation = checkDraft({ body: renderSample(t), intent: 'ack_enquiry', quoteSeen: false, customerText: null });
-            expect({ name: t.names[0], violation: violation?.code ?? null }).toEqual({ name: t.names[0], violation: null });
+        for (const { rung } of ALL_RUNGS) {
+            const violation = checkDraft({ body: renderSample(rung), intent: 'ack_enquiry', quoteSeen: false, customerText: null });
+            expect({ name: rung.name, violation: violation?.code ?? null }).toEqual({ name: rung.name, violation: null });
         }
     });
 
     it('no body states a price, a date or a duration, whatever the variables are filled with', () => {
-        for (const t of WINDOW_TEMPLATES) {
-            expect(t.body).not.toMatch(/£|\bgbp\b|\bpounds?\b/i);
-            expect(t.body).not.toMatch(/\b(mon|tues|wednes|thurs|fri|satur|sun)day\b/i);
-            expect(t.body).not.toMatch(/\b\d+\s*(hours?|days?|weeks?|visits?)\b/i);
+        for (const { rung } of ALL_RUNGS) {
+            expect(rung.body).not.toMatch(/£|\bgbp\b|\bpounds?\b/i);
+            expect(rung.body).not.toMatch(/\b(mon|tues|wednes|thurs|fri|satur|sun)day\b/i);
+            expect(rung.body).not.toMatch(/\b\d+\s*(hours?|days?|weeks?|visits?)\b/i);
         }
     });
 });
@@ -164,8 +170,8 @@ describe('every body is safe to send as written', () => {
 describe('the one registry', () => {
     it('each window template reaches EXPECTED_TEMPLATES exactly once, by first name', () => {
         for (const t of WINDOW_TEMPLATES) {
-            const rows = EXPECTED_TEMPLATES.filter((e) => e.names.includes(t.names[0]));
-            expect({ name: t.names[0], rows: rows.length }).toEqual({ name: t.names[0], rows: 1 });
+            const rows = EXPECTED_TEMPLATES.filter((e) => e.names.includes(t.rungs[0].name));
+            expect({ name: t.rungs[0].name, rows: rows.length }).toEqual({ name: t.rungs[0].name, rows: 1 });
         }
     });
 
@@ -183,7 +189,7 @@ describe('the one registry', () => {
 
     it('no 4.1 definition is required, so a template still in Meta\'s queue cannot fail the go-live check', () => {
         for (const t of WINDOW_TEMPLATES) {
-            const row = EXPECTED_TEMPLATES.find((e) => e.names.includes(t.names[0]))!;
+            const row = EXPECTED_TEMPLATES.find((e) => e.names.includes(t.rungs[0].name))!;
             if (row.usedBy.startsWith('4.1 definition only')) expect(row.required).toBe(false);
         }
         const approvedToday = ['holding_line_v1', 'missed_call_ack', 'video_request', 'postcode_request', 'call_request'];

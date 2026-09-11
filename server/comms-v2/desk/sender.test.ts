@@ -104,6 +104,27 @@ describe('pickTemplate', () => {
         const marketingOnly = await pickTemplate('service_reply', { name: null, topic: 'x' }, { async approved(name) { return name === 'enquiry_followup_optin_v1' ? { contentSid: 'HX_mkt' } : null; } });
         expect(marketingOnly.ok).toBe(false);
     });
+    it('sends the words and the variables of the rung that is actually approved, not the best rung\'s', async () => {
+        const vars = { name: 'Marc', topic: 'the kitchen door' };
+        const first = await pickTemplate('post_call_followup', vars, { async approved(name) { return name === 'post_call_followup_v1' ? { contentSid: 'HX_v1' } : null; } });
+        expect(first.ok).toBe(true);
+        if (first.ok) {
+            expect(first.template.name).toBe('post_call_followup_v1');
+            expect(first.template.variables).toEqual({ '1': 'Marc', '2': 'the kitchen door' });
+            expect(first.body).toContain('the kitchen door');
+        }
+        // Only the fallback rung is approved: it greets by name and has no slot for the job phrase, so
+        // neither the body nor the variables may come from the first rung.
+        const fallback = await pickTemplate('post_call_followup', vars, { async approved(name) { return name === 'post_call_continuation_generic' ? { contentSid: 'HX_generic' } : null; } });
+        expect(fallback.ok).toBe(true);
+        if (fallback.ok) {
+            expect(fallback.template.name).toBe('post_call_continuation_generic');
+            expect(fallback.template.variables).toEqual({ '1': 'Marc' });
+            expect(fallback.body).not.toContain('the kitchen door');
+            expect(fallback.body).toContain('Marc');
+            expect(fallback.body).not.toMatch(/\{\{/);
+        }
+    });
     it('shapes the template for the transport: content SID and variables for Twilio, name, language and body components for Meta', () => {
         const t: TemplateSend = { name: 'answer_ready_reopen_v1', language: 'en_GB', contentSid: 'HX_reopen', variables: { '2': 'a leaking tap', '1': 'Sam' } };
         expect(templateWire('twilio', t)).toEqual({ via: 'twilio', contentSid: 'HX_reopen', contentVariables: { '2': 'a leaking tap', '1': 'Sam' } });

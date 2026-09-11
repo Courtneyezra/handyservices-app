@@ -208,12 +208,13 @@ export function fillTemplate(body: string, variables: Record<string, string>): s
     return body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n] ?? '');
 }
 
-/** The words a template of this purpose carries off WhatsApp, where no approval is needed: the same body as one SMS or one email. Null when no row exists. */
+/** The words a template of this purpose carries off WhatsApp, where no approval is needed: the best rung's body as one SMS or one email. Null when no row exists. */
 export async function templateBodyFor(purpose: ReplyPurpose, vars: { name: string | null; topic: string }): Promise<{ name: string; body: string } | null> {
     const { WINDOW_TEMPLATES } = await import('../../window-templates');
     const t = templateRowsFor(purpose, WINDOW_TEMPLATES)[0];
     if (!t) return null;
-    return { name: t.names[0], body: fillTemplate(t.body, templateVariables(t.body, vars)) };
+    const rung = t.rungs[0];
+    return { name: rung.name, body: fillTemplate(rung.body, templateVariables(rung.body, vars)) };
 }
 
 /** An approved template with everything either transport needs to carry it. */
@@ -232,14 +233,21 @@ export function templateWire(transport: WhatsAppTransport, t: TemplateSend): Tem
     return { via: 'meta', templateName: t.name, templateLanguage: t.language, templateComponents: [{ type: 'body', parameters }] };
 }
 
-/** When the window is shut: one approved template for the reply's purpose from the registry. None approved: the reply is held as a pending draft for Ben. Never an SMS fallback. */
+/**
+ * When the window is shut: one approved template for the reply's purpose from the registry. None
+ * approved: the reply is held as a pending draft for Ben. Never an SMS fallback.
+ *
+ * The words and the variables come from the rung that is actually approved, never from the best
+ * rung: a fallback rung is a different template with different wording, and filling a variable it
+ * has no slot for would send one message while the file, the board and the send record another.
+ */
 export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string | null; topic: string }, status: TemplateStatusSource = liveTemplateStatus): Promise<TemplatePick> {
     const { WINDOW_TEMPLATES } = await import('../../window-templates');
-    for (const t of templateRowsFor(purpose, WINDOW_TEMPLATES)) for (const name of t.names) {
-        const live = await status.approved(name);
+    for (const t of templateRowsFor(purpose, WINDOW_TEMPLATES)) for (const rung of t.rungs) {
+        const live = await status.approved(rung.name);
         if (live) {
-            const variables = templateVariables(t.body, vars);
-            return { ok: true, template: { name, language: t.language, contentSid: live.contentSid, variables }, body: fillTemplate(t.body, variables) };
+            const variables = templateVariables(rung.body, vars);
+            return { ok: true, template: { name: rung.name, language: t.language, contentSid: live.contentSid, variables }, body: fillTemplate(rung.body, variables) };
         }
     }
     return { ok: false, reason: `no approved template for purpose ${purpose}; held as a pending draft for Ben` };
