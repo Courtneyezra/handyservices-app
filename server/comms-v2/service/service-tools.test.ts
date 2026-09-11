@@ -3,10 +3,10 @@
  * return nothing; customer_record is this party's own details and nothing else; change_of_details
  * records a fact and a hold and never writes the record, with its refusals; convergence hands a
  * thread to Ben after the job has been asked JOB_ASKS_MAX times with no type, or after
- * SCOPING_REPLIES_MAX replies with the file still not ready.
+ * SCOPING_REPLIES_MAX replies since the last release with the file still not ready.
  */
 import { describe, expect, it } from 'vitest';
-import { appendTurn, ask, open, recordFact, type CaseFile } from '../desk/case-file';
+import { appendTurn, ask, hold, open, recordFact, release, type CaseFile } from '../desk/case-file';
 import { emptyKb, JOB_ASKS_MAX } from '../desk/scoping-tools';
 import { changeOfDetails, convergence, customerRecord, kbLookup, SCOPING_REPLIES_MAX, stemsOf } from './service-tools';
 
@@ -99,6 +99,22 @@ describe('convergence', () => {
         const c = convergence(file);
         expect(c.converging).toBe(false);
         expect(c.why).toMatch(/no job type/);
+    });
+    it('a released thread converges again: the replies before the release no longer count (7.4)', () => {
+        const file = fixture();
+        recordFact(file, { key: 'job_type', value: 'tap', source: thread(file), by: 'scoping' });
+        for (let i = 0; i < SCOPING_REPLIES_MAX; i++) appendTurn(file, { at: `2026-09-11T10:0${i}:01.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `r${i}`, approver: 'agent.comms_v2' });
+        expect(convergence(file).converging).toBe(false);
+        const held = hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'not converging', exception: 'not_converging' });
+        expect(held.ok).toBe(true);
+        appendTurn(file, { at: '2026-09-11T10:08:01.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'I will pick this up with you', media: [], runId: 'human_1', approver: 'human:ben' });
+        const rel = release(file, { kind: 'human', id: 'ben' }, 'I will pick this up with you');
+        expect(rel.ok).toBe(true);
+        const after = convergence(file);
+        expect(after.converging).toBe(true);
+        expect(after.replies).toBe(0);
+        for (let i = 0; i < SCOPING_REPLIES_MAX; i++) appendTurn(file, { at: `2026-09-11T10:1${i}:01.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `s${i}`, approver: 'agent.comms_v2' });
+        expect(convergence(file).converging).toBe(false);
     });
     it('SCOPING_REPLIES_MAX replies with the file still not ready is not converging; one fewer converges', () => {
         const file = fixture();

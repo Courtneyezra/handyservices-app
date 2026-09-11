@@ -149,6 +149,8 @@ export interface HoldRelease {
     words: string;
     at: string;
     reason: string;
+    /** How many turns stood on the thread when the hold was released, so a rule can count what has happened since. Not a timestamp: the sandbox ages those. */
+    turnsBefore: number;
 }
 
 export interface Job {
@@ -447,7 +449,7 @@ export function release(file: CaseFile, approver: ApproverSlot, words: string, d
     if (!file.hold) return refuse('the file is not held');
     if (!words.trim()) return refuse('release needs the approver\'s words');
     if (!sameApprover(file.hold.approver, approver)) return refuse(`only ${approverLabel(file.hold.approver)} may release this hold`);
-    const rel: HoldRelease = { approver, words: words.trim(), at: now().toISOString(), reason: file.hold.reason };
+    const rel: HoldRelease = { approver, words: words.trim(), at: now().toISOString(), reason: file.hold.reason, turnsBefore: file.turns.length };
     file.releases.push(rel);
     file.hold = null;
     return accept(rel);

@@ -4,8 +4,10 @@
  * holds for Ben with the fixed line and still answers the rest (7.1); a customer asking for a call
  * holds for Ben (7.2); a held thread still hears an acknowledgement on every turn (7.3); Ben's
  * reply from any surface releases the hold and the next customer turn is routed as normal (7.4);
- * scoping that is not converging goes to Ben on its fixed line with no composer; a clock pass
- * chases Ben, then the owner, and Ben's reply clears it (7.5). No customer send on a clock pass.
+ * scoping that is not converging goes to Ben on its fixed line with no composer and lets the thread
+ * go again once he has replied; a clock pass chases Ben, then the owner, and Ben's reply clears it
+ * (7.5). No customer send on a clock pass. A held thread that turns to gas is still not left silent,
+ * and a turn the router sends to Service alongside another subject is still scoped.
  */
 import { describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from '../desk/desk';
@@ -168,6 +170,72 @@ describe('the Service specialist on the desk', () => {
         if (again.kind !== 'handled') throw new Error(again.kind);
         expect(again.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
         expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(composerCalls);
+    });
+    it('a held thread the customer then turns to gas is still not left silent: it hears the gas line (7.3)', async () => {
+        const { gateway } = desk({
+            router: ({ n }) => n === 1 ? route({ exception: 'complaint', turnKind: 'other' }) : route({ turnKind: 'other' }),
+            specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
+            composer: () => { throw new Error('no composer while the thread is with Ben'); },
+        });
+        const a = await gateway.inbound(turn('The shelf you put up has fallen off, not happy', '2026-09-11T10:00:00.000Z'));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.hold?.exception).toBe('complaint');
+        const b = await gateway.inbound(turn('And the gas boiler is playing up too', '2026-09-11T10:05:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.guards.regulated.result).toBe('pass');
+        expect(b.result.delivered).toBe(true);
+        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.gas]);
+        expect(b.file.hold?.exception).toBe('complaint');
+    });
+    it('the guard retry is judged against its own citation: a first draft that cites nothing and a retry that cites the row sends the row\'s words', async () => {
+        const { gateway } = desk({
+            router: () => route({ subjects: ['service'], turnKind: 'question' }),
+            specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }] }) : scopingOut(),
+            composer: ({ n }) => n === 1
+                ? { reply: "We're fully insured, nothing to worry about there.", factIds: [], kbIds: [] }
+                : { reply: INSURED, factIds: [], kbIds: ['kb-insured'] },
+        });
+        const out = await gateway.inbound(turn('Are you insured?', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.result.composerCalls).toBe(2);
+        expect(out.result.guards.business_claim.result).toBe('pass');
+        expect(out.result.decision).toBe('send');
+        expect(out.result.bubbles[0].text).toBe(INSURED);
+        expect(out.result.kbIds).toEqual(['kb-insured']);
+    });
+    it('a not-converging thread comes back to automation when Ben replies, and is not handed straight back to him (7.4)', async () => {
+        const { gateway } = desk({
+            router: () => route({ turnKind: 'answer' }),
+            specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
+            composer: ({ n }) => ({ reply: `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
+        });
+        let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
+        for (let i = 0; i < 7; i++) {
+            last = await gateway.inbound(turn('erm not sure really', `2026-09-11T10:${String(i).padStart(2, '0')}:00.000Z`));
+            if (last.kind !== 'handled') throw new Error(last.kind);
+            if (last.file.hold) break;
+        }
+        if (!last || last.kind !== 'handled') throw new Error('not handled');
+        expect(last.file.hold?.exception).toBe('not_converging');
+        const ben = humanReply(last.file, { by: 'ben', surface: 'handset', text: 'Sam, I will pick this up with you directly.' });
+        expect(ben.ok && ben.released).toBeTruthy();
+        const after = await gateway.inbound(turn('so what did you need from me', '2026-09-11T10:40:00.000Z'));
+        if (after.kind !== 'handled') throw new Error(after.kind);
+        expect(after.file.hold).toBeNull();
+        expect(after.result.decision).toBe('send');
+        expect(after.result.bubbles[0].text).toMatch(/no worries/);
+    });
+    it('a turn the router sends to Service alongside another subject is still scoped', async () => {
+        const { client, gateway } = desk({
+            router: () => route({ subjects: ['service', 'quoting'], turnKind: 'question' }),
+            specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'areas?', source: 'kb', id: 'kb-insured' }] }) : scopingOut([{ key: 'job_type', value: 'fence panel' }]),
+            composer: ({ user }) => { expect(user).toContain('Proposal from Scoping:'); return { reply: `${INSURED}\n\nWhereabouts are you?`, factIds: [], kbIds: ['kb-insured'] }; },
+        });
+        const out = await gateway.inbound(turn('Fence panel down. Are you insured, and how much roughly?', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(2);
+        expect(out.file.job.type).toBe('fence panel');
+        expect(out.result.decision).toBe('send');
     });
     it('7.5: a clock pass on a held thread chases Ben after the interval, escalates to the owner after the second, sends the customer nothing, and Ben\'s reply clears it', async () => {
         const chase = createChaseState({ chaseAfterMs: 30 * 60_000, escalateAfterMs: 60 * 60_000, ben: { address: '+447700900901', name: 'Ben' }, owner: { address: '+447700900902', name: 'the owner' } });
