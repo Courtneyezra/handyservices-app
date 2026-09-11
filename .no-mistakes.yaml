@@ -48,7 +48,8 @@ test:
     carries. The pipeline's admin account has the VA role on the branch database, so its sidebar
     does not carry the board: open /admin/comms-v2 by URL. For Ben answering a customer from a
     card: a held sandbox card, Ben taps it, writes a reply and sends; the card's turn list shows his
-    turn labelled `human:ben` against the desk's own `agent.comms_v2`, with the bubbles as the
+    turn labelled with his own `human:` approver (his email or user id) against the desk's own
+    `agent.comms_v2`, with the bubbles as the
     sender rendered them; the hold on the card is cleared; the next customer message is answered by the desk again; and a reply the
     sender will not carry, one over the bubble ceiling, is refused with its reason shown on the
     board and nothing sent.

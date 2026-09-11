@@ -99,6 +99,11 @@ export function isAutomatedApprover(approver: string): boolean {
     return LEGACY_AUTOMATED_PREFIXES.some((p) => approver.startsWith(p));
 }
 
+/** A person's own approver: `human:<email or user id>`, never code. */
+export function isHumanApprover(approver: string): approver is HumanApprover {
+    return approver.startsWith(HUMAN_PREFIX) && approver.length > HUMAN_PREFIX.length;
+}
+
 /**
  * An AGENT approver specifically (as opposed to a rule or a system call site). The comms agent
  * reports its own sends (beta ping, promise timer) from inside its run, so message-drafts.ts must

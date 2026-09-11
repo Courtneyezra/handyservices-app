@@ -1,15 +1,17 @@
 /**
  * A person's reply from Ben's board, through the desk's one sender (Contract 5, behaviour.md
  * answers 29 and 43): Ben writes to the customer in his own words, the desk never rewrites them,
- * and they go out as a human-authored send with Ben as approver and a fresh run id. The send lands
- * on the file as Ben's turn (an outbound turn carrying approver `human:ben`), any hold clears with
- * Ben's words as the release, and the thread is back with automation (checklist 7.4: a thread
- * comes back to automation when any human replies): the next customer turn is the desk's again.
+ * and they go out as a human-authored send with Ben as approver and a fresh run id. The approver is
+ * the signed-in person, `human:<their email or user id>` as server/approver.ts defines it, so a
+ * slot two people share still records which of them wrote the words. The send lands on the file as
+ * Ben's turn (an outbound turn carrying that approver), any hold clears with Ben's words as the
+ * release, and the thread is back with automation (checklist 7.4: a thread comes back to
+ * automation when any human replies): the next customer turn is the desk's again.
  *
  * The eight guards of Contract 4 do not run over his words (answer 43). They exist to stop the
  * composer inventing a figure, a date, a commitment or a claim about the business; Ben is the
  * source they check against, so over his own words they have nothing to say. The record is honest
- * without any extra field: the send carries the `human:<slot>` approver, which no automated path
+ * without any extra field: the send carries the `human:<person>` approver, which no automated path
  * can produce, and no send record stores a guard result, so nothing claims a pass.
  *
  * What does hold is everything the sender owns: the window rule, so a shut window never carries
@@ -22,12 +24,14 @@ import { release as releaseHold, sameApprover, approverLabel, type ApproverSlot,
 import type { DeskResult } from './desk-types';
 import { approverFor, guardsNotApplied } from './guards';
 import { BUBBLE_CEILING, chooseChannel, render, send, windowOf, type SenderDeps } from './sender';
-import { humanApprover, type Approver } from '../../approver';
+import { humanApprover } from '../../approver';
 
 export interface HumanReplyInput {
     file: CaseFile;
     /** The slot the signed-in session occupies (server/comms-v2/api/approvers.ts). A person, never a rule. */
     approver: ApproverSlot;
+    /** Who that session is: their email or user id, the identity the send and the turn record. */
+    person: string;
     /** Ben's words, sent as typed: a blank line is a bubble break, and his line breaks inside one are kept. */
     words: string;
 }
@@ -39,13 +43,8 @@ export interface HumanReplyDeps extends CaseFileDeps {
 
 export type HumanReplyOutcome =
     | { ok: true; result: DeskResult; release: HoldRelease | null }
-    /** Nothing sent, nothing recorded; `result` carries the planned send that did not go. */
-    | { ok: false; reason: string; result: DeskResult; release: null };
-
-/** The approver name a person's send carries, in the exit's own enum (server/approver.ts). */
-export function humanApproverName(slot: ApproverSlot): Approver {
-    return humanApprover(slot.id);
-}
+    /** Nothing sent, nothing recorded; the reason is the board's to show. */
+    | { ok: false; reason: string };
 
 /** The newest inbound turn: what the customer last said, which Ben's reply answers. */
 function lastCustomerTurn(file: CaseFile, partyId: string): Turn | null {
@@ -54,11 +53,6 @@ function lastCustomerTurn(file: CaseFile, partyId: string): Turn | null {
         if (t.partyId === partyId && t.direction === 'inbound') return t;
     }
     return null;
-}
-
-function nothing(file: CaseFile, party: Party, runId: string, approver: string, note: string, now: Date): DeskResult {
-    const window = windowOf(party, 'whatsapp', now);
-    return { runId, decision: 'none', partyId: party.personId, channel: null, windowState: window.state, templateId: null, bubbles: [], factIds: [], kbIds: [], guards: guardsNotApplied(), approver, hold: file.hold, delivered: false, stageAfter: file.stage, calls: [], note, summary: 'human reply from the board', error: null, landedTurnId: null, composerCalls: 0 };
 }
 
 /**
@@ -74,7 +68,7 @@ export async function humanReply(input: HumanReplyInput, deps: HumanReplyDeps = 
     const { file, approver } = input;
     const words = input.words.replace(/\r\n/g, '\n').trim();
     const party: Party = file.parties.find((p) => p.role !== 'internal') ?? file.parties[0];
-    const refuse = (reason: string): HumanReplyOutcome => ({ ok: false, reason, result: nothing(file, party, runId, approver.kind === 'human' ? humanApproverName(approver) : approverLabel(approver), reason, now()), release: null });
+    const refuse = (reason: string): HumanReplyOutcome => ({ ok: false, reason });
 
     if (approver.kind !== 'human') return refuse('only a person answers from the board; a rule-based approver has no words');
     if (!words) return refuse('a reply needs words');
@@ -82,7 +76,7 @@ export async function humanReply(input: HumanReplyInput, deps: HumanReplyDeps = 
     if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may answer this file`);
     const turn = lastCustomerTurn(file, party.personId);
     if (!turn) return refuse('no customer turn to answer');
-    const approverName = humanApproverName(approver);
+    const approverName = humanApprover(input.person);
 
     // Channel, render, window: as the sender renders a composed reply, with nothing reflowed or rewritten.
     const choice = chooseChannel(party, turn.channel);

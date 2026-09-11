@@ -171,7 +171,7 @@ describe('<CommsV2BoardPage>', () => {
             turns: [
                 { id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?' },
                 { id: 't2', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Ben will come back to you on the price.', approver: 'agent.comms_v2' },
-                { id: 't3', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Morning Sam, let me look at that.', approver: 'human:ben' },
+                { id: 't3', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Morning Sam, let me look at that.', approver: 'human:ben@handyservices.app' },
             ],
             facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
@@ -183,7 +183,7 @@ describe('<CommsV2BoardPage>', () => {
             { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
             {
                 method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
-                reply: () => ({ json: { ok: true, sent: { approver: 'human:ben', author: 'human', guards: 'not_applied', bubbles: ['That one is £120 fitted, as on your quote.'] }, release: { words: 'x' } } }),
+                reply: () => ({ json: { ok: true, sent: { approver: 'human:ben@handyservices.app', bubbles: ['That one is £120 fitted, as on your quote.'] }, release: { words: 'x' } } }),
             },
         ]);
 
@@ -194,8 +194,8 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(screen.getByTestId('answer-form')).toBeTruthy());
         // Ben can tell his own turn from the desk's on the card itself.
         expect(screen.getByTestId('turn-meta-t2').textContent).toContain('agent.comms_v2');
-        expect(screen.getByTestId('turn-meta-t3').textContent).toContain('human:ben');
-        expect(screen.getByTestId('turn-meta-t1').textContent).not.toContain('human:ben');
+        expect(screen.getByTestId('turn-meta-t3').textContent).toContain('human:ben@handyservices.app');
+        expect(screen.getByTestId('turn-meta-t1').textContent).not.toContain('human:ben@handyservices.app');
 
         await user.type(screen.getByLabelText('Your reply to the customer'), 'That one is £120 fitted, as on your quote.');
         await user.click(screen.getByRole('button', { name: /send as me/i }));

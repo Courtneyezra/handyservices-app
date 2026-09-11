@@ -5,7 +5,7 @@
  * and only when the comms_v2_approvers row lists that session for the slot.
  *
  * Then the answer half: Ben writes the reply himself and it goes out through the desk's one sender
- * with him as approver, recorded as human-authored with the guards not applied, lands on the file
+ * with him as approver - the signed-in person, not the slot - and the guards not applied, lands on the file
  * as his turn, clears the hold and hands the thread back to the desk; the same session rules gate
  * it as they gate release.
  */
@@ -192,7 +192,7 @@ describe('Ben answers from the board', () => {
 
         const sent = await call('POST', `/case-files/${id}/answer`, { words: 'Morning Sam, I will take a look and come back to you myself.' }, 'Ben.Real@handyservices.app');
         expect(sent.status).toBe(200);
-        expect(sent.json.sent).toMatchObject({ approver: 'human:ben', author: 'human', guards: 'not_applied' });
+        expect(sent.json.sent).toMatchObject({ approver: 'human:Ben.Real@handyservices.app' });
         expect(sent.json.sent.bubbles).toEqual(['Morning Sam, I will take a look and come back to you myself.']);
         expect(sent.json.card.held).toBe(false);
         expect(sent.json.release).toMatchObject({ approver: { kind: 'human', id: 'ben' } });
@@ -200,7 +200,7 @@ describe('Ben answers from the board', () => {
         const detail = await call('GET', `/case-files/${id}`);
         expect(detail.json.hold).toBeNull();
         const last = detail.json.turns[detail.json.turns.length - 1];
-        expect(last).toMatchObject({ direction: 'outbound', approver: 'human:ben' });
+        expect(last).toMatchObject({ direction: 'outbound', approver: 'human:Ben.Real@handyservices.app' });
         expect(last.body).toContain('come back to you myself');
         expect(cardsOn((await call('GET', '/board?held=true')).json)).toEqual([]);
     });

@@ -13,6 +13,9 @@ import { humanReply } from './human-reply';
 import { DESK_APPROVER } from './sender';
 
 const AT = '2026-09-11T10:00:00.000Z';
+/** Who the signed-in session is, which is what the send records: the person, not the slot they hold. */
+const BEN_PERSON = 'ben.real@handyservices.app';
+const BEN_APPROVER = `human:${BEN_PERSON}`;
 const now = (iso = '2026-09-11T10:05:00.000Z') => () => new Date(iso);
 
 function fixture(): { file: CaseFile; party: Party } {
@@ -37,7 +40,7 @@ describe('a person answers from the board', () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
 
-        const out = await humanReply({ file, approver: BEN, words: 'Morning Sam, spoke to my fitter.\n\nI will pop round and look at it properly.' }, { now: now() });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'Morning Sam, spoke to my fitter.\n\nI will pop round and look at it properly.' }, { now: now() });
 
         expect(out.ok).toBe(true);
         if (!out.ok) return;
@@ -46,16 +49,16 @@ describe('a person answers from the board', () => {
             'Morning Sam, spoke to my fitter.',
             'I will pop round and look at it properly.',
         ]);
-        expect(out.result.approver).toBe('human:ben');
+        expect(out.result.approver).toBe(BEN_APPROVER);
         expect(out.result.runId).toMatch(/^run_/);
         expect(out.result.delivered).toBe(true);
 
         // Ben's turn is on the file, carrying him as approver.
         const last = file.turns[file.turns.length - 1];
         expect(last.direction).toBe('outbound');
-        expect(last.approver).toBe('human:ben');
+        expect(last.approver).toBe(BEN_APPROVER);
         expect(last.body).toContain('spoke to my fitter');
-        expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: 'human:ben', channel: 'whatsapp', mode: 'dry_run' });
+        expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, channel: 'whatsapp', mode: 'dry_run' });
 
         // The hold is cleared, with his words as the release, and the file still holds.
         expect(file.hold).toBeNull();
@@ -67,12 +70,12 @@ describe('a person answers from the board', () => {
     it('the thread is automation\'s again: the hold is gone and the next customer turn is the desk\'s', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
-        await humanReply({ file, approver: BEN, words: 'Morning Sam, I will take a look.' }, { now: now() });
+        await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'Morning Sam, I will take a look.' }, { now: now() });
         expect(file.hold).toBeNull();
 
         const next = appendTurn(file, { at: '2026-09-11T10:10:00.000Z', channel: 'whatsapp', direction: 'inbound', partyId: 'p1', kind: 'text', body: 'Great, thanks', media: [], runId: null, approver: null }, { now: now('2026-09-11T10:10:00.000Z') });
         expect(next.ok).toBe(true);
-        const again = await humanReply({ file, approver: BEN, words: 'No problem.' }, { now: now('2026-09-11T10:11:00.000Z') });
+        const again = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'No problem.' }, { now: now('2026-09-11T10:11:00.000Z') });
         expect(again.ok).toBe(true);
     });
 
@@ -80,7 +83,7 @@ describe('a person answers from the board', () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
 
-        const out = await humanReply({ file, approver: BEN, words: 'A new tap is about £120 fitted.' }, { now: now() });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'A new tap is about £120 fitted.' }, { now: now() });
 
         expect(out.ok).toBe(true);
         if (!out.ok) return;
@@ -93,7 +96,7 @@ describe('a person answers from the board', () => {
     it('sends a date Ben types with no diary fact behind it: the guards are the composer\'s, not his', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
-        const out = await humanReply({ file, approver: BEN, words: 'I can pop round Friday to look at it properly.' }, { now: now() });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'I can pop round Friday to look at it properly.' }, { now: now() });
         expect(out.ok).toBe(true);
         if (!out.ok) return;
         expect(out.result.guards.date_time_duration.result).toBe('not_applied');
@@ -103,10 +106,10 @@ describe('a person answers from the board', () => {
     it('sends a second reply from the same person: the one-reply guard paces the desk, not Ben', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
-        const first = await humanReply({ file, approver: BEN, words: 'I will take a look today.' }, { now: now() });
+        const first = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'I will take a look today.' }, { now: now() });
         expect(first.ok).toBe(true);
 
-        const second = await humanReply({ file, approver: BEN, words: 'One more thing.' }, { now: now('2026-09-11T10:06:00.000Z') });
+        const second = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'One more thing.' }, { now: now('2026-09-11T10:06:00.000Z') });
         expect(second.ok).toBe(true);
         expect(file.sends).toHaveLength(2);
     });
@@ -117,9 +120,9 @@ describe('a person answers from the board', () => {
         const rules: ApproverSlot = { kind: 'rules', id: 'landlord_1', then: { kind: 'human', id: 'landlord_1' } };
         const other: ApproverSlot = { kind: 'human', id: 'someone_else' };
 
-        expect(await humanReply({ file, approver: BEN, words: '   ' }, { now: now() })).toMatchObject({ ok: false, reason: 'a reply needs words' });
-        expect(await humanReply({ file, approver: rules, words: 'hello' }, { now: now() })).toMatchObject({ ok: false });
-        const wrong = await humanReply({ file, approver: other, words: 'hello' }, { now: now() });
+        expect(await humanReply({ file, approver: BEN, person: BEN_PERSON, words: '   ' }, { now: now() })).toMatchObject({ ok: false, reason: 'a reply needs words' });
+        expect(await humanReply({ file, approver: rules, person: BEN_PERSON, words: 'hello' }, { now: now() })).toMatchObject({ ok: false });
+        const wrong = await humanReply({ file, approver: other, person: BEN_PERSON, words: 'hello' }, { now: now() });
         expect(wrong.ok).toBe(false);
         if (wrong.ok) return;
         expect(wrong.reason).toMatch(/only ben may answer/);
@@ -131,7 +134,7 @@ describe('a person answers from the board', () => {
         deskRepliedAndHeld(file);
         const words = 'Morning Sam, two things I would do:\n- replace the washer\n- check the isolator valve\n\nI will bring both.';
 
-        const out = await humanReply({ file, approver: BEN, words }, { now: now() });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words }, { now: now() });
 
         expect(out.ok).toBe(true);
         if (!out.ok) return;
@@ -146,7 +149,7 @@ describe('a person answers from the board', () => {
         const { file } = fixture();
         const landlord: ApproverSlot = { kind: 'human', id: 'landlord_1' };
 
-        const out = await humanReply({ file, approver: landlord, words: 'Morning Sam, I can look at that.' }, { now: now() });
+        const out = await humanReply({ file, approver: landlord, person: BEN_PERSON, words: 'Morning Sam, I can look at that.' }, { now: now() });
 
         expect(out.ok).toBe(false);
         if (out.ok) return;
@@ -161,7 +164,7 @@ describe('a person answers from the board', () => {
         const ch = party.channels.find((c) => c.kind === 'whatsapp')!;
         ch.lastInboundAt = '2026-09-09T10:00:00.000Z';
 
-        const out = await humanReply({ file, approver: BEN, words: 'Morning Sam.' }, { now: now() });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'Morning Sam.' }, { now: now() });
         expect(out.ok).toBe(false);
         if (out.ok) return;
         expect(out.reason).toMatch(/window is shut/);
@@ -172,19 +175,31 @@ describe('a person answers from the board', () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
         const words = ['one', 'two', 'three', 'four', 'five'].join('\n\n');
-        const out = await humanReply({ file, approver: BEN, words }, { now: now() });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words }, { now: now() });
         expect(out.ok).toBe(false);
         if (out.ok) return;
         expect(out.reason).toMatch(/over the ceiling/);
     });
 
+    it('records the person who typed the words, not the slot two of them share', async () => {
+        const { file } = fixture();
+        deskRepliedAndHeld(file);
+
+        const first = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'Morning Sam, I will take a look.' }, { now: now() });
+        const second = await humanReply({ file, approver: BEN, person: 'jo.office@handyservices.app', words: 'Ben is on his way.' }, { now: now('2026-09-11T10:06:00.000Z') });
+
+        expect(first.ok && second.ok).toBe(true);
+        expect(file.sends.map((s) => s.approver)).toEqual([BEN_APPROVER, 'human:jo.office@handyservices.app']);
+        expect(file.turns.slice(-2).map((t) => t.approver)).toEqual([BEN_APPROVER, 'human:jo.office@handyservices.app']);
+    });
+
     it('answers a file with no hold, and the file stays unheld', async () => {
         const { file } = fixture();
-        const out = await humanReply({ file, approver: BEN, words: 'Hi Sam, let me take a look and come back to you.' }, { now: now() });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'Hi Sam, let me take a look and come back to you.' }, { now: now() });
         expect(out.ok).toBe(true);
         if (!out.ok) return;
         expect(out.release).toBeNull();
         expect(file.hold).toBeNull();
-        expect(file.turns[file.turns.length - 1].approver).toBe('human:ben');
+        expect(file.turns[file.turns.length - 1].approver).toBe(BEN_APPROVER);
     });
 });

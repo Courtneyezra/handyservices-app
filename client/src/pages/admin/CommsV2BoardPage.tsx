@@ -79,7 +79,7 @@ export interface Turn {
     direction: 'inbound' | 'outbound';
     kind: string;
     body: string;
-    /** Outbound only: who sent it, `human:<slot>` for a person, `agent.comms_v2` for the desk. */
+    /** Outbound only: who sent it, `human:<their email or user id>` for a person, `agent.comms_v2` for the desk. */
     approver?: string | null;
 }
 

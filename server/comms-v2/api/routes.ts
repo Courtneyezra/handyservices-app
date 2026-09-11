@@ -8,9 +8,10 @@
  *                                    route only carries the words and names who is asking
  * POST /case-files/:id/answer     - Ben answers the customer in his own words through the desk's
  *                                    one sender (desk/human-reply.ts): his words go as typed with
- *                                    him as approver and clear the hold; the guards never run over
- *                                    a person's own words (behaviour.md answer 43), and whatever
- *                                    the sender refuses comes back for the board to show him
+ *                                    the signed-in person as approver and clear the hold; the
+ *                                    guards never run over a person's own words (behaviour.md
+ *                                    answer 43), and whatever the sender refuses comes back for
+ *                                    the board to show him
  *
  * /sandbox/* mounts the Goal 1 sandbox door unmodified (server/comms-v2/desk/sandbox-door.ts),
  * so the board has sandbox threads to show without duplicating that door's logic here.
@@ -61,8 +62,8 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
 
     /**
      * Ben answers the customer from the card. His words go out through the one sender under his own
-     * `human:<slot>` approver, with the guards not run over them; a refusal from the sender is
-     * returned for the board to show, never held silently (checklist 7.3, 7.4).
+     * `human:<email or user id>` approver, with the guards not run over them; a refusal from the
+     * sender is returned for the board to show, never held silently (checklist 7.3, 7.4).
      */
     router.post('/case-files/:id/answer', async (req, res) => {
         const user = (req as any).user;
@@ -74,9 +75,9 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
         const words = String(req.body?.words ?? '').trim();
         if (!words) { res.status(400).json({ error: 'an answer needs words' }); return; }
-        const outcome = await humanReply({ file, approver, words });
+        const outcome = await humanReply({ file, approver, person: user.email ?? user.id, words });
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
-        res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, author: 'human', guards: 'not_applied', runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.landedTurnId }, release: outcome.release });
+        res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.landedTurnId }, release: outcome.release });
     });
 
     return router;

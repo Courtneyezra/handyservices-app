@@ -133,6 +133,17 @@ describe('send', () => {
         expect(first.ok).toBe(true);
         expect((await send(base, { now: at('2026-09-11T11:00:01.000Z') })).ok).toBe(false);
     });
+    it('only a person\'s own `human:` words send without guards; any other approver still needs them', async () => {
+        const { file, party } = fixture();
+        const ben = await send(input(file, party, { approver: 'human:ben@handyservices.app', guards: null, runId: 'r_ben' }), { now: at('2026-09-11T11:00:00.000Z') });
+        expect(ben.ok).toBe(true);
+
+        const relay = await send(input(file, party, { approver: 'contractor:c1' as SendInput['approver'], guards: null, runId: 'r_relay' }), { now: at('2026-09-11T11:00:01.000Z') });
+        expect(relay.ok).toBe(false);
+        if (relay.ok) return;
+        expect(relay.reason).toBe('guards not passed');
+        expect(file.sends.map((s) => s.runId)).toEqual(['r_ben']);
+    });
     it('in dry run lands the planned reply on the thread as an outbound turn with the run id and approver, and records the send', async () => {
         const { file, party } = fixture();
         const r = await send(input(file, party, { calls: [{ role: 'composer', model: 'claude-fable-5-1', effort: 'medium', inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costPence: 1, durationMs: 5 }] }), { now: at('2026-09-11T11:00:00.000Z') });
