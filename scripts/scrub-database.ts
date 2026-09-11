@@ -136,6 +136,8 @@ function printReport(report: ScrubReport): void {
         // --verify and --dry-run both read only, so neither needs the operator's confirmation.
         confirmed: args.confirm || args.dryRun || args.verify,
         dryRun: args.dryRun || args.verify,
+        // --verify writes nothing but exists precisely to run the residual scan.
+        scanResiduals: args.verify ? true : !args.dryRun,
         preserveLoginEmail: process.env.PIPELINE_ADMIN_EMAIL ?? null,
         log: (line) => console.log(`[scrub] ${line}`),
     };

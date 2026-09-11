@@ -49,6 +49,16 @@ export interface ValueContext {
     /** The row's own synthetic customer name and town, when it has one, so prose reads as a thread. */
     rowName?: string | null;
     rowTown?: string | null;
+    /**
+     * Rewrite unconditionally, ignoring the "this is already synthetic" checks.
+     *
+     * Those checks are how the scrub stays idempotent, but several of them are memberships of a
+     * pool rather than proofs: a real customer called Ada Beeston, or a real house in Nottingham,
+     * would test as synthetic and survive. So the first scrub of a database rewrites everything
+     * and only later runs trust the checks. scrub.ts decides which this is by looking for the
+     * marker the previous run left behind.
+     */
+    force?: boolean;
 }
 
 const PROSE_KIND: Partial<Record<Treatment, ProseKind>> = {
@@ -90,17 +100,18 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
     const raw = String(value);
     if (!raw.trim()) return value;
     const { seed } = ctx;
+    const settled = (already: boolean) => !ctx.force && already;
     const rowParts = [ctx.table, ctx.rowKey, ctx.column];
 
     switch (treatment) {
         case 'person_name':
-            return isSyntheticName(raw) ? raw : fakeFullName(seed, 'person', raw.trim().toLowerCase());
+            return settled(isSyntheticName(raw)) ? raw : fakeFullName(seed, 'person', raw.trim().toLowerCase());
         case 'first_name':
-            return isSyntheticName(raw) ? raw : fakeFirstName(seed, 'person', raw.trim().toLowerCase());
+            return settled(isSyntheticName(raw)) ? raw : fakeFirstName(seed, 'person', raw.trim().toLowerCase());
         case 'last_name':
-            return isSyntheticName(raw) ? raw : fakeLastName(seed, 'person', raw.trim().toLowerCase());
+            return settled(isSyntheticName(raw)) ? raw : fakeLastName(seed, 'person', raw.trim().toLowerCase());
         case 'business_name':
-            return isSyntheticBusinessName(raw) ? raw : fakeBusinessName(seed, 'trading', raw.trim().toLowerCase());
+            return settled(isSyntheticBusinessName(raw)) ? raw : fakeBusinessName(seed, 'trading', raw.trim().toLowerCase());
 
         case 'phone':
         case 'phone_e164': {
@@ -126,14 +137,14 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
         }
 
         case 'email':
-            return isSyntheticEmail(raw) ? raw : fakeEmail(seed, 'email', raw.trim().toLowerCase());
+            return settled(isSyntheticEmail(raw)) ? raw : fakeEmail(seed, 'email', raw.trim().toLowerCase());
 
         case 'postcode':
-            return isSyntheticPostcode(raw) ? raw : fakePostcode(seed, 'postcode', raw.replace(/\s+/g, '').toUpperCase());
+            return settled(isSyntheticPostcode(raw)) ? raw : fakePostcode(seed, 'postcode', raw.replace(/\s+/g, '').toUpperCase());
         case 'town':
-            return isSyntheticTown(raw) ? raw : fakeTown(seed, 'town', raw.trim().toLowerCase());
+            return settled(isSyntheticTown(raw)) ? raw : fakeTown(seed, 'town', raw.trim().toLowerCase());
         case 'address': {
-            if (isSyntheticAddress(raw)) return raw;
+            if (settled(isSyntheticAddress(raw))) return raw;
             const key = raw.trim().toLowerCase();
             const pc = postcodeIn(raw);
             // When the real address carried a postcode, key the fake postcode on it so this
@@ -143,7 +154,7 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
             return `${fakeAddressLine1(seed, 'address', key)}, ${town}, ${postcode}`;
         }
         case 'address_line':
-            return isSyntheticAddress(raw) ? raw : fakeAddressLine1(seed, 'address', raw.trim().toLowerCase());
+            return settled(isSyntheticAddress(raw)) ? raw : fakeAddressLine1(seed, 'address', raw.trim().toLowerCase());
 
         case 'latitude':
             return String(fakeCoordinate(seed, 'coord', ctx.table, ctx.rowKey).lat);
@@ -151,17 +162,17 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
             return String(fakeCoordinate(seed, 'coord', ctx.table, ctx.rowKey).lng);
 
         case 'url':
-            return isSyntheticUrl(raw) ? raw : fakeUrl(seed, extensionOf(raw), ...rowParts, raw.length.toString());
+            return settled(isSyntheticUrl(raw)) ? raw : fakeUrl(seed, extensionOf(raw), ...rowParts, raw.length.toString());
         case 'data_url':
             // A signature or photo pasted inline. Keep it a data: URL so renderers still cope.
             return raw.startsWith('data:image/png;base64,AAAA') ? raw : 'data:image/png;base64,AAAA';
 
         case 'token':
-            return isSyntheticToken(raw) ? raw : fakeToken(seed, ...rowParts);
+            return settled(isSyntheticToken(raw)) ? raw : fakeToken(seed, ...rowParts);
         case 'password':
             return UNUSABLE_PASSWORD_HASH;
         case 'external_id':
-            return isSyntheticExternalId(raw) ? raw : fakeExternalId(seed, raw, ...rowParts);
+            return settled(isSyntheticExternalId(raw)) ? raw : fakeExternalId(seed, raw, ...rowParts);
 
         case 'message_body':
         case 'narrative':
@@ -176,7 +187,7 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
         case 'actor':
             // A user id or a `human:<id>` handle stays; a name typed into the same column goes.
             if (looksLikeIdentifier(raw)) return ctx.subs.apply(raw);
-            return isSyntheticName(raw) ? raw : fakeFullName(seed, 'person', raw.trim().toLowerCase());
+            return settled(isSyntheticName(raw)) ? raw : fakeFullName(seed, 'person', raw.trim().toLowerCase());
 
         case 'keep':
             return ctx.subs.apply(raw);

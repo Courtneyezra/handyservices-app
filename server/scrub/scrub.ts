@@ -42,6 +42,12 @@ export interface ScrubOptions {
     /** Read and report, write nothing. */
     dryRun?: boolean;
     /**
+     * Run the residual scan. A dry run leaves it off by default, because nothing has been written
+     * yet and the scan would only count the real data the operator already knows is there; --verify
+     * turns it on precisely to audit a database somebody else scrubbed.
+     */
+    scanResiduals?: boolean;
+    /**
      * The one account whose e-mail address and password hash survive, because the pipeline logs in
      * with it. Everything else about the account is still scrubbed. Read from the environment by
      * the CLI so the address itself never appears on a command line.
@@ -130,21 +136,30 @@ export async function scrubDatabase(client: Client, opts: ScrubOptions): Promise
     const phoneMap = new Map<string, string>();
     const preserveEmail = (opts.preserveLoginEmail ?? '').trim().toLowerCase() || null;
 
+    const scrubbedBefore = await readMarker(client, seed);
+    const force = !scrubbedBefore;
+    log(force
+        ? 'first scrub with this seed: every classified value is rewritten, nothing is assumed already synthetic'
+        : 'already scrubbed with this seed: values that are already synthetic are left alone');
+
     await collectPhones(client, tables, seed, phoneMap);
-    await collectOthers(client, tables, seed, subs, phoneMap, preserveEmail);
+    await collectOthers(client, tables, seed, subs, phoneMap, preserveEmail, force);
     log(`collected: ${phoneMap.size} telephone number(s), ${subs.size} sweep term(s)`);
 
     // ---- passes 2 and 3: rewrite, then sweep
     const reports: TableReport[] = [];
     for (const table of tables) {
         const report = await scrubTable(client, table, {
-            seed, subs, phoneMap, dryRun, preserveEmail,
+            seed, subs, phoneMap, dryRun, preserveEmail, force,
         });
         if (report.rowsChanged || report.columns.length) reports.push(report);
     }
+    if (!dryRun) await writeMarker(client, seed);
 
-    // ---- pass 4: prove it
-    const residuals = await findResiduals(client, tables, subs);
+    // ---- pass 4: prove it. A dry run has written nothing, so there is nothing to prove yet and
+    // scanning would only report the real data the operator already knows is there.
+    const scan = opts.scanResiduals ?? !dryRun;
+    const residuals = scan ? await findResiduals(client, tables, subs) : [];
 
     return {
         databaseHost: databaseHostOf(opts.connectionString),
@@ -169,6 +184,43 @@ interface RunState {
     phoneMap: Map<string, string>;
     dryRun: boolean;
     preserveEmail: string | null;
+    force: boolean;
+}
+
+/** The `app_settings` row a completed scrub leaves behind, naming the seed it used. */
+export const MARKER_KEY = 'scrub';
+
+/**
+ * Has this database been scrubbed with this seed before?
+ *
+ * It matters because several of the "already synthetic" checks are pool memberships rather than
+ * proofs — a real customer called Ada Beeston would pass one. So the first scrub of a database
+ * rewrites every classified value unconditionally, and only a later run with the same seed is
+ * allowed to trust the checks and do nothing. A different seed means a different synthetic world,
+ * so that counts as a first run too.
+ */
+async function readMarker(client: Client, seed: string): Promise<boolean> {
+    try {
+        const r = await client.query(
+            `select value from app_settings where key = $1 limit 1`, [MARKER_KEY],
+        );
+        if (!r.rows.length) return false;
+        const value = typeof r.rows[0].value === 'string' ? JSON.parse(r.rows[0].value) : r.rows[0].value;
+        return value?.seed === seed;
+    } catch {
+        return false;
+    }
+}
+
+async function writeMarker(client: Client, seed: string): Promise<void> {
+    const value = JSON.stringify({ seed, scrubbedAt: new Date().toISOString() });
+    await client.query(
+        `insert into app_settings (id, key, value, description)
+         values ($1, $2, $3::jsonb, $4)
+         on conflict (key) do update set value = excluded.value, description = excluded.description`,
+        [`scrub-${MARKER_KEY}`, MARKER_KEY, value,
+            'Written by scripts/scrub-database.ts: this database holds synthetic data only.'],
+    );
 }
 
 /**
@@ -222,7 +274,7 @@ async function collectPhones(
 /** Collect names, e-mail addresses, addresses, postcodes and towns, and their replacements. */
 async function collectOthers(
     client: Client, tables: TableInfo[], seed: string, subs: Substitutions,
-    phoneMap: Map<string, string>, preserveEmail: string | null,
+    phoneMap: Map<string, string>, preserveEmail: string | null, force: boolean,
 ): Promise<void> {
     for (const [national, fake] of phoneMap) subs.addPhone(national, fake);
 
@@ -238,7 +290,7 @@ async function collectOthers(
             for (const row of r.rows) {
                 const raw = String(row.v ?? '').trim();
                 if (!raw) continue;
-                const ctx = valueContext(seed, table.table, col.column, 'collect', subs, phoneMap);
+                const ctx = { ...valueContext(seed, table.table, col.column, 'collect', subs, phoneMap), force };
                 const fake = scrubScalar(t, raw, ctx);
                 if (!fake || fake === raw) continue;
                 if (t === 'person_name' || t === 'first_name' || t === 'last_name' || t === 'business_name') {
@@ -304,7 +356,7 @@ async function scrubTable(client: Client, table: TableInfo, state: RunState): Pr
             const rowName = nameCol ? asText(row[nameCol]) : null;
             const rowTown = townCol ? asText(row[townCol])
                 : postcodeCol ? asText(row[postcodeCol]) : null;
-            const ctxBase = valueContext(state.seed, table.table, '', rowKey, state.subs, state.phoneMap);
+            const ctxBase = { ...valueContext(state.seed, table.table, '', rowKey, state.subs, state.phoneMap), force: state.force };
             const syntheticName = rowName
                 ? scrubScalar('person_name', rowName, { ...ctxBase, column: nameCol! })
                 : null;
