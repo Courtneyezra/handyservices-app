@@ -81,6 +81,23 @@ describe('the desk', () => {
         expect(out.file.hold?.failures.length).toBeGreaterThan(0);
     });
 
+    it('two questions about the job go back to the composer once, with one thing at a time named', async () => {
+        const { gateway } = desk({
+            router: () => routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'sticking door' }]),
+            composer: ({ n, user }) => {
+                if (n === 2) expect(user).toContain('one thing at a time');
+                return { reply: n === 1 ? 'Got it.\n\nWhich door is it? Where does it catch?' : 'Got it.\n\nWhereabouts does it catch, top or side?', factIds: [], kbIds: [] };
+            },
+        });
+        const out = await gateway.inbound(turn('My door sticks', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.result.composerCalls).toBe(2);
+        expect(out.result.decision).toBe('send');
+        expect(out.result.bubbles.map((b) => b.text).join(' ')).toContain('Whereabouts does it catch');
+        expect(out.file.hold).toBeNull();
+    });
+
     it('a composer refusal takes the fixed acknowledgement and a hold, never a silent empty reply', async () => {
         const { gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => ({ refused: true }) });
         const out = await gateway.inbound(turn('Hi', '2026-09-11T10:00:00.000Z'));

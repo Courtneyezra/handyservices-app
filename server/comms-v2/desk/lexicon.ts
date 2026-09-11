@@ -70,7 +70,8 @@ export const RE_DISCLOSURE = /\b(?:automated|automatic(?:ally)? (?:reply|respons
 
 export const SUBJECT_WORDS: Record<string, RegExp> = {
     media: /\b(?:photo|photos|picture|pictures|pic|pics|video|videos|snap|snaps|image|images|footage|clip)\b/i,
-    postcode: /\b(?:postcode|post code|post-code|whereabouts|where are you|where is (?:it|the|that|this)|where about|address|which (?:area|part|town|road|street)|what area|location|located|where you are)\b/i,
+    // Only an ask about where THEY are: "whereabouts does it catch" and "where is it sticking" are job questions.
+    postcode: /\b(?:postcode|post code|post-code|address|which (?:area|part of town|town|road|street)|what area|where(?:abouts)? (?:are you|you are|are you based|is the (?:house|property|place)|in (?:the )?(?:city|town|area)|in [A-Z][a-z]+)|whereabouts in\b|your (?:location|area)|where (?:you'?re|you are) (?:based|located))\b/i,
     access: /\b(?:access|parking|park|key safe|keysafe|keys?|gate code|door code|someone (?:be )?(?:in|home|there|about|around)|anyone (?:be )?(?:in|home|there)|get in|let us in|be home|be in)\b/i,
     handoff: /\b(?:ben|he|she|someone|one of (?:us|the team)|the team)\b[^.?!\n]{0,40}\b(?:will|'ll|can|is going to)\b[^.?!\n]{0,40}\b(?:be in touch|call|ring|phone|come back|get back|pick (?:this|it) up|look at|confirm|price)\b/i,
     job: /\b(?:what(?:'s| is) (?:the|it|that)|which|how (?:big|many|old|long|wide|tall|high)|what (?:kind|type|sort|size|material)|is it|are they|does it|do they|tell me (?:a bit )?more|describe|whereabouts (?:in|on) the)\b/i,
@@ -117,6 +118,11 @@ export const RE_CALL_OFFER = new RegExp([
 ].join('|'), 'i');
 
 const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|(?:cannot|can'?t|can not)(?!\s+(?:wait|hurt))|no need (?:to|for)|not going to|rather than|instead of|never(?!\s+hurts?)|(?:don'?t|do not|won'?t|will not) (?:need|have|want) to|not necessary to|no (?:calls?|phone))(?:\s+\S+){0,2}\s*$/i;
+
+/** Questions about the job: every question except an offer of a call, which is not a scoping question. */
+export function scopingQuestionCount(text: string): number {
+    return sentencesOf(text).filter((s) => s.includes('?') && clausesOf(s).every((c) => { const m = RE_CALL_OFFER.exec(c); return !m || RE_CALL_NEGATION.test(c.slice(0, m.index)); })).length;
+}
 
 export function offersCall(text: string): string | null {
     for (const s of sentencesOf(text)) for (const clause of clausesOf(s)) {

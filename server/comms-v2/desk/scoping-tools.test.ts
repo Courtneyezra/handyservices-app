@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { answered, ask, open, recordFact, type CaseFile, type Turn } from './case-file';
 import { confirmLocation, describeMedia, emptyKb, kbLookup, nextQuestion, offerCall, readiness, regulated } from './scoping-tools';
-import { moneyQuestionMatch, offersCall, textAsks } from './lexicon';
+import { moneyQuestionMatch, offersCall, scopingQuestionCount, textAsks } from './lexicon';
 
 function fixture(text = 'hi', media: Turn['media'] = []): CaseFile {
     const r = open({
@@ -135,5 +135,9 @@ describe('lexicon', () => {
         expect(textAsks('If it is easy, could you send a photo?', 'media')).toBe(true);
         expect(textAsks('No worries about photos, what size is the tile?', 'media')).toBe(false);
         expect(textAsks('Whereabouts are you?', 'postcode')).toBe(true);
+        expect(textAsks('Whereabouts does it catch when it sticks?', 'postcode')).toBe(false);
+        expect(textAsks('Where is it sticking, top or side?', 'postcode')).toBe(false);
+        expect(textAsks("What's your postcode?", 'postcode')).toBe(true);
+        expect(scopingQuestionCount('Got it. Where does it catch? Top or side? Happy to give you a quick call if easier?')).toBe(2);
     });
 });

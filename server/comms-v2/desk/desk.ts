@@ -17,7 +17,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
 import { approverFor, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { offersCall, textAsks } from './lexicon';
+import { offersCall, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, Route } from './router';
 import { route as routeTurn } from './router';
@@ -142,13 +142,18 @@ export class Desk implements DeskLike {
         const kbRows = await this.kbRows(kbIds);
         const proposedSubject = specialists[0]?.proposal.nextQuestion?.subject ?? null;
         const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, proposedSubject });
-        let guards: GuardOutcome = runGuards(guardInput(reply!, factIds));
+        // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
+        const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
+            const n = scopingQuestionCount(text);
+            return n > 1 ? { ok: false, guards: g.guards, failures: [...g.failures, `one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`] } : g;
+        };
+        let guards: GuardOutcome = withOneThing(runGuards(guardInput(reply!, factIds)), reply!);
         if (!guards.ok && !(exception && FIXED_LINE_ONLY.has(exception)) && !specialists[0]?.proposal.hold) {
             const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures }, this.client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
-                const g2 = runGuards(guardInput(again.output.reply, again.output.factIds));
+                const g2 = withOneThing(runGuards(guardInput(again.output.reply, again.output.factIds)), again.output.reply);
                 if (g2.ok) { reply = again.output.reply; factIds = again.output.factIds; kbIds.push(...again.output.kbIds); guards = g2; }
                 else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
             } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
