@@ -101,10 +101,16 @@ export class Substitutions {
     addName(real: string | null | undefined, synthetic: string): void {
         const t = (real ?? '').trim();
         if (!t) return;
-        this.add(t, synthetic);
         const realWords = t.split(/\s+/).filter(Boolean);
         const fakeWords = synthetic.split(/\s+/).filter(Boolean);
-        if (realWords.length < 2) return;
+        // A one-word name gets the same ambiguity test as any other single word: sweeping "Ben"
+        // as a bare term would rewrite it inside words that have nothing to do with a person.
+        if (realWords.length < 2) {
+            if (isSweepableName(t) && !isReservedWord(t)) this.map.set(t, synthetic);
+            else this.skipped.add(t);
+            return;
+        }
+        this.add(t, synthetic);
         realWords.forEach((w, i) => {
             if (isSweepableName(w) && !isReservedWord(w)) this.map.set(w, fakeWords[Math.min(i, fakeWords.length - 1)]);
             else this.skipped.add(w);
@@ -130,21 +136,32 @@ export class Substitutions {
 
     get size(): number { return this.map.size; }
 
-    /** Longest first, so "Jean Wilkinson" is replaced before "Jean" can half-match it. */
-    private ordered(): [string, string][] {
-        return [...this.map.entries()].sort((a, b) => b[0].length - a[0].length);
+    /**
+     * Longest first, so "Jean Wilkinson" is replaced before "Jean" can half-match it. Each term
+     * also carries whether it must match on a word boundary: a name has to, because "Ben" is a
+     * substring of ordinary words, while a telephone number, e-mail address, postcode or street
+     * address carries digits or punctuation and is unambiguous as a plain substring.
+     */
+    private ordered(): { real: string; fake: string; wordy: boolean }[] {
+        return [...this.map.entries()]
+            .sort((a, b) => b[0].length - a[0].length)
+            .map(([real, fake]) => ({ real, fake, wordy: /^[A-Za-zÀ-ÿ'’ -]+$/.test(real) }));
     }
 
-    private cachedOrder: [string, string][] | null = null;
+    private cachedOrder: { real: string; fake: string; wordy: boolean }[] | null = null;
+
+    private get terms() {
+        this.cachedOrder ??= this.ordered();
+        return this.cachedOrder;
+    }
 
     /** Replace every known real string in `text`. Returns the text unchanged when none appear. */
     apply(text: string): string {
         if (!this.map.size) return text;
-        this.cachedOrder ??= this.ordered();
         let out = text;
-        for (const [real, fake] of this.cachedOrder) {
+        for (const { real, fake, wordy } of this.terms) {
             if (!out.includes(real)) continue;
-            out = out.split(real).join(fake);
+            out = wordy ? out.replace(boundaryRe(real), fake) : out.split(real).join(fake);
         }
         return out;
     }
@@ -152,9 +169,12 @@ export class Substitutions {
     /** How many known real strings appear in `text`. Used for the post-scrub proof, counts only. */
     countIn(text: string): number {
         if (!this.map.size) return 0;
-        this.cachedOrder ??= this.ordered();
         let n = 0;
-        for (const [real] of this.cachedOrder) {
+        for (const { real, wordy } of this.terms) {
+            if (wordy) {
+                n += (text.match(boundaryRe(real)) ?? []).length;
+                continue;
+            }
             let from = 0;
             for (;;) {
                 const at = text.indexOf(real, from);
@@ -165,4 +185,13 @@ export class Substitutions {
         }
         return n;
     }
+}
+
+function escapeRe(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** `\b` is wrong at a non-word edge, so bound on "not a letter" instead. */
+function boundaryRe(term: string): RegExp {
+    return new RegExp(`(?<![A-Za-zÀ-ÿ])${escapeRe(term)}(?![A-Za-zÀ-ÿ])`, 'g');
 }
