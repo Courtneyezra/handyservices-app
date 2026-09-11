@@ -3,7 +3,8 @@
  * Factual questions about the business, changes of details, invoice and receipt queries,
  * post-job follow-up. It answers only from a reviewed knowledge-base row, cited by id and
  * verbatim, or the customer's own record; it holds on complaints, refunds and trust doubts, on a
- * question it has no source for, on a change of details, and on scoping that is not converging.
+ * question it has no source for, on a change of details, and on scoping that is not converging
+ * (which a thread with no job on it that nobody is scoping never is).
  * Returns facts with their source and a proposal; never a sentence for the customer.
  *
  * Two halves, the Scoping pattern. The tool server first: convergence (deterministic, every turn),
@@ -60,7 +61,7 @@ export interface ServiceSpecialistDeps {
 export interface ServeOptions {
     /** The router sent the turn to Service: the model runs. Otherwise only the deterministic tools do. */
     routed: boolean;
-    /** Scoping ran on this turn too, so the brief leaves the question to it. */
+    /** Scoping ran on this turn too, so the brief leaves the question to it and the thread counts as one being scoped. */
     scopingRan: boolean;
 }
 
@@ -74,7 +75,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
     const fileDeps = { now: deps.now, newId: deps.newId };
 
     // The tool server first: convergence, every turn, no model.
-    const conv = convergence(file);
+    const conv = convergence(file, opts.scopingRan);
     if (!conv.converging) {
         return { specialist: 'service', factIds, proposal: emptyProposal(file, { reason: 'not_converging', match: conv.why! }), calls, error: null, brief, note: `service: not converging (${conv.why})` };
     }
