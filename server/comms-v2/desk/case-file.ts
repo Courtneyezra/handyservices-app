@@ -142,6 +142,14 @@ export interface Hold {
     /** The draft and the failures when a guard hold raised it. */
     draft: string | null;
     failures: string[];
+    /** Each time a graver reason took the hold over, oldest first: what it was held on, what it is held on now, and when it changed. */
+    superseded: HoldSupersede[];
+}
+
+export interface HoldSupersede {
+    from: { reason: string; exception: HoldException | null };
+    to: { reason: string; exception: HoldException | null };
+    at: string;
 }
 
 export interface HoldRelease {
@@ -426,7 +434,22 @@ export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: st
     const now = deps.now ?? (() => new Date());
     if (file.hold) return refuse(`the file is already held for ${approverLabel(file.hold.approver)}: ${file.hold.reason}`);
     if (!input.reason.trim()) return refuse('a hold needs a reason');
-    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), draft: input.draft ?? null, failures: input.failures ?? [] };
+    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), draft: input.draft ?? null, failures: input.failures ?? [], superseded: [] };
+    return accept(file.hold);
+}
+
+/**
+ * Takes a standing hold over with a graver reason, so one thread has one record of what it is
+ * held on. The hold itself is not raised again: `since` stands, so the chase clock is not reset,
+ * and the change is recorded on the hold for Ben's card. Refuses a file that is not held.
+ */
+export function supersede(file: CaseFile, input: { approver: ApproverSlot; reason: string; exception?: HoldException | null }, deps: CaseFileDeps = {}): Outcome<Hold> {
+    const now = deps.now ?? (() => new Date());
+    if (!file.hold) return refuse('the file is not held');
+    if (!input.reason.trim()) return refuse('a hold needs a reason');
+    const from = { reason: file.hold.reason, exception: file.hold.exception };
+    const to = { reason: input.reason, exception: input.exception ?? null };
+    file.hold = { ...file.hold, approver: input.approver, reason: to.reason, exception: to.exception, superseded: [...file.hold.superseded, { from, to, at: now().toISOString() }] };
     return accept(file.hold);
 }
 

@@ -11,7 +11,9 @@
  *                     so the desk does not raise it here as well.
  *
  * The router's exceptions and these reasons share one type, HoldException (desk/router.ts), so a
- * hold on the file always names a reason from one vocabulary.
+ * hold on the file always names a reason from one vocabulary. A fixed-line-only reason outranks a
+ * standing answer-the-rest hold and takes it over (case-file.ts supersede), so a thread that turns
+ * to a complaint stops being scoped; one thread has one record of what it is held on.
  */
 import type { FixedLineKind } from '../desk/fixed-lines';
 import type { HoldException } from '../desk/router';

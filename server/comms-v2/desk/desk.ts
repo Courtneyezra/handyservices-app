@@ -17,7 +17,7 @@
  * ("no chasing", "one acknowledgement, then quiet"); it is where Ben is chased instead (7.5).
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, noteOnHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
+import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
@@ -106,18 +106,19 @@ export class Desk implements DeskLike {
 
         // 2. Exceptions that the Scoper does not scope: one fixed line, a hold, no composer.
         const fixedLines: FixedLine[] = [];
-        let kbIds: string[] = [];
+        const fixedLineKbIds: string[] = [];
         const exception = route.exception;
         let composerCalls = 0;
         let reply: string | null = null;
         let factIds: string[] = [];
+        let citedKbIds: string[] = [];
         const specialists: SpecialistReturn[] = [];
 
         // A fixed-line hold, whoever raised it: one line in Ben's words, the hold, no composer.
         const fixedLineHold = async (reason: HoldException, match: string) => {
             const line = await fixedLine(FIXED_LINE_FOR[reason], this.deps.fixedLines ?? knowledgeBaseFixedLines);
             fixedLines.push(line);
-            if (line.kbId) kbIds.push(line.kbId);
+            if (line.kbId) fixedLineKbIds.push(line.kbId);
             this.holdFor(file, reason, `${reason}: ${match}`);
             reply = line.text;
         };
@@ -172,7 +173,7 @@ export class Desk implements DeskLike {
                 const first = await compose(input, this.client);
                 calls.push(first.record);
                 composerCalls++;
-                if (first.output) { reply = first.output.reply; factIds = first.output.factIds; kbIds.push(...first.output.kbIds); }
+                if (first.output) { reply = first.output.reply; factIds = first.output.factIds; citedKbIds = first.output.kbIds; }
                 else {
                     log(`composer: ${first.refused ? 'refused' : first.error}`);
                     return this.heldAck(file, party.personId, turn, runId, calls, `composer ${first.refused ? 'declined' : 'failed'}: ${first.error}`, null, composerCalls, specialists, undefined, summarise(route, specialists));
@@ -184,9 +185,9 @@ export class Desk implements DeskLike {
         // 5. Guards, with one retry to the composer.
         const proposedSubject = scopingProposal(specialists)?.nextQuestion?.subject ?? null;
         const lookedUp = specialists.flatMap((s) => s.factIds);
-        // An attempt is guarded against its own citations: the rows are resolved from the ids that attempt returned.
+        // An attempt is guarded against its own citations: the rows are resolved from the ids that attempt returned, and the fixed lines' own rows, which every attempt carries.
         const guardAttempt = async (text: string, ids: string[], cited: string[]): Promise<{ guards: GuardOutcome; kbIds: string[] }> => {
-            const merged = Array.from(new Set([...kbIds, ...cited]));
+            const merged = Array.from(new Set([...fixedLineKbIds, ...cited]));
             const kbRows = await this.kbRows(merged);
             return { guards: runGuards({ file, party, turn, reply: text, factIds: ids, kbIds: merged, kbRows, fixedLines, lookedUp, proposedSubject }), kbIds: merged };
         };
@@ -195,7 +196,8 @@ export class Desk implements DeskLike {
             const n = scopingQuestionCount(text);
             return n > 1 ? { ok: false, guards: g.guards, failures: [...g.failures, `one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`] } : g;
         };
-        const attempt = await guardAttempt(reply!, factIds, []);
+        const attempt = await guardAttempt(reply!, factIds, citedKbIds);
+        let kbIds: string[] = attempt.kbIds;
         let guards: GuardOutcome = withOneThing(attempt.guards, reply!);
         if (!guards.ok && !fixedLineOnly) {
             const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, this.client);
@@ -256,10 +258,20 @@ export class Desk implements DeskLike {
         };
     }
 
+    /**
+     * One record of what a thread is held on. A first hold is raised; a fixed-line-only reason
+     * takes over a standing hold that answers the rest, so the graver reason is the one Ben's card
+     * shows and the one step 0 reads. A second reason of the same weight, a price and a call
+     * request in one message, is added to the card rather than dropped.
+     */
     private holdFor(file: CaseFile, exception: HoldException | null, reason: string): void {
-        // One turn can raise two: a price and a call request in one message. Ben answers what his card names, so the second is added to it rather than dropped.
-        if (file.hold) { noteOnHold(file, { reason }); return; }
-        setHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
+        if (!file.hold) { setHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps()); return; }
+        const standing = file.hold.exception;
+        if (exception && FIXED_LINE_ONLY.has(exception) && !(standing && FIXED_LINE_ONLY.has(standing))) {
+            supersedeHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
+            return;
+        }
+        noteOnHold(file, { reason });
     }
 
     /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement. */
