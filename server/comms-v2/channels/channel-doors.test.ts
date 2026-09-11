@@ -14,6 +14,7 @@ import { plannedSendOfResponse, sendLanded } from '../desk/planned-send';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
 import { SANDBOX_EMAIL } from './channel-doors';
+import { EMAIL_DEFAULT_SUBJECT } from './email-adapter';
 
 let server: import('node:http').Server;
 let base: string;
@@ -97,6 +98,10 @@ describe('the channel doors', () => {
         expect(again.status).toBe(200);
         expect(again.json.state.messages.map((m: any) => m.channel)).toEqual(['email', 'email', 'email', 'email']);
         expect(again.json.email.references).toHaveLength(2);
+        // An email with no subject: the evidence reports the subject the reply itself would carry, not a blank one.
+        const bare = await post('/start', { door: 'email', text: 'Hello,\n\nMy bathroom fan has died.\n\nRegards, Sam', name: 'Sam Jones' });
+        expect(bare.status).toBe(200);
+        expect(bare.json.email).toMatchObject({ subject: EMAIL_DEFAULT_SUBJECT, references: [expect.stringMatching(/^<door-/)] });
     });
     it('call: a missed call gets one text back and an answered inbound call none (3.5); Ben ringing them sends the post-call follow-up and the thread carries on (3.2, 3.3)', async () => {
         const missed = await post('/start', { door: 'call', outcome: 'missed', name: 'Sam', seed: { whatsapp: true } });

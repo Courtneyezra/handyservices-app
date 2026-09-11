@@ -26,7 +26,7 @@ import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, t
 import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
-import { emailThreadingFor, renderEmail, type EmailThreading } from '../channels/email-adapter';
+import { renderEmail } from '../channels/email-adapter';
 import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
 import type { ChannelReplyPurpose } from '../channels/templates';
 import { isOutOfHours, ukHour } from '../../working-hours';
@@ -266,7 +266,7 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, st
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; email?: EmailThreading }): Promise<DeliveryOutcome>;
+    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver }): Promise<DeliveryOutcome>;
 }
 
 /** A failure names the bubbles that had already reached the customer, so the file can record them. */
@@ -370,7 +370,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, ...(input.channel === 'email' ? { email: emailThreadingFor(channel) } : {}) });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };

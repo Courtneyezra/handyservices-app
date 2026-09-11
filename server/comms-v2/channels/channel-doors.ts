@@ -28,7 +28,7 @@ import type { SeedInput } from '../desk/gateway';
 import { canonical } from '../desk/identity';
 import { fromDoorCall, validateDoorCall } from './call-adapter';
 import type { ChannelGateway, ChannelSeed } from './channel-gateway';
-import { fromDoorEmail } from './email-adapter';
+import { emailThreadingFor, fromDoorEmail, type EmailThreading } from './email-adapter';
 import { fromDoorForm } from './form-adapter';
 import { fromDoorSms } from './sms-adapter';
 
@@ -170,10 +170,9 @@ export function channelDoors(ctx: ChannelDoorContext): Router {
     return router;
 }
 
-/** The email thread on the file, for the door's evidence: what the reply's subject and headers would be. */
-function emailOf(file: CaseFile): { subject: string | null; inReplyTo: string | null; references: string[] } | null {
+/** The email thread on the file, for the door's evidence: the subject and headers the reply itself would carry. */
+function emailOf(file: CaseFile): EmailThreading | null {
     const ch = file.parties[0]?.channels.find((c) => c.kind === 'email');
     if (!ch?.thread) return null;
-    const subject = ch.thread.subject ? (/^re:/i.test(ch.thread.subject) ? ch.thread.subject : `Re: ${ch.thread.subject}`) : null;
-    return { subject, inReplyTo: ch.thread.messageId, references: ch.thread.references };
+    return emailThreadingFor(ch);
 }
