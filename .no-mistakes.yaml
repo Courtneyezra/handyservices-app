@@ -90,13 +90,39 @@ test:
     naming COMMS_V2_DATABASE_URL, with no quote drafted and no new row on /admin/quotes. Stop that
     second copy afterwards.
 
-    Evidence is screenshots of the sandbox thread and the sandbox data pages only; never
-    screenshot another admin list or page, and never attach the server log. If the log matters,
+    For a change to Ben's board (/admin/comms-v2, server/comms-v2/api), drive the board itself in
+    the browser as Ben and run the scenario list the goal's section of server/comms-v2/README.md
+    carries. First give the pipeline's admin account Ben's approver slot on the branch database, or
+    every release and answer is refused 403 before the desk is reached. Run this against the branch
+    database through the repo's own client (`direnv exec . npx tsx -e` importing server/db and
+    drizzle-orm's `sql`); it is safe to re-run, the key conflicts and updates:
+      insert into app_settings (id, key, value)
+      select gen_random_uuid()::text, 'comms_v2_approvers',
+             jsonb_build_object('ben', jsonb_build_array(u.id))
+      from users u where lower(u.email) = lower($1)
+      on conflict (key) do update set value = excluded.value;
+    Bind $1 from process.env.PIPELINE_ADMIN_EMAIL inside the script rather than typing the address,
+    so no value reaches a command line. It writes one row; if it writes none that account is not on
+    the branch, and the board refuses every release and answer until it is.
+    The pipeline's admin account has the VA role on the branch database, so its sidebar
+    does not carry the board: open /admin/comms-v2 by URL. For Ben answering a customer from a
+    card: a held sandbox card, Ben taps it, writes a reply and sends; the card's turn list shows his
+    turn labelled with his own `human:` approver (his email or user id) against the desk's own
+    `agent.comms_v2`, with the bubbles as the
+    sender rendered them; the hold on the card is cleared; the next customer message is answered by the desk again; and a reply the
+    sender will not carry, one over the bubble ceiling, is refused with its reason shown on the
+    board and nothing sent.
+
+    Evidence is screenshots of the sandbox thread, the sandbox data pages and Ben's board
+    (/admin/comms-v2) only; never screenshot another admin list or page, and never attach the
+    server log. The board is permitted because it reads the board's own sandbox door store, so
+    until a live store feeds it there is nothing on it but sandbox threads; whoever wires that live
+    store must come back to this line before the board stays permitted. If the log matters,
     cite its line numbers in the PR text. Stop the dev server when done.
 
     Report only scenarios you drove live against the running app in this run copy: the direnv
     environment check, the boot on the per-run port, Ben's login, the sandbox thread, the comms-v2
-    door and its refusals. A scenario is "pass" only when it was driven live. Anything you did not
-    drive live (a vitest run, a YAML parse, a static check, reading the code) is never a scenario
+    door and its refusals, and for a board change the board scenarios themselves. A scenario is
+    "pass" only when it was driven live. Anything you did not drive live (a vitest run, a YAML parse, a static check, reading the code) is never a scenario
     marked pass: leave it out, or record it as not live-validated with the reason. The pipeline
     refuses a pass that was not driven live and fails the whole step.

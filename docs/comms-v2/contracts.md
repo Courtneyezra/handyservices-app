@@ -76,12 +76,28 @@ Deterministic code, no model. Every composed reply passes here before the sender
 slot is one function so the landlord service can attach without touching the guards.
 
 **A composed reply only.** The guards exist to stop the composer inventing a figure, a date, a
-commitment or a claim about the business. A send a person authored is not composed: Ben's priced
-quote leaves the price screen under his own approver, none of the eight run over it, and the send
-records each of them as not applied rather than a pass no guard gave (behaviour.md answer 43,
-`quoting/quoting-door.ts`). What still holds for those words is everything the sender owns: the
-window rule, an approver and a run id on every send, the party being on the file, and one run id
-sending once.
+commitment or a claim about the business. Words a person typed on Ben's board are not composed:
+they go straight to the sender. The `human:<person>` approver on the send, the signed-in person's own
+email or user id as server/approver.ts defines it, which no automated path
+can produce, is the record that a person wrote them; guard results are not persisted on any send,
+so nothing reads as a pass no guard gave (behaviour.md answer 43, `desk/human-reply.ts`).
+A human reply is not checked, but it is recorded. The ask ledger and `callOffered` are bookkeeping
+of what the business has already said, not a check on what may go, and they are the one place the
+never-ask-twice rule lives, so the detectors the desk runs over its own reply run over his too, but
+read tightly: the subject word and the asking phrase must fall in one clause, because a missed ask
+costs one repeated question while a false one means nobody ever asks about access on that job.
+What still holds for those words is everything the sender owns: the window rule, an approver and a
+run id on every send, the party being on the file, and one run id sending once. Their line breaks
+inside a bubble are his own too: `render` reflows the composer's prose, never a person's words.
+
+**Only the slot the file answers to may answer it.** A person's reply is authorised against the
+file, not against the row alone: the approver its hold names while one stands, else the slot
+`approverFor` returns for it. A session holding some other slot is refused, on an unheld file as
+much as a held one, so a slot minted for a landlord's thread can never reply on a homeowner's.
+
+Ben's priced quote is the other way round: he licenses the send from the price screen, but the
+route carries no message body, so the words are the desk's own composer's and Contract 4 checks
+them like any other reply (`quoting/quoting-door.ts`).
 
 | Guard | Fails when | Checked against |
 |---|---|---|
@@ -115,13 +131,15 @@ send.
 |---|---|---|
 | `choose_channel` | the channel the party wrote on; for a form or a call, which cannot carry a reply: WhatsApp if the number is on it, then SMS, then email | the party has no channel that can carry a reply |
 | `window` | for WhatsApp, open or shut with the reason, from the party's channel record on the file | never guessed; a channel with no recorded window state is shut |
-| `render` | WhatsApp: splits the one reply into bubbles at the breaks a person would use, sentence and thought boundaries, no bubble longer than about three hundred characters, a soft ceiling of four, typing gaps of one to three seconds scaled to length. SMS: one message, two segments at most. Email: greeting, body, sign-off, on the same thread | a split that cuts mid-sentence; a ceiling reached, which returns the reply to the composer to shorten rather than sending a wall |
+| `render` | WhatsApp: splits the one reply into bubbles at the breaks a person would use, sentence and thought boundaries, no bubble longer than about three hundred characters, a soft ceiling of four, typing gaps of one to three seconds scaled to length. A person's own words are rendered as typed instead: a blank line still starts a new bubble, nothing inside one is reflowed. SMS: one message, two segments at most. Email: greeting, body, sign-off, on the same thread | a split that cuts mid-sentence; a ceiling reached, which returns the reply to the composer to shorten rather than sending a wall |
 | `pick_template` | when the window is shut: one approved template for the reply's purpose from the registry, branching on purpose never on name; freeform resumes when the customer replies | no approved template for that purpose: the reply is held as a pending draft for Ben and recorded. Never an SMS fallback. |
-| `send` | delivers the rendered reply with an approver and a run id, then records the send on the file with the facts it was written from | no approver or run id; guards not passed; window shut and no template; the party not on the file; a run id already sent |
+| `send` | delivers the rendered reply with an approver and a run id, then records the send on the file with the facts it was written from | no approver or run id; guards not passed on anything the desk composed, a person's own `human:` words carrying no verdicts; window shut and no template; the party not on the file; a run id already sent |
 | `initiate` | a desk-started send, template only, for chasing an approver or a maintenance reminder | unused in Goal 1. Exists so the landlord service can attach without a new exit. |
 
-**Invariants.** One run id sends once. Every send on a file has an approver. Nothing reaches a
-customer that did not pass the guards. A shut window never produces freeform text on any channel.
+**Invariants.** One run id sends once. Every send on a file has an approver. Nothing the desk
+composed reaches a customer without passing the guards, and only a person's own words go without
+them, under their own `human:` approver (above, behaviour.md answer 43). A shut window never
+produces freeform text on any channel.
 
 ## Contract 6 - The Scoping tool server
 

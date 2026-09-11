@@ -3,6 +3,11 @@
  * sandbox door shows on the board (the door replaces its gateway on every start, so the board must
  * read the live one), a money turn holds it for ben, and release is by the signed-in session only,
  * and only when the comms_v2_approvers row lists that session for the slot.
+ *
+ * Then the answer half: Ben writes the reply himself and it goes out through the desk's one sender
+ * with him as approver - the signed-in person, not the slot - and the guards not applied, lands on the file
+ * as his turn, clears the hold and hands the thread back to the desk; the same session rules gate
+ * it as they gate release.
  */
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -128,5 +133,82 @@ describe('the board over the sandbox door', () => {
         expect(cardsOn(held.json)).toEqual([]);
         const detail = await call('GET', `/case-files/${id}`);
         expect(detail.json.hold).toBeNull();
+    });
+});
+
+describe('Ben answers from the board', () => {
+    it('refuses without a session, without a slot, without words and on an unknown file', async () => {
+        await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
+        const money = await call('POST', '/sandbox/message', { text: 'How much roughly?', channel: 'whatsapp' });
+        const id = money.json.state.conversation.id as string;
+
+        assignments = {};
+        expect((await call('POST', `/case-files/${id}/answer`, { words: 'Hi Sam' })).status).toBe(401);
+        expect((await call('POST', `/case-files/${id}/answer`, { words: 'Hi Sam' }, 'ben@handyservices.app')).status).toBe(403);
+
+        assignments = { ben: ['user_Ben.Real@handyservices.app'] };
+        const noWords = await call('POST', `/case-files/${id}/answer`, { words: '  ' }, 'Ben.Real@handyservices.app');
+        expect(noWords.status).toBe(400);
+        expect(noWords.json.error).toMatch(/needs words/);
+        expect((await call('POST', '/case-files/case_nope/answer', { words: 'Hi' }, 'Ben.Real@handyservices.app')).status).toBe(404);
+
+        const still = await call('GET', '/board?held=true');
+        expect(cardsOn(still.json).map((c) => c.id)).toEqual([id]);
+    });
+
+    it('refuses a session listed for another slot on a file that answers to ben', async () => {
+        const board = await call('GET', '/board?held=true');
+        const id = cardsOn(board.json)[0].id as string;
+        const before = await call('GET', `/case-files/${id}`);
+
+        assignments = { ben: ['user_Ben.Real@handyservices.app'], landlord_1: ['user_Lena.Landlord@handyservices.app'] };
+        const wrong = await call('POST', `/case-files/${id}/answer`, { words: 'Morning Sam, I can sort that for you.' }, 'Lena.Landlord@handyservices.app');
+        expect(wrong.status).toBe(409);
+        expect(wrong.json.error).toMatch(/only ben may answer/);
+
+        const after = await call('GET', `/case-files/${id}`);
+        expect(after.json.turns).toHaveLength(before.json.turns.length);
+        expect(after.json.hold).not.toBeNull();
+    });
+
+    it('refuses a reply the sender will not carry, and sends nothing', async () => {
+        const board = await call('GET', '/board?held=true');
+        const id = cardsOn(board.json)[0].id as string;
+        const before = await call('GET', `/case-files/${id}`);
+
+        const wall = ['one', 'two', 'three', 'four', 'five'].join('\n\n');
+        const refused = await call('POST', `/case-files/${id}/answer`, { words: wall }, 'Ben.Real@handyservices.app');
+        expect(refused.status).toBe(409);
+        expect(refused.json.error).toMatch(/over the ceiling/);
+
+        const after = await call('GET', `/case-files/${id}`);
+        expect(after.json.turns).toHaveLength(before.json.turns.length);
+        expect(after.json.hold).not.toBeNull();
+    });
+
+    it('sends Ben\'s own words with him as approver, lands his turn, clears the hold and leaves the thread to the desk', async () => {
+        const board = await call('GET', '/board?held=true');
+        const id = cardsOn(board.json)[0].id as string;
+
+        const sent = await call('POST', `/case-files/${id}/answer`, { words: 'Morning Sam, I will take a look and come back to you myself.' }, 'Ben.Real@handyservices.app');
+        expect(sent.status).toBe(200);
+        expect(sent.json.sent).toMatchObject({ approver: 'human:Ben.Real@handyservices.app' });
+        expect(sent.json.sent.bubbles).toEqual(['Morning Sam, I will take a look and come back to you myself.']);
+        expect(sent.json.card.held).toBe(false);
+        expect(sent.json.release).toMatchObject({ approver: { kind: 'human', id: 'ben' } });
+
+        const detail = await call('GET', `/case-files/${id}`);
+        expect(detail.json.hold).toBeNull();
+        const last = detail.json.turns[detail.json.turns.length - 1];
+        expect(last).toMatchObject({ direction: 'outbound', approver: 'human:Ben.Real@handyservices.app' });
+        expect(last.body).toContain('come back to you myself');
+        expect(cardsOn((await call('GET', '/board?held=true')).json)).toEqual([]);
+    });
+
+    it('the desk answers the next customer message itself, the thread back with automation', async () => {
+        const next = await call('POST', '/sandbox/message', { text: 'Thanks, it is in the kitchen', channel: 'whatsapp' });
+        expect(next.status).toBe(200);
+        expect(next.json.plannedSend.approver).toBe('agent.comms_v2');
+        expect(next.json.plannedSend.delivered).toBe(true);
     });
 });

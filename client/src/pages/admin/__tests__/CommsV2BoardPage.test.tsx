@@ -2,6 +2,11 @@
  * Goal 2 - the kanban board renders every Contract 2 stage with a fixture of case files in each
  * one, plus a held card floated with its reason and approver, releases that hold with the words
  * only (the approver is the session, server side), and starts a sandbox thread through the board.
+ *
+ * Then the answer half: Ben writes the reply himself on the card, it posts his words to the answer
+ * route, the bubbles that went are shown back, each outbound turn names who sent it so his own
+ * replies read apart from the desk's, and a refusal from the sender is shown inline with the sheet
+ * still open and his words kept so he can fix them.
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -154,5 +159,83 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByRole('button', { name: /send as customer/i }));
         await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/sandbox/message'))?.body).toEqual({ channel: 'whatsapp', text: 'How much roughly?' }));
         await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length).toBeGreaterThanOrEqual(3));
+    });
+
+    it('Ben answers the customer in his own words: his words go to the answer route and the bubbles that went come back', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'quoted', mode: 'sandbox',
+            party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
+            job: { type: 'leaking tap', location: 'SW11', quoteRef: 'Q-1', bookingRef: null },
+            turns: [
+                { id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?' },
+                { id: 't2', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Ben will come back to you on the price.', approver: 'agent.comms_v2' },
+                { id: 't3', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Morning Sam, let me look at that.', approver: 'human:ben@handyservices.app' },
+            ],
+            facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+
+        const { calls } = mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
+                reply: () => ({ json: { ok: true, sent: { approver: 'human:ben@handyservices.app', bubbles: ['That one is £120 fitted, as on your quote.'] }, release: { words: 'x' } } }),
+            },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+
+        await waitFor(() => expect(screen.getByTestId('answer-form')).toBeTruthy());
+        // Ben can tell his own turn from the desk's on the card itself.
+        expect(screen.getByTestId('turn-meta-t2').textContent).toContain('agent.comms_v2');
+        expect(screen.getByTestId('turn-meta-t3').textContent).toContain('human:ben@handyservices.app');
+        expect(screen.getByTestId('turn-meta-t1').textContent).not.toContain('human:ben@handyservices.app');
+
+        await user.type(screen.getByLabelText('Your reply to the customer'), 'That one is £120 fitted, as on your quote.');
+        await user.click(screen.getByRole('button', { name: /send as me/i }));
+
+        await waitFor(() => expect(screen.getByTestId('answer-sent')).toBeTruthy());
+        const answer = calls.find((c) => c.method === 'POST' && c.url.endsWith('/answer'));
+        expect(answer?.body).toEqual({ words: 'That one is £120 fitted, as on your quote.' });
+        expect(screen.getByTestId('answer-sent').textContent).toContain('That one is £120 fitted, as on your quote.');
+        expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length).toBeGreaterThan(1);
+    });
+
+    it('a refused answer shows the sender\'s reason inline and keeps the words for Ben to fix', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'first_contact', mode: 'sandbox', party: null,
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [], facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
+                reply: () => ({ status: 409, json: { error: 'the whatsapp window is shut (no message in 24 hours); a shut window never carries freeform words' } }),
+            },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+
+        const words = await screen.findByLabelText('Your reply to the customer');
+        await user.type(words, 'Morning Sam, I will take a look.');
+        await user.click(screen.getByRole('button', { name: /send as me/i }));
+
+        await waitFor(() => expect(screen.getByTestId('answer-error').textContent).toContain('window is shut'));
+        expect(screen.queryByTestId('answer-sent')).toBeNull();
+        expect((words as HTMLTextAreaElement).value).toBe('Morning Sam, I will take a look.');
     });
 });

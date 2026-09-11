@@ -67,6 +67,16 @@ describe('renderWhatsApp', () => {
         if (!r.ok) expect(r.reason).toBe('ceiling');
         expect(renderWhatsApp('   ').ok).toBe(false);
     });
+    it('reflows the composer\'s own line breaks, and keeps a person\'s (asTyped)', () => {
+        const words = 'Morning Sam, two things:\n- replace the washer\n- check the isolator valve\n\nI will bring both.';
+        const composed = renderWhatsApp(words);
+        expect(composed.ok).toBe(true);
+        expect(composed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things: - replace the washer - check the isolator valve', 'I will bring both.']);
+
+        const typed = renderWhatsApp(words, { asTyped: true });
+        expect(typed.ok).toBe(true);
+        expect(typed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things:\n- replace the washer\n- check the isolator valve', 'I will bring both.']);
+    });
     it('renders for WhatsApp only: SMS and email are refused, not guessed', () => {
         expect(render('whatsapp', 'Hi Sam.').ok).toBe(true);
         for (const channel of ['sms', 'email'] as const) {
@@ -122,6 +132,17 @@ describe('send', () => {
         const first = await send(base, { now: at('2026-09-11T11:00:00.000Z') });
         expect(first.ok).toBe(true);
         expect((await send(base, { now: at('2026-09-11T11:00:01.000Z') })).ok).toBe(false);
+    });
+    it('only a person\'s own `human:` words send without guards; any other approver still needs them', async () => {
+        const { file, party } = fixture();
+        const ben = await send(input(file, party, { approver: 'human:ben@handyservices.app', guards: null, runId: 'r_ben' }), { now: at('2026-09-11T11:00:00.000Z') });
+        expect(ben.ok).toBe(true);
+
+        const relay = await send(input(file, party, { approver: 'contractor:c1' as SendInput['approver'], guards: null, runId: 'r_relay' }), { now: at('2026-09-11T11:00:01.000Z') });
+        expect(relay.ok).toBe(false);
+        if (relay.ok) return;
+        expect(relay.reason).toBe('guards not passed');
+        expect(file.sends.map((s) => s.runId)).toEqual(['r_ben']);
     });
     it('in dry run lands the planned reply on the thread as an outbound turn with the run id and approver, and records the send', async () => {
         const { file, party } = fixture();

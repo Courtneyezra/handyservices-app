@@ -102,6 +102,18 @@ export function textAsks(text: string, subject: string): boolean {
     return sentencesOf(text).some((s) => sentenceAsks(s, subject));
 }
 
+/**
+ * The same question of prose nobody composed to the desk's shape, read tightly: the subject word
+ * and the asking phrase must fall in one clause. "I will be in touch later today, what is the best
+ * number for you?" asks for neither access nor anything else. Where a human's phrasing is
+ * ambiguous nothing is recorded, so the desk asks again rather than never asking.
+ */
+export function clauseAsks(text: string, subject: string): boolean {
+    const words = SUBJECT_WORDS[subject];
+    if (!words) return false;
+    return sentencesOf(text).some((s) => clausesOf(s).some((c) => words.test(c) && RE_ASKING.test(c) && !RE_DISMISSIVE.test(c)));
+}
+
 /** Thanks for media: "thanks for the photo". */
 export const RE_THANKS_MEDIA = /\b(?:thank(?:s| you)|cheers|ta)\b[^.?!\n]{0,40}\b(?:photo|photos|picture|pictures|pic|pics|video|videos|snap|snaps|image|images|footage|clip)s?\b/i;
 
