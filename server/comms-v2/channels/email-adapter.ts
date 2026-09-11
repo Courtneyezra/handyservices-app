@@ -3,10 +3,11 @@
  * the same thread (Contract 5, render; docs/comms-v2/design.md "Five channels, one desk").
  *
  * In: there is no inbound email today, so the webhook is new (email-inbound.ts). This module
- * turns a provider-neutral inbound email, or Postmark's inbound JSON, into the gateway's
- * envelope: the sender's lowercase address, the subject and the new text with the quoted history
- * stripped, photo and video attachments written where the Scoping tools read media, and the
- * thread reference (Message-ID and References) kept so the reply stays on the thread.
+ * turns one provider-neutral inbound email into the gateway's envelope: the sender's lowercase
+ * address, the subject and the new text with the quoted history stripped, photo and video
+ * attachments written where the Scoping tools read media, and the thread reference (Message-ID
+ * and References) kept so the reply stays on the thread. Mapping a particular provider's webhook
+ * body onto this shape belongs in that provider's own webhook configuration, not here.
  *
  * Out: `renderEmail` wraps the composer's one reply as a letter: "Hi <first name>," the
  * paragraphs, then the sign-off. It is one bubble, because an email is one message.
@@ -21,9 +22,9 @@ import { isRefused, writeInboundMedia, type MediaWriteDeps } from './media';
 export const EMAIL_SIGN_OFF = 'Thanks,\nBen\nHandy Services';
 export const EMAIL_DEFAULT_SUBJECT = 'Your enquiry';
 
-// ---------------------------------------------------------------- the inbound shapes
+// ---------------------------------------------------------------- the inbound shape
 
-/** A provider-neutral inbound email: what every inbound provider can produce with one mapping. */
+/** A provider-neutral inbound email: the one shape the webhook accepts. */
 export interface InboundEmail {
     from: string;
     fromName?: string | null;
@@ -36,30 +37,6 @@ export interface InboundEmail {
     references?: string[] | string | null;
     attachments?: Array<{ name?: string | null; contentType: string; content: string }>;
     at?: string | null;
-}
-
-/** Postmark's inbound webhook JSON, the documented shape the endpoint accepts as an alternative. */
-export interface PostmarkInbound {
-    From?: string; FromName?: string; FromFull?: { Email?: string; Name?: string };
-    To?: string; Subject?: string; TextBody?: string; HtmlBody?: string; MessageID?: string; Date?: string;
-    Headers?: Array<{ Name?: string; Value?: string }>;
-    Attachments?: Array<{ Name?: string; ContentType?: string; Content?: string }>;
-}
-
-export function isPostmarkShape(body: unknown): body is PostmarkInbound {
-    const b = body as Record<string, unknown> | null;
-    return !!b && typeof b === 'object' && (typeof b.FromFull === 'object' || typeof b.TextBody === 'string' || typeof b.MessageID === 'string');
-}
-
-export function fromPostmark(p: PostmarkInbound): InboundEmail {
-    const header = (name: string) => p.Headers?.find((h) => (h.Name ?? '').toLowerCase() === name.toLowerCase())?.Value ?? null;
-    return {
-        from: p.FromFull?.Email ?? p.From ?? '', fromName: p.FromFull?.Name ?? p.FromName ?? null, to: p.To ?? null, subject: p.Subject ?? null,
-        text: p.TextBody ?? null, html: p.HtmlBody ?? null, messageId: p.MessageID ? `<${p.MessageID.replace(/^<|>$/g, '')}>` : null,
-        inReplyTo: header('In-Reply-To'), references: header('References'),
-        attachments: (p.Attachments ?? []).filter((a) => a.ContentType && a.Content).map((a) => ({ name: a.Name ?? null, contentType: a.ContentType!, content: a.Content! })),
-        at: p.Date ? new Date(p.Date).toISOString() : null,
-    };
 }
 
 // ---------------------------------------------------------------- the new text, without the history

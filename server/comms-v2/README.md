@@ -39,7 +39,7 @@ go on the party's channels, the adapter's facts are recorded with the turn as th
 | Channel | File | In | Out |
 |---|---|---|---|
 | SMS | `channels/sms-adapter.ts` | Twilio's inbound on the shared webhook (a bare `From`); media is refused, a UK long code cannot receive MMS | `renderSms`: one message, at most two segments (GSM-7 or UCS-2 counted), typographic punctuation normalised; over two goes back to the composer. The first SMS reply to a party not on WhatsApp carries the fixed `move_to_whatsapp` line (1.4). An SMS from a party whose WhatsApp window is open is answered on WhatsApp. |
-| Email | `channels/email-adapter.ts`, `channels/email-inbound.ts`, `channels/email-deliverer.ts` | The webhook (below): the provider-neutral JSON or Postmark's, the quoted history stripped, photo attachments written where describe_media reads them, the thread kept on the party's email channel | `renderEmail`: one letter, "Hi <first name>," the paragraphs, the sign-off; the reply carries `In-Reply-To` and `References` and the subject with "Re:". Live delivery on Resend, behind the same registry switch as every send. |
+| Email | `channels/email-adapter.ts`, `channels/email-inbound.ts` | The webhook (below): the one provider-neutral JSON body, the quoted history stripped, photo attachments written where describe_media reads them, the thread kept on the party's email channel | `renderEmail`: one letter, "Hi <first name>," the paragraphs, the sign-off; the reply carries `In-Reply-To` and `References` and the subject with "Re:". Render only: there is no live email delivery. The one outbound send is the only path that checks the opt-out ledger and it carries WhatsApp and SMS, so a live email send is refused. Whether email belongs in the STOP suppression list, and on what key, is a cutover decision. |
 | Web form | `channels/form-adapter.ts` | Name, phone, email, the job, postcode, sometimes photos (URLs or bytes). Creates the file; the postcode and name are facts at intake; the job type is Scoping's to establish | No reply path of its own: `chooseChannel` opens WhatsApp if the number is on it (the approved web form template, quoting the enquiry, 1.2), else SMS, else email. |
 | Calls | `channels/call-adapter.ts`, `channels/call-reader.ts`, `channels/channel-desk.ts` | A finished call: `missed`, `answered_inbound`, or `ben_rang` (an unanswered outbound never reaches the desk). The transcript is the turn's body; the outcome is a fact on the file. The reader (Sonnet 5, facts only, no prose field) records the job, the location, what Ben asked for and whether a callback was agreed; Ben's asks go on the ledger after the follow-up so the desk never asks again | The desk never speaks. `missed`: one text back (3.5), the missed-call template on WhatsApp, else its words on SMS. `answered_inbound`: nothing (3.5), and the caller is never offered a call (1.5). `ben_rang`: the post-call template with the name and the job (1.3), else its words on SMS; the thread continues from the file (3.2, 3.3) and nothing is held for Ben (3.4). No approved template on WhatsApp holds the follow-up for Ben with its words as the draft, never an SMS fallback (answer 34). |
 
@@ -69,13 +69,17 @@ The cutover that turns the old handler off and this desk's delivery on is a late
 There is no inbound email today. `POST /api/comms-v2/email/inbound` (`channels/email-inbound.ts`,
 mounted by server/index.ts) accepts a provider's inbound-parse webhook. It is alive only with
 `COMMS_V2_INTAKE` on and `COMMS_V2_EMAIL_WEBHOOK_SECRET` set, and refuses a request whose
-`X-Comms-V2-Email-Secret` header does not carry that secret. Two bodies: the provider-neutral shape
+`X-Comms-V2-Email-Secret` header does not carry that secret. One body, the provider-neutral shape
 (`{ from, fromName?, subject?, text? | html?, messageId?, inReplyTo?, references?, attachments?: [{
-name?, contentType, content (base64) }] }`) or Postmark's inbound JSON as it ships. Provider
-configuration expected, none of it done here: an inbound domain or address routed to that URL with
-the secret in the header. Outbound replies use Resend (`RESEND_API_KEY`, from address
-`COMMS_V2_EMAIL_FROM`, default the bookings address) through the sender's live path, gated like every
-send.
+name?, contentType, content (base64) }] }`); mapping a provider's own body onto it belongs in that
+provider's webhook configuration. Provider configuration expected, none of it done here: an inbound
+domain or address routed to that URL with the secret in the header. There is no outbound email path:
+a live email send is refused, so the desk runs dry on email.
+
+Naming an inbound mail provider is a data-protection decision, not a code change alone: that
+provider would receive customers' full message bodies and attachments, so it must be recorded in
+`docs/COMMS_RECORD_OF_PROCESSING.md` and on the customer-facing list in
+`client/src/pages/PrivacyPolicyPage.tsx` before the endpoint is pointed at one.
 
 ## Driving the door
 

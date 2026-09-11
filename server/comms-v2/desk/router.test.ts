@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { open, type CaseFile } from './case-file';
 import { buildComposerUser } from './composer';
 import { FakeModelClient } from './models';
+import { renderWhatsApp, shortenBriefFor } from './sender';
+import { renderSms } from '../channels/sms-adapter';
 import { route } from './router';
 
 function fixture(text: string): CaseFile {
@@ -68,5 +70,45 @@ describe('the composer\'s brief', () => {
         expect(user).toContain('dates come with the quote');
         expect(user).toContain('Ben will come back to you on the price.');
         expect(user).toContain('figure: a figure appears');
+    });
+
+    const brief = (over: Partial<Parameters<typeof buildComposerUser>[0]>) => {
+        const file = fixture('New bathroom tap, please quote');
+        return buildComposerUser({
+            file, party: file.parties[0], turn: file.turns[0],
+            route: { subjects: ['scoping'], proposedStage: 'first_contact', party: 'customer', exception: null, turnKind: 'enquiry', belts: { regulated: null, money: null }, call: {} as any, error: null },
+            specialists: [{ specialist: 'scoping', factIds: [], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null }],
+            fixedLines: [],
+            ...over,
+        } as Parameters<typeof buildComposerUser>[0]);
+    };
+
+    it('tells a form enquiry answered off WhatsApp to quote the enquiry back as well as the channel\'s shape', () => {
+        const file = fixture('Fence panel down');
+        file.turns[0].kind = 'form';
+        file.turns[0].channel = 'form';
+        file.parties[0].channels = [{ kind: 'sms', address: '+447700900942', lastInboundAt: null }, { kind: 'email', address: 'sam@example.com', lastInboundAt: null }];
+        const onSms = brief({ file, party: file.parties[0], turn: file.turns[0] });
+        expect(onSms).toContain('This reply goes by SMS');
+        expect(onSms).toContain('quote their enquiry back in your own words before anything else');
+        file.parties[0].channels = [{ kind: 'email', address: 'sam@example.com', lastInboundAt: null }];
+        const onEmail = brief({ file, party: file.parties[0], turn: file.turns[0] });
+        expect(onEmail).toContain('This reply goes by email');
+        expect(onEmail).toContain('quote their enquiry back in your own words before anything else');
+    });
+
+    it('asks an over-long SMS to shorten in segments, never in WhatsApp bubbles', () => {
+        const file = fixture('Leaking tap');
+        file.turns[0].channel = 'sms';
+        file.parties[0].channels = [{ kind: 'sms', address: '+447700900942', lastInboundAt: null }];
+        const long = 'word '.repeat(80).trim();
+        const onSms = brief({ file, party: file.parties[0], turn: file.turns[0], shorten: shortenBriefFor('sms', long, renderSms(long).bubbles) });
+        expect(onSms).toContain('came to 3 SMS segments, over the 2 one text message may use');
+        expect(onSms).toContain('one text message under 306 characters');
+        expect(onSms).not.toContain('bubbles, over the ceiling of');
+        const whatsapp = fixture('Leaking tap');
+        const wall = Array.from({ length: 6 }, (_, i) => `bubble ${i}`).join('\n\n');
+        const onWhatsApp = brief({ file: whatsapp, party: whatsapp.parties[0], turn: whatsapp.turns[0], shorten: shortenBriefFor('whatsapp', wall, renderWhatsApp(wall).bubbles) });
+        expect(onWhatsApp).toContain('came to 6 bubbles, over the ceiling of 4');
     });
 });

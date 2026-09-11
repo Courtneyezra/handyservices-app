@@ -24,7 +24,7 @@ import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, Route } from './router';
 import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
-import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
+import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 import { channelFixedLines } from '../channels/channel-lines';
 import { templateChoiceFor } from '../channels/templates';
@@ -178,7 +178,7 @@ export class Desk implements DeskLike {
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
         let rendered = render(choice.channel, reply!, { name: party.name });
         if (!rendered.ok && rendered.reason === 'ceiling' && !(exception && FIXED_LINE_ONLY.has(exception))) {
-            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: { previous: reply!, bubbles: rendered.bubbles.length, ceiling: BUBBLE_CEILING } }, this.client);
+            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles) }, this.client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {

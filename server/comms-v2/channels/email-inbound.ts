@@ -4,20 +4,17 @@
  * intake switch on (COMMS_V2_INTAKE) and a shared secret set.
  *
  * Provider configuration it expects (nothing is configured here): an inbound-parse provider that
- * receives mail for the business's address and POSTs JSON to this URL. Two bodies are accepted:
- *   - the provider-neutral shape (email-adapter.ts InboundEmail): { from, fromName?, subject?,
- *     text? | html?, messageId?, inReplyTo?, references?, attachments?: [{ name?, contentType,
- *     content (base64) }] }
- *   - Postmark's inbound webhook JSON as it ships (FromFull, Subject, TextBody, MessageID,
- *     Headers, Attachments), detected by shape.
- * The provider must send the secret in the `X-Comms-V2-Email-Secret` header; the value comes from
- * COMMS_V2_EMAIL_WEBHOOK_SECRET. Without a secret in the environment the endpoint answers 503 and
- * accepts nothing. Outbound replies go through the sender's live path on Resend
- * (email-deliverer.ts) once the desk's delivery switch is on; until then the desk runs dry.
+ * receives mail for the business's address and POSTs the one body this endpoint accepts, the
+ * provider-neutral shape (email-adapter.ts InboundEmail): { from, fromName?, subject?, text? |
+ * html?, messageId?, inReplyTo?, references?, attachments?: [{ name?, contentType, content
+ * (base64) }] }. Mapping a provider's own body onto that shape belongs in the provider's webhook
+ * configuration. The provider must send the secret in the `X-Comms-V2-Email-Secret` header; the
+ * value comes from COMMS_V2_EMAIL_WEBHOOK_SECRET. Without a secret in the environment the endpoint
+ * answers 503 and accepts nothing. There is no live outbound email path: the desk runs dry here.
  */
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
-import { fromInboundEmail, fromPostmark, isPostmarkShape, type InboundEmail } from './email-adapter';
+import { fromInboundEmail, type InboundEmail } from './email-adapter';
 import { forwardNow, intakeEnabled } from './intake';
 
 export const EMAIL_INBOUND_PATH = '/api/comms-v2/email/inbound';
@@ -42,8 +39,7 @@ export function emailInboundRouter(deps: EmailInboundDeps = {}): Router {
         if (!secret) { res.status(503).json({ error: `${EMAIL_SECRET_ENV} is not set; the inbound email endpoint accepts nothing` }); return; }
         if (!secretMatches(req.headers[EMAIL_SECRET_HEADER], secret)) { res.status(401).json({ error: 'bad secret' }); return; }
         try {
-            const body = req.body;
-            const email: InboundEmail = isPostmarkShape(body) ? fromPostmark(body) : (body as InboundEmail);
+            const email = req.body as InboundEmail;
             if (!email || typeof email.from !== 'string' || !email.from.trim()) { res.status(400).json({ error: 'from is required' }); return; }
             const envelope = fromInboundEmail(email, { mediaDir: deps.mediaDir });
             const report = await forward({ kind: 'email_inbound', envelope });

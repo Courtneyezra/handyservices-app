@@ -65,7 +65,7 @@ describe('the inbound email webhook', () => {
         const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
         return { status: res.status, json: await res.json() as any };
     };
-    it('answers 404 with the intake off, 503 with no secret, 401 with the wrong one, 400 with no sender, then forwards both shapes', async () => {
+    it('answers 404 with the intake off, 503 with no secret, 401 with the wrong one, 400 with no sender, then forwards the provider-neutral shape', async () => {
         expect((await post({ from: 'a@b.co', text: 'x' })).status).toBe(404);
         env[INTAKE_ENV] = '1';
         expect((await post({ from: 'a@b.co', text: 'x' })).status).toBe(503);
@@ -77,8 +77,8 @@ describe('the inbound email webhook', () => {
         expect(ok.status).toBe(200);
         expect(ok.json).toEqual({ ok: true, forwarded: 1, skipped: [] });
         expect(forwarded[0]).toMatchObject({ kind: 'email_inbound', envelope: { channel: 'email', address: 'sam@example.com', text: 'Subject: Fan\n\ndead fan', email: { messageId: '<m1@x>' } } });
-        const pm = await post({ FromFull: { Email: 'p@example.com', Name: 'P' }, Subject: 'S', TextBody: 'hello', MessageID: 'abc', Headers: [], Attachments: [] }, { [EMAIL_SECRET_HEADER]: 's3cret' });
-        expect(pm.status).toBe(200);
-        expect(forwarded[1]).toMatchObject({ envelope: { address: 'p@example.com', name: 'P', email: { messageId: '<abc>' } } });
+        const second = await post({ from: 'p@example.com', fromName: 'P', subject: 'S', text: 'hello', messageId: '<abc>', TextBody: 'a provider field this endpoint does not read' }, { [EMAIL_SECRET_HEADER]: 's3cret' });
+        expect(second.status).toBe(200);
+        expect(forwarded[1]).toMatchObject({ envelope: { address: 'p@example.com', name: 'P', text: 'Subject: S\n\nhello', email: { messageId: '<abc>' } } });
     });
 });

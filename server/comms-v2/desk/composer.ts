@@ -7,7 +7,8 @@
  *
  * The reply is one text with a blank line where a person would start a new bubble; the sender
  * splits it (Contract 5). The composer is called once per customer turn; a guard failure sends
- * it back once with the failures named, and the bubble ceiling sends it back once to shorten.
+ * it back once with the failures named, and a reply too long for its channel comes back once to
+ * shorten, told in that channel's own measure: bubbles on WhatsApp, segments on SMS.
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
@@ -17,6 +18,7 @@ import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
 import { composerChannelLines } from '../channels/composer-lines';
+import type { ShortenBrief } from './sender';
 
 export const composerOutputSchema = z.object({
     /** The one reply. A blank line separates bubbles. */
@@ -38,8 +40,8 @@ export interface ComposeInput {
     fixedLines: FixedLine[];
     /** Second attempt only: the guard failures, named. */
     failures?: string[];
-    /** Second attempt only: the reply was over the bubble ceiling. */
-    shorten?: { previous: string; bubbles: number; ceiling: number } | null;
+    /** Second attempt only: the reply was too long for the channel it is going out on. */
+    shorten?: ShortenBrief | null;
 }
 
 export const COMPOSER_SYSTEM = [
@@ -118,7 +120,9 @@ export function buildComposerUser(input: ComposeInput): string {
     }
     if (input.shorten) {
         lines.push('');
-        lines.push(`Your previous reply came to ${input.shorten.bubbles} bubbles, over the ceiling of ${input.shorten.ceiling}. Say the same in at most ${input.shorten.ceiling} short bubbles. Previous reply:`);
+        lines.push(input.shorten.channel === 'sms'
+            ? `Your previous reply came to ${input.shorten.measured} SMS segments, over the ${input.shorten.ceiling} one text message may use. Say the same in one text message under ${input.shorten.charBudget} characters. Previous reply:`
+            : `Your previous reply came to ${input.shorten.measured} bubbles, over the ceiling of ${input.shorten.ceiling}. Say the same in at most ${input.shorten.ceiling} short bubbles. Previous reply:`);
         lines.push(input.shorten.previous);
     }
     lines.push('');

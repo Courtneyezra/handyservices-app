@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { CALL_OUTCOMES, callOutcomeOf, callOutcomeOnFile, fromDoorCall, fromFinishedCall, transcriptBody, transcriptOf, validateDoorCall, TRANSCRIPT_BODY_MAX } from './call-adapter';
-import { emailThreadingFor, fromDoorEmail, fromInboundEmail, fromPostmark, htmlToText, isPostmarkShape, renderEmail, stripQuotedHistory } from './email-adapter';
+import { emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, renderEmail, stripQuotedHistory } from './email-adapter';
 import { firstNameOf, truncateWords } from './envelope';
 import { fromDoorForm, fromWebForm } from './form-adapter';
 import { fromDoorSms, fromTwilioSms, isTwilioSms, normaliseForSms, renderSms, smsSegmentCount } from './sms-adapter';
@@ -52,7 +52,7 @@ describe('the SMS adapter', () => {
 });
 
 describe('the email adapter', () => {
-    it('reads the provider-neutral shape and Postmark\'s, strips the quoted history, writes photo attachments, keeps the thread', () => {
+    it('reads the provider-neutral shape, strips the quoted history, writes photo attachments, keeps the thread', () => {
         const env = fromInboundEmail({
             from: 'Sam Jones <Sam.Jones@Example.com>', fromName: 'Sam Jones', subject: 'Leaking tap', messageId: '<m1@example.com>', inReplyTo: '<m0@example.com>',
             text: 'Hi, my kitchen tap is dripping.\nCan you help?\n\nOn Thu, 10 Sep 2026, Handy Services wrote:\n> earlier words',
@@ -67,10 +67,6 @@ describe('the email adapter', () => {
         expect(fs.readFileSync(env.media[0].path)).toEqual(PNG);
         expect(env.mediaFailures).toEqual([{ ref: 'notes.pdf', reason: 'unsupported media type application/pdf' }]);
         expect(env.email).toEqual({ subject: 'Leaking tap', messageId: '<m1@example.com>', references: ['<m0@example.com>', '<m1@example.com>'] });
-        const pm = { FromFull: { Email: 'a@b.co', Name: 'A' }, Subject: 'S', TextBody: 'body', MessageID: 'abc', Headers: [{ Name: 'References', Value: '<x@y> <z@y>' }], Attachments: [] };
-        expect(isPostmarkShape(pm)).toBe(true);
-        expect(isPostmarkShape({ from: 'a@b.co' })).toBe(false);
-        expect(fromPostmark(pm)).toMatchObject({ from: 'a@b.co', fromName: 'A', subject: 'S', text: 'body', messageId: '<abc>', references: '<x@y> <z@y>' });
         expect(() => fromInboundEmail({ from: 'not an address', text: 'x' })).toThrow(/sender address/);
     });
     it('strips history at the quote header or the first quoted line, and reads html when there is no text', () => {

@@ -6,8 +6,10 @@
  * planned reply on the case file's thread as an outbound turn, so later turns see it. Live
  * delivery goes through the surviving outbound send (server/outbound.ts) under the desk's own
  * registered approver, and only once its switch has been turned on by hand: the desk is
- * sandbox-only until cutover. SMS and email render and deliver through server/comms-v2/channels
- * (Goal 3); a form or a call cannot carry a reply, so `chooseChannel` opens a real channel.
+ * sandbox-only until cutover. SMS and email render through server/comms-v2/channels (Goal 3); a
+ * form or a call cannot carry a reply, so `chooseChannel` opens a real channel. Live delivery is
+ * WhatsApp and SMS only, because the surviving outbound send is the one path that consults the
+ * opt-out ledger; a live email send is refused rather than routed around it.
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
  * a customer without passing the guards, while a person's own words from Ben's board carry their
@@ -25,7 +27,7 @@ import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
 import { emailThreadingFor, renderEmail, type EmailThreading } from '../channels/email-adapter';
-import { renderSms } from '../channels/sms-adapter';
+import { renderSms, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI } from '../channels/sms-adapter';
 import { CHANNEL_TEMPLATES, type ChannelReplyPurpose } from '../channels/templates';
 
 export const WINDOW_HOURS = 24;
@@ -131,6 +133,22 @@ export function render(channel: ReplyChannel, reply: string, opts: RenderOptions
     if (channel === 'sms') return renderSms(reply);
     if (channel === 'email') return renderEmail(reply, opts);
     return { ok: false, reason: 'channel', bubbles: [] };
+}
+
+/** What the composer is told when a render refuses for length, in the refusing channel's own measure. */
+export interface ShortenBrief { previous: string; channel: ReplyChannel; measured: number; ceiling: number; charBudget: number }
+
+/**
+ * A reply too long for its channel, described the way that channel counts: WhatsApp counts bubbles
+ * against the ceiling, SMS counts segments against the two a single text message may use. Telling
+ * the composer the other channel's numbers gives it no reason to shorten, so the retry fails too.
+ */
+export function shortenBriefFor(channel: ReplyChannel, previous: string, rendered: RenderedBubble[]): ShortenBrief {
+    if (channel === 'sms') {
+        const text = rendered[0]?.text ?? '';
+        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: GSM7_MULTI * SMS_MAX_SEGMENTS };
+    }
+    return { previous, channel, measured: rendered.length, ceiling: BUBBLE_CEILING, charBudget: BUBBLE_MAX_CHARS * BUBBLE_CEILING };
 }
 
 // ---------------------------------------------------------------- pick_template
@@ -239,11 +257,7 @@ export const liveDeliverer: Deliverer = {
         const { getSpineConfig } = await import('../../spine/config');
         const cfg = await getSpineConfig();
         if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
-        if (input.channel === 'email') {
-            const { deliverEmail } = await import('../channels/email-deliverer');
-            const out = await deliverEmail({ to: input.to, text: input.bubbles.map((b) => b.text).join('\n\n'), threading: input.email ?? null, runId: input.runId, approver: input.approver });
-            return out.ok ? { ok: true, sid: out.id } : { ok: false, reason: out.reason, delivered };
-        }
+        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
         for (const b of input.bubbles) {
