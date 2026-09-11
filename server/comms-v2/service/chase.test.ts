@@ -1,8 +1,9 @@
 /**
  * Ben's chase (7.5): nothing while the hold is younger than the first interval; one template send
  * to Ben once it is older; one to the owner after the second interval; a missing address or an
- * unapproved template is a refusal on the record, never a silent skip; a released hold clears
- * the ledger and a new hold starts a fresh record; the run ids are spent on the file.
+ * unapproved template is a refusal on the record, never a silent skip; so is a live chase, which
+ * has no path until cutover; a released hold clears the ledger and a new hold starts a fresh
+ * record; the run ids are spent on the file.
  */
 import { describe, expect, it } from 'vitest';
 import { hold, open, release, type CaseFile } from '../desk/case-file';
@@ -79,15 +80,16 @@ describe('chaseIfDue', () => {
         expect((await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T12:10:00.000Z') })).action).toBe('none');
         expect((await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T12:31:00.000Z') })).action).toBe('chased');
     });
-    it('live delivery goes through the deliverer with the template; a refused delivery is a refusal on the record', async () => {
-        const wire: string[] = [];
-        const deliverer = { async deliver(i: { bubbles: Array<{ text: string }>; template: { name: string } | null; to: string }) { wire.push(`${i.to}:${i.template?.name}:${i.bubbles[0].text}`); return { ok: true as const, sid: 'SM1' }; } };
-        const out = await chaseIfDue(held(), state(), { templates: approved, now: at('2026-09-11T10:31:00.000Z'), mode: 'live', sender: { deliverer } });
-        expect(out.action).toBe('chased');
-        expect(wire[0]).toMatch(/^\+447700900901:desk_approver_chase_v1:Hi Ben/);
-        const failing = { async deliver() { return { ok: false as const, reason: 'switch off', delivered: [] }; } };
-        const refused = await chaseIfDue(held(), state(), { templates: approved, now: at('2026-09-11T10:31:00.000Z'), mode: 'live', sender: { deliverer: failing } });
-        expect(refused).toMatchObject({ action: 'refused', reason: 'switch off' });
+    it('a live chase is refused on the record and nothing is delivered: a chase is not a customer reply', async () => {
+        let delivered = 0;
+        const deliverer = { async deliver() { delivered++; return { ok: true as const, sid: 'SM1' }; } };
+        const file = held();
+        const out = await chaseIfDue(file, state(), { templates: approved, now: at('2026-09-11T10:31:00.000Z'), mode: 'live', sender: { deliverer } });
+        expect(out.action).toBe('refused');
+        if (out.action === 'refused') expect(out.reason).toMatch(/no live path/);
+        expect(delivered).toBe(0);
+        expect(file.sentRunIds).toHaveLength(0);
+        expect(out.record?.attempts[0]).toMatchObject({ purpose: 'approver_chase', ok: false });
     });
     it('the chase templates carry no date, time, duration, figure or commitment', async () => {
         const { RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_FIGURE } = await import('../desk/lexicon');

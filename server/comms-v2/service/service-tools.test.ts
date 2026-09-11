@@ -3,7 +3,7 @@
  * return nothing; customer_record is this party's own details and nothing else; change_of_details
  * records a fact and a hold and never writes the record, with its refusals; convergence hands a
  * thread to Ben after the job has been asked JOB_ASKS_MAX times with no type, or after
- * SCOPING_REPLIES_MAX replies since the last release with the file still not ready.
+ * SCOPING_REPLIES_MAX replies with the file still not ready, both counted since the last release.
  */
 import { describe, expect, it } from 'vitest';
 import { appendTurn, ask, hold, open, recordFact, release, type CaseFile } from '../desk/case-file';
@@ -114,6 +114,22 @@ describe('convergence', () => {
         expect(after.converging).toBe(true);
         expect(after.replies).toBe(0);
         for (let i = 0; i < SCOPING_REPLIES_MAX; i++) appendTurn(file, { at: `2026-09-11T10:1${i}:01.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `s${i}`, approver: 'agent.comms_v2' });
+        expect(convergence(file).converging).toBe(false);
+    });
+    it('a released thread converges again when the job asks held it: the asks before the release no longer count (7.4)', () => {
+        const file = fixture();
+        for (let i = 0; i < JOB_ASKS_MAX; i++) { expect(ask(file, 'job').ok).toBe(true); file.ledger[0].answeredAt = '2026-09-11T10:00:01.000Z'; }
+        expect(convergence(file).converging).toBe(false);
+        expect(hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'not converging', exception: 'not_converging' }).ok).toBe(true);
+        appendTurn(file, { at: '2026-09-11T10:08:01.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'I will pick this up with you', media: [], runId: 'human_1', approver: 'human:ben' });
+        expect(release(file, { kind: 'human', id: 'ben' }, 'I will pick this up with you').ok).toBe(true);
+        appendTurn(file, { at: '2026-09-11T10:09:01.000Z', channel: 'whatsapp', direction: 'inbound', partyId: 'p1', kind: 'text', body: 'sorry, something at home needs doing', media: [] });
+        expect(file.job.type).toBeNull();
+        const after = convergence(file);
+        expect(after.converging).toBe(true);
+        expect(after.jobAsks).toBe(0);
+        expect(file.ledger[0].askCount).toBe(JOB_ASKS_MAX);
+        for (let i = 0; i < JOB_ASKS_MAX; i++) { expect(ask(file, 'job').ok).toBe(true); file.ledger[0].answeredAt = '2026-09-11T10:10:01.000Z'; }
         expect(convergence(file).converging).toBe(false);
     });
     it('SCOPING_REPLIES_MAX replies with the file still not ready is not converging; one fewer converges', () => {

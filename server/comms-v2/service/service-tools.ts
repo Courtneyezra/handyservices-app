@@ -124,15 +124,16 @@ export interface Convergence { converging: boolean; why: string | null; replies:
 
 /**
  * Scoping that is not converging goes to Ben (checklist 7.1): the desk has asked about the job
- * JOB_ASKS_MAX times and still has no job type, or has replied SCOPING_REPLIES_MAX times since the
- * last release and the file is still not ready. A ready file, or one past scoping, always
- * converges. The replies are counted since the last release, not for all time, because a thread a
- * human has replied to comes back to automation (checklist 7.4) and must be able to make progress.
+ * JOB_ASKS_MAX times and still has no job type, or has replied SCOPING_REPLIES_MAX times, and the
+ * file is still not ready. A ready file, or one past scoping, always converges. Both the asks and
+ * the replies are counted since the last release, not for all time, because a thread a human has
+ * replied to comes back to automation (checklist 7.4) and must be able to make progress. The
+ * ledger itself is untouched by a release, so a subject is still never asked twice.
  */
 export function convergence(file: CaseFile): Convergence {
-    const since = file.releases[file.releases.length - 1]?.turnsBefore ?? 0;
-    const replies = file.turns.slice(since).filter((t) => t.direction === 'outbound' && t.kind !== 'system').length;
-    const jobAsks = ledgerEntry(file, 'job')?.askCount ?? 0;
+    const last = file.releases[file.releases.length - 1];
+    const replies = file.turns.slice(last?.turnsBefore ?? 0).filter((t) => t.direction === 'outbound' && t.kind !== 'system').length;
+    const jobAsks = (ledgerEntry(file, 'job')?.askCount ?? 0) - (last?.asksBefore?.job ?? 0);
     if (isReady(file) || (file.stage !== 'first_contact' && file.stage !== 'scoping')) return { converging: true, why: null, replies, jobAsks };
     if (!file.job.type && jobAsks >= JOB_ASKS_MAX) return { converging: false, why: `asked about the job ${jobAsks} times with no job type on the file`, replies, jobAsks };
     if (replies >= SCOPING_REPLIES_MAX) return { converging: false, why: `${replies} replies while scoping and the file is still not ready (${!file.job.type ? 'no job type' : 'no location'})`, replies, jobAsks };

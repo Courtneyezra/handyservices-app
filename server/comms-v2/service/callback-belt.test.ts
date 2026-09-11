@@ -15,4 +15,8 @@ describe('callbackRequestMatch', () => {
     it('does not read a request for a visit as a request for a phone call', () => {
         for (const t of ['Can you call round tomorrow to look at it?', 'Could someone call in on Tuesday', 'can you call out this week', 'Would Ben call by at some point?']) expect(callbackRequestMatch(t), t).toBeNull();
     });
+    it('does not read an acceptance that names no recipient as a request for a phone call', () => {
+        for (const t of ['ok call round tomorrow', 'yeah call round on Tuesday', 'sure call in when you can', 'fine call by later', 'yes please call round this week']) expect(callbackRequestMatch(t), t).toBeNull();
+        for (const t of ['Yes, call me', 'ok, give me a ring', 'yeah just phone me', 'Sure, ring me this afternoon']) expect(callbackRequestMatch(t), t).toBeTruthy();
+    });
 });
