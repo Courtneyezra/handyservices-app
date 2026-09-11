@@ -4,7 +4,7 @@
  * door, no model client, no database: a card and a release either follow the contract or they don't.
  */
 import { describe, expect, it } from 'vitest';
-import { boardOf, cardOf, detailOf, releaseHold } from './board';
+import { boardOf, cardOf, detailOf, releaseHold, sessionApprover } from './board';
 import { appendTurn, hold, open, recordFact, type CaseFile } from '../desk/case-file';
 import type { ResolveResult } from '../desk/identity';
 
@@ -91,13 +91,34 @@ describe('boardOf', () => {
 });
 
 describe('detailOf', () => {
-    it('returns the file turns and facts read-only', () => {
+    it('returns the file turns and facts read-only, and nothing of the ledger or the sends', () => {
         const file = openFile();
         recordFact(file, { key: 'job_type', value: 'leaking tap', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' }, { now, newId });
         const detail = detailOf(file);
         expect(detail.turns).toHaveLength(1);
         expect(detail.facts).toHaveLength(1);
         expect(detail.party?.name).toBe('Sam');
+        expect(Object.keys(detail).sort()).toEqual(['facts', 'hold', 'id', 'job', 'mode', 'party', 'stage', 'turns']);
+    });
+
+    it('a held file carries the hold with the draft the desk held back', () => {
+        const file = openFile();
+        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'guards failed twice', draft: 'Hi Sam, that would be about £80.' }, { now });
+        expect(detailOf(file).hold).toMatchObject({ approver: { kind: 'human', id: 'ben' }, reason: 'guards failed twice', draft: 'Hi Sam, that would be about £80.' });
+    });
+});
+
+describe('sessionApprover', () => {
+    it('is the short label of the signed-in email, so Ben\'s account is the ben slot', () => {
+        expect(sessionApprover({ email: 'ben@handyservices.app', id: 'user_1' })).toEqual({ kind: 'human', id: 'ben' });
+        expect(sessionApprover({ email: 'va@handyservices.app', id: 'user_2' })).toEqual({ kind: 'human', id: 'va' });
+        expect(sessionApprover({ email: null, id: 'user_3' })).toEqual({ kind: 'human', id: 'user_3' });
+    });
+
+    it('is nothing without a session', () => {
+        expect(sessionApprover(null)).toBeNull();
+        expect(sessionApprover(undefined)).toBeNull();
+        expect(sessionApprover({ email: '', id: '' })).toBeNull();
     });
 });
 

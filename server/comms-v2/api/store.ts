@@ -8,16 +8,19 @@
  *
  * This is a second instance, not the judge's own module-private singleton (sandbox-door.ts's
  * `shared`, reached only through `commsV2SandboxRouter()`), because nothing exposes that instance's
- * store today and Goal 1 deliberately left it unmounted on the production server. Re-mounting the
- * door's own router here - imported, not edited - is what lets Ben actually drive a sandbox thread
- * from the admin app rather than the board always reading empty.
+ * store today and Goal 1 deliberately left it unmounted on the production server. The board mounts
+ * this door's own router under /sandbox and its page posts start and message to it, which is how a
+ * thread gets onto the board at all.
+ *
+ * The door replaces its gateway on every /start and /reset, so the store is read through the door
+ * each time and never captured.
  */
-import { createSandboxDoor, type DoorDeps } from '../desk/sandbox-door';
+import { createSandboxDoor, type DoorDeps, type SandboxDoor } from '../desk/sandbox-door';
 import type { CaseFileStore } from '../desk/store';
 
-let door: ReturnType<typeof createSandboxDoor> | null = null;
+let door: SandboxDoor | null = null;
 
-export function commsV2BoardDoor(deps: DoorDeps = {}): ReturnType<typeof createSandboxDoor> {
+export function commsV2BoardDoor(deps: DoorDeps = {}): SandboxDoor {
     if (!door) door = createSandboxDoor(deps);
     return door;
 }

@@ -2,11 +2,13 @@
  * Ben's desk, kanban style (Goal 2 of the clean-sheet comms desk rebuild). One column per
  * Contract 2 stage, read from GET /api/comms-v2/board. Held cards float to the top of their
  * column with the hold reason and approver visible; a tap opens the file read-only and, when
- * held, the release form (Contract 2's release: an approver and their words, enforced by the
- * case file itself, not here).
+ * held, the release form (Contract 2's release: the signed-in approver and their words, enforced
+ * by the case file itself, not here).
  *
  * Not polished, just visible and operable: it doubles as the window onto the sandbox while the
- * rest of the desk is built. Polls every fifteen seconds; no websockets.
+ * rest of the desk is built, so the header carries a control that starts a sandbox thread and
+ * sends the next customer message through the board's own sandbox door. Polls every fifteen
+ * seconds; no websockets.
  */
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -88,7 +90,7 @@ export interface CaseFileDetail {
     job: { type: string | null; location: string | null; quoteRef: string | null; bookingRef: string | null };
     turns: Turn[];
     facts: Fact[];
-    hold: { approver: { kind: string; id: string }; reason: string; since: string } | null;
+    hold: { approver: { kind: string; id: string }; reason: string; since: string; draft: string | null } | null;
 }
 
 // ---------------------------------------------------------------- filters
@@ -186,13 +188,13 @@ export function BoardColumn({ stage, cards, onOpenCard }: { stage: Stage; cards:
 
 // ---------------------------------------------------------------- release form
 
-export function ReleaseForm({ fileId, holdReason, holdApprover, onReleased }: {
+export function ReleaseForm({ fileId, holdReason, holdApprover, draft, onReleased }: {
     fileId: string;
     holdReason: string;
-    holdApprover: string | null;
+    holdApprover: string;
+    draft: string | null;
     onReleased: () => void;
 }) {
-    const [approver, setApprover] = useState(holdApprover ?? 'ben');
     const [words, setWords] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -204,7 +206,7 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, onReleased }: {
             const res = await fetch(`/api/comms-v2/case-files/${fileId}/release`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ approver, words }),
+                body: JSON.stringify({ words }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data?.error || `Release failed (${res.status})`);
@@ -218,14 +220,13 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, onReleased }: {
 
     return (
         <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3">
-            <p className="flex items-center gap-1 text-sm font-semibold text-red-600"><AlertTriangle className="h-4 w-4" /> Held: {holdReason}</p>
-            <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="release-approver">Releasing as</label>
-            <input
-                id="release-approver"
-                value={approver}
-                onChange={(e) => setApprover(e.target.value)}
-                className="mt-1 w-full rounded-md border bg-background px-2 py-1 text-sm"
-            />
+            <p className="flex items-center gap-1 text-sm font-semibold text-red-600"><AlertTriangle className="h-4 w-4" /> Held for {holdApprover}: {holdReason}</p>
+            {draft && (
+                <div className="mt-3">
+                    <p className="text-xs font-medium text-muted-foreground">The reply the desk held back</p>
+                    <pre data-testid="hold-draft" className="mt-1 whitespace-pre-wrap rounded-md border bg-background px-2 py-1.5 font-sans text-sm">{draft}</pre>
+                </div>
+            )}
             <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="release-words">Your words, for the file</label>
             <Textarea
                 id="release-words"
@@ -274,6 +275,7 @@ export function CaseFileDetailView({ fileId, onReleased }: { fileId: string; onR
                     fileId={data.id}
                     holdReason={data.hold.reason}
                     holdApprover={data.hold.approver.id}
+                    draft={data.hold.draft}
                     onReleased={onReleased}
                 />
             )}
@@ -311,6 +313,69 @@ export function CaseFileDetailView({ fileId, onReleased }: { fileId: string; onR
                     </ul>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------- sandbox thread control
+
+/**
+ * Starts a sandbox thread, or sends the next customer message on the open one, through the board's
+ * own sandbox door (POST /api/comms-v2/sandbox/start and /message). Start clears the door, so the
+ * board shows one sandbox thread at a time, the one being watched.
+ */
+export function SandboxThreadControl({ onChanged }: { onChanged: () => void }) {
+    const [name, setName] = useState('Sam');
+    const [text, setText] = useState('');
+    const [busy, setBusy] = useState<'start' | 'message' | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const post = async (which: 'start' | 'message') => {
+        setBusy(which);
+        setError(null);
+        try {
+            const body = which === 'start' ? { door: 'whatsapp', text, name: name.trim() || undefined } : { channel: 'whatsapp', text };
+            const res = await fetch(`/api/comms-v2/sandbox/${which}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `Sandbox ${which} failed (${res.status})`);
+            setText('');
+            onChanged();
+        } catch (e: any) {
+            setError(e?.message || `Sandbox ${which} failed`);
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    return (
+        <div className="flex flex-wrap items-end gap-2" data-testid="sandbox-thread-control">
+            <div>
+                <label className="block text-[10px] font-medium uppercase text-muted-foreground" htmlFor="sandbox-name">Customer</label>
+                <input id="sandbox-name" value={name} onChange={(e) => setName(e.target.value)} className="mt-0.5 w-24 rounded-md border bg-background px-2 py-1 text-sm" />
+            </div>
+            <div className="min-w-64 flex-1">
+                <label className="block text-[10px] font-medium uppercase text-muted-foreground" htmlFor="sandbox-text">Customer says</label>
+                <input
+                    id="sandbox-text"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder="Hi, can I get a quote for a leaking tap?"
+                    className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm"
+                />
+            </div>
+            <Button size="sm" variant="outline" disabled={!!busy || !text.trim()} onClick={() => post('start')}>
+                {busy === 'start' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                Start sandbox thread
+            </Button>
+            <Button size="sm" variant="outline" disabled={!!busy || !text.trim()} onClick={() => post('message')}>
+                {busy === 'message' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                Send as customer
+            </Button>
+            {error && <p className="w-full text-xs text-red-600">{error}</p>}
         </div>
     );
 }
@@ -360,9 +425,10 @@ export default function CommsV2BoardPage() {
 
     const total = useMemo(() => Object.values(data?.columns ?? {}).reduce((n, c) => n + c.length, 0), [data]);
 
+    const refreshBoard = () => queryClient.invalidateQueries({ queryKey: ['comms-v2-board'] });
     const handleReleased = () => {
         setOpenCardId(null);
-        queryClient.invalidateQueries({ queryKey: ['comms-v2-board'] });
+        refreshBoard();
     };
 
     return (
@@ -373,6 +439,9 @@ export default function CommsV2BoardPage() {
                     <p className="text-xs text-muted-foreground">{total} case file{total === 1 ? '' : 's'} · sandbox window onto the clean-sheet desk</p>
                 </div>
                 <FilterBar filters={filters} onChange={setFilters} />
+                <div className="w-full border-t pt-3">
+                    <SandboxThreadControl onChanged={refreshBoard} />
+                </div>
             </div>
 
             {error ? (

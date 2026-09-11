@@ -7,9 +7,10 @@
  */
 import {
     approverLabel, release as releaseOnFile, STAGES,
-    type ApproverSlot, type CaseFile, type Fact, type Hold, type Job, type LedgerEntry, type Outcome,
-    type ReplyChannel, type SendRecord, type Stage, type Turn,
+    type ApproverSlot, type CaseFile, type Fact, type Hold, type HoldRelease, type Job, type Outcome,
+    type ReplyChannel, type Stage, type Turn,
 } from '../desk/case-file';
+import { approverLabel as legacyApproverLabel, humanApprover } from '../../approver';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -40,9 +41,7 @@ export interface CaseFileDetail {
     job: Job;
     turns: Turn[];
     facts: Fact[];
-    ledger: LedgerEntry[];
     hold: Hold | null;
-    sends: SendRecord[];
 }
 
 /** live once any send on the file actually delivered; sandbox otherwise, including before the first send. */
@@ -127,13 +126,23 @@ export function detailOf(file: CaseFile): CaseFileDetail {
         job: file.job,
         turns: file.turns,
         facts: file.facts,
-        ledger: file.ledger,
         hold: file.hold,
-        sends: file.sends,
     };
 }
 
+/**
+ * The approver slot a signed-in admin session occupies: the same short label the legacy desk
+ * stamps on a human send (server/approver.ts: 'ben' for `human:ben@handyservices.app`), so the
+ * session for Ben's own account is the `ben` slot the desk holds for (server/comms-v2/desk/guards.ts).
+ * No session, no slot.
+ */
+export function sessionApprover(user: { email?: string | null; id?: string | null } | null | undefined): ApproverSlot | null {
+    const id = (user?.email || user?.id || '').trim();
+    if (!id) return null;
+    return { kind: 'human', id: legacyApproverLabel(humanApprover(id)) };
+}
+
 /** Releases a hold on the file, through the case file's own `release` call. */
-export function releaseHold(file: CaseFile, approver: ApproverSlot, words: string): Outcome<unknown> {
+export function releaseHold(file: CaseFile, approver: ApproverSlot, words: string): Outcome<HoldRelease> {
     return releaseOnFile(file, approver, words);
 }
