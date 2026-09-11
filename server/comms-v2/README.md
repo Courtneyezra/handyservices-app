@@ -81,6 +81,8 @@ the board's own sandbox door under `/api/comms-v2/sandbox` seeding the thread:
 5. A figure Ben types goes as he wrote it: his own words are never checked against the quote, and
    the send carries his own `human:` approver that no automated path can produce. No send record
    stores a guard result, so nothing claims a pass.
+6. A reply the sender will not carry, one over the bubble ceiling of four, is refused with the
+   sender's own reason shown on the board and nothing sent: no turn on the thread, no hold cleared.
 
 ## Environment
 
