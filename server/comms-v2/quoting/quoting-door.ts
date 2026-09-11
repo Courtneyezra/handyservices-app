@@ -18,15 +18,15 @@
  * the customer; the acknowledgement on acceptance is the composer's, through the desk.
  */
 import { Router, type Response } from 'express';
-import { appendTurn, hold as setHold, type CaseFile, type Turn } from '../desk/case-file';
+import { appendTurn, hold as setHold, type CaseFile } from '../desk/case-file';
 import type { DeskDeps } from '../desk/desk';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import type { Gateway } from '../desk/gateway';
-import { BEN, runGuards } from '../desk/guards';
+import { BEN, guardsNotApplied } from '../desk/guards';
 import type { PlannedSend } from '../desk/planned-send';
 import { chooseChannel, pickTemplate, render, send, windowOf, liveTemplateStatus, type TemplateSend } from '../desk/sender';
 import { quoteRecordOf } from './quote-record';
-import { humanRunId, liveFigureQuotes, markQuoteSent, priceQuote, recordAcceptance, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
+import { humanRunId, markQuoteSent, priceQuote, recordAcceptance, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 import { quoteStateOf } from './quoting-specialist';
 
 export interface QuotingDoorOptions {
@@ -55,7 +55,6 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
     const respond = (res: Response, file: CaseFile, result: DeskResult, extra: Record<string, unknown> = {}) => {
         res.json({ ok: true, ...extra, run: { runId: result.runId, agent: 'comms_v2', decision: { kind: result.decision, approver: result.approver, reason: result.note ?? undefined }, error: result.error, caseFile: { stage: file.stage } }, plannedSend: opts.plannedSend(file, result), state: opts.state() });
     };
-    const lastInbound = (file: CaseFile): Turn | null => { for (let i = file.turns.length - 1; i >= 0; i--) if (file.turns[i].direction === 'inbound') return file.turns[i]; return null; };
 
     router.get('/quote', async (_req, res) => {
         try {
@@ -80,14 +79,14 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l && typeof l.lineId === 'string' && Number.isFinite(l.finalPence)).map((l) => ({ lineId: l.lineId, finalPence: Math.round(l.finalPence) })) : undefined;
             const priced = await priceQuote(file, { lines, by: BEN_APPROVER }, quotingDeps());
             if (!priced.ok) { res.status(priced.status).json({ error: priced.reason }); return; }
-            // Ben's send: the desk's drafted message carrying the link, through the one sender in dry run.
+            // Ben's send, from his price screen: his prices, his message, his authority. Contract 4's
+            // eight guards do not run over it (behaviour.md answer 43) - they exist to stop the
+            // composer inventing a figure, a date or a claim, and Ben is the source of all three.
+            // What the sender owns still holds below: the window rule, an approver and a run id, the
+            // party on the file, and one run id sending once. The send records him as its author and
+            // the eight as not applied, rather than a pass no guard gave.
             const message = priced.message;
-            const turn = lastInbound(file) ?? file.turns[0];
-            const guardRun = runGuards({ file, party, turn, reply: message, factIds: priced.factIds, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: await liveFigureQuotes(file, quotingDeps()) });
-            // A human send is not a desk reply: the one-reply rule is the desk's, not Ben's.
-            guardRun.guards.one_reply = { result: 'pass', note: 'a human send, not a desk reply' };
-            guardRun.failures = guardRun.failures.filter((f) => !f.startsWith('one_reply'));
-            guardRun.ok = guardRun.failures.length === 0;
+            const guards = guardsNotApplied();
             const runId = humanRunId();
             const choice = chooseChannel(party, 'whatsapp');
             if (!choice.ok) { res.status(409).json({ error: choice.reason }); return; }
@@ -98,7 +97,7 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
                 const pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? 'your quote' }, opts.deps.templates ?? liveTemplateStatus);
                 if (!pick.ok) {
                     if (!file.hold) setHold(file, { approver: BEN, reason: `quote ${priced.record.slug} priced; the WhatsApp window is shut and ${pick.reason}`, draft: message, failures: [] }, { now: opts.now, newId: opts.deps.newId });
-                    const held: DeskResult = { runId, decision: 'hold', partyId: party.personId, channel: choice.channel, windowState: 'shut', templateId: null, bubbles: [], factIds: priced.factIds, kbIds: [], guards: guardRun.guards, approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls: [], note: `priced; window shut and ${pick.reason}`, summary: `ben priced ${priced.record.slug}`, error: null, landedTurnId: null, composerCalls: 0 };
+                    const held: DeskResult = { runId, decision: 'hold', partyId: party.personId, channel: choice.channel, windowState: 'shut', templateId: null, bubbles: [], factIds: priced.factIds, kbIds: [], guards, approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls: [], note: `priced; window shut and ${pick.reason}`, summary: `ben priced ${priced.record.slug}`, error: null, landedTurnId: null, composerCalls: 0 };
                     respond(res, file, held, { slug: priced.record.slug, totals: priced.totals, quoteUrl: priced.quoteUrl, sent: false });
                     return;
                 }
@@ -106,14 +105,14 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
                 rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
             }
             if (!rendered.ok) { res.status(409).json({ error: `the quote message could not be rendered (${rendered.reason})` }); return; }
-            const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: BEN_APPROVER, guards: guardRun, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: [], mode: 'dry_run' }, { now: opts.now, newId: opts.deps.newId });
-            if (!sent.ok) { res.status(409).json({ error: `send refused: ${sent.reason}`, guards: guardRun.guards }); return; }
+            const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: BEN_APPROVER, guards: null, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: [], mode: 'dry_run' }, { now: opts.now, newId: opts.deps.newId });
+            if (!sent.ok) { res.status(409).json({ error: `send refused: ${sent.reason}`, guards }); return; }
             // The send landed: only now does the quote leave draft and its figures reach the file.
             const staged = await markQuoteSent(file, quotingDeps());
             const record = staged.ok ? staged.record : priced.record;
             const result: DeskResult = {
                 runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
-                factIds: priced.factIds, kbIds: [], guards: guardRun.guards, approver: BEN_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, calls: [],
+                factIds: priced.factIds, kbIds: [], guards, approver: BEN_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, calls: [],
                 note: staged.ok ? null : `sent, but the quote did not leave draft: ${staged.reason}`, summary: `ben priced ${record.slug} at ${(priced.totals.totalPence / 100).toFixed(2)} and sent the link`, error: null, landedTurnId: sent.record.turnId, composerCalls: 0,
             };
             respond(res, file, result, { slug: record.slug, totals: priced.totals, quoteUrl: priced.quoteUrl, sent: true, status: record.status, lines: record.lines.map((l) => ({ label: l.label, pricePence: l.pricePence })) });

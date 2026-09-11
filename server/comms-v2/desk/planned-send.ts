@@ -20,7 +20,8 @@ export const CONTRACT_GUARDS = [
 export type ContractGuard = (typeof CONTRACT_GUARDS)[number];
 
 export const guardResultSchema = z.object({
-    result: z.enum(['pass', 'fail']),
+    /** not_applied: a person wrote the words, so Contract 4 never ran over them (behaviour.md answer 43). */
+    result: z.enum(['pass', 'fail', 'not_applied']),
     note: z.string().nullable().default(null),
 });
 export type GuardResult = z.infer<typeof guardResultSchema>;

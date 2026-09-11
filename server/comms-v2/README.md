@@ -15,7 +15,7 @@ for the length of the process (the sandbox door runs in process); a durable stor
 | 2 Case file | `desk/case-file.ts`, `desk/store.ts` | One file per job with parties, append-only turns, the seven stages through `setStage`, facts refused without a source, the ask ledger (asked, answered, thanked), the hold as a flag with a named approver, sends with run id and approver and the model calls behind them. `invariantViolations` is the contract's invariants paragraph as one check. |
 | gateway | `desk/whatsapp-adapter.ts`, `desk/gateway.ts` | Twilio and Meta webhook shapes to one turn, media downloaded on arrival on both paths; the door hands bytes over. The gateway resolves identity, opens or appends to the one file, hands the turn to the desk; clock and age enter here too. Not wired to a live webhook yet (cutover, behaviour.md answer 37). |
 | 3 Router, composer | `desk/router.ts`, `desk/composer.ts`, `desk/models.ts` | Haiku 4.5 routes (structured output, two deterministic belts under it: regulated and money); Fable 5.1 at medium effort composes one reply from facts on the file, a blank line where a bubble breaks. Every call records model, tokens and cost (`ModelCallRecord`). Haiku takes no effort control; "low" is the recorded intent. |
-| 4 Guards | `desk/guards.ts`, `desk/lexicon.ts` | The eight guards, no model. Pass, one retry to the composer with the failures named, then a hold with the fixed acknowledgement. `approverFor` is the slot: Ben for a homeowner, a rule-based approver for a tenant issue with no rules yet. |
+| 4 Guards | `desk/guards.ts`, `desk/lexicon.ts` | The eight guards, no model, over a composed reply only: `guardsNotApplied` is what a send a person authored records instead (answer 43). Pass, one retry to the composer with the failures named, then a hold with the fixed acknowledgement. `approverFor` is the slot: Ben for a homeowner, a rule-based approver for a tenant issue with no rules yet. |
 | 5 Sender | `desk/sender.ts` | `chooseChannel`, `windowOf` (no recorded state is shut), `render` (WhatsApp only in Goal 1, other channels refused; blank lines, then sentence boundaries over ~300 characters, soft ceiling of four back to the composer, typing gaps 1 to 3 s), `pickTemplate` on a shut window by purpose (named by server/window-templates.ts, approved and given its content SID by server/whatsapp-template-sync.ts) with a hold when none is approved; `templateWire` shapes it for the transport the customer wrote on, Twilio's content SID and variables or Meta's name, language and body components, `send` (dry run lands the reply on the thread as an outbound turn; live goes through server/outbound.ts as `agent.comms_v2`, switch key `comms_v2`, which the desk treats as off until `spine.senders.comms_v2.enabled` is written true; a default for one of the four fixed lines that are Ben's to review sends in dry run only, the Goal 1 lines send live; a live delivery that fails part way records the bubbles that went as a partial send), `initiate` present and unused. |
 | 6 Scoping | `desk/scoping-tools.ts`, `desk/scoping-specialist.ts` | The shelf: describe_media (Gemini via server/spine/tools/describe-video.ts, once per media), confirm_location, readiness (job type and location; photos optional), next_question (job, location, access, photos; photos once), offer_call, regulated (gas and asbestos only), kb_lookup (reviewed rows, read-only). The specialist on Sonnet 5 returns facts with the turn they came from and short labels of what is unknown; the proposal comes from the tools. Never prose. |
 | the desk | `desk/desk.ts`, `desk/fixed-lines.ts` | route, gather, compose, guards, render, window, send, then the ledger and the stage from what actually went. Money and date changes hold for Ben and the reply answers the rest; complaints, refunds, trust doubts and gas send one fixed line and no composer runs, and while that hold stands no specialist runs either: each later turn gets the short acknowledgement that Ben will come back; a composer refusal or failure, or a reply the sender refuses (live, one of Ben's four lines he has not reviewed), takes that same acknowledgement. A clock pass never sends. The four fixed lines come from the knowledge base when reviewed, else the defaults here. |
@@ -39,7 +39,7 @@ quote machinery that survives the rebuild is wrapped.
 | the chain wrapper | `quoting/draft-quote.ts` | Calls server/spine/route-a.ts `runRouteAChain` with what a spine pass would supply (the intake as the clerk's artifact, a case-file shape carrying the v2 case id and the party's number) and its own injection points: the draft row is written here from the chain's pure `pricedDraftRow` (no old conversation needed), Ben's notification is captured for notify_ben, the job pack is skipped and said so. The estimator and the one pricing engine run for real. `FakeDrafter` for tests. |
 | the store | `quoting/quote-store.ts` | The personalized_quotes row: read, insert the draft, price (server/spine/price-screen.ts `loadPriceScreen` and `confirmPrices`), accept (what the Stripe webhook writes, for the sandbox), add photos to a draft, delete the sandbox's own rows. `MemoryQuoteStore` for tests. |
 | Ben's notifications | `quoting/ben-notifier.ts` | ready to price (with the price screen link and the missing list), chase, accepted. Dry run records; live dispatches through server/pushover.ts. Each is a fact on the file (`ben_notified`, `ben_chased`, `quote_accepted`), which is what the door shows as the recorded push. |
-| the door | `quoting/quoting-door.ts` | `POST /price` (Ben prices and sends: the price screen write, then the desk's drafted message with the link through the one sender in dry run under `human:ben`; stage to quoted), `POST /accept` (the human event: the row, the stage, Ben's push, then one acknowledgement through the desk as the customer's turn), `GET /quote` (the file's quote facts and the row's lines to the penny). `/reset` removes the sandbox's quote rows. |
+| the door | `quoting/quoting-door.ts` | `POST /price` (Ben prices and sends: the price screen write, then his message with the link through the one sender in dry run under `human:ben`; stage to quoted. Contract 4's eight guards do not run over it, because he authored it and he is the source (behaviour.md answer 43): the send records each guard as `not_applied`, and what the sender owns still holds, the window rule, an approver and a run id, the party on the file, one run id sending once), `POST /accept` (the human event: the row, the stage, Ben's push, then one acknowledgement through the desk as the customer's turn), `GET /quote` (the file's quote facts and the row's lines to the penny). `/reset` removes the sandbox's quote rows. |
 
 Facts the specialist writes carry the quote and the line as their source: `quote_line:<label> = £x.xx`
 (`source: { kind: 'quote_line', quoteRef, line }`), `quote_scope:<label>`, `quote_not_included:<label>`,
@@ -59,7 +59,8 @@ the pricing engine, so allow up to five minutes for it.
 | 4.4 | open `/admin/price/<slug>` in the app as Ben | the lines, the suggestions and the missing list ("Missing, yours to request") on the first line's notes |
 | 4.5 | `POST /run`, then `POST /age {"hours": 5}`, then `POST /run` | the first note says "not due", the second "chase 1 recorded for Ben"; nothing reaches the customer on either pass |
 | 5.2 | `POST /message` "Does that include a new tap?" | answered from the draft's scope with no figure (a money hold for Ben beside it is 2.7 still standing before the quote, not a failure) |
-| 5.1 | `POST /price {}` | the planned send's approver is `human:ben`, the bubbles carry `/quote/<slug>`, the stage is `quoted`, every guard passes, and `GET /quote` now reads `sent` with every line priced |
+| a photo before 5.1 | `POST /message` as multipart with a photo and "here is the tap" | the reply thanks for it once and the media ledger reads thanked; without it 5.1 cannot fail, because Ben's message opens "thanks for the photos and the details" |
+| 5.1 | `POST /price {}` | the planned send's approver is `human:ben`, the bubbles carry `/quote/<slug>`, the stage is `quoted`, every guard reads `not_applied` (they do not run over his own send), and `GET /quote` now reads `sent` with every line priced |
 | 5.3 | `POST /message` "What does that include, and how much is the labour?" | the figure equals one line of the record to the penny (£x.xx), `factIds` names a `quote_line` fact carrying that figure, the figure guard passes, no hold |
 | 2.7 after | `POST /message` "Can you do it any cheaper?" | held for Ben, reason names money beyond a quote line, and no figure in the reply |
 | 6.2 | `POST /message` "Leave it with me, I'll get back to you next month", then `POST /run` | one acknowledgement with no question, then nothing |
@@ -114,7 +115,15 @@ customer. The page polls every fifteen seconds; no websockets.
 
 The door needs the branch database string and the model keys from the ordinary environment. The
 desk's one database variable is `COMMS_V2_DATABASE_URL` (a Neon branch, never production); the
-door host refuses a missing value and a production one and never reads `DATABASE_URL`. The
+door host refuses a missing value and a production one and never reads `DATABASE_URL`. Every live
+store and live reader in the desk asks the same question again at the moment it would open the
+database, in `live-database.ts`: the database in use must be the branch that variable names, and a
+refusal names that requirement and falls back to nothing. That is what the door host gives for
+free and the deployed server does not: `/api/comms-v2/sandbox` is mounted there for Ben's board, on
+the production database, where the quote machinery would otherwise write a real quote row and
+publish a quote page with real prices. Ben's board reading its own `comms_v2_approvers` row is the
+one caller outside the rule, because that row is meant to be read on the server the board runs on.
+Cutover replaces this with the desk switch. The
 pipeline's run copies inherit a non-production environment through direnv from their run root
 (see `.no-mistakes.yaml`, `test.instructions`); a developer's shell carries its own. Nothing in the
 desk loads a file of its own or prints a value.
@@ -122,7 +131,9 @@ desk loads a file of its own or prints a value.
 ## Tests
 
 `npx vitest run server/comms-v2`: every invariant in the contracts with a scripted model client,
-the door driven over HTTP the way the test step drives it, the door host's refusal rules, and the
-board's queries, approver mapping and routes. The page's own test is
+the door driven over HTTP the way the test step drives it, the door host's refusal rules, the
+database refusal every live dependency makes (`live-database.test.ts`, including each method of the
+live quote store on a production-shaped connection), and the board's queries, approver mapping and
+routes. The page's own test is
 `npx vitest run --project client client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx`.
 None of them needs a key or a database; a live desk test reads its keys from the environment.

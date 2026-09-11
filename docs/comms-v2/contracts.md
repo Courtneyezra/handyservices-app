@@ -75,6 +75,14 @@ guards check each one. The router never sees a tool; the specialists never see t
 Deterministic code, no model. Every composed reply passes here before the sender. The approver
 slot is one function so the landlord service can attach without touching the guards.
 
+**A composed reply only.** The guards exist to stop the composer inventing a figure, a date, a
+commitment or a claim about the business. A send a person authored is not composed: Ben's priced
+quote leaves the price screen under his own approver, none of the eight run over it, and the send
+records each of them as not applied rather than a pass no guard gave (behaviour.md answer 43,
+`quoting/quoting-door.ts`). What still holds for those words is everything the sender owns: the
+window rule, an approver and a run id on every send, the party being on the file, and one run id
+sending once.
+
 | Guard | Fails when | Checked against |
 |---|---|---|
 | figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file, and the cited line's quote resolved for liveness (`live_figure_quotes`): a revoked, superseded or expired quote's figure is refused though the fact stays on the file |
@@ -155,6 +163,15 @@ brief for the composer, and never sees a figure.
 | `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, its halves, total, deposit) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
 | `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record, the message with the link, the totals | not a draft; a line with no suggestion and no figure from Ben |
 | `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |
+
+**Which database the tools open.** Every live store and live reader in the desk refuses unless the
+database in use is the Neon branch `COMMS_V2_DATABASE_URL` names, in one place both the quote store
+and any future live dependency call (`server/comms-v2/live-database.ts`). The refusal names that
+requirement and falls back to nothing. It exists because the sandbox door is mounted on the
+ordinary server for Ben's board, and on the deployed server that is the production database: the
+quote machinery would otherwise draft a real quote row and publish a quote page with real prices on
+it. The exception is Ben's board reading its own approver row, which is meant to be read there.
+Cutover replaces this with the desk switch.
 
 **What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,
 assumptions, link and status, each with source `quote_line` naming the quote and the label. A
