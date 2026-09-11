@@ -6,7 +6,8 @@
  * planned reply on the case file's thread as an outbound turn, so later turns see it. Live
  * delivery goes through the surviving outbound send (server/outbound.ts) under the desk's own
  * registered approver, and only once its switch has been turned on by hand: the desk is
- * sandbox-only until cutover. Goal 1 renders for WhatsApp only.
+ * sandbox-only until cutover. SMS and email render and deliver through server/comms-v2/channels
+ * (Goal 3); a form or a call cannot carry a reply, so `chooseChannel` opens a real channel.
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
  * a customer without passing the guards, while a person's own words from Ben's board carry their
@@ -23,6 +24,9 @@ import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, t
 import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
+import { emailThreadingFor, renderEmail, type EmailThreading } from '../channels/email-adapter';
+import { renderSms } from '../channels/sms-adapter';
+import { CHANNEL_TEMPLATES, type ChannelReplyPurpose } from '../channels/templates';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -33,15 +37,20 @@ export const GAP_MAX_MS = 3000;
 /** The desk's own approver name for an unattended send: `agent.comms_v2` in server/sender-registry.ts, switch key `comms_v2`. */
 export const DESK_APPROVER: Approver = 'agent.comms_v2';
 
-export type ReplyPurpose = 'service_reply';
+export type ReplyPurpose = 'service_reply' | ChannelReplyPurpose;
 
 // ---------------------------------------------------------------- choose_channel
 
 export type ChannelChoice = { ok: true; channel: ReplyChannel; address: string } | { ok: false; reason: string };
 
-/** The channel the party wrote on; for a form or a call, WhatsApp if the number is on it, then SMS, then email. */
-export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null): ChannelChoice {
+/**
+ * The channel the party wrote on; for a form or a call, WhatsApp if the number is on it, then SMS,
+ * then email. An SMS from a party whose WhatsApp window is open is answered on WhatsApp (the
+ * design's "if a known customer also has WhatsApp, prefer it"), never on a shut one.
+ */
+export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date = new Date()): ChannelChoice {
     const carry = (kind: ReplyChannel) => party.channels.find((c) => c.kind === kind);
+    if (wroteOn === 'sms' && carry('whatsapp') && windowOf(party, 'whatsapp', now).state === 'open') return { ok: true, channel: 'whatsapp', address: carry('whatsapp')!.address };
     if (wroteOn === 'whatsapp' || wroteOn === 'sms' || wroteOn === 'email') {
         const c = carry(wroteOn);
         if (c) return { ok: true, channel: wroteOn, address: c.address };
@@ -116,9 +125,11 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
     return { ok: true, bubbles };
 }
 
-/** Goal 1 replies on WhatsApp only: any other channel is refused here, never rendered by guesswork. */
-export function render(channel: ReplyChannel, reply: string, opts: RenderOptions = {}): RenderResult {
+/** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). */
+export function render(channel: ReplyChannel, reply: string, opts: RenderOptions & { name?: string | null } = {}): RenderResult {
     if (channel === 'whatsapp') return renderWhatsApp(reply, opts);
+    if (channel === 'sms') return renderSms(reply);
+    if (channel === 'email') return renderEmail(reply, opts);
     return { ok: false, reason: 'channel', bubbles: [] };
 }
 
@@ -145,7 +156,35 @@ export const liveTemplateStatus: TemplateStatusSource = {
 export const noTemplateApproved: TemplateStatusSource = { async approved() { return null; } };
 
 /** Which registry triggers carry a reply of each purpose. Branches on purpose, never on a name. */
-const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = { service_reply: ['question_unanswered'] };
+const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = { service_reply: ['question_unanswered'], web_form_ack: ['webform_first_contact'], post_call_followup: ['post_call_followup'], missed_call: ['missed_call'] };
+
+/** The registry rows for a purpose: the one registry, plus the rows this goal's channels carry until the registry takes them. */
+export function templateRowsFor<T extends { purpose: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): Array<T | (typeof CHANNEL_TEMPLATES)[number]> {
+    return [...registry, ...CHANNEL_TEMPLATES].filter((t) => t.purpose === 'service_reply' && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
+}
+
+/** The variables a template body takes: {{1}} the first name or 'there', {{2}} the topic, {{3}} 'shortly' (the web form's "a quick call {{3}}"). */
+export function templateVariables(body: string, vars: { name: string | null; topic: string }): Record<string, string> {
+    const first = (vars.name ?? '').trim().split(/\s+/)[0] || 'there';
+    const out: Record<string, string> = {};
+    const re = /\{\{\s*(\d+)\s*\}\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(body)) !== null) out[m[1]] = m[1] === '1' ? first : m[1] === '2' ? vars.topic.slice(0, 120) : 'shortly';
+    return out;
+}
+
+/** A template body with its variables filled in. */
+export function fillTemplate(body: string, variables: Record<string, string>): string {
+    return body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n] ?? '');
+}
+
+/** The words a template of this purpose carries off WhatsApp, where no approval is needed: the same body as one SMS or one email. Null when no row exists. */
+export async function templateBodyFor(purpose: ReplyPurpose, vars: { name: string | null; topic: string }): Promise<{ name: string; body: string } | null> {
+    const { WINDOW_TEMPLATES } = await import('../../window-templates');
+    const t = templateRowsFor(purpose, WINDOW_TEMPLATES)[0];
+    if (!t) return null;
+    return { name: t.names[0], body: fillTemplate(t.body, templateVariables(t.body, vars)) };
+}
 
 /** An approved template with everything either transport needs to carry it. */
 export interface TemplateSend { name: string; language: string; contentSid: string; variables: Record<string, string> }
@@ -166,12 +205,11 @@ export function templateWire(transport: WhatsAppTransport, t: TemplateSend): Tem
 /** When the window is shut: one approved template for the reply's purpose from the registry. None approved: the reply is held as a pending draft for Ben. Never an SMS fallback. */
 export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string | null; topic: string }, status: TemplateStatusSource = liveTemplateStatus): Promise<TemplatePick> {
     const { WINDOW_TEMPLATES } = await import('../../window-templates');
-    const candidates = WINDOW_TEMPLATES.filter((t) => t.purpose === purpose && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
-    for (const t of candidates) for (const name of t.names) {
+    for (const t of templateRowsFor(purpose, WINDOW_TEMPLATES)) for (const name of t.names) {
         const live = await status.approved(name);
         if (live) {
-            const variables = { '1': vars.name ?? 'there', '2': vars.topic.slice(0, 120) };
-            return { ok: true, template: { name, language: t.language, contentSid: live.contentSid, variables }, body: t.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n as '1' | '2'] ?? '') };
+            const variables = templateVariables(t.body, vars);
+            return { ok: true, template: { name, language: t.language, contentSid: live.contentSid, variables }, body: fillTemplate(t.body, variables) };
         }
     }
     return { ok: false, reason: `no approved template for purpose ${purpose}; held as a pending draft for Ben` };
@@ -180,7 +218,7 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string |
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver }): Promise<DeliveryOutcome>;
+    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; email?: EmailThreading }): Promise<DeliveryOutcome>;
 }
 
 /** A failure names the bubbles that had already reached the customer, so the file can record them. */
@@ -195,21 +233,25 @@ export type DeliveryOutcome = { ok: true; sid: string | null } | { ok: false; re
 export const liveDeliverer: Deliverer = {
     async deliver(input) {
         const delivered: RenderedBubble[] = [];
-        if (input.channel !== 'whatsapp') return { ok: false, reason: `the desk replies on WhatsApp only; ${input.channel} has no live delivery`, delivered };
         const { registryEntryFor } = await import('../../sender-registry');
         const entry = registryEntryFor(input.approver);
         if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered };
         const { getSpineConfig } = await import('../../spine/config');
         const cfg = await getSpineConfig();
         if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
+        if (input.channel === 'email') {
+            const { deliverEmail } = await import('../channels/email-deliverer');
+            const out = await deliverEmail({ to: input.to, text: input.bubbles.map((b) => b.text).join('\n\n'), threading: input.email ?? null, runId: input.runId, approver: input.approver });
+            return out.ok ? { ok: true, sid: out.id } : { ok: false, reason: out.reason, delivered };
+        }
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
             const res = await sendCustomerMessage({
                 approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
-                ...(input.template ? templateWire(input.transport, input.template) : {}),
-                via: input.transport,
+                ...(input.template && input.channel === 'whatsapp' ? templateWire(input.transport, input.template) : {}),
+                ...(input.channel === 'whatsapp' ? { via: input.transport } : {}),
             });
             if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed', delivered };
             delivered.push(b);
@@ -284,7 +326,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, ...(input.channel === 'email' ? { email: emailThreadingFor(channel) } : {}) });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };

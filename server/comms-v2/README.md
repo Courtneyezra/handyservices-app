@@ -16,15 +16,66 @@ for the length of the process (the sandbox door runs in process); a durable stor
 | gateway | `desk/whatsapp-adapter.ts`, `desk/gateway.ts` | Twilio and Meta webhook shapes to one turn, media downloaded on arrival on both paths; the door hands bytes over. The gateway resolves identity, opens or appends to the one file, hands the turn to the desk; clock and age enter here too. Not wired to a live webhook yet (cutover, behaviour.md answer 37). |
 | 3 Router, composer | `desk/router.ts`, `desk/composer.ts`, `desk/models.ts` | Haiku 4.5 routes (structured output, two deterministic belts under it: regulated and money); Fable 5.1 at medium effort composes one reply from facts on the file, a blank line where a bubble breaks. Every call records model, tokens and cost (`ModelCallRecord`). Haiku takes no effort control; "low" is the recorded intent. |
 | 4 Guards | `desk/guards.ts`, `desk/lexicon.ts` | The eight guards, no model. Pass, one retry to the composer with the failures named, then a hold with the fixed acknowledgement. `approverFor` is the slot: Ben for a homeowner, a rule-based approver for a tenant issue with no rules yet. |
-| 5 Sender | `desk/sender.ts` | `chooseChannel`, `windowOf` (no recorded state is shut), `render` (WhatsApp only in Goal 1, other channels refused; blank lines, then sentence boundaries over ~300 characters, soft ceiling of four back to the composer, typing gaps 1 to 3 s; `asTyped` is the human path, where a blank line still breaks a bubble and nothing inside one is reflowed), `pickTemplate` on a shut window by purpose (named by server/window-templates.ts, approved and given its content SID by server/whatsapp-template-sync.ts) with a hold when none is approved; `templateWire` shapes it for the transport the customer wrote on, Twilio's content SID and variables or Meta's name, language and body components, `send` (dry run lands the reply on the thread as an outbound turn; live goes through server/outbound.ts as `agent.comms_v2`, switch key `comms_v2`, which the desk treats as off until `spine.senders.comms_v2.enabled` is written true; a default for one of the four fixed lines that are Ben's to review sends in dry run only, the Goal 1 lines send live; a live delivery that fails part way records the bubbles that went as a partial send), `initiate` present and unused. |
+| 5 Sender | `desk/sender.ts` | `chooseChannel` (the channel they wrote on; a form or a call opens WhatsApp, then SMS, then email; an SMS with the WhatsApp window open is answered there), `windowOf` (no recorded state is shut), `render` (per channel: WhatsApp bubbles, SMS one message, email a letter, the last two in channels/; blank lines, then sentence boundaries over ~300 characters, soft ceiling of four back to the composer, typing gaps 1 to 3 s; `asTyped` is the human path, where a blank line still breaks a bubble and nothing inside one is reflowed), `pickTemplate` on a shut window by purpose (named by server/window-templates.ts, approved and given its content SID by server/whatsapp-template-sync.ts) with a hold when none is approved; `templateWire` shapes it for the transport the customer wrote on, Twilio's content SID and variables or Meta's name, language and body components, `send` (dry run lands the reply on the thread as an outbound turn; live goes through server/outbound.ts as `agent.comms_v2`, switch key `comms_v2`, which the desk treats as off until `spine.senders.comms_v2.enabled` is written true; a default for one of the four fixed lines that are Ben's to review sends in dry run only, the Goal 1 lines send live; a live delivery that fails part way records the bubbles that went as a partial send), `initiate` present and unused. |
 | 6 Scoping | `desk/scoping-tools.ts`, `desk/scoping-specialist.ts` | The shelf: describe_media (Gemini via server/spine/tools/describe-video.ts, once per media), confirm_location, readiness (job type and location; photos optional), next_question (job, location, access, photos; photos once), offer_call, regulated (gas and asbestos only), kb_lookup (reviewed rows, read-only). The specialist on Sonnet 5 returns facts with the turn they came from and short labels of what is unknown; the proposal comes from the tools. Never prose. |
 | the desk | `desk/desk.ts`, `desk/fixed-lines.ts` | route, gather, compose, guards, render, window, send, then the ledger and the stage from what actually went. Money and date changes hold for Ben and the reply answers the rest; complaints, refunds, trust doubts and gas send one fixed line and no composer runs, and while that hold stands no specialist runs either: each later turn gets the short acknowledgement that Ben will come back; a composer refusal or failure, or a reply the sender refuses (live, one of Ben's four lines he has not reviewed), takes that same acknowledgement. A clock pass never sends. The four fixed lines come from the knowledge base when reviewed, else the defaults here. |
 | a person's reply | `desk/human-reply.ts` | `humanReply`: Ben's own words from the board out through the one sender. The eight guards never run over them (behaviour.md answer 43): they gate a composed reply so the composer cannot invent what Ben himself is the source of. No send record claims otherwise: the `human:<their email or user id>` approver on the send is the record of which person wrote the words, so a slot two people share still answers that question, and guard results are not persisted on any send, so nothing anywhere reads as a pass no guard gave. Only the slot the file answers to may answer it: the approver its hold names while one stands, `approverFor`'s slot otherwise, so a session holding another slot is refused even on an unheld file. A human reply is not checked, but it is recorded: the ask ledger and `callOffered` are bookkeeping of what the business has already said, not a check on what may go, so the desk does not ask twice for a photo he has just asked for (`clauseAsks`) or offer a call he has just promised (`offersCall`). His prose is read more tightly than a composed reply: the subject word and the asking phrase must fall in one clause, so an ambiguous line records nothing and the desk asks again, rather than "I will be in touch later today, what is the best number for you?" marking access asked and no one ever asking about it. What still holds is what the sender owns: the sender renders and sends with approver `human:<their email or user id>` and a fresh run id, his line breaks inside a bubble kept as typed while a blank line still starts a new one, one run id sends once, the party must be on the file, and a shut window never carries his freeform words. The send lands as his turn, any hold clears with his words as the release, and the thread is automation's again (checklist 7.4). A refusal sends and records nothing and comes back with its reason for the board to show. |
-| the door | `desk/sandbox-door.ts`, `desk/planned-send.ts` | start, message (multipart media), run, age, reset, state. Every response carries the planned send the desk emits itself (case id, party, channel, window state, template id, bubbles, fact and knowledge-base ids, every guard's result, approver, run id, hold, delivered), typed with a zod schema; `plannedSendOfResponse` is the one way a reader takes it and `sendLanded` checks the reply is on the thread. WhatsApp only; call and price answer 409. |
+| the door | `desk/sandbox-door.ts`, `desk/planned-send.ts` | start, message (multipart media), run, age, reset, state. Every response carries the planned send the desk emits itself (case id, party, channel, window state, template id, bubbles, fact and knowledge-base ids, every guard's result, approver, run id, hold, delivered), typed with a zod schema; `plannedSendOfResponse` is the one way a reader takes it and `sendLanded` checks the reply is on the thread. The SMS, form, email and call doors are mounted in front (channels/channel-doors.ts); price answers 409 until Goal 4. |
 | the door host | `desk/door-host.ts`, `door-cli.ts` | Mounts the door on a loopback port for the length of a run. Connects only to the branch named by `COMMS_V2_DATABASE_URL`, refuses a missing value and a production one (server/worker-gate.ts's `isProductionDatabaseUrl`), never reads `DATABASE_URL`, and logs an address and variable names, never a value. |
 
 Cost: every model call prices through server/agent-cost.ts, the one price table (Fable 5.1 has its row
 there).
+
+## Goal 3: the other four channels (`channels/`)
+
+SMS, email, the web form and calls against the same desk (docs/comms-v2/design.md, "Five channels,
+one desk"). Nothing below the gateway changed: each adapter produces the gateway's envelope
+(`channels/envelope.ts`, the WhatsApp turn is one already) and `channels/channel-gateway.ts`
+extends the gateway to take any channel: Identity resolves the address with the turn's hints and
+links a phone and an email the same turn proves belong together (the form is the join), the turn
+lands on the person's one open file whatever the channel (answer 25), the addresses the turn proves
+go on the party's channels, the adapter's facts are recorded with the turn as their source.
+
+| Channel | File | In | Out |
+|---|---|---|---|
+| SMS | `channels/sms-adapter.ts` | Twilio's inbound on the shared webhook (a bare `From`); media is refused, a UK long code cannot receive MMS | `renderSms`: one message, at most two segments (GSM-7 or UCS-2 counted), typographic punctuation normalised; over two goes back to the composer. The first SMS reply to a party not on WhatsApp carries the fixed `move_to_whatsapp` line (1.4). An SMS from a party whose WhatsApp window is open is answered on WhatsApp. |
+| Email | `channels/email-adapter.ts`, `channels/email-inbound.ts`, `channels/email-deliverer.ts` | The webhook (below): the provider-neutral JSON or Postmark's, the quoted history stripped, photo attachments written where describe_media reads them, the thread kept on the party's email channel | `renderEmail`: one letter, "Hi <first name>," the paragraphs, the sign-off; the reply carries `In-Reply-To` and `References` and the subject with "Re:". Live delivery on Resend, behind the same registry switch as every send. |
+| Web form | `channels/form-adapter.ts` | Name, phone, email, the job, postcode, sometimes photos (URLs or bytes). Creates the file; the postcode and name are facts at intake; the job type is Scoping's to establish | No reply path of its own: `chooseChannel` opens WhatsApp if the number is on it (the approved web form template, quoting the enquiry, 1.2), else SMS, else email. |
+| Calls | `channels/call-adapter.ts`, `channels/call-reader.ts`, `channels/channel-desk.ts` | A finished call: `missed`, `answered_inbound`, or `ben_rang` (an unanswered outbound never reaches the desk). The transcript is the turn's body; the outcome is a fact on the file. The reader (Sonnet 5, facts only, no prose field) records the job, the location, what Ben asked for and whether a callback was agreed; Ben's asks go on the ledger after the follow-up so the desk never asks again | The desk never speaks. `missed`: one text back (3.5), the missed-call template on WhatsApp, else its words on SMS. `answered_inbound`: nothing (3.5), and the caller is never offered a call (1.5). `ben_rang`: the post-call template with the name and the job (1.3), else its words on SMS; the thread continues from the file (3.2, 3.3) and nothing is held for Ben (3.4). No approved template on WhatsApp holds the follow-up for Ben with its words as the draft, never an SMS fallback (answer 34). |
+
+The templates (`channels/templates.ts`): the web form and post-call purposes have their row in the one
+registry (server/window-templates.ts); the missed-call acknowledgement's row lives here in the
+registry's own shape until the registry takes it at cutover. The sender's `pickTemplate` branches
+on purpose (`service_reply`, `web_form_ack`, `post_call_followup`, `missed_call`), never on a name,
+and fills `{{1}}` name, `{{2}}` topic, `{{3}}` "shortly". Off WhatsApp the same words go as the one
+SMS or email; a call follow-up is never freeform.
+
+Whether a number is on WhatsApp is a `WhatsAppPresence` source: the door's is the scenario seed
+alone (`seed.whatsapp`); the live intake's reads the inbound WhatsApp messages the business holds.
+
+### The old inputs, behind one switch
+
+`COMMS_V2_INTAKE` (`channels/intake.ts`). Off (unset, 0, false): nothing runs and nothing old
+changes. On (1, true, on, yes): each old entry point also forwards its raw event here, fire and
+forget, and the matching adapter hands the turn to the channel gateway; the old handler still runs.
+The forwarding call is the one edit in old code: server/whatsapp-api.ts `/incoming` (Twilio, WhatsApp
+and SMS), server/meta-whatsapp.ts `/webhook`, server/leads.ts `POST /api/leads` (the web form), and
+server/call-logger.ts `finalizeCall` (a finished call; the call row is read for its outcome). The desk
+behind the intake runs in dry run on an in-memory store: everything up to delivery, nothing leaves.
+The cutover that turns the old handler off and this desk's delivery on is a later task.
+
+### Inbound email
+
+There is no inbound email today. `POST /api/comms-v2/email/inbound` (`channels/email-inbound.ts`,
+mounted by server/index.ts) accepts a provider's inbound-parse webhook. It is alive only with
+`COMMS_V2_INTAKE` on and `COMMS_V2_EMAIL_WEBHOOK_SECRET` set, and refuses a request whose
+`X-Comms-V2-Email-Secret` header does not carry that secret. Two bodies: the provider-neutral shape
+(`{ from, fromName?, subject?, text? | html?, messageId?, inReplyTo?, references?, attachments?: [{
+name?, contentType, content (base64) }] }`) or Postmark's inbound JSON as it ships. Provider
+configuration expected, none of it done here: an inbound domain or address routed to that URL with
+the secret in the header. Outbound replies use Resend (`RESEND_API_KEY`, from address
+`COMMS_V2_EMAIL_FROM`, default the bookings address) through the sender's live path, gated like every
+send.
 
 ## Driving the door
 
@@ -33,11 +84,19 @@ npm run comms-v2:door                 # serve the desk's sandbox door on a loopb
 npm run comms-v2:door -- --port 4747  # a fixed port
 ```
 
-Then over HTTP at the printed URL: `POST /start` (`{ door: 'whatsapp', text, name, seed }`, the seed
-being `customer: 'known'`, `prefersText`, `alreadyRung`, `facts`, `ledger`), `POST /message`
-(`{ text, channel: 'whatsapp' }`, or multipart with `media` files), `POST /run` (a clock pass),
-`POST /age` (`{ hours }`), `POST /reset`, `GET /` (the thread and the case file). Every response
-carries `plannedSend` and `state`; the planned send names the `approver`, always the desk's own.
+Then over HTTP at the printed URL: `POST /start` (`{ door, text, name, seed }`; the door is
+`whatsapp`, `sms`, `form` (with `postcode?`, `email?`), `email` (with `subject?`) or `call` (with
+`outcome: 'missed' | 'answered_inbound' | 'ben_rang'`, `transcript?`, `durationSeconds?`); the seed
+being `customer: 'known'`, `prefersText`, `alreadyRung`, `whatsapp: true | false` (the number is
+known to be on WhatsApp, or not), `facts`, `ledger`), `POST /message` (`{ text, channel: 'whatsapp'
+| 'sms' | 'email', subject? }`, or multipart with `media` files on whatsapp and email), `POST /call`
+(`{ transcript, outcome?, durationSeconds? }`: Ben rings them on the current thread), `POST /run` (a
+clock pass), `POST /age` (`{ hours }`), `POST /reset`, `GET /` (the thread and the case file). Every
+response carries `plannedSend` and `state`; an email turn adds `email` (the reply's subject and
+thread headers). The drama customer is one person on every door: the sandbox phone and the sandbox
+email (`sandbox-customer@example.invalid`) are linked, so a form, an SMS, an email and a call are
+one thread (channels/channel-doors.ts).
+
 The door has no session, so it has no answer action of its own: Ben's reply goes through the
 board's authenticated route, which only his approver slot may call.
 

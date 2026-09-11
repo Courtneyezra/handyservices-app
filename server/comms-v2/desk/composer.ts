@@ -16,6 +16,7 @@ import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
+import { composerChannelLines } from '../channels/composer-lines';
 
 export const composerOutputSchema = z.object({
     /** The one reply. A blank line separates bubbles. */
@@ -84,6 +85,7 @@ export function buildComposerUser(input: ComposeInput): string {
     const declined = file.facts.filter((f) => f.key === 'media_declined' && /true/i.test(f.value)).length ? ['media'] : [];
     const lines: string[] = [];
     lines.push(`Customer: ${party.name ?? 'unknown name'}. Stage: ${file.stage}. Prefers text only: ${party.prefersText ? 'yes' : 'no'}.`);
+    lines.push(...composerChannelLines(party, turn));
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
     lines.push(threadFor(file, turn));
     lines.push('');

@@ -77,13 +77,15 @@ describe('renderWhatsApp', () => {
         expect(typed.ok).toBe(true);
         expect(typed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things:\n- replace the washer\n- check the isolator valve', 'I will bring both.']);
     });
-    it('renders for WhatsApp only: SMS and email are refused, not guessed', () => {
+    it('renders per channel: WhatsApp bubbles, SMS one message, email one letter with a greeting and a sign-off', () => {
         expect(render('whatsapp', 'Hi Sam.').ok).toBe(true);
-        for (const channel of ['sms', 'email'] as const) {
-            const r = render(channel, 'Hi Sam.');
-            expect(r.ok).toBe(false);
-            if (!r.ok) { expect(r.reason).toBe('channel'); expect(r.bubbles).toEqual([]); }
-        }
+        const sms = render('sms', 'Hi Sam.\n\nWhereabouts are you?');
+        expect(sms.ok).toBe(true);
+        expect(sms.bubbles).toEqual([{ text: 'Hi Sam.\nWhereabouts are you?', gapMs: 0 }]);
+        const email = render('email', 'A leaking tap, no problem.\n\nWhereabouts are you?', { name: 'Sam Jones' });
+        expect(email.ok).toBe(true);
+        expect(email.bubbles).toHaveLength(1);
+        expect(email.bubbles[0].text).toBe('Hi Sam,\n\nA leaking tap, no problem.\n\nWhereabouts are you?\n\nThanks,\nBen\nHandy Services');
     });
 });
 

@@ -42,6 +42,8 @@ export interface PartyChannel {
     lastInboundAt: string | null;
     /** WhatsApp only: the sender the customer last wrote to, so the reply goes back the same way. Null: not yet known, Twilio is assumed. */
     transport?: WhatsAppTransport | null;
+    /** Email only: the thread the customer wrote on, so the reply stays on it (channels/email-adapter.ts). */
+    thread?: { subject: string | null; messageId: string | null; references: string[] } | null;
 }
 
 export interface Party {

@@ -442,6 +442,26 @@ Deferred to Goal 3 because they need a second channel: 1.2 the web form acknowle
 post-call template, 1.4 replying on SMS and moving them to WhatsApp, 1.5 not asking a caller
 whether we may call.
 
+### Goal 3's stop condition, line by line
+
+The remaining Stage 1 lines and all of Stage 3, each through its own door on the desk's sandbox
+(server/comms-v2/README.md, "Driving the door"). Built under `server/comms-v2/channels/`.
+
+| # | Expected | How it is met |
+|---|---|---|
+| 1.2 | The web form acknowledgement carries the enquiry's context. | The form door. The number on WhatsApp: the approved web form template quoting the enquiry. Not on it: the composer's freeform reply on SMS, then email. |
+| 1.3 | The post-call template opens WhatsApp with the name and context from the call. | The call door, outcome `ben_rang`. The post-call template with `{{1}}` the name and `{{2}}` the job phrase the reader took from the transcript. No approved post-call template on the account holds the follow-up for Ben with its words as the draft, never an SMS fallback (answer 34). Off WhatsApp the same words go on SMS. |
+| 1.4 | Inbound SMS gets a reply on SMS that tries to move them to WhatsApp. | The SMS door. One message of at most two segments, carrying the fixed `move_to_whatsapp` line once. |
+| 1.5 | A customer who already rang is not asked whether we may call. | The call door, outcome `missed` or `answered_inbound`, marks the party as having rung; `offer_call` refuses from then on. |
+| 3.1 | The call offer never blocks; they can carry on by message. | Unchanged from Goal 1 on every channel: the offer is a sentence, never a gate. |
+| 3.2 | After Ben's outbound call the thread continues and collects what he asked for. | The reader records what Ben asked for and puts it on the ask ledger after the follow-up; the next turn's photos are thanked once and scoping continues from the file. |
+| 3.3 | The assistant sees enough of the call to know what Ben asked for. | The transcript is a turn on the file and `ben_asked_for` a fact with that turn as its source; the follow-up names the job. |
+| 3.4 | An earlier "yes please call me" does not send the thread back to Ben after the call. | A callback is not an exception the desk holds on; the call turn settles the `handoff` ask and raises no hold. |
+| 3.5 | A missed call gets one text back; an answered inbound call gets no acknowledgement. | The call door: `missed` sends the missed-call template (or its words on SMS) once; `answered_inbound` reads the transcript for facts and sends nothing. |
+
+The old inputs forward into the new gateway behind `COMMS_V2_INTAKE` (off by default; the old
+handler still runs); inbound email is new, a webhook under the new code; see the README.
+
 ---
 
 A clean-sheet design in the reference's format. The settled decisions are the captain's recorded

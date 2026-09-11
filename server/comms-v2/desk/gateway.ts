@@ -37,9 +37,9 @@ export class Gateway {
     readonly identity: Identity;
     readonly store: CaseFileStore;
     readonly desk: DeskLike;
-    private readonly now: () => Date;
-    private readonly newId: (prefix: string) => string;
-    private readonly log: (line: string) => void;
+    protected readonly now: () => Date;
+    protected readonly newId: (prefix: string) => string;
+    protected readonly log: (line: string) => void;
 
     constructor(deps: GatewayDeps) {
         this.identity = deps.identity ?? new Identity();
@@ -50,7 +50,7 @@ export class Gateway {
         this.log = deps.log ?? (() => undefined);
     }
 
-    private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.newId }; }
+    protected fileDeps(): CaseFileDeps { return { now: this.now, newId: this.newId }; }
 
     /** A customer WhatsApp turn: identity, the one file, then the desk. */
     async inbound(turn: InboundTurn, seed: SeedInput = {}): Promise<InboundOutcome> {
@@ -110,7 +110,7 @@ export class Gateway {
     }
 
     /** The door's seed (POST /start), honoured as facts and ledger rows on the file. */
-    private applySeed(file: CaseFile, seed: SeedInput): void {
+    protected applySeed(file: CaseFile, seed: SeedInput): void {
         const by = 'seed';
         const deps = this.fileDeps();
         const source = (note: string) => ({ kind: 'seed' as const, note });

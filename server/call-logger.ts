@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { broadcastToClients } from "./index";
 import { extractJobSummary } from "./openai";
+import { forwardToCommsV2 } from './comms-v2/channels/intake';
 
 /**
  * Helper module for call logging operations
@@ -272,6 +273,9 @@ export async function finalizeCall(
     });
 
     console.log(`[CallLogger] Finalized call record ${callRecordId}`);
+
+    // comms-v2 (Goal 3): the finished call also reaches the new desk's gateway behind COMMS_V2_INTAKE; off by default, never blocks.
+    forwardToCommsV2({ kind: 'call_finished', callRecordId });
 
     // --- COMMS BOARD: the call becomes thread activity ---
     //

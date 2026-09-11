@@ -26,6 +26,8 @@ import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
+import { channelFixedLines } from '../channels/channel-lines';
+import { templateChoiceFor } from '../channels/templates';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -125,6 +127,7 @@ export class Desk implements DeskLike {
                     this.holdFor(file, exception, `${exception}: ${route.belts.money ?? turn.body.slice(0, 80)}`);
                 }
                 if (route.subjects.includes('scheduling')) fixedLines.push(await fixedLine('dates_with_quote', this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
                 if (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready') {
                     scoping.proposal.nextQuestion = null;
@@ -171,24 +174,25 @@ export class Desk implements DeskLike {
         }
 
         // 6. Channel, window, render, template.
-        const choice = chooseChannel(party, turn.channel);
+        const choice = chooseChannel(party, turn.channel, this.now());
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
-        let rendered = render(choice.channel, reply!);
+        let rendered = render(choice.channel, reply!, { name: party.name });
         if (!rendered.ok && rendered.reason === 'ceiling' && !(exception && FIXED_LINE_ONLY.has(exception))) {
             const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: { previous: reply!, bubbles: rendered.bubbles.length, ceiling: BUBBLE_CEILING } }, this.client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {
                 const g3 = runGuards(guardInput(shorter.output.reply, shorter.output.factIds));
-                const r3 = render(choice.channel, shorter.output.reply);
+                const r3 = render(choice.channel, shorter.output.reply, { name: party.name });
                 if (g3.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; guards = g3; rendered = r3; }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten` : rendered.reason === 'channel' ? `no render for ${choice.channel}: the desk replies on WhatsApp only` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
+        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : rendered.reason === 'channel' ? `no render for ${choice.channel}` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let template: TemplateSend | null = null;
         if (window.state === 'shut') {
-            const pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? turn.body.slice(0, 60) }, this.deps.templates ?? liveTemplateStatus);
+            const tmpl = templateChoiceFor(file, turn);
+            const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
                 setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
@@ -221,9 +225,9 @@ export class Desk implements DeskLike {
         if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: why, draft, failures: failed?.failures ?? [] }, this.fileDeps());
         const line = await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null });
-        const choice = chooseChannel(party, turn.channel);
+        const choice = chooseChannel(party, turn.channel, this.now());
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
-        const rendered = choice.ok ? render(choice.channel, line.text) : null;
+        const rendered = choice.ok ? render(choice.channel, line.text, { name: party.name }) : null;
         const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
         if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
         const bubbles: RenderedBubble[] = rendered.bubbles;
@@ -241,7 +245,7 @@ export class Desk implements DeskLike {
         for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(reply, subject)) ledgerAsk(file, subject, deps);
         if (proposal?.nextQuestion && reply.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
         if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(reply)) ledgerAsk(file, 'media', deps);
-        if (proposal?.thankForMedia && /\b(?:thank|cheers|ta)\b/i.test(reply)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
+        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(reply)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
         if (offersCall(reply)) party.callOffered = true;
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
     }
