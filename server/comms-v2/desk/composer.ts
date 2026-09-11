@@ -127,7 +127,7 @@ export async function compose(input: ComposeInput, client: ModelClient): Promise
         // Only facts that are on the file count as cited; a made-up id is dropped, never recorded.
         const known = new Set(input.file.facts.map((f) => f.id));
         res.output.factIds = Array.from(new Set(res.output.factIds.filter((id) => known.has(id))));
-        res.output.reply = res.output.reply.replace(/—|–/g, '-').trim();
+        res.output.reply = res.output.reply.replace(/\u2014|\u2013/g, '-').trim();
     }
     return res;
 }
