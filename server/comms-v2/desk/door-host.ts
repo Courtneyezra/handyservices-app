@@ -6,10 +6,10 @@
  * pipeline's end-to-end test step, a script, or Ben's sandbox can drive it over HTTP: POST /start,
  * /message, /run, /age, /reset, GET /.
  *
- * It connects only to the Neon branch named by COMMS_V2_DATABASE_URL (server/comms-v2/env.ts
- * also reads the old judge-era name for one release): it refuses to open without it, refuses a
- * value that names the production database, and never reads DATABASE_URL, so a production .env
- * cannot be driven by mistake. The machine-local env is loaded first, without overriding anything.
+ * It connects only to the Neon branch named by COMMS_V2_DATABASE_URL: it refuses to open without
+ * it, refuses a value that names the production database, and never reads DATABASE_URL, so a
+ * production .env cannot be driven by mistake. The machine-local env is loaded first, without
+ * overriding anything.
  *
  * Nothing here reports a variable's value: a host carries its address only.
  */

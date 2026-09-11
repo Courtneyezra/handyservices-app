@@ -6,9 +6,9 @@
  *   npm run comms-v2:door -- --port 4747  a fixed port
  *
  * Environment: the worktree's .env first (never overriding the shell), then the machine-local
- * file at $HOME/.config/handyservices/comms-v2.env, which fills only what is still unset. The
- * door connects only to the branch named by COMMS_V2_DATABASE_URL (or the old
- * COMMS_V2_JUDGE_DATABASE_URL for one release) and refuses production; DATABASE_URL is never
+ * file at $HOME/.config/handyservices/comms-v2.env, from which only COMMS_V2_DATABASE_URL,
+ * ANTHROPIC_API_KEY and GEMINI_API_KEY are taken, and only when still unset. The door connects
+ * only to the branch named by COMMS_V2_DATABASE_URL and refuses production; DATABASE_URL is never
  * read. No variable's value is printed: only names, the address and the exit reason.
  */
 import 'dotenv/config';
@@ -31,7 +31,7 @@ function parseArgs(argv: readonly string[]): { port: number } {
 export async function main(argv: readonly string[]): Promise<number> {
     const args = parseArgs(argv);
     const loaded = loadCommsV2Env();
-    console.log(loaded.found ? `machine env: ${loaded.path} (set ${loaded.loaded.length}, kept ${loaded.kept.length}, refused ${loaded.refused.join(', ') || 'none'})` : `machine env: none at ${loaded.path}`);
+    console.log(loaded.found ? `machine env: ${loaded.path} (set ${loaded.loaded.length}, kept ${loaded.kept.length}, ignored ${loaded.ignored.join(', ') || 'none'})` : `machine env: none at ${loaded.path}`);
     let host;
     try {
         host = await openDoorHost({ port: args.port, loadMachineEnv: false });

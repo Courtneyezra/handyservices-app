@@ -45,17 +45,15 @@ the PR. See docs/comms-v2/contracts.md, "Validation".
 
 ## Environment
 
-The door needs the branch database string and the model keys (Anthropic, OpenAI, Gemini). They
-may live in one more place on this machine so the pipeline's test step can drive the desk live: a
-machine-local file at `$HOME/.config/handyservices/comms-v2.env` (mode 600), in dotenv form.
-`server/comms-v2/env.ts` loads it before the door and the desk's tests run, filling only the
-variables the process does not already have; it never prints, logs or commits a value, and it
-never takes `DATABASE_URL`, `COMMS_WORKER` or `NODE_ENV` from the file.
+The door needs the branch database string and the model keys. They may live in one more place on
+this machine so the pipeline's test step can drive the desk live: a machine-local file at
+`$HOME/.config/handyservices/comms-v2.env` (mode 600), in dotenv form. `server/comms-v2/env.ts`
+loads it before the door and the desk's tests run and takes exactly three names from it:
+`COMMS_V2_DATABASE_URL`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. It fills only the variables the
+process does not already have, ignores every other name in the file (the door logs the ignored
+names, never a value), and never prints, logs or commits a value.
 
 The desk's one database variable is `COMMS_V2_DATABASE_URL` (a Neon branch, never production).
-It was `COMMS_V2_JUDGE_DATABASE_URL` while the judge existed; both names are read for one release,
-the new one winning when both are set, so a machine-local file still carrying the old name keeps
-working. Rename the key in that file at leisure; the old name goes in the release after this one.
 
 ## Tests
 
