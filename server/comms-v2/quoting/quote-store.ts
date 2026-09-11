@@ -13,8 +13,11 @@
  *   addPhotos     a photo that arrives after the draft joins it, so Ben's screen shows it
  *   deleteSandbox the sandbox's own rows on the reserved number, for /reset
  *
- * The live store imports the database on first use, so a test with a memory store opens nothing.
+ * The live store imports the database on first use, so a test with a memory store opens nothing -
+ * and it opens nothing at all unless the database in use is the branch COMMS_V2_DATABASE_URL names
+ * (live-database.ts), so the sandbox door mounted on the deployed server cannot write a real quote.
  */
+import { assertCommsV2Database, commsV2Db } from '../live-database';
 import type { QuoteRowLike } from './quote-record';
 
 export interface DraftInsert {
@@ -53,6 +56,9 @@ const QUOTE_COLUMNS = {
     depositPaidAt: true, expiresAt: true, createdAt: true, basePrice: true, depositAmountPence: true, pricingLineItems: true, pricingSuggestions: true, customerPhotoUrls: true,
 } as const;
 
+/** Who the database refusal names when this store is the one that asked (live-database.ts). */
+const READER = "the Quoting tool server's quote store";
+
 /** The desk's own marker on the rows it creates, so the sandbox can find and remove them. */
 export const CREATED_BY = 'comms_v2:quoting';
 export const CREATED_BY_NAME = 'Comms desk (v2)';
@@ -60,7 +66,7 @@ export const SOURCE_CHANNEL = 'comms_v2';
 
 export const liveQuoteStore: QuoteStore = {
     async read(slug) {
-        const { db } = await import('../../db');
+        const db = await commsV2Db(READER);
         const { personalizedQuotes } = await import('@shared/schema');
         const { eq } = await import('drizzle-orm');
         const cols = Object.fromEntries(Object.keys(QUOTE_COLUMNS).map((k) => [k, (personalizedQuotes as any)[k]]));
@@ -69,13 +75,14 @@ export const liveQuoteStore: QuoteStore = {
     },
 
     async insertDraft(row) {
-        const { db } = await import('../../db');
+        const db = await commsV2Db(READER);
         const { personalizedQuotes } = await import('@shared/schema');
         await db.insert(personalizedQuotes).values({ ...row, createdAt: new Date() } as any);
         return { id: row.id, slug: row.shortSlug };
     },
 
     async price(slug, input) {
+        assertCommsV2Database(READER);
         const { loadPriceScreen, confirmPrices } = await import('../../spine/price-screen');
         const loaded = await loadPriceScreen(slug);
         if (!loaded.available) return { ok: false, status: loaded.status, reason: loaded.reason };
@@ -107,7 +114,7 @@ export const liveQuoteStore: QuoteStore = {
         const row = await this.read(slug);
         if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
         if (row.isDraft === false) return { ok: false, status: 409, reason: `quote ${slug} is already with the customer` };
-        const { db } = await import('../../db');
+        const db = await commsV2Db(READER);
         const { personalizedQuotes } = await import('@shared/schema');
         const { and, eq } = await import('drizzle-orm');
         const updated = await db.update(personalizedQuotes).set({ isDraft: false } as any)
@@ -127,7 +134,7 @@ export const liveQuoteStore: QuoteStore = {
         try { const { getPricingSettings } = await import('../../pricing-settings'); depositPercent = Number((await getPricingSettings() as any).depositPercent ?? depositPercent); } catch { /* the shared default */ }
         const { depositFor } = await import('@shared/pricing-settings');
         const depositPence = row.depositAmountPence && row.depositAmountPence > 0 ? row.depositAmountPence : depositFor(total, 0, depositPercent);
-        const { db } = await import('../../db');
+        const db = await commsV2Db(READER);
         const { personalizedQuotes } = await import('@shared/schema');
         const { eq } = await import('drizzle-orm');
         await db.update(personalizedQuotes).set({ depositPaidAt: now, depositAmountPence: depositPence, paymentType: 'deposit', selectedAt: now } as any).where(eq(personalizedQuotes.id, row.id));
@@ -140,14 +147,14 @@ export const liveQuoteStore: QuoteStore = {
         if (!row || row.isDraft === false) return;
         const existing = Array.isArray(row.customerPhotoUrls) ? (row.customerPhotoUrls as string[]) : [];
         const next = Array.from(new Set([...existing, ...urls]));
-        const { db } = await import('../../db');
+        const db = await commsV2Db(READER);
         const { personalizedQuotes } = await import('@shared/schema');
         const { eq } = await import('drizzle-orm');
         await db.update(personalizedQuotes).set({ customerPhotoUrls: next } as any).where(eq(personalizedQuotes.id, row.id));
     },
 
     async deleteSandbox(phoneE164) {
-        const { db } = await import('../../db');
+        const db = await commsV2Db(READER);
         const { sql } = await import('drizzle-orm');
         const digits = phoneE164.replace(/\D/g, '');
         const found: any = await db.execute(sql`select id, short_slug from personalized_quotes where created_by = ${CREATED_BY} and regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') = ${digits}`);
@@ -210,7 +217,21 @@ export class MemoryQuoteStore implements QuoteStore {
         const quoteUrl = `${base}/quote/${slug}`;
         const first = String(row.customerName ?? 'there').split(/\s+/)[0];
         const job = items.map((l) => l.label).join(', ');
-        return { ok: true, totals: { totalPence, depositPence, materialsPence, labourPence: totalPence - materialsPence }, message: `Hi ${first}, your quote for the ${job} is ready. Have a look and pick a date that suits: ${quoteUrl}`, quoteUrl, lines: finals.map((f) => ({ lineId: f.lineId, label: items.find((l) => l.lineId === f.lineId)?.label ?? f.lineId, finalPence: f.finalPence })) };
+        // The words the price screen actually drafts (server/spine/price-brief.ts
+        // draftCustomerMessage): on a thread with photos they open "thanks for the photos and the
+        // details", which the desk has usually already said. A fake that wrote its own message
+        // could not fail on that, so it writes this one.
+        const photos = Array.isArray(row.customerPhotoUrls) && (row.customerPhotoUrls as string[]).length > 0;
+        const thanks = photos ? 'thanks for the photos and the details.' : 'thanks for the details.';
+        const message = [
+            `Hi ${first}, ${thanks}`,
+            `Your quote for ${job} is ready, link below.`,
+            'It is itemised so you can see exactly what is included, and you can pick a date that suits you on the same page.',
+            'Any questions, just reply here.',
+            '',
+            quoteUrl,
+        ].join('\n');
+        return { ok: true, totals: { totalPence, depositPence, materialsPence, labourPence: totalPence - materialsPence }, message, quoteUrl, lines: finals.map((f) => ({ lineId: f.lineId, label: items.find((l) => l.lineId === f.lineId)?.label ?? f.lineId, finalPence: f.finalPence })) };
     }
 
     async markSent(slug: string): Promise<MarkSentOutcome> {

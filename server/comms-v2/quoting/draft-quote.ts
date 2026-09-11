@@ -18,6 +18,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { CaseFile, ModelCallRecord, Party } from '../desk/case-file';
+import { assertCommsV2Database } from '../live-database';
 import { CREATED_BY, CREATED_BY_NAME, SOURCE_CHANNEL, type DraftInsert, type QuoteStore } from './quote-store';
 
 export const CUSTOMER_TYPES = ['homeowner', 'landlord', 'letting_agent', 'business'] as const;
@@ -106,6 +107,9 @@ export function threadMediaOf(file: CaseFile): Array<{ id: string; url: string; 
 export function chainDrafter(store: QuoteStore): Drafter {
     return {
         async draft({ file, party, intake, now }) {
+            // Outside the catch below: the chain runs the estimator and the pricing engine against
+            // the database, so a wrong database is refused loudly rather than becoming a reason.
+            assertCommsV2Database('the Quoting tool server\'s draft chain');
             const log: string[] = [];
             const calls: ModelCallRecord[] = [];
             try {

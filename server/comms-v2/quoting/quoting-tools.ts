@@ -25,6 +25,7 @@ import { mediaDeclined, mediaReceived } from '../desk/scoping-tools';
 import { acceptedNotice, chaseNotice, liveNotifier, readyToPriceNotice, type BenNotice, type BenNotifier } from './ben-notifier';
 import { chainDrafter, type DraftIntake, type DraftOutcome, type Drafter } from './draft-quote';
 import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factOnce, factsWithPrefix, figureLabels, newestFact, pounds, quoteLiveForFigures, quoteRecordOf, quoteSource, quoteUrlFor, readQuoteLine, readQuoteScope, type QuoteRecord, type QuoteStatus } from './quote-record';
+import { assertCommsV2Database } from '../live-database';
 import { liveQuoteStore, type PriceInput, type QuoteStore } from './quote-store';
 
 export interface QuotingDeps extends CaseFileDeps {
@@ -86,6 +87,8 @@ export interface PriceBook {
 /** The catalogue matcher the pricing engine already uses (server/contextual-pricing/sku-matcher.ts), loaded on first use. */
 export const livePriceBook: PriceBook = {
     async lookup(description, category) {
+        // Outside the catch: a catalogue miss is null, a wrong database is a refusal.
+        assertCommsV2Database('the Quoting tool server\'s price book');
         try {
             const { matchLineToSku } = await import('../../contextual-pricing/sku-matcher');
             const m = await matchLineToSku({ description, ...(category ? { category } : {}) });

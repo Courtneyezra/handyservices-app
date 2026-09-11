@@ -15,6 +15,7 @@
 import { askedUnanswered, everAsked, factFor, isReady, ledgerEntry, type CaseFile, type ModelCallRecord, type Party, type Turn } from './case-file';
 import { parseLocation, regulatedMatch, type LocationParse } from './lexicon';
 import { recordFromUsage } from './models';
+import { assertCommsV2Database } from '../live-database';
 
 // ---------------------------------------------------------------- describe_media
 
@@ -129,6 +130,8 @@ export interface KbReader { list(): Promise<Array<{ id: string; topic: string; a
 /** The reviewed-only helper, loaded on first use: it opens the database. */
 export const reviewedKb: KbReader = {
     async list() {
+        // Outside the catch: an empty knowledge base is [], a wrong database is a refusal (live-database.ts).
+        assertCommsV2Database("the desk's knowledge-base reader");
         try {
             const { listReviewedEntries } = await import('../../spine/knowledge-base');
             return (await listReviewedEntries()).map((e) => ({ id: e.id, topic: e.topic, approvedWords: e.approvedWords }));

@@ -10,6 +10,8 @@
  * The rest are Goal 1's: money goes to Ben (checklist 2.7), dates come with the quote (2.6), and
  * the acknowledgement a guard hold sends (Contract 4, second failure).
  */
+import { assertCommsV2Database } from '../live-database';
+
 export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'held_ack';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
@@ -33,6 +35,8 @@ export interface FixedLineSource {
 /** The knowledge base, read through its reviewed-only helper. Loaded on first use: it opens the database. */
 export const knowledgeBaseFixedLines: FixedLineSource = {
     async reviewed(kind) {
+        // Outside the catch: no reviewed row is null, a wrong database is a refusal (live-database.ts).
+        assertCommsV2Database("the desk's fixed-line reader");
         try {
             const { getFixedLine } = await import('../../spine/knowledge-base');
             const e = await getFixedLine(kind);
