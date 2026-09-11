@@ -124,10 +124,17 @@ export function fakeProse(seed: string, kind: ProseKind, parts: string[], ctx: P
             : NOTE_LINES;
 
     const out: string[] = [];
+    const used = new Set<string>();
     let n = 0;
     while (out.join(' ').length < target && n < 12) {
-        const line = pool[digest(seed, 'line', String(n), ...key) % pool.length];
-        out.push(fill(line, seed, key));
+        // Step forward on a collision rather than repeating a sentence: the pools are small, and
+        // a body that says the same thing twice reads as generated the moment anyone looks at it.
+        let at = digest(seed, 'line', String(n), ...key) % pool.length;
+        for (let probe = 0; probe < pool.length && used.size < pool.length && used.has(pool[at]); probe += 1) {
+            at = (at + 1) % pool.length;
+        }
+        used.add(pool[at]);
+        out.push(fill(pool[at], seed, key));
         n += 1;
     }
     let text = out.join(' ');
