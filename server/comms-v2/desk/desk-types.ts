@@ -3,6 +3,7 @@
  * gateway and its tests do not import the models.
  */
 import type { CaseFile, Turn, ModelCallRecord, RenderedBubble, Hold } from './case-file';
+import type { HoldException } from './router';
 
 export type GuardName = 'figure' | 'date_time_duration' | 'commitment_fault' | 'business_claim' | 'disclosure' | 'one_reply' | 'ask_ledger' | 'regulated';
 
@@ -37,6 +38,8 @@ export interface DeskResult {
     /** The outbound turn id the reply landed as, when it did. */
     landedTurnId: string | null;
     composerCalls: number;
+    /** A clock pass only: what the desk did about an approver who has not acted (server/comms-v2/service/chase.ts). */
+    chase?: import('../service/chase').ChaseOutcome | null;
 }
 
 export interface DeskLike {
@@ -55,16 +58,18 @@ export interface Proposal {
     mentionPhotos: boolean;
     thankForMedia: boolean;
     ready: boolean;
-    hold: { reason: 'regulated' | 'date_change' | 'date_unconfirmed'; match: string } | null;
+    hold: { reason: HoldException; match: string } | null;
 }
 
 export interface SpecialistReturn {
-    specialist: 'scoping' | 'scheduling';
+    specialist: 'scoping' | 'scheduling' | 'service';
     /** Ids of the facts this pass recorded on the file. */
     factIds: string[];
     proposal: Proposal;
-    /** Notes for the composer from a specialist other than Scoping: which fact to copy verbatim, what not to say. Never a sentence for the customer. */
-    brief?: string[];
     calls: ModelCallRecord[];
     error: string | null;
+    /** Notes for the composer from a specialist other than Scoping: which fact to copy verbatim, what not to say. Never a sentence for the customer. */
+    brief?: string[];
+    /** One line of evidence for the run summary. */
+    note?: string | null;
 }

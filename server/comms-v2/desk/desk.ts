@@ -1,17 +1,20 @@
 /**
  * The desk: one pipeline, one exit, for one customer turn.
  *
- *   route (Haiku) -> gather (the Scoping specialist and its tool server) -> compose (Fable 5.1)
- *   -> guards -> render -> window and template -> the one sender -> the send recorded on the file.
+ *   route (Haiku) -> gather (the routed specialists and their tool servers: Scoping, Service)
+ *   -> compose (Fable 5.1) -> guards -> render -> window and template -> the one sender -> the
+ *   send recorded on the file.
  *
- * Exceptions (Contract 3): money, callbacks and date changes hold for Ben and the reply still
- * answers the rest, saying Ben will come back on that. Complaints, refunds, trust doubts and gas:
- * one fixed line in Ben's words, no composer, and while the hold stands no specialist either:
- * each later turn gets the short acknowledgement that Ben will come back. A guard failure goes back to
- * the composer once, then holds with the fixed acknowledgement. A composer refusal or failure
- * takes the fixed acknowledgement, never a silent empty reply; so does a reply the sender refuses,
- * which live includes one of Ben's four fixed lines he has not yet reviewed. Never silent
- * otherwise; a clock pass never sends ("no chasing", "one acknowledgement, then quiet").
+ * Exceptions (Contract 3): money, callbacks, date changes, a question with no source and a change
+ * of details hold for Ben and the reply still answers the rest, saying Ben will come back on that.
+ * Complaints, refunds, trust doubts, gas and scoping that is not converging: one fixed line in
+ * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
+ * the short acknowledgement that Ben will come back. The vocabulary is server/comms-v2/service/
+ * hold-reasons.ts. A guard failure goes back to the composer once, then holds with the fixed
+ * acknowledgement. A composer refusal or failure takes the fixed acknowledgement, never a silent
+ * empty reply; so does a reply the sender refuses, which live includes one of Ben's four fixed
+ * lines he has not yet reviewed. Never silent otherwise; a clock pass never messages a customer
+ * ("no chasing", "one acknowledgement, then quiet"); it is where Ben is chased instead (7.5).
  */
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, noteOnHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
@@ -19,13 +22,16 @@ import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict, Proposal, SpecialistReturn } from './desk-types';
-import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
+import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { offersCall, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
-import type { Exception, Route } from './router';
+import type { HoldException, Route } from './router';
 import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
+import { chaseIfDue, type ChaseState } from '../service/chase';
+import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
+import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
@@ -38,12 +44,11 @@ export interface DeskDeps extends CaseFileDeps {
     kb?: KbReader;
     scoping?: ScopingDeps;
     scheduling?: SchedulingDeps;
+    service?: ServiceSpecialistDeps & { chase?: ChaseState };
     sender?: SenderDeps;
     mode?: 'dry_run' | 'live';
     log?: (line: string) => void;
 }
-
-const FIXED_LINE_ONLY: ReadonlySet<Exception> = new Set<Exception>(['complaint', 'refund', 'trust_doubt', 'regulated']);
 
 function passGuards(): Record<GuardName, GuardVerdict> {
     const v = (): GuardVerdict => ({ result: 'pass', note: null });
@@ -63,10 +68,15 @@ export class Desk implements DeskLike {
 
     private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.deps.newId }; }
 
-    /** A clock pass with no new message: the desk never chases, so nothing goes. */
+    /** A clock pass with no new message: the desk never chases a customer, so nothing goes to them; a held thread chases Ben (7.5). */
     async clockPass(file: CaseFile): Promise<DeskResult> {
         const party = file.parties[0];
-        return this.nothing(file, party.personId, `run_${randomUUID()}`, [], 'clock pass: no customer turn, nothing to reply to; the desk never chases');
+        const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], 'clock pass: no customer turn, nothing to reply to; the desk never chases a customer');
+        const chase = this.deps.service?.chase;
+        if (!chase || !file.hold) return { ...base, chase: null };
+        const outcome = await chaseIfDue(file, chase, { templates: this.deps.templates, sender: { ...this.deps.sender, now: this.now, newId: this.deps.newId }, mode: this.deps.mode ?? 'dry_run', now: this.now });
+        const note = outcome.action === 'none' ? `chase: ${outcome.reason}` : outcome.action === 'refused' ? `chase ${outcome.purpose} refused: ${outcome.reason}` : `${outcome.action === 'chased' ? 'Ben chased' : 'escalated to the owner'} by template ${outcome.send.templateId} (${outcome.send.runId})`;
+        return { ...base, note: `${base.note}; ${note}`, chase: outcome };
     }
 
     private nothing(file: CaseFile, partyId: string, runId: string, calls: ModelCallRecord[], note: string, decision: 'none' | 'hold' = 'none'): DeskResult {
@@ -103,30 +113,40 @@ export class Desk implements DeskLike {
         let factIds: string[] = [];
         const specialists: SpecialistReturn[] = [];
 
-        if (exception && FIXED_LINE_ONLY.has(exception)) {
-            const kind: FixedLineKind = exception === 'regulated' ? 'gas' : exception === 'trust_doubt' ? 'trust' : exception === 'refund' ? 'refund' : 'complaint';
-            const line = await fixedLine(kind, this.deps.fixedLines ?? knowledgeBaseFixedLines);
+        // A fixed-line hold, whoever raised it: one line in Ben's words, the hold, no composer.
+        const fixedLineHold = async (reason: HoldException, match: string) => {
+            const line = await fixedLine(FIXED_LINE_FOR[reason], this.deps.fixedLines ?? knowledgeBaseFixedLines);
             fixedLines.push(line);
             if (line.kbId) kbIds.push(line.kbId);
-            this.holdFor(file, exception, `${exception}: ${route.belts.regulated ?? turn.body.slice(0, 80)}`);
+            this.holdFor(file, reason, `${reason}: ${match}`);
             reply = line.text;
+        };
+        let fixedLineOnly = !!(exception && FIXED_LINE_ONLY.has(exception));
+        if (exception && FIXED_LINE_ONLY.has(exception)) {
+            await fixedLineHold(exception, route.belts.regulated ?? turn.body.slice(0, 80));
         } else {
-            // 3. Gather: the Scoping specialist and its tool server.
-            const scoping = await scope(file, turn, party, this.client, { ...this.deps.scoping, now: this.now });
-            calls.push(...scoping.calls);
-            specialists.push(scoping);
-            if (scoping.error) log(`scoping: ${scoping.error}`);
-            if (scoping.proposal.hold) {
-                const line = await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines);
-                fixedLines.push(line);
-                if (line.kbId) kbIds.push(line.kbId);
-                this.holdFor(file, 'regulated', `regulated: ${scoping.proposal.hold.match}`);
-                reply = line.text;
+            // 3. Gather: every routed specialist that exists. Scoping runs unless the turn is service only;
+            // Service runs its deterministic tools every turn and its model when routed here.
+            const scopingRan = route.subjects.includes('scoping') || !route.subjects.includes('service');
+            const scoping = scopingRan ? await scope(file, turn, party, this.client, { ...this.deps.scoping, now: this.now }) : null;
+            if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
+            const service = await serve(file, turn, party, this.client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service'), scopingRan });
+            calls.push(...service.calls);
+            specialists.push(service);
+            if (service.error) log(`service: ${service.error}`);
+            const holds = specialists.map((s) => s.proposal.hold).filter((h): h is NonNullable<typeof h> => !!h);
+            const fixedOnly = holds.find((h) => FIXED_LINE_ONLY.has(h.reason));
+            if (fixedOnly) {
+                fixedLineOnly = true;
+                await fixedLineHold(fixedOnly.reason, fixedOnly.match);
             } else {
-                if (exception === 'money') {
-                    const line = await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines);
-                    fixedLines.push(line);
-                    this.holdFor(file, exception, `${exception}: ${route.belts.money ?? turn.body.slice(0, 80)}`);
+                if (exception && ANSWER_THE_REST.has(exception)) {
+                    fixedLines.push(await fixedLine(FIXED_LINE_FOR[exception], this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    this.holdFor(file, exception, `${exception}: ${route.belts.money ?? route.belts.callback ?? turn.body.slice(0, 80)}`);
+                }
+                for (const h of holds.filter((x) => ANSWER_THE_REST.has(x.reason))) {
+                    fixedLines.push(await fixedLine(FIXED_LINE_FOR[h.reason], this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    this.holdFor(file, h.reason, `${h.reason}: ${h.match}`);
                 }
                 // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change holds for Ben and the reply still answers the rest.
                 // The router's date_change exception is passed in and stands in for a booking the desk cannot see: until a real booking reaches the case file, a request to move one must still reach Ben (checklist 5.5).
@@ -141,7 +161,8 @@ export class Desk implements DeskLike {
                 }
                 fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
-                if (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready') {
+                if (scoping && exception === 'callback') scoping.proposal.offerCall = false;
+                if (scoping && (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready')) {
                     scoping.proposal.nextQuestion = null;
                     scoping.proposal.mentionPhotos = false;
                     if (route.turnKind === 'not_ready') scoping.proposal.offerCall = false;
@@ -162,7 +183,7 @@ export class Desk implements DeskLike {
         const summary = summarise(route, specialists);
         // 5. Guards, with one retry to the composer.
         const kbRows = await this.kbRows(kbIds);
-        const proposedSubject = specialists[0]?.proposal.nextQuestion?.subject ?? null;
+        const proposedSubject = scopingProposal(specialists)?.nextQuestion?.subject ?? null;
         const lookedUp = specialists.flatMap((s) => s.factIds);
         const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, lookedUp, proposedSubject });
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
@@ -171,7 +192,7 @@ export class Desk implements DeskLike {
             return n > 1 ? { ok: false, guards: g.guards, failures: [...g.failures, `one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`] } : g;
         };
         let guards: GuardOutcome = withOneThing(runGuards(guardInput(reply!, factIds)), reply!);
-        if (!guards.ok && !(exception && FIXED_LINE_ONLY.has(exception)) && !specialists[0]?.proposal.hold) {
+        if (!guards.ok && !fixedLineOnly) {
             const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, this.client);
             calls.push(again.record);
             composerCalls++;
@@ -190,7 +211,7 @@ export class Desk implements DeskLike {
         const choice = chooseChannel(party, turn.channel, this.now());
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
         let rendered = render(choice.channel, reply!, { name: party.name });
-        if (!rendered.ok && rendered.reason === 'ceiling' && !(exception && FIXED_LINE_ONLY.has(exception))) {
+        if (!rendered.ok && rendered.reason === 'ceiling' && !fixedLineOnly) {
             const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, this.client);
             calls.push(shorter.record);
             composerCalls++;
@@ -221,7 +242,7 @@ export class Desk implements DeskLike {
         if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
         // 8. The ledger and the stage, from what the business itself said.
-        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : specialists[0]?.proposal ?? null, templateWording ? [] : fixedLines);
+        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : scopingProposal(specialists), templateWording ? [] : fixedLines);
         return {
             runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
@@ -229,8 +250,8 @@ export class Desk implements DeskLike {
         };
     }
 
-    private holdFor(file: CaseFile, exception: Exception | null, reason: string): void {
-        // One turn can raise two: a price and a date change in one message. Ben answers what his card names, so the second is added to it rather than dropped.
+    private holdFor(file: CaseFile, exception: HoldException | null, reason: string): void {
+        // One turn can raise two: a price and a call request in one message. Ben answers what his card names, so the second is added to it rather than dropped.
         if (file.hold) { noteOnHold(file, { reason }); return; }
         setHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
     }
@@ -251,7 +272,7 @@ export class Desk implements DeskLike {
         const bubbles: RenderedBubble[] = rendered.bubbles;
         const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
-        this.afterSend(file, partyId, line.text, specialists[0]?.proposal ?? null, [line]);
+        this.afterSend(file, partyId, line.text, scopingProposal(specialists), [line]);
         return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
     }
 
@@ -285,13 +306,22 @@ export class Desk implements DeskLike {
     }
 }
 
+/** The Scoping proposal, the one a reply's ledger and summary are written from; null when Scoping did not run on this turn. */
+function scopingProposal(specialists: SpecialistReturn[]): Proposal | null {
+    return specialists.find((s) => s.specialist === 'scoping')?.proposal ?? null;
+}
+
 /** One line of evidence: the route and the proposal behind a reply. */
 function summarise(route: Route, specialists: SpecialistReturn[]): string {
-    const p = specialists[0]?.proposal;
+    const p = scopingProposal(specialists);
     const bits = [`turn ${route.turnKind}`, `subjects ${route.subjects.join('+')}`, `exception ${route.exception ?? 'none'}`];
     if (p) bits.push(`ask ${p.nextQuestion ? `${p.nextQuestion.subject}${p.nextQuestion.unknowns.length ? ' (' + p.nextQuestion.unknowns.join(', ') + ')' : ''}` : 'none'}`, `call ${p.offerCall ? 'yes' : 'no'}`, `photos ${p.mentionPhotos ? 'mention' : p.thankForMedia ? 'thank' : 'no'}`, `ready ${p.ready ? 'yes' : 'no'}`);
-    if (specialists[0]?.error) bits.push(`specialist error: ${specialists[0].error}`);
-    for (const s of specialists.slice(1)) bits.push(`${s.specialist}: ${s.brief?.length ? s.brief.join(' | ') : 'nothing to add'}${s.error ? ` (error: ${s.error})` : ''}`);
+    for (const s of specialists) {
+        if (s.specialist === 'scoping') { if (s.error) bits.push(`specialist error: ${s.error}`); continue; }
+        // A specialist with a note of its own says it in one line; the rest are summarised by their brief.
+        bits.push(s.note ?? `${s.specialist}: ${s.brief?.length ? s.brief.join(' | ') : 'nothing to add'}`);
+        if (s.error) bits.push(`${s.specialist} error: ${s.error}`);
+    }
     if (route.error) bits.push(`router error: ${route.error}`);
     return bits.join('; ');
 }

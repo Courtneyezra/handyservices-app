@@ -23,6 +23,29 @@ export function moneyQuestionMatch(text: string): string | null {
     return m ? m[0] : null;
 }
 
+/** A customer asking for a call, or accepting one offered (checklist 7.2: a customer asking for a call goes to Ben). */
+export const RE_CALLBACK_REQUEST = new RegExp([
+    `\\b(?:can|could|would|will) (?:you|ben|someone|he) (?:just |please |)(?:give me a |)(?:call|ring|phone|bell)(?: me)?\\b`,
+    `\\b(?:please |just |)(?:call|ring|phone) me\\b`,
+    `\\bgive me a (?:quick |)(?:call|ring|bell|buzz)\\b`,
+    `\\b(?:yes|yeah|yep|sure|ok|okay|go on|fine|please do)[,!. ]+(?:please |do |)(?:call|ring|phone)\\b`,
+    `\\bi'?d (?:rather|prefer) (?:a |to |you )?(?:call|talk|speak|chat)\\b`,
+    `\\b(?:can|could|shall) (?:we|i) (?:talk|speak|chat) on the phone\\b`,
+    `\\ba (?:quick |)call (?:would be|is|might be) (?:easier|better|best|good|great)\\b`,
+    `\\b(?:a )?call (?:would be|is) (?:easier|better|best|good|great)\\b`,
+].join('|'), 'i');
+
+const RE_CALLBACK_NEGATION = /\b(?:don'?t|do not|no need to|no need for|rather not|not|never|please don'?t|without)\b(?:\s+\S+){0,3}\s*$/i;
+
+/** The callback belt: a request for a call outside a negated clause ("no need to call me" is not one). */
+export function callbackRequestMatch(text: string): string | null {
+    for (const s of sentencesOf(text)) for (const clause of clausesOf(s)) {
+        const m = RE_CALLBACK_REQUEST.exec(clause);
+        if (m && !RE_CALLBACK_NEGATION.test(clause.slice(0, m.index))) return m[0];
+    }
+    return null;
+}
+
 const MONTH = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const WEEKDAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)day';
 const WEEKDAY_ABBR = '(?:mon|tues?|weds?|thur?s?|fri|sat|sun)';

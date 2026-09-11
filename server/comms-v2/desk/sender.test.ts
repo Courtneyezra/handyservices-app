@@ -249,9 +249,23 @@ describe('send', () => {
         expect(delivered).toBe(2);
         expect((await send(input(file, party, { runId: 'r3', fixedLines: [defaultGas] }), { now: at('2026-09-11T11:00:03.000Z') })).ok).toBe(true);
     });
-    it('initiate exists and is unused in Goal 1', async () => {
+    it('initiate is template only, to an approver: refuses no approver, no run id, no address, an unapproved template, a spent run id; never lands on the thread', async () => {
         const { file } = fixture();
-        expect((await initiate({ file, partyId: 'p1', purpose: 'service_reply', runId: 'r', approver: 'agent.comms_v2' })).ok).toBe(false);
+        const template = { name: 'desk_approver_chase_v1', language: 'en_GB', body: 'Hi {{1}}, a thread is waiting: {{2}}.', variables: { '1': 'Ben', '2': 'a complaint' } };
+        const to = { address: '+447700900901', name: 'Ben' };
+        const approved = { async approved(name: string) { return name === template.name ? { contentSid: 'HX1' } : null; } };
+        const base = { file, to, purpose: 'approver_chase' as const, template, runId: 'c1', approver: 'agent.comms_v2' as const, mode: 'dry_run' as const };
+        expect(await initiate({ ...base, approver: '' as any }, { templates: approved })).toMatchObject({ ok: false, reason: 'no approver' });
+        expect(await initiate({ ...base, runId: '' }, { templates: approved })).toMatchObject({ ok: false, reason: 'no run id' });
+        expect((await initiate({ ...base, to: { address: '', name: 'Ben' } }, { templates: approved }) as any).reason).toMatch(/no address/);
+        expect((await initiate(base, { templates: noTemplateApproved }) as any).reason).toMatch(/not approved/);
+        const ok = await initiate(base, { templates: approved, now: at('2026-09-11T11:00:00.000Z') });
+        expect(ok.ok).toBe(true);
+        if (ok.ok) expect(ok.send).toMatchObject({ runId: 'c1', approver: 'agent.comms_v2', templateId: template.name, contentSid: 'HX1', body: 'Hi Ben, a thread is waiting: a complaint.', to });
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        expect(file.sends).toHaveLength(0);
+        expect(file.sentRunIds).toContain('c1');
+        expect((await initiate(base, { templates: approved }) as any).reason).toMatch(/already sent/);
     });
 });
 
