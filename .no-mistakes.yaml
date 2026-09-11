@@ -46,3 +46,10 @@ test:
     Evidence is screenshots of the sandbox thread and the sandbox data pages only; never
     screenshot another admin list or page, and never attach the server log. If the log matters,
     cite its line numbers in the PR text. Stop the dev server when done.
+
+    Report only scenarios you drove live against the running app in this run copy: the direnv
+    environment check, the boot on the per-run port, Ben's login, the sandbox thread, the comms-v2
+    door and its refusals. A scenario is "pass" only when it was driven live. Anything you did not
+    drive live (a vitest run, a YAML parse, a static check, reading the code) is never a scenario
+    marked pass: leave it out, or record it as not live-validated with the reason. The pipeline
+    refuses a pass that was not driven live and fails the whole step.
