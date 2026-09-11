@@ -5,7 +5,8 @@
  * holds for Ben (7.2); a held thread still hears an acknowledgement on every turn (7.3); Ben's
  * reply from any surface releases the hold and the next customer turn is routed as normal (7.4);
  * scoping that is not converging goes to Ben on its fixed line with no composer and lets the thread
- * go again once he has replied; a clock pass chases Ben, then the owner, and Ben's reply clears it
+ * go again once he has replied, while a facts-and-aftercare thread with no job on it is answered
+ * turn after turn and never handed over; a clock pass chases Ben, then the owner, and Ben's reply clears it
  * (7.5). No customer send on a clock pass. A held thread that turns to gas is still not left silent,
  * and a turn the router sends to Service alongside another subject is still scoped. A graver reason
  * takes over a hold that answers the rest, and a guard retry that drops a citation is not recorded
@@ -174,6 +175,21 @@ describe('the Service specialist on the desk', () => {
         if (again.kind !== 'handled') throw new Error(again.kind);
         expect(again.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
         expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(composerCalls);
+    });
+    it('a facts-and-aftercare thread with no job on it is never handed over as scoping: seven answered questions, no hold', async () => {
+        const { gateway } = desk({
+            router: () => route({ subjects: ['service'], turnKind: 'question' }),
+            specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }] }) : scopingOut(),
+            composer: ({ user }) => ({ reply: INSURED, factIds: [/\(fact (fact_[^)]+)\)/.exec(user)![1]], kbIds: ['kb-insured'] }),
+        });
+        for (let i = 0; i < 7; i++) {
+            const out = await gateway.inbound(turn('And are you insured?', `2026-09-11T10:${String(i).padStart(2, '0')}:00.000Z`));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.decision).toBe('send');
+            expect(out.result.bubbles[0].text).toBe(INSURED);
+            expect(out.file.hold).toBeNull();
+            expect(out.file.job.type).toBeNull();
+        }
     });
     it('a held thread the customer then turns to gas is still not left silent: it hears the gas line (7.3)', async () => {
         const { gateway } = desk({

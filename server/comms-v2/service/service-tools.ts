@@ -12,13 +12,14 @@
  *                      the file whose source is the customer record. Never another customer's.
  *   change_of_details  records a requested change as a fact and raises a hold for Ben; it never
  *                      writes the customer record itself.
- *   convergence        whether scoping is converging: a thread that has asked about the job the
- *                      maximum number of times with no job type, or has replied many times without
- *                      becoming ready, goes to Ben (checklist 7.1).
+ *   convergence        whether scoping is converging: a thread being scoped that has asked about
+ *                      the job the maximum number of times with no job type, or has replied many
+ *                      times without becoming ready, goes to Ben (checklist 7.1). A thread with no
+ *                      job on it that nobody is scoping has nothing to converge: it never holds.
  *
  * The hold reasons this server can raise are the vocabulary in hold-reasons.ts.
  */
-import { isReady, ledgerEntry, recordFact, type CaseFile, type CaseFileDeps, type Fact, type Party } from '../desk/case-file';
+import { everAsked, isReady, ledgerEntry, recordFact, type CaseFile, type CaseFileDeps, type Fact, type Party } from '../desk/case-file';
 import { e164Of } from '../desk/identity';
 import { RE_FIGURE } from '../desk/lexicon';
 import { reviewedKb, type KbReader } from '../desk/scoping-tools';
@@ -125,17 +126,21 @@ export interface Convergence { converging: boolean; why: string | null; replies:
 /**
  * Scoping that is not converging goes to Ben (checklist 7.1): the desk has asked about the job
  * JOB_ASKS_MAX times and still has no job type, or has replied SCOPING_REPLIES_MAX times, and the
- * file is still not ready. A ready file, or one past scoping, always converges. Both the asks and
- * the replies are counted since the last release, not for all time, because a thread a human has
+ * file is still not ready. A ready file, or one past scoping, always converges, and so does a
+ * thread nothing is scoping: the replies only count when the turn was routed to the Scoper, the
+ * job has been asked, or the file already holds a job detail, so a facts-and-aftercare thread with
+ * no job on it is never handed over as scoping that is not converging. Both the asks and the
+ * replies are counted since the last release, not for all time, because a thread a human has
  * replied to comes back to automation (checklist 7.4) and must be able to make progress. The
  * ledger itself is untouched by a release, so a subject is still never asked twice.
  */
-export function convergence(file: CaseFile): Convergence {
+export function convergence(file: CaseFile, scopingRouted = false): Convergence {
     const last = file.releases[file.releases.length - 1];
     const replies = file.turns.slice(last?.turnsBefore ?? 0).filter((t) => t.direction === 'outbound' && t.kind !== 'system').length;
     const jobAsks = (ledgerEntry(file, 'job')?.askCount ?? 0) - (last?.asksBefore?.job ?? 0);
     if (isReady(file) || (file.stage !== 'first_contact' && file.stage !== 'scoping')) return { converging: true, why: null, replies, jobAsks };
     if (!file.job.type && jobAsks >= JOB_ASKS_MAX) return { converging: false, why: `asked about the job ${jobAsks} times with no job type on the file`, replies, jobAsks };
-    if (replies >= SCOPING_REPLIES_MAX) return { converging: false, why: `${replies} replies while scoping and the file is still not ready (${!file.job.type ? 'no job type' : 'no location'})`, replies, jobAsks };
+    const beingScoped = scopingRouted || everAsked(file, 'job') || !!file.job.type || !!file.job.location;
+    if (beingScoped && replies >= SCOPING_REPLIES_MAX) return { converging: false, why: `${replies} replies while scoping and the file is still not ready (${!file.job.type ? 'no job type' : 'no location'})`, replies, jobAsks };
     return { converging: true, why: null, replies, jobAsks };
 }

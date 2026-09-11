@@ -82,7 +82,7 @@ describe('the Service specialist', () => {
         const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
         expect(out.proposal.hold?.reason).toBe('refund');
     });
-    it('runs no model when the router did not send the turn here, and none when scoping is not converging', async () => {
+    it('runs no model when the router did not send the turn here, and none when the thread being scoped is not converging', async () => {
         const file = fixture('hi');
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call expected'); } });
         const quiet = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: false, scopingRan: true });
@@ -90,7 +90,7 @@ describe('the Service specialist', () => {
         expect(quiet.proposal.hold).toBeNull();
         expect(quiet.brief).toEqual([]);
         for (let i = 0; i < 6; i++) file.turns.push({ ...file.turns[0], id: `o${i}`, direction: 'outbound', runId: `r${i}`, approver: 'agent.comms_v2' });
-        const stuck = await serve(file, file.turns[0], file.parties[0], client, { kb }, routed);
+        const stuck = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: true, scopingRan: true });
         expect(stuck.calls).toHaveLength(0);
         expect(stuck.proposal.hold?.reason).toBe('not_converging');
         expect(stuck.note).toMatch(/not converging/);

@@ -3,7 +3,8 @@
  * return nothing; customer_record is this party's own details and nothing else; change_of_details
  * records a fact and a hold and never writes the record, with its refusals; convergence hands a
  * thread to Ben after the job has been asked JOB_ASKS_MAX times with no type, or after
- * SCOPING_REPLIES_MAX replies with the file still not ready, both counted since the last release.
+ * SCOPING_REPLIES_MAX replies with the file still not ready, both counted since the last release,
+ * and never hands over a facts-and-aftercare thread with no job on it.
  */
 import { describe, expect, it } from 'vitest';
 import { appendTurn, ask, hold, open, recordFact, release, type CaseFile } from '../desk/case-file';
@@ -130,6 +131,20 @@ describe('convergence', () => {
         expect(after.jobAsks).toBe(0);
         expect(file.ledger[0].askCount).toBe(JOB_ASKS_MAX);
         for (let i = 0; i < JOB_ASKS_MAX; i++) { expect(ask(file, 'job').ok).toBe(true); file.ledger[0].answeredAt = '2026-09-11T10:10:01.000Z'; }
+        expect(convergence(file).converging).toBe(false);
+    });
+    it('an aftercare thread with no job on it converges however long it runs: nothing is scoping it', () => {
+        const file = fixture('Can I get a receipt for the job you did?');
+        for (let i = 0; i < SCOPING_REPLIES_MAX + 1; i++) {
+            appendTurn(file, { at: `2026-09-11T10:${String(i).padStart(2, '0')}:00.000Z`, channel: 'whatsapp', direction: 'inbound', partyId: 'p1', kind: 'text', body: 'and what about card payment?', media: [] });
+            appendTurn(file, { at: `2026-09-11T10:${String(i).padStart(2, '0')}:30.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `r${i}`, approver: 'agent.comms_v2' });
+        }
+        const c = convergence(file);
+        expect(c.replies).toBe(SCOPING_REPLIES_MAX + 1);
+        expect(c.converging).toBe(true);
+        expect(c.why).toBeNull();
+        expect(convergence(file, true).converging).toBe(false);
+        ask(file, 'job');
         expect(convergence(file).converging).toBe(false);
     });
     it('SCOPING_REPLIES_MAX replies with the file still not ready is not converging; one fewer converges', () => {
