@@ -126,7 +126,7 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
         }
         case 'phone_key': {
             // server/clients.ts keys threads as `phone:<national>`; keep the prefix, swap the number.
-            const m = /^([a-z]+:)?(.*)$/s.exec(raw.trim());
+            const m = /^([a-z]+:)?([\s\S]*)$/.exec(raw.trim());
             const prefix = m?.[1] ?? '';
             const rest = m?.[2] ?? raw.trim();
             if (isSyntheticPhone(rest)) return raw;

@@ -106,7 +106,7 @@ export async function readSchema(client: Client): Promise<TableInfo[]> {
             maxLength: r.character_maximum_length ?? null,
         });
     }
-    return [...byTable.values()].sort((a, b) => a.table.localeCompare(b.table));
+    return Array.from(byTable.values()).sort((a, b) => a.table.localeCompare(b.table));
 }
 
 /** The columns that can hold free text and therefore must be classified before a scrub may run. */

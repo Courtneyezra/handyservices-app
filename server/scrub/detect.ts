@@ -37,16 +37,16 @@ export interface Residual {
  */
 export function residualsIn(text: string): Residual[] {
     const out: Residual[] = [];
-    const phones = [...text.matchAll(PHONE_RE)].filter((m) => {
-        const n = nationalDigits(m[0]);
-        return !!n && n.length >= 10 && n.length <= 13 && !isSyntheticPhone(m[0]);
+    const phones = (text.match(PHONE_RE) ?? []).filter((m) => {
+        const n = nationalDigits(m);
+        return !!n && n.length >= 10 && n.length <= 13 && !isSyntheticPhone(m);
     });
     if (phones.length) out.push({ kind: 'phone', count: phones.length });
 
-    const emails = [...text.matchAll(EMAIL_RE)].filter((m) => !isSyntheticEmail(m[0]));
+    const emails = (text.match(EMAIL_RE) ?? []).filter((m) => !isSyntheticEmail(m));
     if (emails.length) out.push({ kind: 'email', count: emails.length });
 
-    const postcodes = [...text.matchAll(POSTCODE_RE)].filter((m) => !isSyntheticPostcode(m[0]));
+    const postcodes = (text.match(POSTCODE_RE) ?? []).filter((m) => !isSyntheticPostcode(m));
     if (postcodes.length) out.push({ kind: 'postcode', count: postcodes.length });
 
     return out;
@@ -143,7 +143,7 @@ export class Substitutions {
      * address carries digits or punctuation and is unambiguous as a plain substring.
      */
     private ordered(): { real: string; fake: string; wordy: boolean }[] {
-        return [...this.map.entries()]
+        return Array.from(this.map.entries())
             .sort((a, b) => b[0].length - a[0].length)
             .map(([real, fake]) => ({ real, fake, wordy: /^[A-Za-zÀ-ÿ'’ -]+$/.test(real) }));
     }

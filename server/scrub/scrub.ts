@@ -251,7 +251,7 @@ async function collectPhones(
     }
 
     const taken = new Set<string>();
-    for (const national of [...real].sort()) {
+    for (const national of Array.from(real).sort()) {
         let index = digest(seed, 'phone', national) % DRAMA_CAPACITY;
         let candidate = dramaNumberAt(index);
         let probes = 0;
@@ -276,7 +276,7 @@ async function collectOthers(
     client: Client, tables: TableInfo[], seed: string, subs: Substitutions,
     phoneMap: Map<string, string>, preserveEmail: string | null, force: boolean,
 ): Promise<void> {
-    for (const [national, fake] of phoneMap) subs.addPhone(national, fake);
+    phoneMap.forEach((fake, national) => subs.addPhone(national, fake));
 
     for (const table of tables) {
         for (const col of table.columns) {
@@ -327,7 +327,7 @@ async function scrubTable(client: Client, table: TableInfo, state: RunState): Pr
     if (!treated.length) return { table: table.table, rows: 0, rowsChanged: 0, columns: [] };
 
     const keyCols = rowKeyColumns(table);
-    const selectCols = [...new Set([...keyCols, ...treated.map((t) => t.col.column)])];
+    const selectCols = Array.from(new Set(keyCols.concat(treated.map((t) => t.col.column))));
     const changedPerColumn = new Map<string, number>();
     let rows = 0;
     let rowsChanged = 0;
