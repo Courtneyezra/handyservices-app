@@ -3,7 +3,8 @@
 Landed knowledge for the clean-sheet rebuild of the comms desk, so an autonomous `/goal` build
 loop has it to read from the repo instead of from outside sources.
 
-- `behaviour.md` is the oracle: the captain's 38 recorded answers on how the desk should behave.
+- `behaviour.md` is the oracle: the captain's recorded answers on how the desk should behave,
+  batch by batch, each numbered as he gave it.
 - `checklist.md` is the stop condition: the seven-stage, line-by-line checklist a sandbox thread
   either passes or fails against.
 - `design.md` is the shape: the agent-map architecture, the box-for-box mapping, the channels, the
@@ -19,6 +20,8 @@ run in parallel.
 
 The build lands in `server/comms-v2/` beside `server/spine/`; it never goes inside `server/spine/`.
 Goal 1's desk (sandbox-only until cutover) and Goal 2's board over it (`/admin/comms-v2`) are there
-already; `server/comms-v2/README.md` covers them, the desk contract by contract with its sandbox door,
-the door host and the environment they read, and the board piece by piece. The old desk stays live
+already, with the board's answer action beside its release (Ben's own words out through the one
+sender, no guards over them, recorded as his); `server/comms-v2/README.md` covers them, the desk contract
+by contract with its sandbox door, the door host and the environment they read, and the board piece
+by piece. The old desk stays live
 as rollback until the new one is proven and cut over.

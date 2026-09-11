@@ -8,9 +8,11 @@
  * registered approver, and only once its switch has been turned on by hand: the desk is
  * sandbox-only until cutover. Goal 1 renders for WhatsApp only.
  *
- * Invariants: one run id sends once; every send has an approver; nothing reaches a customer that
- * did not pass the guards; a shut window never produces freeform text on any channel; one of the
- * four fixed lines that are Ben's to review sends in dry run only until he has.
+ * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
+ * a customer without passing the guards, while a person's own words from Ben's board carry their
+ * own authority and no verdicts (behaviour.md answer 43); a shut window never produces freeform
+ * text on any channel; one of the four fixed lines that are Ben's to review sends in dry run only
+ * until he has.
  *
  * A template is named by the registry (server/window-templates.ts) and approved by the live sync
  * (server/whatsapp-template-sync.ts), which also holds Twilio's content SID for it. The wire shape
@@ -20,7 +22,7 @@
 import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps, type WhatsAppTransport } from './case-file';
 import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
-import type { Approver } from '../../approver';
+import { isHumanApprover, type Approver } from '../../approver';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -88,15 +90,26 @@ function splitLong(text: string): string[] {
     return out;
 }
 
+export interface RenderOptions {
+    /**
+     * A person's own words (behaviour.md answer 43): a blank line still starts a new bubble, and
+     * inside one his line breaks stay as he typed them, with nothing re-split at a sentence.
+     */
+    asTyped?: boolean;
+}
+
 /**
  * WhatsApp: the one reply split into bubbles at the breaks a person would use: the composer's
  * blank lines first, then sentence boundaries for anything over about three hundred characters.
  * Typing gaps of one to three seconds scaled to length. A ceiling reached returns the reply to
- * the composer to shorten rather than sending a wall.
+ * the composer to shorten rather than sending a wall. `asTyped` is the human path: blank lines
+ * still break bubbles, nothing inside one is reflowed.
  */
-export function renderWhatsApp(reply: string): RenderResult {
-    const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean);
-    const texts = paragraphs.flatMap(splitLong);
+export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderResult {
+    const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/)
+        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : p.replace(/\s*\n\s*/g, ' ').trim())
+        .filter(Boolean);
+    const texts = opts.asTyped ? paragraphs : paragraphs.flatMap(splitLong);
     const bubbles = texts.map((text) => ({ text, gapMs: typingGap(text) }));
     if (!bubbles.length) return { ok: false, reason: 'empty', bubbles };
     if (bubbles.length > BUBBLE_CEILING) return { ok: false, reason: 'ceiling', bubbles };
@@ -104,8 +117,8 @@ export function renderWhatsApp(reply: string): RenderResult {
 }
 
 /** Goal 1 replies on WhatsApp only: any other channel is refused here, never rendered by guesswork. */
-export function render(channel: ReplyChannel, reply: string): RenderResult {
-    if (channel === 'whatsapp') return renderWhatsApp(reply);
+export function render(channel: ReplyChannel, reply: string, opts: RenderOptions = {}): RenderResult {
+    if (channel === 'whatsapp') return renderWhatsApp(reply, opts);
     return { ok: false, reason: 'channel', bubbles: [] };
 }
 
@@ -215,6 +228,7 @@ export interface SendInput {
     template: TemplateSend | null;
     runId: string;
     approver: Approver;
+    /** The verdicts on a composed reply. Null for a person's own words, which the guards never gate. */
     guards: GuardOutcome | null;
     factIds: string[];
     kbIds: string[];
@@ -232,16 +246,17 @@ export interface SenderDeps extends CaseFileDeps {
 
 /**
  * Delivers the rendered reply with an approver and a run id, then records the send on the file
- * with the facts it was written from. Refuses: no approver or run id; guards not passed; window
- * shut and no template; the party not on the file; a run id already sent; live, one of the four
- * fixed lines Ben has not yet reviewed. A live delivery that fails part way records the bubbles
- * that went, marked partial, before the failure is returned.
+ * with the facts it was written from. Refuses: no approver or run id; guards not passed on
+ * anything but a person's own `human:` words; window shut and no template; the party not on the
+ * file; a run id already sent; live, one of the four fixed lines Ben has not yet reviewed. A live
+ * delivery that fails part way records the bubbles that went, marked partial, before the failure
+ * is returned.
  */
 export async function send(input: SendInput, deps: SenderDeps = {}): Promise<SendOutcome> {
     const now = deps.now ?? (() => new Date());
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
     if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
-    if (!input.guards || !input.guards.ok) return { ok: false, reason: 'guards not passed' };
+    if (!isHumanApprover(input.approver) && !input.guards?.ok) return { ok: false, reason: 'guards not passed' };
     if (input.window.state === 'shut' && !input.template) return { ok: false, reason: 'window shut and no template' };
     const party = partyOf(input.file, input.partyId);
     if (!party) return { ok: false, reason: 'the party is not on the file' };

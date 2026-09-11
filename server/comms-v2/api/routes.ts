@@ -6,6 +6,12 @@
  * POST /case-files/:id/release    - releases a hold as the signed-in user; the case file's own
  *                                    `release` enforces the approver-and-words invariant, this
  *                                    route only carries the words and names who is asking
+ * POST /case-files/:id/answer     - Ben answers the customer in his own words through the desk's
+ *                                    one sender (desk/human-reply.ts): his words go as typed with
+ *                                    the signed-in person as approver and clear the hold; the
+ *                                    guards never run over a person's own words (behaviour.md
+ *                                    answer 43), and whatever the sender refuses comes back for
+ *                                    the board to show him
  *
  * /sandbox/* mounts the Goal 1 sandbox door unmodified (server/comms-v2/desk/sandbox-door.ts),
  * so the board has sandbox threads to show without duplicating that door's logic here.
@@ -19,6 +25,7 @@ import { readApproverAssignments, slotOf, type ReadApproverAssignments } from '.
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
 import { commsV2BoardDoor } from './store';
 import { release } from '../desk/case-file';
+import { humanReply } from '../desk/human-reply';
 import type { SandboxDoor } from '../desk/sandbox-door';
 
 export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments): Router {
@@ -51,6 +58,26 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const outcome = release(file, approver, words);
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
         res.json({ ok: true, card: cardOf(file, assignments), release: outcome.value });
+    });
+
+    /**
+     * Ben answers the customer from the card. His words go out through the one sender under his own
+     * `human:<email or user id>` approver, with the guards not run over them; a refusal from the
+     * sender is returned for the board to show, never held silently (checklist 7.3, 7.4).
+     */
+    router.post('/case-files/:id/answer', async (req, res) => {
+        const user = (req as any).user;
+        if (!user) { res.status(401).json({ error: 'a signed-in user is required to answer' }); return; }
+        const assignments = await approvers();
+        const approver = slotOf(user, assignments);
+        if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
+        const file = store().get(req.params.id);
+        if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
+        const words = String(req.body?.words ?? '').trim();
+        if (!words) { res.status(400).json({ error: 'an answer needs words' }); return; }
+        const outcome = await humanReply({ file, approver, person: user.email ?? user.id, words });
+        if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
+        res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });
     });
 
     return router;

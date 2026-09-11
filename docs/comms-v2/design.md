@@ -385,7 +385,7 @@ checklist lines against the desk's sandbox door, with recorded evidence in the P
 captain reviews the sandbox threads before any flip.
 
 **Before the loop - Land the knowledge in the repo**
-The thirty-eight recorded answers, the seven-stage checklist, and this page's decisions go into
+The recorded answers, the seven-stage checklist, and this page's decisions go into
 the project as docs. Today they live outside it, where a loop cannot read them.
 
 **Before the loop - Write the contracts**

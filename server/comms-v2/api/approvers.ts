@@ -4,7 +4,8 @@
  * signed-in account is that slot is policy, not a convention on the email, so it lives in the
  * app_settings row keyed `comms_v2_approvers`: `{ "<slot>": ["<user id>", ...] }`, user ids from
  * the `users` table. A session maps to a slot only when listed there; unlisted, it has no slot and
- * cannot release. Fail closed: a row that cannot be read assigns nobody.
+ * can neither release a hold nor answer a customer. Fail closed: a row that cannot be read assigns
+ * nobody.
  *
  * Set it with the migration runner's SQL path; app_settings.id has no default, so supply one:
  *   insert into app_settings (id, key, value)
