@@ -14,8 +14,8 @@
  * refusal that is recorded, never a silent skip.
  *
  * The chase runs on the desk's clock pass (desk.ts clockPass), the one pass that never messages a
- * customer. A released hold clears the record on the next pass, and the sandbox door clears it as
- * soon as Ben's reply releases the hold (service-door.ts).
+ * customer. A released hold clears the record on that pass, whichever surface released it, and the
+ * sandbox door clears it as soon as Ben's reply releases the hold (service-door.ts).
  */
 import { randomUUID } from 'node:crypto';
 import type { CaseFile } from '../desk/case-file';

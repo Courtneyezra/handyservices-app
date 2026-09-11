@@ -14,8 +14,10 @@
 import { describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from '../desk/desk';
 import { DEFAULT_FIXED_LINES, noFixedLineSource } from '../desk/fixed-lines';
+import { release } from '../desk/case-file';
 import { Gateway } from '../desk/gateway';
 import { FakeModelClient } from '../desk/models';
+import { BEN } from '../desk/guards';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
@@ -301,5 +303,21 @@ describe('the Service specialist on the desk', () => {
         chase.ledger.clear(a.file.id);
         const after = await gateway.clock(a.file.id);
         expect(after?.chase).toBeNull();
+    });
+    it('7.5: a release from a surface that does not clear the chase ledger itself, such as Ben\'s board, is cleared by the next clock pass', async () => {
+        const chase = createChaseState({ chaseAfterMs: 30 * 60_000, escalateAfterMs: 60 * 60_000, ben: { address: '+447700900901', name: 'Ben' }, owner: { address: '+447700900902', name: 'the owner' } });
+        const approved = { async approved(name: string) { return name === CHASE_TEMPLATES.approver_chase.name || name === CHASE_TEMPLATES.owner_escalation.name ? { contentSid: `HX_${name}` } : null; } };
+        const { gateway, clock } = desk({ router: () => route({ exception: 'refund', turnKind: 'other' }), specialist: () => scopingOut(), composer: () => { throw new Error('no composer on a fixed line'); } }, { service: { chase }, templates: approved });
+        const a = await gateway.inbound(turn('I want a refund', '2026-09-11T10:00:00.000Z'));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        clock.t += 31 * 60_000;
+        expect((await gateway.clock(a.file.id))?.chase?.action).toBe('chased');
+        expect(chase.ledger.get(a.file.id)).not.toBeNull();
+        // The board releases the hold and nothing else: server/comms-v2/api/routes.ts calls release directly.
+        const released = release(a.file, BEN, 'picked up, I will call them', { now: () => new Date(clock.t += 1000) });
+        expect(released.ok).toBe(true);
+        const after = await gateway.clock(a.file.id);
+        expect(after?.chase).toBeNull();
+        expect(chase.ledger.get(a.file.id)).toBeNull();
     });
 });
