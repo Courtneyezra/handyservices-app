@@ -2,12 +2,11 @@
  * The email adapter. Long-form in, one composed message out with a greeting and a sign-off, on
  * the same thread (Contract 5, render; docs/comms-v2/design.md "Five channels, one desk").
  *
- * In: there is no inbound email today, so the only way in is the sandbox door. This module
- * turns one provider-neutral inbound email into the gateway's envelope: the sender's lowercase
- * address, the subject and the new text with the quoted history stripped, photo and video
- * attachments written where the Scoping tools read media, and the thread reference (Message-ID
- * and References) kept so the reply stays on the thread. Mapping a particular provider's webhook
- * body onto this shape belongs in that provider's own webhook configuration, not here.
+ * In: there is no inbound email today, so the sandbox door is the only way in and this module
+ * covers the door only: the sender's lowercase address, the subject and the new text with the
+ * quoted history stripped, the media the door hands over as bytes, and the Message-ID kept so the
+ * reply stays on the thread. A provider's own body shape lands with the webhook at cutover, written
+ * against that provider's real payload rather than guessed at here.
  *
  * Out: `renderEmail` wraps the composer's one reply as a letter: "Hi <first name>," the
  * paragraphs, then the sign-off. It is one bubble, because an email is one message.
@@ -24,18 +23,13 @@ export const EMAIL_DEFAULT_SUBJECT = 'Your enquiry';
 
 // ---------------------------------------------------------------- the inbound shape
 
-/** A provider-neutral inbound email: the one shape the webhook accepts. */
+/** An inbound email as the door hands it over: a bare address, the words, and the thread's message id. */
 export interface InboundEmail {
     from: string;
     fromName?: string | null;
-    to?: string | null;
     subject?: string | null;
     text?: string | null;
-    html?: string | null;
     messageId?: string | null;
-    inReplyTo?: string | null;
-    references?: string[] | string | null;
-    attachments?: Array<{ name?: string | null; contentType: string; content: string }>;
     at?: string | null;
 }
 
@@ -71,56 +65,22 @@ export function stripQuotedHistory(text: string): string {
     return kept || capBody(normalised.replace(/\n{3,}/g, '\n\n').trim());
 }
 
-/** A rough text from HTML for a message with no text part: block tags to line breaks, tags gone, a few entities back. */
-export function htmlToText(html: string): string {
-    return html
-        .replace(/<\s*(?:br|\/p|\/div|\/li|\/h\d|\/tr)\s*\/?>/gi, '\n')
-        .replace(/<\s*(?:style|script)[^>]*>[\s\S]*?<\s*\/\s*(?:style|script)\s*>/gi, '')
-        .replace(/<[^>]+>/g, '')
-        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-        .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-function referencesOf(raw: string[] | string | null | undefined): string[] {
-    if (!raw) return [];
-    const list = Array.isArray(raw) ? raw : raw.split(/\s+/);
-    return list.map((r) => r.trim()).filter(Boolean);
-}
-
 // ---------------------------------------------------------------- the envelope
 
 export interface EmailAdapterDeps extends MediaWriteDeps { now?: () => Date }
 
-/** `Sam Jones <sam@example.com>` or a bare address: the address, and the display name when one is there. */
-export function parseAddress(raw: string | null | undefined): { address: string | null; name: string | null } {
-    const s = (raw ?? '').trim();
-    const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(s);
-    if (m) return { address: m[2].trim(), name: m[1].trim() || null };
-    return { address: s || null, name: null };
-}
-
 export function fromInboundEmail(email: InboundEmail, deps: EmailAdapterDeps = {}): InboundEnvelope {
     const now = deps.now ?? (() => new Date());
-    const from = parseAddress(email.from);
-    const key = canonical(from.address);
+    const key = canonical(email.from);
     if (!key || !key.startsWith('email:')) throw new Error('inbound email without a sender address');
     const address = key.slice('email:'.length);
     const subject = (email.subject ?? '').trim() || null;
-    const body = stripQuotedHistory((email.text ?? '').trim() || (email.html ? htmlToText(email.html) : ''));
-    const turn: InboundEnvelope = {
-        channel: 'email', address, name: email.fromName?.trim() || from.name, text: subject ? `Subject: ${subject}\n\n${body}`.trim() : body, media: [],
-        at: email.at ?? now().toISOString(), providerMessageId: email.messageId ?? null, via: 'webhook', mediaFailures: [], kind: 'text',
-        email: { subject, messageId: email.messageId ?? null, references: Array.from(new Set([...referencesOf(email.references), ...(email.inReplyTo ? [email.inReplyTo] : []), ...(email.messageId ? [email.messageId] : [])])) },
+    const body = stripQuotedHistory((email.text ?? '').trim());
+    return {
+        channel: 'email', address, name: email.fromName?.trim() || null, text: subject ? `Subject: ${subject}\n\n${body}`.trim() : body, media: [],
+        at: email.at ?? now().toISOString(), providerMessageId: email.messageId ?? null, via: 'door', mediaFailures: [], kind: 'text',
+        email: { subject, messageId: email.messageId ?? null, references: email.messageId ? [email.messageId] : [] },
     };
-    for (const a of email.attachments ?? []) {
-        let bytes: Buffer;
-        try { bytes = Buffer.from(a.content, 'base64'); } catch { turn.mediaFailures.push({ ref: a.name ?? a.contentType, reason: 'attachment is not base64' }); continue; }
-        const m = writeInboundMedia(bytes, a.contentType, deps);
-        if (isRefused(m)) turn.mediaFailures.push({ ref: a.name ?? a.contentType, reason: m.refused });
-        else turn.media.push(m);
-    }
-    if (turn.media.length) turn.kind = 'media';
-    return turn;
 }
 
 export interface DoorEmail { address: string; name?: string | null; subject?: string | null; text: string; at?: string; messageId?: string | null; media?: Array<{ bytes: Buffer; mime: string }> }

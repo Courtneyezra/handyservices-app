@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { CALL_OUTCOMES, callOutcomeOf, callOutcomeOnFile, fromDoorCall, fromFinishedCall, transcriptBody, transcriptOf, validateDoorCall, TRANSCRIPT_BODY_MAX } from './call-adapter';
-import { emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, renderEmail, stripQuotedHistory } from './email-adapter';
+import { emailThreadingFor, fromDoorEmail, fromInboundEmail, renderEmail, stripQuotedHistory } from './email-adapter';
 import { firstNameOf, truncateWords } from './envelope';
 import { fromDoorForm, fromWebForm } from './form-adapter';
 import { fromDoorSms, fromTwilioSms, isTwilioSms, normaliseForSms, renderSms, smsSegmentCount } from './sms-adapter';
@@ -52,30 +52,29 @@ describe('the SMS adapter', () => {
 });
 
 describe('the email adapter', () => {
-    it('reads the provider-neutral shape, strips the quoted history, writes photo attachments, keeps the thread', () => {
+    it('takes the door\'s shape, strips the quoted history, writes the door\'s media, keeps the thread', () => {
         const env = fromInboundEmail({
-            from: 'Sam Jones <Sam.Jones@Example.com>', fromName: 'Sam Jones', subject: 'Leaking tap', messageId: '<m1@example.com>', inReplyTo: '<m0@example.com>',
+            from: 'Sam.Jones@Example.com', fromName: 'Sam Jones', subject: 'Leaking tap', messageId: '<m1@example.com>',
             text: 'Hi, my kitchen tap is dripping.\nCan you help?\n\nOn Thu, 10 Sep 2026, Handy Services wrote:\n> earlier words',
-            attachments: [{ name: 'tap.png', contentType: 'image/png', content: PNG.toString('base64') }, { name: 'notes.pdf', contentType: 'application/pdf', content: 'AAAA' }],
         }, { mediaDir: dir, now: at });
         expect(env.channel).toBe('email');
         expect(env.address).toBe('sam.jones@example.com');
         expect(env.name).toBe('Sam Jones');
         expect(env.text).toBe('Subject: Leaking tap\n\nHi, my kitchen tap is dripping.\nCan you help?');
-        expect(env.kind).toBe('media');
-        expect(env.media).toHaveLength(1);
-        expect(fs.readFileSync(env.media[0].path)).toEqual(PNG);
-        expect(env.mediaFailures).toEqual([{ ref: 'notes.pdf', reason: 'unsupported media type application/pdf' }]);
-        expect(env.email).toEqual({ subject: 'Leaking tap', messageId: '<m1@example.com>', references: ['<m0@example.com>', '<m1@example.com>'] });
+        expect(env.kind).toBe('text');
+        expect(env.email).toEqual({ subject: 'Leaking tap', messageId: '<m1@example.com>', references: ['<m1@example.com>'] });
         expect(() => fromInboundEmail({ from: 'not an address', text: 'x' })).toThrow(/sender address/);
+        // Media reaches an email turn as the door's bytes, the way the WhatsApp door hands its own over.
+        const withMedia = fromDoorEmail({ address: 'a@b.co', text: 'photos attached', at: '2026-09-11T10:00:00.000Z', media: [{ bytes: PNG, mime: 'image/png' }, { bytes: PNG, mime: 'application/pdf' }] }, { mediaDir: dir });
+        expect(withMedia.kind).toBe('media');
+        expect(withMedia.media).toHaveLength(1);
+        expect(fs.readFileSync(withMedia.media[0].path)).toEqual(PNG);
+        expect(withMedia.mediaFailures).toEqual([{ ref: 'application/pdf', reason: 'unsupported media type application/pdf' }]);
     });
-    it('strips history at the quote header or the first quoted line, and reads html when there is no text', () => {
+    it('strips history at the quote header or the first quoted line', () => {
         expect(stripQuotedHistory('new words\n\n-----Original Message-----\nFrom: x\nold')).toBe('new words');
         expect(stripQuotedHistory('new\n> old\n> older')).toBe('new');
         expect(stripQuotedHistory('a\n\n\n\nb\nSent from my iPhone')).toBe('a\n\nb');
-        expect(htmlToText('<p>Hi &amp; hello</p><p>Line<br>two</p><style>x{}</style>')).toBe('Hi & hello\nLine\ntwo');
-        const env = fromInboundEmail({ from: 'a@b.co', html: '<div>Only html</div>' });
-        expect(env.text).toBe('Only html');
     });
     it('keeps the whole body when stripping leaves nothing, so a bottom-posted reply is not answered as silence', () => {
         const bottom = 'On Thu, 10 Sep 2026, Handy Services wrote:\n> what is the postcode?\n\nNG9 2AB, and the fan is over the bath.';

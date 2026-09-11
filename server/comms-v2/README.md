@@ -77,12 +77,13 @@ The cutover that turns the old handler off and this desk's delivery on is a late
 
 There is no inbound email today and this goal does not add one: the email sandbox door is the only
 way an email reaches the desk, and it is what proves the channel. `fromInboundEmail`
-(`channels/email-adapter.ts`) already takes the provider-neutral body a provider's webhook would
-map onto (`{ from, fromName?, subject?, text? | html?, messageId?, inReplyTo?, references?,
-attachments?: [{ name?, contentType, content (base64) }] }`). There is no outbound email path
-either: a live email send is refused, so the desk runs dry on email.
+(`channels/email-adapter.ts`) covers the door and nothing else: a bare address, the words, the
+subject and the thread's message id, with the door's media handed over as bytes. There is no
+outbound email path either: a live email send is refused, so the desk runs dry on email.
 
-A webhook is cutover work, and it is more than a route. It needs a chosen provider, a path outside
+A webhook is cutover work, and it is more than a route. The provider's own body shape, its HTML
+parts, its base64 attachments and its header spellings land with it, written against a real payload
+from the provider that was chosen rather than guessed at in advance. It needs a chosen provider, a path outside
 the admin-gated `/api/comms-v2` prefix (mounting one under it puts `requireAdmin` in front of every
 request, so a provider's POST is refused before the route is reached), and its own secret. Naming an
 inbound mail provider is also a data-protection decision, not a code change alone: that provider
