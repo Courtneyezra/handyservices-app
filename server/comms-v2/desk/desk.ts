@@ -27,6 +27,7 @@ import { scope, type ScopingDeps } from './scoping-specialist';
 import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 import { quote as quoteGather, quotingClock, quotingOwnsThread, quotingSummary, type QuotingSpecialistDeps } from '../quoting/quoting-specialist';
+import { liveFigureQuotes } from '../quoting/quoting-tools';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -158,7 +159,8 @@ export class Desk implements DeskLike {
         // 5. Guards, with one retry to the composer.
         const kbRows = await this.kbRows(kbIds);
         const proposedSubject = scoping?.proposal.nextQuestion?.subject ?? null;
-        const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, proposedSubject });
+        const liveQuoteRefs = await liveFigureQuotes(file, this.quotingDeps());
+        const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, proposedSubject, liveQuoteRefs });
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);
@@ -230,7 +232,7 @@ export class Desk implements DeskLike {
         const party = partyOf(file, partyId)!;
         if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: why, draft, failures: failed?.failures ?? [] }, this.fileDeps());
         const line = await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
-        const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null });
+        const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null, liveQuoteRefs: new Set() });
         const choice = chooseChannel(party, turn.channel);
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
         const rendered = choice.ok ? render(choice.channel, line.text) : null;

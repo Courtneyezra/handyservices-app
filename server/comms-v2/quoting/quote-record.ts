@@ -161,12 +161,21 @@ export function figureLabels(q: QuoteRecord): Array<{ label: string; amountPence
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 /**
+ * Whether a figure may be read from this quote at all. The one liveness rule, asked the same way by
+ * read_quote_line and by the figure guard's check of a cited line (a figure may be given only as one
+ * line of the live quote, behaviour.md answer 23).
+ */
+export function quoteLiveForFigures(q: QuoteRecord): boolean {
+    return LIVE_FOR_FIGURES.has(q.status);
+}
+
+/**
  * read_quote_line: the amount of one line of the live quote, to the penny, with the citation the
  * figure guard verifies. Refuses a draft, a revoked, a superseded and an expired quote, and a label
  * that is not on it.
  */
 export function readQuoteLine(q: QuoteRecord, label: string): QuoteLineReadOutcome {
-    if (!LIVE_FOR_FIGURES.has(q.status)) return { ok: false, reason: `the quote is ${q.status}; a figure is read only from the live quote the customer holds`, status: q.status };
+    if (!quoteLiveForFigures(q)) return { ok: false, reason: `the quote is ${q.status}; a figure is read only from the live quote the customer holds`, status: q.status };
     const want = norm(label);
     const hit = figureLabels(q).find((f) => norm(f.label) === want);
     if (!hit) return { ok: false, reason: `no line labelled "${label}" on quote ${q.slug}`, status: q.status };

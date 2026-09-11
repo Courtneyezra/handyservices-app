@@ -10,6 +10,7 @@
  *   chase             the unpriced draft chased on the clock (4.5), recorded like the notification
  *   quote_status      the quote's status and record, from the row
  *   read_quote_line   one line's amount to the penny with its citation; refuses draft, revoked, superseded, expired
+ *   live_figure_quotes which quotes a figure may be read from now, for the figure guard's own check
  *   read_quote_scope  what is included and excluded; refuses revoked, superseded, expired
  *   record_quote_facts the quote's lines, total, deposit, link and scope onto the file, once, each cited as its line
  *   price_quote       Ben's prices through the price screen's own write; the desk's stage moves to quoted when his send lands
@@ -23,7 +24,7 @@ import { ledgerEntry, factFor } from '../desk/case-file';
 import { mediaDeclined, mediaReceived } from '../desk/scoping-tools';
 import { acceptedNotice, chaseNotice, liveNotifier, readyToPriceNotice, type BenNotice, type BenNotifier } from './ben-notifier';
 import { chainDrafter, type DraftIntake, type DraftOutcome, type Drafter } from './draft-quote';
-import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factOnce, factsWithPrefix, figureLabels, newestFact, pounds, quoteRecordOf, quoteSource, quoteUrlFor, readQuoteLine, readQuoteScope, type QuoteRecord, type QuoteStatus } from './quote-record';
+import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factOnce, factsWithPrefix, figureLabels, newestFact, pounds, quoteLiveForFigures, quoteRecordOf, quoteSource, quoteUrlFor, readQuoteLine, readQuoteScope, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { liveQuoteStore, type PriceInput, type QuoteStore } from './quote-store';
 
 export interface QuotingDeps extends CaseFileDeps {
@@ -203,6 +204,17 @@ export async function chase(file: CaseFile, party: Party, deps: QuotingDeps = {}
 // ---------------------------------------------------------------- read_quote_line, read_quote_scope
 
 export { readQuoteLine, readQuoteScope };
+
+/**
+ * The quotes a figure may be read from right now, for the figure guard. Facts are append-only, so a
+ * figure recorded while the quote was live stays on the file after it is revoked, superseded or
+ * expires; the guard resolves the cited line's quote through this and refuses the amount when the
+ * quote is no longer live, which is read_quote_line's own rule asked of the file's quote.
+ */
+export async function liveFigureQuotes(file: CaseFile, deps: QuotingDeps = {}): Promise<ReadonlySet<string>> {
+    const q = await loadQuote(file, deps);
+    return new Set(q && quoteLiveForFigures(q) ? [q.slug] : []);
+}
 
 // ---------------------------------------------------------------- record_quote_facts
 

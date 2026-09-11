@@ -26,7 +26,7 @@ import { BEN, runGuards } from '../desk/guards';
 import type { PlannedSend } from '../desk/planned-send';
 import { chooseChannel, pickTemplate, render, send, windowOf, liveTemplateStatus, type TemplateSend } from '../desk/sender';
 import { quoteRecordOf } from './quote-record';
-import { humanRunId, markQuoteSent, priceQuote, recordAcceptance, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
+import { humanRunId, liveFigureQuotes, markQuoteSent, priceQuote, recordAcceptance, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 import { quoteStateOf } from './quoting-specialist';
 
 export interface QuotingDoorOptions {
@@ -83,7 +83,7 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             // Ben's send: the desk's drafted message carrying the link, through the one sender in dry run.
             const message = priced.message;
             const turn = lastInbound(file) ?? file.turns[0];
-            const guardRun = runGuards({ file, party, turn, reply: message, factIds: priced.factIds, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null });
+            const guardRun = runGuards({ file, party, turn, reply: message, factIds: priced.factIds, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: await liveFigureQuotes(file, quotingDeps()) });
             // A human send is not a desk reply: the one-reply rule is the desk's, not Ben's.
             guardRun.guards.one_reply = { result: 'pass', note: 'a human send, not a desk reply' };
             guardRun.failures = guardRun.failures.filter((f) => !f.startsWith('one_reply'));

@@ -20,7 +20,7 @@ function fixture(text = 'Hi, leaking tap in NG9 2AB'): { file: CaseFile; party: 
 
 function input(reply: string, over: Partial<GuardInput> = {}, text?: string): GuardInput {
     const f = fixture(text);
-    return { file: f.file, party: f.party, turn: f.turn, reply, factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, ...over };
+    return { file: f.file, party: f.party, turn: f.turn, reply, factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: new Set(['q1']), ...over };
 }
 
 describe('guards', () => {
@@ -34,10 +34,14 @@ describe('guards', () => {
         expect(runGuards(input('roughly 80 quid')).guards.figure.result).toBe('fail');
         const f = fixture();
         const fact = recordFact(f.file, { key: 'labour', value: '£120.00', source: { kind: 'quote_line', quoteRef: 'q1', line: 'labour' }, by: 'quoting' });
-        const cited = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'The labour line on your quote is £120.00.', factIds: fact.ok ? [fact.value.id] : [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null });
+        const base = { file: f.file, party: f.party, turn: f.turn, reply: 'The labour line on your quote is £120.00.', kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null };
+        const cited = runGuards({ ...base, factIds: fact.ok ? [fact.value.id] : [], liveQuoteRefs: new Set(['q1']) });
         expect(cited.guards.figure.result).toBe('pass');
-        const uncited = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'The labour line on your quote is £120.00.', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null });
+        const uncited = runGuards({ ...base, factIds: [], liveQuoteRefs: new Set(['q1']) });
         expect(uncited.guards.figure.result).toBe('fail');
+        // The same cited line, once its quote is no longer live: the amount is refused all the same.
+        const stale = runGuards({ ...base, factIds: fact.ok ? [fact.value.id] : [], liveQuoteRefs: new Set() });
+        expect(stale.guards.figure.result).toBe('fail');
     });
     it('date, time, duration: fails unless a diary fact', () => {
         expect(runGuards(input('We could be there on Tuesday.')).guards.date_time_duration.result).toBe('fail');

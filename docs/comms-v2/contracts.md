@@ -77,7 +77,7 @@ slot is one function so the landlord service can attach without touching the gua
 
 | Guard | Fails when | Checked against |
 |---|---|---|
-| figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file |
+| figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file, and the cited line's quote resolved for liveness (`live_figure_quotes`): a revoked, superseded or expired quote's figure is refused though the fact stays on the file |
 | date, time, duration | any date, time, lead time or duration appears that is not a diary fact or the picker pointer | facts with a diary source |
 | commitment and fault | a promise to do, fix or guarantee something, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
 | business claim | a statement about the business, its services, hours, coverage or policies, with no knowledge-base citation, or a citation whose row is not reviewed or whose body does not support the sentence | reviewed knowledge-base rows by id, verbatim |
@@ -151,6 +151,7 @@ brief for the composer, and never sees a figure.
 | `quote_status` | the case file | the quote's status and record from the row: draft, sent, accepted, revoked, superseded, expired | no quote on the file |
 | `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote |
 | `read_quote_scope` | the quote | what each line covers, its assumptions, what is not included; no figure | revoked, superseded, expired |
+| `live_figure_quotes` | the case file | which quotes a figure may be read from now, for the figure guard's own check of a cited line | the same rule as `read_quote_line`: a draft, revoked, superseded or expired quote is not in the answer |
 | `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, its halves, total, deposit) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
 | `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record, the message with the link, the totals | not a draft; a line with no suggestion and no figure from Ben |
 | `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |

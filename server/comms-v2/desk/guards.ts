@@ -33,6 +33,12 @@ export interface GuardInput {
     fixedLines: FixedLine[];
     /** The subject the specialist proposed asking this turn; the ledger records it after the send. */
     proposedSubject: string | null;
+    /**
+     * The quotes a figure may be read from right now (quoting/quoting-tools.ts liveFigureQuotes).
+     * A cited quote line whose quote is not in here is refused: facts are append-only, so a revoked,
+     * superseded or expired quote's figures stay on the file and must not be repeated.
+     */
+    liveQuoteRefs: ReadonlySet<string>;
 }
 
 export interface GuardOutcome {
@@ -57,9 +63,10 @@ function citedFacts(input: GuardInput): Fact[] {
 export function checkFigure(input: GuardInput): GuardVerdict {
     const matches = Array.from(input.reply.matchAll(new RegExp(RE_FIGURE.source, 'gi'))).map((m) => m[0]);
     if (!matches.length) return pass();
-    const allowed = new Set(citedFacts(input).filter((f) => f.source.kind === 'quote_line' || f.source.kind === 'customer_record').map((f) => normaliseFigure(f.value)));
+    const live = citedFacts(input).filter((f) => (f.source.kind === 'quote_line' ? input.liveQuoteRefs.has(f.source.quoteRef) : f.source.kind === 'customer_record'));
+    const allowed = new Set(live.map((f) => normaliseFigure(f.value)));
     const bad = matches.filter((m) => !allowed.has(normaliseFigure(m)));
-    return bad.length ? fail(`a figure appears that is not a cited quote line or customer record: ${bad.join(', ')}`) : pass();
+    return bad.length ? fail(`a figure appears that is not a line of the live quote or a customer record: ${bad.join(', ')}`) : pass();
 }
 
 export function checkDate(input: GuardInput): GuardVerdict {

@@ -12,9 +12,9 @@ import { ask, open, recordFact, type CaseFile } from '../desk/case-file';
 import { runGuards } from '../desk/guards';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
-import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope } from './quote-record';
+import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteStatus } from './quote-record';
 import { MemoryQuoteStore } from './quote-store';
-import { CHASE_MAX, chase, draftQuote, emptyPriceBook, loadQuote, notifyBen, priceBookLookup, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
+import { CHASE_MAX, chase, draftQuote, emptyPriceBook, liveFigureQuotes, loadQuote, notifyBen, priceBookLookup, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
 
 function fixture(text = 'Hi, my kitchen tap is leaking, NG9 2AB', ready = true): CaseFile {
     const r = open({
@@ -205,11 +205,47 @@ describe('read_quote_line and read_quote_scope', () => {
         const labour = file.facts.find((f) => f.id === ids.lines['Replace kitchen tap labour'])!;
         expect(labour).toMatchObject({ key: 'quote_line:Replace kitchen tap labour', value: '£100.00', source: { kind: 'quote_line', quoteRef: live.slug, line: 'Replace kitchen tap labour' } });
         const party = file.parties[0]; const turn = file.turns[0];
-        const base = { file, party, turn, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null };
+        const liveQuoteRefs = await liveFigureQuotes(file, d);
+        const base = { file, party, turn, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs };
         expect(runGuards({ ...base, reply: 'The labour on your quote is £100.00.', factIds: [labour.id] }).guards.figure.result).toBe('pass');
         expect(runGuards({ ...base, reply: 'The labour on your quote is £100.', factIds: [labour.id] }).guards.figure.result).toBe('fail');
         expect(runGuards({ ...base, reply: 'The labour on your quote is £100.00.', factIds: [] }).guards.figure.result).toBe('fail');
         expect(runGuards({ ...base, reply: 'That comes to £220.00 with the materials.', factIds: [labour.id] }).guards.figure.result).toBe('fail');
+    });
+
+    it('refuses a cited figure once the quote is no longer live, status by status, though the fact stays on the file', async () => {
+        const d = deps();
+        const file = fixture();
+        await draftQuote(file, file.parties[0], intake, d);
+        await priceQuote(file, {}, d);
+        expect((await markQuoteSent(file, d)).ok).toBe(true);
+        const live = (await loadQuote(file, d))!;
+        const ids = recordQuoteFacts(file, live, d);
+        const total = file.facts.find((f) => f.id === ids.lines.Total)!;
+        expect(total.value).toBe('£120.00');
+        const base = { file, party: file.parties[0], turn: file.turns[0], reply: 'The total on your quote is £120.00.', factIds: [total.id], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null };
+        const figure = async () => runGuards({ ...base, liveQuoteRefs: await liveFigureQuotes(file, d) }).guards.figure;
+        const row = d.store.rows.get(live.slug)!;
+        const statuses: Array<{ status: QuoteStatus; patch: Record<string, unknown>; live: boolean }> = [
+            { status: 'sent', patch: {}, live: true },
+            { status: 'accepted', patch: { depositPaidAt: '2026-09-11T12:00:00.000Z' }, live: true },
+            { status: 'revoked', patch: { revokedAt: '2026-09-11T12:00:00.000Z' }, live: false },
+            { status: 'superseded', patch: { supersededAt: '2026-09-11T12:00:00.000Z' }, live: false },
+            { status: 'expired', patch: { expiresAt: '2026-09-01T00:00:00.000Z' }, live: false },
+        ];
+        for (const { status, patch, live: isLive } of statuses) {
+            const before: Record<string, unknown> = {};
+            for (const k of Object.keys(patch)) before[k] = (row as any)[k];
+            Object.assign(row, patch);
+            expect((await loadQuote(file, d))!.status).toBe(status);
+            expect(Array.from(await liveFigureQuotes(file, d))).toEqual(isLive ? [live.slug] : []);
+            const verdict = await figure();
+            expect(verdict.result).toBe(isLive ? 'pass' : 'fail');
+            if (!isLive) expect(verdict.note).toMatch(/live quote/);
+            // The fact is never retracted: it is the citation that stops being readable.
+            expect(file.facts.some((f) => f.id === total.id)).toBe(true);
+            Object.assign(row, before);
+        }
     });
 });
 
