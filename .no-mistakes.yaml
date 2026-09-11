@@ -61,15 +61,19 @@ test:
     5.2: POST /message "Does that include a new tap?": the reply answers from the draft's scope
     (what the line covers, what is not included) with no figure; a money hold for Ben beside it
     is 2.7 still standing before the quote, not a failure of 5.2.
-    A photo before 5.1, so Ben's send is driven on the thread that can refuse it: POST /message as
-    multipart with a photo attached and the text "here is the tap"; the reply thanks for it once
-    and state.caseFile.ledger shows media thankedAt set. Ben's own message opens "thanks for the
-    photos and the details", which Contract 4's ask-ledger guard would refuse as a second thanks,
-    so a thread with no photo cannot show 5.1 working.
-    5.1: POST /price {} : plannedSend.approver human:ben, the bubbles carry /quote/<slug>, the
-    stage is quoted; every entry of plannedSend.guards reads not_applied, because the guards do not
-    run over a send Ben authored (behaviour.md answer 43) and the file says so rather than claiming
-    a pass; GET /quote shows record.status sent and every line priced.
+    A photo before 5.1: POST /message as multipart with a photo attached and the text "here is the
+    tap"; the reply thanks for it once, state.caseFile.ledger shows media thankedAt set, and the
+    photo joins the draft.
+    A shut window at 5.1, which must never deliver a nudge with no quote link while recording the
+    figures as live: POST /age {"hours": 25}, then POST /price {}. Expect sent false, the planned
+    send held for ben with a reason naming the shut window and the missing quote-link template, no
+    bubbles, and GET /quote still record.status draft with no quote_line fact on the file. Then
+    POST /message "Any news on the quote?" to reopen the window before driving 5.1.
+    5.1: POST /price {} : plannedSend.approver human:ben, the bubbles carry /quote/<slug> and no
+    figure, the stage is quoted; every entry of plannedSend.guards reads pass, because the delivery
+    is written by the desk's own composer and Contract 4 runs over it (answer 43 exempts words a
+    person typed, and the price route carries no message body); GET /quote shows record.status sent
+    and every line priced.
     5.3: POST /message "What does that include, and how much is the labour?": the reply's figure
     equals one line of GET /quote's record to the penny (£x.xx), plannedSend.factIds names a
     quote_line fact carrying that figure, the figure guard passes, no hold.
@@ -82,8 +86,8 @@ test:
     whose only promise is that Ben has been told, with no date, time or duration. A second POST
     /accept answers 409.
 
-    The database refusal, which is what stops the sandbox door mounted on the deployed server from
-    writing a real quote row. The door host always points the desk at the branch, so drive this on
+    The database refusal on a writer, which is what stops the sandbox door mounted on the deployed
+    server from writing a real quote row. The door host always points the desk at the branch, so drive this on
     the app instead: start a second copy on another free port with the variable removed,
     `env -u COMMS_V2_DATABASE_URL PORT=<port2> npm run dev`, log in as Ben there, and from that tab
     POST /api/comms-v2/sandbox/start with a job and a postcode. Expect the ready turn to refuse,

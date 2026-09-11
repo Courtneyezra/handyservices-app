@@ -163,33 +163,44 @@ whether the job is ready, or a hold with the reason regulated. Never a sentence 
 ## Contract 7 - The Quoting tool server
 
 The second specialist's shelf (Goal 4). Read-only against the world except through the quote
-machinery it wraps (the clerk chain, the price book, Ben's price screen), writing to the case file
-only through its calls. The specialist itself, on Sonnet 5, returns facts cited to the quote and a
+machinery it wraps (the clerk chain, Ben's price screen), writing to the case file only through
+its calls. There is no price-book shelf: the catalogue is reached only from inside the clerk chain
+`draft_quote` calls, which matches each line to a SKU for Ben's screen and the engine, and it is
+never a source for a figure in chat (answer 35). The specialist itself, on Sonnet 5, returns facts cited to the quote and a
 brief for the composer, and never sees a figure.
 
 | Tool | Input | Returns | Refuses when |
 |---|---|---|---|
 | `quote_readiness` | the case file | ready, and what Ben may want to request from the price screen (photo state, access) | ready is job type and location both present; photos never required |
-| `price_book` | a line's description and category | a catalogue match for Ben's screen and the engine | read-only; never a fact, never a figure in chat (answer 35) |
 | `draft_quote` | the case file, the party, the intake | the draft's slug and lines, Ben's notice, the facts recorded | not ready; a quote already stands that is not revoked, superseded or expired (one draft per job; changes are Ben's) |
 | `notify_ben` | a notice (ready to price, chase, accepted) | recorded on the file as a fact cited to the quote; dispatched live, recorded in dry run | a second ready-to-price or accepted notice for the same quote (one notification); no quote on the file |
 | `chase` | the case file, the clock | a numbered chase for Ben | the quote is not an unpriced draft; Ben not yet notified; not due (four hours after the notification, then daily); three chases already |
-| `quote_status` | the case file | the quote's status and record from the row: draft, sent, accepted, revoked, superseded, expired | no quote on the file |
 | `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote |
 | `read_quote_scope` | the quote | what each line covers, its assumptions, what is not included; no figure | revoked, superseded, expired |
 | `live_figure_quotes` | the case file | which quotes a figure may be read from now, for the figure guard's own check of a cited line | the same rule as `read_quote_line`: a draft, revoked, superseded or expired quote is not in the answer |
 | `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, its halves, total, deposit) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
-| `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record, the message with the link, the totals | not a draft; a line with no suggestion and no figure from Ben |
+| `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record and the totals; the row stays a draft | not a draft; a line with no suggestion and no figure from Ben |
+| `mark_quote_sent` | the case file, after the delivery landed | the quote leaves draft, its figures reach the file, the stage walks to quoted | no quote on the file; a row the store will not mark sent |
 | `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |
 
-**Which database the tools open.** Every live store and live reader in the desk refuses unless the
-database in use is the Neon branch `COMMS_V2_DATABASE_URL` names, in one place both the quote store
-and any future live dependency call (`server/comms-v2/live-database.ts`). The refusal names that
-requirement and falls back to nothing. It exists because the sandbox door is mounted on the
-ordinary server for Ben's board, and on the deployed server that is the production database: the
-quote machinery would otherwise draft a real quote row and publish a quote page with real prices on
-it. The exception is Ben's board reading its own approver row, which is meant to be read there.
-Cutover replaces this with the desk switch.
+**Which database the tools open.** Every live WRITER in the desk refuses unless the database in use
+is the Neon branch `COMMS_V2_DATABASE_URL` names, in one place the quote store, the draft chain and
+any future writer call (`server/comms-v2/live-database.ts`). The refusal names that requirement and
+falls back to nothing. It exists because the sandbox door is mounted on the ordinary server for
+Ben's board, and on the deployed server that is the production database: the quote machinery would
+otherwise draft a real quote row and publish a quote page with real prices on it. Writing is the
+whole subject, so the reviewed knowledge-base readers do not ask: a read publishes nothing, and
+made to refuse they would throw on exactly the gas, complaint and money turns the fixed line exists
+for. Ben's board reading its own approver row is a read too. Cutover replaces this with the desk
+switch.
+
+**Delivering the quote.** Ben prices on the price screen and presses send. The price route carries
+no message body, so the delivery is written by the desk's own composer from the file, with the
+quote link, and Contract 4 checks it like any other composed reply. The quote leaves draft only
+once that send has landed: a shut window (no approved template carries a quote link, so wiring
+`quote_ready_link` into the desk's sender is a cutover item), a guard failure or a refused send all
+hold for Ben and leave the quote a draft he can price again, rather than recording figures as live
+that the customer was never shown.
 
 **What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,
 assumptions, link and status, each with source `quote_line` naming the quote and the label. A

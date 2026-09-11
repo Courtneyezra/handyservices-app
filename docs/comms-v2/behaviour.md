@@ -236,4 +236,15 @@ shared case-file contract every goal is building against.
 The answer is about who WROTE the words, not who licensed the send. Ben pressing send on the price
 screen licenses a message the desk wrote for him: the route carries no message body, so nobody reads
 it before it goes, and it is a composed reply Contract 4 checks like any other
-(`server/comms-v2/quoting/quoting-door.ts`).
+(`server/comms-v2/quoting/quoting-door.ts`). The one-reply guard is told a person licensed that
+send, because his pressing send is a fresh licence to speak and not the desk replying twice to one
+customer turn; the other seven run over the words unchanged.
+
+**A quote is never marked sent when the text that went is not the quote.** The window rule the
+answer keeps means a shut window takes an approved template, and none of the desk's carries a quote
+link. So Ben pricing on a shut window holds for him and leaves the quote a draft he can price again,
+rather than delivering a generic re-open nudge while the file records every figure as live. The same
+holds for a guard failure and a refused send. Wiring the approved `quote_ready_link` template, which
+does carry the URL, into the desk's sender is its own cutover item
+(`docs/comms-build/TEMPLATES-WINDOW-SHUT.md`): approving a template with Meta is not the desk's to
+do.

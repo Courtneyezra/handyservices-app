@@ -34,6 +34,14 @@ Hi {{1}}, your quote is ready. Everything is on the link, the itemised price and
 (`https://handyservices.app/quote/<slug>`).
 Samples: `Courtnee` · `https://handyservices.app/quote/ab12cd34`. Language `en_GB`.
 
+**The new desk still needs it wired (a cutover item).** `server/comms-v2/desk/sender.ts` picks a
+window-shut template by `purpose`, and the only purpose it knows is `service_reply`, whose body is a
+generic re-open nudge with no link. So when Ben prices a quote on a shut window the new desk holds
+for him and leaves the quote a draft, rather than delivering a nudge while recording every figure as
+live (`server/comms-v2/quoting/quoting-door.ts`). Giving this template its own purpose in
+`server/window-templates.ts`, with the quote URL as `{{2}}`, is the fix, and it belongs with cutover
+because it is the old price screen's send path being re-pointed at the new sender.
+
 **Why this name and not a new one.** It is already a Content resource on the account
 (`scripts/archive/_wa-templates-submit.ts` submitted it) and it is already the name the price screen
 reads. A second "your quote is ready" template would be the near-duplicate Meta rejects, and would
