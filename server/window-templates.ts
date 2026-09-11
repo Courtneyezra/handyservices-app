@@ -1,5 +1,8 @@
 /**
- * The five Meta templates for a SHUT WhatsApp window (build plan v2, item 4.1).
+ * The Meta templates for a SHUT WhatsApp window: build plan v2 item 4.1's five, and the two the
+ * clean-sheet desk's other channels need (server/comms-v2/channels/templates.ts). There is one
+ * registry, so a template that sends unattended is visible on the go-live surface; a second list
+ * somewhere else would hide a live send from it.
  *
  * WhatsApp only carries free text for 24 hours after the customer's own last message. Outside that
  * window nothing but a template Meta approved in advance may leave, and approval takes days to
@@ -40,7 +43,7 @@ export type MetaTemplateCategory = 'UTILITY' | 'MARKETING';
 /** The named thing that fires a template send. 4.2 wires these; nothing here does. */
 export interface WindowTemplateTrigger {
     /** Stable id, so 4.2's send rule and the checklist can name the same thing. */
-    id: 'quote_ready' | 'question_unanswered' | 'webform_first_contact' | 'post_call_followup' | 'enquiry_chase';
+    id: 'quote_ready' | 'question_unanswered' | 'webform_first_contact' | 'webform_first_contact_no_call' | 'post_call_followup' | 'missed_call' | 'enquiry_chase';
     /** When it fires, in one sentence a person can check against a thread. */
     when: string;
     /** The code that fires it (or, when `wired` is false, the code 4.2 will fire it from). */
@@ -81,7 +84,7 @@ export interface WindowTemplate {
 }
 
 /**
- * The five. Order is the plan's order (4.1), not a priority.
+ * The rows. Order is the plan's order (4.1) and then the clean-sheet desk's two, not a priority.
  *
  * Every body is written to the house voice rules in `shared/chat-voice.ts` (no em dash, no spaced
  * hyphen, no scheduling ping-pong closer) and to pass `checkDraft` with its sample values filled
@@ -185,6 +188,54 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'Meta may reject this as a near-duplicate. That is survivable rather than blocking, because '
             + 'post_call_continuation_generic is the second rung; if it is rejected, do not resubmit a reworded '
             + 'twin, use the generic and say so in the runbook\'s log.',
+    },
+    {
+        names: ['web_enquiry_ack_no_call_v1'],
+        category: 'UTILITY',
+        purpose: 'service_reply',
+        language: 'en_GB',
+        body: 'Hi {{1}}, thanks for getting in touch. We got your message: "{{2}}". Reply here with anything else that helps and we will price it up for you.',
+        variables: { '1': 'there', '2': 'need a new bathroom tap fitted' },
+        variableMeanings: {
+            '1': "the customer's first name, or 'there'",
+            '2': 'their enquiry, verbatim, truncated on a word boundary to about 60 characters',
+        },
+        trigger: {
+            id: 'webform_first_contact_no_call',
+            when: 'A webform enquiry arrives from someone who has already rung us, or who prefers text, or who has been offered a call once already. Same acknowledgement, with the call offer taken out.',
+            source: 'server/comms-v2/channels/templates.ts templateChoiceFor, via the desk\'s shut-window path',
+            wired: true,
+        },
+        submission: 'new',
+        notes: 'THE SAME ACKNOWLEDGEMENT WITHOUT THE ASK. web_enquiry_ack_context offers a call, and '
+            + 'asking someone who just rang us whether we may ring them is the confidence leak checklist 1.5 '
+            + 'names; the same rule already governs every composed reply through offerCall. Until Meta approves '
+            + 'this name the shut-window pick finds nothing for the purpose and the acknowledgement is held for '
+            + 'Ben with its words as the draft, which is the contract\'s rule for no approved template, never a '
+            + 'freeform fallback. Wording is deliberately close to the approved one minus the offer; if Meta '
+            + 'rejects it as a near-duplicate, the hold for Ben stands rather than a reworded twin.',
+    },
+    {
+        names: ['missed_call_ack'],
+        category: 'UTILITY',
+        purpose: 'service_reply',
+        language: 'en_GB',
+        body: 'Hi {{1}}, sorry we missed your call. Tell us what needs doing and we will price it up for you, or we will try you again shortly.',
+        variables: { '1': 'Sam' },
+        variableMeanings: { '1': "the customer's first name, or 'there'" },
+        trigger: {
+            id: 'missed_call',
+            when: 'The customer rang and nobody spoke to them. One text back per thread, never a second however many times they ring (checklist 3.5); the ask ledger holds the record. A call never opens the WhatsApp window.',
+            source: 'server/comms-v2/channels/channel-desk.ts, on a call turn whose outcome is missed',
+            wired: true,
+        },
+        submission: 'existing',
+        notes: 'ALREADY APPROVED on the account, and already the name the old desk reads '
+            + '(server/first-contact-ack.ts MISSED_CALL_TEMPLATE_PREFERENCE records the wording and its sid). '
+            + 'It is here because the clean-sheet desk sends it unattended on a missed call, and an unattended '
+            + 'send has to be visible on the go-live surface like every other. It never asks whether we may '
+            + 'call: they just rang us (checklist 1.5). It folds into the live missed-call ack row in '
+            + 'server/template-status.ts rather than adding a second row for the same name.',
     },
     {
         names: ['enquiry_followup_optin_v1'],

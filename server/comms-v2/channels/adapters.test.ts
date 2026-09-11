@@ -160,7 +160,13 @@ describe('the call adapter', () => {
         file.facts.push({ id: 'f1', key: 'call_outcome', value: 'missed', source: { kind: 'thread', turnId: turn.id }, at: turn.at, by: 'call_adapter' });
         expect(callOutcomeOnFile(file, turn)).toBe('missed');
         expect(templateChoiceFor(file, turn)).toEqual({ purpose: 'missed_call', topic: 'your job' });
-        expect(templateChoiceFor(file, { ...turn, kind: 'form', body: 'Bathroom extractor fan has died and the light works but the fan does nothing at all' })).toEqual({ purpose: 'web_form_ack', topic: 'Bathroom extractor fan has died and the light works but the' });
+        // This file was opened by a call, so the party has already rung us: the acknowledgement that
+        // offers a call is never the one they get (checklist 1.5).
+        const form = { ...turn, kind: 'form' as const, body: 'Bathroom extractor fan has died and the light works but the fan does nothing at all' };
+        expect(file.parties[0].alreadyRung).toBe(true);
+        expect(templateChoiceFor(file, form)).toEqual({ purpose: 'web_form_ack_no_call', topic: 'Bathroom extractor fan has died and the light works but the' });
+        file.parties[0].alreadyRung = false;
+        expect(templateChoiceFor(file, form)).toEqual({ purpose: 'web_form_ack', topic: 'Bathroom extractor fan has died and the light works but the' });
         expect(templateChoiceFor(file, { ...turn, kind: 'text', body: 'hello' }).purpose).toBe('service_reply');
         expect(firstNameOf(' Sam Jones ')).toBe('Sam');
         expect(truncateWords('a b c', 60)).toBe('a b c');

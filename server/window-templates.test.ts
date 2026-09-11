@@ -26,11 +26,12 @@ const byTrigger = (id: WindowTemplate['trigger']['id']) => {
     return t;
 };
 
-describe('the five window-shut templates', () => {
-    it('is exactly the plan\'s five triggers, once each', () => {
-        expect(WINDOW_TEMPLATES).toHaveLength(5);
+describe('the window-shut templates', () => {
+    it('is exactly the plan\'s five triggers and the clean-sheet desk\'s two, once each', () => {
+        expect(WINDOW_TEMPLATES).toHaveLength(7);
         expect(WINDOW_TEMPLATES.map((t) => t.trigger.id)).toEqual([
-            'quote_ready', 'question_unanswered', 'webform_first_contact', 'post_call_followup', 'enquiry_chase',
+            'quote_ready', 'question_unanswered', 'webform_first_contact', 'post_call_followup',
+            'webform_first_contact_no_call', 'missed_call', 'enquiry_chase',
         ]);
     });
 
@@ -84,7 +85,7 @@ describe('the five window-shut templates', () => {
 });
 
 describe('every definition is the shape the existing template code accepts', () => {
-    it('names are valid Meta template names, unique across the five', () => {
+    it('names are valid Meta template names, unique across the registry', () => {
         const seen = new Set<string>();
         for (const t of WINDOW_TEMPLATES) {
             for (const n of t.names) {
@@ -180,7 +181,7 @@ describe('the one registry', () => {
         expect(expectedFromWindowTemplates().some((r) => r.names[0] === 'web_enquiry_ack_context')).toBe(true);
     });
 
-    it('none of the five is required, so a template still in Meta\'s queue cannot fail the go-live check', () => {
+    it('no 4.1 definition is required, so a template still in Meta\'s queue cannot fail the go-live check', () => {
         for (const t of WINDOW_TEMPLATES) {
             const row = EXPECTED_TEMPLATES.find((e) => e.names.includes(t.names[0]))!;
             if (row.usedBy.startsWith('4.1 definition only')) expect(row.required).toBe(false);

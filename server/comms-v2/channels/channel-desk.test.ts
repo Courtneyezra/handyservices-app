@@ -15,6 +15,7 @@ import type { InboundTurn } from '../desk/whatsapp-adapter';
 import { fromDoorCall } from './call-adapter';
 import { ChannelDesk } from './channel-desk';
 import { ChannelGateway, type ChannelSeed } from './channel-gateway';
+import { fromDoorForm } from './form-adapter';
 import { fromDoorSms } from './sms-adapter';
 
 const TRANSCRIPT = 'Agent: Hi, it is Ben from Handy Services, you messaged about the bathroom extractor fan. Customer: Oh hi, yes. Agent: Is it just not spinning? Customer: Nothing at all, the light works but the fan is dead. Agent: OK. Easiest thing is if you can send me a couple of photos of the fan and the switch, then I can price it up. Customer: Yes fine, I will do that this afternoon. Agent: Great, speak soon.';
@@ -33,6 +34,44 @@ function rig(handlers: ConstructorParameters<typeof FakeModelClient>[0], templat
 }
 const wa = (text: string, at: string, media: InboundTurn['media'] = []): InboundTurn => ({ channel: 'whatsapp', address: '+447700900942', name: 'Sam', text, media, at, providerMessageId: null, via: 'door', mediaFailures: [] });
 const call = (outcome: 'missed' | 'answered_inbound' | 'ben_rang', at: string, transcript: string | null = TRANSCRIPT) => fromDoorCall({ outcome, transcript, durationSeconds: 120, name: 'Sam', address: '+447700900942', at });
+
+describe('the web form acknowledgement', () => {
+    const formRig = (templates: TemplateStatusSource) => rig({
+        router: () => routeScoping({ turnKind: 'enquiry' }),
+        specialist: () => ({ facts: [{ key: 'job_type', value: 'bathroom extractor fan dead' }], jobUnknowns: [], answeredSubjects: [] }),
+        composer: () => ({ reply: 'Got it, a dead bathroom fan. Whereabouts are you?', factIds: [], kbIds: [] }),
+    }, templates);
+    const form = () => fromDoorForm({ name: 'Sam Jones', phone: '+447700900942', job: 'Bathroom extractor fan has died, light works but no fan', at: '2026-09-11T10:00:00.000Z' });
+
+    it('a customer who has already rung us is never asked whether we may call: the acknowledgement that offers one is not picked, and with none approved for the purpose the words hold for Ben (1.5)', async () => {
+        // Only the asking acknowledgement is approved on the account, which is exactly the trap.
+        const asking: TemplateStatusSource = { async approved(name) { return name === 'web_enquiry_ack_context' ? { contentSid: 'HX_ask' } : null; } };
+        const { gateway } = formRig(asking);
+        const a = await gateway.inbound(await form(), { whatsapp: true, alreadyRung: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.parties[0].alreadyRung).toBe(true);
+        expect(a.result).toMatchObject({ decision: 'hold', delivered: false, channel: 'whatsapp', windowState: 'shut', templateId: null });
+        expect(a.file.hold?.reason).toContain('web_form_ack_no_call');
+        expect(a.file.hold?.draft).toBe('Got it, a dead bathroom fan. Whereabouts are you?');
+        expect(a.file.sends).toHaveLength(0);
+    });
+    it('a customer who has not rung us gets the approved acknowledgement, which quotes the enquiry back and offers the call (1.2)', async () => {
+        const { gateway } = formRig(approvedAll);
+        const a = await gateway.inbound(await form(), { whatsapp: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result).toMatchObject({ decision: 'send', delivered: true, channel: 'whatsapp', templateId: 'web_enquiry_ack_context' });
+        expect(a.result.bubbles[0].text).toContain('Bathroom extractor fan has died, light works but no fan');
+        expect(a.result.bubbles[0].text).toContain('quick call');
+    });
+    it('the no-call row is the same acknowledgement with the offer taken out: once approved it goes, quoting the enquiry and asking nothing', async () => {
+        const { gateway } = formRig(approvedAll);
+        const a = await gateway.inbound(await form(), { whatsapp: true, alreadyRung: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result).toMatchObject({ decision: 'send', delivered: true, channel: 'whatsapp', templateId: 'web_enquiry_ack_no_call_v1' });
+        expect(a.result.bubbles[0].text).toContain('Bathroom extractor fan has died, light works but no fan');
+        expect(a.result.bubbles[0].text).not.toMatch(/call/i);
+    });
+});
 
 describe('the channel desk on a call', () => {
     it('a missed call gets one text back: the missed-call template on WhatsApp when the number is on it, its words on SMS when not, never freeform and never the composer', async () => {

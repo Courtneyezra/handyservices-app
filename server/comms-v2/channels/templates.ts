@@ -1,21 +1,19 @@
 /**
- * The templates the other four channels need, and which reply purpose a turn takes when the
- * WhatsApp window is shut.
+ * Which reply purpose a turn takes when the WhatsApp window is shut, and the ledger subject the
+ * missed-call acknowledgement is recorded under.
  *
- * Templates are named by the one registry (server/window-templates.ts) and approved by the live
- * sync (server/whatsapp-template-sync.ts); the sender's pick_template branches on purpose, never
- * on a name (Contract 5). Two of this goal's purposes have their row in that registry already
- * (`webform_first_contact`, `post_call_followup`). The missed-call acknowledgement has none: the
- * old comms kept it as a bare name in server/first-contact-ack.ts, and the old comms is deleted
- * whole later, so its definition lives here in the registry's own row shape until the registry
- * takes it at cutover. Its wording is the approved body on the account, one variable, the name.
+ * Every template this goal's channels send has its row in the one registry
+ * (server/window-templates.ts) and its live status from the sync
+ * (server/whatsapp-template-sync.ts); the sender's `pickTemplate` branches on purpose, never on a
+ * name (Contract 5). There is no second list here: a row that sends unattended, which the
+ * missed-call acknowledgement does, has to be visible on the go-live surface like every other.
  *
  * Off WhatsApp there is no approval to wait for: the same words go as the one SMS or the one
  * email, so a call follow-up and a missed-call text are never freeform (behaviour.md answers 20
  * and 34; the brief's rule that a post-call or missed-call follow-up is a template send).
  */
-import type { WindowTemplate } from '../../window-templates';
-import type { CaseFile, Turn } from '../desk/case-file';
+import { partyOf, type CaseFile, type Turn } from '../desk/case-file';
+import { offerCall } from '../desk/scoping-tools';
 import { CALL_OUTCOME_KEY, callOutcomeOnFile } from './call-adapter';
 import { truncateWords } from './envelope';
 
@@ -27,39 +25,22 @@ import { truncateWords } from './envelope';
  */
 export const MISSED_CALL_ACK_SUBJECT = 'missed_call_ack';
 
-/** A registry row for a purpose the five-row registry does not carry yet. Same shape, its own trigger id. */
-export type ChannelTemplate = Omit<WindowTemplate, 'trigger'> & { trigger: { id: 'missed_call'; when: string; source: string; wired: boolean } };
-
-export const CHANNEL_TEMPLATES: ChannelTemplate[] = [
-    {
-        names: ['missed_call_ack'],
-        category: 'UTILITY',
-        purpose: 'service_reply',
-        language: 'en_GB',
-        body: 'Hi {{1}}, sorry we missed your call. Tell us what needs doing and we will price it up for you, or we will try you again shortly.',
-        variables: { '1': 'Sam' },
-        variableMeanings: { '1': "the customer's first name, or 'there'" },
-        trigger: {
-            id: 'missed_call',
-            when: 'The customer rang and nobody spoke to them. One text back per thread, never a second however many times they ring (checklist 3.5); the ask ledger holds the record. A call never opens the WhatsApp window.',
-            source: 'server/comms-v2/channels/channel-desk.ts, on a call turn whose outcome is missed',
-            wired: true,
-        },
-        submission: 'existing',
-        notes: 'The name the account already has approved (server/first-contact-ack.ts MISSED_CALL_TEMPLATE_PREFERENCE). '
-            + 'It never asks whether we may call: they just rang us (checklist 1.5).',
-    },
-];
-
 /** The reply purposes the four channels add to the sender's `service_reply`. */
-export type ChannelReplyPurpose = 'web_form_ack' | 'post_call_followup' | 'missed_call';
+export type ChannelReplyPurpose = 'web_form_ack' | 'web_form_ack_no_call' | 'post_call_followup' | 'missed_call';
 
 /** Which purpose a turn's shut-window template carries, and the topic its second variable takes. */
 export function templateChoiceFor(file: CaseFile, turn: Turn): { purpose: 'service_reply' | ChannelReplyPurpose; topic: string } {
     if (turn.kind === 'form') {
         // The web form acknowledgement quotes the enquiry back: the words they typed, cut on a word boundary.
         const enquiry = truncateWords(turn.body, 60);
-        return { purpose: 'web_form_ack', topic: enquiry || file.job.type || 'your enquiry' };
+        // The approved acknowledgement offers a call. A customer who has already rung us, who
+        // prefers text, or who has been offered a call once is never asked again (checklist 1.5),
+        // so that party takes the row with the offer taken out; unapproved, that holds the
+        // acknowledgement for Ben with its words as the draft, which is the rule when no template
+        // of the purpose is approved, never the asking one instead.
+        const party = partyOf(file, turn.partyId);
+        const purpose = party && !offerCall(party) ? 'web_form_ack_no_call' : 'web_form_ack';
+        return { purpose, topic: enquiry || file.job.type || 'your enquiry' };
     }
     if (turn.kind === 'call_transcript') {
         const outcome = callOutcomeOnFile(file, turn);

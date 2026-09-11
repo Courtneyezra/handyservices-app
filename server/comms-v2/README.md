@@ -42,15 +42,19 @@ go on the party's channels, the adapter's facts are recorded with the turn as th
 |---|---|---|---|
 | SMS | `channels/sms-adapter.ts` | Twilio's inbound on the shared webhook (a bare `From`); media is refused, a UK long code cannot receive MMS | `renderSms`: one message, at most two segments (GSM-7 or UCS-2 counted), typographic punctuation normalised; over two goes back to the composer. The first SMS reply to a party who does not write on WhatsApp carries the fixed `move_to_whatsapp` line (1.4); a WhatsApp channel with no inbound turn on it, which is all the presence source proves, does not withhold it. An SMS from a party whose WhatsApp window is open is answered on WhatsApp. |
 | Email | `channels/email-adapter.ts`, `channels/email-inbound.ts` | The webhook (below): the one provider-neutral JSON body, the quoted history stripped, photo attachments written where describe_media reads them, the thread kept on the party's email channel | `renderEmail`: one letter, "Hi <first name>," the paragraphs, the sign-off; the reply carries `In-Reply-To` and `References` and the subject with "Re:". Render only: there is no live email delivery. The one outbound send is the only path that checks the opt-out ledger and it carries WhatsApp and SMS, so a live email send is refused. Whether email belongs in the STOP suppression list, and on what key, is a cutover decision. |
-| Web form | `channels/form-adapter.ts` | Name, phone, email, the job, postcode, sometimes photos (URLs or bytes). Creates the file; the postcode and name are facts at intake; the job type is Scoping's to establish | No reply path of its own: `chooseChannel` opens WhatsApp if the number is on it (the approved web form template, quoting the enquiry, 1.2), else SMS, else email. |
+| Web form | `channels/form-adapter.ts` | Name, phone, email, the job, postcode, sometimes photos (URLs or bytes). Creates the file; the postcode and name are facts at intake; the job type is Scoping's to establish | No reply path of its own: `chooseChannel` opens WhatsApp if the number is on it (the approved web form template, quoting the enquiry, 1.2; the row without the call offer when they have already rung us, 1.5), else SMS, else email. |
 | Calls | `channels/call-adapter.ts`, `channels/call-reader.ts`, `channels/channel-desk.ts` | A finished call: `missed`, `answered_inbound`, or `ben_rang` (an unanswered outbound never reaches the desk). The transcript is the turn's body; the outcome is a fact on the file. The reader (Sonnet 5, facts only, no prose field) records the job, the location, what Ben asked for and whether a callback was agreed; Ben's asks go on the ledger after the follow-up so the desk never asks again | The desk never speaks. `missed`: one text back per thread (3.5), the missed-call template on WhatsApp, else its words on SMS; the acknowledgement goes on the ask ledger, so a second and third missed call send nothing. `answered_inbound`: nothing (3.5), and the caller is never offered a call (1.5). `ben_rang`: the post-call template with the name and the job (1.3), else its words on SMS; the thread continues from the file (3.2, 3.3) and nothing is held for Ben (3.4). No approved template on WhatsApp holds the follow-up for Ben with its words as the draft, never an SMS fallback (answer 34). |
 
-The templates (`channels/templates.ts`): the web form and post-call purposes have their row in the one
-registry (server/window-templates.ts); the missed-call acknowledgement's row lives here in the
-registry's own shape until the registry takes it at cutover. The sender's `pickTemplate` branches
-on purpose (`service_reply`, `web_form_ack`, `post_call_followup`, `missed_call`), never on a name,
-and fills `{{1}}` name, `{{2}}` topic, `{{3}}` "shortly". Off WhatsApp the same words go as the one
-SMS or email; a call follow-up is never freeform.
+The templates: every row is in the one registry (server/window-templates.ts), including the
+missed-call acknowledgement and the web form acknowledgement without the call offer, which the
+channels added to it; a second list would hide an unattended send from the go-live surface.
+`channels/templates.ts` only chooses the purpose. The sender's `pickTemplate` branches on purpose
+(`service_reply`, `web_form_ack`, `web_form_ack_no_call`, `post_call_followup`, `missed_call`),
+never on a name, and fills `{{1}}` name, `{{2}}` topic, `{{3}}` "shortly". A party who has already
+rung us, prefers text, or has been offered a call takes `web_form_ack_no_call` (checklist 1.5), the
+same acknowledgement with the offer taken out; that name is not approved yet, so today the
+acknowledgement holds for Ben with its words as the draft rather than asking to call. Off WhatsApp
+the same words go as the one SMS or email; a call follow-up is never freeform.
 
 Whether a number is on WhatsApp is a `WhatsAppPresence` source: the door's is the scenario seed
 alone (`seed.whatsapp`); the live intake's reads the inbound WhatsApp messages the business holds.

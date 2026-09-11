@@ -28,7 +28,7 @@ import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
 import { emailThreadingFor, renderEmail, type EmailThreading } from '../channels/email-adapter';
 import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
-import { CHANNEL_TEMPLATES, type ChannelReplyPurpose } from '../channels/templates';
+import type { ChannelReplyPurpose } from '../channels/templates';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -183,11 +183,14 @@ export const liveTemplateStatus: TemplateStatusSource = {
 export const noTemplateApproved: TemplateStatusSource = { async approved() { return null; } };
 
 /** Which registry triggers carry a reply of each purpose. Branches on purpose, never on a name. */
-const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = { service_reply: ['question_unanswered'], web_form_ack: ['webform_first_contact'], post_call_followup: ['post_call_followup'], missed_call: ['missed_call'] };
+const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = {
+    service_reply: ['question_unanswered'], web_form_ack: ['webform_first_contact'], web_form_ack_no_call: ['webform_first_contact_no_call'],
+    post_call_followup: ['post_call_followup'], missed_call: ['missed_call'],
+};
 
-/** The registry rows for a purpose: the one registry, plus the rows this goal's channels carry until the registry takes them. */
-export function templateRowsFor<T extends { purpose: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): Array<T | (typeof CHANNEL_TEMPLATES)[number]> {
-    return [...registry, ...CHANNEL_TEMPLATES].filter((t) => t.purpose === 'service_reply' && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
+/** The rows of the one registry (server/window-templates.ts) that carry a reply of this purpose. */
+export function templateRowsFor<T extends { purpose: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): T[] {
+    return registry.filter((t) => t.purpose === 'service_reply' && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
 }
 
 /** The variables a template body takes: {{1}} the first name or 'there', {{2}} the topic, {{3}} 'shortly' (the web form's "a quick call {{3}}"). */
