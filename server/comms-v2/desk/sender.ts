@@ -12,6 +12,7 @@
  */
 import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps } from './case-file';
 import type { GuardOutcome } from './guards';
+import type { Approver } from '../../approver';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -166,10 +167,12 @@ export const liveDeliverer: Deliverer = {
         const { registryEntryFor } = await import('../../sender-registry');
         if (!registryEntryFor(input.approver)) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused` };
         const { sendCustomerMessage } = await import('../../outbound');
+        // The registry row above is what makes this string an Approver; the gate inside checks it again.
+        const approver = input.approver as Approver;
         let sid: string | null = null;
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
-            const res = await sendCustomerMessage({ approver: input.approver as any, runId: input.runId, to: input.to, body: b.text, channel: input.channel === 'email' ? 'whatsapp' : input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2' });
+            const res = await sendCustomerMessage({ approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel === 'email' ? 'whatsapp' : input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2' });
             if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed' };
             sid = res.sid ?? sid;
         }

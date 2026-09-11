@@ -104,7 +104,8 @@ export class AnthropicModelClient implements ModelClient {
                 max_tokens: call.maxTokens ?? 4000,
                 system: [{ type: 'text', text: call.system, cache_control: { type: 'ephemeral' } }],
                 messages: [{ role: 'user', content: call.user }],
-                output_config: { format: zodOutputFormat(call.schema), ...(effort ? { effort } : {}) },
+                // The helper is declared over zod v3's type and implemented over zod/v4's; the schema is v4.
+                output_config: { format: zodOutputFormat(call.schema as unknown as Parameters<typeof zodOutputFormat>[0]), ...(effort ? { effort } : {}) },
             });
             const record = recordFromUsage(call.role, call.model, call.effort, res.usage, Date.now() - t0);
             if (res.stop_reason === 'refusal') return { output: null, record, refused: true, error: 'the model declined the request' };
