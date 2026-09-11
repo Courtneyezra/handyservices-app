@@ -16,9 +16,12 @@
  *
  * A human reply is not checked, but it is recorded. The ask ledger and `callOffered` are
  * bookkeeping of what the business has already said, not a check on what may go, and they are the
- * one place the never-ask-twice rule lives: the same text detectors the desk runs over its own
- * reply (`textAsks`, `offersCall`) run over Ben's, so the desk does not ask the customer for a
- * photo Ben has just asked for or offer a call he has just promised.
+ * one place the never-ask-twice rule lives, so the desk does not ask the customer for a photo Ben
+ * has just asked for or offer a call he has just promised. His prose is read more tightly than a
+ * composed reply (`clauseAsks`, not `textAsks`): the subject and the asking phrase must fall in one
+ * clause, because the cost of missing an ask he made is one repeated question, while the cost of
+ * reading one into "I will be in touch later today, what is the best number for you?" is a job
+ * where nobody ever asks about access.
  *
  * What else holds is everything the sender owns: the window rule, so a shut window never carries
  * freeform words; an approver and a run id on every send; the party being on the file; and one run
@@ -28,8 +31,8 @@
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
-import { offersCall, textAsks } from './lexicon';
-import { BUBBLE_CEILING, chooseChannel, render, send, windowOf, type SenderDeps } from './sender';
+import { clauseAsks, offersCall } from './lexicon';
+import { BUBBLE_CEILING, chooseChannel, render, send, windowOf } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 
 export interface HumanReplyInput {
@@ -40,11 +43,6 @@ export interface HumanReplyInput {
     person: string;
     /** Ben's words, sent as typed: a blank line is a bubble break, and his line breaks inside one are kept. */
     words: string;
-}
-
-export interface HumanReplyDeps extends CaseFileDeps {
-    mode?: 'dry_run' | 'live';
-    sender?: SenderDeps;
 }
 
 /** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
@@ -77,12 +75,13 @@ function lastCustomerTurn(file: CaseFile, partyId: string): Turn | null {
  * bubble ceiling, or a channel the desk cannot render); a shut window (a shut window never
  * produces freeform text, Contract 5); and whatever the sender itself refuses.
  */
-export async function humanReply(input: HumanReplyInput, deps: HumanReplyDeps = {}): Promise<HumanReplyOutcome> {
+export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
     const now = deps.now ?? (() => new Date());
     const runId = `run_${randomUUID()}`;
     const { file, approver } = input;
     const words = input.words.replace(/\r\n/g, '\n').trim();
     const party: Party = file.parties.find((p) => p.role !== 'internal') ?? file.parties[0];
+    const fileDeps: CaseFileDeps = { now, newId: deps.newId };
     const refuse = (reason: string): HumanReplyOutcome => ({ ok: false, reason });
 
     if (approver.kind !== 'human') return refuse('only a person answers from the board; a rule-based approver has no words');
@@ -105,12 +104,11 @@ export async function humanReply(input: HumanReplyInput, deps: HumanReplyDeps = 
     if (window.state === 'shut') return refuse(`the ${choice.channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`);
 
     // The one sender, with Ben as approver and a fresh run id. No guards: a person's own words are his (answer 43).
-    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: deps.mode ?? 'dry_run' }, { ...deps.sender, now, newId: deps.newId });
+    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: 'dry_run' }, fileDeps);
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 
-    // What the business has now said: the ledger and callOffered, from the same detectors the desk runs over its own reply.
-    const fileDeps: CaseFileDeps = { now, newId: deps.newId };
-    for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(words, subject)) ledgerAsk(file, subject, fileDeps);
+    // What the business has now said: the ledger and callOffered, read tightly because these are his words, not a composed reply.
+    for (const subject of ['media', 'postcode', 'access'] as const) if (clauseAsks(words, subject)) ledgerAsk(file, subject, fileDeps);
     if (offersCall(words)) party.callOffered = true;
 
     // The hold clears with Ben's words as the release; with no hold there is nothing to clear. Either way the thread is automation's again.

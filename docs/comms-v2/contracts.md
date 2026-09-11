@@ -83,7 +83,9 @@ can produce, is the record that a person wrote them; guard results are not persi
 so nothing reads as a pass no guard gave (behaviour.md answer 43, `desk/human-reply.ts`).
 A human reply is not checked, but it is recorded. The ask ledger and `callOffered` are bookkeeping
 of what the business has already said, not a check on what may go, and they are the one place the
-never-ask-twice rule lives, so the detectors the desk runs over its own reply run over his too.
+never-ask-twice rule lives, so the detectors the desk runs over its own reply run over his too, but
+read tightly: the subject word and the asking phrase must fall in one clause, because a missed ask
+costs one repeated question while a false one means nobody ever asks about access on that job.
 What still holds for those words is everything the sender owns: the window rule, an approver and a
 run id on every send, the party being on the file, and one run id sending once. Their line breaks
 inside a bubble are his own too: `render` reflows the composer's prose, never a person's words.

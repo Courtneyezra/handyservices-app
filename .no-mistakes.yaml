@@ -45,7 +45,19 @@ test:
 
     For a change to Ben's board (/admin/comms-v2, server/comms-v2/api), drive the board itself in
     the browser as Ben and run the scenario list the goal's section of server/comms-v2/README.md
-    carries. The pipeline's admin account has the VA role on the branch database, so its sidebar
+    carries. First give the pipeline's admin account Ben's approver slot on the branch database, or
+    every release and answer is refused 403 before the desk is reached. Run this against the branch
+    database through the repo's own client (`direnv exec . npx tsx -e` importing server/db and
+    drizzle-orm's `sql`); it is safe to re-run, the key conflicts and updates:
+      insert into app_settings (id, key, value)
+      select gen_random_uuid()::text, 'comms_v2_approvers',
+             jsonb_build_object('ben', jsonb_build_array(u.id))
+      from users u where lower(u.email) = lower($1)
+      on conflict (key) do update set value = excluded.value;
+    Bind $1 from process.env.PIPELINE_ADMIN_EMAIL inside the script rather than typing the address,
+    so no value reaches a command line. It writes one row; if it writes none that account is not on
+    the branch, and the board refuses every release and answer until it is.
+    The pipeline's admin account has the VA role on the branch database, so its sidebar
     does not carry the board: open /admin/comms-v2 by URL. For Ben answering a customer from a
     card: a held sandbox card, Ben taps it, writes a reply and sends; the card's turn list shows his
     turn labelled with his own `human:` approver (his email or user id) against the desk's own

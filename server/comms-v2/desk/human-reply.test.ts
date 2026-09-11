@@ -194,6 +194,19 @@ describe('a person answers from the board', () => {
         expect(everAsked(file, 'postcode')).toBe(false);
     });
 
+    it('records nothing from prose that only reads like an ask, so the desk still asks', async () => {
+        for (const words of ['I will be in touch later today, what is the best number for you?', 'I have seen the picture, what time works?']) {
+            const { file, party } = fixture();
+            deskRepliedAndHeld(file);
+            const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words }, { now: now() });
+            expect(out.ok).toBe(true);
+            expect(everAsked(file, 'access')).toBe(false);
+            expect(everAsked(file, 'media')).toBe(false);
+            expect(everAsked(file, 'postcode')).toBe(false);
+            expect(party.callOffered).toBe(false);
+        }
+    });
+
     it('records the person who typed the words, not the slot two of them share', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
