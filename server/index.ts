@@ -506,8 +506,6 @@ import { commsSandboxRouter } from './spine/sandbox-routes';
 app.use('/api/comms-sandbox', requireAdmin, commsSandboxRouter); // T5: the comms sandbox — dry-run passes on the reserved drama number only, never a send
 import { createCommsV2ApiRouter } from './comms-v2/api/routes';
 app.use('/api/comms-v2', requireAdmin, createCommsV2ApiRouter()); // Goal 2: Ben's kanban board over the clean-sheet desk's case file, plus its sandbox door
-import { emailInboundRouter } from './comms-v2/channels/email-inbound';
-app.use(emailInboundRouter()); // comms-v2 (Goal 3): inbound email webhook; alive only with COMMS_V2_INTAKE on and its secret set
 import { variationRouter } from './spine/variation-routes';
 app.use(variationRouter); // P15/3: an extra found at the door → dispatch_variations + Route A + Ben's one-line price screen (auth per route inside)
 import { commsAgentConfigRouter } from './comms-agent-config-routes';

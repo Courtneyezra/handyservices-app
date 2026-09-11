@@ -77,7 +77,11 @@ export function recordCallFacts(file: CaseFile, turn: Turn, out: CallRead, deps:
     if (out.benAskedFor.length) put('ben_asked_for', out.benAskedFor.map((a) => a.detail).join('; ').slice(0, 200));
     if (out.callbackAgreed) put('callback_agreed', 'true');
     if (out.prefersText) put('prefers_text', 'true');
-    if (out.customerName && !file.parties[0]?.name) put('customer_name', out.customerName);
+    const named = (out.customerName ?? '').trim();
+    if (named && !file.parties[0]?.name) {
+        put('customer_name', named);
+        if (file.parties[0]) file.parties[0].name = named;
+    }
     return ids;
 }
 

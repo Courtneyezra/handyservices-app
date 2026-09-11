@@ -25,8 +25,7 @@ export type IntakeEvent =
     | { kind: 'twilio_incoming'; body: Record<string, unknown> }
     | { kind: 'meta_webhook'; payload: unknown }
     | { kind: 'web_form'; lead: { customerName?: string | null; phone?: string | null; email?: string | null; jobDescription?: string | null; postcode?: string | null; address?: string | null; source?: string | null; leadId?: string | null } }
-    | { kind: 'call_finished'; callRecordId: string }
-    | { kind: 'email_inbound'; envelope: InboundEnvelope };
+    | { kind: 'call_finished'; callRecordId: string };
 
 export interface IntakeReport { forwarded: number; skipped: string[] }
 
@@ -94,8 +93,6 @@ export async function envelopesOf(event: IntakeEvent, deps: { fetch?: typeof fet
             if (!env) skipped.push('an unanswered outbound call is recorded on the call row only');
             return { envelopes: env ? [env] : [], skipped };
         }
-        case 'email_inbound':
-            return { envelopes: [event.envelope], skipped };
     }
 }
 
@@ -105,7 +102,7 @@ export function forwardToCommsV2(event: IntakeEvent, env: NodeJS.ProcessEnv = pr
     void forwardNow(event).catch((err) => console.warn(`[comms-v2 intake] ${event.kind} failed: ${err?.message ?? err}`));
 }
 
-/** The same forward, awaited: the email webhook and the tests use it. */
+/** The same forward, awaited: the tests use it. */
 export async function forwardNow(event: IntakeEvent): Promise<IntakeReport> {
     const { envelopes, skipped } = await envelopesOf(event);
     const gateway = await liveChannelGateway();

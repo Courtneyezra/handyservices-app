@@ -141,14 +141,17 @@ describe('the call adapter', () => {
         expect(long).toMatch(/transcript cut at 6000 characters\]$/);
         expect(transcriptOf({ body: env.text } as any)).toBe('Agent: hi. Customer: hello.');
     });
-    it('validates the door\'s call: an outcome from the three, a transcript long enough for an answered call, a derived duration', () => {
+    it('validates the door\'s call: an outcome from the three, a transcript long enough for an answered call, and only a duration the door gave', () => {
         expect(validateDoorCall({ outcome: 'lost' }, { address: '+447700900942' })).toMatchObject({ ok: false });
         expect(validateDoorCall({ outcome: 'ben_rang', transcript: 'short' }, { address: '+447700900942' })).toMatchObject({ ok: false });
         const missed = validateDoorCall({ outcome: 'missed' }, { address: '+447700900942', name: 'Sam' });
-        expect(missed).toMatchObject({ ok: true, input: { outcome: 'missed', transcript: null, durationSeconds: 20, name: 'Sam' } });
+        expect(missed).toMatchObject({ ok: true, input: { outcome: 'missed', transcript: null, durationSeconds: null, name: 'Sam' } });
         const rang = validateDoorCall({ transcript: 'x'.repeat(600) }, { address: '+447700900942' });
-        expect(rang).toMatchObject({ ok: true, input: { outcome: 'ben_rang', durationSeconds: 50 } });
-        if (rang.ok) expect(fromDoorCall(rang.input).via).toBe('door');
+        expect(rang).toMatchObject({ ok: true, input: { outcome: 'ben_rang', durationSeconds: null } });
+        if (!rang.ok) throw new Error(rang.error);
+        expect(fromDoorCall(rang.input).text).toMatch(/^\[call: Ben rang them and they answered\]\n/);
+        expect(validateDoorCall({ transcript: 'x'.repeat(600), durationSeconds: 240 }, { address: '+447700900942' })).toMatchObject({ ok: true, input: { durationSeconds: 240 } });
+        expect(fromDoorCall(rang.input).via).toBe('door');
     });
     it('reads the outcome back off the file for the call turn, and picks the template purpose per turn', () => {
         const r = open({ identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam' }, channel: 'call', address: '+447700900942', firstTurn: { at: '2026-09-11T10:00:00.000Z', channel: 'call', kind: 'call_transcript', body: '[missed call]', media: [] } });

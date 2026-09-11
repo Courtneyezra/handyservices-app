@@ -93,7 +93,7 @@ export interface DoorCall { outcome: CallOutcome; transcript?: string | null; du
 
 export type DoorCallCheck = { ok: true; input: DoorCall } | { ok: false; error: string };
 
-/** The door's call: the outcome is required; an answered call needs a transcript long enough to read. */
+/** The door's call: the outcome is required; an answered call needs a transcript long enough to read. A duration the door does not give stays null, and the turn's header line simply omits it. */
 export function validateDoorCall(body: unknown, defaults: { address: string; name?: string | null }): DoorCallCheck {
     const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
     const outcome = b.outcome ?? 'ben_rang';
@@ -101,7 +101,7 @@ export function validateDoorCall(body: unknown, defaults: { address: string; nam
     const transcript = typeof b.transcript === 'string' ? b.transcript.trim() : '';
     if (outcome !== 'missed' && transcript.length < TRANSCRIPT_MIN_CHARS) return { ok: false, error: `an answered call needs a transcript of at least ${TRANSCRIPT_MIN_CHARS} characters` };
     const given = Number(b.durationSeconds);
-    const durationSeconds = Number.isFinite(given) && given > 0 ? Math.min(3600, Math.round(given)) : (transcript ? Math.max(45, Math.min(900, Math.round(transcript.length / 12))) : 20);
+    const durationSeconds = Number.isFinite(given) && given > 0 ? Math.min(3600, Math.round(given)) : null;
     return { ok: true, input: { outcome, transcript: outcome === 'missed' ? null : transcript, durationSeconds, name: typeof b.name === 'string' && b.name.trim() ? b.name.trim() : defaults.name ?? null, address: defaults.address } };
 }
 

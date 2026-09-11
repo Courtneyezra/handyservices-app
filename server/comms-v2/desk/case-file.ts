@@ -348,7 +348,6 @@ export function recordFact(file: CaseFile, input: { key: string; value: string; 
     if (fact.key === 'job_type') file.job.type = fact.value;
     if (fact.key === 'location') file.job.location = fact.value;
     const party = file.parties[0];
-    if (party && fact.key === 'customer_name' && !party.name) party.name = fact.value;
     if (party && fact.key === 'prefers_text' && /^(true|yes)$/i.test(fact.value)) party.prefersText = true;
     if (party && fact.key === 'already_rung' && /^(true|yes)$/i.test(fact.value)) party.alreadyRung = true;
     return accept(fact);

@@ -2,7 +2,7 @@
  * The email adapter. Long-form in, one composed message out with a greeting and a sign-off, on
  * the same thread (Contract 5, render; docs/comms-v2/design.md "Five channels, one desk").
  *
- * In: there is no inbound email today, so the webhook is new (email-inbound.ts). This module
+ * In: there is no inbound email today, so the only way in is the sandbox door. This module
  * turns one provider-neutral inbound email into the gateway's envelope: the sender's lowercase
  * address, the subject and the new text with the quoted history stripped, photo and video
  * attachments written where the Scoping tools read media, and the thread reference (Message-ID

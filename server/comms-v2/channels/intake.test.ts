@@ -1,14 +1,11 @@
 /**
  * The old inputs behind the one switch: off means nothing runs; on means each event becomes the
- * matching envelope and reaches the gateway. The inbound email webhook refuses without the
- * switch, without its secret, and with the wrong one, then forwards.
+ * matching envelope and reaches the gateway.
  */
-import express from 'express';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from './channel-gateway';
-import { EMAIL_INBOUND_PATH, EMAIL_SECRET_ENV, EMAIL_SECRET_HEADER, emailInboundRouter } from './email-inbound';
 import { INTAKE_ENV, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, resetLiveChannelGateway } from './intake';
 
 const turns: Turn[] = [];
@@ -27,7 +24,7 @@ describe('the intake switch', () => {
         forwardToCommsV2({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } }, {});
         expect(turns.length).toBe(before);
     });
-    it('shapes each event through its adapter: an SMS and a WhatsApp on the Twilio webhook, a form, an email', async () => {
+    it('shapes each event through its adapter: an SMS and a WhatsApp on the Twilio webhook, a form', async () => {
         const sms = await envelopesOf({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi', MessageSid: 'SM1' } });
         expect(sms.envelopes[0]).toMatchObject({ channel: 'sms', address: '+447700900942', text: 'hi' });
         const wa = await envelopesOf({ kind: 'twilio_incoming', body: { From: 'whatsapp:+447700900942', Body: 'hi', NumMedia: '0' } });
@@ -48,37 +45,3 @@ describe('the intake switch', () => {
     });
 });
 
-describe('the inbound email webhook', () => {
-    let server: import('node:http').Server;
-    let url: string;
-    const forwarded: unknown[] = [];
-    const env: NodeJS.ProcessEnv = {};
-    beforeAll(async () => {
-        const app = express();
-        app.use(express.json({ limit: '1mb' }));
-        app.use(emailInboundRouter({ env, forward: async (event) => { forwarded.push(event); return { forwarded: 1, skipped: [] }; } }));
-        server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
-        url = `http://127.0.0.1:${(server.address() as { port: number }).port}${EMAIL_INBOUND_PATH}`;
-    });
-    afterAll(async () => { await new Promise<void>((r) => server.close(() => r())); });
-    const post = async (body: unknown, headers: Record<string, string> = {}) => {
-        const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-        return { status: res.status, json: await res.json() as any };
-    };
-    it('answers 404 with the intake off, 503 with no secret, 401 with the wrong one, 400 with no sender, then forwards the provider-neutral shape', async () => {
-        expect((await post({ from: 'a@b.co', text: 'x' })).status).toBe(404);
-        env[INTAKE_ENV] = '1';
-        expect((await post({ from: 'a@b.co', text: 'x' })).status).toBe(503);
-        env[EMAIL_SECRET_ENV] = 's3cret';
-        expect((await post({ from: 'a@b.co', text: 'x' })).status).toBe(401);
-        expect((await post({ from: 'a@b.co', text: 'x' }, { [EMAIL_SECRET_HEADER]: 'nope' })).status).toBe(401);
-        expect((await post({ text: 'x' }, { [EMAIL_SECRET_HEADER]: 's3cret' })).status).toBe(400);
-        const ok = await post({ from: 'Sam <sam@example.com>', subject: 'Fan', text: 'dead fan\n> old', messageId: '<m1@x>' }, { [EMAIL_SECRET_HEADER]: 's3cret' });
-        expect(ok.status).toBe(200);
-        expect(ok.json).toEqual({ ok: true, forwarded: 1, skipped: [] });
-        expect(forwarded[0]).toMatchObject({ kind: 'email_inbound', envelope: { channel: 'email', address: 'sam@example.com', text: 'Subject: Fan\n\ndead fan', email: { messageId: '<m1@x>' } } });
-        const second = await post({ from: 'p@example.com', fromName: 'P', subject: 'S', text: 'hello', messageId: '<abc>', TextBody: 'a provider field this endpoint does not read' }, { [EMAIL_SECRET_HEADER]: 's3cret' });
-        expect(second.status).toBe(200);
-        expect(forwarded[1]).toMatchObject({ envelope: { address: 'p@example.com', name: 'P', text: 'Subject: S\n\nhello', email: { messageId: '<abc>' } } });
-    });
-});
