@@ -4,8 +4,9 @@
  * only (the approver is the session, server side), and starts a sandbox thread through the board.
  *
  * Then the answer half: Ben writes the reply himself on the card, it posts his words to the answer
- * route, the bubbles that went are shown back, and a refusal from the sender is shown inline with
- * the sheet still open and his words kept so he can fix them.
+ * route, the bubbles that went are shown back, each outbound turn names who sent it so his own
+ * replies read apart from the desk's, and a refusal from the sender is shown inline with the sheet
+ * still open and his words kept so he can fix them.
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -167,7 +168,11 @@ describe('<CommsV2BoardPage>', () => {
             id: 'case_held', stage: 'quoted', mode: 'sandbox',
             party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
             job: { type: 'leaking tap', location: 'SW11', quoteRef: 'Q-1', bookingRef: null },
-            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?' }],
+            turns: [
+                { id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?' },
+                { id: 't2', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Ben will come back to you on the price.', approver: 'agent.comms_v2' },
+                { id: 't3', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Morning Sam, let me look at that.', approver: 'human:ben' },
+            ],
             facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
             holdApproverAssigned: true,
@@ -187,6 +192,11 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByTestId('board-card-case_held'));
 
         await waitFor(() => expect(screen.getByTestId('answer-form')).toBeTruthy());
+        // Ben can tell his own turn from the desk's on the card itself.
+        expect(screen.getByTestId('turn-meta-t2').textContent).toContain('agent.comms_v2');
+        expect(screen.getByTestId('turn-meta-t3').textContent).toContain('human:ben');
+        expect(screen.getByTestId('turn-meta-t1').textContent).not.toContain('human:ben');
+
         await user.type(screen.getByLabelText('Your reply to the customer'), 'That one is £120 fitted, as on your quote.');
         await user.click(screen.getByRole('button', { name: /send as me/i }));
 

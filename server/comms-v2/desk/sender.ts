@@ -92,15 +92,26 @@ function splitLong(text: string): string[] {
     return out;
 }
 
+export interface RenderOptions {
+    /**
+     * A person's own words (behaviour.md answer 43): a blank line still starts a new bubble, and
+     * inside one his line breaks stay as he typed them, with nothing re-split at a sentence.
+     */
+    asTyped?: boolean;
+}
+
 /**
  * WhatsApp: the one reply split into bubbles at the breaks a person would use: the composer's
  * blank lines first, then sentence boundaries for anything over about three hundred characters.
  * Typing gaps of one to three seconds scaled to length. A ceiling reached returns the reply to
- * the composer to shorten rather than sending a wall.
+ * the composer to shorten rather than sending a wall. `asTyped` is the human path: blank lines
+ * still break bubbles, nothing inside one is reflowed.
  */
-export function renderWhatsApp(reply: string): RenderResult {
-    const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean);
-    const texts = paragraphs.flatMap(splitLong);
+export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderResult {
+    const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/)
+        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : p.replace(/\s*\n\s*/g, ' ').trim())
+        .filter(Boolean);
+    const texts = opts.asTyped ? paragraphs : paragraphs.flatMap(splitLong);
     const bubbles = texts.map((text) => ({ text, gapMs: typingGap(text) }));
     if (!bubbles.length) return { ok: false, reason: 'empty', bubbles };
     if (bubbles.length > BUBBLE_CEILING) return { ok: false, reason: 'ceiling', bubbles };
@@ -108,8 +119,8 @@ export function renderWhatsApp(reply: string): RenderResult {
 }
 
 /** Goal 1 replies on WhatsApp only: any other channel is refused here, never rendered by guesswork. */
-export function render(channel: ReplyChannel, reply: string): RenderResult {
-    if (channel === 'whatsapp') return renderWhatsApp(reply);
+export function render(channel: ReplyChannel, reply: string, opts: RenderOptions = {}): RenderResult {
+    if (channel === 'whatsapp') return renderWhatsApp(reply, opts);
     return { ok: false, reason: 'channel', bubbles: [] };
 }
 

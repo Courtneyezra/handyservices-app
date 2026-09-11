@@ -156,6 +156,21 @@ describe('Ben answers from the board', () => {
         expect(cardsOn(still.json).map((c) => c.id)).toEqual([id]);
     });
 
+    it('refuses a session listed for another slot on a file that answers to ben', async () => {
+        const board = await call('GET', '/board?held=true');
+        const id = cardsOn(board.json)[0].id as string;
+        const before = await call('GET', `/case-files/${id}`);
+
+        assignments = { ben: ['user_Ben.Real@handyservices.app'], landlord_1: ['user_Lena.Landlord@handyservices.app'] };
+        const wrong = await call('POST', `/case-files/${id}/answer`, { words: 'Morning Sam, I can sort that for you.' }, 'Lena.Landlord@handyservices.app');
+        expect(wrong.status).toBe(409);
+        expect(wrong.json.error).toMatch(/only ben may answer/);
+
+        const after = await call('GET', `/case-files/${id}`);
+        expect(after.json.turns).toHaveLength(before.json.turns.length);
+        expect(after.json.hold).not.toBeNull();
+    });
+
     it('refuses a reply the sender will not carry, and sends nothing', async () => {
         const board = await call('GET', '/board?held=true');
         const id = cardsOn(board.json)[0].id as string;

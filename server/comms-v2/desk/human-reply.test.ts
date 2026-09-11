@@ -126,6 +126,35 @@ describe('a person answers from the board', () => {
         expect(file.turns).toHaveLength(2);
     });
 
+    it('keeps the line breaks Ben types inside a bubble; a blank line still starts a new one', async () => {
+        const { file } = fixture();
+        deskRepliedAndHeld(file);
+        const words = 'Morning Sam, two things I would do:\n- replace the washer\n- check the isolator valve\n\nI will bring both.';
+
+        const out = await humanReply({ file, approver: BEN, words }, { now: now() });
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.bubbles.map((b) => b.text)).toEqual([
+            'Morning Sam, two things I would do:\n- replace the washer\n- check the isolator valve',
+            'I will bring both.',
+        ]);
+        expect(file.turns[file.turns.length - 1].body).toContain('\n- replace the washer');
+    });
+
+    it('refuses a slot that is not the one this file answers to, with no hold standing either', async () => {
+        const { file } = fixture();
+        const landlord: ApproverSlot = { kind: 'human', id: 'landlord_1' };
+
+        const out = await humanReply({ file, approver: landlord, words: 'Morning Sam, I can look at that.' }, { now: now() });
+
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/only ben may answer/);
+        expect(file.sends).toHaveLength(0);
+        expect(file.turns).toHaveLength(1);
+    });
+
     it('refuses a shut window: a shut window never carries freeform words', async () => {
         const { file, party } = fixture();
         deskRepliedAndHeld(file);

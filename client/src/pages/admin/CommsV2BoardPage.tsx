@@ -7,8 +7,8 @@
  *
  * Beside release, the answer form: Ben writes to the customer in his own words and they go out
  * through the desk's one sender with him as approver (POST /case-files/:id/answer, over
- * server/comms-v2/desk/human-reply.ts). The desk never rewrites his words and the guards never run
- * over them; anything the sender refuses, a shut window or a reply over the bubble ceiling, comes
+ * server/comms-v2/desk/human-reply.ts). The desk never rewrites his words, his line breaks inside
+ * a bubble included, and the guards never run over them; anything the sender refuses, a shut window or a reply over the bubble ceiling, comes
  * back here to be shown and fixed, never held silently.
  *
  * Not polished, just visible and operable: it doubles as the window onto the sandbox while the
@@ -79,6 +79,8 @@ export interface Turn {
     direction: 'inbound' | 'outbound';
     kind: string;
     body: string;
+    /** Outbound only: who sent it, `human:<slot>` for a person, `agent.comms_v2` for the desk. */
+    approver?: string | null;
 }
 
 export interface Fact {
@@ -301,14 +303,14 @@ export function AnswerForm({ fileId, held, onAnswered }: {
         <div className="rounded-lg border p-3" data-testid="answer-form">
             <p className="text-sm font-semibold">Answer the customer yourself</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-                Your words go out as written, from you. {held ? 'Sending clears the hold and hands the thread back to the desk.' : 'The thread stays with the desk after it goes.'}
+                Your words go out as written, from you, line breaks and all. {held ? 'Sending clears the hold and hands the thread back to the desk.' : 'The thread stays with the desk after it goes.'}
             </p>
             <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="answer-words">Your reply to the customer</label>
             <Textarea
                 id="answer-words"
                 value={words}
                 onChange={(e) => setWords(e.target.value)}
-                placeholder="Write it as you would on your phone. A blank line starts a new message."
+                placeholder="Write it as you would on your phone. A blank line starts a new message; line breaks inside one are kept."
                 className="mt-1"
                 rows={4}
             />
@@ -378,8 +380,10 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
                                 t.direction === 'inbound' ? 'bg-background' : 'ml-6 bg-primary/5',
                             )}
                         >
-                            <p>{t.body}</p>
-                            <p className="mt-0.5 text-[10px] text-muted-foreground">{t.channel} · {relativeTime(t.at)}</p>
+                            <p className="whitespace-pre-wrap">{t.body}</p>
+                            <p data-testid={`turn-meta-${t.id}`} className="mt-0.5 text-[10px] text-muted-foreground">
+                                {t.direction === 'outbound' ? `${t.approver ?? 'desk'} · ` : ''}{t.channel} · {relativeTime(t.at)}
+                            </p>
                         </li>
                     ))}
                 </ul>

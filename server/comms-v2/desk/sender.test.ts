@@ -67,6 +67,16 @@ describe('renderWhatsApp', () => {
         if (!r.ok) expect(r.reason).toBe('ceiling');
         expect(renderWhatsApp('   ').ok).toBe(false);
     });
+    it('reflows the composer\'s own line breaks, and keeps a person\'s (asTyped)', () => {
+        const words = 'Morning Sam, two things:\n- replace the washer\n- check the isolator valve\n\nI will bring both.';
+        const composed = renderWhatsApp(words);
+        expect(composed.ok).toBe(true);
+        expect(composed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things: - replace the washer - check the isolator valve', 'I will bring both.']);
+
+        const typed = renderWhatsApp(words, { asTyped: true });
+        expect(typed.ok).toBe(true);
+        expect(typed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things:\n- replace the washer\n- check the isolator valve', 'I will bring both.']);
+    });
     it('renders for WhatsApp only: SMS and email are refused, not guessed', () => {
         expect(render('whatsapp', 'Hi Sam.').ok).toBe(true);
         for (const channel of ['sms', 'email'] as const) {

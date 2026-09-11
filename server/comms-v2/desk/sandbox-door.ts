@@ -94,7 +94,7 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
             desk: 'comms_v2',
             phone: { e164: SANDBOX_PHONE_E164, wa: SANDBOX_PHONE_WA },
             conversation: file ? { id: file.id, stage: file.stage, tags: [] as string[], contactName: party?.name ?? null, createdAt: file.openedAt } : null,
-            messages: file ? file.turns.map((t) => ({ id: t.id, direction: t.direction, content: t.body, createdAt: t.at, senderName: t.direction === 'inbound' ? (party?.name ?? null) : 'desk', channel: t.channel, type: t.kind, mediaUrl: t.media[0]?.url ?? null, mediaType: t.media[0]?.mime ?? null })) : [],
+            messages: file ? file.turns.map((t) => ({ id: t.id, direction: t.direction, content: t.body, createdAt: t.at, senderName: t.direction === 'inbound' ? (party?.name ?? null) : (t.approver ?? 'desk'), channel: t.channel, type: t.kind, mediaUrl: t.media[0]?.url ?? null, mediaType: t.media[0]?.mime ?? null })) : [],
             window: window ? { canFreeform: window.state === 'open', summary: window.reason } : null,
             quote: null,
             lastCall: null,

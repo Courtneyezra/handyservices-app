@@ -81,7 +81,13 @@ they go straight to the sender. The `human:<slot>` approver on the send, which n
 can produce, is the record that a person wrote them; guard results are not persisted on any send,
 so nothing reads as a pass no guard gave (behaviour.md answer 43, `desk/human-reply.ts`).
 What still holds for those words is everything the sender owns: the window rule, an approver and a
-run id on every send, the party being on the file, and one run id sending once.
+run id on every send, the party being on the file, and one run id sending once. Their line breaks
+inside a bubble are his own too: `render` reflows the composer's prose, never a person's words.
+
+**Only the slot the file answers to may answer it.** A person's reply is authorised against the
+file, not against the row alone: the approver its hold names while one stands, else the slot
+`approverFor` returns for it. A session holding some other slot is refused, on an unheld file as
+much as a held one, so a slot minted for a landlord's thread can never reply on a homeowner's.
 
 | Guard | Fails when | Checked against |
 |---|---|---|

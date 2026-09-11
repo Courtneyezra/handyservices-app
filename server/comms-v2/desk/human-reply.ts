@@ -20,7 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type Turn } from './case-file';
 import type { DeskResult } from './desk-types';
-import { guardsNotApplied } from './guards';
+import { approverFor, guardsNotApplied } from './guards';
 import { BUBBLE_CEILING, chooseChannel, render, send, windowOf, type SenderDeps } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 
@@ -28,7 +28,7 @@ export interface HumanReplyInput {
     file: CaseFile;
     /** The slot the signed-in session occupies (server/comms-v2/api/approvers.ts). A person, never a rule. */
     approver: ApproverSlot;
-    /** Ben's words, sent as typed. A blank line is a bubble break, as for the composer. */
+    /** Ben's words, sent as typed: a blank line is a bubble break, and his line breaks inside one are kept. */
     words: string;
 }
 
@@ -63,7 +63,8 @@ function nothing(file: CaseFile, party: Party, runId: string, approver: string, 
 
 /**
  * Ben's reply to the customer, through the one sender. Refuses: no words; a rule-based approver;
- * a hold named for someone else; no customer turn to answer; a render the sender refuses (over the
+ * a slot that is not the one this file answers to, its hold's approver when one stands and
+ * `approverFor`'s slot otherwise; no customer turn to answer; a render the sender refuses (over the
  * bubble ceiling, or a channel the desk cannot render); a shut window (a shut window never
  * produces freeform text, Contract 5); and whatever the sender itself refuses.
  */
@@ -77,15 +78,16 @@ export async function humanReply(input: HumanReplyInput, deps: HumanReplyDeps = 
 
     if (approver.kind !== 'human') return refuse('only a person answers from the board; a rule-based approver has no words');
     if (!words) return refuse('a reply needs words');
-    if (file.hold && !sameApprover(file.hold.approver, approver)) return refuse(`only ${approverLabel(file.hold.approver)} may answer while this hold stands`);
+    const owner = file.hold?.approver ?? approverFor(file, null);
+    if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may answer this file`);
     const turn = lastCustomerTurn(file, party.personId);
     if (!turn) return refuse('no customer turn to answer');
     const approverName = humanApproverName(approver);
 
-    // Channel, render, window: as the sender renders a composed reply, with nothing rewritten.
+    // Channel, render, window: as the sender renders a composed reply, with nothing reflowed or rewritten.
     const choice = chooseChannel(party, turn.channel);
     if (!choice.ok) return refuse(choice.reason);
-    const rendered = render(choice.channel, words);
+    const rendered = render(choice.channel, words, { asTyped: true });
     if (!rendered.ok) {
         const why = rendered.reason === 'ceiling' ? `the reply renders to ${rendered.bubbles.length} bubbles, over the ceiling of ${BUBBLE_CEILING}; shorten it or use fewer blank lines` : rendered.reason === 'channel' ? `no render for ${choice.channel}: the desk replies on WhatsApp only` : 'the reply rendered to nothing';
         return refuse(why);
