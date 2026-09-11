@@ -13,7 +13,7 @@
  */
 import type { ReplyChannel, TurnKind } from '../desk/case-file';
 import type { ChannelKind } from '../desk/identity';
-import type { InboundMedia, InboundTurn } from '../desk/whatsapp-adapter';
+import type { InboundMedia } from '../desk/whatsapp-adapter';
 
 export interface IntakeFact { key: string; value: string }
 
@@ -40,11 +40,6 @@ export interface InboundEnvelope {
     /** Facts the adapter established, recorded at intake with this turn as the source. */
     facts?: IntakeFact[];
     email?: EmailThreadRef;
-}
-
-/** A WhatsApp turn is an envelope as it stands; the function only names the fact for a reader. */
-export function envelopeOfWhatsApp(turn: InboundTurn): InboundEnvelope {
-    return turn;
 }
 
 /** The first name from a full name, for a greeting. Null when there is none. */
