@@ -79,7 +79,7 @@ export async function envelopesOf(event: IntakeEvent, deps: { fetch?: typeof fet
         }
         case 'web_form': {
             const { fromWebForm } = await import('./form-adapter');
-            return { envelopes: [await fromWebForm(event.lead, { fetch: deps.fetch, mediaDir: deps.mediaDir })], skipped };
+            return { envelopes: [await fromWebForm(event.lead, { mediaDir: deps.mediaDir })], skipped };
         }
         case 'call_finished': {
             const { db } = await import('../../db');

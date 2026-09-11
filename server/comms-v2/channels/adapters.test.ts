@@ -110,15 +110,14 @@ describe('the web form adapter', () => {
         expect(emailOnly.reach).toEqual([{ kind: 'email', address: 'a@b.co' }]);
         await expect(fromWebForm({ jobDescription: 'nothing to reach' })).rejects.toThrow(/phone or an email/);
     });
-    it('writes photos given as bytes or fetched from a url, and records a failed one', async () => {
-        const f = (async (url: string) => (String(url).endsWith('/ok') ? new Response(new Uint8Array(PNG), { status: 200, headers: { 'content-type': 'image/png' } }) : new Response('no', { status: 500 }))) as unknown as typeof fetch;
-        const env = await fromWebForm({ phone: '+447700900942', jobDescription: 'x', photos: [{ url: 'https://x/ok' }, { url: 'https://x/bad' }, { contentBase64: PNG.toString('base64'), mime: 'image/png' }] }, { fetch: f, mediaDir: dir });
-        expect(env.media).toHaveLength(2);
-        expect(env.mediaFailures).toEqual([{ ref: 'https://x/bad', reason: 'download failed: HTTP 500' }]);
+    it('writes photos given as bytes and records one with no content', async () => {
+        const env = await fromWebForm({ phone: '+447700900942', jobDescription: 'x', photos: [{ contentBase64: PNG.toString('base64'), mime: 'image/png' }, { mime: 'image/png' }] }, { mediaDir: dir });
+        expect(env.media).toHaveLength(1);
+        expect(env.mediaFailures).toEqual([{ ref: '(photo)', reason: 'photo with no content' }]);
         const door = await fromDoorForm({ job: 'x', phone: '+447700900942', media: [{ bytes: PNG, mime: 'image/png' }] }, { mediaDir: dir });
         expect(door.via).toBe('door');
         expect(door.media).toHaveLength(1);
-        expect(fs.readdirSync(dir)).toHaveLength(3);
+        expect(fs.readdirSync(dir)).toHaveLength(2);
     });
 });
 

@@ -6,8 +6,8 @@
  * The form is Identity's join: it is the one channel that gives a phone and an email together,
  * so both go on the envelope as hints and the gateway links them as one person. The postcode is
  * recorded as a fact at intake with the form turn as its source; the job type is the Scoping
- * specialist's to establish from the words. Photos arrive as URLs or bytes and are written where
- * the WhatsApp adapter writes inbound media, so describe_media reads them the same way.
+ * specialist's to establish from the words. Photos arrive as bytes and are written where the
+ * WhatsApp adapter writes inbound media, so describe_media reads them the same way.
  */
 import { e164FromWhatsApp } from '../desk/whatsapp-adapter';
 import { canonical } from '../desk/identity';
@@ -23,12 +23,12 @@ export interface WebFormLead {
     postcode?: string | null;
     address?: string | null;
     source?: string | null;
-    photos?: Array<{ url?: string | null; contentBase64?: string | null; mime?: string | null }>;
+    photos?: Array<{ contentBase64?: string | null; mime?: string | null }>;
     at?: string | null;
     leadId?: string | null;
 }
 
-export interface FormAdapterDeps extends MediaWriteDeps { now?: () => Date; fetch?: typeof fetch }
+export interface FormAdapterDeps extends MediaWriteDeps { now?: () => Date }
 
 /** One envelope from a form submission. Refuses a form with neither a phone nor an email: nothing could ever reply. */
 export async function fromWebForm(lead: WebFormLead, deps: FormAdapterDeps = {}): Promise<InboundEnvelope> {
@@ -54,23 +54,11 @@ export async function fromWebForm(lead: WebFormLead, deps: FormAdapterDeps = {})
         providerMessageId: lead.leadId ?? null, via: 'webform', mediaFailures: [], kind: 'form', hints: { email, phone, postcode: lead.postcode ?? null }, reach, facts,
     };
     for (const p of lead.photos ?? []) {
-        try {
-            let bytes: Buffer | null = null;
-            let mime = p.mime ?? '';
-            if (p.contentBase64) bytes = Buffer.from(p.contentBase64, 'base64');
-            else if (p.url) {
-                const res = await (deps.fetch ?? globalThis.fetch)(p.url);
-                if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
-                bytes = Buffer.from(await res.arrayBuffer());
-                mime = mime || res.headers.get('content-type') || '';
-            }
-            if (!bytes) { turn.mediaFailures.push({ ref: p.url ?? '(photo)', reason: 'photo with neither a url nor content' }); continue; }
-            const m = writeInboundMedia(bytes, mime || 'image/jpeg', deps);
-            if (isRefused(m)) turn.mediaFailures.push({ ref: p.url ?? '(photo)', reason: m.refused });
-            else turn.media.push(m);
-        } catch (err: any) {
-            turn.mediaFailures.push({ ref: p.url ?? '(photo)', reason: err?.message ?? String(err) });
-        }
+        const bytes = p.contentBase64 ? Buffer.from(p.contentBase64, 'base64') : null;
+        if (!bytes) { turn.mediaFailures.push({ ref: '(photo)', reason: 'photo with no content' }); continue; }
+        const m = writeInboundMedia(bytes, p.mime || 'image/jpeg', deps);
+        if (isRefused(m)) turn.mediaFailures.push({ ref: '(photo)', reason: m.refused });
+        else turn.media.push(m);
     }
     return turn;
 }
