@@ -142,6 +142,27 @@ describe('the desk', () => {
         expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
     });
 
+    it('a complaint holds the thread on its fixed line: the next turn gets the acknowledgement, no router, no specialist, no composer', async () => {
+        const { client, gateway } = desk({
+            router: ({ n }) => { if (n > 1) throw new Error('the router must not be called on a held thread'); return routeScoping({ exception: 'complaint', turnKind: 'other' }); },
+            specialist: () => { throw new Error('the specialist must not be called'); },
+            composer: () => { throw new Error('the composer must not be called'); },
+        });
+        const a = await gateway.inbound(turn('Your last job was rubbish, I want it redone', '2026-09-11T10:00:00.000Z'));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.complaint);
+        expect(a.file.hold?.exception).toBe('complaint');
+        const b = await gateway.inbound(turn('So what happens now?', '2026-09-11T10:05:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.decision).toBe('hold');
+        expect(b.result.delivered).toBe(true);
+        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(b.result.calls).toHaveLength(0);
+        expect(client.calls).toHaveLength(1);
+        expect(b.file.hold?.exception).toBe('complaint');
+        expect(b.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(2);
+    });
+
     it('a promise of more gets one acknowledgement with no question; the clock stays quiet; the next customer turn is answered', async () => {
         const { gateway } = desk({
             router: ({ n }) => n === 2 ? routeScoping({ turnKind: 'promise_of_more' }) : routeScoping(),

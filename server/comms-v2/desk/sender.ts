@@ -4,13 +4,16 @@
  *
  * Dry run (the sandbox, the judge) runs everything up to delivery for real and then lands the
  * planned reply on the case file's thread as an outbound turn, so later turns see it. Live
- * delivery goes through the surviving outbound send (server/outbound.ts) whose registry gate
- * refuses an approver it does not know; the desk's approver gets its registry row at cutover.
+ * delivery goes through the surviving outbound send (server/outbound.ts) under the desk's own
+ * registered approver, and only once its switch has been turned on by hand: the desk is
+ * sandbox-only until cutover. Goal 1 renders for WhatsApp only.
  *
  * Invariants: one run id sends once; every send has an approver; nothing reaches a customer that
- * did not pass the guards; a shut window never produces freeform text on any channel.
+ * did not pass the guards; a shut window never produces freeform text on any channel; a fixed
+ * line that Ben has not reviewed sends in dry run only.
  */
 import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps } from './case-file';
+import type { FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import type { Approver } from '../../approver';
 
@@ -20,8 +23,8 @@ export const BUBBLE_CEILING = 4;
 export const GAP_MIN_MS = 1000;
 export const GAP_MAX_MS = 3000;
 
-/** The desk's own approver name for an unattended send. Needs a row in server/sender-registry.ts at cutover; until then the live gate refuses it, which is the point. */
-export const DESK_APPROVER = 'agent.comms_v2';
+/** The desk's own approver name for an unattended send: `agent.comms_v2` in server/sender-registry.ts, switch key `comms_v2`. */
+export const DESK_APPROVER: Approver = 'agent.comms_v2';
 
 export type ReplyPurpose = 'service_reply';
 
@@ -59,7 +62,7 @@ export function windowOf(party: Party, channel: ReplyChannel, now: Date): Window
 
 // ---------------------------------------------------------------- render
 
-export type RenderResult = { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: 'ceiling' | 'empty'; bubbles: RenderedBubble[] };
+export type RenderResult = { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: 'ceiling' | 'empty' | 'channel'; bubbles: RenderedBubble[] };
 
 function typingGap(text: string): number {
     return Math.max(GAP_MIN_MS, Math.min(GAP_MAX_MS, Math.round(GAP_MIN_MS + text.length * 8)));
@@ -95,25 +98,10 @@ export function renderWhatsApp(reply: string): RenderResult {
     return { ok: true, bubbles };
 }
 
-/** SMS: one message, two segments at most (306 GSM characters). */
-export function renderSms(reply: string): RenderResult {
-    const text = reply.replace(/\s*\n+\s*/g, ' ').trim();
-    if (!text) return { ok: false, reason: 'empty', bubbles: [] };
-    if (text.length > 306) return { ok: false, reason: 'ceiling', bubbles: [{ text, gapMs: 0 }] };
-    return { ok: true, bubbles: [{ text, gapMs: 0 }] };
-}
-
-/** Email: greeting, body, sign-off, on the same thread. Goal 3 wires it; the shape exists so the exit has one render per channel. */
-export function renderEmail(reply: string, name: string | null): RenderResult {
-    const body = reply.trim();
-    if (!body) return { ok: false, reason: 'empty', bubbles: [] };
-    return { ok: true, bubbles: [{ text: `Hi ${name ?? 'there'},\n\n${body}\n\nBen`, gapMs: 0 }] };
-}
-
-export function render(channel: ReplyChannel, reply: string, party: Party): RenderResult {
+/** Goal 1 replies on WhatsApp only: any other channel is refused here, never rendered by guesswork. */
+export function render(channel: ReplyChannel, reply: string): RenderResult {
     if (channel === 'whatsapp') return renderWhatsApp(reply);
-    if (channel === 'sms') return renderSms(reply);
-    return renderEmail(reply, party.name);
+    return { ok: false, reason: 'channel', bubbles: [] };
 }
 
 // ---------------------------------------------------------------- pick_template
@@ -140,7 +128,15 @@ export const noTemplateApproved: TemplateStatusSource = { async approved() { ret
 /** Which registry triggers carry a reply of each purpose. Branches on purpose, never on a name. */
 const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = { service_reply: ['question_unanswered'] };
 
-export type TemplatePick = { ok: true; templateId: string; body: string; variables: Record<string, string> } | { ok: false; reason: string };
+export type TemplatePick = { ok: true; templateId: string; language: string; body: string; variables: Record<string, string> } | { ok: false; reason: string };
+
+/** What the deliverer sends when the window is shut: the template by name, with its variables as Meta's body components. */
+export interface TemplateSend { name: string; language: string; components: unknown[] }
+
+export function templateSend(pick: Extract<TemplatePick, { ok: true }>): TemplateSend {
+    const parameters = Object.keys(pick.variables).sort((a, b) => Number(a) - Number(b)).map((n) => ({ type: 'text', text: pick.variables[n] }));
+    return { name: pick.templateId, language: pick.language, components: [{ type: 'body', parameters }] };
+}
 
 /** When the window is shut: one approved template for the reply's purpose from the registry. None approved: the reply is held as a pending draft for Ben. Never an SMS fallback. */
 export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string | null; topic: string }, status: TemplateStatusSource = liveTemplateStatus): Promise<TemplatePick> {
@@ -149,7 +145,7 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string |
     for (const t of candidates) for (const name of t.names) {
         if (await status.approved(name)) {
             const variables = { '1': vars.name ?? 'there', '2': vars.topic.slice(0, 120) };
-            return { ok: true, templateId: name, body: t.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n as '1' | '2'] ?? ''), variables };
+            return { ok: true, templateId: name, language: t.language, body: t.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n as '1' | '2'] ?? ''), variables };
         }
     }
     return { ok: false, reason: `no approved template for purpose ${purpose}; held as a pending draft for Ben` };
@@ -158,22 +154,38 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string |
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    deliver(input: { to: string; channel: ReplyChannel; bubbles: RenderedBubble[]; templateId: string | null; runId: string; approver: string }): Promise<{ ok: true; sid: string | null } | { ok: false; reason: string }>;
+    deliver(input: { to: string; channel: ReplyChannel; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver }): Promise<DeliveryOutcome>;
 }
 
-/** The surviving outbound send. Its registry gate refuses an unregistered approver, which the desk's is until cutover. */
+/** A failure names the bubbles that had already reached the customer, so the file can record them. */
+export type DeliveryOutcome = { ok: true; sid: string | null } | { ok: false; reason: string; delivered: RenderedBubble[] };
+
+/**
+ * The surviving outbound send. The registry gate inside it refuses an unknown or switched-off
+ * approver; the desk adds one rule of its own on top: its switch is off until someone writes
+ * `spine.senders.comms_v2.enabled = true`, because an absent switch is on for every other sender
+ * and the new desk must not go live by default.
+ */
 export const liveDeliverer: Deliverer = {
     async deliver(input) {
+        const delivered: RenderedBubble[] = [];
+        if (input.channel !== 'whatsapp') return { ok: false, reason: `the desk replies on WhatsApp only; ${input.channel} has no live delivery`, delivered };
         const { registryEntryFor } = await import('../../sender-registry');
-        if (!registryEntryFor(input.approver)) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused` };
+        const entry = registryEntryFor(input.approver);
+        if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered };
+        const { getSpineConfig } = await import('../../spine/config');
+        const cfg = await getSpineConfig();
+        if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
         const { sendCustomerMessage } = await import('../../outbound');
-        // The registry row above is what makes this string an Approver; the gate inside checks it again.
-        const approver = input.approver as Approver;
         let sid: string | null = null;
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
-            const res = await sendCustomerMessage({ approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel === 'email' ? 'whatsapp' : input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2' });
-            if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed' };
+            const res = await sendCustomerMessage({
+                approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
+                ...(input.template ? { templateName: input.template.name, templateLanguage: input.template.language, templateComponents: input.template.components } : {}),
+            });
+            if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed', delivered };
+            delivered.push(b);
             sid = res.sid ?? sid;
         }
         return { ok: true, sid };
@@ -186,12 +198,14 @@ export interface SendInput {
     channel: ReplyChannel;
     window: WindowState;
     bubbles: RenderedBubble[];
-    templateId: string | null;
+    template: TemplateSend | null;
     runId: string;
-    approver: string;
+    approver: Approver;
     guards: GuardOutcome | null;
     factIds: string[];
     kbIds: string[];
+    /** The fixed lines the reply carries; one Ben has not reviewed sends in dry run only. */
+    fixedLines: FixedLine[];
     calls: ModelCallRecord[];
     mode: 'dry_run' | 'live';
 }
@@ -205,41 +219,52 @@ export interface SenderDeps extends CaseFileDeps {
 /**
  * Delivers the rendered reply with an approver and a run id, then records the send on the file
  * with the facts it was written from. Refuses: no approver or run id; guards not passed; window
- * shut and no template; the party not on the file; a run id already sent.
+ * shut and no template; the party not on the file; a run id already sent; live, a fixed line Ben
+ * has not reviewed. A live delivery that fails part way records the bubbles that went, marked
+ * partial, before the failure is returned.
  */
 export async function send(input: SendInput, deps: SenderDeps = {}): Promise<SendOutcome> {
     const now = deps.now ?? (() => new Date());
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
     if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
     if (!input.guards || !input.guards.ok) return { ok: false, reason: 'guards not passed' };
-    if (input.window.state === 'shut' && !input.templateId) return { ok: false, reason: 'window shut and no template' };
+    if (input.window.state === 'shut' && !input.template) return { ok: false, reason: 'window shut and no template' };
     const party = partyOf(input.file, input.partyId);
     if (!party) return { ok: false, reason: 'the party is not on the file' };
     if (input.file.sentRunIds.includes(input.runId)) return { ok: false, reason: `run ${input.runId} has already sent` };
     if (!input.bubbles.length) return { ok: false, reason: 'nothing to send' };
     const address = party.channels.find((c) => c.kind === input.channel)?.address;
     if (!address) return { ok: false, reason: `the party has no ${input.channel} address` };
+    const unreviewed = input.fixedLines.filter((l) => !l.kbId).map((l) => l.kind);
+    if (input.mode === 'live' && unreviewed.length) return { ok: false, reason: `fixed line ${unreviewed.join(', ')} has no reviewed knowledge-base row; a default line sends in dry run only` };
 
-    if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: address, channel: input.channel, bubbles: input.bubbles, templateId: input.templateId, runId: input.runId, approver: input.approver });
-        if (!delivered.ok) return { ok: false, reason: delivered.reason };
-    }
     // In dry run and live alike the reply lands on the thread as an outbound turn, so later turns see it.
     // A reply is never dated before the turn it answers: a provider's own timestamp can run ahead of this clock.
-    const last = input.file.turns[input.file.turns.length - 1];
-    const at = new Date(Math.max(now().getTime(), last ? Date.parse(last.at) + 1 : 0)).toISOString();
-    const turn = appendTurn(input.file, { at, channel: input.channel, direction: 'outbound', partyId: input.partyId, kind: 'text', body: input.bubbles.map((b) => b.text).join('\n'), media: [], runId: input.runId, approver: input.approver }, deps);
-    if (!turn.ok) return { ok: false, reason: turn.reason };
-    const record: SendRecord = {
-        runId: input.runId, approver: input.approver, partyId: input.partyId, channel: input.channel, windowState: input.window.state, templateId: input.templateId,
-        bubbles: input.bubbles, factIds: input.factIds, kbIds: input.kbIds, calls: input.calls, at: turn.value.at, mode: input.mode, turnId: turn.value.id,
+    const land = (bubbles: RenderedBubble[], partial: boolean): SendOutcome => {
+        const last = input.file.turns[input.file.turns.length - 1];
+        const at = new Date(Math.max(now().getTime(), last ? Date.parse(last.at) + 1 : 0)).toISOString();
+        const turn = appendTurn(input.file, { at, channel: input.channel, direction: 'outbound', partyId: input.partyId, kind: 'text', body: bubbles.map((b) => b.text).join('\n'), media: [], runId: input.runId, approver: input.approver }, deps);
+        if (!turn.ok) return { ok: false, reason: turn.reason };
+        const record: SendRecord = {
+            runId: input.runId, approver: input.approver, partyId: input.partyId, channel: input.channel, windowState: input.window.state, templateId: input.template?.name ?? null,
+            bubbles, factIds: input.factIds, kbIds: input.kbIds, calls: input.calls, at: turn.value.at, mode: input.mode, partial, turnId: turn.value.id,
+        };
+        const rec = recordSend(input.file, record);
+        if (!rec.ok) return { ok: false, reason: rec.reason };
+        return { ok: true, record };
     };
-    const rec = recordSend(input.file, record);
-    if (!rec.ok) return { ok: false, reason: rec.reason };
-    return { ok: true, record };
+
+    if (input.mode === 'live') {
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: address, channel: input.channel, bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver });
+        if (!delivered.ok) {
+            if (delivered.delivered.length) land(delivered.delivered, true);
+            return { ok: false, reason: delivered.reason };
+        }
+    }
+    return land(input.bubbles, false);
 }
 
 /** A desk-started send, template only, for chasing an approver or a maintenance reminder. Unused in Goal 1; exists so the landlord service can attach without a new exit. */
-export async function initiate(_input: { file: CaseFile; partyId: string; purpose: ReplyPurpose; runId: string; approver: string }): Promise<SendOutcome> {
+export async function initiate(_input: { file: CaseFile; partyId: string; purpose: ReplyPurpose; runId: string; approver: Approver }): Promise<SendOutcome> {
     return { ok: false, reason: 'initiate is not used in Goal 1: the homeowner desk never starts a thread' };
 }

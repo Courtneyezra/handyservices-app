@@ -107,7 +107,7 @@ describe('sends', () => {
     it('need a run id and approver, cite only facts on the file, and one run id sends once', () => {
         const f = opened();
         const fact = recordFact(f, { key: 'job_type', value: 'tap', source: { kind: 'thread', turnId: f.turns[0].id }, by: 'scoping' });
-        const base = { partyId: 'p1', channel: 'whatsapp' as const, windowState: 'open' as const, templateId: null, bubbles: [{ text: 'hi', gapMs: 1000 }], kbIds: [], calls: [], at: '2026-09-11T10:02:00.000Z', mode: 'dry_run' as const, turnId: null };
+        const base = { partyId: 'p1', channel: 'whatsapp' as const, windowState: 'open' as const, templateId: null, bubbles: [{ text: 'hi', gapMs: 1000 }], kbIds: [], calls: [], at: '2026-09-11T10:02:00.000Z', mode: 'dry_run' as const, partial: false, turnId: null };
         expect(recordSend(f, { ...base, runId: '', approver: 'a', factIds: [] }).ok).toBe(false);
         expect(recordSend(f, { ...base, runId: 'r1', approver: '', factIds: [] }).ok).toBe(false);
         expect(recordSend(f, { ...base, runId: 'r1', approver: 'a', factIds: ['fact_nope'] }).ok).toBe(false);

@@ -13,7 +13,7 @@ export interface TokenUsage {
 }
 
 export interface ModelPrice {
-    family: 'haiku-4-5' | 'sonnet-4-5' | 'sonnet-5' | 'opus-5' | 'gemini-3.6-flash';
+    family: 'haiku-4-5' | 'sonnet-4-5' | 'sonnet-5' | 'opus-5' | 'fable-5-1' | 'gemini-3.6-flash';
     match: RegExp;
     /** USD per million input tokens. */
     input: number;
@@ -32,6 +32,8 @@ export const MODEL_PRICES_USD_PER_MTOK: readonly ModelPrice[] = [
     { family: 'sonnet-4-5', match: /sonnet-4-5/i, input: 3, output: 15 },
     { family: 'sonnet-5', match: /sonnet/i, input: 2, output: 10 },
     { family: 'opus-5', match: /opus/i, input: 5, output: 25 },
+    // The comms-v2 composer (server/comms-v2/desk/models.ts). Anthropic's published Fable 5.1 rate.
+    { family: 'fable-5-1', match: /fable/i, input: 10, output: 50 },
     // Phase 4 describe_video, on Gemini 3.6 Flash since T14 (7 Sep 2026). Google's pricing page,
     // paid tier, read that day: $0.75 / M input (text, image and video alike), $3.75 / M output
     // "through December 31, 2026", then $1.50 / $7.50 "starting January 1, 2027" — raise these two

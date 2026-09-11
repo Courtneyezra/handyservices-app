@@ -80,6 +80,8 @@ const PUBLISHED_USD_PER_MTOK: ReadonlyArray<readonly [string, { input: number; o
     ['claude-haiku-4-5-20251001', { input: 1, output: 5, family: 'haiku-4-5' }],
     ['claude-sonnet-5', { input: 2, output: 10, family: 'sonnet-5' }],
     ['claude-opus-5', { input: 5, output: 25, family: 'opus-5' }],
+    // The comms-v2 composer (server/comms-v2/desk/models.ts).
+    ['claude-fable-5-1', { input: 10, output: 50, family: 'fable-5-1' }],
     // The one dated model left: /api/pricing/parse-job (server/job-parser.ts).
     ['claude-sonnet-4-5-20250929', { input: 3, output: 15, family: 'sonnet-4-5' }],
     // The describer (server/spine/tools/describe-video.ts, T14).

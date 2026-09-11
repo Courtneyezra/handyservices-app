@@ -6,7 +6,8 @@
  *
  * Exceptions (Contract 3): money, callbacks and date changes hold for Ben and the reply still
  * answers the rest, saying Ben will come back on that. Complaints, refunds, trust doubts and gas:
- * one fixed line in Ben's words, no composer, then nothing until Ben. A guard failure goes back to
+ * one fixed line in Ben's words, no composer, and while the hold stands no specialist either:
+ * each later turn gets the short acknowledgement that Ben will come back. A guard failure goes back to
  * the composer once, then holds with the fixed acknowledgement. A composer refusal or failure
  * takes the fixed acknowledgement, never a silent empty reply. Never silent otherwise; a clock
  * pass never sends ("no chasing", "one acknowledgement, then quiet").
@@ -22,7 +23,7 @@ import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, Route } from './router';
 import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
-import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateStatusSource, type WindowState } from './sender';
+import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, templateSend, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 
 export interface DeskDeps extends CaseFileDeps {
@@ -76,6 +77,11 @@ export class Desk implements DeskLike {
         if (!party) return this.nothing(file, file.parties[0].personId, runId, calls, 'the turn\'s party is not on the file');
         if (turn.direction !== 'inbound') return this.nothing(file, party.personId, runId, calls, 'not a customer turn');
         const log = this.deps.log ?? (() => undefined);
+
+        // 0. A thread held on a fixed line stays with Ben: no specialist, one acknowledgement per turn.
+        if (file.hold?.exception && FIXED_LINE_ONLY.has(file.hold.exception)) {
+            return this.heldAck(file, party.personId, turn, runId, calls, `held for Ben on ${file.hold.exception}: the desk does not scope this thread until he releases it`, null, 0, []);
+        }
 
         // 1. Route.
         const route: Route = await routeTurn(file, turn, this.client);
@@ -166,38 +172,41 @@ export class Desk implements DeskLike {
         // 6. Channel, window, render, template.
         const choice = chooseChannel(party, turn.channel);
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
-        let rendered = render(choice.channel, reply!, party);
+        let rendered = render(choice.channel, reply!);
         if (!rendered.ok && rendered.reason === 'ceiling' && !(exception && FIXED_LINE_ONLY.has(exception))) {
             const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: { previous: reply!, bubbles: rendered.bubbles.length, ceiling: BUBBLE_CEILING } }, this.client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {
                 const g3 = runGuards(guardInput(shorter.output.reply, shorter.output.factIds));
-                const r3 = render(choice.channel, shorter.output.reply, party);
+                const r3 = render(choice.channel, shorter.output.reply);
                 if (g3.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; guards = g3; rendered = r3; }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
+        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten` : rendered.reason === 'channel' ? `no render for ${choice.channel}: the desk replies on WhatsApp only` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
-        let templateId: string | null = null;
+        let template: TemplateSend | null = null;
         if (window.state === 'shut') {
             const pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? turn.body.slice(0, 60) }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
-                setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, draft: reply, failures: [] }, this.fileDeps());
+                setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
-            templateId = pick.templateId;
+            template = templateSend(pick);
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
         }
 
         // 7. The one sender.
-        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, templateId, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
-        if (!sent.ok) return { ...this.nothing(file, party.personId, runId, calls, `send refused: ${sent.reason}`, 'hold'), guards: guards.guards, composerCalls, summary };
+        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines, calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
+        if (!sent.ok) {
+            if (!file.hold) setHold(file, { approver: approverFor(file, exception), reason: `send refused: ${sent.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
+            return { ...this.nothing(file, party.personId, runId, calls, `send refused: ${sent.reason}`, 'hold'), guards: guards.guards, composerCalls, summary };
+        }
 
         // 8. The ledger and the stage, from what actually went.
         this.afterSend(file, party.personId, reply!, specialists);
         return {
-            runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId, bubbles: rendered.bubbles,
+            runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
             calls, note: null, summary, error: null, landedTurnId: sent.record.turnId, composerCalls,
         };
@@ -205,7 +214,7 @@ export class Desk implements DeskLike {
 
     private holdFor(file: CaseFile, exception: Exception, reason: string): void {
         if (file.hold) return;
-        setHold(file, { approver: approverFor(file, exception), reason }, this.fileDeps());
+        setHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
     }
 
     /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement. */
@@ -216,10 +225,11 @@ export class Desk implements DeskLike {
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null });
         const choice = chooseChannel(party, turn.channel);
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
+        const rendered = choice.ok ? render(choice.channel, line.text) : null;
         const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
-        if (!choice.ok || !window || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
-        const bubbles: RenderedBubble[] = [{ text: line.text, gapMs: 1000 }];
-        const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, templateId: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
+        if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
+        const bubbles: RenderedBubble[] = rendered.bubbles;
+        const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
         this.afterSend(file, partyId, line.text, specialists);
         return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };

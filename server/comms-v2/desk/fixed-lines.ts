@@ -3,8 +3,9 @@
  *
  * Four are the threads the desk does not scope (behaviour.md answer 21): gas, a complaint, a
  * refund, a trust doubt. Their reviewed wording lives in the knowledge base (server/spine/
- * knowledge-base.ts getFixedLine, reviewed rows only); the defaults here stand until Ben has
- * reviewed one, because the captain's rule is "almost never silent, always acknowledge".
+ * knowledge-base.ts getFixedLine, reviewed rows only); the defaults here stand in dry run until
+ * Ben has reviewed one, because the captain's rule is "almost never silent, always acknowledge".
+ * Live, the sender refuses a default: only words from the four sources reach a customer.
  * The rest are Goal 1's: money goes to Ben (checklist 2.7), dates come with the quote (2.6), and
  * the acknowledgement a guard hold sends (Contract 4, second failure).
  */

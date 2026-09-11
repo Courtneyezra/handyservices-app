@@ -1,11 +1,14 @@
 /**
- * Contract 5: choose_channel, window, render with the bubble rules, pick_template on a shut
- * window with refusal, send with its refusals; one run id sends once; a shut window never
- * produces freeform text; dry run lands the reply on the thread.
+ * Contract 5: choose_channel, window, render with the bubble rules (WhatsApp only in Goal 1),
+ * pick_template on a shut window with refusal and the template carried to the deliverer, send
+ * with its refusals; one run id sends once; a shut window never produces freeform text; dry run
+ * lands the reply on the thread; a default fixed line sends in dry run only; a live delivery that
+ * fails part way records what went as a partial send.
  */
 import { describe, expect, it } from 'vitest';
 import { open, type CaseFile, type Party } from './case-file';
-import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, chooseChannel, initiate, noTemplateApproved, pickTemplate, renderSms, renderWhatsApp, send, windowOf } from './sender';
+import { DEFAULT_FIXED_LINES, type FixedLine } from './fixed-lines';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, chooseChannel, initiate, noTemplateApproved, pickTemplate, render, renderWhatsApp, send, templateSend, windowOf, type SendInput } from './sender';
 
 function fixture(): { file: CaseFile; party: Party } {
     const r = open({
@@ -63,9 +66,13 @@ describe('renderWhatsApp', () => {
         if (!r.ok) expect(r.reason).toBe('ceiling');
         expect(renderWhatsApp('   ').ok).toBe(false);
     });
-    it('SMS is one message, two segments at most', () => {
-        expect(renderSms('a\n\nb').bubbles).toEqual([{ text: 'a b', gapMs: 0 }]);
-        expect(renderSms('x'.repeat(400)).ok).toBe(false);
+    it('renders for WhatsApp only: SMS and email are refused, not guessed', () => {
+        expect(render('whatsapp', 'Hi Sam.').ok).toBe(true);
+        for (const channel of ['sms', 'email'] as const) {
+            const r = render(channel, 'Hi Sam.');
+            expect(r.ok).toBe(false);
+            if (!r.ok) { expect(r.reason).toBe('channel'); expect(r.bubbles).toEqual([]); }
+        }
     });
 });
 
@@ -75,7 +82,12 @@ describe('pickTemplate', () => {
         expect(none.ok).toBe(false);
         const some = await pickTemplate('service_reply', { name: 'Sam', topic: 'a leaking tap' }, { async approved(name) { return name === 'answer_ready_reopen_v1'; } });
         expect(some.ok).toBe(true);
-        if (some.ok) { expect(some.templateId).toBe('answer_ready_reopen_v1'); expect(some.body).toContain('Sam'); expect(some.body).toContain('a leaking tap'); expect(some.body).not.toMatch(/\{\{/); }
+        if (some.ok) {
+            expect(some.templateId).toBe('answer_ready_reopen_v1');
+            expect(some.language).toBe('en_GB');
+            expect(some.body).toContain('Sam'); expect(some.body).toContain('a leaking tap'); expect(some.body).not.toMatch(/\{\{/);
+            expect(templateSend(some)).toEqual({ name: 'answer_ready_reopen_v1', language: 'en_GB', components: [{ type: 'body', parameters: [{ type: 'text', text: 'Sam' }, { type: 'text', text: 'a leaking tap' }] }] });
+        }
         const marketingOnly = await pickTemplate('service_reply', { name: null, topic: 'x' }, { async approved(name) { return name === 'enquiry_followup_optin_v1'; } });
         expect(marketingOnly.ok).toBe(false);
     });
@@ -83,11 +95,17 @@ describe('pickTemplate', () => {
 
 describe('send', () => {
     const bubbles = [{ text: 'Hi Sam, a leaking tap.', gapMs: 1000 }, { text: 'Whereabouts are you?', gapMs: 1000 }];
+    const input = (file: CaseFile, party: Party, over: Partial<SendInput> = {}): SendInput => ({
+        file, partyId: 'p1', channel: 'whatsapp', window: windowOf(party, 'whatsapp', new Date('2026-09-11T11:00:00.000Z')), bubbles, template: null, runId: 'r1', approver: 'agent.comms_v2',
+        guards: okGuards, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: 'dry_run', ...over,
+    });
+    const defaultLine: FixedLine = { kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null };
+    const reviewedLine: FixedLine = { kind: 'gas', text: 'Gas is not us, Ben will ring you.', kbId: 'kb_gas' };
+
     it('refuses without approver, run id, passed guards, a template on a shut window, a party on the file, or a run id already sent', async () => {
         const { file, party } = fixture();
-        const open_ = windowOf(party, 'whatsapp', new Date('2026-09-11T11:00:00.000Z'));
-        const base = { file, partyId: 'p1', channel: 'whatsapp' as const, window: open_, bubbles, templateId: null, runId: 'r1', approver: 'agent.comms_v2', guards: okGuards, factIds: [], kbIds: [], calls: [], mode: 'dry_run' as const };
-        expect((await send({ ...base, approver: '' })).ok).toBe(false);
+        const base = input(file, party);
+        expect((await send({ ...base, approver: '' as SendInput['approver'] })).ok).toBe(false);
         expect((await send({ ...base, runId: '' })).ok).toBe(false);
         expect((await send({ ...base, guards: null })).ok).toBe(false);
         expect((await send({ ...base, guards: { ok: false, guards: {} as any, failures: ['x'] } })).ok).toBe(false);
@@ -99,8 +117,7 @@ describe('send', () => {
     });
     it('in dry run lands the planned reply on the thread as an outbound turn with the run id and approver, and records the send', async () => {
         const { file, party } = fixture();
-        const window = windowOf(party, 'whatsapp', new Date('2026-09-11T11:00:00.000Z'));
-        const r = await send({ file, partyId: 'p1', channel: 'whatsapp', window, bubbles, templateId: null, runId: 'r1', approver: 'agent.comms_v2', guards: okGuards, factIds: [], kbIds: [], calls: [{ role: 'composer', model: 'claude-fable-5-1', effort: 'medium', inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costPence: 1, durationMs: 5 }], mode: 'dry_run' }, { now: at('2026-09-11T11:00:00.000Z') });
+        const r = await send(input(file, party, { calls: [{ role: 'composer', model: 'claude-fable-5-1', effort: 'medium', inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costPence: 1, durationMs: 5 }] }), { now: at('2026-09-11T11:00:00.000Z') });
         expect(r.ok).toBe(true);
         const last = file.turns[file.turns.length - 1];
         expect(last.direction).toBe('outbound');
@@ -109,21 +126,54 @@ describe('send', () => {
         expect(last.approver).toBe('agent.comms_v2');
         expect(file.sends[0].calls[0].costPence).toBe(1);
         expect(file.sends[0].turnId).toBe(last.id);
+        expect(file.sends[0].partial).toBe(false);
         expect(file.sentRunIds).toEqual(['r1']);
     });
-    it('live delivery goes through the deliverer, and a refused delivery lands nothing', async () => {
+    it('live delivery goes through the deliverer with the template, and a refused delivery lands nothing', async () => {
         const { file, party } = fixture();
-        const window = windowOf(party, 'whatsapp', new Date('2026-09-11T11:00:00.000Z'));
-        const seen: unknown[] = [];
-        const ok = await send({ file, partyId: 'p1', channel: 'whatsapp', window, bubbles, templateId: null, runId: 'r1', approver: 'agent.comms_v2', guards: okGuards, factIds: [], kbIds: [], calls: [], mode: 'live' }, { now: at('2026-09-11T11:00:00.000Z'), deliverer: { async deliver(i) { seen.push(i); return { ok: true, sid: 'SM1' }; } } });
+        const seen: Parameters<NonNullable<Parameters<typeof send>[1]['deliverer']>['deliver']>[0][] = [];
+        const template = { name: 'answer_ready_reopen_v1', language: 'en_GB', components: [{ type: 'body', parameters: [{ type: 'text', text: 'Sam' }] }] };
+        const ok = await send(input(file, party, { mode: 'live', window: { state: 'shut', reason: 'aged', opensUntil: null }, template }), { now: at('2026-09-11T11:00:00.000Z'), deliverer: { async deliver(i) { seen.push(i); return { ok: true, sid: 'SM1' }; } } });
         expect(ok.ok).toBe(true);
         expect(seen).toHaveLength(1);
-        const refused = await send({ file, partyId: 'p1', channel: 'whatsapp', window, bubbles, templateId: null, runId: 'r2', approver: 'agent.comms_v2', guards: okGuards, factIds: [], kbIds: [], calls: [], mode: 'live' }, { deliverer: { async deliver() { return { ok: false, reason: 'not registered' }; } } });
+        expect(seen[0].template).toEqual(template);
+        expect(seen[0].approver).toBe('agent.comms_v2');
+        expect(file.sends[0].templateId).toBe('answer_ready_reopen_v1');
+        const refused = await send(input(file, party, { mode: 'live', runId: 'r2' }), { deliverer: { async deliver() { return { ok: false, reason: 'not registered', delivered: [] }; } } });
         expect(refused.ok).toBe(false);
         expect(file.sends).toHaveLength(1);
+        expect(file.sentRunIds).toEqual(['r1']);
+    });
+    it('a live delivery that fails part way records the bubbles that reached the customer as a partial send, and the run id is spent', async () => {
+        const { file, party } = fixture();
+        const r = await send(input(file, party, { mode: 'live' }), { now: at('2026-09-11T11:00:00.000Z'), deliverer: { async deliver(i) { return { ok: false, reason: 'provider 500 on bubble 2', delivered: [i.bubbles[0]] }; } } });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.reason).toBe('provider 500 on bubble 2');
+        expect(file.sends).toHaveLength(1);
+        expect(file.sends[0].partial).toBe(true);
+        expect(file.sends[0].bubbles).toEqual([bubbles[0]]);
+        expect(file.sends[0].runId).toBe('r1');
+        expect(file.sentRunIds).toEqual(['r1']);
+        const last = file.turns[file.turns.length - 1];
+        expect(last.direction).toBe('outbound');
+        expect(last.body).toBe(bubbles[0].text);
+        expect((await send(input(file, party, { mode: 'live' }), { deliverer: { async deliver() { return { ok: true, sid: 'SM2' }; } } })).ok).toBe(false);
+    });
+    it('a default fixed line sends in dry run only; a reviewed knowledge-base line sends live', async () => {
+        const { file, party } = fixture();
+        let delivered = 0;
+        const deliverer = { async deliver() { delivered++; return { ok: true as const, sid: null }; } };
+        const live = await send(input(file, party, { mode: 'live', fixedLines: [defaultLine] }), { deliverer });
+        expect(live.ok).toBe(false);
+        if (!live.ok) expect(live.reason).toMatch(/held_ack/);
+        expect(delivered).toBe(0);
+        expect(file.sends).toHaveLength(0);
+        expect((await send(input(file, party, { mode: 'live', fixedLines: [reviewedLine], kbIds: ['kb_gas'] }), { deliverer })).ok).toBe(true);
+        expect(delivered).toBe(1);
+        expect((await send(input(file, party, { runId: 'r2', fixedLines: [defaultLine] }))).ok).toBe(true);
     });
     it('initiate exists and is unused in Goal 1', async () => {
         const { file } = fixture();
-        expect((await initiate({ file, partyId: 'p1', purpose: 'service_reply', runId: 'r', approver: 'a' })).ok).toBe(false);
+        expect((await initiate({ file, partyId: 'p1', purpose: 'service_reply', runId: 'r', approver: 'agent.comms_v2' })).ok).toBe(false);
     });
 });
