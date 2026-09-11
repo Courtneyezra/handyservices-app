@@ -433,10 +433,13 @@ export default function CommsV2BoardPage() {
 
     const total = useMemo(() => Object.values(data?.columns ?? {}).reduce((n, c) => n + c.length, 0), [data]);
 
-    const refreshBoard = () => queryClient.invalidateQueries({ queryKey: ['comms-v2-board'] });
+    const refresh = () => {
+        queryClient.invalidateQueries({ queryKey: ['comms-v2-board'] });
+        queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
+    };
     const handleReleased = () => {
         setOpenCardId(null);
-        refreshBoard();
+        refresh();
     };
 
     return (
@@ -448,7 +451,7 @@ export default function CommsV2BoardPage() {
                 </div>
                 <FilterBar filters={filters} onChange={setFilters} />
                 <div className="w-full border-t pt-3">
-                    <SandboxThreadControl onChanged={refreshBoard} />
+                    <SandboxThreadControl onChanged={refresh} />
                 </div>
             </div>
 

@@ -28,4 +28,16 @@ describe('slotOf and slotAssigned', () => {
         expect(slotAssigned({ kind: 'human', id: 'ben' }, a)).toBe(true);
         expect(slotAssigned({ kind: 'human', id: 'ben' }, {})).toBe(false);
     });
+
+    it('a user the row does not list has no slot, whatever their email looks like', () => {
+        expect(slotOf({ id: 'user_va', email: 'ben@handyservices.app' } as any, { ben: ['user_ben'] })).toBeNull();
+        expect(slotOf({ id: 'user_ben' }, {})).toBeNull();
+    });
+
+    it('is nothing without a session', () => {
+        const a = { ben: ['user_ben'] };
+        expect(slotOf(null, a)).toBeNull();
+        expect(slotOf(undefined, a)).toBeNull();
+        expect(slotOf({ id: '' }, a)).toBeNull();
+    });
 });

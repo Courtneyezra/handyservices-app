@@ -15,9 +15,10 @@
  * no slot lists cannot release.
  */
 import { Router } from 'express';
-import { readApproverAssignments, type ReadApproverAssignments } from './approvers';
-import { boardOf, cardOf, detailOf, releaseHold, sessionApprover, type BoardMode } from './board';
+import { readApproverAssignments, slotOf, type ReadApproverAssignments } from './approvers';
+import { boardOf, cardOf, detailOf, type BoardMode } from './board';
 import { commsV2BoardDoor } from './store';
+import { release } from '../desk/case-file';
 import type { SandboxDoor } from '../desk/sandbox-door';
 
 export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments): Router {
@@ -42,12 +43,12 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const user = (req as any).user;
         if (!user) { res.status(401).json({ error: 'a signed-in user is required to release' }); return; }
         const assignments = await approvers();
-        const approver = sessionApprover(user, assignments);
+        const approver = slotOf(user, assignments);
         if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
         const file = store().get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
         const words = String(req.body?.words ?? '').trim();
-        const outcome = releaseHold(file, approver, words);
+        const outcome = release(file, approver, words);
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
         res.json({ ok: true, card: cardOf(file, assignments), release: outcome.value });
     });

@@ -1,16 +1,15 @@
 /**
- * Goal 2 - Ben's desk, kanban. Read and act queries over Contract 2's case file, for the board and
- * its detail view. No new mutation here beyond release: every other call is a read shaped for a
- * card or a file's turns and facts. The release call is a thin wrapper over the case file's own
- * `release` (case-file.ts), so the invariant - only the named approver, only with words - is
- * enforced there, not here.
+ * Goal 2 - Ben's desk, kanban. Read queries over Contract 2's case file, for the board and its
+ * detail view: every call here is a read shaped for a card or a file's turns and facts. The one
+ * mutation, release, goes straight to the case file's own `release` (case-file.ts) from routes.ts,
+ * so the invariant - only the named approver, only with words - is enforced there, not here.
  */
 import {
-    approverLabel, release as releaseOnFile, STAGES,
-    type ApproverSlot, type CaseFile, type Fact, type Hold, type HoldRelease, type Job, type Outcome,
+    approverLabel, STAGES,
+    type CaseFile, type Fact, type Hold, type Job,
     type ReplyChannel, type Stage, type Turn,
 } from '../desk/case-file';
-import { slotAssigned, slotOf, type ApproverAssignments } from './approvers';
+import { slotAssigned, type ApproverAssignments } from './approvers';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -132,17 +131,4 @@ export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}):
         hold: file.hold,
         holdApproverAssigned: file.hold ? slotAssigned(file.hold.approver, assignments) : false,
     };
-}
-
-/**
- * The approver slot a signed-in session occupies, by the `comms_v2_approvers` row (approvers.ts).
- * No session, or a session no slot lists: no slot.
- */
-export function sessionApprover(user: { id?: string | null } | null | undefined, assignments: ApproverAssignments): ApproverSlot | null {
-    return slotOf(user, assignments);
-}
-
-/** Releases a hold on the file, through the case file's own `release` call. */
-export function releaseHold(file: CaseFile, approver: ApproverSlot, words: string): Outcome<HoldRelease> {
-    return releaseOnFile(file, approver, words);
 }

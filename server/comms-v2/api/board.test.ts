@@ -4,7 +4,7 @@
  * door, no model client, no database: a card and a release either follow the contract or they don't.
  */
 import { describe, expect, it } from 'vitest';
-import { boardOf, cardOf, detailOf, releaseHold, sessionApprover } from './board';
+import { boardOf, cardOf, detailOf } from './board';
 import { appendTurn, hold, open, recordFact, type CaseFile } from '../desk/case-file';
 import type { ResolveResult } from '../desk/identity';
 
@@ -108,25 +108,6 @@ describe('detailOf', () => {
     });
 });
 
-describe('sessionApprover - the comms_v2_approvers row decides the slot', () => {
-    const assignments = { ben: ['user_ben'] };
-
-    it('a user the row lists for a slot occupies that slot', () => {
-        expect(sessionApprover({ id: 'user_ben' }, assignments)).toEqual({ kind: 'human', id: 'ben' });
-    });
-
-    it('a user the row does not list has no slot, whatever their email looks like', () => {
-        expect(sessionApprover({ id: 'user_va', email: 'ben@handyservices.app' } as any, assignments)).toBeNull();
-        expect(sessionApprover({ id: 'user_ben' }, {})).toBeNull();
-    });
-
-    it('is nothing without a session', () => {
-        expect(sessionApprover(null, assignments)).toBeNull();
-        expect(sessionApprover(undefined, assignments)).toBeNull();
-        expect(sessionApprover({ id: '' }, assignments)).toBeNull();
-    });
-});
-
 describe('a held card knows whether its slot has anyone assigned', () => {
     it('assigned when the row lists a user for the hold approver, else not', () => {
         const file = openFile();
@@ -136,34 +117,5 @@ describe('a held card knows whether its slot has anyone assigned', () => {
         expect(detailOf(file, { ben: ['user_ben'] }).holdApproverAssigned).toBe(true);
         expect(detailOf(file).holdApproverAssigned).toBe(false);
         expect(boardOf([file], {}, { ben: ['user_ben'] }).columns.first_contact[0].holdApproverAssigned).toBe(true);
-    });
-});
-
-describe('releaseHold - the API path onto Contract 2 release', () => {
-    it('refuses release without words', () => {
-        const file = openFile();
-        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint' }, { now });
-        const out = releaseHold(file, { kind: 'human', id: 'ben' }, '');
-        expect(out.ok).toBe(false);
-        expect(file.hold).not.toBeNull();
-    });
-
-    it('refuses release by anyone other than the named approver', () => {
-        const file = openFile();
-        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint' }, { now });
-        const out = releaseHold(file, { kind: 'human', id: 'someone-else' }, 'I looked into it, all fine');
-        expect(out.ok).toBe(false);
-        expect(file.hold).not.toBeNull();
-    });
-
-    it('releases with the approver and the words recorded, once', () => {
-        const file = openFile();
-        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint' }, { now });
-        const out = releaseHold(file, { kind: 'human', id: 'ben' }, 'Spoke to the customer, resolved.');
-        expect(out.ok).toBe(true);
-        expect(file.hold).toBeNull();
-        expect(file.releases).toHaveLength(1);
-        expect(file.releases[0].words).toBe('Spoke to the customer, resolved.');
-        expect(cardOf(file).held).toBe(false);
     });
 });
