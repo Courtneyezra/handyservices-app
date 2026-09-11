@@ -2,11 +2,13 @@
  * Ben's own reply from the board, through the one sender (human-reply.ts): his words go out as
  * written with him as approver and a fresh run id, land on the file as his turn, clear the hold
  * with his words recorded as the release, and leave the thread to automation (checklist 7.4). The
- * guards are the same eight, with no bypass for a person: an unsourced figure is refused with the
- * reason named and nothing sent; the same figure cited from a quote line goes.
+ * guards never run over them (behaviour.md answer 43), and the send says so: a figure, a date or a
+ * commitment Ben types goes as he wrote it, recorded as human-authored with the guards not
+ * applied. What still refuses him is what the sender owns: a shut window, a wall of bubbles, a
+ * hold that is someone else's.
  */
 import { describe, expect, it } from 'vitest';
-import { appendTurn, open, recordFact, hold as setHold, type ApproverSlot, type CaseFile, type Party } from './case-file';
+import { appendTurn, open, hold as setHold, type ApproverSlot, type CaseFile, type Party } from './case-file';
 import { BEN } from './guards';
 import { humanReply } from './human-reply';
 import { DESK_APPROVER } from './sender';
@@ -63,7 +65,7 @@ describe('a person answers from the board', () => {
         expect(file.releases).toHaveLength(1);
     });
 
-    it('the thread is automation\'s again: the next customer turn passes the one-reply guard for the desk', async () => {
+    it('the thread is automation\'s again: the hold is gone and the next customer turn is the desk\'s', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
         await humanReply({ file, approver: BEN, words: 'Morning Sam, I will take a look.' }, { now: now() });
@@ -75,55 +77,39 @@ describe('a person answers from the board', () => {
         expect(again.ok).toBe(true);
     });
 
-    it('refuses an unsourced figure with the guard\'s reason and sends nothing', async () => {
+    it('sends a figure Ben types as he wrote it, with every guard recorded as not applied', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
-        const before = file.turns.length;
 
         const out = await humanReply({ file, approver: BEN, words: 'A new tap is about £120 fitted.' }, { now: now() });
 
-        expect(out.ok).toBe(false);
-        if (out.ok) return;
-        expect(out.failures.join(' ')).toMatch(/figure: .*£120/);
-        expect(out.result.guards.figure.result).toBe('fail');
-        expect(out.result.delivered).toBe(false);
-        expect(file.turns).toHaveLength(before);
-        expect(file.sends).toHaveLength(0);
-        expect(file.hold).not.toBeNull();
-    });
-
-    it('the same figure goes once it cites the quote line it came from', async () => {
-        const { file } = fixture();
-        deskRepliedAndHeld(file);
-        const fact = recordFact(file, { key: 'quote_line_tap', value: '£120', source: { kind: 'quote_line', quoteRef: 'Q-1', line: 'Supply and fit a mixer tap' }, by: 'ben' }, { now: now() });
-        expect(fact.ok).toBe(true);
-        if (!fact.ok) return;
-
-        const out = await humanReply({ file, approver: BEN, words: 'A new tap is £120 fitted, as on your quote.', factIds: [fact.value.id] }, { now: now() });
-
         expect(out.ok).toBe(true);
         if (!out.ok) return;
-        expect(out.result.factIds).toEqual([fact.value.id]);
-        expect(file.sends[0].factIds).toEqual([fact.value.id]);
+        expect(out.result.bubbles.map((b) => b.text)).toEqual(['A new tap is about £120 fitted.']);
+        expect(Object.values(out.result.guards).map((g) => g.result)).toEqual(Array(8).fill('not_applied'));
+        expect(out.result.factIds).toEqual([]);
+        expect(file.sends).toHaveLength(1);
     });
 
-    it('refuses a date Ben types with no diary fact behind it: the guards do not soften for a person', async () => {
+    it('sends a date Ben types with no diary fact behind it: the guards are the composer\'s, not his', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
         const out = await humanReply({ file, approver: BEN, words: 'I can pop round Friday to look at it properly.' }, { now: now() });
-        expect(out.ok).toBe(false);
-        if (out.ok) return;
-        expect(out.result.guards.date_time_duration.result).toBe('fail');
-        expect(file.sends).toHaveLength(0);
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.guards.date_time_duration.result).toBe('not_applied');
+        expect(file.turns[file.turns.length - 1].body).toContain('Friday');
     });
 
-    it('refuses a fact id that is not on the file', async () => {
+    it('sends a second reply from the same person: the one-reply guard paces the desk, not Ben', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
-        const out = await humanReply({ file, approver: BEN, words: 'That is £120.', factIds: ['fact_nope'] }, { now: now() });
-        expect(out.ok).toBe(false);
-        if (out.ok) return;
-        expect(out.reason).toMatch(/facts cited that are not on the file/);
+        const first = await humanReply({ file, approver: BEN, words: 'I will take a look today.' }, { now: now() });
+        expect(first.ok).toBe(true);
+
+        const second = await humanReply({ file, approver: BEN, words: 'One more thing.' }, { now: now('2026-09-11T10:06:00.000Z') });
+        expect(second.ok).toBe(true);
+        expect(file.sends).toHaveLength(2);
     });
 
     it('refuses no words, a rule-based approver, and a hold named for someone else', async () => {
@@ -139,19 +125,6 @@ describe('a person answers from the board', () => {
         if (wrong.ok) return;
         expect(wrong.reason).toMatch(/only ben may answer/);
         expect(file.turns).toHaveLength(2);
-    });
-
-    it('refuses a second reply from the same person with no customer turn in between', async () => {
-        const { file } = fixture();
-        deskRepliedAndHeld(file);
-        const first = await humanReply({ file, approver: BEN, words: 'I will take a look today.' }, { now: now() });
-        expect(first.ok).toBe(true);
-
-        const second = await humanReply({ file, approver: BEN, words: 'One more thing.' }, { now: now('2026-09-11T10:06:00.000Z') });
-        expect(second.ok).toBe(false);
-        if (second.ok) return;
-        expect(second.failures.join(' ')).toMatch(/already replied to this message/);
-        expect(file.sends).toHaveLength(1);
     });
 
     it('refuses a shut window: a shut window never carries freeform words', async () => {

@@ -1,6 +1,8 @@
 /**
  * Contract 4 - Guards and the approver slot. Deterministic code, no model. Every composed reply
- * passes here before the sender.
+ * passes here before the sender. Only a composed reply: words a person typed on Ben's board go
+ * straight to the sender with their authorship recorded (behaviour.md answer 43, human-reply.ts),
+ * because these guards exist to stop the composer inventing what Ben himself is the source of.
  *
  * Eight guards, each checked against the file: figure, date/time/duration, commitment and fault,
  * business claim, disclosure, one reply, ask ledger, regulated. Pass goes to the sender with the
@@ -113,6 +115,16 @@ export function checkRegulated(input: GuardInput): GuardVerdict {
     const line = input.fixedLines.find((f) => f.kind === 'gas');
     if (line && input.reply.toLowerCase().includes(line.text.toLowerCase().slice(0, 40))) return pass();
     return fail(`the turn mentions regulated work ("${match}") and the reply does not carry the fixed line`);
+}
+
+/**
+ * The eight recorded as not applied, for a send Contract 4 never gated: a person's own words from
+ * Ben's board (behaviour.md answer 43, desk/human-reply.ts). Honest about what ran, rather than a
+ * pass no guard gave.
+ */
+export function guardsNotApplied(): Record<GuardName, GuardVerdict> {
+    const verdicts = GUARD_NAMES.map((g) => [g, { result: 'not_applied' as const, note: 'a person wrote these words; the guards gate a composed reply' }]);
+    return Object.fromEntries(verdicts) as Record<GuardName, GuardVerdict>;
 }
 
 /** Every guard, always all eight, so the planned send records each result. */

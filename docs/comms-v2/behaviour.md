@@ -207,3 +207,18 @@ deleted. Nothing is re-registered with a provider.
 **38. Ben's desk UI.** "Front end kanban style UI is fine for now." Ben's desk is a kanban board over
 case files: one column per stage, held items surfaced at the top, one tap to release or answer. Not
 polished, just visible and operable.
+
+## Batch 8, answered 11 Sep (the review of Ben answering a customer from the board)
+
+**43. The guards over Ben's own words.** "humanReply does not run the desks guards over a reply Ben
+typed. None of the eight, not figure, date, commitment and fault, business claim, disclosure,
+regulated, ask ledger or one reply. They exist to stop the composer inventing things and Ben is the
+source. What still applies is everything the sender owns: the window rule so a shut window takes an
+approved template and never freeform, an approver and a run id on every send, the party being on
+the file, and one run id sending once. Record on the send that the author is human and the guards
+did not apply, so the file reads honestly rather than claiming a pass." On the same answer: the
+one-reply carve-out goes with the guards, nothing left to override; the sandbox door's own answer
+endpoint goes, because the board already has an authenticated answer route and the door only added
+a second unauthenticated path to the same function on a router any admin session can reach; and the
+quote-line citation shelf goes, because the desk keeps one structured spelling of a fact source and
+a shelf that offers every quote line would let Ben cite a price the customer was never given.

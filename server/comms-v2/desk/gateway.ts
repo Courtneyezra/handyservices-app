@@ -4,7 +4,7 @@
  * handed to the desk. A clock pass and time passing enter here too, so the desk has one door.
  */
 import { randomUUID } from 'node:crypto';
-import { appendTurn, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type FactSource, type Turn, type CaseFileDeps } from './case-file';
+import { appendTurn, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type CaseFileDeps } from './case-file';
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
@@ -31,17 +31,6 @@ export interface SeedInput {
     known?: boolean;
     facts?: Array<{ key: string; value: string; source: string }>;
     ledger?: Array<{ subject: string; state: 'asked' | 'answered' | 'thanked' }>;
-}
-
-/**
- * A seeded fact's source. Plain text is the scenario's own note; `quote_line:<ref>:<line>` is a
- * quote line, the one source a figure may come from (Contract 2), so a sandbox scenario can put a
- * priced quote on the file the way the Quoting specialist will.
- */
-function seedSource(note: string): FactSource {
-    const m = /^quote_line:([^:]+):(.+)$/.exec(note);
-    if (m) return { kind: 'quote_line', quoteRef: m[1].trim(), line: m[2].trim() };
-    return { kind: 'seed', note };
 }
 
 export class Gateway {
@@ -127,7 +116,7 @@ export class Gateway {
         const source = (note: string) => ({ kind: 'seed' as const, note });
         if (seed.prefersText) recordFact(file, { key: 'prefers_text', value: 'true', source: source('scenario seed prefersText'), by }, deps);
         if (seed.alreadyRung) recordFact(file, { key: 'already_rung', value: 'true', source: source('scenario seed alreadyRung'), by }, deps);
-        for (const f of seed.facts ?? []) recordFact(file, { key: f.key, value: f.value, source: seedSource(f.source), by }, deps);
+        for (const f of seed.facts ?? []) recordFact(file, { key: f.key, value: f.value, source: source(f.source), by }, deps);
         for (const l of seed.ledger ?? []) {
             if (l.state === 'asked') ledgerAsk(file, l.subject, deps);
             if (l.state === 'answered') { ledgerAsk(file, l.subject, deps); ledgerAnswered(file, l.subject, deps); }

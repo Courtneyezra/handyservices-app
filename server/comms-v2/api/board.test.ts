@@ -4,7 +4,7 @@
  * door, no model client, no database: a card and a release either follow the contract or they don't.
  */
 import { describe, expect, it } from 'vitest';
-import { boardOf, cardOf, detailOf, quoteLinesOf } from './board';
+import { boardOf, cardOf, detailOf } from './board';
 import { appendTurn, hold, open, recordFact, type CaseFile } from '../desk/case-file';
 import type { ResolveResult } from '../desk/identity';
 
@@ -90,25 +90,6 @@ describe('boardOf', () => {
     });
 });
 
-describe('quoteLinesOf', () => {
-    it('offers the live quote\'s lines for the answer form to cite, and nothing when no quote is on the file', () => {
-        const file = openFile();
-        expect(quoteLinesOf(file)).toEqual([]);
-        const tap = recordFact(file, { key: 'quote_line_tap', value: '£120', source: { kind: 'quote_line', quoteRef: 'Q-1', line: 'Supply and fit a mixer tap' }, by: 'ben' }, { now, newId });
-        recordFact(file, { key: 'job_type', value: 'leaking tap', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' }, { now, newId });
-        expect(tap.ok).toBe(true);
-        expect(quoteLinesOf(file)).toEqual([{ factId: tap.ok ? tap.value.id : '', quoteRef: 'Q-1', line: 'Supply and fit a mixer tap', value: '£120' }]);
-    });
-
-    it('leaves out a superseded quote\'s lines once the file names the live one', () => {
-        const file = openFile();
-        recordFact(file, { key: 'quote_line_old', value: '£90', source: { kind: 'quote_line', quoteRef: 'Q-0', line: 'Old line' }, by: 'ben' }, { now, newId });
-        recordFact(file, { key: 'quote_line_new', value: '£120', source: { kind: 'quote_line', quoteRef: 'Q-1', line: 'New line' }, by: 'ben' }, { now, newId });
-        file.job.quoteRef = 'Q-1';
-        expect(quoteLinesOf(file).map((q) => q.line)).toEqual(['New line']);
-    });
-});
-
 describe('detailOf', () => {
     it('returns the file turns and facts read-only, and nothing of the ledger or the sends', () => {
         const file = openFile();
@@ -117,8 +98,7 @@ describe('detailOf', () => {
         expect(detail.turns).toHaveLength(1);
         expect(detail.facts).toHaveLength(1);
         expect(detail.party?.name).toBe('Sam');
-        expect(Object.keys(detail).sort()).toEqual(['facts', 'hold', 'holdApproverAssigned', 'id', 'job', 'mode', 'party', 'quoteLines', 'stage', 'turns']);
-        expect(detail.quoteLines).toEqual([]);
+        expect(Object.keys(detail).sort()).toEqual(['facts', 'hold', 'holdApproverAssigned', 'id', 'job', 'mode', 'party', 'stage', 'turns']);
     });
 
     it('a held file carries the hold with the draft the desk held back', () => {

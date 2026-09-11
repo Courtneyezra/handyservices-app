@@ -72,10 +72,4 @@ describe('Gateway.inbound', () => {
         expect(await g.clock(r.file.id)).not.toBeNull();
         expect(await g.clock('nope')).toBeNull();
     });
-    it('a seeded fact may name a quote line, the one source a figure comes from', async () => {
-        const g = new Gateway({ desk: fakeDesk, now: () => new Date('2026-09-11T10:00:00.000Z') });
-        const r = await g.inbound(turn('hi'), { facts: [{ key: 'quote_line_tap', value: '£120', source: 'quote_line:Q-1:Supply and fit a mixer tap' }] });
-        if (r.kind !== 'handled') throw new Error(r.kind);
-        expect(r.file.facts[0]).toMatchObject({ value: '£120', source: { kind: 'quote_line', quoteRef: 'Q-1', line: 'Supply and fit a mixer tap' } });
-    });
 });

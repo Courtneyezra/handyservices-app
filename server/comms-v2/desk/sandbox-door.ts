@@ -16,15 +16,14 @@
  */
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
-import { snapshot, type ApproverSlot, type CaseFile } from './case-file';
+import { snapshot, type CaseFile } from './case-file';
 import { Desk, type DeskDeps } from './desk';
 import type { DeskResult } from './desk-types';
 import { Gateway, type SeedInput } from './gateway';
-import { BEN } from './guards';
-import { humanReply, type HumanReplyOutcome } from './human-reply';
 import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
 import type { PlannedSend } from './planned-send';
+import { isAutomatedApprover } from '../../approver';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -54,7 +53,7 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
         kbIds: r.kbIds,
         guards,
         approver: r.approver,
-        author: r.approver?.startsWith('human:') ? 'human' : 'desk',
+        author: r.approver && !isAutomatedApprover(r.approver) ? 'human' : 'desk',
         runId: r.runId,
         hold: r.hold ? { approver: r.hold.approver.kind === 'human' ? r.hold.approver.id : `rules:${r.hold.approver.id}`, reason: r.hold.reason, since: r.hold.since } : null,
         delivered: r.delivered,
@@ -69,8 +68,6 @@ export interface SandboxDoor {
     /** The live gateway: /start and /reset replace it, so read it each time rather than holding one. */
     readonly gateway: Gateway;
     reset(): void;
-    /** A person's reply on a file through the one sender (human-reply.ts), with the desk's own deps: dry run here, so nothing leaves. Null: no such file. */
-    answer(fileId: string, input: { approver: ApproverSlot; words: string; factIds?: string[] }): Promise<{ file: CaseFile; outcome: HumanReplyOutcome } | null>;
 }
 
 export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
@@ -177,34 +174,10 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, hours, window: st.window, state: st });
     });
 
-    const answer: SandboxDoor['answer'] = async (fileId, input) => {
-        const file = gateway.store.get(fileId);
-        if (!file) return null;
-        const outcome = await humanReply({ file, approver: input.approver, words: input.words, factIds: input.factIds }, { mode: 'dry_run', sender: deps.sender, fixedLines: deps.fixedLines, now, newId: deps.newId });
-        return { file, outcome };
-    };
-
-    /** Ben answers the sandbox thread in his own words. The door has no session, so the sandbox stands in for Ben's slot; the board's own route resolves the slot from the signed-in session first. */
-    router.post('/answer', async (req, res) => {
-        try {
-            const file = currentFile();
-            if (!file) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
-            const words = String(req.body?.words ?? '').trim();
-            if (!words) { res.status(400).json({ error: 'words are required' }); return; }
-            const factIds = Array.isArray(req.body?.factIds) ? (req.body.factIds as unknown[]).filter((id): id is string => typeof id === 'string') : [];
-            const out = await answer(file.id, { approver: BEN, words, factIds });
-            if (!out) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
-            if (!out.outcome.ok) { res.status(409).json({ ok: false, error: out.outcome.reason, failures: out.outcome.failures, plannedSend: plannedSendOf(file, out.outcome.result), state: stateOf() }); return; }
-            respond(res, file, out.outcome.result, { answer: { approver: out.outcome.result.approver, release: out.outcome.release } });
-        } catch (error: any) {
-            res.status(500).json({ error: error?.message ?? 'sandbox answer failed' });
-        }
-    });
-
     router.post('/call', (_req, res) => { res.status(409).json({ error: 'the call door is Goal 3; the new desk carries whatsapp only in Goal 1' }); });
     router.post('/price', (_req, res) => { res.status(409).json({ error: 'pricing is Goal 4; the new desk has no quote yet' }); });
 
-    return { router, get gateway() { return gateway; }, reset, answer };
+    return { router, get gateway() { return gateway; }, reset };
 }
 
 function seedOf(raw: unknown): SeedInput {

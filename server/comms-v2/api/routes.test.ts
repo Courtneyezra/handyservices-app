@@ -5,9 +5,9 @@
  * and only when the comms_v2_approvers row lists that session for the slot.
  *
  * Then the answer half: Ben writes the reply himself and it goes out through the desk's one sender
- * with him as approver, lands on the file as his turn, clears the hold and hands the thread back
- * to the desk; a reply carrying an unsourced figure is refused with the guard's reason for the
- * board to show, and the same session rules gate it as they gate release.
+ * with him as approver, recorded as human-authored with the guards not applied, lands on the file
+ * as his turn, clears the hold and hands the thread back to the desk; the same session rules gate
+ * it as they gate release.
  */
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -156,15 +156,15 @@ describe('Ben answers from the board', () => {
         expect(cardsOn(still.json).map((c) => c.id)).toEqual([id]);
     });
 
-    it('refuses a reply carrying an unsourced figure, naming the guard, and sends nothing', async () => {
+    it('refuses a reply the sender will not carry, and sends nothing', async () => {
         const board = await call('GET', '/board?held=true');
         const id = cardsOn(board.json)[0].id as string;
         const before = await call('GET', `/case-files/${id}`);
 
-        const refused = await call('POST', `/case-files/${id}/answer`, { words: 'It would be about £120 all in.' }, 'Ben.Real@handyservices.app');
+        const wall = ['one', 'two', 'three', 'four', 'five'].join('\n\n');
+        const refused = await call('POST', `/case-files/${id}/answer`, { words: wall }, 'Ben.Real@handyservices.app');
         expect(refused.status).toBe(409);
-        expect(refused.json.failures.join(' ')).toMatch(/figure/);
-        expect(refused.json.guards.figure.result).toBe('fail');
+        expect(refused.json.error).toMatch(/over the ceiling/);
 
         const after = await call('GET', `/case-files/${id}`);
         expect(after.json.turns).toHaveLength(before.json.turns.length);
@@ -177,7 +177,7 @@ describe('Ben answers from the board', () => {
 
         const sent = await call('POST', `/case-files/${id}/answer`, { words: 'Morning Sam, I will take a look and come back to you myself.' }, 'Ben.Real@handyservices.app');
         expect(sent.status).toBe(200);
-        expect(sent.json.sent).toMatchObject({ approver: 'human:ben', author: 'human' });
+        expect(sent.json.sent).toMatchObject({ approver: 'human:ben', author: 'human', guards: 'not_applied' });
         expect(sent.json.sent.bubbles).toEqual(['Morning Sam, I will take a look and come back to you myself.']);
         expect(sent.json.card.held).toBe(false);
         expect(sent.json.release).toMatchObject({ approver: { kind: 'human', id: 'ben' } });

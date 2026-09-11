@@ -8,9 +8,11 @@
  * registered approver, and only once its switch has been turned on by hand: the desk is
  * sandbox-only until cutover. Goal 1 renders for WhatsApp only.
  *
- * Invariants: one run id sends once; every send has an approver; nothing reaches a customer that
- * did not pass the guards; a shut window never produces freeform text on any channel; one of the
- * four fixed lines that are Ben's to review sends in dry run only until he has.
+ * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
+ * a customer without passing the guards, while a person's own words from Ben's board carry their
+ * own authority and no verdicts (behaviour.md answer 43); a shut window never produces freeform
+ * text on any channel; one of the four fixed lines that are Ben's to review sends in dry run only
+ * until he has.
  *
  * A template is named by the registry (server/window-templates.ts) and approved by the live sync
  * (server/whatsapp-template-sync.ts), which also holds Twilio's content SID for it. The wire shape
@@ -20,7 +22,7 @@
 import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps, type WhatsAppTransport } from './case-file';
 import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
-import type { Approver } from '../../approver';
+import { isAutomatedApprover, type Approver } from '../../approver';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -219,6 +221,7 @@ export interface SendInput {
     template: TemplateSend | null;
     runId: string;
     approver: Approver;
+    /** The verdicts on a composed reply. Null for a person's own words, which the guards never gate. */
     guards: GuardOutcome | null;
     factIds: string[];
     kbIds: string[];
@@ -236,16 +239,16 @@ export interface SenderDeps extends CaseFileDeps {
 
 /**
  * Delivers the rendered reply with an approver and a run id, then records the send on the file
- * with the facts it was written from. Refuses: no approver or run id; guards not passed; window
- * shut and no template; the party not on the file; a run id already sent; live, one of the four
- * fixed lines Ben has not yet reviewed. A live delivery that fails part way records the bubbles
- * that went, marked partial, before the failure is returned.
+ * with the facts it was written from. Refuses: no approver or run id; a composed reply whose
+ * guards did not pass; window shut and no template; the party not on the file; a run id already
+ * sent; live, one of the four fixed lines Ben has not yet reviewed. A live delivery that fails
+ * part way records the bubbles that went, marked partial, before the failure is returned.
  */
 export async function send(input: SendInput, deps: SenderDeps = {}): Promise<SendOutcome> {
     const now = deps.now ?? (() => new Date());
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
     if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
-    if (!input.guards || !input.guards.ok) return { ok: false, reason: 'guards not passed' };
+    if (isAutomatedApprover(input.approver) && !input.guards?.ok) return { ok: false, reason: 'guards not passed' };
     if (input.window.state === 'shut' && !input.template) return { ok: false, reason: 'window shut and no template' };
     const party = partyOf(input.file, input.partyId);
     if (!party) return { ok: false, reason: 'the party is not on the file' };

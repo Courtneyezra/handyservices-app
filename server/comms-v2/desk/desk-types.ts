@@ -7,7 +7,8 @@ import type { CaseFile, Turn, ModelCallRecord, RenderedBubble, Hold } from './ca
 export type GuardName = 'figure' | 'date_time_duration' | 'commitment_fault' | 'business_claim' | 'disclosure' | 'one_reply' | 'ask_ledger' | 'regulated';
 
 export interface GuardVerdict {
-    result: 'pass' | 'fail';
+    /** not_applied: the guards never ran, because a person wrote the words (guards.ts, answer 43). */
+    result: 'pass' | 'fail' | 'not_applied';
     note: string | null;
 }
 

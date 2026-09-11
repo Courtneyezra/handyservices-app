@@ -43,31 +43,6 @@ export interface CaseFileDetail {
     facts: Fact[];
     hold: Hold | null;
     holdApproverAssigned: boolean;
-    /** The live quote's lines, for the answer form to cite when Ben types a figure. Empty when no quote is on the file. */
-    quoteLines: QuoteLine[];
-}
-
-/** One line of the live quote, as the figure guard resolves it: the fact id Ben's reply cites, the line's name and its figure. */
-export interface QuoteLine {
-    factId: string;
-    quoteRef: string;
-    line: string;
-    value: string;
-}
-
-/**
- * The lines of the live quote on the file: facts whose source is a quote line (Contract 2). The
- * figure guard passes a figure only when it equals one of these to the penny and the reply cites
- * it, so this is exactly the shelf the answer form offers Ben. Nothing when no quote exists.
- */
-export function quoteLinesOf(file: CaseFile): QuoteLine[] {
-    const out: QuoteLine[] = [];
-    for (const f of file.facts) {
-        if (f.source.kind !== 'quote_line') continue;
-        if (file.job.quoteRef && f.source.quoteRef !== file.job.quoteRef) continue;
-        out.push({ factId: f.id, quoteRef: f.source.quoteRef, line: f.source.line, value: f.value });
-    }
-    return out;
 }
 
 /** live once any send on the file actually delivered; sandbox otherwise, including before the first send. */
@@ -155,6 +130,5 @@ export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}):
         facts: file.facts,
         hold: file.hold,
         holdApproverAssigned: file.hold ? slotAssigned(file.hold.approver, assignments) : false,
-        quoteLines: quoteLinesOf(file),
     };
 }

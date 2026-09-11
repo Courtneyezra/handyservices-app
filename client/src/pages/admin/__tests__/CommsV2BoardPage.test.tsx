@@ -3,15 +3,15 @@
  * one, plus a held card floated with its reason and approver, releases that hold with the words
  * only (the approver is the session, server side), and starts a sandbox thread through the board.
  *
- * Then the answer half: Ben writes the reply himself on the card, it posts his words (and the
- * quote lines he cited) to the answer route, the bubbles that went are shown back, and a guard
- * refusal is shown inline with the sheet still open so he can fix it.
+ * Then the answer half: Ben writes the reply himself on the card, it posts his words to the answer
+ * route, the bubbles that went are shown back, and a refusal from the sender is shown inline with
+ * the sheet still open and his words kept so he can fix them.
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch } from '@test-utils';
-import CommsV2BoardPage, { type Board, type BoardCard, type CaseFileDetail, type QuoteLine, STAGES } from '@/pages/admin/CommsV2BoardPage';
+import CommsV2BoardPage, { type Board, type BoardCard, type CaseFileDetail, STAGES } from '@/pages/admin/CommsV2BoardPage';
 
 function card(over: Partial<BoardCard> = {}): BoardCard {
     return {
@@ -160,10 +160,9 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length).toBeGreaterThanOrEqual(3));
     });
 
-    it('Ben answers the customer in his own words: the words and the cited quote line go to the answer route, and the bubbles that went come back', async () => {
+    it('Ben answers the customer in his own words: his words go to the answer route and the bubbles that went come back', async () => {
         const user = userEvent.setup();
         const board = boardWithOneCardPerStage();
-        const quoteLines: QuoteLine[] = [{ factId: 'fact_tap', quoteRef: 'Q-1', line: 'Supply and fit a mixer tap', value: '£120' }];
         const detail: CaseFileDetail = {
             id: 'case_held', stage: 'quoted', mode: 'sandbox',
             party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
@@ -172,7 +171,6 @@ describe('<CommsV2BoardPage>', () => {
             facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
             holdApproverAssigned: true,
-            quoteLines,
         };
 
         const { calls } = mockFetch([
@@ -180,7 +178,7 @@ describe('<CommsV2BoardPage>', () => {
             { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
             {
                 method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
-                reply: () => ({ json: { ok: true, sent: { approver: 'human:ben', author: 'human', bubbles: ['That one is £120 fitted, as on your quote.'] }, release: { words: 'x' } } }),
+                reply: () => ({ json: { ok: true, sent: { approver: 'human:ben', author: 'human', guards: 'not_applied', bubbles: ['That one is £120 fitted, as on your quote.'] }, release: { words: 'x' } } }),
             },
         ]);
 
@@ -189,18 +187,17 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByTestId('board-card-case_held'));
 
         await waitFor(() => expect(screen.getByTestId('answer-form')).toBeTruthy());
-        await user.click(screen.getByTestId('quote-line-fact_tap'));
         await user.type(screen.getByLabelText('Your reply to the customer'), 'That one is £120 fitted, as on your quote.');
         await user.click(screen.getByRole('button', { name: /send as me/i }));
 
         await waitFor(() => expect(screen.getByTestId('answer-sent')).toBeTruthy());
         const answer = calls.find((c) => c.method === 'POST' && c.url.endsWith('/answer'));
-        expect(answer?.body).toEqual({ words: 'That one is £120 fitted, as on your quote.', factIds: ['fact_tap'] });
+        expect(answer?.body).toEqual({ words: 'That one is £120 fitted, as on your quote.' });
         expect(screen.getByTestId('answer-sent').textContent).toContain('That one is £120 fitted, as on your quote.');
         expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length).toBeGreaterThan(1);
     });
 
-    it('a refused answer shows the guard reasons inline and keeps the words for Ben to fix', async () => {
+    it('a refused answer shows the sender\'s reason inline and keeps the words for Ben to fix', async () => {
         const user = userEvent.setup();
         const board = boardWithOneCardPerStage();
         const detail: CaseFileDetail = {
@@ -209,14 +206,13 @@ describe('<CommsV2BoardPage>', () => {
             turns: [], facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
             holdApproverAssigned: true,
-            quoteLines: [],
         };
         mockFetch([
             { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
             { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
             {
                 method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
-                reply: () => ({ status: 409, json: { error: 'the reply failed a guard: figure: a figure appears that is not a cited quote line or customer record: £90', failures: ['figure: a figure appears that is not a cited quote line or customer record: £90'] } }),
+                reply: () => ({ status: 409, json: { error: 'the whatsapp window is shut (no message in 24 hours); a shut window never carries freeform words' } }),
             },
         ]);
 
@@ -225,13 +221,11 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByTestId('board-card-case_held'));
 
         const words = await screen.findByLabelText('Your reply to the customer');
-        await user.type(words, 'I could do it for £90.');
+        await user.type(words, 'Morning Sam, I will take a look.');
         await user.click(screen.getByRole('button', { name: /send as me/i }));
 
-        await waitFor(() => expect(screen.getByTestId('answer-failures').textContent).toContain('not a cited quote line'));
+        await waitFor(() => expect(screen.getByTestId('answer-error').textContent).toContain('window is shut'));
         expect(screen.queryByTestId('answer-sent')).toBeNull();
-        expect((words as HTMLTextAreaElement).value).toBe('I could do it for £90.');
-        expect(screen.queryByText('No quote lines')).toBeNull();
-        expect(screen.queryByTestId('quote-line-fact_tap')).toBeNull();
+        expect((words as HTMLTextAreaElement).value).toBe('Morning Sam, I will take a look.');
     });
 });
