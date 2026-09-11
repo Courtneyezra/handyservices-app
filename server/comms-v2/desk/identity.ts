@@ -162,7 +162,7 @@ export class Identity {
         return { ok: true, person: this.directory.byId(person.id)! };
     }
 
-    /** A known customer, seeded (the judge's `customer: known`). */
+    /** A known customer, seeded (the door's `seed.customer: known` on POST /start). */
     seedCustomer(key: CanonicalKey, input: { name?: string | null; customerId?: string | null } = {}): Person {
         const existing = this.directory.byKey(key)[0];
         const person: Person = existing ?? { id: this.newId(), role: 'homeowner', customerId: input.customerId ?? `customer_${randomUUID().slice(0, 8)}`, name: input.name ?? null, keys: [key], propertyId: null, landlordId: null };

@@ -11,7 +11,7 @@ export interface GuardVerdict {
     note: string | null;
 }
 
-/** What the desk did with one turn: the Contract 7 planned send, in the desk's own terms. */
+/** What the desk did with one turn: the planned send (planned-send.ts), in the desk's own terms. */
 export interface DeskResult {
     runId: string;
     /** send: a reply goes (or went, in dry run). none: nothing goes. hold: held with or without an acknowledgement. */

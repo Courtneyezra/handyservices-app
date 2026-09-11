@@ -5,9 +5,9 @@ the old desk stays live as rollback until the new one is proven and cut over.
 
 ## Goal 1: the desk, skeleton plus Scoping, WhatsApp only (`desk/`)
 
-Contracts 1 to 6 (docs/comms-v2/contracts.md), one file per contract, beside the judge. Case files
-live in memory for the length of the process (the sandbox and the judge run in process); a durable
-store implements `store.ts`'s interface when Ben's kanban (Goal 2) needs one.
+Contracts 1 to 6 (docs/comms-v2/contracts.md), one file per contract. Case files live in memory
+for the length of the process (the sandbox door runs in process); a durable store implements
+`store.ts`'s interface when Ben's kanban (Goal 2) needs one.
 
 | Contract | File | What it is |
 |---|---|---|
@@ -19,53 +19,46 @@ store implements `store.ts`'s interface when Ben's kanban (Goal 2) needs one.
 | 5 Sender | `desk/sender.ts` | `chooseChannel`, `windowOf` (no recorded state is shut), `render` (WhatsApp only in Goal 1, other channels refused; blank lines, then sentence boundaries over ~300 characters, soft ceiling of four back to the composer, typing gaps 1 to 3 s), `pickTemplate` on a shut window by purpose (named by server/window-templates.ts, approved and given its content SID by server/whatsapp-template-sync.ts) with a hold when none is approved; `templateWire` shapes it for the transport the customer wrote on, Twilio's content SID and variables or Meta's name, language and body components, `send` (dry run lands the reply on the thread as an outbound turn; live goes through server/outbound.ts as `agent.comms_v2`, switch key `comms_v2`, which the desk treats as off until `spine.senders.comms_v2.enabled` is written true; a default for one of the four fixed lines that are Ben's to review sends in dry run only, the Goal 1 lines send live; a live delivery that fails part way records the bubbles that went as a partial send), `initiate` present and unused. |
 | 6 Scoping | `desk/scoping-tools.ts`, `desk/scoping-specialist.ts` | The shelf: describe_media (Gemini via server/spine/tools/describe-video.ts, once per media), confirm_location, readiness (job type and location; photos optional), next_question (job, location, access, photos; photos once), offer_call, regulated (gas and asbestos only), kb_lookup (reviewed rows, read-only). The specialist on Sonnet 5 returns facts with the turn they came from and short labels of what is unknown; the proposal comes from the tools. Never prose. |
 | the desk | `desk/desk.ts`, `desk/fixed-lines.ts` | route, gather, compose, guards, render, window, send, then the ledger and the stage from what actually went. Money and date changes hold for Ben and the reply answers the rest; complaints, refunds, trust doubts and gas send one fixed line and no composer runs, and while that hold stands no specialist runs either: each later turn gets the short acknowledgement that Ben will come back; a composer refusal or failure, or a reply the sender refuses (live, one of Ben's four lines he has not reviewed), takes that same acknowledgement. A clock pass never sends. The four fixed lines come from the knowledge base when reviewed, else the defaults here. |
-| the door | `desk/sandbox-door.ts` | start, message (multipart media), run, age, reset, state. Every response carries the Contract 7 planned send the desk emits itself. Whatsapp only; call and price answer 409. |
+| the door | `desk/sandbox-door.ts`, `desk/planned-send.ts` | start, message (multipart media), run, age, reset, state. Every response carries the planned send the desk emits itself (case id, party, channel, window state, template id, bubbles, fact and knowledge-base ids, every guard's result, approver, run id, hold, delivered), typed with a zod schema; `plannedSendOfResponse` is the one way a reader takes it and `sendLanded` checks the reply is on the thread. WhatsApp only; call and price answer 409. |
+| the door host | `desk/door-host.ts`, `door-cli.ts` | Mounts the door on a loopback port for the length of a run. Connects only to the branch named by `COMMS_V2_DATABASE_URL`, refuses a missing value and a production one (server/worker-gate.ts's `isProductionDatabaseUrl`), never reads `DATABASE_URL`, and logs an address and variable names, never a value. |
 
 Cost: every model call prices through server/agent-cost.ts, the one price table (Fable 5.1 has its row
 there).
 
-Tests: `npx vitest run server/comms-v2/desk` (every invariant in the contracts, with a scripted
-model client; the door driven the judge's way). The judge run is the integration test.
-
-## Goal 0: the judge (`judge/`)
-
-Contract 7 (docs/comms-v2/contracts.md). What lets a goal loop stop itself: a planned-send object,
-scripted scenarios, a runner over the sandbox door, and two reports.
+## Driving the door
 
 ```
-npm run comms-v2:judge                      # every Goal 1 scenario, twice, against the new desk, reports under reports/<stamp>/
-npm run comms-v2:judge -- --desk current    # the same against the old desk (rollback)
-npm run comms-v2:judge -- --only 2.7        # one line's scenario
-npm run comms-v2:judge -- --out example     # the committed Goal 0 evidence at reports/example/ (old desk)
-npm run comms-v2:judge -- --out example-v2  # the committed Goal 1 evidence at reports/example-v2/ (new desk)
+npm run comms-v2:door                 # serve the desk's sandbox door on a loopback port until interrupted; prints the URL once
+npm run comms-v2:door -- --port 4747  # a fixed port
 ```
 
-| Piece | File | What it is |
-|---|---|---|
-| planned send | `judge/planned-send.ts` | The Contract 7 object, typed with a zod schema. The new desk emits it itself on every door response and it is taken after a schema check; for the old desk an adapter builds one from the sandbox dry-run response, with a field it cannot supply as the literal `unavailable`, never guessed. |
-| scenario | `judge/scenario.ts`, `judge/scenarios/*.json` | The format (seed, turns, expectations) and one file per Goal 1 line: 1.1, 1.6, 1.7, 2.1 to 2.8. Seeds state known or new customer, prefers text, already rung, window open or shut. |
-| expectations | `judge/expectations.ts` | Deterministic assertions over the planned send and the file. An expectation on an `unavailable` field fails with "unavailable from current desk"; a shut window the door could not honour fails with "window seed unsupported by current desk"; a post-send-dependent expectation after a reply the door never landed fails with "artefact: dry-run reply not landed on thread" (see the limitation below). |
-| door | `judge/door.ts` | The sandbox WhatsApp door: the chosen desk's router mounted in-process on a loopback port (`--desk v2`, the default, is `desk/sandbox-door.ts`; `--desk current` is the old sandbox), connecting only to `COMMS_V2_JUDGE_DATABASE_URL` (a Neon branch). It refuses to open without it or when that value names the production database; `DATABASE_URL` is never read. There is no door to a running server. Logs and reports carry the door's mode and host, never a variable's value. `seedPlan` says which seed features each door honours; the new desk's honours all of them. |
-| model judge | `judge/model-judge.ts` | Line 2.3 only, "in its own words": the project's Anthropic client on `claude-haiku-4-5`; model id, prompt hash and verdict are recorded beside the deterministic assertion, never instead of it. |
-| runner | `judge/runner.ts`, `judge/cli.ts` | One turn at a time through the door; the whole set twice; a line passes only when it passes both runs. A door that cannot be reached or times out is an error, never a pass. Exit code non-zero on any error; a fail is not an error. |
-| reports | `judge/report.ts`, `reports/` | `judge-report.json` and `judge-report.md`, per line pass, fail or error with the planned send and a case-file snapshot as evidence. `reports/` is gitignored except the two committed examples, `reports/example/` (Goal 0, old desk) and `reports/example-v2/` (Goal 1, new desk). |
+Then over HTTP at the printed URL: `POST /start` (`{ door: 'whatsapp', text, name, seed }`, the seed
+being `customer: 'known'`, `prefersText`, `alreadyRung`, `facts`, `ledger`), `POST /message`
+(`{ text, channel: 'whatsapp' }`, or multipart with `media` files), `POST /run` (a clock pass),
+`POST /age` (`{ hours }`), `POST /reset`, `GET /` (the thread and the case file). Every response
+carries `plannedSend` and `state`.
 
-Goal 0's stop condition: the runner executes every Goal 1 scenario against the current desk and
-produces both reports with zero errors. Fails against the old desk are expected. Goal 1 is done
-when the same runner reports all eleven lines passing, twice in a row, against the new desk:
-`reports/example-v2/` is that evidence.
+This is the surface the no-mistakes pipeline's end-to-end test step drives to validate a goal, and
+the one Ben's sandbox will be wired to. The checklist lines for the goal (docs/comms-v2/design.md,
+Goal 1's stop condition) are the scenarios the test step exercises; its recorded evidence goes in
+the PR. See docs/comms-v2/contracts.md, "Validation".
 
-Known limitation of the old desk's door (cleared by the new desk's, which lands every reply): the sandbox puts only the rules-layer first-contact ack on
-the thread. A desk reply planned in dry run never reaches the exit, so it is not on the thread
-when the next turn runs, and the desk then behaves as if it had never spoken (it re-asks, or
-proposes the same reply on a clock pass). The runner reads the thread after every turn and, once
-a planned reply has not landed, records the expectations on later turns that only hold when the
-desk has seen its own reply (`reply_not_sent`, `not_asks_subject`, `asked_at_most_once`) as fail
-with the reason `artefact: dry-run reply not landed on thread`, in both reports; the markdown
-header carries the limitation whenever a run recorded one. Those verdicts judge the door, not
-the desk; the other kinds on the same turns are still judged. A door that lands its replies (the
-new desk's gateway) clears this by itself.
+## Environment
 
-Tests: `npx vitest run server/comms-v2` (schema, evaluator, scenarios, adapter, door). The
-integration test that runs one scenario end to end against the sandbox needs
-`COMMS_V2_JUDGE_DATABASE_URL`, the model keys and `COMMS_V2_JUDGE_LIVE=1`.
+The door needs the branch database string and the model keys. They may live in one more place on
+this machine so the pipeline's test step can drive the desk live: a machine-local file at
+`$HOME/.config/handyservices/comms-v2.env` (mode 600), in dotenv form. `server/comms-v2/env.ts`
+loads it before the door and the desk's tests run and takes exactly three names from it:
+`COMMS_V2_DATABASE_URL`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. It fills only the variables the
+process does not already have, ignores every other name in the file (the door logs the ignored
+names, never a value), and never prints, logs or commits a value.
+
+The desk's one database variable is `COMMS_V2_DATABASE_URL` (a Neon branch, never production).
+
+## Tests
+
+`npx vitest run server/comms-v2`: every invariant in the contracts with a scripted model client,
+the door driven over HTTP the way the test step drives it, the env loader, and the door host's
+refusal rules. None of them needs a key or a database. The machine-local file is loaded for this
+directory's tests only (the `comms-v2` vitest project), so a live desk test can rely on it; the
+rest of the server suite never sees it.
