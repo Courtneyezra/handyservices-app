@@ -124,7 +124,7 @@ describe('the Service specialist on the desk', () => {
         expect(out.result.delivered).toBe(true);
     });
     it('7.3 and 7.4: a complaint sits with Ben and every turn is acknowledged; Ben\'s reply from the kanban releases it and the next turn is routed again', async () => {
-        const { client, gateway } = desk({
+        const { client, gateway, clock } = desk({
             router: ({ n }) => n === 1 ? route({ exception: 'complaint', turnKind: 'other' }) : route({ turnKind: 'acknowledgement' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
             composer: () => ({ reply: 'Glad that is sorted. Anything else, just shout.', factIds: [], kbIds: [] }),
@@ -138,7 +138,7 @@ describe('the Service specialist on the desk', () => {
         expect(b.result.delivered).toBe(true);
         expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
         expect(client.calls).toHaveLength(1);
-        const ben = humanReply(a.file, { by: 'ben', surface: 'kanban', text: 'Sorry Sam, that is on me. I will come and put it right.' });
+        const ben = humanReply(a.file, { by: 'ben', surface: 'kanban', text: 'Sorry Sam, that is on me. I will come and put it right.' }, { now: () => new Date(clock.t += 1000) });
         expect(ben.ok && ben.released?.words).toMatch(/put it right/);
         expect(a.file.hold).toBeNull();
         const c = await gateway.inbound(turn('Thanks Ben, appreciated', '2026-09-11T10:20:00.000Z'));
@@ -204,7 +204,7 @@ describe('the Service specialist on the desk', () => {
         expect(out.result.kbIds).toEqual(['kb-insured']);
     });
     it('a not-converging thread comes back to automation when Ben replies, and is not handed straight back to him (7.4)', async () => {
-        const { gateway } = desk({
+        const { gateway, clock } = desk({
             router: () => route({ turnKind: 'answer' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
             composer: ({ n }) => ({ reply: `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
@@ -217,7 +217,7 @@ describe('the Service specialist on the desk', () => {
         }
         if (!last || last.kind !== 'handled') throw new Error('not handled');
         expect(last.file.hold?.exception).toBe('not_converging');
-        const ben = humanReply(last.file, { by: 'ben', surface: 'handset', text: 'Sam, I will pick this up with you directly.' });
+        const ben = humanReply(last.file, { by: 'ben', surface: 'handset', text: 'Sam, I will pick this up with you directly.' }, { now: () => new Date(clock.t += 1000) });
         expect(ben.ok && ben.released).toBeTruthy();
         const after = await gateway.inbound(turn('so what did you need from me', '2026-09-11T10:40:00.000Z'));
         if (after.kind !== 'handled') throw new Error(after.kind);
@@ -256,7 +256,7 @@ describe('the Service specialist on the desk', () => {
         const escalated = await gateway.clock(a.file.id);
         expect(escalated?.chase?.action).toBe('escalated');
         expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
-        humanReply(a.file, { by: 'ben', surface: 'admin', text: 'Refund on its way, sorry.' });
+        humanReply(a.file, { by: 'ben', surface: 'admin', text: 'Refund on its way, sorry.' }, { now: () => new Date(clock.t += 1000) });
         chase.ledger.clear(a.file.id);
         const after = await gateway.clock(a.file.id);
         expect(after?.chase).toBeNull();
