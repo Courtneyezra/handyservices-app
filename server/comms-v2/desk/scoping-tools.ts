@@ -12,7 +12,7 @@
  *   regulated         gas or asbestos only.
  *   kb_lookup         reviewed knowledge-base rows by id, verbatim; read-only; may return nothing.
  */
-import { askedUnanswered, everAsked, factFor, isReady, type CaseFile, type ModelCallRecord, type Party, type Turn } from './case-file';
+import { askedUnanswered, everAsked, factFor, isReady, ledgerEntry, type CaseFile, type ModelCallRecord, type Party, type Turn } from './case-file';
 import { parseLocation, regulatedMatch, type LocationParse } from './lexicon';
 import { recordFromUsage } from './models';
 
@@ -85,16 +85,21 @@ export function mediaDeclined(file: CaseFile): boolean {
     return /^(true|yes)$/i.test(factFor(file, 'media_declined')?.value ?? '');
 }
 
+/** A scoper asks about the job one detail at a time until it is clear enough to price, but not for ever. */
+export const JOB_ASKS_MAX = 3;
+
 /**
  * The one subject to ask next, in the fixed order. A subject is skipped when it is established as
- * a fact, or already asked and unanswered; photos are skipped once asked, received or declined.
+ * a fact, or already asked and unanswered; the job is asked again, one detail at a time, while
+ * the specialist still names unknowns and the last job question was answered, up to JOB_ASKS_MAX;
+ * photos are skipped once asked, received or declined.
  */
 export function nextQuestion(file: CaseFile, jobUnknowns: string[] = []): { subject: QuestionSubject; unknowns: string[] } | null {
     for (const subject of QUESTION_ORDER) {
         if (askedUnanswered(file, subject)) continue;
         if (subject === 'job') {
             if (!file.job.type) return { subject, unknowns: jobUnknowns };
-            if (jobUnknowns.length && !everAsked(file, 'job')) return { subject, unknowns: jobUnknowns };
+            if (jobUnknowns.length && (ledgerEntry(file, 'job')?.askCount ?? 0) < JOB_ASKS_MAX) return { subject, unknowns: jobUnknowns };
             continue;
         }
         if (subject === 'postcode') { if (!file.job.location) return { subject, unknowns: [] }; continue; }

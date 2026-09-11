@@ -5,7 +5,7 @@
  * read-only and allowed to return nothing.
  */
 import { describe, expect, it } from 'vitest';
-import { ask, open, recordFact, type CaseFile, type Turn } from './case-file';
+import { answered, ask, open, recordFact, type CaseFile, type Turn } from './case-file';
 import { confirmLocation, describeMedia, emptyKb, kbLookup, nextQuestion, offerCall, readiness, regulated } from './scoping-tools';
 import { moneyQuestionMatch, offersCall, textAsks } from './lexicon';
 
@@ -65,6 +65,12 @@ describe('readiness and next_question', () => {
         expect(nextQuestion(file, ['which tap'])).toEqual({ subject: 'job', unknowns: ['which tap'] });
         ask(file, 'job');
         expect(nextQuestion(file, ['which tap'])?.subject).toBe('postcode');
+        // Answered, and still unknowns: the job again, one detail at a time, up to the cap.
+        answered(file, 'job');
+        expect(nextQuestion(file, ['tap brand'])?.subject).toBe('job');
+        ask(file, 'job'); answered(file, 'job'); ask(file, 'job'); answered(file, 'job');
+        expect(nextQuestion(file, ['still more'])?.subject).toBe('postcode');
+        expect(nextQuestion(file, [])?.subject).toBe('postcode');
         recordFact(file, { key: 'location', value: 'NG9 2AB', source: thread(file), by: 'scoping' });
         expect(nextQuestion(file)?.subject).toBe('access');
         ask(file, 'access');

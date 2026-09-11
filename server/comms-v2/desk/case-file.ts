@@ -115,6 +115,8 @@ export interface LedgerEntry {
     askedAt: string | null;
     answeredAt: string | null;
     thankedAt: string | null;
+    /** How many times the subject has been asked on this file, across every channel. */
+    askCount: number;
 }
 
 export type ApproverSlot =
@@ -364,16 +366,17 @@ export function ask(file: CaseFile, subject: AskSubject, deps: CaseFileDeps = {}
     const now = deps.now ?? (() => new Date());
     if (askedUnanswered(file, subject)) return refuse(`${subject} is already asked and unanswered`);
     let l = ledgerEntry(file, subject);
-    if (!l) { l = { subject, askedAt: null, answeredAt: null, thankedAt: null }; file.ledger.push(l); }
+    if (!l) { l = { subject, askedAt: null, answeredAt: null, thankedAt: null, askCount: 0 }; file.ledger.push(l); }
     l.askedAt = now().toISOString();
     l.answeredAt = null;
+    l.askCount += 1;
     return accept(l);
 }
 
 export function answered(file: CaseFile, subject: AskSubject, deps: CaseFileDeps = {}): Outcome<LedgerEntry> {
     const now = deps.now ?? (() => new Date());
     let l = ledgerEntry(file, subject);
-    if (!l) { l = { subject, askedAt: null, answeredAt: null, thankedAt: null }; file.ledger.push(l); }
+    if (!l) { l = { subject, askedAt: null, answeredAt: null, thankedAt: null, askCount: 0 }; file.ledger.push(l); }
     l.answeredAt = now().toISOString();
     return accept(l);
 }
@@ -383,7 +386,7 @@ export function thanked(file: CaseFile, subject: AskSubject, deps: CaseFileDeps 
     const now = deps.now ?? (() => new Date());
     let l = ledgerEntry(file, subject);
     if (l?.thankedAt) return refuse(`${subject} is already thanked`);
-    if (!l) { l = { subject, askedAt: null, answeredAt: null, thankedAt: null }; file.ledger.push(l); }
+    if (!l) { l = { subject, askedAt: null, answeredAt: null, thankedAt: null, askCount: 0 }; file.ledger.push(l); }
     l.thankedAt = now().toISOString();
     return accept(l);
 }

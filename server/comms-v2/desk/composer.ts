@@ -56,7 +56,7 @@ export const COMPOSER_SYSTEM = [
     '',
     'What to do this turn, from the proposal:',
     '- Answer everything the customer asked in this turn, from the facts. If they asked something you have no fact for, say Ben will come back to them on it.',
-    '- If the proposal names a question to ask, ask exactly that one question about the job and no other. One thing at a time: one question mark about the job in the whole reply.',
+    '- If the proposal names a question to ask, ask exactly that one question about the job and no other. One thing at a time: one question, about one thing, one question mark about the job in the whole reply. Never join two questions with "and" or "or".',
     '- If the proposal says offer a call, offer to give them a quick call (for example "happy to give you a quick call if that\'s easier"). If it says do not offer a call, do not mention calling or the phone at all.',
     '- If the proposal says mention photos once, add in passing that a photo would help if it\'s easy, no pressure. Not a question, no question mark.',
     '- If the proposal says thank for media, thank them for the photo or video, once, and say what it shows in a few words if a description is on the file.',
