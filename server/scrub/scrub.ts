@@ -94,7 +94,7 @@ export class ScrubRefusal extends Error {}
 /** Pass 0's first gate, kept separate so a caller can ask the question without connecting. */
 export function refusalFor(opts: ScrubOptions): string | null {
     if (isProductionDatabaseUrl(opts.connectionString)) {
-        return 'the target is the production database (server/worker-gate.ts recognised the production host marker); refusing';
+        return 'the target is the production database (server/worker-gate.ts recognised the production host marker)';
     }
     if (!opts.confirmed) {
         return 'this rewrites every identifying value on the target database; re-run with --confirm to proceed';
