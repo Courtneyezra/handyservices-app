@@ -52,13 +52,23 @@ export interface Drafter {
     draft(input: { file: CaseFile; party: Party; intake: DraftIntake; now: Date; baseUrl?: string }): Promise<DraftOutcome>;
 }
 
-/** The clerk's artifact as the chain reads it (server/spine/quote-intake.ts intakeFromArtifact). */
+/**
+ * Ben's internal note for a line of the price screen: the line's own words, and on the first line
+ * what he may want to request before pricing (checklist 4.4). It is never customer-facing and is
+ * never read back to the customer: the quote page renders the line's `description` and the desk
+ * reads that same field for scope (quote-record.ts), neither of which this touches.
+ */
+export function priceScreenNotes(ownWords: string | null, missing: string[]): string | null {
+    return [ownWords, missing.length ? `Missing, yours to request: ${missing.join('; ')}` : null].filter(Boolean).join(' | ') || null;
+}
+
+/** The clerk's artifact as the chain reads it (server/spine/quote-intake.ts intakeFromArtifact). Customer-facing words only. */
 export function artifactFor(intake: DraftIntake): { kind: 'quote_intake'; summary: string; data: Record<string, unknown>; childRunId: null } {
-    const lines = intake.lines.map((l, i) => ({
+    const lines = intake.lines.map((l) => ({
         title: l.title,
         category: l.category,
         qty: l.qty,
-        detail: [l.detail, i === 0 && intake.missing.length ? `Missing, yours to request: ${intake.missing.join('; ')}` : null].filter(Boolean).join(' | ') || null,
+        detail: l.detail,
         assumptions: l.assumptions,
         notIncluded: l.notIncluded,
         exclusions: l.notIncluded,
@@ -115,11 +125,10 @@ export function chainDrafter(store: QuoteStore): Drafter {
                 const outcome = await runRouteAChain({ caseFile: caseFile as any, pack: pack as any, triage: triage as any, clerkRunId: `comms_v2_${randomUUID()}`, artifact: artifact as any }, {
                     createDraft: async (input) => {
                         const built = pricedDraftRow({ intake: input.intake, estimate: input.estimate, suggestions: input.suggestions, phone: address, contactName: party.name, media, now });
-                        // The price screen reads a line's own words from `notes` (server/spine/
-                        // price-screen.ts buildScreenLine); the chain's row builder writes them to
-                        // `description` only, so checklist 4.4's missing list would be stored and
-                        // not shown. Copying it across here keeps that fix inside this directory.
-                        const row = { ...built, pricingLineItems: (built.pricingLineItems as any[]).map((li) => ({ ...li, notes: li.notes ?? li.description ?? null })) };
+                        // `notes` is the price screen's own field (server/spine/price-screen.ts
+                        // buildScreenLine) and Ben's alone: the line's words and the missing list.
+                        // The chain's row builder leaves it unset, so it is written here.
+                        const row = { ...built, pricingLineItems: (built.pricingLineItems as any[]).map((li, i) => ({ ...li, notes: priceScreenNotes(li.notes ?? li.description ?? null, i === 0 ? intake.missing : []) })) };
                         const shortSlug = await newSlug(store);
                         const id = `quote_${randomUUID().replace(/-/g, '').slice(0, 21)}`;
                         const insert: DraftInsert = { ...(row as any), id, shortSlug, sourceChannel: SOURCE_CHANNEL, createdBy: CREATED_BY, createdByName: CREATED_BY_NAME };
@@ -170,7 +179,7 @@ export class FakeDrafter implements Drafter {
         const row: DraftInsert = {
             id, shortSlug, customerName: intake.customerName ?? party.name ?? 'Customer', phone: address, postcode: intake.postcode, customerType: intake.customerType,
             jobDescription: intake.lines.map((l) => l.title).join('; '), isDraft: true, sourceChannel: SOURCE_CHANNEL, createdBy: CREATED_BY, createdByName: CREATED_BY_NAME,
-            pricingLineItems: lines.map((l, i) => ({ lineId: `card_${i + 1}`, label: l.title, title: l.title, description: l.detail, category: l.category, qty: l.qty, pricePence: null, labourPence: null, materialsPence: this.opts.materialsPence ?? 0, assumptions: l.assumptions, notIncluded: l.notIncluded, source: 'quote_intake' })),
+            pricingLineItems: lines.map((l, i) => ({ lineId: `card_${i + 1}`, label: l.title, title: l.title, description: l.detail, notes: priceScreenNotes(l.detail, i === 0 ? intake.missing : []), category: l.category, qty: l.qty, pricePence: null, labourPence: null, materialsPence: this.opts.materialsPence ?? 0, assumptions: l.assumptions, notIncluded: l.notIncluded, source: 'quote_intake' })),
             pricingSuggestions: { estimateId: 'est_fake', at: now.toISOString(), lines: suggestions, totals: { suggestedPence: suggestions.reduce((a, s) => a + (s.suggestedPence ?? 0), 0) }, engine: 'fake' },
             customerPhotoUrls: threadMediaOf(file).filter((m) => m.kind === 'image').map((m) => m.url),
             expiresAt: new Date(now.getTime() + 30 * 24 * 3_600_000).toISOString(),

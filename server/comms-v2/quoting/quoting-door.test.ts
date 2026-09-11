@@ -99,7 +99,7 @@ describe('the quoting door', () => {
     });
 
     it('Ben prices and sends: the customer gets the link as a planned send under human:ben, the stage moves to quoted', async () => {
-        const r = await post('/price', { totalPence: 12000 });
+        const r = await post('/price', { lines: [{ lineId: 'card_1', finalPence: 12000 }] });
         expect(r.status).toBe(200);
         const ps = plannedSendOfResponse(r.json);
         expect(ps.approver).toBe('human:ben');

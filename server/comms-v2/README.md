@@ -66,7 +66,7 @@ the pricing engine, so allow up to five minutes for it.
 | 6.1, 6.3 | `POST /accept`, then `POST /accept` again | `notice.title` "Quote accepted", stage `accepted`, an `accepted` notification recorded, and one acknowledgement whose only promise is that Ben has been told (no date, time or duration); the second answers 409 |
 
 What the price screen shows for a v2 draft: the lines, suggestions and band, the missing list on the
-first line's notes, the photos on the draft. Its thread pane, the "asked, none sent" pill and its
+first line's notes (Ben's own field on the row, never on the quote the customer reads), the photos on the draft. Its thread pane, the "asked, none sent" pill and its
 send button read the old conversation and messages tables, so they stay empty or refuse for a
 sandbox draft until cutover re-points them at the case file; the door's `/price` is the send in the
 meantime.
@@ -83,7 +83,7 @@ being `customer: 'known'`, `prefersText`, `alreadyRung`, `facts`, `ledger`), `PO
 (`{ text, channel: 'whatsapp' }`, or multipart with `media` files), `POST /run` (a clock pass; the
 unpriced-quote chase fires here once due), `POST /age` (`{ hours }`), `POST /reset`, `GET /` (the
 thread and the case file; `state.quote` is the quote as the file records it, with Ben's recorded
-pushes). Goal 4 adds `POST /price` (`{}` for the chain's suggestions, or `{ totalPence }`, or
+pushes). Goal 4 adds `POST /price` (`{}` for the chain's suggestions, or
 `{ lines: [{ lineId, finalPence }] }`), `POST /accept` and `GET /quote`. Every response carries
 `plannedSend` and `state`. The ready turn runs the estimator and the pricing engine before it
 replies, so allow up to two minutes for it.

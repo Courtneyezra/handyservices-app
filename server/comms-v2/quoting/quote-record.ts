@@ -31,6 +31,7 @@ export interface QuoteLine {
     materialsPence: number | null;
     assumptions: string[];
     notIncluded: string[];
+    /** The line's own customer-facing words, as the quote page renders them. Never Ben's internal note on the row. */
     notes: string | null;
 }
 
@@ -101,7 +102,7 @@ export function quoteRecordOf(row: QuoteRowLike, now: Date = new Date()): QuoteR
         materialsPence: int(l?.materialsPence) ?? int(l?.materialsWithMarginPence),
         assumptions: strings(l?.assumptions),
         notIncluded: strings(l?.notIncluded),
-        notes: str(l?.notes) ?? str(l?.description),
+        notes: str(l?.description),
     }));
     return {
         id: row.id,
@@ -167,7 +168,7 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 export function readQuoteLine(q: QuoteRecord, label: string): QuoteLineReadOutcome {
     if (!LIVE_FOR_FIGURES.has(q.status)) return { ok: false, reason: `the quote is ${q.status}; a figure is read only from the live quote the customer holds`, status: q.status };
     const want = norm(label);
-    const hit = figureLabels(q).find((f) => norm(f.label) === want) ?? figureLabels(q).find((f) => norm(f.label).includes(want) || want.includes(norm(f.label)));
+    const hit = figureLabels(q).find((f) => norm(f.label) === want);
     if (!hit) return { ok: false, reason: `no line labelled "${label}" on quote ${q.slug}`, status: q.status };
     return { ok: true, value: { label: hit.label, amountPence: hit.amountPence, amount: pounds(hit.amountPence), citation: { quoteRef: q.slug, line: hit.label } } };
 }

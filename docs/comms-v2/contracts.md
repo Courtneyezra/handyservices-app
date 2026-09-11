@@ -152,7 +152,7 @@ brief for the composer, and never sees a figure.
 | `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote |
 | `read_quote_scope` | the quote | what each line covers, its assumptions, what is not included; no figure | revoked, superseded, expired |
 | `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, its halves, total, deposit) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
-| `price_quote` | Ben's prices, or one total, or the chain's suggestions | the priced record, the message with the link, the totals | not a draft; a line with no suggestion and no figure from Ben |
+| `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record, the message with the link, the totals | not a draft; a line with no suggestion and no figure from Ben |
 | `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |
 
 **What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,

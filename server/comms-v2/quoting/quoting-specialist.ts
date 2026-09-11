@@ -24,7 +24,7 @@ import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
 import { QUOTE_FACT, factsWithPrefix, newestFact, type QuoteRecord, type QuoteStatus } from './quote-record';
-import { chase, draftQuote, loadQuote, priceBookLookup, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
+import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 
 // ---------------------------------------------------------------- the two structured outputs
 
@@ -251,12 +251,6 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         } else {
             error = res.error ?? 'the intake model returned nothing';
             intake = fallbackIntake(file, party, readiness.missing);
-        }
-        // price_book: a category for a line that has none, for Ben's screen. Never a fact.
-        for (const l of intake.lines) {
-            if (l.category) continue;
-            const m = await priceBookLookup(l.title, null, deps);
-            if (m && m.confidence !== 'low') l.category = 'general_fixing';
         }
         const drafted = await draftQuote(file, party, intake, deps);
         if (drafted.ok) { proposal.drafted = true; proposal.quoteRef = drafted.slug; proposal.status = 'draft'; factIds.push(...drafted.factIds); calls.push(...drafted.calls); }

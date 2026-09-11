@@ -90,6 +90,26 @@ describe('draft_quote and notify_ben', () => {
         expect(file.facts.filter((f) => f.key === QUOTE_FACT.benNotified)).toHaveLength(1);
     });
 
+    it('keeps Ben\'s missing list off every customer-facing surface: it is on the row\'s notes for his price screen only', async () => {
+        const d = deps();
+        const file = fixture();
+        const out = await draftQuote(file, file.parties[0], intake, d);
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        const row = (await d.store.read(out.slug))!;
+        const line = (row.pricingLineItems as any[])[0];
+        // The price screen reads `notes` (server/spine/price-screen.ts buildScreenLine); the quote
+        // page and the desk's own scope read `description`.
+        expect(line.notes).toContain('Missing, yours to request: photo (asked once, none sent)');
+        expect(line.description).toBe('mixer tap, dripping at the base');
+        const scope = readQuoteScope(quoteRecordOf(row, d.now!()));
+        expect(scope.ok).toBe(true);
+        if (!scope.ok) return;
+        expect(scope.value.lines[0].notes).toBe('mixer tap, dripping at the base');
+        const said = [...scope.value.lines.flatMap((l) => [l.label, l.notes ?? '', ...l.assumptions, ...l.notIncluded]), ...file.facts.map((f) => f.value)];
+        expect(said.some((t) => /Missing, yours to request/.test(t))).toBe(false);
+    });
+
     it('records the drafter\'s failure as a refusal, with nothing on the file and no notification', async () => {
         const store = new MemoryQuoteStore();
         const d: QuotingDeps = { store, drafter: new FakeDrafter(store, { fail: 'estimator down' }), notifier: recordingNotifier, priceBook: emptyPriceBook, now: () => new Date('2026-09-11T10:00:00.000Z') };
@@ -202,7 +222,7 @@ describe('price_quote, the stage, and acceptance', () => {
         await draftQuote(file, file.parties[0], intake, d);
         const early = await recordAcceptance(file, file.parties[0], { by: 'human', via: 'test' }, d);
         expect(early).toMatchObject({ ok: false, status: 409 });
-        const priced = await priceQuote(file, { totalPence: 15000 }, d);
+        const priced = await priceQuote(file, { lines: [{ lineId: 'card_1', finalPence: 15000 }] }, d);
         expect(priced.ok).toBe(true);
         if (!priced.ok) return;
         expect(priced.totals.totalPence).toBe(15000);

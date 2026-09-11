@@ -5,8 +5,9 @@
  *
  *   read          the row by slug, as a QuoteRecord source
  *   insertDraft   the chain's draft row (built by quote-intake.ts pricedDraftRow, every price null)
- *   price         Ben's prices, written by the price screen's own confirmPrices, the only thing that
- *                 writes a customer-visible price; refuses anything that is not a draft
+ *   price         Ben's per-line prices (or the chain's suggestions for the lines he leaves), written
+ *                 by the price screen's own confirmPrices, the only thing that writes a
+ *                 customer-visible price; refuses anything that is not a draft
  *   accept        the human event: depositPaidAt, as the Stripe webhook writes it live (answer 42:
  *                 payment paths are not validated live, so the sandbox records the event itself)
  *   addPhotos     a photo that arrives after the draft joins it, so Ben's screen shows it
@@ -23,10 +24,8 @@ export interface DraftInsert {
 }
 
 export interface PriceInput {
-    /** Ben's per-line prices. Absent lines take the chain's suggestion. */
+    /** Ben's per-line prices, as his price screen writes them. Absent lines take the chain's suggestion. */
     lines?: Array<{ lineId: string; finalPence: number }>;
-    /** One total instead: spread over the lines in proportion to the suggestions. */
-    totalPence?: number | null;
     /** Who priced it, for the verdict rows: `human:<id>`. */
     by: string;
 }
@@ -47,18 +46,6 @@ export interface QuoteStore {
     accept(slug: string, now: Date): Promise<AcceptOutcome>;
     addPhotos(slug: string, urls: string[]): Promise<void>;
     deleteSandbox(phoneE164: string): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number }>;
-}
-
-/** Spread one total over the lines in proportion to their suggestions (equal shares when none), the rounding remainder on the first. */
-export function spreadTotal(totalPence: number, lines: Array<{ lineId: string; suggestedPence: number | null }>): Array<{ lineId: string; finalPence: number }> {
-    if (!lines.length) return [];
-    const weights = lines.map((l) => (l.suggestedPence && l.suggestedPence > 0 ? l.suggestedPence : 0));
-    const sum = weights.reduce((a, b) => a + b, 0);
-    const shares = sum > 0 ? weights.map((w) => w / sum) : lines.map(() => 1 / lines.length);
-    const out = lines.map((l, i) => ({ lineId: l.lineId, finalPence: Math.max(1, Math.floor(totalPence * shares[i])) }));
-    const spent = out.reduce((a, b) => a + b.finalPence, 0);
-    out[0].finalPence += totalPence - spent;
-    return out;
 }
 
 const QUOTE_COLUMNS = {
@@ -94,14 +81,9 @@ export const liveQuoteStore: QuoteStore = {
         if (!loaded.available) return { ok: false, status: loaded.status, reason: loaded.reason };
         if (loaded.status !== 'draft') return { ok: false, status: 409, reason: `quote ${slug} is ${loaded.status}; only a draft is priced` };
         const byId = new Map((input.lines ?? []).map((l) => [l.lineId, l.finalPence]));
-        let finals: Array<{ lineId: string; finalPence: number }>;
-        if (input.totalPence != null && !input.lines?.length) {
-            finals = spreadTotal(input.totalPence, loaded.lines.map((l) => ({ lineId: l.lineId, suggestedPence: l.suggestedPence })));
-        } else {
-            const missing = loaded.lines.filter((l) => !byId.has(l.lineId) && !(l.suggestedPence && l.suggestedPence > 0)).map((l) => l.title);
-            if (missing.length) return { ok: false, status: 400, reason: `no price for ${missing.join(', ')}: the chain made no suggestion, so Ben's figure is needed (lines[] or totalPence)` };
-            finals = loaded.lines.map((l) => ({ lineId: l.lineId, finalPence: byId.get(l.lineId) ?? l.suggestedPence! }));
-        }
+        const missing = loaded.lines.filter((l) => !byId.has(l.lineId) && !(l.suggestedPence && l.suggestedPence > 0)).map((l) => l.title);
+        if (missing.length) return { ok: false, status: 400, reason: `no price for ${missing.join(', ')}: the chain made no suggestion, so Ben's figure is needed (lines[])` };
+        const finals = loaded.lines.map((l) => ({ lineId: l.lineId, finalPence: byId.get(l.lineId) ?? l.suggestedPence! }));
         const body = { version: loaded.version, lines: finals, message: null, messageEdited: false, resolutions: [] };
         const c = await confirmPrices(slug, body, { id: input.by.replace(/^human:/, ''), email: null });
         if (!c.ok) return { ok: false, status: c.status, reason: c.errors.join('; ') };
@@ -209,13 +191,9 @@ export class MemoryQuoteStore implements QuoteStore {
         const suggestions = ((row.pricingSuggestions as any)?.lines ?? []) as Array<{ lineId: string; suggestedPence: number }>;
         const suggested = (lineId: string) => suggestions.find((s) => s.lineId === lineId)?.suggestedPence ?? null;
         const byId = new Map((input.lines ?? []).map((l) => [l.lineId, l.finalPence]));
-        let finals: Array<{ lineId: string; finalPence: number }>;
-        if (input.totalPence != null && !input.lines?.length) finals = spreadTotal(input.totalPence, items.map((l) => ({ lineId: l.lineId, suggestedPence: suggested(l.lineId) })));
-        else {
-            const missing = items.filter((l) => !byId.has(l.lineId) && !suggested(l.lineId));
-            if (missing.length) return { ok: false, status: 400, reason: `no price for ${missing.map((l) => l.label).join(', ')}` };
-            finals = items.map((l) => ({ lineId: l.lineId, finalPence: byId.get(l.lineId) ?? suggested(l.lineId)! }));
-        }
+        const missing = items.filter((l) => !byId.has(l.lineId) && !suggested(l.lineId));
+        if (missing.length) return { ok: false, status: 400, reason: `no price for ${missing.map((l) => l.label).join(', ')}` };
+        const finals = items.map((l) => ({ lineId: l.lineId, finalPence: byId.get(l.lineId) ?? suggested(l.lineId)! }));
         const priced = items.map((l) => {
             const f = finals.find((x) => x.lineId === l.lineId)!;
             const materials = Math.min(Number(l.materialsPence ?? 0) || 0, f.finalPence);

@@ -5,8 +5,8 @@
  *   POST /price   Ben prices and sends. His prices go through the price screen's own write; his
  *                 send (the desk's drafted message with the quote link) goes through the one sender
  *                 in dry run under approver human:ben and lands on the thread as an outbound turn;
- *                 the stage moves to quoted. Body: { lines: [{ lineId, finalPence }] } or
- *                 { totalPence }; absent, the chain's suggestions. Response: the planned send.
+ *                 the stage moves to quoted. Body: { lines: [{ lineId, finalPence }] }; absent, the
+ *                 chain's suggestions. Response: the planned send.
  *   POST /accept  The customer accepts on the quote page and pays the deposit: a human event
  *                 (answer 42: the payment path is not validated live, so the door records what the
  *                 Stripe webhook writes). The stage flips to accepted, Ben's push is recorded, and
@@ -76,13 +76,12 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             if (!file) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
             if (!file.job.quoteRef) { res.status(409).json({ error: 'no quote on the thread: the desk drafts one once the job and the location are known' }); return; }
             const party = file.parties[0];
-            const body = (req.body ?? {}) as { lines?: Array<{ lineId: string; finalPence: number }>; totalPence?: number; message?: string };
+            const body = (req.body ?? {}) as { lines?: Array<{ lineId: string; finalPence: number }> };
             const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l && typeof l.lineId === 'string' && Number.isFinite(l.finalPence)).map((l) => ({ lineId: l.lineId, finalPence: Math.round(l.finalPence) })) : undefined;
-            const totalPence = Number.isFinite(body.totalPence) ? Math.round(Number(body.totalPence)) : null;
-            const priced = await priceQuote(file, { lines, totalPence, by: BEN_APPROVER }, quotingDeps());
+            const priced = await priceQuote(file, { lines, by: BEN_APPROVER }, quotingDeps());
             if (!priced.ok) { res.status(priced.status).json({ error: priced.reason }); return; }
             // Ben's send: the desk's drafted message carrying the link, through the one sender in dry run.
-            const message = (typeof body.message === 'string' && body.message.includes(priced.quoteUrl)) ? body.message : priced.message;
+            const message = priced.message;
             const turn = lastInbound(file) ?? file.turns[0];
             const guardRun = runGuards({ file, party, turn, reply: message, factIds: priced.factIds, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null });
             // A human send is not a desk reply: the one-reply rule is the desk's, not Ben's.
