@@ -1,0 +1,55 @@
+# no-mistakes pipeline configuration for handyservices-app.
+# Keys are documented at https://kunchenguid.github.io/no-mistakes/reference/repo-config/ and by
+# `no-mistakes doctor`. commands.*, test.instructions and document.instructions are read only from the
+# default-branch copy of this file.
+
+commands:
+  prepare: "npm ci"
+
+# Documentation ownership for the document step.
+document:
+  instructions: |
+    AGENTS.md is the map for every session; docs/RUNBOOK.md owns operations. A comms change is
+    documented under docs/comms-v2 (README.md, contracts.md, design.md, checklist.md) and in
+    server/comms-v2/README.md; the old desk's design stays in docs/COMMS_AGENTS_V3_DESIGN.md.
+    Never duplicate a fact: point at its owner.
+
+# Product startup and live validation. The test step runs the product end to end as Ben would,
+# against the running app, and records the evidence in the PR; the human merges on evidence.
+test:
+  instructions: |
+    Environment: a run copy lives under a run root that carries a direnv .envrc, so its shell
+    inherits the non-production environment: the Neon branch database, NODE_ENV=development,
+    COMMS_WORKER=0, Stripe and Twilio on their test credentials where placed and on well-formed
+    inert values until then, and well-formed inert values for the providers without test
+    credentials (Meta, storage, paging). If a variable such as DATABASE_URL is missing from your
+    shell, run every command through `direnv exec . <command>`. Never print a variable's value;
+    refer to variables by name. DATABASE_URL must never contain the production host marker
+    (ep-broad-king); stop if it does.
+
+    Pick a free TCP port for this run (for example with `node -e` opening a server on port 0 and
+    printing the port it was given), export it as PORT, and start the app with
+    `PORT=<port> npm run dev`. Derive every URL from that value: the app serves
+    http://127.0.0.1:$PORT. Never use a fixed port; the app kills whatever already listens on the
+    port it is given, so a fixed one would stop a parallel run or a developer's server.
+    Open http://127.0.0.1:$PORT/admin/login and log in as Ben with the email in
+    PIPELINE_ADMIN_EMAIL and the password in PIPELINE_ADMIN_PASSWORD from the environment
+    (valid on the Neon branch only). Then open http://127.0.0.1:$PORT/admin/sandbox and drive the
+    change under test as Ben would: the sandbox types as a customer on the reserved number and
+    nothing it does can reach a real customer.
+
+    For a comms change, run the relevant lines of docs/comms-v2/checklist.md as sandbox
+    conversations. For the new desk under server/comms-v2 use its own door: `npm run
+    comms-v2:door` serves it on a loopback port (the URL is printed once; POST /start, /message,
+    /run, /age, /reset). Model calls are live; a refused or rate-limited model is a finding, not a pass.
+
+    Evidence is screenshots of the sandbox thread and the sandbox data pages only; never
+    screenshot another admin list or page, and never attach the server log. If the log matters,
+    cite its line numbers in the PR text. Stop the dev server when done.
+
+    Report only scenarios you drove live against the running app in this run copy: the direnv
+    environment check, the boot on the per-run port, Ben's login, the sandbox thread, the comms-v2
+    door and its refusals. A scenario is "pass" only when it was driven live. Anything you did not
+    drive live (a vitest run, a YAML parse, a static check, reading the code) is never a scenario
+    marked pass: leave it out, or record it as not live-validated with the reason. The pipeline
+    refuses a pass that was not driven live and fails the whole step.

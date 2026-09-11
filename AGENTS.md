@@ -24,8 +24,9 @@ npm run comms-v2:door        # serve the new desk's sandbox door on a loopback p
 
 ## Key Documentation
 - `docs/RUNBOOK.md` — operations, health endpoints, the prompt and eval procedure
+- `.no-mistakes.yaml` - the pipeline's runbook: the test step boots the app in a run copy on the non-production environment its run root provides through direnv, logs in as Ben and drives `/admin/sandbox`; that is the only validation
 - `docs/COMMS_AGENTS_V3_DESIGN.md` — comms desk design; `docs/comms-build/CUTOVER.md` to switch or roll back
-- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map, the six contracts and how a goal is validated); it lands in `server/comms-v2/` beside `server/spine/`, never inside it. `server/comms-v2/README.md` covers the new desk under `server/comms-v2/desk/` contract by contract, its sandbox door and door host, and the machine-local env. The new desk is sandbox-only until cutover; nothing in it is fixed by editing `server/spine/`
+- `docs/comms-v2/README.md` — clean-sheet rebuild of the comms desk (behaviour oracle, checklist, agent map, the six contracts and how a goal is validated); it lands in `server/comms-v2/` beside `server/spine/`, never inside it. `server/comms-v2/README.md` covers the new desk under `server/comms-v2/desk/` contract by contract, its sandbox door and door host, and the environment they read. The new desk is sandbox-only until cutover; nothing in it is fixed by editing `server/spine/`
 - `docs/comms-desk-log.md` — historical shipping log for the comms desk and the quoting segments. Not loaded into sessions; read it only for the history behind a decision.
 - `docs/ROADMAP_STRATEGY.md`, `docs/SYSTEMATIC_ROADMAP.md` — phase strategy and tasks
 

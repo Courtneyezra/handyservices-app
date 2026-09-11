@@ -45,20 +45,15 @@ the PR. See docs/comms-v2/contracts.md, "Validation".
 
 ## Environment
 
-The door needs the branch database string and the model keys. They may live in one more place on
-this machine so the pipeline's test step can drive the desk live: a machine-local file at
-`$HOME/.config/handyservices/comms-v2.env` (mode 600), in dotenv form. `server/comms-v2/env.ts`
-loads it before the door and the desk's tests run and takes exactly three names from it:
-`COMMS_V2_DATABASE_URL`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. It fills only the variables the
-process does not already have, ignores every other name in the file (the door logs the ignored
-names, never a value), and never prints, logs or commits a value.
-
-The desk's one database variable is `COMMS_V2_DATABASE_URL` (a Neon branch, never production).
+The door needs the branch database string and the model keys from the ordinary environment. The
+desk's one database variable is `COMMS_V2_DATABASE_URL` (a Neon branch, never production); the
+door host refuses a missing value and a production one and never reads `DATABASE_URL`. The
+pipeline's run copies inherit a non-production environment through direnv from their run root
+(see `.no-mistakes.yaml`, `test.instructions`); a developer's shell carries its own. Nothing in the
+desk loads a file of its own or prints a value.
 
 ## Tests
 
 `npx vitest run server/comms-v2`: every invariant in the contracts with a scripted model client,
-the door driven over HTTP the way the test step drives it, the env loader, and the door host's
-refusal rules. None of them needs a key or a database. The machine-local file is loaded for this
-directory's tests only (the `comms-v2` vitest project), so a live desk test can rely on it; the
-rest of the server suite never sees it.
+the door driven over HTTP the way the test step drives it, and the door host's refusal rules.
+None of them needs a key or a database; a live desk test reads its keys from the environment.
