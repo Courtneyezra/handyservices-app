@@ -4,11 +4,12 @@
  * through the quote machinery it wraps, and writes to the case file only through its calls.
  *
  *   quote_readiness   job type and location both present; photos optional; what is missing, for Ben
- *   price_book        read-only catalogue match for a line's category; never a fact, never a chat figure
- *   draft_quote       the existing clerk chain (draft-quote.ts), once per job; refuses while a live quote stands
+ *   draft_quote       the existing clerk chain (draft-quote.ts), once per job; refuses while a live quote stands.
+ *                     The price catalogue is reached only from inside that chain, which matches each
+ *                     line to a SKU for Ben's screen and the engine; it is never a shelf of its own,
+ *                     because the catalogue is never a source for a figure in chat (answer 35)
  *   notify_ben        one notification with the price screen link, recorded on the file; refuses a second
  *   chase             the unpriced draft chased on the clock (4.5), recorded like the notification
- *   quote_status      the quote's status and record, from the row
  *   read_quote_line   one line's amount to the penny with its citation; refuses draft, revoked, superseded, expired
  *   live_figure_quotes which quotes a figure may be read from now, for the figure guard's own check
  *   read_quote_scope  what is included and excluded; refuses revoked, superseded, expired
@@ -25,14 +26,12 @@ import { mediaDeclined, mediaReceived } from '../desk/scoping-tools';
 import { acceptedNotice, chaseNotice, liveNotifier, readyToPriceNotice, type BenNotice, type BenNotifier } from './ben-notifier';
 import { chainDrafter, type DraftIntake, type DraftOutcome, type Drafter } from './draft-quote';
 import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factOnce, factsWithPrefix, figureLabels, newestFact, pounds, quoteLiveForFigures, quoteRecordOf, quoteSource, quoteUrlFor, readQuoteLine, readQuoteScope, type QuoteRecord, type QuoteStatus } from './quote-record';
-import { assertCommsV2Database } from '../live-database';
 import { liveQuoteStore, type PriceInput, type QuoteStore } from './quote-store';
 
 export interface QuotingDeps extends CaseFileDeps {
     store?: QuoteStore;
     drafter?: Drafter;
     notifier?: BenNotifier;
-    priceBook?: PriceBook;
     mode?: 'dry_run' | 'live';
     baseUrl?: string;
 }
@@ -41,7 +40,6 @@ export interface ResolvedQuotingDeps {
     store: QuoteStore;
     drafter: Drafter;
     notifier: BenNotifier;
-    priceBook: PriceBook;
     mode: 'dry_run' | 'live';
     baseUrl: string | undefined;
     now: () => Date;
@@ -54,7 +52,6 @@ export function resolveQuotingDeps(deps: QuotingDeps = {}): ResolvedQuotingDeps 
         store,
         drafter: deps.drafter ?? chainDrafter(store),
         notifier: deps.notifier ?? liveNotifier,
-        priceBook: deps.priceBook ?? livePriceBook,
         mode: deps.mode ?? 'dry_run',
         baseUrl: deps.baseUrl,
         now: deps.now ?? (() => new Date()),
@@ -77,47 +74,13 @@ export function quoteReadiness(file: CaseFile): { ready: boolean; missing: strin
     return { ready: isReady(file), missing };
 }
 
-// ---------------------------------------------------------------- price_book
-
-export interface PriceBook {
-    /** A catalogue match for a line, for Ben's screen and the engine. Read-only. Null when nothing matches. */
-    lookup(description: string, category?: string | null): Promise<{ skuCode: string; name: string; confidence: 'high' | 'medium' | 'low' } | null>;
-}
-
-/** The catalogue matcher the pricing engine already uses (server/contextual-pricing/sku-matcher.ts), loaded on first use. */
-export const livePriceBook: PriceBook = {
-    async lookup(description, category) {
-        // Outside the catch: a catalogue miss is null, a wrong database is a refusal.
-        assertCommsV2Database('the Quoting tool server\'s price book');
-        try {
-            const { matchLineToSku } = await import('../../contextual-pricing/sku-matcher');
-            const m = await matchLineToSku({ description, ...(category ? { category } : {}) });
-            return m ? { skuCode: m.skuCode, name: m.name, confidence: m.confidence } : null;
-        } catch {
-            return null;
-        }
-    },
-};
-
-export const emptyPriceBook: PriceBook = { async lookup() { return null; } };
-
-/** price_book: a match for Ben's screen. Records nothing on the file; a figure never comes from here. */
-export async function priceBookLookup(description: string, category: string | null, deps: QuotingDeps = {}): Promise<{ skuCode: string; name: string; confidence: string } | null> {
-    return resolveQuotingDeps(deps).priceBook.lookup(description, category);
-}
-
-// ---------------------------------------------------------------- quote_status
+// ---------------------------------------------------------------- read the file's quote
 
 export async function loadQuote(file: CaseFile, deps: QuotingDeps = {}): Promise<QuoteRecord | null> {
     if (!file.job.quoteRef) return null;
     const d = resolveQuotingDeps(deps);
     const row = await d.store.read(file.job.quoteRef);
     return row ? quoteRecordOf(row, d.now()) : null;
-}
-
-export async function quoteStatus(file: CaseFile, deps: QuotingDeps = {}): Promise<{ status: QuoteStatus; record: QuoteRecord } | null> {
-    const q = await loadQuote(file, deps);
-    return q ? { status: q.status, record: q } : null;
 }
 
 // ---------------------------------------------------------------- draft_quote

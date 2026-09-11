@@ -5,10 +5,9 @@
  * after the quote is answered with a figure that is a cited quote line, to the penny; acceptance
  * flips the stage, records Ben's push and gets one acknowledgement; the refusals; reset.
  *
- * The thread carries a photo before Ben prices, on purpose. His message opens "thanks for the
- * photos and the details", the desk thanked for that photo two turns earlier, and the ask-ledger
- * guard refuses a second thanks: a thread with no photo cannot fail on it, so this one has one
- * (behaviour.md answer 43, and Contract 4 no longer runs over a send a person authored).
+ * The delivery message is the desk composer's, not the spine's canned draft, and Contract 4 runs
+ * over it: the quote is never marked sent unless the text that went is the quote, so a shut window
+ * and a guard failure both hold for Ben and leave the quote a draft he can price again.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -24,7 +23,6 @@ import { noTemplateApproved } from '../desk/sender';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter } from './draft-quote';
 import { MemoryQuoteStore } from './quote-store';
-import { emptyPriceBook } from './quoting-tools';
 
 let server: import('node:http').Server;
 let base: string;
@@ -50,12 +48,19 @@ beforeAll(async () => {
             if (/thank for media: yes/.test(user)) return { reply: 'Thanks for the photo, that is the one.\n\nBen has everything he needs now.', factIds: [], kbIds: [] };
             const m = /^(fact_[^:]+): quote_line:Replace kitchen tap labour = (£[\d.]+)$/m.exec(user);
             if (m && /answer from the quote only/.test(user)) return { reply: `It covers taking the old tap out and fitting the new one, and you supply the tap.\n\nThe labour on your quote is ${m[2]}.`, factIds: [m[1]], kbIds: [] };
+            if (/Ben has priced the quote and is sending it now/.test(user)) {
+                const link = /(https:\/\/test\.local\/quote\/[a-z0-9]+)/.exec(user)?.[1] ?? '';
+                // Second attempt: the first draft carries a figure the guards refuse, so the file
+                // shows the retry the desk gives any composed reply.
+                if (/failed these checks/.test(user)) return { reply: `Your quote is ready, Sam.\n\nEverything is on the link: ${link}\n\nJust reply here with any questions.`, factIds: [], kbIds: [] };
+                return { reply: `Your quote is ready, Sam, £120.00 all in.\n\nEverything is on the link: ${link}`, factIds: [], kbIds: [] };
+            }
             if (/beyond a line of the quote/.test(user)) return { reply: 'Ben will come back to you on the price.', factIds: [], kbIds: [] };
             return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.\n\nThat is everything needed for now, Ben will put the quote together and send it over.', factIds: [], kbIds: [] };
         },
     });
     mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-quoting-door-'));
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir, scoping: { describe: async () => ({ ok: true, description: 'a dripping mixer tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, priceBook: emptyPriceBook, baseUrl: 'https://test.local' } });
+    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir, scoping: { describe: async () => ({ ok: true, description: 'a dripping mixer tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);
@@ -121,19 +126,37 @@ describe('the quoting door', () => {
         expect(store.rows.get(r.json.state.quote.slug)?.customerPhotoUrls).toHaveLength(1);
     });
 
-    it('Ben prices and sends: the customer gets the link as a planned send under human:ben, the stage moves to quoted', async () => {
+    it('a shut window holds the priced quote for Ben and leaves it a draft, rather than delivering a nudge with no link', async () => {
+        await post('/age', { hours: 25 });
+        const r = await post('/price', { lines: [{ lineId: 'card_1', finalPence: 12000 }] });
+        expect(r.status).toBe(200);
+        expect(r.json.sent).toBe(false);
+        const ps = plannedSendOfResponse(r.json);
+        expect(ps.evidence.decision).toBe('hold');
+        expect(ps.bubbles).toHaveLength(0);
+        expect(r.json.state.caseFile.hold.reason).toMatch(/window is shut.*no approved template carries a quote link/);
+        // Nothing was sent, so nothing about the quote is live: still a draft, no figure on the file.
+        const state = await get('/quote');
+        expect(state.json.record.status).toBe('draft');
+        expect(state.json.facts.some((f: any) => f.key.startsWith('quote_line:'))).toBe(false);
+    });
+
+    it('Ben prices and sends: the desk composes the delivery with the link, the guards run over it, the stage moves to quoted', async () => {
+        // The customer writes again, which reopens the window and clears the hold for the send.
+        await post('/message', { text: 'Any news on the quote?' });
         const r = await post('/price', { lines: [{ lineId: 'card_1', finalPence: 12000 }] });
         expect(r.status).toBe(200);
         const ps = plannedSendOfResponse(r.json);
         expect(ps.approver).toBe('human:ben');
         expect(ps.delivered).toBe(true);
         expect(ps.bubbles.join(' ')).toContain(`https://test.local/quote/${r.json.slug}`);
-        // His words thank for the photos the desk has already thanked for, and carry his total.
-        // Contract 4 would refuse both; it does not run over a send he authored (answer 43), and
-        // the file says so rather than claiming a pass.
-        expect(ps.bubbles.join(' ')).toMatch(/thanks for the photos/i);
-        expect(Object.values(ps.guards).every((g) => g.result === 'not_applied')).toBe(true);
-        expect(ps.guards.ask_ledger.note).toMatch(/a person authored this send/);
+        // The words are the desk's, so all eight ran and passed. The composer's first draft carried
+        // a figure no live quote line backs; the figure guard refused it and the retry dropped it.
+        expect(Object.values(ps.guards).every((g) => g.result === 'pass')).toBe(true);
+        expect(ps.bubbles.join(' ')).not.toMatch(/£/);
+        expect(r.json.run.decision.kind).toBe('send');
+        // One reply passes because a person licensed this send, not because the guard was skipped.
+        expect(ps.guards.one_reply.note).toMatch(/a person acted on the thread/);
         expect(sendLanded(ps, r.json.state)).toBe(true);
         expect(r.json.state.conversation.stage).toBe('quoted');
         expect(r.json.totals.totalPence).toBe(12000);

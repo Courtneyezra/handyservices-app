@@ -14,7 +14,7 @@ import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
 import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteStatus } from './quote-record';
 import { MemoryQuoteStore } from './quote-store';
-import { CHASE_MAX, chase, draftQuote, emptyPriceBook, liveFigureQuotes, loadQuote, notifyBen, priceBookLookup, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
+import { CHASE_MAX, chase, draftQuote, liveFigureQuotes, loadQuote, notifyBen, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
 
 function fixture(text = 'Hi, my kitchen tap is leaking, NG9 2AB', ready = true): CaseFile {
     const r = open({
@@ -36,7 +36,7 @@ const intake: DraftIntake = { customerName: 'Sam', postcode: 'NG9 2AB', customer
 function deps(clock = { t: Date.parse('2026-09-11T10:00:00.000Z') }, opts: { materialsPence?: number } = {}): QuotingDeps & { store: MemoryQuoteStore; drafter: FakeDrafter; clock: typeof clock } {
     const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
     const drafter = new FakeDrafter(store, { materialsPence: opts.materialsPence ?? 2000 });
-    return { store, drafter, notifier: recordingNotifier, priceBook: emptyPriceBook, mode: 'dry_run', baseUrl: 'https://test.local', now: () => new Date(clock.t), clock };
+    return { store, drafter, notifier: recordingNotifier, mode: 'dry_run', baseUrl: 'https://test.local', now: () => new Date(clock.t), clock };
 }
 
 describe('quote_readiness', () => {
@@ -112,7 +112,7 @@ describe('draft_quote and notify_ben', () => {
 
     it('records the drafter\'s failure as a refusal, with nothing on the file and no notification', async () => {
         const store = new MemoryQuoteStore();
-        const d: QuotingDeps = { store, drafter: new FakeDrafter(store, { fail: 'estimator down' }), notifier: recordingNotifier, priceBook: emptyPriceBook, now: () => new Date('2026-09-11T10:00:00.000Z') };
+        const d: QuotingDeps = { store, drafter: new FakeDrafter(store, { fail: 'estimator down' }), notifier: recordingNotifier, now: () => new Date('2026-09-11T10:00:00.000Z') };
         const file = fixture();
         const out = await draftQuote(file, file.parties[0], intake, d);
         expect(out.ok).toBe(false);
@@ -297,13 +297,3 @@ describe('price_quote, the stage, and acceptance', () => {
     });
 });
 
-describe('price_book', () => {
-    it('is read-only and never a fact', async () => {
-        const file = fixture();
-        const before = file.facts.length;
-        expect(await priceBookLookup('replace a kitchen tap', null, { priceBook: emptyPriceBook })).toBeNull();
-        const match = await priceBookLookup('replace a kitchen tap', 'plumbing', { priceBook: { async lookup() { return { skuCode: 'TAP-01', name: 'Tap swap', confidence: 'high' }; } } });
-        expect(match?.skuCode).toBe('TAP-01');
-        expect(file.facts.length).toBe(before);
-    });
-});

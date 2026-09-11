@@ -16,7 +16,6 @@ import type { InboundTurn } from './whatsapp-adapter';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
-import { emptyPriceBook } from '../quoting/quoting-tools';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
 const specialistFacts = (facts: Array<{ key: string; value: string }>, answered: string[] = []) => ({ facts, jobUnknowns: [], answeredSubjects: answered });
@@ -29,7 +28,7 @@ function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], clock 
     const client = new FakeModelClient(handlers);
     const now = () => new Date(clock.t += 1000);
     const store = new MemoryQuoteStore();
-    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier, priceBook: emptyPriceBook }, ...extra });
+    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier }, ...extra });
     return { client, gateway: new Gateway({ desk: d, now }), now };
 }
 

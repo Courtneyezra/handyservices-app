@@ -31,7 +31,12 @@ export interface ComposeInput {
     file: CaseFile;
     party: Party;
     turn: Turn;
-    route: Route;
+    /**
+     * What the router made of the turn. Only the three fields the prompt shows, so a send with no
+     * router call behind it - Ben's priced quote leaving the price screen - can name what it is
+     * without a fabricated call record.
+     */
+    route: Pick<Route, 'turnKind' | 'subjects' | 'exception'>;
     specialists: SpecialistReturn[];
     /** Fixed lines the reply must carry, in Ben's words. */
     fixedLines: FixedLine[];
@@ -65,6 +70,7 @@ export const COMPOSER_SYSTEM = [
     '- A short pause from the customer ("one sec") gets a very short "no rush" style reply and nothing else.',
     '- A promise of more ("I\'ll send photos tomorrow") gets one short acknowledgement that you will wait for it, and no question.',
     '- When it is a wrap-up, say that is everything needed for now and that Ben will put the quote together and send it over. No timing. Say this only on a wrap-up turn, never beside a question.',
+    '- When the brief says Ben has priced and sent the quote, you are writing the delivery, not a reply: tell them the quote is ready, give the link exactly as the brief spells it, and say to reply here with any questions. Do not answer their last message again, and give no figure, no timing and no other promise.',
     '- Fixed lines: include each one given, keeping its meaning and the words Ben will come back to them, woven into the reply naturally.',
     '',
     'Plain hyphens only; never an em dash. Return the JSON object only: reply, factIds (the ids of the facts you used), kbIds (the knowledge-base ids you cited, usually none).',

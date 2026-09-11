@@ -1,5 +1,5 @@
 /**
- * The one check every live dependency of the new desk makes before it touches the database.
+ * The one check every live WRITER in the new desk makes before it touches the database.
  *
  * The desk is sandbox-only until cutover, and its sandbox door is mounted on the ordinary server
  * (`/api/comms-v2/sandbox`, server/index.ts) so Ben's kanban board has threads to show. That mount
@@ -7,16 +7,18 @@
  * without this check the sandbox drafts a real personalized_quotes row, prices it, and publishes a
  * readable quote page with real figures on it.
  *
- * So every live store and live reader under server/comms-v2 asks here first, and the answer is the
- * same one the door host gives (desk/door-host.ts): the database in use must be the Neon branch
- * named by COMMS_V2_DATABASE_URL. A refusal is loud and names that requirement; nothing falls back
- * to DATABASE_URL, to a read-only path, or to a memory store chosen behind the caller's back.
+ * So every live store and every path that writes under server/comms-v2 asks here first, and the
+ * answer is the same one the door host gives (desk/door-host.ts): the database in use must be the
+ * Neon branch named by COMMS_V2_DATABASE_URL. A refusal is loud and names that requirement;
+ * nothing falls back to DATABASE_URL or to a memory store chosen behind the caller's back.
  *
- * Two callers deliberately do not ask. Ben's board reads the `comms_v2_approvers` row through
- * server/comms-v2/api/approvers.ts: that row is the board's own, it is meant to be read on the
- * server the board runs on, and the board must keep working. Nothing else in server/comms-v2 may
- * open the database without this check; a new live dependency calls `commsV2Db` or
- * `assertCommsV2Database` and gets it for free.
+ * Writing is the whole subject. A read of a reviewed knowledge-base row publishes nothing and
+ * costs nothing on the wrong database, so the reviewed readers (desk/fixed-lines.ts,
+ * desk/scoping-tools.ts) do not ask: they simply find nothing, and the desk falls back to its own
+ * wording. Made to refuse instead, they would throw on exactly the turns the captain's fixed line
+ * matters most on, and a gas, complaint or money turn would get no reply at all. Ben's board
+ * reading its own `comms_v2_approvers` row (server/comms-v2/api/approvers.ts) is a read too, and
+ * one that must work on the server the board runs on.
  *
  * At cutover the desk starts writing to the live database on purpose, and that goal replaces this
  * check with the desk switch. Until then the answer to "may I write here?" is no.

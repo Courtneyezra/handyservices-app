@@ -9,9 +9,10 @@
  * sandbox-only until cutover. Goal 1 renders for WhatsApp only.
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
- * a customer without passing the guards, while a person's own words carry their own authority and
- * no verdicts (behaviour.md answer 43); a shut window never produces freeform text on any channel;
- * one of the four fixed lines that are Ben's to review sends in dry run only until he has.
+ * a customer without passing the guards, while a person's own words from Ben's board carry their
+ * own authority and no verdicts (behaviour.md answer 43); verdicts once supplied decide, whoever
+ * the approver is; a shut window never produces freeform text on any channel; one of the four
+ * fixed lines that are Ben's to review sends in dry run only until he has.
  *
  * A template is named by the registry (server/window-templates.ts) and approved by the live sync
  * (server/whatsapp-template-sync.ts), which also holds Twilio's content SID for it. The wire shape
@@ -21,7 +22,7 @@
 import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps, type WhatsAppTransport } from './case-file';
 import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
-import { isContractorApprover, isHumanApprover, type Approver } from '../../approver';
+import { isHumanApprover, type Approver } from '../../approver';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -244,17 +245,6 @@ export interface SenderDeps extends CaseFileDeps {
 }
 
 /**
- * Did a person write these words? Only the two approver prefixes approver.ts defines for a person's
- * own typing: `human:<id>` and `contractor:<id>`. Deliberately a positive test of a known prefix,
- * so an approver string this build does not recognise is not a person and its send still needs
- * verdicts. The question is who WROTE the words, not who licensed the send: Ben licenses the quote
- * the desk composed for him, and that one is checked.
- */
-function personWroteIt(approver: string): boolean {
-    return isHumanApprover(approver) || isContractorApprover(approver);
-}
-
-/**
  * Delivers the rendered reply with an approver and a run id, then records the send on the file
  * with the facts it was written from. Refuses: verdicts that did not pass, whoever the approver
  * is, and a send with no verdicts at all unless a person wrote the words; no approver or run id;
@@ -267,10 +257,12 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
     if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
     // Verdicts, once supplied, decide: a reply the desk composed is refused on a failure whoever
-    // licensed it, Ben included. Only a send with no verdicts at all rests on who wrote the words,
-    // and only an explicitly human or contractor approver is a person. Anything else - the
-    // automated enum, a legacy string, an approver this build does not recognise - is refused.
-    if (input.guards ? !input.guards.ok : !personWroteIt(input.approver)) return { ok: false, reason: 'guards not passed' };
+    // licensed it, Ben included, because the question answer 43 asks is who WROTE the words and
+    // not who licensed the send. Only a send carrying no verdicts at all rests on the approver,
+    // and only an explicit `human:` prefix is a person there. Everything else is refused: the
+    // automated enum, a legacy string, a contractor relay the desk has no path for, and any
+    // approver this build does not recognise.
+    if (input.guards ? !input.guards.ok : !isHumanApprover(input.approver)) return { ok: false, reason: 'guards not passed' };
     if (input.window.state === 'shut' && !input.template) return { ok: false, reason: 'window shut and no template' };
     const party = partyOf(input.file, input.partyId);
     if (!party) return { ok: false, reason: 'the party is not on the file' };

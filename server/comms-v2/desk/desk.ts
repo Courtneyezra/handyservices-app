@@ -18,7 +18,7 @@ import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked,
 import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
-import { approverFor, runGuards, type GuardOutcome, type KbRow } from './guards';
+import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { RE_THANKS_MEDIA, offersCall, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, Route } from './router';
@@ -44,11 +44,6 @@ export interface DeskDeps extends CaseFileDeps {
 const FIXED_LINE_ONLY: ReadonlySet<Exception> = new Set<Exception>(['complaint', 'refund', 'trust_doubt', 'regulated']);
 const ANSWER_THE_REST: ReadonlySet<Exception> = new Set<Exception>(['money', 'date_change']);
 
-function passGuards(): Record<GuardName, GuardVerdict> {
-    const v = (): GuardVerdict => ({ result: 'pass', note: null });
-    return { figure: v(), date_time_duration: v(), commitment_fault: v(), business_claim: v(), disclosure: v(), one_reply: v(), ask_ledger: v(), regulated: v() };
-}
-
 export class Desk implements DeskLike {
     private readonly client: ModelClient;
     private readonly deps: DeskDeps;
@@ -73,7 +68,7 @@ export class Desk implements DeskLike {
     private nothing(file: CaseFile, partyId: string, runId: string, calls: ModelCallRecord[], note: string, decision: 'none' | 'hold' = 'none'): DeskResult {
         const party = partyOf(file, partyId)!;
         const window = windowOf(party, 'whatsapp', this.now());
-        return { runId, decision, partyId, channel: null, windowState: window.state, templateId: null, bubbles: [], factIds: [], kbIds: [], guards: passGuards(), approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls, note, summary: null, error: null, landedTurnId: null, composerCalls: 0 };
+        return { runId, decision, partyId, channel: null, windowState: window.state, templateId: null, bubbles: [], factIds: [], kbIds: [], guards: noReplyToCheck(), approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls, note, summary: null, error: null, landedTurnId: null, composerCalls: 0 };
     }
 
     async handleTurn(file: CaseFile, turn: Turn): Promise<DeskResult> {
