@@ -159,7 +159,7 @@ async function enter(door: DoorClient, scenario: Scenario, t: Turn, index: numbe
                     await door.reset();
                     return door.message({ text: t.text, media });
                 }
-                return door.start({ text: t.text, name: scenario.seed.name });
+                return door.start({ text: t.text, name: scenario.seed.name, seed: scenario.seed });
             }
             return door.message({ text: t.text, media });
         }
@@ -191,7 +191,7 @@ export interface RunScenarioOptions {
 export async function runScenario(scenario: Scenario, opts: RunScenarioOptions): Promise<ScenarioRunResult> {
     const startedAt = new Date();
     const log = opts.log ?? (() => undefined);
-    const plan = seedPlan(scenario.seed);
+    const plan = seedPlan(scenario.seed, opts.door.desk);
     const unsupported = new Set<SeedFeature>(Object.keys(plan.unsupported) as SeedFeature[]);
     const result: ScenarioRunResult = {
         scenarioId: scenario.id, title: scenario.title, lines: scenario.lines, run: opts.run,
@@ -297,6 +297,8 @@ export interface RunAllOptions {
 export const RUNS = 2;
 
 export const CURRENT_DESK = 'current desk (server/spine via /api/comms-sandbox, dry run)';
+export const V2_DESK = 'new desk (server/comms-v2/desk via its sandbox door, dry run)';
+export const DESK_LABELS = { current: CURRENT_DESK, v2: V2_DESK } as const;
 
 export async function runAll(scenarios: readonly Scenario[], opts: RunAllOptions): Promise<JudgeResult> {
     const log = opts.log ?? (() => undefined);
@@ -313,7 +315,7 @@ export async function runAll(scenarios: readonly Scenario[], opts: RunAllOptions
     for (const l of lines) summary[l.status]++;
     return {
         generatedAt: new Date().toISOString(),
-        desk: opts.desk ?? CURRENT_DESK,
+        desk: opts.desk ?? DESK_LABELS[opts.door.desk],
         door: { mode: opts.door.mode, host: opts.door.host },
         runs: RUNS, lines, scenarios: results, summary,
         exitCode: summary.error > 0 || results.some((r) => r.error !== null) ? 1 : 0,

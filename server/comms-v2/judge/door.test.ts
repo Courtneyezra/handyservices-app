@@ -18,11 +18,22 @@ vi.mock('../../spine/sandbox-routes', async () => {
     return { commsSandboxRouter: router };
 });
 
+const seenV2 = vi.hoisted(() => ({ databaseUrlAtImport: null as string | null | undefined, imports: 0 }));
+
+vi.mock('../desk/sandbox-door', async () => {
+    seenV2.imports++;
+    seenV2.databaseUrlAtImport = process.env.DATABASE_URL;
+    const { Router } = await import('express');
+    const router = Router();
+    router.get('/', (_req, res) => { res.json({ ok: true, desk: 'comms_v2', state: {} }); });
+    return { commsV2SandboxRouter: () => router };
+});
+
 const PRODUCTION = 'postgres://prod-user:prod-secret@prod.example/prod';
 const BRANCH = 'postgres://branch-user:branch-secret@branch.example/judge';
 
 describe('openDoor', () => {
-    afterEach(() => { vi.unstubAllEnvs(); seen.imports = 0; seen.databaseUrlAtImport = null; });
+    afterEach(() => { vi.unstubAllEnvs(); seen.imports = 0; seen.databaseUrlAtImport = null; seenV2.imports = 0; seenV2.databaseUrlAtImport = null; });
 
     it('refuses without the judge database, leaves DATABASE_URL alone, and names neither value', async () => {
         vi.stubEnv(JUDGE_DATABASE_ENV, '');
@@ -33,6 +44,7 @@ describe('openDoor', () => {
         expect(err.message).toContain(JUDGE_DATABASE_ENV);
         expect(err.message).not.toContain('prod');
         expect(seen.imports).toBe(0);
+        expect(seenV2.imports).toBe(0);
         expect(process.env.DATABASE_URL).toBe(PRODUCTION);
     });
 
@@ -41,6 +53,7 @@ describe('openDoor', () => {
         vi.stubEnv(JUDGE_DATABASE_ENV, productionInJudgeVar);
         vi.stubEnv('DATABASE_URL', BRANCH);
         const err = await openDoor().catch((e) => e);
+        expect(seenV2.imports).toBe(0);
         expect(err).toBeInstanceOf(DoorError);
         expect(err.kind).toBe('refused');
         expect(err.message).toContain(JUDGE_DATABASE_ENV);
@@ -50,17 +63,35 @@ describe('openDoor', () => {
         expect(process.env.DATABASE_URL).toBe(BRANCH);
     });
 
-    it('opens on the judge database, which is what the router sees at import, reports host only, and reaches the router over the loopback', async () => {
+    it('opens the old desk on the judge database, which is what the router sees at import, reports host only, and reaches the router over the loopback', async () => {
+        vi.stubEnv(JUDGE_DATABASE_ENV, BRANCH);
+        vi.stubEnv('DATABASE_URL', PRODUCTION);
+        const door = await openDoor({ desk: 'current' });
+        try {
+            expect(seen.imports).toBe(1);
+            expect(seenV2.imports).toBe(0);
+            expect(seen.databaseUrlAtImport).toBe(BRANCH);
+            expect(process.env.DATABASE_URL).toBe(BRANCH);
+            expect(door.mode).toBe('in_process');
+            expect(door.desk).toBe('current');
+            expect(door.host).toMatch(/^127\.0\.0\.1:\d+$/);
+            expect(await door.state()).toEqual({ ok: true, state: {} });
+        } finally {
+            await door.close();
+        }
+    });
+
+    it('opens the new desk by default, under the same database rules, and never loads the old sandbox', async () => {
         vi.stubEnv(JUDGE_DATABASE_ENV, BRANCH);
         vi.stubEnv('DATABASE_URL', PRODUCTION);
         const door = await openDoor();
         try {
-            expect(seen.imports).toBe(1);
-            expect(seen.databaseUrlAtImport).toBe(BRANCH);
+            expect(door.desk).toBe('v2');
+            expect(seenV2.imports).toBe(1);
+            expect(seen.imports).toBe(0);
+            expect(seenV2.databaseUrlAtImport).toBe(BRANCH);
             expect(process.env.DATABASE_URL).toBe(BRANCH);
-            expect(door.mode).toBe('in_process');
-            expect(door.host).toMatch(/^127\.0\.0\.1:\d+$/);
-            expect(await door.state()).toEqual({ ok: true, state: {} });
+            expect(await door.state()).toEqual({ ok: true, desk: 'comms_v2', state: {} });
         } finally {
             await door.close();
         }
