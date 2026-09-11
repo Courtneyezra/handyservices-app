@@ -36,7 +36,7 @@ const intake: DraftIntake = { customerName: 'Sam', postcode: 'NG9 2AB', customer
 function deps(clock = { t: Date.parse('2026-09-11T10:00:00.000Z') }, opts: { materialsPence?: number } = {}): QuotingDeps & { store: MemoryQuoteStore; drafter: FakeDrafter; clock: typeof clock } {
     const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
     const drafter = new FakeDrafter(store, { materialsPence: opts.materialsPence ?? 2000 });
-    return { store, drafter, notifier: recordingNotifier, mode: 'dry_run', baseUrl: 'https://test.local', now: () => new Date(clock.t), clock };
+    return { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local', now: () => new Date(clock.t), clock };
 }
 
 describe('quote_readiness', () => {

@@ -1,13 +1,13 @@
 /**
  * Ben's notifications from the Quoting tool server: one when a draft is ready to price (checklist
  * 4.3, with the price screen link), a chase while it sits unpriced (4.5), and one on acceptance
- * (6.1). Ben is the approver, not a party on the file, so these go where his notifications already
- * go (Pushover, server/pushover.ts) and never through the customer sender.
+ * (6.1). Ben is the approver, not a party on the file, so a notice never goes through the customer
+ * sender.
  *
- * In dry run (the sandbox door) nothing is dispatched: the notice is recorded on the case file as
- * a fact and shown as "the recorded push" (answer 42: nothing leaves). Live, the same notice is
- * dispatched through the surviving Pushover functions. The wording here is the desk's own; the
- * message names what is missing so Ben can request it from the price screen (4.4).
+ * Nothing is dispatched: the notice is recorded on the case file as a fact and shown as "the
+ * recorded push" (answer 42: nothing leaves). Dispatching it to where Ben's notifications already
+ * go lands at cutover, against the switch that makes it reachable. The wording here is the desk's
+ * own; the message names what is missing so Ben can request it from the price screen (4.4).
  */
 import { priceScreenUrlFor } from './quote-record';
 
@@ -22,7 +22,6 @@ export interface BenNotice {
 }
 
 export interface NotifyContext {
-    mode: 'dry_run' | 'live';
     slug: string;
     caseId: string;
     customerName: string | null;
@@ -30,7 +29,7 @@ export interface NotifyContext {
 }
 
 export interface BenNotifier {
-    /** Deliver the notice, or record that it would have gone. Never throws. */
+    /** Record that the notice would have gone. Never throws. */
     notify(notice: BenNotice, ctx: NotifyContext): Promise<{ dispatched: boolean; note: string }>;
 }
 
@@ -74,27 +73,7 @@ export function acceptedNotice(input: { customerName: string | null; phone: stri
     return { kind: 'accepted', title: 'Quote accepted', message: lines.join('\n'), link: null, at: input.at };
 }
 
-/** Records only. The sandbox's notifier, and what every notifier does in dry run. */
+/** Records only: the desk's one notifier while it is sandbox-only. */
 export const recordingNotifier: BenNotifier = {
     async notify(notice) { return { dispatched: false, note: `recorded, not sent: ${notice.title}` }; },
-};
-
-/** Dry run records; live dispatches through the surviving Pushover functions. Never throws. */
-export const liveNotifier: BenNotifier = {
-    async notify(notice, ctx) {
-        if (ctx.mode !== 'live') return recordingNotifier.notify(notice, ctx);
-        try {
-            const pushover = await import('../../pushover');
-            if (notice.kind === 'accepted') {
-                await pushover.notifyQuoteAccepted({ customerName: ctx.customerName, phoneNumber: ctx.phone, jobSummary: notice.message, amountPaidPence: null, paymentType: 'deposit' });
-            } else if (notice.kind === 'chase') {
-                await pushover.notifyChase({ conversationId: ctx.caseId, customerName: ctx.customerName, phoneNumber: ctx.phone, title: notice.title, note: notice.message, escalated: false, linkUrl: notice.link ?? undefined, linkUrlTitle: 'Price and send' } as any);
-            } else {
-                await pushover.notifyQuoteReadyToPrice({ conversationId: ctx.caseId, customerName: ctx.customerName, postcode: null, slug: ctx.slug, lines: notice.message.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(2)), checkThis: 0, suggestedTotalPence: null, estimatorFailed: null });
-            }
-            return { dispatched: true, note: `sent: ${notice.title}` };
-        } catch (err: any) {
-            return { dispatched: false, note: `pushover failed (${err?.message ?? err}); the draft stands` };
-        }
-    },
 };

@@ -107,7 +107,7 @@ async function composeQuoteSent(file: CaseFile, party: Party, quoteUrl: string, 
 
 export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; reset(): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number } | { error: string }> } {
     const router = Router();
-    const quotingDeps = (): QuotingDeps => ({ ...opts.deps.quoting, now: opts.now, newId: opts.deps.newId, mode: 'dry_run' });
+    const quotingDeps = (): QuotingDeps => ({ ...opts.deps.quoting, now: opts.now, newId: opts.deps.newId });
     const respond = (res: Response, file: CaseFile, result: DeskResult, extra: Record<string, unknown> = {}) => {
         res.json({ ok: true, ...extra, run: { runId: result.runId, agent: 'comms_v2', decision: { kind: result.decision, approver: result.approver, reason: result.note ?? undefined }, error: result.error, caseFile: { stage: file.stage } }, plannedSend: opts.plannedSend(file, result), state: opts.state() });
     };

@@ -56,7 +56,7 @@ export class Desk implements DeskLike {
     }
 
     private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.deps.newId }; }
-    private quotingDeps(): QuotingSpecialistDeps { return { ...this.deps.quoting, now: this.now, newId: this.deps.newId, mode: this.deps.mode ?? 'dry_run' }; }
+    private quotingDeps(): QuotingSpecialistDeps { return { ...this.deps.quoting, now: this.now, newId: this.deps.newId }; }
 
     /** A clock pass with no new message: the desk never chases the customer, so nothing goes; an unpriced draft is chased for Ben (4.5). */
     async clockPass(file: CaseFile): Promise<DeskResult> {

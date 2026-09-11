@@ -45,7 +45,7 @@ const intakeOutput = { lines: [{ title: 'Replace kitchen tap', category: 'plumbi
 function deps(clock = { t: Date.parse('2026-09-11T10:00:00.000Z') }) {
     const store = new MemoryQuoteStore();
     const drafter = new FakeDrafter(store, { materialsPence: 2000 });
-    const d: QuotingDeps = { store, drafter, notifier: recordingNotifier, mode: 'dry_run', baseUrl: 'https://test.local', now: () => new Date(clock.t) };
+    const d: QuotingDeps = { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local', now: () => new Date(clock.t) };
     return { d, store, drafter, clock };
 }
 

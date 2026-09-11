@@ -4,7 +4,7 @@
  * through the quote machinery it wraps, and writes to the case file only through its calls.
  *
  *   quote_readiness   job type and location both present; photos optional; what is missing, for Ben
- *   draft_quote       the existing clerk chain (draft-quote.ts), once per job; refuses while a live quote stands.
+ *   draft_quote       the existing clerk chain (draft-quote.ts), once per job; refuses while any quote stands.
  *                     The price catalogue is reached only from inside that chain, which matches each
  *                     line to a SKU for Ben's screen and the engine; it is never a shelf of its own,
  *                     because the catalogue is never a source for a figure in chat (answer 35)
@@ -23,7 +23,7 @@ import { randomUUID } from 'node:crypto';
 import { STAGES, isReady, setStage, type CaseFile, type CaseFileDeps, type Fact, type Party } from '../desk/case-file';
 import { ledgerEntry, factFor } from '../desk/case-file';
 import { mediaDeclined, mediaReceived } from '../desk/scoping-tools';
-import { acceptedNotice, chaseNotice, liveNotifier, readyToPriceNotice, type BenNotice, type BenNotifier } from './ben-notifier';
+import { acceptedNotice, chaseNotice, readyToPriceNotice, recordingNotifier, type BenNotice, type BenNotifier } from './ben-notifier';
 import { chainDrafter, type DraftIntake, type DraftOutcome, type Drafter } from './draft-quote';
 import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factOnce, factsWithPrefix, figureLabels, newestFact, pounds, quoteLiveForFigures, quoteRecordOf, quoteSource, quoteUrlFor, readQuoteLine, readQuoteScope, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { liveQuoteStore, type PriceInput, type QuoteStore } from './quote-store';
@@ -32,7 +32,6 @@ export interface QuotingDeps extends CaseFileDeps {
     store?: QuoteStore;
     drafter?: Drafter;
     notifier?: BenNotifier;
-    mode?: 'dry_run' | 'live';
     baseUrl?: string;
 }
 
@@ -40,7 +39,6 @@ export interface ResolvedQuotingDeps {
     store: QuoteStore;
     drafter: Drafter;
     notifier: BenNotifier;
-    mode: 'dry_run' | 'live';
     baseUrl: string | undefined;
     now: () => Date;
     file: CaseFileDeps;
@@ -51,8 +49,7 @@ export function resolveQuotingDeps(deps: QuotingDeps = {}): ResolvedQuotingDeps 
     return {
         store,
         drafter: deps.drafter ?? chainDrafter(store),
-        notifier: deps.notifier ?? liveNotifier,
-        mode: deps.mode ?? 'dry_run',
+        notifier: deps.notifier ?? recordingNotifier,
         baseUrl: deps.baseUrl,
         now: deps.now ?? (() => new Date()),
         file: { now: deps.now, newId: deps.newId },
@@ -89,9 +86,8 @@ export type DraftQuoteOutcome = DraftOutcome & { factIds: string[]; notice: BenN
 
 /**
  * Drafts the quote for Ben the moment the job and location are known, through the existing chain.
- * Refuses when the file is not ready, and while a quote that is not a draft (sent or accepted)
- * stands: a change to a live quote is Ben's (checklist cross-cutting 6). A standing draft is left
- * alone too: one draft per job; Ben's screen is where it changes.
+ * Refuses when the file is not ready, and whenever the file's quote reference names a quote that
+ * exists: one draft per job, and a change to it is Ben's (checklist cross-cutting 6).
  */
 export async function draftQuote(file: CaseFile, party: Party, intake: DraftIntake, deps: QuotingDeps = {}): Promise<DraftQuoteOutcome> {
     const d = resolveQuotingDeps(deps);
@@ -99,7 +95,7 @@ export async function draftQuote(file: CaseFile, party: Party, intake: DraftInta
     if (!isReady(file)) return refuse('not ready: the job type and the location are both needed before a draft');
     if (file.job.quoteRef) {
         const existing = await loadQuote(file, deps);
-        if (existing && existing.status !== 'revoked' && existing.status !== 'superseded' && existing.status !== 'expired') return refuse(`a quote already stands (${existing.slug}, ${existing.status}); one draft per job, changes are Ben's`);
+        if (existing) return refuse(`a quote already stands (${existing.slug}, ${existing.status}); one draft per job, changes are Ben's`);
     }
     if (!intake.lines.length) return refuse('an intake needs at least one line');
     const out = await d.drafter.draft({ file, party, intake, now: d.now(), baseUrl: d.baseUrl });
@@ -132,7 +128,7 @@ export async function notifyBen(file: CaseFile, notice: BenNotice, party: Party,
         return { ok: false, reason: `Ben has already been notified (${notice.kind}) for quote ${slug}; one notification`, factId: null, dispatched: false };
     }
     const address = party.channels.find((c) => c.kind === 'whatsapp')?.address ?? party.channels[0]?.address ?? null;
-    const r = await d.notifier.notify(notice, { mode: d.mode, slug, caseId: file.id, customerName: party.name, phone: address });
+    const r = await d.notifier.notify(notice, { slug, caseId: file.id, customerName: party.name, phone: address });
     const value = `${notice.title}${notice.link ? ` | ${notice.link}` : ''} | ${r.note}`;
     const f = factOnce(file, { key, value, source: quoteSource(slug, notice.kind === 'chase' ? 'chase' : notice.kind === 'accepted' ? 'acceptance' : 'notification'), by: BY }, d.file);
     return { ok: true, factId: f?.id ?? null, dispatched: r.dispatched, note: r.note };
