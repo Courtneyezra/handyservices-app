@@ -51,7 +51,7 @@ specialists share; nothing passes between them any other way.
 | `set_stage` | moves the stage and records why | The move is not one the seven allow. Ready without type and location. |
 | `record_fact` | adds an established fact with its source | No source. A figure whose source is not a live quote line or a customer record. |
 | `ask` / `answered` / `thanked` | writes the ledger | Ask on a subject already asked and unanswered. Thank on a subject already thanked. |
-| `hold` / `release` | sets or clears the hold with the approver and words | Release without words. Release by anyone other than the named approver. |
+| `hold` / `release` / `supersede` | sets or clears the hold with the approver and words; `supersede` hands a standing hold to a graver reason, recording what it was held on, what it is held on now and when it changed | A second hold while one stands. Release without words. Release by anyone other than the named approver. Supersede on a file that is not held. |
 | `record_send` | records an outbound reply after the sender confirms it | No run id or approver. Facts named that are not on the file. |
 
 **Invariants a test can check.** Every send on the file cites facts that are on the file. Every

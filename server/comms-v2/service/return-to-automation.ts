@@ -4,8 +4,9 @@
  * outbound turn carrying a human approver and a run id, the send is recorded, the hold is released
  * with the human's words as the approver's words (Contract 2: release only with words, only by the
  * named approver), and a fact records the surface it came from. The next customer turn is then
- * routed as any other. The kanban (Goal 2), the sandbox door ("Ben replies") and, later, a handset
- * or email surface all call this one function.
+ * routed as any other. The sandbox door ("Ben replies") calls this, and so will a handset or an
+ * email surface. The kanban (Goal 2) releases the hold directly (api/routes.ts): a board release is
+ * Ben's words to the desk, not words to the customer, so it lands no outbound turn.
  */
 import { randomUUID } from 'node:crypto';
 import { appendTurn, recordFact, recordSend, release, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Turn } from '../desk/case-file';

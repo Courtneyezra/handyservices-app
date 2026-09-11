@@ -14,7 +14,8 @@
  * refusal that is recorded, never a silent skip.
  *
  * The chase runs on the desk's clock pass (desk.ts clockPass), the one pass that never messages a
- * customer. Ben's reply (return-to-automation.ts) clears the ledger for the file.
+ * customer. A released hold clears the record on the next pass, and the sandbox door clears it as
+ * soon as Ben's reply releases the hold (service-door.ts).
  */
 import { randomUUID } from 'node:crypto';
 import type { CaseFile } from '../desk/case-file';
@@ -61,7 +62,6 @@ export class ChaseLedger {
     get(caseId: string): ChaseRecord | null { return this.records.get(caseId) ?? null; }
     put(r: ChaseRecord): void { this.records.set(r.caseId, r); }
     clear(caseId?: string): void { if (caseId) this.records.delete(caseId); else this.records.clear(); }
-    all(): ChaseRecord[] { return Array.from(this.records.values()); }
 }
 
 export interface ChaseState { config: ChaseConfig; ledger: ChaseLedger }

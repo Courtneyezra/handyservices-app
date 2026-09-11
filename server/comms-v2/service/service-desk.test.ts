@@ -7,7 +7,9 @@
  * scoping that is not converging goes to Ben on its fixed line with no composer and lets the thread
  * go again once he has replied; a clock pass chases Ben, then the owner, and Ben's reply clears it
  * (7.5). No customer send on a clock pass. A held thread that turns to gas is still not left silent,
- * and a turn the router sends to Service alongside another subject is still scoped.
+ * and a turn the router sends to Service alongside another subject is still scoped. A graver reason
+ * takes over a hold that answers the rest, and a guard retry that drops a citation is not recorded
+ * as having made it.
  */
 import { describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from '../desk/desk';
@@ -203,6 +205,21 @@ describe('the Service specialist on the desk', () => {
         expect(out.result.bubbles[0].text).toBe(INSURED);
         expect(out.result.kbIds).toEqual(['kb-insured']);
     });
+    it('a retry that drops a citation is not recorded as citing it', async () => {
+        const { gateway } = desk({
+            router: () => route({ subjects: ['service'], turnKind: 'question' }),
+            specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }] }) : scopingOut(),
+            composer: ({ n }) => n === 1
+                ? { reply: `${INSURED} A job like that is usually about £80.`, factIds: [], kbIds: ['kb-insured'] }
+                : { reply: 'Ben will come back to you on that.', factIds: [], kbIds: [] },
+        });
+        const out = await gateway.inbound(turn('Are you insured, and what would it cost?', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.result.composerCalls).toBe(2);
+        expect(out.result.decision).toBe('send');
+        expect(out.result.kbIds).toEqual([]);
+        expect(out.file.sends[out.file.sends.length - 1].kbIds).toEqual([]);
+    });
     it('a not-converging thread comes back to automation when Ben replies, and is not handed straight back to him (7.4)', async () => {
         const { gateway, clock } = desk({
             router: () => route({ turnKind: 'answer' }),
@@ -224,6 +241,30 @@ describe('the Service specialist on the desk', () => {
         expect(after.file.hold).toBeNull();
         expect(after.result.decision).toBe('send');
         expect(after.result.bubbles[0].text).toMatch(/no worries/);
+    });
+    it('a fixed-line reason takes over a standing answer-the-rest hold, and the thread then sits with Ben', async () => {
+        const { client, gateway } = desk({
+            router: ({ n }) => n === 1 ? route({ exception: 'callback', turnKind: 'question' }) : n === 2 ? route({ exception: 'refund', turnKind: 'other' }) : route({ turnKind: 'other' }),
+            specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut([{ key: 'job_type', value: 'fence panel' }]),
+            composer: () => ({ reply: `Fence panel, got it. ${DEFAULT_FIXED_LINES.callback_to_ben}`, factIds: [], kbIds: [] }),
+        });
+        const a = await gateway.inbound(turn('Fence panel down. Can you ring me about it?', '2026-09-11T10:00:00.000Z'));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.hold?.exception).toBe('callback');
+        const heldSince = a.file.hold!.since;
+        const b = await gateway.inbound(turn('Actually I want my money back for the last job', '2026-09-11T10:05:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.refund]);
+        expect(b.file.hold?.exception).toBe('refund');
+        expect(b.file.hold?.reason).toMatch(/^refund: /);
+        expect(b.file.hold?.since).toBe(heldSince);
+        expect(b.file.hold?.superseded).toMatchObject([{ from: { exception: 'callback' }, to: { exception: 'refund' } }]);
+        const composerCalls = client.calls.filter((c) => c.role === 'composer').length;
+        const c = await gateway.inbound(turn('Are you going to sort this or not', '2026-09-11T10:10:00.000Z'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(client.calls.filter((x) => x.role === 'composer')).toHaveLength(composerCalls);
+        expect(c.file.hold?.exception).toBe('refund');
     });
     it('a turn the router sends to Service alongside another subject is still scoped', async () => {
         const { client, gateway } = desk({
