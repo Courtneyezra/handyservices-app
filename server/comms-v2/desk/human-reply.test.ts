@@ -67,7 +67,7 @@ describe('a person answers from the board', () => {
         expect(file.releases).toHaveLength(1);
     });
 
-    it('the thread is automation\'s again: the hold is gone and the next customer turn is the desk\'s', async () => {
+    it('answers again after the customer writes back, the hold still cleared', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);
         await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'Morning Sam, I will take a look.' }, { now: now() });

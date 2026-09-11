@@ -32,8 +32,6 @@ export const GAP_MAX_MS = 3000;
 
 /** The desk's own approver name for an unattended send: `agent.comms_v2` in server/sender-registry.ts, switch key `comms_v2`. */
 export const DESK_APPROVER: Approver = 'agent.comms_v2';
-/** The desk's switch in `spine.senders`, which also gates a person's send through the desk. */
-export const DESK_SWITCH_KEY = 'comms_v2';
 
 export type ReplyPurpose = 'service_reply';
 
@@ -203,9 +201,7 @@ export const liveDeliverer: Deliverer = {
         if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered };
         const { getSpineConfig } = await import('../../spine/config');
         const cfg = await getSpineConfig();
-        // A person's own words (human:<slot>, transactional, no switch of their own) leave through the new desk only when the desk does.
-        const switchKey = entry.switchKey ?? DESK_SWITCH_KEY;
-        if (cfg.senders?.[switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
+        if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
         for (const b of input.bubbles) {
