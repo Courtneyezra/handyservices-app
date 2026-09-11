@@ -12,5 +12,5 @@ loop has it to read from the repo instead of from outside sources.
   named calls, what each call refuses, and the invariants a test can check.
 
 The build lands in `server/comms-v2/` beside `server/spine/`; it never goes inside `server/spine/`.
-Goal 0's judge is there already; `server/comms-v2/README.md` says how to run it. The old desk stays
-live as rollback until the new one is proven and cut over.
+Goal 0's judge and Goal 1's desk (sandbox-only until cutover) are there already; `server/comms-v2/README.md`
+covers both. The old desk stays live as rollback until the new one is proven and cut over.

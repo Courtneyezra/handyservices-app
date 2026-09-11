@@ -194,8 +194,9 @@ export const liveDeliverer: Deliverer = {
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
             const res = await sendCustomerMessage({
-                approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, via: input.transport, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
+                approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
                 ...(input.template ? templateWire(input.transport, input.template) : {}),
+                via: input.transport,
             });
             if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed', delivered };
             delivered.push(b);
