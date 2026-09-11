@@ -118,8 +118,11 @@ test:
     /chase shows both attempts. 7.4 POST /ben-replies {text: "Sorry Sam, I will come and put it
     right", surface: "kanban"}, expect event return_to_automation with the hold released and
     Ben's words on the thread as an outbound message, then send "thanks Ben" and expect a
-    delivered reply with no hold. Ben's chase and escalation are dry-run template sends to drama
-    numbers; nothing leaves.
+    delivered reply with no hold. Then 7.4 again on a not-converging thread, where the reply count
+    is what holds it: rebuild the 7.1 not-converging thread, POST /ben-replies {text: "Sam, I will
+    pick this up with you directly", surface: "handset"}, then send "so what did you need from me"
+    and expect a delivered composed reply with no hold, not the not-converging line again. Ben's
+    chase and escalation are dry-run template sends to drama numbers; nothing leaves.
 
     Evidence is screenshots of the sandbox thread, the sandbox data pages and Ben's board
     (/admin/comms-v2) only; never screenshot another admin list or page, and never attach the

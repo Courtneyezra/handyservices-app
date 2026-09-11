@@ -25,8 +25,7 @@ export function moneyQuestionMatch(text: string): string | null {
 
 /** A customer asking for a call, or accepting one offered (checklist 7.2: a customer asking for a call goes to Ben). */
 export const RE_CALLBACK_REQUEST = new RegExp([
-    `\\b(?:can|could|would|will) (?:you|ben|someone|he) (?:just |please |)(?:give me a |)(?:call|ring|phone|bell)(?: me)?\\b`,
-    `\\b(?:please |just |)(?:call|ring|phone) me\\b`,
+    `\\b(?:please |just |)(?:call|ring|phone|bell) me\\b`,
     `\\bgive me a (?:quick |)(?:call|ring|bell|buzz)\\b`,
     `\\b(?:yes|yeah|yep|sure|ok|okay|go on|fine|please do)[,!. ]+(?:please |do |)(?:call|ring|phone)\\b`,
     `\\bi'?d (?:rather|prefer) (?:a |to |you )?(?:call|talk|speak|chat)\\b`,

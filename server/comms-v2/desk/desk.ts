@@ -24,7 +24,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { offersCall, scopingQuestionCount, textAsks } from './lexicon';
+import { offersCall, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import type { HoldException, Route } from './router';
 import { route as routeTurn } from './router';
@@ -106,7 +106,7 @@ export class Desk implements DeskLike {
 
         // 2. Exceptions that the Scoper does not scope: one fixed line, a hold, no composer.
         const fixedLines: FixedLine[] = [];
-        const kbIds: string[] = [];
+        let kbIds: string[] = [];
         const exception = route.exception;
         let composerCalls = 0;
         let reply: string | null = null;
@@ -127,7 +127,7 @@ export class Desk implements DeskLike {
         } else {
             // 3. Gather: every routed specialist that exists. Scoping runs unless the turn is service only;
             // Service runs its deterministic tools every turn and its model when routed here.
-            const scopingRan = route.subjects.includes('scoping') || !route.subjects.includes('service');
+            const scopingRan = !(route.subjects.length === 1 && route.subjects[0] === 'service');
             const scoping = scopingRan ? await scope(file, turn, party, this.client, { ...this.deps.scoping, now: this.now }) : null;
             if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
             const service = await serve(file, turn, party, this.client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service'), scopingRan });
@@ -182,23 +182,29 @@ export class Desk implements DeskLike {
 
         const summary = summarise(route, specialists);
         // 5. Guards, with one retry to the composer.
-        const kbRows = await this.kbRows(kbIds);
         const proposedSubject = scopingProposal(specialists)?.nextQuestion?.subject ?? null;
         const lookedUp = specialists.flatMap((s) => s.factIds);
-        const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, lookedUp, proposedSubject });
+        // An attempt is guarded against its own citations: the rows are resolved from the ids that attempt returned.
+        const guardAttempt = async (text: string, ids: string[], cited: string[]): Promise<{ guards: GuardOutcome; kbIds: string[] }> => {
+            const merged = Array.from(new Set([...kbIds, ...cited]));
+            const kbRows = await this.kbRows(merged);
+            return { guards: runGuards({ file, party, turn, reply: text, factIds: ids, kbIds: merged, kbRows, fixedLines, lookedUp, proposedSubject }), kbIds: merged };
+        };
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);
             return n > 1 ? { ok: false, guards: g.guards, failures: [...g.failures, `one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`] } : g;
         };
-        let guards: GuardOutcome = withOneThing(runGuards(guardInput(reply!, factIds)), reply!);
+        const attempt = await guardAttempt(reply!, factIds, []);
+        let guards: GuardOutcome = withOneThing(attempt.guards, reply!);
         if (!guards.ok && !fixedLineOnly) {
             const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, this.client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
-                const g2 = withOneThing(runGuards(guardInput(again.output.reply, again.output.factIds)), again.output.reply);
-                if (g2.ok) { reply = again.output.reply; factIds = again.output.factIds; kbIds.push(...again.output.kbIds); guards = g2; }
+                const retry = await guardAttempt(again.output.reply, again.output.factIds, again.output.kbIds);
+                const g2 = withOneThing(retry.guards, again.output.reply);
+                if (g2.ok) { reply = again.output.reply; factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
                 else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
             } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
         }
@@ -216,9 +222,9 @@ export class Desk implements DeskLike {
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {
-                const g3 = runGuards(guardInput(shorter.output.reply, shorter.output.factIds));
+                const short = await guardAttempt(shorter.output.reply, shorter.output.factIds, shorter.output.kbIds);
                 const r3 = render(choice.channel, shorter.output.reply, { name: party.name });
-                if (g3.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; guards = g3; rendered = r3; }
+                if (short.guards.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = short.guards; rendered = r3; }
             }
         }
         if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
@@ -262,18 +268,19 @@ export class Desk implements DeskLike {
         const held = { reason: why, draft, failures: failed?.failures ?? [] };
         if (file.hold) noteOnHold(file, held);
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
-        const line = await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
-        const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null });
+        const line = await fixedLine(regulatedMatch(turn.body) ? 'gas' : 'held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
+        const kbIds = line.kbId ? [line.kbId] : [];
+        const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds), fixedLines: [line], proposedSubject: null });
         const choice = chooseChannel(party, turn.channel, this.now());
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
         const rendered = choice.ok ? render(choice.channel, line.text, { name: party.name }) : null;
         const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
         if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
         const bubbles: RenderedBubble[] = rendered.bubbles;
-        const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
+        const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds, fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
         this.afterSend(file, partyId, line.text, scopingProposal(specialists), [line]);
-        return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
+        return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, kbIds, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
     }
 
     /**
