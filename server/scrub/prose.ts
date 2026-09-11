@@ -196,12 +196,15 @@ const TEMPLATE_RES: RegExp[] = [...CUSTOMER_LINES, ...OPERATOR_LINES, ...NARRATI
 function sentencesAreOurs(body: string): boolean {
     // `fakeProse` joins whole sentences with a single space, and may prefix one greeting.
     const withoutGreeting = body.replace(/^Hi [A-Z][a-zà-ÿ'’-]*, /, '');
-    const sentences = withoutGreeting.match(/[^.?!]+[.?!]/g);
+    // `fakePreview` cuts at a fixed width and appends an ellipsis, which can land mid-sentence.
+    // A body ending in one is allowed a trailing fragment; every complete sentence before it
+    // still has to come from the pools, which is the condition that does the real work.
+    const truncated = withoutGreeting.endsWith('...');
+    const core = truncated ? withoutGreeting.slice(0, -3) : withoutGreeting;
+    const sentences = core.match(/[^.?!]+[.?!]/g);
     if (!sentences) return false;
-    // A truncated preview ends in an ellipsis, so allow a trailing fragment there.
-    const joined = sentences.join(' ').trim();
-    const remainder = withoutGreeting.slice(joined.length).trim();
-    if (remainder && remainder !== '...') return false;
+    const remainder = core.replace(/^(?:[^.?!]+[.?!]\s*)+/, '').trim();
+    if (remainder && !truncated) return false;
     return sentences.every((s) => {
         const t = s.trim();
         const capitalised = t.charAt(0).toUpperCase() + t.slice(1);
