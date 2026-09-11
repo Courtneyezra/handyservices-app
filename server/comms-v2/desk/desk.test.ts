@@ -6,8 +6,8 @@
  * nothing; the ledger is written from what went; cost is recorded per call on the send.
  */
 import { describe, expect, it } from 'vitest';
-import { Desk } from './desk';
-import { noFixedLineSource, DEFAULT_FIXED_LINES } from './fixed-lines';
+import { Desk, type DeskDeps } from './desk';
+import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
 import { FakeModelClient } from './models';
 import { emptyKb } from './scoping-tools';
@@ -21,10 +21,10 @@ function turn(text: string, at: string, media: InboundTurn['media'] = []): Inbou
     return { channel: 'whatsapp', address: '+447700900942', name: 'Sam', text, media, at, providerMessageId: null, via: 'door', mediaFailures: [] };
 }
 
-function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], clock = { t: Date.parse('2026-09-11T10:00:00.000Z') }) {
+function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], clock = { t: Date.parse('2026-09-11T10:00:00.000Z') }, extra: Partial<DeskDeps> = {}) {
     const client = new FakeModelClient(handlers);
     const now = () => new Date(clock.t += 1000);
-    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) } });
+    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, ...extra });
     return { client, gateway: new Gateway({ desk: d, now }), now };
 }
 
@@ -161,6 +161,33 @@ describe('the desk', () => {
         expect(client.calls).toHaveLength(1);
         expect(b.file.hold?.exception).toBe('complaint');
         expect(b.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(2);
+    });
+
+    it('live, a complaint with no reviewed line still gets the acknowledgement on the same turn, with the hold in place; a reviewed line goes as Ben wrote it', async () => {
+        const wire: string[] = [];
+        const deliverer = { async deliver(i: { bubbles: Array<{ text: string }> }) { wire.push(...i.bubbles.map((b) => b.text)); return { ok: true as const, sid: 'SM1' }; } };
+        const handlers = { router: () => routeScoping({ exception: 'complaint', turnKind: 'other' }), specialist: () => { throw new Error('the specialist must not be called'); }, composer: () => { throw new Error('the composer must not be called'); } };
+        const unreviewed = desk(handlers, undefined, { mode: 'live', sender: { deliverer } });
+        const a = await unreviewed.gateway.inbound(turn('Your last job was rubbish, I want it redone', '2026-09-11T10:00:00.000Z'));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result.decision).toBe('hold');
+        expect(a.result.delivered).toBe(true);
+        expect(a.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(a.result.note).toMatch(/send refused/);
+        expect(wire).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(a.file.hold?.exception).toBe('complaint');
+        expect(a.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(a.file.turns.filter((t) => t.direction === 'outbound').map((t) => t.body)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(a.file.sends).toHaveLength(1);
+
+        wire.length = 0;
+        const reviewed: FixedLineSource = { async reviewed(kind) { return kind === 'complaint' ? { id: 'kb_complaint', words: 'Sorry about that. Ben will ring you himself today.' } : null; } };
+        const b = await desk(handlers, undefined, { mode: 'live', sender: { deliverer }, fixedLines: reviewed }).gateway.inbound(turn('Your last job was rubbish, I want it redone', '2026-09-11T10:00:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.decision).toBe('send');
+        expect(wire).toEqual(['Sorry about that. Ben will ring you himself today.']);
+        expect(b.result.kbIds).toEqual(['kb_complaint']);
+        expect(b.file.hold?.exception).toBe('complaint');
     });
 
     it('a promise of more gets one acknowledgement with no question; the clock stays quiet; the next customer turn is answered', async () => {

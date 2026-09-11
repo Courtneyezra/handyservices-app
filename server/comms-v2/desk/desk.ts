@@ -9,8 +9,9 @@
  * one fixed line in Ben's words, no composer, and while the hold stands no specialist either:
  * each later turn gets the short acknowledgement that Ben will come back. A guard failure goes back to
  * the composer once, then holds with the fixed acknowledgement. A composer refusal or failure
- * takes the fixed acknowledgement, never a silent empty reply. Never silent otherwise; a clock
- * pass never sends ("no chasing", "one acknowledgement, then quiet").
+ * takes the fixed acknowledgement, never a silent empty reply; so does a reply the sender refuses,
+ * which live includes one of Ben's four fixed lines he has not yet reviewed. Never silent
+ * otherwise; a clock pass never sends ("no chasing", "one acknowledgement, then quiet").
  */
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
@@ -198,10 +199,7 @@ export class Desk implements DeskLike {
 
         // 7. The one sender.
         const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines, calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
-        if (!sent.ok) {
-            if (!file.hold) setHold(file, { approver: approverFor(file, exception), reason: `send refused: ${sent.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
-            return { ...this.nothing(file, party.personId, runId, calls, `send refused: ${sent.reason}`, 'hold'), guards: guards.guards, composerCalls, summary };
-        }
+        if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
         // 8. The ledger and the stage, from what actually went.
         this.afterSend(file, party.personId, reply!, specialists);
