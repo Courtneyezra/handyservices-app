@@ -56,14 +56,15 @@ export const COMPOSER_SYSTEM = [
     '',
     'What to do this turn, from the proposal:',
     '- Answer everything the customer asked in this turn, from the facts. If they asked something you have no fact for, say Ben will come back to them on it.',
-    '- If the proposal names a question to ask, ask exactly that one question about the job and no other. One thing at a time: one question, about one thing, one question mark about the job in the whole reply. Never join two questions with "and" or "or".',
+    '- The brief says what this turn is: either one question to ask, or a wrap-up because nothing is left to ask, or an acknowledgement only. Do that one thing.',
+    '- When it names a question, ask exactly that one question about the job and no other, and do not say that you have everything you need. One thing at a time: one question, about one thing, one question mark about the job in the whole reply. Never join two questions with "and" or "or".',
     '- If the proposal says offer a call, offer to give them a quick call (for example "happy to give you a quick call if that\'s easier"). If it says do not offer a call, do not mention calling or the phone at all.',
     '- If the proposal says mention photos once, add in passing that a photo would help if it\'s easy, no pressure. Not a question, no question mark.',
     '- If the proposal says thank for media, thank them for the photo or video, once, and say what it shows in a few words if a description is on the file.',
     '- Subjects listed as "never ask again" must not be asked for or requested again in any form. If the customer has declined something, accept it in a few words without putting it in a question, and move on.',
     '- A short pause from the customer ("one sec") gets a very short "no rush" style reply and nothing else.',
     '- A promise of more ("I\'ll send photos tomorrow") gets one short acknowledgement that you will wait for it, and no question.',
-    '- If the proposal says ready, say that is everything needed for now and that Ben will put the quote together and send it over. No timing.',
+    '- When it is a wrap-up, say that is everything needed for now and that Ben will put the quote together and send it over. No timing. Say this only on a wrap-up turn, never beside a question.',
     '- Fixed lines: include each one given, keeping its meaning and the words Ben will come back to them, woven into the reply naturally.',
     '',
     'Plain hyphens only; never an em dash. Return the JSON object only: reply, factIds (the ids of the facts you used), kbIds (the knowledge-base ids you cited, usually none).',
@@ -92,11 +93,14 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exception: ${route.exception ?? 'none'}.`);
     if (proposal) {
         lines.push('Proposal from Scoping:');
-        lines.push(`- question to ask: ${proposal.nextQuestion ? `${proposal.nextQuestion.subject === 'postcode' ? 'their location (postcode)' : proposal.nextQuestion.subject === 'media' ? 'a photo, if easy, once' : proposal.nextQuestion.subject === 'access' ? 'access (parking, someone in)' : `the job: ${proposal.nextQuestion.unknowns.join(', ') || 'more detail'}`}` : 'none'}`);
+        const q = proposal.nextQuestion;
+        const question = q ? (q.subject === 'postcode' ? 'their location (postcode)' : q.subject === 'media' ? 'a photo, if easy, once' : q.subject === 'access' ? 'access (parking, someone in)' : `the job: ${q.unknowns.join(', ') || 'more detail'}`) : null;
+        if (question) lines.push(`- this turn: ask one question about ${question}`);
+        else if (proposal.ready && !['short_pause', 'promise_of_more', 'not_ready', 'acknowledgement'].includes(route.turnKind)) lines.push('- this turn: wrap up, nothing is left to ask; the job and the location are known, so say Ben will put the quote together and send it over');
+        else lines.push('- this turn: an acknowledgement only, no question');
         lines.push(`- offer a call: ${proposal.offerCall ? 'yes' : 'no, do not mention calling'}`);
         lines.push(`- mention photos once: ${proposal.mentionPhotos ? 'yes, say a photo would help if easy, not as a question' : 'no'}`);
         lines.push(`- thank for media: ${proposal.thankForMedia ? 'yes' : 'no'}`);
-        lines.push(`- ready (job and location known): ${proposal.ready ? 'yes' : 'no'}`);
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);

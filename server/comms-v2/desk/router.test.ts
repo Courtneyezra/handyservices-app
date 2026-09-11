@@ -62,7 +62,7 @@ describe('the composer\'s brief', () => {
         });
         expect(user).toContain('fact_1: job_type = fence panel');
         expect(user).toContain('Prefers text only: yes');
-        expect(user).toContain('question to ask: their location (postcode)');
+        expect(user).toContain('this turn: ask one question about their location (postcode)');
         expect(user).toContain('offer a call: no, do not mention calling');
         expect(user).toContain('Never ask again (already asked or declined): photos or video');
         expect(user).toContain('dates come with the quote');

@@ -15,7 +15,7 @@ const fakeDesk: DeskLike = {
     async clockPass(file: CaseFile): Promise<DeskResult> { calls.push({ fileId: file.id, turnId: null }); return result(file); },
 };
 function result(file: CaseFile): DeskResult {
-    return { runId: 'run_x', decision: 'none', partyId: file.parties[0].personId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards: {} as any, approver: null, hold: null, delivered: false, stageAfter: file.stage, calls: [], note: null, error: null, landedTurnId: null, composerCalls: 0 };
+    return { runId: 'run_x', decision: 'none', partyId: file.parties[0].personId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards: {} as any, approver: null, hold: null, delivered: false, stageAfter: file.stage, calls: [], note: null, summary: null, error: null, landedTurnId: null, composerCalls: 0 };
 }
 function turn(text: string, address = '+447700900942', at = '2026-09-11T10:00:00.000Z'): InboundTurn {
     return { channel: 'whatsapp', address, name: 'Sam', text, media: [], at, providerMessageId: null, via: 'door', mediaFailures: [] };

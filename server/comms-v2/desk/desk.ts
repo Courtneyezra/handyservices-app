@@ -66,7 +66,7 @@ export class Desk implements DeskLike {
     private nothing(file: CaseFile, partyId: string, runId: string, calls: ModelCallRecord[], note: string, decision: 'none' | 'hold' = 'none'): DeskResult {
         const party = partyOf(file, partyId)!;
         const window = windowOf(party, 'whatsapp', this.now());
-        return { runId, decision, partyId, channel: null, windowState: window.state, templateId: null, bubbles: [], factIds: [], kbIds: [], guards: passGuards(), approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls, note, error: null, landedTurnId: null, composerCalls: 0 };
+        return { runId, decision, partyId, channel: null, windowState: window.state, templateId: null, bubbles: [], factIds: [], kbIds: [], guards: passGuards(), approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls, note, summary: null, error: null, landedTurnId: null, composerCalls: 0 };
     }
 
     async handleTurn(file: CaseFile, turn: Turn): Promise<DeskResult> {
@@ -132,11 +132,12 @@ export class Desk implements DeskLike {
                 if (first.output) { reply = first.output.reply; factIds = first.output.factIds; kbIds.push(...first.output.kbIds); }
                 else {
                     log(`composer: ${first.refused ? 'refused' : first.error}`);
-                    return this.heldAck(file, party.personId, turn, runId, calls, `composer ${first.refused ? 'declined' : 'failed'}: ${first.error}`, null, composerCalls, specialists);
+                    return this.heldAck(file, party.personId, turn, runId, calls, `composer ${first.refused ? 'declined' : 'failed'}: ${first.error}`, null, composerCalls, specialists, undefined, summarise(route, specialists));
                 }
             }
         }
 
+        const summary = summarise(route, specialists);
         // 5. Guards, with one retry to the composer.
         const kbRows = await this.kbRows(kbIds);
         const proposedSubject = specialists[0]?.proposal.nextQuestion?.subject ?? null;
@@ -149,17 +150,17 @@ export class Desk implements DeskLike {
             if (again.output) {
                 const g2 = runGuards(guardInput(again.output.reply, again.output.factIds));
                 if (g2.ok) { reply = again.output.reply; factIds = again.output.factIds; kbIds.push(...again.output.kbIds); guards = g2; }
-                else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2);
-            } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards);
+                else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
+            } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
         }
         if (!guards.ok) {
             // A fixed line that fails a guard is a contract failure in the line itself: hold with it named, send the acknowledgement.
-            return this.heldAck(file, party.personId, turn, runId, calls, `the fixed line failed the guards: ${guards.failures.join('; ')}`, reply, composerCalls, specialists, guards);
+            return this.heldAck(file, party.personId, turn, runId, calls, `the fixed line failed the guards: ${guards.failures.join('; ')}`, reply, composerCalls, specialists, guards, summary);
         }
 
         // 6. Channel, window, render, template.
         const choice = chooseChannel(party, turn.channel);
-        if (!choice.ok) return this.nothing(file, party.personId, runId, calls, choice.reason, 'hold');
+        if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
         let rendered = render(choice.channel, reply!, party);
         if (!rendered.ok && rendered.reason === 'ceiling' && !(exception && FIXED_LINE_ONLY.has(exception))) {
             const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: { previous: reply!, bubbles: rendered.bubbles.length, ceiling: BUBBLE_CEILING } }, this.client);
@@ -171,14 +172,14 @@ export class Desk implements DeskLike {
                 if (g3.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; guards = g3; rendered = r3; }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards);
+        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let templateId: string | null = null;
         if (window.state === 'shut') {
             const pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? turn.body.slice(0, 60) }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
                 setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, draft: reply, failures: [] }, this.fileDeps());
-                return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel };
+                return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             templateId = pick.templateId;
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
@@ -186,14 +187,14 @@ export class Desk implements DeskLike {
 
         // 7. The one sender.
         const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, templateId, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
-        if (!sent.ok) return { ...this.nothing(file, party.personId, runId, calls, `send refused: ${sent.reason}`, 'hold'), guards: guards.guards, composerCalls };
+        if (!sent.ok) return { ...this.nothing(file, party.personId, runId, calls, `send refused: ${sent.reason}`, 'hold'), guards: guards.guards, composerCalls, summary };
 
         // 8. The ledger and the stage, from what actually went.
         this.afterSend(file, party.personId, reply!, specialists);
         return {
             runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
-            calls, note: null, error: null, landedTurnId: sent.record.turnId, composerCalls,
+            calls, note: null, summary, error: null, landedTurnId: sent.record.turnId, composerCalls,
         };
     }
 
@@ -203,14 +204,14 @@ export class Desk implements DeskLike {
     }
 
     /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement. */
-    private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome): Promise<DeskResult> {
+    private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
         const party = partyOf(file, partyId)!;
         if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: why, draft, failures: failed?.failures ?? [] }, this.fileDeps());
         const line = await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null });
         const choice = chooseChannel(party, turn.channel);
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
-        const base = this.nothing(file, partyId, runId, calls, why, 'hold');
+        const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
         if (!choice.ok || !window || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
         const bubbles: RenderedBubble[] = [{ text: line.text, gapMs: 1000 }];
         const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, templateId: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
@@ -237,4 +238,14 @@ export class Desk implements DeskLike {
         const rows = await (this.deps.kb ?? reviewedKb).list();
         return rows.filter((r) => ids.includes(r.id)).map((r) => ({ id: r.id, approvedWords: r.approvedWords, reviewed: true }));
     }
+}
+
+/** One line of evidence: the route and the proposal behind a reply. */
+function summarise(route: Route, specialists: SpecialistReturn[]): string {
+    const p = specialists[0]?.proposal;
+    const bits = [`turn ${route.turnKind}`, `subjects ${route.subjects.join('+')}`, `exception ${route.exception ?? 'none'}`];
+    if (p) bits.push(`ask ${p.nextQuestion ? `${p.nextQuestion.subject}${p.nextQuestion.unknowns.length ? ' (' + p.nextQuestion.unknowns.join(', ') + ')' : ''}` : 'none'}`, `call ${p.offerCall ? 'yes' : 'no'}`, `photos ${p.mentionPhotos ? 'mention' : p.thankForMedia ? 'thank' : 'no'}`, `ready ${p.ready ? 'yes' : 'no'}`);
+    if (specialists[0]?.error) bits.push(`specialist error: ${specialists[0].error}`);
+    if (route.error) bits.push(`router error: ${route.error}`);
+    return bits.join('; ');
 }

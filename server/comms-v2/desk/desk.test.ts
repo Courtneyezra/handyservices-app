@@ -130,7 +130,7 @@ describe('the desk', () => {
             router: ({ n }) => n === 2 ? routeScoping({ turnKind: 'promise_of_more' }) : routeScoping(),
             specialist: () => specialistFacts([{ key: 'job_type', value: 'three fence panels' }, { key: 'location', value: 'NG9 5AB' }]),
             composer: ({ user, n }) => {
-                if (n === 2) { expect(user).toContain('question to ask: none'); return { reply: 'No problem, whenever you get a chance.', factIds: [], kbIds: [] }; }
+                if (n === 2) { expect(user).toContain('this turn: an acknowledgement only, no question'); return { reply: 'No problem, whenever you get a chance.', factIds: [], kbIds: [] }; }
                 return { reply: 'Three panels down, got it.\n\nIs there access to the back?', factIds: [], kbIds: [] };
             },
         });

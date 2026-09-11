@@ -31,6 +31,8 @@ export interface DeskResult {
     calls: ModelCallRecord[];
     /** Why nothing went, or what went wrong, in one line. */
     note: string | null;
+    /** The route and the proposal in one line, so a report shows why the reply is what it is. */
+    summary: string | null;
     error: string | null;
     /** The outbound turn id the reply landed as, when it did. */
     landedTurnId: string | null;

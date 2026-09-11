@@ -55,7 +55,7 @@ export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
         delivered: r.delivered,
         origin: r.delivered ? 'desk' : 'none',
         evidence: {
-            decision: r.decision, intent: null, lane: 'comms_v2', pack: null, stageAfter: r.stageAfter, exitNote: r.note,
+            decision: r.decision, intent: r.summary, lane: 'comms_v2', pack: null, stageAfter: r.stageAfter, exitNote: r.note,
             legacyGuardsHit: [], legacyGuardNotes: [], mirrorLiveWouldSend: null, error: r.error,
         },
     };
