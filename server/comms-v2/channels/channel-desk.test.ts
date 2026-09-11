@@ -198,4 +198,19 @@ describe('the channel desk on a call', () => {
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.bubbles[0].text).not.toContain('WhatsApp');
     });
+    it('the move-to-WhatsApp line still goes to someone whose number is merely known to be on WhatsApp: they have never written there, and they have just texted us', async () => {
+        const { gateway } = rig({
+            router: () => routeScoping({ turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [{ key: 'job_type', value: 'dropped gate' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user }) => {
+                expect(user).toContain(DEFAULT_FIXED_LINES.move_to_whatsapp);
+                return { reply: `A dropped gate, got it. Whereabouts are you? ${DEFAULT_FIXED_LINES.move_to_whatsapp}`, factIds: [], kbIds: [] };
+            },
+        });
+        const a = await gateway.inbound(fromDoorSms({ address: '+447700900942', name: 'Sam', text: 'my gate has dropped', at: '2026-09-11T10:00:00.000Z' }), { whatsapp: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.parties[0].channels.find((c) => c.kind === 'whatsapp')).toMatchObject({ lastInboundAt: null });
+        expect(a.result).toMatchObject({ decision: 'send', channel: 'sms' });
+        expect(a.result.bubbles[0].text).toContain('WhatsApp');
+    });
 });
