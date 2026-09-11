@@ -297,11 +297,21 @@ function approverName(raw: unknown): string | null {
     return null;
 }
 
-/** Shape-check a door response and build the planned send, or throw with the schema's reason. */
+/**
+ * Shape-check a door response and build the planned send, or throw with the schema's reason.
+ * A door that emits the Contract 7 object itself (the new desk, `plannedSend` on the response)
+ * is taken at its word after a schema check; the adapter above is only for the old desk.
+ */
 export function plannedSendFromDoorResponse(raw: unknown): { pass: DoorPass; plannedSend: PlannedSend } {
     const parsed = doorPassSchema.safeParse(raw);
     if (!parsed.success) throw new Error(`door response is not a pass: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
     const pass = parsed.data;
+    const own = (raw as { plannedSend?: unknown } | null)?.plannedSend;
+    if (own !== undefined && own !== null) {
+        const ps = plannedSendSchema.safeParse(own);
+        if (!ps.success) throw new Error(`the door's own planned send does not fit Contract 7: ${ps.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+        return { pass, plannedSend: ps.data };
+    }
     const windowOpen = pass.state.window?.canFreeform ?? pass.run?.caseFile?.window?.canFreeform ?? null;
     const plannedSend = plannedSendFrom({ pass, windowOpen });
     plannedSendSchema.parse(plannedSend);

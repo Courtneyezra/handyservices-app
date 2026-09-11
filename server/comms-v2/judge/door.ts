@@ -16,6 +16,10 @@
  * database a remote server is on, so it never drives one.
  *
  * The door reports no variable's value: a client carries its mode and host only.
+ *
+ * Goal 1 adds the target selector: `desk: 'v2'` (the default) mounts the new desk's sandbox door
+ * (server/comms-v2/desk/sandbox-door.ts) the same way; `desk: 'current'` mounts the old sandbox.
+ * The same env rules apply to both. The new door honours every seed feature; the old one does not.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,14 +39,18 @@ export class DoorError extends Error {
 
 export interface DoorMedia { file: string; mime: string; bytes: Buffer }
 
+export type DeskTarget = 'v2' | 'current';
+
 export interface DoorClient {
     readonly mode: 'in_process';
+    /** Which desk is behind the door. */
+    readonly desk: DeskTarget;
     /** Host and port of the door, the only thing about its address a log or a report carries. */
     readonly host: string;
     /** A clean thread with no message on it yet (for an opening turn that carries photos). */
     reset(): Promise<unknown>;
-    /** The customer's opening WhatsApp message: resets the sandbox and opens the thread. */
-    start(input: { text: string; name: string | null }): Promise<unknown>;
+    /** The customer's opening WhatsApp message: resets the sandbox and opens the thread. The new desk's door takes the seed too. */
+    start(input: { text: string; name: string | null; seed?: Seed }): Promise<unknown>;
     /** A later customer WhatsApp message, with optional photos or videos. */
     message(input: { text: string; media?: DoorMedia[] }): Promise<unknown>;
     /** A clock pass with no new message. */
@@ -60,6 +68,7 @@ export interface DoorClient {
 
 export interface DoorOptions {
     timeoutMs?: number;
+    desk?: DeskTarget;
 }
 
 /**
@@ -86,8 +95,22 @@ export interface SeedPlan {
  * What the sandbox WhatsApp door can do with a seed today. Pure, so it is tested. The new desk's
  * gateway (Goal 1) is expected to honour every feature; the report records which ones this run did.
  */
-export function seedPlan(seed: Seed): SeedPlan {
+export function seedPlan(seed: Seed, desk: DeskTarget = 'current'): SeedPlan {
     const plan: SeedPlan = { honoured: {}, unsupported: {}, afterStart: [] };
+    if (desk === 'v2') {
+        // The new desk's door takes the whole seed on POST /start and lands it on the case file.
+        if (seed.customer === 'known') plan.honoured.customer = 'seeded as a known customer in the new desk\'s identity directory';
+        if (seed.prefersText) plan.honoured.prefersText = 'a prefers_text fact on the case file, source seed';
+        if (seed.alreadyRung) plan.honoured.alreadyRung = 'an already_rung fact on the case file, source seed';
+        if (seed.facts.length) plan.honoured.facts = 'facts on the case file, source seed';
+        if (seed.ledger.length) plan.honoured.ledger = 'ask-ledger rows on the case file';
+        if (seed.window === 'shut') {
+            plan.afterStart.push({ op: 'age', hours: 25 });
+            plan.honoured.window = 'POST /age 25 hours after the opening message, then checked on the thread';
+        }
+        if (seed.name != null) plan.honoured.customer = plan.honoured.customer ?? `name "${seed.name}" passed to POST /start as the pushname`;
+        return plan;
+    }
     if (seed.customer === 'known') plan.unsupported.customer = 'the sandbox always opens a fresh thread on the drama number; no customer record can be seeded';
     if (seed.prefersText) plan.unsupported.prefersText = 'no seed field on the current door; the scenario states it in a customer turn ("text only please")';
     if (seed.alreadyRung) plan.unsupported.alreadyRung = 'the whatsapp door cannot seed an earlier inbound call; the post_call and missed-call doors are Goal 3';
@@ -113,7 +136,7 @@ export function loadFixture(file: string, mime: string): DoorMedia {
 class LoopbackDoor implements DoorClient {
     readonly mode = 'in_process' as const;
     readonly host: string;
-    constructor(private readonly baseUrl: string, private readonly timeoutMs: number, private readonly onClose: () => Promise<void>) {
+    constructor(private readonly baseUrl: string, private readonly timeoutMs: number, private readonly onClose: () => Promise<void>, readonly desk: DeskTarget) {
         this.host = new URL(baseUrl).host;
     }
 
@@ -143,8 +166,8 @@ class LoopbackDoor implements DoorClient {
     }
 
     reset() { return this.request('POST', '/reset', {}); }
-    start(input: { text: string; name: string | null }) {
-        return this.request('POST', '/start', { door: 'whatsapp', text: input.text, name: input.name ?? '' });
+    start(input: { text: string; name: string | null; seed?: Seed }) {
+        return this.request('POST', '/start', { door: 'whatsapp', text: input.text, name: input.name ?? '', ...(this.desk === 'v2' && input.seed ? { seed: input.seed } : {}) });
     }
     message(input: { text: string; media?: DoorMedia[] }) {
         if (!input.media?.length) return this.request('POST', '/message', { text: input.text, channel: 'whatsapp' });
@@ -162,9 +185,10 @@ class LoopbackDoor implements DoorClient {
     close() { return this.onClose(); }
 }
 
-/** Open the door: the exported sandbox router in-process, on the judge's own database. */
+/** Open the door: the chosen desk's sandbox router in-process, on the judge's own database. */
 export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_DOOR_TIMEOUT_MS;
+    const desk: DeskTarget = opts.desk ?? 'v2';
     // The router's database module reads DATABASE_URL at import, so the branch is put there first;
     // whatever .env held is never consulted.
     const judgeDatabase = process.env[JUDGE_DATABASE_ENV];
@@ -176,20 +200,26 @@ export async function openDoor(opts: DoorOptions = {}): Promise<DoorClient> {
     }
     process.env.DATABASE_URL = judgeDatabase;
     let router: unknown;
+    const mount = desk === 'v2' ? '/api/comms-v2-sandbox' : '/api/comms-sandbox';
     try {
-        ({ commsSandboxRouter: router } = await import('../../spine/sandbox-routes'));
+        if (desk === 'v2') {
+            const { commsV2SandboxRouter } = await import('../desk/sandbox-door');
+            router = commsV2SandboxRouter();
+        } else {
+            ({ commsSandboxRouter: router } = await import('../../spine/sandbox-routes'));
+        }
     } catch (err: any) {
-        throw new DoorError('unreachable', `the sandbox router could not be loaded in-process: ${err?.message ?? err}. This process needs ${JUDGE_DATABASE_ENV} and the model keys.`);
+        throw new DoorError('unreachable', `the ${desk} sandbox router could not be loaded in-process: ${err?.message ?? err}. This process needs ${JUDGE_DATABASE_ENV} and the model keys.`);
     }
     const express = (await import('express')).default;
     const app = express();
     app.use(express.json({ limit: '1mb' }));
-    app.use('/api/comms-sandbox', router as any);
+    app.use(mount, router as any);
     const server = await new Promise<import('node:http').Server>((resolve, reject) => {
         const s = app.listen(0, '127.0.0.1', () => resolve(s));
         s.on('error', reject);
     });
     const addr = server.address();
     const port = typeof addr === 'object' && addr ? addr.port : 0;
-    return new LoopbackDoor(`http://127.0.0.1:${port}/api/comms-sandbox`, timeoutMs, () => new Promise((resolve) => server.close(() => resolve())));
+    return new LoopbackDoor(`http://127.0.0.1:${port}${mount}`, timeoutMs, () => new Promise((resolve) => server.close(() => resolve())), desk);
 }

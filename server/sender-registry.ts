@@ -71,6 +71,7 @@ export const SENDER_REGISTRY: Record<AutomatedApprover, SenderEntry> = {
     'agent.recovery': { what: 'the spine\'s Recovery agent', purpose: 'service_reply', switchKey: 'recovery', kind: 'agent' },
     'agent.contractor_liaison': { what: 'the spine\'s contractor pack', purpose: 'service_reply', switchKey: 'contractor_liaison', kind: 'agent' },
     'agent.sla_chase': { what: 'the SLA sweep\'s customer chase on a needs_info breach', purpose: 'marketing', switchKey: 'sla_chase', kind: 'agent' },
+    'agent.comms_v2': { what: 'the new comms desk (server/comms-v2) releasing its own words', purpose: 'service_reply', switchKey: 'comms_v2', kind: 'agent' },
 
     // ---- rules: deterministic policy, no model ----------------------------------------------
     'rules.first_contact': { what: 'the first-contact acknowledgement (WhatsApp, SMS, webform, missed call)', purpose: 'service_reply', switchKey: 'first_contact_ack', kind: 'operational' },

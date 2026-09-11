@@ -24,6 +24,7 @@ export const AUTOMATED_APPROVERS = [
     'agent.quote_clerk',      // spine: the Quote clerk (PROPOSE tier; never sends today)
     'agent.recovery',         // spine: Recovery (PROPOSE tier; never sends today)
     'agent.contractor_liaison', // spine: contractor pack (Phase 4)
+    'agent.comms_v2',         // the new desk (server/comms-v2) releasing its own words; sandbox-only until cutover
     // Rules — deterministic policy, no model involved.
     'rules.first_contact',    // first-contact acknowledgement (immediate or held-then-released)
     'rules.hours_gate',       // the morning release of a draft held overnight for the hour
