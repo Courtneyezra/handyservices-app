@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { open, type CaseFile, type Party } from './case-file';
 import { DEFAULT_FIXED_LINES, type FixedLine } from './fixed-lines';
-import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, chooseChannel, initiate, liveDeliverer, noTemplateApproved, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type SendInput, type TemplateSend } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, chooseChannel, initiate, liveDeliverer, noTemplateApproved, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type Deliverer, type SendInput, type TemplateSend } from './sender';
 import { renderSms, UCS2_MULTI, GSM7_MULTI, SMS_MAX_SEGMENTS } from '../channels/sms-adapter';
 
 function fixture(): { file: CaseFile; party: Party } {
@@ -266,6 +266,18 @@ describe('send', () => {
         expect(file.sends).toHaveLength(0);
         expect(file.sentRunIds).toContain('c1');
         expect((await initiate(base, { templates: approved }) as any).reason).toMatch(/already sent/);
+    });
+    it('initiate refuses live outright: a chase is not a customer service reply and nothing is delivered or spent', async () => {
+        const { file } = fixture();
+        const template = { name: 'desk_approver_chase_v1', language: 'en_GB', body: 'Hi {{1}}, a thread is waiting: {{2}}.', variables: { '1': 'Ben', '2': 'a complaint' } };
+        const approved = { async approved(name: string) { return name === template.name ? { contentSid: 'HX1' } : null; } };
+        let delivered = 0;
+        const deliverer: Deliverer = { async deliver() { delivered++; return { ok: true, sid: 'SM1' }; } };
+        const out = await initiate({ file, to: { address: '+447700900901', name: 'Ben' }, purpose: 'approver_chase', template, runId: 'c9', approver: 'agent.comms_v2', mode: 'live' }, { templates: approved, deliverer });
+        expect(out.ok).toBe(false);
+        if (!out.ok) expect(out.reason).toMatch(/no live path/);
+        expect(delivered).toBe(0);
+        expect(file.sentRunIds).not.toContain('c9');
     });
 });
 

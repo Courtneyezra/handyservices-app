@@ -23,15 +23,19 @@ export function moneyQuestionMatch(text: string): string | null {
     return m ? m[0] : null;
 }
 
-/** A customer asking for a call, or accepting one offered (checklist 7.2: a customer asking for a call goes to Ben). */
+/**
+ * A customer asking for a call, or accepting one offered (checklist 7.2: a customer asking for a
+ * call goes to Ben). Every alternative names the recipient or the phone: in this trade "call round",
+ * "call in" and "call out" ask for a visit, and an acceptance without a recipient ("ok call round
+ * tomorrow") reads as one, so there is no bare acceptance alternative. "Yes, call me" matches on
+ * "call me" like any other request.
+ */
 export const RE_CALLBACK_REQUEST = new RegExp([
     `\\b(?:please |just |)(?:call|ring|phone|bell) me\\b`,
     `\\bgive me a (?:quick |)(?:call|ring|bell|buzz)\\b`,
-    `\\b(?:yes|yeah|yep|sure|ok|okay|go on|fine|please do)[,!. ]+(?:please |do |)(?:call|ring|phone)\\b`,
     `\\bi'?d (?:rather|prefer) (?:a |to |you )?(?:call|talk|speak|chat)\\b`,
     `\\b(?:can|could|shall) (?:we|i) (?:talk|speak|chat) on the phone\\b`,
-    `\\ba (?:quick |)call (?:would be|is|might be) (?:easier|better|best|good|great)\\b`,
-    `\\b(?:a )?call (?:would be|is) (?:easier|better|best|good|great)\\b`,
+    `\\b(?:a )?(?:quick )?call (?:would be|is|might be) (?:easier|better|best|good|great)\\b`,
 ].join('|'), 'i');
 
 const RE_CALLBACK_NEGATION = /\b(?:don'?t|do not|no need to|no need for|rather not|not|never|please don'?t|without)\b(?:\s+\S+){0,3}\s*$/i;

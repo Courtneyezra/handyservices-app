@@ -395,7 +395,7 @@ export interface TemplateDefinition { name: string; language: string; body: stri
 export interface InitiateInput {
     file: CaseFile;
     /** The recipient: an approver's own address (Ben, the owner), never a party's reply channel. */
-    to: { address: string; name: string | null; transport?: WhatsAppTransport };
+    to: { address: string; name: string | null };
     purpose: InitiatePurpose;
     template: TemplateDefinition;
     runId: string;
@@ -423,14 +423,17 @@ export interface InitiateDeps extends SenderDeps {
 
 /**
  * A desk-started send, template only, for chasing an approver (Goal 6, checklist 7.5) or, later,
- * a maintenance reminder. Refuses: no approver or run id; no address; a template the live sync
- * has not approved (never freeform); a run id already used on the file; live delivery that fails.
- * Nothing lands on the thread, because the recipient is not a party on the file; the caller keeps
- * the record (server/comms-v2/service/chase.ts). The run id is still spent on the file so one run
- * id sends once.
+ * a maintenance reminder. Dry run only: it refuses `live` outright, because the only deliverer
+ * labels every send a customer `service_reply` and a chase to an approver is not one; the purpose
+ * has to reach the deliverer before a chase can go out for real, which is cutover's work.
+ * Refuses besides: no approver or run id; no address; a template the live sync has not approved
+ * (never freeform); a run id already used on the file. Nothing lands on the thread, because the
+ * recipient is not a party on the file; the caller keeps the record
+ * (server/comms-v2/service/chase.ts). The run id is still spent on the file so one run id sends once.
  */
 export async function initiate(input: InitiateInput, deps: InitiateDeps = {}): Promise<InitiateOutcome> {
     const now = deps.now ?? (() => new Date());
+    if (input.mode === 'live') return { ok: false, reason: 'a desk-started send has no live path: the deliverer labels every send a customer service_reply, so an approver chase must carry its own purpose before it can go out live' };
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
     if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
     if (!input.to.address?.trim()) return { ok: false, reason: `no address for the ${input.purpose === 'approver_chase' ? 'approver' : 'owner'}: the chase has nowhere to go` };
@@ -439,10 +442,6 @@ export async function initiate(input: InitiateInput, deps: InitiateDeps = {}): P
     if (!live) return { ok: false, reason: `template ${input.template.name} is not approved; a desk-started send is template only, never freeform` };
     const body = input.template.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => input.template.variables[n] ?? '');
     const template: TemplateSend = { name: input.template.name, language: input.template.language, contentSid: live.contentSid, variables: input.template.variables };
-    if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: input.to.address, channel: 'whatsapp', transport: input.to.transport ?? 'twilio', bubbles: [{ text: body, gapMs: 0 }], template, runId: input.runId, approver: input.approver });
-        if (!delivered.ok) return { ok: false, reason: delivered.reason };
-    }
     input.file.sentRunIds.push(input.runId);
     return { ok: true, send: { runId: input.runId, approver: input.approver, purpose: input.purpose, to: { address: input.to.address, name: input.to.name }, templateId: template.name, contentSid: template.contentSid, body, at: now().toISOString(), mode: input.mode } };
 }

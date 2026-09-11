@@ -5,6 +5,9 @@
  * freeform. The recipients are approvers, not parties, so the record lives here in the chase
  * ledger and not on the file's thread; the run id is still spent on the file.
  *
+ * Dry run only: initiate refuses a live chase, because the only deliverer labels every send a
+ * customer service reply. A live pass records the refusal on the chase ledger like any other.
+ *
  * The intervals and the recipients are configuration: the sandbox door sets test values
  * (service-door.ts, POST /chase-intervals) and drama numbers for Ben and the owner, and the
  * production values land at cutover with the caller that reads them. A missing address is a
