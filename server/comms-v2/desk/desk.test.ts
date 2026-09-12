@@ -275,6 +275,39 @@ describe('the desk', () => {
         expect(composerUser).toContain(`quoting: drafted ${slug} for Ben to price`);
     });
 
+    it('clears its own draft-failed card after two different failures, rather than leaving Ben a card whose words are false', async () => {
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        const fake = new FakeDrafter(store, { materialsPence: 2000 });
+        const reasons = ['the intake model returned nothing', 'estimator down'];
+        let attempts = 0;
+        const drafter = { draft: (input: Parameters<typeof fake.draft>[0]) => (attempts < reasons.length ? Promise.resolve({ ok: false as const, reason: reasons[attempts++], log: [], calls: [] }) : fake.draft(input)) };
+        const { gateway } = desk({
+            router: () => routeScoping(),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            composer: () => ({ reply: 'Hi Sam, a dripping mixer tap in NG9, got it.\n\nBen will come back to you himself.', factIds: [], kbIds: [] }),
+        }, undefined, { quoting: { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.hold?.reason).toContain(reasons[0]);
+
+        // The second failure words the same card differently. It is still only the desk's own card,
+        // so it says the newer reason and no more: two copies would make it nobody's to clear.
+        const second = await gateway.inbound(turn('any news?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.file.job.quoteRef).toBeNull();
+        expect(second.file.hold?.reason).toContain(reasons[1]);
+        expect(second.file.hold?.reason).not.toContain(reasons[0]);
+
+        const third = await gateway.inbound(turn('still nothing?', '2026-09-11T10:10:00.000Z'));
+        if (third.kind !== 'handled') throw new Error(third.kind);
+        expect(third.file.job.quoteRef).toBeTruthy();
+        expect(third.file.hold).toBeNull();
+        expect(third.file.releases[0]?.words).toContain(third.file.job.quoteRef!);
+    });
+
     /** A thread whose quote Ben priced and sent, then left to expire: the stage stays quoted, the row does not. */
     async function expiredQuote(composerReply: string) {
         const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };

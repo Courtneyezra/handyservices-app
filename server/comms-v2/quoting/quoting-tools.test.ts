@@ -12,6 +12,7 @@ import { appendTurn, ask, customerVisibleFacts, isInternalFact, open, recordFact
 import { DEFAULT_FIXED_LINES } from '../desk/fixed-lines';
 import { GUARD_NAMES, runGuards } from '../desk/guards';
 import { smsSegmentCount } from '../channels/sms-adapter';
+import { benToRequestOn } from './ben-to-request';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
 import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteRowLike, type QuoteStatus } from './quote-record';
@@ -117,6 +118,9 @@ describe('draft_quote and notify_ben', () => {
         expect(missing.value).toBe('photo (asked once, none sent)');
         expect(isInternalFact(missing)).toBe(true);
         expect(customerVisibleFacts(file).map((f) => f.id)).not.toContain(missing.id);
+        // 4.4: the admin-gated price screen is the one surface it reaches, through this read.
+        expect(benToRequestOn([file], out.slug)).toEqual(['photo (asked once, none sent)']);
+        expect(benToRequestOn([file], 'some-other-slug')).toEqual([]);
     });
 
     it('records the drafter\'s failure as a refusal, with nothing on the file and no notification', async () => {

@@ -153,7 +153,7 @@ export class Desk implements DeskLike {
                     this.holdFor(file, null, `the quote is no longer live (${quoting.proposal.hold.match}): no figure may be read from it and the customer has been told Ben will come back to them on it`);
                 } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
                     fixedLines.push(await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    this.holdFor(file, null, `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`);
+                    this.holdFor(file, null, `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, null, DRAFT_FAILED_HOLD);
                     if (scoping) { scoping.proposal.nextQuestion = null; scoping.proposal.mentionPhotos = false; scoping.proposal.ready = false; }
                 }
                 // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change holds for Ben and the reply still answers the rest.
@@ -266,9 +266,9 @@ export class Desk implements DeskLike {
         };
     }
 
-    private holdFor(file: CaseFile, exception: Exception | null, reason: string, draft: string | null = null): void {
+    private holdFor(file: CaseFile, exception: Exception | null, reason: string, draft: string | null = null, ownCard?: string): void {
         // One turn can raise two: a price and a date change in one message. Ben answers what his card names, so the second is added to it rather than dropped.
-        if (file.hold) { noteOnHold(file, { reason, draft }); return; }
+        if (file.hold) { noteOnHold(file, { reason, draft, ownCard }); return; }
         setHold(file, { approver: approverFor(file, exception), reason, exception, draft }, this.fileDeps());
     }
 

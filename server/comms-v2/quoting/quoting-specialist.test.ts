@@ -215,6 +215,25 @@ describe('after the quote', () => {
         expect(three?.proposal.hold).toBeNull();
     });
 
+    it('a discount asked for on a live quote reaches Ben, even when the reading parses and names nothing', async () => {
+        // 5.3 exempts a figure already on the quote, so applyQuotingRoute clears the money exception
+        // and Quoting alone owes the hold. A reading that named no concern has answered nothing, and
+        // no line of the quote states a discount: it is Ben's.
+        const { file, d } = await sentQuote();
+        const silent = new FakeModelClient({ specialist: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const belt = routeOf({ turnKind: 'question', belts: { regulated: null, money: 'cheaper' } });
+        const ret = await quote(file, later(file, 'Can you do it any cheaper?'), file.parties[0], belt, silent, d);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+        expect(ret?.brief?.join('\n')).toMatch(/beyond a line of the quote/);
+
+        // A reading that did name a concern has answered: 5.3 still answers it from the quote.
+        const scoped = await sentQuote();
+        const reading = new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'scope', label: 'Replace kitchen tap' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const priced = routeOf({ turnKind: 'question', belts: { regulated: null, money: 'price' } });
+        const answered = await quote(scoped.file, later(scoped.file, 'Does that price include the tap?'), scoped.file.parties[0], priced, reading, scoped.d);
+        expect(answered?.proposal.hold).toBeNull();
+    });
+
     it('a price asked for under a label the quote does not carry goes to Ben, never answered with the line figure', async () => {
         const { file, d } = await sentQuote();
         // The quote carries one line at £120.00, £100.00 of it labour. "How much of that is labour?"

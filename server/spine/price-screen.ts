@@ -183,6 +183,8 @@ export interface PriceScreenPayload {
      * photo and they replied without one. "No photo" on the screen is this, not a new kind of missing.
      */
     customerMedia: { sentPhotos: boolean; sentVideo: boolean; askedAt: string | null; repliedWithoutMedia: boolean };
+    /** Checklist 4.4: what the draft is missing, for Ben to request before he prices. */
+    benToRequest: string[];
     builderUrl: string;
     estimate: { id: string | null; status: string | null; confidence: string | null; at: string | null } | null;
     quoteUrl: string;
@@ -370,6 +372,8 @@ export function buildPricePayload(input: {
     conversationId: string | null;
     readiness: string | null;
     settings: { materialsMarginPercent: number; depositPercent: number };
+    /** Checklist 4.4: what the draft is missing, off the case file rather than the customer-readable row. */
+    benToRequest?: string[];
     baseUrl?: string;
     /** P12: the thread (loadThread), the next draft waiting, the business number. Optional so the older callers still work. */
     thread?: PriceScreenThread;
@@ -425,6 +429,7 @@ export function buildPricePayload(input: {
         materials,
         photos, videos,
         customerMedia,
+        benToRequest: input.benToRequest ?? [],
         builderUrl: `/admin/quotes/${row.short_slug}/edit`,
         estimate: estimate ? { id: estimate.id ?? null, status: estimate.status ?? null, confidence: estimate.confidence ?? null, at: estimate.created_at ?? null } : null,
         quoteUrl: `${baseUrl}/quote/${row.short_slug}`,
@@ -799,6 +804,19 @@ export async function resolveConversationForQuote(row: DraftRowShape, estimate: 
     return r2[0]?.id ? String(r2[0].id) : null;
 }
 
+/**
+ * What the draft is missing, for Ben to request before he prices (checklist 4.4). Read from the new
+ * desk's case file through a lazy import, because it is on no field of the quote row: that row is
+ * served to anyone holding the slug, and this screen is admin-gated. Fails soft to nothing, so a
+ * quote no comms-v2 thread drafted renders exactly as before.
+ */
+async function benToRequestFor(slug: string): Promise<string[]> {
+    try {
+        const { benToRequestFor: read } = await import('../comms-v2/quoting/ben-to-request');
+        return await read(slug);
+    } catch { return []; }
+}
+
 async function readinessFor(conversationId: string | null): Promise<string | null> {
     if (!conversationId) return null;
     try {
@@ -820,11 +838,11 @@ export async function loadPriceScreen(slug: string): Promise<PriceScreenPayload 
     const estimate = await selectEstimateJson(row.id);
     const conversationId = await resolveConversationForQuote(row, estimate);
     const { loadThread, loadNextWaiting, businessNumber } = await import('./price-brief');
-    const [readiness, settings, thread, nextWaiting, business] = await Promise.all([
+    const [readiness, settings, thread, nextWaiting, business, benToRequest] = await Promise.all([
         readinessFor(conversationId), liveSettings(), loadThread(conversationId).catch(() => buildThread([])),
-        loadNextWaiting(row.id).catch(() => null), businessNumber(),
+        loadNextWaiting(row.id).catch(() => null), businessNumber(), benToRequestFor(row.short_slug),
     ]);
-    return buildPricePayload({ row, estimate, conversationId, readiness, settings, thread, nextWaiting, businessNumber: business });
+    return buildPricePayload({ row, estimate, conversationId, readiness, settings, thread, nextWaiting, businessNumber: business, benToRequest });
 }
 
 export type ConfirmResult =

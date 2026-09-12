@@ -123,6 +123,12 @@ Facts the specialist writes carry the quote and the line as their source: `quote
 `quote_assumption:<label>`, `quote_link`, `quote_status`. The composer copies a figure exactly as
 written and cites the fact; the figure guard passes only that.
 
+What the draft is missing reaches Ben on the admin-gated price screen (4.4) as well as in the
+ready-to-price notice: `quoting/ben-to-request.ts` reads the internal `ben_to_request` fact off the
+case file and `server/spine/price-screen.ts` asks for it through a lazy import, so nothing in the
+spine depends on the new desk at load time. It is the one surface outside this directory the list
+reaches, and it never touches the quote row.
+
 The quote delivery carries a first contact of its own on purpose. Where a form lead's
 acknowledgement held for Ben and never went, the delivery is the first message they will ever
 receive from us, and a bare quote link to a stranger is not one we would send: the door puts its
@@ -148,7 +154,7 @@ here too. One thread on the comms-v2 door, in this order; the ready turn is the 
 |---|---|---|
 | 4.1, 4.2 | `POST /start` with a job and a postcode in one message and no photo ("my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB") | the reply carries no figure, `state.conversation.stage` is `ready`, `state.quote.slug` is set, and the planned send's summary contains `quoting: drafted` |
 | 4.3 | `GET /quote` | `state.quote.notifications` holds exactly one `ready_to_price` whose link is `/admin/price/<slug>`; the record is `draft` with every `pricePence` null |
-| 4.4 | read the `ready_to_price` notice's own words, and `GET /quote`; open `/admin/price/<slug>` in the app as Ben for 4.3 | the notice is 4.4's surface and names what to request ("photo (asked once, none sent)"), and the file carries the same list as the internal `ben_to_request` fact. The quote row is excluded on purpose: it is served to anyone holding the quote's slug, so it is customer readable and the missing list must not reach it; the price screen reads that row and is itself behind the admin check. Showing the list on Ben's board card as well is its own item (below) |
+| 4.4 | on the app's own comms-v2 door (the case file lives in that process), `POST /api/comms-v2/sandbox/start` with a job and a postcode and no photo, then open `/admin/price/<slug>` in the app as Ben | the screen shows a "To request" row naming what the draft is missing ("photo (asked once, none sent)"), read off the case file's internal `ben_to_request` fact through `quoting/ben-to-request.ts`; the `ready_to_price` notice names the same list and the fact is on the file. The quote row carries none of it on purpose: that row is served to anyone holding the quote's slug, so it is customer readable. Showing the list on Ben's board card as well is its own item (below) |
 | 4.5 | `POST /run`, then `POST /age {"hours": 5}`, then `POST /run` | the first note says "not due", the second "chase 1 recorded for Ben"; nothing reaches the customer on either pass |
 | 5.2 | `POST /message` "Does that include a new tap?" | answered from the draft's scope with no figure (a money hold for Ben beside it is 2.7 still standing before the quote, not a failure) |
 | a photo before 5.1 | `POST /message` as multipart with a photo and "here is the tap" | the reply thanks for it once, the media ledger reads thanked, and the photo joins the draft |

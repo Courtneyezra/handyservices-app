@@ -304,7 +304,7 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         return { specialist: 'quoting', factIds, proposal: emptyProposal(), brief: briefLines(proposal), calls, error };
     }
     const skipModel = route.turnKind === 'short_pause' || route.turnKind === 'acknowledgement' || route.turnKind === 'promise_of_more' || !turn.body.trim();
-    let questionRead = false;
+    let questionAnswered = false;
     if (!skipModel) {
         // The quote's own labels, each once. Never the citations the facts are keyed by: those carry
         // a line's position, which the model has no way to map onto the customer's words, so it
@@ -318,7 +318,6 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         const res = await client.structured({ role: 'specialist', model: SPECIALIST_MODEL, effort: 'medium', system: QUESTION_SYSTEM, user, schema: questionOutputSchema, maxTokens: 600 });
         calls.push(res.record);
         if (res.output) {
-            questionRead = true;
             const asked = res.output.concerns.slice(0, 6);
             // A figure is a line of the quote. A price the turn asks for under a label the quote does
             // not carry - the labour or materials half of a line, most often - is money beyond a
@@ -338,12 +337,16 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
             proposal.beyondQuoteLine = res.output.beyondQuoteLine || offQuote.length > 0;
             proposal.acceptanceInChat = res.output.acceptanceInChat && q.status === 'sent';
             proposal.notReady = proposal.notReady || res.output.notReady;
+            questionAnswered = proposal.concerns.length > 0 || proposal.beyondQuoteLine;
         } else error = res.error ?? 'the question model returned nothing';
     }
     // A money exception is cleared for a live quote only because this reading replaces it (5.3 for a
     // figure on the quote, applyQuotingRoute). When the reading did not run or did not answer, it
     // stands again, whichever raised it: money beyond a quote line goes to Ben, never on one reading.
-    if ((route.belts.money || route.moneyToQuoting) && !questionRead) proposal.beyondQuoteLine = true;
+    // A reading that named no concern at all has not answered: "can you do it any cheaper?" is a
+    // discount, which no line of the quote states, so it is Ben's. A reading that named one - "does
+    // that price include the tap?" is a scope concern - is answered from the quote under 5.3.
+    if ((route.belts.money || route.moneyToQuoting) && !questionAnswered) proposal.beyondQuoteLine = true;
     const p = emptyProposal();
     p.ready = true;
     // Holds: money beyond a line, whatever the quote's status, and acceptance in chat (acceptance
