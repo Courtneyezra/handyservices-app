@@ -24,9 +24,9 @@ import { chooseChannel } from '../desk/sender';
  * on the form and nothing has gone back to them yet. Their acknowledgement can hold for Ben rather
  * than go (a shut window with no approved template), and then the quote delivery is the first
  * message they ever receive from us, so it is the one that must name what they asked about. One
- * definition: the reply path's line below asks the composer for it, the quote delivery writes it
- * itself, and that delivery clears the acknowledgement's hold only where this says one was owed
- * and its own send carried it (`server/comms-v2/quoting/quoting-door.ts`).
+ * definition: the reply path's line below asks the composer for it, and the quote delivery writes
+ * it itself (`server/comms-v2/quoting/quoting-door.ts`). The acknowledgement's hold is not cleared
+ * by that delivery: the card stands until Ben answers it.
  */
 export function acknowledgesEnquiry(file: CaseFile, turn: Turn): boolean {
     return turn.kind === 'form' && !file.turns.some((t) => t.direction === 'outbound');

@@ -28,14 +28,6 @@ export const MISSED_CALL_ACK_SUBJECT = 'missed_call_ack';
 export type ChannelReplyPurpose = 'web_form_ack' | 'web_form_ack_no_call' | 'post_call_followup' | 'missed_call';
 
 /**
- * The two purposes that carry a first contact: the acknowledgement a web-form enquiry is owed,
- * with the call offered or taken out. Named here rather than read off a hold's wording twice, so a
- * send that reaches the customer for the first time can tell that acknowledgement's hold from any
- * other (`server/comms-v2/quoting/quoting-door.ts`).
- */
-export const FIRST_CONTACT_ACK_PURPOSES: readonly ChannelReplyPurpose[] = ['web_form_ack', 'web_form_ack_no_call'];
-
-/**
  * Which purpose a turn's shut-window template carries, and the topic its second variable takes.
  * A call turn never reaches here: the channel desk intercepts it and picks the follow-up's purpose
  * itself (channel-desk.ts), which is the one definition of that rule.

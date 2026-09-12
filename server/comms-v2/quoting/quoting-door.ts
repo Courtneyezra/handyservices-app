@@ -34,7 +34,6 @@ import { BEN, noReplyToCheck, runGuards, type GuardOutcome } from '../desk/guard
 import type { PlannedSend } from '../desk/planned-send';
 import { chooseChannel, render, send, windowOf, type ChannelChoice } from '../desk/sender';
 import { acknowledgesEnquiry } from '../channels/composer-lines';
-import { FIRST_CONTACT_ACK_PURPOSES } from '../channels/templates';
 import { quoteRecordOf } from './quote-record';
 import { humanRunId, markQuoteSent, priceQuote, recordAcceptance, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 import { quoteStateOf } from './quoting-specialist';
@@ -102,23 +101,17 @@ function deliveryChannel(party: Party, wroteOn: Parameters<typeof chooseChannel>
 export const FIRST_CONTACT_ACK = 'Thanks for your enquiry - Ben here from Handy Services.';
 
 /**
- * Whether the quote going out is the answer to the hold on the thread. Three holds it answers: one
- * this route put there itself when an earlier attempt did not send; a money hold (2.7), because the
- * promise that hold carries is that Ben will come back to them on the price and the quote he has
- * just priced and sent is him doing it; and the first-contact acknowledgement, but only once that
- * acknowledgement has actually been made, which is `firstContactCovered`: either something had
- * already gone back to them, or this send carried the route's own acknowledgement ahead of the
- * quote. It is never read off the composed words: what answers that hold is a sentence the desk
- * itself put in the send, so a model's letter cannot leave it out. A delivery that lands as a bare
- * quote link on a customer who has never heard from us answers nothing, so Ben keeps his card. A
- * complaint, refund, trust or regulated hold is a person's to answer and nothing about a quote
- * answers it; acceptance stays human, so that hold stands too. Read only where the send landed: a
- * delivery that held answered nothing at all.
+ * Whether the quote going out clears the hold on the thread. Exactly one hold it clears: the one
+ * this route put there itself when an earlier attempt did not send, which this attempt has now
+ * done. No other card on Ben's board is this send's to clear, and a hold is not answered by being
+ * about money: a question he owed an answer to ("do you charge a call-out fee?") stands until he
+ * answers it, because the delivery carries the link and nothing else, so nobody has answered it.
+ * The same goes for the acknowledgement a web-form enquiry was owed, for a complaint, refund,
+ * trust or regulated hold, and for acceptance, which stays human. Read only where the send landed:
+ * a delivery that held cleared nothing at all.
  */
-function answeredByThisQuote(file: CaseFile, slug: string, firstContactCovered: boolean): boolean {
-    if (!file.hold) return false;
-    if (file.hold.reason.startsWith(priceHold(slug)) || file.hold.exception === 'money') return true;
-    return firstContactCovered && !file.hold.exception && FIRST_CONTACT_ACK_PURPOSES.some((p) => file.hold!.reason.includes(p));
+function answeredByThisQuote(file: CaseFile, slug: string): boolean {
+    return !!file.hold && file.hold.reason.startsWith(priceHold(slug));
 }
 
 /**
@@ -217,10 +210,9 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
 
             const runId = humanRunId();
             const turn = newestCustomerTurn(file, party);
-            // Read before the delivery lands, because the send itself appends an outbound turn: the
-            // acknowledgement a web-form enquiry is owed is either already made or this send's to make.
+            // Read before the delivery lands, because the send itself appends an outbound turn:
+            // after it, nothing can tell that this send was the first thing they ever received.
             const ack = acknowledgesEnquiry(file, turn) ? FIRST_CONTACT_ACK : null;
-            const firstContactCovered = !!ack || file.turns.some((t) => t.direction === 'outbound');
             const choice = deliveryChannel(party, turn?.channel ?? null, opts.now());
             if (!choice.ok) { res.status(409).json({ error: choice.reason }); return; }
             const window = windowOf(party, choice.channel, opts.now());
@@ -253,9 +245,11 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: BEN_APPROVER, guards: written.verdicts, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: written.calls, mode: 'dry_run' }, { now: opts.now, newId: opts.deps.newId });
             if (!sent.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the send was refused (${sent.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
             // The send landed: only now does the quote leave draft and its figures reach the file.
-            // A hold his send answers clears with the words that went, the way any human send
-            // releases one; any other hold is a person's to answer and stands.
-            if (answeredByThisQuote(file, priced.record.slug, firstContactCovered)) releaseHold(file, BEN, written.reply, { now: opts.now, newId: opts.deps.newId });
+            // The card this route raised when an earlier attempt did not send is done, so it clears
+            // in the desk's own words naming what happened: nobody read the delivery before it
+            // went, so recording the letter as the release would read as Ben's own answer to
+            // whatever the card asked. Every other hold is a person's to answer and stands.
+            if (answeredByThisQuote(file, priced.record.slug)) releaseHold(file, file.hold!.approver, `the desk sent quote ${priced.record.slug} on this attempt, so the card raised when the earlier one did not send is done`, { now: opts.now, newId: opts.deps.newId });
             const staged = await markQuoteSent(file, quotingDeps());
             const record = staged.ok ? staged.record : priced.record;
             const result: DeskResult = {

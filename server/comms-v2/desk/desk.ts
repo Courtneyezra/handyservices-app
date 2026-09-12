@@ -317,11 +317,11 @@ export class Desk implements DeskLike {
         for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(said, subject)) ledgerAsk(file, subject, deps);
         if (proposal?.nextQuestion && said.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
         if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(said)) ledgerAsk(file, 'media', deps);
-        // The desk's own instruction to thank for the photo is what the ledger records, not the
-        // words the composer chose: reading the sentence back missed every thanks that does not
-        // name the photo ("Thanks for sending that over"), and left the ledger saying the photo was
-        // never thanked for, so the next turn thanked for it again.
-        if (proposal?.thankForMedia) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
+        // The thanks is spent only where the words that went carried one: a thanks the ledger
+        // records but the reply never made leaves the photo unacknowledged for good, which is the
+        // worse end of 1.7 than thanking for it twice. Any wording of gratitude counts, not one
+        // that names the photo, so "Thanks for sending that over" is read as the thanks it is.
+        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(said)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
         if (offersCall(said)) party.callOffered = true;
         if (lines.some((l) => l.kind === 'move_to_whatsapp')) ledgerAsk(file, MOVE_TO_WHATSAPP_SUBJECT, deps);
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);

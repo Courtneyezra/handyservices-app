@@ -171,6 +171,13 @@ describe('the quoting door', () => {
         // One reply passes because a person licensed this send, not because the guard was skipped.
         expect(ps.guards.one_reply.note).toMatch(/a person acted on the thread/);
         expect(sendLanded(ps, r.json.state)).toBe(true);
+        // The card this route raised when the shut-window attempt did not send is done, and it
+        // clears in the desk's own words: nobody read the delivery before it went, so recording the
+        // letter as the release would read as Ben answering that card himself.
+        expect(r.json.state.caseFile.hold).toBeNull();
+        const release = r.json.state.caseFile.releases.at(-1);
+        expect(release.words).toContain(`the desk sent quote ${r.json.slug}`);
+        expect(release.words).not.toContain('/quote/');
         expect(r.json.state.conversation.stage).toBe('quoted');
         expect(r.json.totals.totalPence).toBe(12000);
         const state = await get('/quote');
@@ -296,19 +303,19 @@ describe('the price route and the holds around it', () => {
         }
     });
 
-    it('releases the money hold the quote answers: the customer asked the price before it existed, and Ben has now sent it', async () => {
+    it('leaves the money question standing when Ben prices and sends, because the delivery carries the link and answers nothing else', async () => {
         const { call, close } = await standUp();
         try {
-            const asked = await call('/message', { text: 'How much roughly?', channel: 'whatsapp' });
+            const asked = await call('/message', { text: 'How much do you charge as a call-out fee?', channel: 'whatsapp' });
             expect(asked.json.state.caseFile.hold).toMatchObject({ exception: 'money' });
 
             const priced = await call('/price', {});
             expect(priced.status).toBe(200);
             expect(priced.json.sent).toBe(true);
-            // 2.7's promise was that Ben would come back on the price; the quote is him doing it.
-            expect(priced.json.state.caseFile.hold).toBeNull();
-            expect(priced.json.state.caseFile.releases).toHaveLength(1);
-            expect(priced.json.state.caseFile.releases[0].words).toContain('/quote/');
+            // The delivery may say nothing but the link, so nobody has answered the fee question:
+            // it stays Ben's card until he does.
+            expect(priced.json.state.caseFile.hold).toMatchObject({ exception: 'money' });
+            expect(priced.json.state.caseFile.releases).toHaveLength(0);
         } finally {
             await close();
         }
@@ -376,11 +383,10 @@ describe('the price route and the holds around it', () => {
             expect(smsSegmentCount(text)).toBeLessThanOrEqual(SMS_MAX_SEGMENTS);
             expect(text).not.toMatch(/£/);
             expect(text).not.toMatch(/\?/);
-            // The acknowledgement is made, so the card asking Ben to make it clears with it.
-            expect(priced.json.state.caseFile.hold).toBeNull();
-            expect(priced.json.state.caseFile.releases).toHaveLength(1);
-            expect(priced.json.state.caseFile.releases[0].words).toContain(FIRST_CONTACT_ACK);
-            expect(priced.json.state.caseFile.releases[0].words).toContain('/quote/');
+            // The acknowledgement went in the send, but the card is still Ben's: a hold clears when
+            // the person it is for answers it, and this route clears only the card it raised itself.
+            expect(priced.json.state.caseFile.hold.reason).toMatch(/web_form_ack/);
+            expect(priced.json.state.caseFile.releases).toHaveLength(0);
             // Everything that went was checked: the guards read the acknowledgement too.
             expect(Object.values(ps.guards).every((g) => g.result === 'pass')).toBe(true);
         } finally {

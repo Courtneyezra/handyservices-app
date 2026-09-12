@@ -104,7 +104,7 @@ describe('the web form acknowledgement', () => {
 });
 
 describe('an email reply', () => {
-    it('the letter\'s own words mark nothing either way: the media ledger records the desk\'s instruction to thank, not the wording the renderer wrapped it in', async () => {
+    it('the renderer\'s sign-off marks nothing: a letter whose own words thank nobody leaves the photo unthanked, so the next letter can still thank for it', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-desk-email-'));
         try {
             const { gateway } = rig({
@@ -123,8 +123,7 @@ describe('an email reply', () => {
             expect(a.result.bubbles[0].text).toContain(EMAIL_SIGN_OFF);
             expect(a.result.bubbles[0].text).not.toMatch(/thanks for the (?:photo|picture)/i);
             expect(a.file.turns[0].media).toHaveLength(1);
-            // The proposal is what the ledger reads, so the thanks is spent here whatever the letter said.
-            expect(a.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).not.toBeNull();
+            expect(a.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).toBeNull();
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }

@@ -129,11 +129,6 @@ export function buildComposerUser(input: ComposeInput): string {
         lines.push(`- mention photos once: ${proposal.mentionPhotos ? 'yes, say a photo would help if easy, not as a question' : 'no'}`);
         lines.push(`- thank for media: ${proposal.thankForMedia ? 'yes' : 'no'}`);
     }
-    for (const s of specialists) {
-        if (s.specialist === 'scoping' || !s.brief?.length) continue;
-        lines.push(`Proposal from ${s.specialist[0].toUpperCase()}${s.specialist.slice(1)}:`);
-        for (const b of s.brief) lines.push(`- ${b}`);
-    }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
     for (const s of specialists) if (s.specialist !== 'scoping' && s.brief?.length) { lines.push(`Notes from ${s.specialist} (facts to copy verbatim, what not to say):`); for (const b of s.brief) lines.push(`- ${b}`); }

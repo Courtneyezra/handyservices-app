@@ -232,13 +232,10 @@ the acknowledgement a web-form enquiry was owed held for Ben and never went, the
 first message that will ever reach them, so it opens with a line naming us and the enquiry it
 follows, ahead of the composer's words. The composer is told the room left after that line, not the
 whole channel budget, because a reply written to the whole budget and then added to is one the
-render refuses. A landed send then releases the acknowledgement's hold, which is the third hold
-class the delivery answers beside its own earlier attempt and a money hold, on either of the two
-grounds that the acknowledgement has been made: this send carried that line itself, or something
-had already reached them on the thread, which is the case where they wrote again after the
-acknowledgement held and the desk answered that turn. A delivery that held reaches nobody and
-releases nothing. Nothing is interpolated into the line, so no model-written fact reaches a customer through it
-and its wording is guard-checked by a test rather than in front of a customer.
+render refuses. The send does not clear the acknowledgement's hold: that card is Ben's and stays on
+his board until he answers it. Nothing is interpolated into the line, so no model-written fact
+reaches a customer through it and its wording is guard-checked by a test rather than in front of a
+customer.
 
 **What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,
 assumptions, link and status, each with source `quote_line` naming the quote and the label. A
@@ -283,13 +280,15 @@ again and Quoting sets the money hold itself. The same applies when the speciali
 on the read that worked at the top of the turn, and the brief then forbids a figure outright, because
 the amounts an earlier turn recorded are still on the file and the reply is still written.
 
-**What Ben's send releases.** The quote going out answers three holds: one the price route itself
-put on the thread when an earlier attempt did not send; a money hold, because 2.7's promise is that
-Ben will come back to them on the price and this is him doing it; and the first-contact
-acknowledgement's, on either of the two grounds that the acknowledgement has been made, which are
-that this send carried that line itself or that something had already reached them on the thread. A
-complaint, refund, trust or regulated hold is a person's to answer and stands, and so does an
-acceptance hold. A delivery that held reaches nobody and releases nothing.
+**What Ben's send releases.** Exactly one hold: the one the price route itself put on the thread
+when an earlier attempt did not send, which this attempt has now done. It clears in the desk's own
+words naming that send, never the delivery that went, because nobody read those words before they
+went and a release recorded in them would read as Ben's own answer to whatever the card asked.
+Every other card stands. A money hold is not answered by the quote being about money: the delivery
+carries the link and nothing else, so a question Ben owed an answer to ("do you charge a call-out
+fee?") is still unanswered and still his. The same goes for the first-contact acknowledgement's
+hold, for a complaint, refund, trust or regulated hold, and for acceptance, which stays human. A
+delivery that held reaches nobody and releases nothing.
 
 **A quote that is no longer live for figures.** Expired, revoked and superseded are one path on
 purpose: no figure may be read from any of them, no fresh link is recorded, the reply says Ben will
