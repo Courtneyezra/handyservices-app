@@ -8,9 +8,9 @@
  * turn asks about dates (lead time, availability, the booked date, a change to it) and, for a
  * change, the words they used. The tool server (scheduling-tools.ts) then decides everything
  * deterministically from the diary: a lead time when the diary has one, "dates come with your
- * quote" when it does not, the picker once a quote has been sent, the booked date once one
- * exists, and a hold for Ben on a date change while the file is still answered on everything
- * else. A date change is the one ask that looks nothing else up: the job is already in the
+ * quote" when neither it nor a quote on the file has anything to give, the picker once a quote has
+ * been sent, the booked date once one exists, and a hold for Ben on a date change while the file is
+ * still answered on everything else. A date change is the one ask that looks nothing else up: the job is already in the
  * diary, so a lead time and the picker would answer a question they did not ask.
  * The specialist never sees the customer and holds no send tool.
  *
@@ -26,9 +26,12 @@ import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, isTheirs, picker
 
 /**
  * What the turn asks, and every value is load-bearing: `date_change` holds for Ben, `booked_date`
- * confirms the day they already have, and `lead_time` or `availability` reads the diary's lead time
- * and the quote's picker, whether or not a booking stands. Somebody with a visit booked who asks how
- * soon a new job could be done is asking about the new one.
+ * confirms the day they already have, and `lead_time` or `availability` reads the diary's lead time,
+ * which answers whatever job they are asking about. Somebody with a visit booked who asks how soon a
+ * new job could be done is asking about the new one, so the lead time answers it, and the day they
+ * already have is confirmed beside it rather than instead of it: they booked on this quote's picker
+ * already, so no link goes with it. The grid in contracts.md holds the cell for every ask against
+ * every state the diary read can return, and this branching reads from it.
  */
 export const SCHEDULING_ASKS = ['lead_time', 'availability', 'booked_date', 'date_change'] as const;
 export type SchedulingAsk = (typeof SCHEDULING_ASKS)[number];
@@ -93,7 +96,10 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     const erroring = () => [error, ...details].filter(Boolean).join('; ') || null;
 
     const standing = await confirmBookedDate(file, deps);
-    if (!standing.ok && standing.detail) details.push(`${standing.reason}: ${standing.detail}`);
+    // The same filing as the picker's: a state the diary gave plainly is the right answer, and every
+    // other refusal reaches the log and the run summary, because a file pointing at a booking the
+    // diary does not hold is a defect nobody else will find.
+    if (!standing.ok && !standing.expected) details.push(standing.detail ? `${standing.reason}: ${standing.detail}` : standing.reason);
     // Something may stand: the fail-closed reading, which a request to move a date is answered on.
     const couldStand = standing.state !== 'none';
     // A read that threw where nothing on the file says there is a booking is nothing known rather than a
@@ -179,6 +185,8 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         // a reply that withholds the link and says nothing about their day reads as not knowing they booked.
         const confirming = couldStand && (asks.includes('booked_date') || theirsFromThisQuote);
         if (confirming) confirmWhatStands(false);
+        // A day of theirs the reply states, which is an answer about dates in itself.
+        const dateSaid = confirming && standing.ok;
         // A turn can ask more than one thing and each is answered: the shelf runs beside a confirmation
         // when they also asked how soon or what dates, and on its own when there was no date to confirm.
         if (confirming && !asks.some((a) => a === 'lead_time' || a === 'availability')) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
@@ -199,11 +207,19 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             const lt = findings.leadTime;
             const f = recordFact(file, { key: 'lead_time', value: lt.phrase, source: { kind: 'diary', rowId: lt.rowId }, by }, fileDeps);
             if (f.ok) { factIds.push(f.value.id); brief.push(`Typical lead time from the diary: say exactly "${lt.phrase}" and cite fact ${f.value.id} (for example "we're usually booking in ${lt.phrase}"). Do not write the words "lead time". Not a promise of a day: never a specific day, date or time.`); }
-        } else if (!findings.picker?.ok) {
+        } else if (!file.job.quoteRef) {
+            // The one cell that line belongs to. Somebody holding a quote, and a booking made from it,
+            // reads "dates come with your quote" as the desk not knowing who they are.
             findings.fixedLines.push('dates_with_quote');
-            brief.push('The diary has no typical lead time to give: include the fixed line that dates come with the quote, and never guess a day, a time or a lead time.');
+            brief.push('The diary has no typical lead time to give and there is no quote yet: include the fixed line that dates come with the quote, and never guess a day, a time or a lead time.');
+        } else if (dateSaid || findings.picker?.ok || proposal.hold) {
+            brief.push('The diary has no typical lead time to give: say nothing about how soon, and never guess a day, a time or a lead time.');
         } else {
-            brief.push('The diary has no typical lead time to give: say nothing about how soon; the picker shows the dates.');
+            // Nothing left to say about dates at all: no day of theirs, no lead time, no page to pick on.
+            // A date question answered with silence is the one thing the desk may not do, so Ben answers it.
+            findings.fixedLines.push('date_change_to_ben');
+            proposal.hold = { reason: 'date_unconfirmed', match: findings.picker && !findings.picker.ok ? findings.picker.reason : 'nothing to say about dates' };
+            brief.push('There is nothing to say about dates: include the fixed line that Ben will come back on the date, say nothing about why, and never name a day, a time or a lead time of your own. Answer anything else they asked.');
         }
         if (!findings.picker?.ok && file.job.quoteRef && findings.picker) brief.push('There is no link to give for picking a date: give none, and say nothing about why.');
     }

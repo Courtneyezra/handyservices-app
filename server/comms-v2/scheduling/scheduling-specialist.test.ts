@@ -272,7 +272,10 @@ describe('the Scheduling specialist', () => {
         expect(said).not.toMatch(/COMMS_V2_DATABASE_URL|db\.internal|SSL/);
         // Why there is nothing to give is never in the notes: a reason handed to a writer can end up in the reply.
         expect(said).not.toMatch(/could not be read/);
-        expect(said).toMatch(/no typical lead time to give/);
+        // Neither read gave anything, so the cell holds for Ben rather than answering a date question with silence.
+        expect(said).toMatch(/Ben will come back on the date/);
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
         expect(said).toMatch(/no link to give/);
         expect(r.error).toContain('COMMS_V2_DATABASE_URL is not set');
         expect(r.error).toContain('SSL handshake to db.internal failed');
@@ -495,17 +498,23 @@ describe('the Scheduling specialist', () => {
         expect(read.scheduling.fixedLines).toEqual([]);
     });
 
-    it('a booked customer asking how soon a new job could be done is answered about the new one, not told their old date again', async () => {
+    it('a booked customer asking how soon a new job could be done gets the lead time for the new one, with the day they have confirmed beside it and no picker', async () => {
+        // The file the door's fixture makes: a quote and the booking made from it, which is every real booked thread.
         const file = fixture("The tap's sorted, thanks. A fence panel came down though, how soon could you get to that?");
+        file.job.quoteRef = 'q1';
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6, true), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6, true), now, baseUrl: 'https://example.test' });
         assertNoProse(r, file);
         expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days' });
         expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
-        expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
-        expect(r.scheduling.bookedDate).toBeNull();
+        // The grid's `standing` cell: the lead time answers the new job, the day they already have is
+        // confirmed beside it, and the picker they booked on does not go again.
+        expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
+        expect(r.scheduling.bookedDate).toMatchObject({ ok: true, state: 'standing' });
+        expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
         expect(r.proposal.hold).toBeNull();
         expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.error).toBeNull();
     });
 
     it('a booking stuck waiting on a contractor: the lead time answers, no picker goes, and Ben hears about it', async () => {
@@ -622,6 +631,46 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.picker).toMatchObject({ ok: true, quoteRef: 'q2', url: 'https://example.test/quote/secondqt' });
         expect(r.proposal.hold).toBeNull();
         expect(r.error).toBeNull();
+    });
+
+    it('somebody holding a quote and the booking made from it is never told dates come with their quote', async () => {
+        const file = fixture('How soon could you get to the rest of it?');
+        file.job.quoteRef = 'q1';
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(2, true), now });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'too few completed bookings to say' });
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.brief.join(' ')).not.toMatch(/dates come with/i);
+        expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
+        expect(r.proposal.hold).toBeNull();
+    });
+
+    it('with no lead time and no picker to give, the reply does not ignore the question: it holds for Ben', async () => {
+        const diary = diaryWith(2);
+        diary.quotes[0].expiresAt = '2026-09-01T00:00:00.000Z';
+        const file = fixture('What dates have you got?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: false });
+        expect(r.scheduling.picker).toMatchObject({ ok: false, reason: 'the quote has expired' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed', match: 'the quote has expired' });
+        expect(r.brief.join(' ')).not.toMatch(/dates come with|expired/i);
+        expect(file.facts.filter((f) => f.key === 'lead_time' || f.key === 'picker_link')).toEqual([]);
+        expect(r.error).toContain('the quote has expired');
+    });
+
+    it('a file pointing at a booking the diary does not hold reaches the run; a thread with nothing booked yet does not', async () => {
+        const file = fixture('How soon could you come?');
+        file.job.bookingRef = 'bk9';
+        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6), now });
+        expect(r.error).toContain('the booking the file references is not in the diary');
+        expect(r.brief.join(' ')).not.toMatch(/diary does not|not in the diary/i);
+        const quoted = fixture('How soon could you come?');
+        quoted.job.quoteRef = 'q1';
+        const q = await schedule(quoted, quoted.turns[0], party(quoted), client(['lead_time']), { diary: diaryWith(6), now, baseUrl: 'https://example.test' });
+        expect(q.scheduling.bookedDate).toBeNull();
+        expect(q.error).toBeNull();
     });
 
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {

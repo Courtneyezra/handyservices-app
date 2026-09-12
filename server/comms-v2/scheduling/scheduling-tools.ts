@@ -74,7 +74,8 @@ export async function typicalLeadTime(deps: SchedulingDeps = {}): Promise<LeadTi
  */
 export type BookedDate =
     | { ok: true; state: 'standing'; bookingRef: string; quoteRef: string | null; date: string; words: string; rowId: string }
-    | { ok: false; state: 'unaccepted' | 'cancelled' | 'none' | 'unknown'; reason: string; detail?: string | null; bookingRef: string | null; quoteRef?: string | null };
+    /** `expected` marks a refusal that is the right answer rather than something wrong, as it does on `PickerLink`: it stays out of the run's error. A state of the world the diary gave plainly is expected; a read that could not say is not. */
+    | { ok: false; state: 'unaccepted' | 'cancelled' | 'none' | 'unknown'; reason: string; expected?: boolean; detail?: string | null; bookingRef: string | null; quoteRef?: string | null };
 
 /** A booking the customer made and is still waiting on, whether or not a contractor has taken it. */
 export function isTheirs(booked: BookedDate | null): boolean {
@@ -87,11 +88,13 @@ export function isTheirs(booked: BookedDate | null): boolean {
  * A declined, cancelled, done or past booking is not one the customer is waiting for, so a visit
  * that has happened is never confirmed as if it stands, and a booking no contractor has taken on
  * gives no date either: nobody has agreed to work that day. Every refusal gives no date at all.
+ * A state the diary gave plainly is marked `expected`; a read that could not say is not, so a file
+ * pointing at a booking the diary does not hold reaches the log and the run summary.
  */
 export async function confirmBookedDate(file: CaseFile, deps: SchedulingDeps = {}): Promise<BookedDate> {
     const ref = file.job.bookingRef;
     const today = isoDayOf((deps.now ?? (() => new Date()))());
-    if (!deps.diary) return ref || file.stage === 'booked' ? { ok: false, state: 'unknown', reason: 'no diary to read', bookingRef: ref } : { ok: false, state: 'none', reason: 'nothing is booked on this file', bookingRef: null };
+    if (!deps.diary) return ref || file.stage === 'booked' ? { ok: false, state: 'unknown', reason: 'no diary to read', bookingRef: ref } : { ok: false, state: 'none', reason: 'nothing is booked on this file', expected: true, bookingRef: null };
     let booking: DiaryBooking | null = null;
     try {
         if (ref) booking = await deps.diary.booking(ref);
@@ -101,13 +104,13 @@ export async function confirmBookedDate(file: CaseFile, deps: SchedulingDeps = {
     }
     if (!booking) {
         if (ref) return { ok: false, state: 'unknown', reason: 'the booking the file references is not in the diary', bookingRef: ref };
-        if (file.job.quoteRef) return { ok: false, state: 'none', reason: 'nothing is booked from this quote yet', bookingRef: null };
-        return file.stage === 'booked' ? { ok: false, state: 'unknown', reason: 'the file is booked but references no booking or quote', bookingRef: null } : { ok: false, state: 'none', reason: 'nothing is booked on this file', bookingRef: null };
+        if (file.job.quoteRef) return { ok: false, state: 'none', reason: 'nothing is booked from this quote yet', expected: true, bookingRef: null };
+        return file.stage === 'booked' ? { ok: false, state: 'unknown', reason: 'the file is booked but references no booking or quote', bookingRef: null } : { ok: false, state: 'none', reason: 'nothing is booked on this file', expected: true, bookingRef: null };
     }
     const gone = notStandingReason(booking, today);
-    if (gone) return { ok: false, state: gone.kind === 'cancelled' ? 'cancelled' : 'none', reason: gone.reason, bookingRef: booking.id, quoteRef: booking.quoteRef };
+    if (gone) return { ok: false, state: gone.kind === 'cancelled' ? 'cancelled' : 'none', reason: gone.reason, expected: true, bookingRef: booking.id, quoteRef: booking.quoteRef };
     const unaccepted = unacceptedReason(booking);
-    if (unaccepted) return { ok: false, state: 'unaccepted', reason: unaccepted, bookingRef: booking.id, quoteRef: booking.quoteRef };
+    if (unaccepted) return { ok: false, state: 'unaccepted', reason: unaccepted, expected: true, bookingRef: booking.id, quoteRef: booking.quoteRef };
     if (!booking.scheduledDate) return { ok: false, state: 'unknown', reason: 'the booking carries no date yet', bookingRef: booking.id, quoteRef: booking.quoteRef };
     return { ok: true, state: 'standing', bookingRef: booking.id, quoteRef: booking.quoteRef, date: booking.scheduledDate, words: formatDiaryDate(booking.scheduledDate), rowId: `booking:${booking.id}` };
 }

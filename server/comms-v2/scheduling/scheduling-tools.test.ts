@@ -178,12 +178,35 @@ describe('confirm_booked_date', () => {
         expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking carries no date yet' });
         expect(await confirmBookedDate(file, { now })).toMatchObject({ ok: false, reason: 'no diary to read' });
     });
+    it('marks the refusals that are the right answer and leaves the reads that could not say unmarked, the way the picker does', async () => {
+        const diary = new MemoryDiary();
+        const file = fixture();
+        // A state the diary gave plainly: nothing is wrong, so nothing reaches the run's error.
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ state: 'none', expected: true });
+        file.job.quoteRef = 'q1';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ state: 'none', expected: true });
+        diary.bookings.push(booked('can', { status: 'cancelled' }), booked('pool', { status: 'pending', assignmentStatus: 'unassigned' }), booked('nodate', { scheduledDate: null, scheduledDays: [] }));
+        file.job.bookingRef = 'can';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ state: 'cancelled', expected: true });
+        file.job.bookingRef = 'pool';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ state: 'unaccepted', expected: true });
+        // A read that could not say: a defect somebody has to see, so it stays unmarked and is filed.
+        file.job.bookingRef = 'nodate';
+        expect((await confirmBookedDate(file, { diary, now })).expected).toBeUndefined();
+        file.job.bookingRef = 'gone';
+        expect((await confirmBookedDate(file, { diary, now })).expected).toBeUndefined();
+        const threw = new MemoryDiary();
+        threw.booking = async () => { throw new Error('connection lost'); };
+        expect(await confirmBookedDate(file, { diary: threw, now })).toMatchObject({ state: 'unknown', detail: 'connection lost' });
+        expect((await confirmBookedDate(file, { diary: threw, now })).expected).toBeUndefined();
+        expect((await confirmBookedDate(file, { now })).expected).toBeUndefined();
+    });
     it('a visit cancelled off a quote is not a quote nobody booked from: the tool sees it and says so', async () => {
         const diary = new MemoryDiary();
         const file = fixture();
         file.job.quoteRef = 'q1';
         diary.bookings.push(booked('canq', { status: 'cancelled' }));
-        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'cancelled', reason: 'the booking is cancelled; nothing stands in the diary', bookingRef: 'canq', quoteRef: 'q1' });
+        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'cancelled', reason: 'the booking is cancelled; nothing stands in the diary', expected: true, bookingRef: 'canq', quoteRef: 'q1' });
         // A standing booking from the same quote still wins over one that does not stand, whichever is newer.
         diary.bookings.push(booked('liveq', { createdAt: '2026-09-01T00:00:00.000Z' }));
         expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, state: 'standing', bookingRef: 'liveq' });
@@ -297,7 +320,7 @@ describe('the belts', () => {
         const file = fixture();
         file.job.bookingRef = 'bk7';
         diary.bookings.push({ id: 'bk7', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'pending', assignmentStatus: 'unassigned', dayOfStatus: null, createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
-        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'unaccepted', reason: expect.stringContaining('no contractor has taken the booking on yet'), bookingRef: 'bk7', quoteRef: 'q1' });
+        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'unaccepted', reason: expect.stringContaining('no contractor has taken the booking on yet'), expected: true, bookingRef: 'bk7', quoteRef: 'q1' });
         // Assigned to somebody who has not accepted it is still nobody's job yet.
         diary.bookings[0].assignmentStatus = 'assigned';
         expect((await confirmBookedDate(file, { diary, now })).state).toBe('unaccepted');
