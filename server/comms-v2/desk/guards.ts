@@ -33,6 +33,8 @@ export interface GuardInput {
     /** Reviewed knowledge-base rows the composer cited, resolved by id (unknown ids are absent). */
     kbRows: KbRow[];
     fixedLines: FixedLine[];
+    /** The ids of the facts the specialists looked up on this run. A date is only ever one of these: a fact from an earlier turn was true when it was written, and the diary may have moved since. Absent means none, so nothing dated passes. */
+    lookedUp?: string[];
     /** The subject the specialist proposed asking this turn; the ledger records it after the send. */
     proposedSubject: string | null;
 }
@@ -80,9 +82,10 @@ function saysWhole(value: string, match: string): boolean {
 export function checkDate(input: GuardInput): GuardVerdict {
     const matches = Array.from(input.reply.matchAll(new RegExp(RE_DATE_TIME_DURATION.source, 'gi'))).map((m) => m[0]);
     if (!matches.length) return pass();
-    const diary = citedFacts(input).filter((f) => f.source.kind === 'diary').map((f) => f.value.toLowerCase());
+    const looked = new Set(input.lookedUp ?? []);
+    const diary = citedFacts(input).filter((f) => f.source.kind === 'diary' && looked.has(f.id)).map((f) => f.value.toLowerCase());
     const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())));
-    return bad.length ? fail(`a date, time or duration appears that is not a diary fact: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
+    return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
 }
 
 export function checkCommitment(input: GuardInput): GuardVerdict {

@@ -102,7 +102,8 @@ export type LeadTime =
 /** The computation over completed bookings, pure. Returns nothing below the minimum sample. */
 export function typicalLeadTimeOf(bookings: DiaryBooking[]): LeadTime {
     const leads = bookings.filter((b) => b.completedAt).map(leadDaysOf).filter((d): d is number => d !== null);
-    if (leads.length < MIN_COMPLETED_BOOKINGS) return { ok: false, reason: `too few completed bookings to say: ${leads.length} of the ${MIN_COMPLETED_BOOKINGS} needed`, sample: leads.length };
+    // The reason is read out to the composer, so it names no count: how many jobs the business has finished is its own business, and `sample` carries it for the desk.
+    if (leads.length < MIN_COMPLETED_BOOKINGS) return { ok: false, reason: 'too few completed bookings to say', sample: leads.length };
     const median = medianOf(leads)!;
     return { ok: true, days: median, phrase: leadTimePhrase(median), sample: leads.length, rowId: `lead-time:completed-bookings:${leads.length}:${Math.round(median * 10)}` };
 }
@@ -124,16 +125,18 @@ export function lastBookedDay(b: DiaryBooking): string | null {
 }
 
 /**
- * Why a booking is not one the customer is still waiting for on `today`, or null when it stands:
- * declined, cancelled, done, or a visit that has already happened. The readers and the tools share
- * this one definition, so a finished job can never come back as the standing booking.
+ * Why a booking is not one the customer is still waiting for on `today`, or null when it stands.
+ * The readers and the tools share this one definition, so a finished job can never come back as
+ * the standing booking. Two kinds, because they are not the same thing to the customer: a booking
+ * `cancelled` off them is a visit they may still be expecting, and only Ben can put that right;
+ * one that is `done` is a job that happened, so asking about it is a new job rather than a move.
  */
-export function notStandingReason(b: DiaryBooking, today: string): string | null {
-    if (b.status === 'declined') return 'the booking is declined; nothing stands in the diary';
-    if (b.status === 'cancelled' || b.dayOfStatus === 'cancelled_day_of') return 'the booking is cancelled; nothing stands in the diary';
-    if (b.status === 'completed' || b.dayOfStatus === 'completed') return 'the booking is done; that visit has happened';
+export function notStandingReason(b: DiaryBooking, today: string): { kind: 'cancelled' | 'done'; reason: string } | null {
+    if (b.status === 'declined') return { kind: 'cancelled', reason: 'the booking is declined; nothing stands in the diary' };
+    if (b.status === 'cancelled' || b.dayOfStatus === 'cancelled_day_of') return { kind: 'cancelled', reason: 'the booking is cancelled; nothing stands in the diary' };
+    if (b.status === 'completed' || b.dayOfStatus === 'completed') return { kind: 'done', reason: 'the booking is done; that visit has happened' };
     const last = lastBookedDay(b);
-    return last && last < today ? 'the booked date has passed' : null;
+    return last && last < today ? { kind: 'done', reason: 'the booked date has passed' } : null;
 }
 
 const TAKEN_STATUS = new Set(['accepted', 'in_progress']);

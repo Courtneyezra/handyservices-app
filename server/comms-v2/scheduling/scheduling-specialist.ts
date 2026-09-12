@@ -130,11 +130,11 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             if (f.ok) { factIds.push(f.value.id); brief.push(`Booked date from the diary: say exactly "${bd.words}" and cite fact ${f.value.id}. Write the date in those words only: no weekday, no "this" or "next" before it, and nothing about the time of day or how many days it takes: the diary gave the date and nothing else.`); }
             return;
         }
-        if (standing.state === 'unaccepted' && !changing) {
-            // Asked what day we are coming about a job no contractor has taken on: only Ben can answer that, and nobody may be told a date first.
+        if (!changing && (standing.state === 'unaccepted' || standing.state === 'cancelled')) {
+            // Asked what day we are coming about a job nobody has taken on, or one taken off them: only Ben can answer that, and nobody may be told a date, or why, first.
             findings.fixedLines.push('date_change_to_ben');
             proposal.hold = { reason: 'date_unconfirmed', match: standing.reason };
-            brief.push('The job is in the diary but no contractor has taken it on, so there is no date to confirm: include the fixed line that Ben will come back on the date, never say they are booked in, and give no day, time or lead time. Answer anything else they asked.');
+            brief.push('There is no date to confirm and they may be expecting one: include the fixed line that Ben will come back on the date, never say they are booked in, say nothing about why, and give no day, time or lead time. Answer anything else they asked.');
             return;
         }
         brief.push(`The diary has no booked date to confirm (${standing.reason}): say Ben will confirm the date, and give no day, time or lead time.`);

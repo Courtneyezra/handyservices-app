@@ -45,9 +45,14 @@ describe('guards', () => {
         expect(runGuards(input('Dates come with your quote.')).guards.date_time_duration.result).toBe('pass');
         const f = fixture();
         const fact = recordFact(f.file, { key: 'booked_date', value: 'Tuesday 15 September', source: { kind: 'diary', rowId: 'b1' }, by: 'scheduling' });
-        expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday.', factIds: fact.ok ? [fact.value.id] : [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration.result).toBe('pass');
+        const looked = fact.ok ? [fact.value.id] : [];
+        expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday.', factIds: looked, kbIds: [], kbRows: [], fixedLines: [], lookedUp: looked, proposedSubject: null }).guards.date_time_duration.result).toBe('pass');
+        // The same fact, not looked up on this run: it was true when it was written and the diary may have moved since.
+        const stale = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday.', factIds: looked, kbIds: [], kbRows: [], fixedLines: [], lookedUp: [], proposedSubject: null }).guards.date_time_duration;
+        expect(stale.result).toBe('fail');
+        expect(stale.note).toContain('did not look up');
         // Every date in the reply is checked, not just the first: once a diary date can legitimately pass, a second one must not ride in behind it.
-        const second = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday. If Thursday suits better I can do that instead.', factIds: fact.ok ? [fact.value.id] : [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration;
+        const second = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday. If Thursday suits better I can do that instead.', factIds: looked, kbIds: [], kbRows: [], fixedLines: [], lookedUp: looked, proposedSubject: null }).guards.date_time_duration;
         expect(second.result).toBe('fail');
         expect(second.note).toContain('Thursday');
         expect(second.note).not.toContain('"Tuesday"');
@@ -55,7 +60,7 @@ describe('guards', () => {
         const g = fixture();
         const booked = recordFact(g.file, { key: 'booked_date', value: '25 September 2026', source: { kind: 'diary', rowId: 'b2' }, by: 'scheduling' });
         const ids = booked.ok ? [booked.value.id] : [];
-        const dated = (reply: string) => runGuards({ file: g.file, party: g.party, turn: g.turn, reply, factIds: ids, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration;
+        const dated = (reply: string) => runGuards({ file: g.file, party: g.party, turn: g.turn, reply, factIds: ids, kbIds: [], kbRows: [], fixedLines: [], lookedUp: ids, proposedSubject: null }).guards.date_time_duration;
         expect(dated('You are booked in for 25 September 2026.').result).toBe('pass');
         expect(dated('You are booked in for 25 September.').result).toBe('pass');
         const fragment = dated('We can do the 5 September if that suits.');

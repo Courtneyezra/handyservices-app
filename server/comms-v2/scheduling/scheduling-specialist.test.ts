@@ -90,17 +90,20 @@ describe('the Scheduling specialist', () => {
         const file = fixture('When can you come?');
         const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(2), now });
         assertNoProse(r, file);
-        expect(r.scheduling.leadTime).toMatchObject({ ok: false, sample: 2 });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'too few completed bookings to say', sample: 2 });
         expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
         expect(file.facts.filter((f) => f.key === 'lead_time')).toHaveLength(0);
         expect(r.factIds).toEqual([]);
+        // How many jobs the business has finished is its own business: the count is on the result, never in the brief.
+        expect(r.brief.join(' ')).not.toMatch(/\d/);
     });
 
     it('the door fixture can empty the diary: the same fixed line, with the mode on the result', async () => {
         const file = fixture('How soon could you do it?');
         const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6), diaryMode: { completed: 'none' }, now });
-        expect(r.scheduling.leadTime).toMatchObject({ ok: false, mode: 'none' });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'the diary holds no completed bookings', mode: 'none' });
         expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
+        expect(r.brief.join(' ')).not.toMatch(/fixture|door/i);
     });
 
     it('after the quote, an availability question gets the picker link and the lead time; no fixed line, no slot', async () => {
@@ -185,6 +188,36 @@ describe('the Scheduling specialist', () => {
         expect(failed.scheduling.fixedLines).toEqual(['date_change_to_ben']);
     });
 
+    it('a visit cancelled off the customer is not a thread that never had one: a change to it reaches Ben whatever the models read', async () => {
+        const diary = diaryWith(6, true);
+        diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';
+        const file = fixture('Can we move it to the week after?');
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client([]), { diary, now });
+        expect(r.scheduling.bookedDate).toMatchObject({ ok: false, state: 'cancelled', bookingRef: 'bk1' });
+        expect(r.scheduling.asks).toEqual(['date_change']);
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_change' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
+        expect(r.scheduling.leadTime).toBeNull();
+        expect(r.scheduling.picker).toBeNull();
+    });
+
+    it('asked when we are coming about a visit that was cancelled: no date, no reason why, and Ben is the one who answers', async () => {
+        const diary = diaryWith(6, true);
+        diary.bookings.find((b) => b.id === 'bk1')!.dayOfStatus = 'cancelled_day_of';
+        const file = fixture('When are you coming?');
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary, now });
+        assertNoProse(r, file);
+        expect(r.proposal.hold).toEqual({ reason: 'date_unconfirmed', match: expect.stringContaining('cancelled') });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
+        // Why it is not standing is Ben's to say, not the composer's.
+        expect(r.brief.join(' ')).not.toMatch(/cancel|declin/i);
+        expect(r.brief.join(' ')).toMatch(/never say they are booked in/);
+    });
+
     it('a job already done is not a standing booking: no date is confirmed and a change is not held against a visit that happened', async () => {
         const diary = diaryWith(6, true);
         const done = diary.bookings.find((b) => b.id === 'bk1')!;
@@ -204,6 +237,11 @@ describe('the Scheduling specialist', () => {
         const changed = await schedule(move, move.turns[0], party(move), client(['date_change'], 'the week after'), { diary, now });
         expect(changed.proposal.hold).toBeNull();
         expect(changed.scheduling.asks).toEqual(['availability']);
+        // The third reading: a thread the diary never had a booking for answers the same way.
+        const fresh = fixture('Can we move it to the week after?');
+        const never = await schedule(fresh, fresh.turns[0], party(fresh), client(['date_change'], 'the week after'), { diary: diaryWith(6), now });
+        expect(never.proposal.hold).toBeNull();
+        expect(never.scheduling.asks).toEqual(['availability']);
     });
 
     it('a diary that could not be read keeps the hold: a change to a job booked on the picker still reaches Ben', async () => {

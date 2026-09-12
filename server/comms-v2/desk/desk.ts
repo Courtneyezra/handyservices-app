@@ -163,7 +163,8 @@ export class Desk implements DeskLike {
         // 5. Guards, with one retry to the composer.
         const kbRows = await this.kbRows(kbIds);
         const proposedSubject = specialists[0]?.proposal.nextQuestion?.subject ?? null;
-        const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, proposedSubject });
+        const lookedUp = specialists.flatMap((s) => s.factIds);
+        const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, lookedUp, proposedSubject });
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);

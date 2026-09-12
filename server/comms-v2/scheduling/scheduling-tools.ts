@@ -11,7 +11,9 @@
  *                       is the only source: the five quote-side date columns on the quote are
  *                       preferences, never bookings, and are never read. Refuses a cancelled or
  *                       declined booking, a booking with no date, and a booking no contractor has
- *                       taken on, whose date nobody has agreed to work.
+ *                       taken on, whose date nobody has agreed to work. A cancelled or declined
+ *                       booking is still something the customer thinks they have, so a request to
+ *                       move it reaches Ben; a finished one is a new job, not a change.
  *   picker_link         the quote's picker, for a quote that has been sent: refuses no quote on
  *                       the file, a draft, a superseded, revoked or expired quote.
  *   date_change         the deterministic belt under the model: a request to move a booked job
@@ -42,7 +44,7 @@ export type LeadTimeResult = LeadTime & { mode: 'diary' | 'none'; detail?: strin
 /** Over recent completed bookings; nothing below the minimum sample, nothing when the fixture emptied the diary. Never a guess. */
 export async function typicalLeadTime(deps: SchedulingDeps = {}): Promise<LeadTimeResult> {
     const mode = deps.diaryMode?.completed ?? 'diary';
-    if (mode === 'none') return { ok: false, reason: 'the diary holds no completed bookings (the door fixture set it so)', sample: 0, mode };
+    if (mode === 'none') return { ok: false, reason: 'the diary holds no completed bookings', sample: 0, mode };
     if (!deps.diary) return { ok: false, reason: 'no diary to read', sample: 0, mode };
     const now = deps.now ?? (() => new Date());
     const since = new Date(now().getTime() - LEAD_TIME_WINDOW_DAYS * 86_400_000);
@@ -62,13 +64,15 @@ export async function typicalLeadTime(deps: SchedulingDeps = {}): Promise<LeadTi
  * reading of the file's booking the desk works from, so the confirmation and the date-change belt
  * can never disagree: `none` is nothing to move, and every other state is something the customer
  * has, so a request to move it goes to Ben. `unknown` is the fail-closed answer, `unaccepted` a
- * booking sitting in the dispatch pool nobody has taken on. `reason` is said to the composer, so
- * it is always a stable category; `detail` carries the machine text for the log and the run
+ * booking sitting in the dispatch pool nobody has taken on, `cancelled` one taken off them, which
+ * they may still be expecting. `none` is the diary never having had a booking to move, and a job
+ * that is done or past, which is a new job rather than a change. `reason` is said to the composer,
+ * so it is always a stable category; `detail` carries the machine text for the log and the run
  * summary, and never reaches a prompt.
  */
 export type BookedDate =
     | { ok: true; state: 'standing'; bookingRef: string; date: string; words: string; rowId: string }
-    | { ok: false; state: 'unaccepted' | 'none' | 'unknown'; reason: string; detail?: string | null; bookingRef: string | null };
+    | { ok: false; state: 'unaccepted' | 'cancelled' | 'none' | 'unknown'; reason: string; detail?: string | null; bookingRef: string | null };
 
 /**
  * The one authoritative booked date for the file's job, and the one entry point to it. Reads the
@@ -94,7 +98,7 @@ export async function confirmBookedDate(file: CaseFile, deps: SchedulingDeps = {
         return file.stage === 'booked' ? { ok: false, state: 'unknown', reason: 'the file is booked but references no booking or quote', bookingRef: null } : { ok: false, state: 'none', reason: 'nothing is booked on this file', bookingRef: null };
     }
     const gone = notStandingReason(booking, today);
-    if (gone) return { ok: false, state: 'none', reason: gone, bookingRef: booking.id };
+    if (gone) return { ok: false, state: gone.kind === 'cancelled' ? 'cancelled' : 'none', reason: gone.reason, bookingRef: booking.id };
     const unaccepted = unacceptedReason(booking);
     if (unaccepted) return { ok: false, state: 'unaccepted', reason: unaccepted, bookingRef: booking.id };
     if (!booking.scheduledDate) return { ok: false, state: 'unknown', reason: 'the booking carries no date yet', bookingRef: booking.id };

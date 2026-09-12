@@ -248,6 +248,40 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(second.result.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.held_ack);
     });
 
+    it('a diary date from an earlier turn is not one this turn looked up: the guard refuses it and the thread holds', async () => {
+        const { diary, seeded } = await seededDiary(6, { booked: true });
+        let dateFact = '';
+        const { client, gateway } = desk({
+            router: ({ n }) => n === 1 ? scoping() : n === 2 ? scheduling({ proposedStage: 'booked' }) : scoping({ turnKind: 'question', subjects: ['service'], proposedStage: 'booked' }),
+            specialist: specialists(['booked_date']),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
+                if (n === 2) {
+                    const date = /say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user)!;
+                    dateFact = date[2];
+                    return { reply: `You're booked in for ${date[1]}.`, factIds: [dateFact], kbIds: [] };
+                }
+                return { reply: 'Yes, Ben brings the parts with him. See you on 25 September 2026.', factIds: [dateFact], kbIds: [] };
+            },
+        }, diary);
+        const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        linkFixture(first.file, seeded);
+        const second = await gateway.inbound(turn('What day are you coming?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.result.bubbles[0].text).toContain('25 September 2026');
+        // The third turn is nobody's date question, so Scheduling never runs and nothing reads the diary.
+        const third = await gateway.inbound(turn('Does he bring the parts with him?', '2026-09-11T10:10:00.000Z'));
+        if (third.kind !== 'handled') throw new Error(third.kind);
+        expect(client.calls.filter((c) => c.role === 'specialist' && c.system.includes('Scheduling specialist'))).toHaveLength(1);
+        expect(third.result.decision).toBe('hold');
+        expect(third.result.note).toMatch(/guards failed twice/);
+        expect(third.file.hold?.failures.join(' ')).toContain('did not look up');
+        expect(third.result.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.held_ack);
+        expect(third.result.bubbles.map((b) => b.text).join(' ')).not.toContain('25 September 2026');
+        expect(third.file.hold?.draft).toContain('25 September 2026');
+    });
+
     it('a booked date the composer paraphrased with a weekday fails the date guard once and is written again from the diary', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({
