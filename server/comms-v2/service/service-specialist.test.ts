@@ -6,7 +6,7 @@
  * failed model call is no source, never silence.
  */
 import { describe, expect, it } from 'vitest';
-import { open, type CaseFile } from '../desk/case-file';
+import { open, recordFact, type CaseFile } from '../desk/case-file';
 import { FakeModelClient } from '../desk/models';
 import { emptyKb } from '../desk/scoping-tools';
 import { serve, serviceOutputSchema } from './service-specialist';
@@ -66,6 +66,31 @@ describe('the Service specialist', () => {
         const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
         expect(file.facts.find((f) => f.id === out.factIds[0])).toMatchObject({ key: 'phone', value: '+447700900942', source: { kind: 'customer_record', customerId: 'p1', field: 'phone' } });
         expect(out.proposal.hold).toBeNull();
+    });
+    it('an email-door thread: no email or address value reaches the model, and asking what we hold for either holds for Ben without reading it back', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'email:sam.hughes@example.org', propertyId: null, landlordId: null, name: 'Sam' },
+            channel: 'email', address: 'sam.hughes@example.org',
+            firstTurn: { at: '2026-09-11T10:00:00.000Z', channel: 'email', kind: 'text', body: 'Subject: My details\n\nWhat email and address do you have for me?', media: [] },
+        });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        expect(recordFact(file, { key: 'address', value: '12 Mill Lane, NG9 2AB', source: { kind: 'customer_record', customerId: 'p1', field: 'address' }, by: 'test' }).ok).toBe(true);
+        const client = new FakeModelClient({ specialist: () => ({ answers: [{ asked: 'email on file', source: 'record', id: 'email' }, { asked: 'address on file', source: 'record', id: 'address' }], changeOfDetails: null, holdReason: null }) });
+        const factsBefore = file.facts.length;
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(client.calls).toHaveLength(1);
+        for (const value of ['sam.hughes@example.org', '12 Mill Lane', 'NG9 2AB']) {
+            expect(client.calls[0].user).not.toContain(value);
+            expect(out.brief.join('\n')).not.toContain(value);
+        }
+        expect(client.calls[0].user).toContain('- email: held on file (not shown)');
+        expect(client.calls[0].user).toContain('- address: held on file (not shown)');
+        expect(client.calls[0].user).toContain('- name: Sam');
+        expect(out.factIds).toEqual([]);
+        expect(file.facts).toHaveLength(factsBefore);
+        expect(out.proposal.hold).toEqual({ reason: 'no_source', match: 'their email on file is masked from the desk; Ben to read it back' });
+        expect(out.brief.join(' ')).toMatch(/only Ben can read it back/);
     });
     it('a change of details is a fact and a hold; the record is not written', async () => {
         const file = fixture('My new email is sam@example.org');

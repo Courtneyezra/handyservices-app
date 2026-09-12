@@ -12,6 +12,7 @@ import { plannedSendOfResponse } from '../desk/planned-send';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
 import { PRODUCTION_DB_HOST_MARKER } from '../../worker-gate';
+import { SANDBOX_EMAIL } from '../channels/channel-doors';
 import { CHASE_TEMPLATES } from './chase';
 
 let server: import('node:http').Server;
@@ -37,6 +38,19 @@ afterAll(async () => { await new Promise<void>((r) => server.close(() => r())); 
 async function call(method: 'POST' | 'GET', route: string, body?: unknown) {
     const res = await fetch(`${base}${route}`, { method, headers: { 'content-type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined });
     return { status: res.status, json: await res.json() as any };
+}
+
+async function serve(router: express.Router) {
+    const app = express();
+    app.use(express.json());
+    app.use('/door', router);
+    const s: import('node:http').Server = await new Promise((resolve) => { const x = app.listen(0, '127.0.0.1', () => resolve(x)); });
+    const url = `http://127.0.0.1:${(s.address() as { port: number }).port}/door`;
+    const fn = async (method: 'POST' | 'GET', route: string, body?: unknown) => {
+        const res = await fetch(`${url}${route}`, { method, headers: { 'content-type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined });
+        return { status: res.status, json: await res.json() as any };
+    };
+    return Object.assign(fn, { close: () => new Promise<void>((r) => s.close(() => r())) });
 }
 
 describe('Goal 6 on the door', () => {
@@ -73,9 +87,9 @@ describe('Goal 6 on the door', () => {
         expect(ledger.json.automation.state).toBe('with_approver');
     });
     it('Ben replies: his words land on the thread with a human approver, the hold is released, the chase is cleared, and the next turn is automated', async () => {
-        const ben = await call('POST', '/ben-replies', { text: 'Sorry Sam, I will come and put that right.', surface: 'kanban' });
+        const ben = await call('POST', '/ben-replies', { text: 'Sorry Sam, I will come and put that right.' });
         expect(ben.status).toBe(200);
-        expect(ben.json).toMatchObject({ event: 'return_to_automation', approver: 'human:ben', surface: 'kanban', automation: { state: 'automated' } });
+        expect(ben.json).toMatchObject({ event: 'return_to_automation', approver: 'human:ben', channel: 'whatsapp', automation: { state: 'automated' } });
         expect(ben.json.released.words).toMatch(/put that right/);
         expect(ben.json.state.messages.pop()).toMatchObject({ direction: 'outbound', content: 'Sorry Sam, I will come and put that right.' });
         expect((await call('GET', '/chase')).json.record).toBeNull();
@@ -84,6 +98,42 @@ describe('Goal 6 on the door', () => {
         expect(ps.delivered).toBe(true);
         expect(ps.hold).toBeNull();
         expect(ps.bubbles[0]).toMatch(/Got it/);
+    });
+    it('Ben replies on an email thread: his words go on the email channel, and a photo he asks for is on the ledger so the desk does not ask again', async () => {
+        const client = new FakeModelClient({
+            router: ({ n }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: n === 1 ? 'complaint' : null, turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }),
+            composer: () => ({ reply: 'Thanks.', factIds: [], kbIds: [] }),
+        });
+        const door = await serve(createSandboxDoor({ client, fixedLines: noFixedLineSource, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN }).router);
+        try {
+            expect((await door('POST', '/start', { door: 'email', text: 'The shelf you put up has fallen off, not happy', name: 'Sam' })).status).toBe(200);
+            const ben = await door('POST', '/ben-replies', { text: 'Sorry Sam, can you send me a photo of the wall and I will come and put it right.' });
+            expect(ben.status).toBe(200);
+            expect(ben.json).toMatchObject({ channel: 'email', released: { words: expect.stringMatching(/photo of the wall/) } });
+            expect(ben.json.state.caseFile.sends.pop()).toMatchObject({ approver: 'human:ben', channel: 'email' });
+            expect(ben.json.state.caseFile.ledger.find((l: any) => l.subject === 'media')?.askedAt).toBeTruthy();
+        } finally {
+            await door.close();
+        }
+    });
+    it('an email-door thread asking what we hold: no email value reaches any model call, and the turn holds for Ben with the reason on his card', async () => {
+        const client = new FakeModelClient({
+            router: () => ({ subjects: ['service'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question' }),
+            specialist: () => ({ answers: [{ asked: 'email on file', source: 'record', id: 'email' }], changeOfDetails: null, holdReason: null }),
+            composer: () => ({ reply: 'We have an email address on file for you.\n\nBen will confirm it.', factIds: [], kbIds: [] }),
+        });
+        const door = await serve(createSandboxDoor({ client, fixedLines: noFixedLineSource, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN }).router);
+        try {
+            const r = await door('POST', '/start', { door: 'email', text: 'What email address do you have for me?', name: 'Sam' });
+            expect(r.status).toBe(200);
+            expect(r.json.state.caseFile.parties[0].channels.some((c: any) => c.address === SANDBOX_EMAIL)).toBe(true);
+            expect(client.calls.map((c) => c.role)).toEqual(['router', 'specialist', 'composer']);
+            for (const c of client.calls) expect(c.user).not.toContain(SANDBOX_EMAIL);
+            expect(plannedSendOfResponse(r.json).hold).toMatchObject({ approver: 'ben', reason: 'no_source: their email on file is masked from the desk; Ben to read it back' });
+        } finally {
+            await door.close();
+        }
     });
     it('the fixture refuses the production database, whatever the run copy has in its environment', async () => {
         const before = process.env.DATABASE_URL;

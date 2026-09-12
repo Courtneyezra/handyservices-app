@@ -1,15 +1,17 @@
 /**
  * The Service tool server (docs/comms-v2/contracts.md, the Service tool server). The specialist
- * for facts and aftercare has three things on its shelf and nothing else: the knowledge base, the
- * customer's own record, and a change of details. Every call is read-only against the world and
- * writes only to the case file through its calls.
+ * for facts and aftercare has four tools and nothing else: three on its shelf (the knowledge base,
+ * the customer's own record, and a change of details) and convergence, the deterministic check the
+ * desk runs every turn before the model is called, never a tool the model reaches for. Every call is
+ * read-only against the world and writes only to the case file through its calls.
  *
  *   kb_lookup          reviewed knowledge-base rows selected by question, by id, with the body
  *                      verbatim. Read through the one reviewed-only reader (scoping-tools.ts
  *                      reviewedKb wraps server/spine/knowledge-base.ts listReviewedEntries); an
  *                      unreviewed, retired or blank row is invisible here. May return nothing.
  *   customer_record    the customer's own details from the file's party record and the facts on
- *                      the file whose source is the customer record. Never another customer's.
+ *                      the file whose source is the customer record. Never another customer's. The
+ *                      email and address are MASKED_FIELDS: the model is told only that one is held.
  *   change_of_details  records a requested change as a fact and raises a hold for Ben; it never
  *                      writes the customer record itself.
  *   convergence        whether scoping is converging: a thread being scoped that has asked about
@@ -63,6 +65,8 @@ export async function kbLookup(question: string, reader: KbReader = reviewedKb, 
 
 export const RECORD_FIELDS = ['name', 'phone', 'email', 'address'] as const;
 export type RecordField = (typeof RECORD_FIELDS)[number];
+/** Fields the specialist's model may know are held but never sees: it cannot read them back, so asking what we hold is Ben's. */
+export const MASKED_FIELDS: ReadonlySet<RecordField> = new Set<RecordField>(['email', 'address']);
 
 export interface RecordEntry { field: RecordField; value: string; source: { kind: 'customer_record'; customerId: string; field: string } }
 

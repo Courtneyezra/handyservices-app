@@ -34,8 +34,8 @@ export const routerOutputSchema = z.object({
 });
 export type RouterOutput = z.infer<typeof routerOutputSchema>;
 
-/** Gravest first: the order the desk takes an exception in, so one fixed-line-only reason outranks the rest. */
-export const EXCEPTION_GRAVITY: readonly Exception[] = ['regulated', 'complaint', 'refund', 'trust_doubt', 'money', 'date_change', 'callback'];
+/** Gravest first: the order the desk takes an exception in, so one fixed-line-only reason outranks the rest. Keyed by every exception, so a new one cannot go unranked. */
+const EXCEPTION_GRAVITY: Record<Exception, number> = { regulated: 0, complaint: 1, refund: 2, trust_doubt: 3, money: 4, date_change: 5, callback: 6 };
 
 export interface Route extends Omit<RouterOutput, 'exception'> {
     /**
@@ -90,7 +90,7 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient): Pr
     if (belts.regulated) raised.add('regulated');
     if (belts.money) raised.add('money');
     if (out.exception) raised.add(out.exception);
-    const exceptions = EXCEPTION_GRAVITY.filter((e) => raised.has(e));
+    const exceptions = Array.from(raised).sort((a, b) => EXCEPTION_GRAVITY[a] - EXCEPTION_GRAVITY[b]);
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
     const { exception: _modelException, ...rest } = out;
     return { ...rest, exceptions, belts, call: res.record, error: res.error };

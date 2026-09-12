@@ -4,7 +4,9 @@
  * post-job follow-up. It answers only from a reviewed knowledge-base row, cited by id and
  * verbatim, or the customer's own record; it holds on complaints, refunds and trust doubts, on a
  * question it has no source for, on a change of details, and on scoping that is not converging
- * (which a thread with no job on it that nobody is scoping never is).
+ * (which a thread with no job on it that nobody is scoping never is). The model sees the customer's
+ * name and phone; an email or address on the record is shown only as held, never its value, so a
+ * customer asking what we hold for either is Ben's to answer.
  * Returns facts with their source and a proposal; never a sentence for the customer.
  *
  * Two halves, the Scoping pattern. The tool server first: convergence (deterministic, every turn),
@@ -21,7 +23,7 @@ import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import { reviewedKb, type KbReader } from '../desk/scoping-tools';
 import type { ServiceHold } from './hold-reasons';
-import { BY, changeOfDetails, convergence, customerRecord, kbLookup, RECORD_FIELDS, type KbRowVerbatim, type RecordEntry } from './service-tools';
+import { BY, changeOfDetails, convergence, customerRecord, kbLookup, MASKED_FIELDS, RECORD_FIELDS, type KbRowVerbatim, type RecordEntry } from './service-tools';
 
 /** What the model may return: selections and labels only. No field can carry a reply. */
 export const serviceOutputSchema = z.object({
@@ -42,7 +44,7 @@ export type ServiceOutput = z.infer<typeof serviceOutputSchema>;
 
 const SYSTEM = [
     'You are the Service specialist for a small handyman business\'s desk. You never write to the customer. You read the thread and the candidate knowledge-base rows and return selections only, no prose.',
-    'answers: one entry per thing the customer asked in the newest turn that is about the business, their own details, an invoice or receipt, or a finished job. source kb with the row id when a candidate row plainly answers it (the row must answer that question, not merely mention the topic); source record with the field (name, phone, email, address) when they ask what we have on file for them; source none with id null when nothing given answers it. Never answer from your own knowledge of the business. Scoping questions about the job itself are not yours: leave them out.',
+    'answers: one entry per thing the customer asked in the newest turn that is about the business, their own details, an invoice or receipt, or a finished job. source kb with the row id when a candidate row plainly answers it (the row must answer that question, not merely mention the topic); source record with the field (name, phone, email, address) when they ask what we have on file for them, including an email or address shown only as held; source none with id null when nothing given answers it. Never answer from your own knowledge of the business. Scoping questions about the job itself are not yours: leave them out.',
     'changeOfDetails: when they ask to change their name, phone, email or address, the field and the new value exactly as they gave it; otherwise null.',
     'holdReason: complaint when they are unhappy with us or our work, refund when they want money back, trust_doubt when they doubt we are legitimate or a scam worry; otherwise null. "Are you insured" on its own is a factual question, not a trust doubt.',
     'Reply with the JSON object only.',
@@ -93,7 +95,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
         rows.length ? rows.map((r) => `- id ${r.id}: topic "${r.topic}"; body "${r.body}"`).join('\n') : '(none matched)',
         '',
         'The customer\'s own record (fields we hold):',
-        record.length ? record.map((e) => `- ${e.field}: ${e.value}`).join('\n') : '(nothing on file)',
+        record.length ? record.map((e) => MASKED_FIELDS.has(e.field) ? `- ${e.field}: held on file (not shown)` : `- ${e.field}: ${e.value}`).join('\n') : '(nothing on file)',
     ].join('\n');
     const res = await client.structured({ role: 'specialist', model: SPECIALIST_MODEL, effort: 'medium', system: SYSTEM, user, schema: serviceOutputSchema, maxTokens: 600 });
     calls.push(res.record);
@@ -119,6 +121,13 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
             }
         } else if (a.source === 'record') {
             const entry = record.find((e) => e.field === a.id);
+            if (entry && MASKED_FIELDS.has(entry.field)) {
+                // A masked field is never read back by the desk: the customer hears we hold one, and Ben confirms it.
+                brief.push(`They asked "${a.asked}": we hold their ${entry.field} on file, but only Ben can read it back. Say we have it on file and Ben will confirm it; do not state or guess it.`);
+                notes.push(`record ${entry.field} masked for "${a.asked}"`);
+                if (!hold) hold = { reason: 'no_source', match: `their ${entry.field} on file is masked from the desk; Ben to read it back` };
+                continue;
+            }
             if (entry) {
                 const fact = recordFact(file, { key: entry.field, value: entry.value, source: entry.source, by: BY }, fileDeps);
                 if (fact.ok) {
