@@ -212,8 +212,11 @@ that the customer was never shown.
 assumptions, link and status, each with source `quote_line` naming the quote and the label. A
 brief: the quote is with Ben, or answer from these facts, or point at the quote page to accept, or
 acknowledge a not-ready customer. Holds: money beyond a quote line, acceptance in chat, and a draft
-the clerk could not build, where the brief promises the customer nothing and the hold reason names
-the failure, because no quote exists and Ben has had no notification. Never a
+the clerk could not build, where the brief promises the customer nothing, the turn asks nothing and
+carries the held acknowledgement instead, and the hold reason names the failure, because no quote
+exists and Ben has had no notification. A later turn that does draft the quote answers that hold:
+the desk releases it in its own words, naming the quote and its price screen, so the card never
+tells Ben to build a quote that is already waiting for him. Never a
 sentence for the customer. Acceptance is a human event the door (live, the payment webhook)
 records; the specialist can only read it.
 

@@ -231,24 +231,44 @@ describe('the desk', () => {
         expect(b.file.hold?.draft).toContain('Still here');
     });
 
-    it('a quote the clerk could not build holds for Ben, and the customer is promised nothing', async () => {
-        const store = new MemoryQuoteStore();
+    it('a quote the clerk could not build holds for Ben and asks nothing; the next turn drafts it and the hold goes with the price screen named', async () => {
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        const fake = new FakeDrafter(store, { materialsPence: 2000 });
+        let attempts = 0;
+        const drafter = { draft: (input: Parameters<typeof fake.draft>[0]) => (attempts++ === 0 ? Promise.resolve({ ok: false as const, reason: 'estimator down', log: [], calls: [] }) : fake.draft(input)) };
         let composerUser = '';
         const { gateway } = desk({
             router: () => routeScoping(),
+            // The pipeline's own 4.1 and 4.2 turn: the job and the postcode in one message, no
+            // access given, so Scoping's next question is access and the clerk is ready to draft.
             specialist: ({ system }) => (/lines of a quote/.test(system)
-                ? { lines: [{ title: 'Replace kitchen tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
-                : specialistFacts([{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }, { key: 'access', value: 'parking outside, someone in all day' }], ['job', 'postcode', 'access'])),
-            composer: ({ user }) => { composerUser = user; return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.\n\nBen will come back to you himself.', factIds: [], kbIds: [] }; },
-        }, undefined, { quoting: { store, drafter: new FakeDrafter(store, { fail: 'estimator down' }), notifier: recordingNotifier } });
-        const out = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
-        if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(out.file.job.quoteRef).toBeNull();
-        expect(out.file.hold?.reason).toContain('the quote draft failed (estimator down)');
-        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            composer: ({ user }) => { composerUser = user; return { reply: 'Hi Sam, a dripping mixer tap in NG9, got it.\n\nBen will come back to you himself.', factIds: [], kbIds: [] }; },
+        }, undefined, { quoting: { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.job.quoteRef).toBeNull();
+        expect(first.file.hold?.reason).toContain('the quote draft failed (estimator down)');
+        expect(first.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
         expect(composerUser).toContain('quoting: draft failed (estimator down)');
         expect(composerUser).not.toMatch(/with Ben to price|put the quote together|send it over/);
+        // No question on the turn the draft failed, and Ben's acknowledgement to carry instead.
         expect(composerUser).toContain('an acknowledgement only');
-        expect(out.result.bubbles.join(' ')).not.toMatch(/quote/i);
+        expect(composerUser).not.toMatch(/ask one question about/);
+        expect(composerUser).toContain(DEFAULT_FIXED_LINES.held_ack);
+        expect(first.result.bubbles.join(' ')).not.toMatch(/quote/i);
+
+        const second = await gateway.inbound(turn('any news?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        const slug = second.file.job.quoteRef;
+        expect(slug).toBeTruthy();
+        expect(second.file.hold).toBeNull();
+        expect(second.result.hold).toBeNull();
+        const words = second.file.releases[0]?.words ?? '';
+        expect(words).toContain(slug!);
+        expect(words).toContain(`https://test.local/admin/price/${slug}`);
+        expect(composerUser).toContain(`quoting: drafted ${slug} for Ben to price`);
     });
 });

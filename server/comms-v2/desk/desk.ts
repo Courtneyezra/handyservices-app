@@ -14,7 +14,7 @@
  * otherwise; a clock pass never sends ("no chasing", "one acknowledgement, then quiet").
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
+import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
@@ -26,7 +26,7 @@ import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
-import { quote as quoteGather, quotingClock, quotingOwnsThread, quotingSummary, type QuotingSpecialistDeps } from '../quoting/quoting-specialist';
+import { quote as quoteGather, quoteStateOf, quotingClock, quotingOwnsThread, quotingSummary, type QuotingSpecialistDeps } from '../quoting/quoting-specialist';
 import { liveFigureQuotes } from '../quoting/quoting-tools';
 
 export interface DeskDeps extends CaseFileDeps {
@@ -43,6 +43,8 @@ export interface DeskDeps extends CaseFileDeps {
 
 const FIXED_LINE_ONLY: ReadonlySet<Exception> = new Set<Exception>(['complaint', 'refund', 'trust_doubt', 'regulated']);
 const ANSWER_THE_REST: ReadonlySet<Exception> = new Set<Exception>(['money', 'date_change']);
+/** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
+const DRAFT_FAILED_HOLD = 'the quote draft failed';
 
 export class Desk implements DeskLike {
     private readonly client: ModelClient;
@@ -120,6 +122,13 @@ export class Desk implements DeskLike {
             } else {
                 const quoting = await quoteGather(file, turn, party, route, this.client, this.quotingDeps());
                 if (quoting) { calls.push(...quoting.calls); specialists.push(quoting); if (quoting.error) log(`quoting: ${quoting.error}`); }
+                // A quote the desk failed to draft earlier exists now, so the hold that told Ben to
+                // build it himself is answered: the desk releases it in its own words and the card
+                // points at the price screen, rather than leaving him to make a second quote by hand.
+                if (file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) && file.job.quoteRef) {
+                    const priceScreen = quoteStateOf(file)?.priceScreen;
+                    releaseHold(file, file.hold.approver, `the desk drafted quote ${file.job.quoteRef} on a later turn and Ben has been notified${priceScreen ? `: ${priceScreen}` : ''}`, this.fileDeps());
+                }
                 if (exception && ANSWER_THE_REST.has(exception)) {
                     const line = await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines);
                     fixedLines.push(line);
@@ -130,8 +139,9 @@ export class Desk implements DeskLike {
                 } else if (quoting?.proposal.hold?.reason === 'acceptance' && !file.hold) {
                     setHold(file, { approver: approverFor(file, null), reason: `acceptance in chat: ${quoting.proposal.hold.match}; acceptance stays on the quote page and with Ben` }, this.fileDeps());
                 } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
-                    if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: `the quote draft failed (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, failures: [] }, this.fileDeps());
-                    if (scoping) scoping.proposal.ready = false;
+                    fixedLines.push(await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, failures: [] }, this.fileDeps());
+                    if (scoping) { scoping.proposal.nextQuestion = null; scoping.proposal.mentionPhotos = false; scoping.proposal.ready = false; }
                 }
                 if (route.subjects.includes('scheduling')) fixedLines.push(await fixedLine('dates_with_quote', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
