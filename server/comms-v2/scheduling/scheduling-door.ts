@@ -67,7 +67,7 @@ export function linkFixture(file: CaseFile, seeded: FixtureResult, deps: { now?:
     const ready = linkReady(file, !!seeded.quoteRef);
     if (!ready.ok) return ready;
     if (!seeded.quoteRef) return { ok: true, stage: file.stage };
-    file.job.quoteRef = seeded.quoteRef;
+    file.job.quoteRef = seeded.quoteSlug ?? seeded.quoteRef;
     const bookingRef = seeded.bookingRef ?? file.job.bookingRef ?? null;
     file.job.bookingRef = bookingRef;
     const target: CaseFile['stage'] = bookingRef ? 'booked' : 'quoted';

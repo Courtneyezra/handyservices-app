@@ -14,17 +14,19 @@ import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { noFixedLineSource } from '../desk/fixed-lines';
+import { DEFAULT_FIXED_LINES, noFixedLineSource } from '../desk/fixed-lines';
 import { FakeModelClient } from '../desk/models';
 import { plannedSendOfResponse, sendLanded } from '../desk/planned-send';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
 import { SMS_MAX_SEGMENTS, smsSegmentCount } from '../channels/sms-adapter';
-import { FIRST_CONTACT_ACK } from './quoting-door';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter } from './draft-quote';
 import { MemoryQuoteStore } from './quote-store';
+
+/** The one registry of Ben's fixed sentences is where the delivery's first contact comes from. */
+const FIRST_CONTACT_ACK_WORDS = DEFAULT_FIXED_LINES.first_contact_ack;
 
 let server: import('node:http').Server;
 let base: string;
@@ -42,7 +44,7 @@ beforeAll(async () => {
         },
         specialist: ({ system, user }) => {
             if (/lines of a quote/.test(system)) return intakeOutput;
-            if (/what it concerns/.test(system)) return { concerns: [{ kind: 'line_amount', label: 'Replace kitchen tap' }], beyondQuoteLine: /cheaper/i.test(user.split('>>').pop() ?? ''), acceptanceInChat: false, notReady: false };
+            if (/what it concerns/.test(system)) { const last = user.split('>>').pop() ?? ''; return { concerns: [{ kind: 'line_amount', label: 'Replace kitchen tap' }], beyondQuoteLine: /cheaper/i.test(last), acceptanceInChat: /go ahead/i.test(last), notReady: false }; }
             return { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] };
         },
         composer: ({ user }) => {
@@ -207,6 +209,15 @@ describe('the quoting door', () => {
         expect(ps.bubbles.join(' ')).not.toMatch(/£/);
     });
 
+    it('adds acceptance in chat to the card Ben already has, rather than dropping it because one stands', async () => {
+        // The money card from the turn before is still open: acceptance stays human either way, so
+        // what the customer just said has to reach Ben rather than being lost to that card.
+        const r = await post('/message', { text: 'Yes, go ahead and book it in', channel: 'whatsapp' });
+        const ps = plannedSendOfResponse(r.json);
+        expect(ps.hold?.reason).toMatch(/money beyond a quote line/);
+        expect(ps.hold?.reason).toMatch(/acceptance in chat/);
+    });
+
     it('acceptance flips the thread, records Ben\'s push, and the customer gets one acknowledgement', async () => {
         const r = await post('/accept', {});
         expect(r.status).toBe(200);
@@ -362,6 +373,32 @@ describe('the price route and the holds around it', () => {
         }
     });
 
+    it('restates its own card when the delivery holds twice, so the send that finally lands still clears it', async () => {
+        const { call, close } = await standUp();
+        try {
+            // The window shuts, Ben prices, the card is this route's own.
+            await call('/age', { hours: 25 });
+            expect((await call('/price', {})).json.sent).toBe(false);
+            // They write, so the window reopens; Ben leaves it a day and the window shuts again.
+            // The second attempt's reason names a later last-wrote-at, so it is not word for word
+            // the first: the card is still only this route's, so it says the newer one and no more.
+            await call('/message', { text: 'any news on that quote?', channel: 'whatsapp' });
+            await call('/age', { hours: 25 });
+            const twice = await call('/price', {});
+            expect(twice.json.sent).toBe(false);
+            expect(twice.json.state.caseFile.hold.reason.match(/window is shut/g)).toHaveLength(1);
+
+            await call('/message', { text: 'still waiting on that quote', channel: 'whatsapp' });
+            const priced = await call('/price', {});
+            expect(priced.json.sent).toBe(true);
+            // Nobody else wrote on the card, so it is still this route's to clear.
+            expect(priced.json.state.caseFile.hold).toBeNull();
+            expect(priced.json.state.caseFile.releases).toHaveLength(1);
+        } finally {
+            await close();
+        }
+    });
+
     it('sends the quote on the channel the customer wrote on, not a channel it names: an SMS thread whose number is on WhatsApp but never wrote there', async () => {
         const { call, close } = await standUp({ door: 'sms', seed: { whatsapp: true } });
         try {
@@ -417,8 +454,8 @@ describe('the price route and the holds around it', () => {
             // asked to name an enquiry.
             expect(lastPrompt()).not.toContain('this is the first message they receive from us');
             const text = ps.bubbles.join('\n');
-            expect(text).toContain(FIRST_CONTACT_ACK);
-            expect(text.indexOf(FIRST_CONTACT_ACK)).toBeLessThan(text.indexOf('/quote/'));
+            expect(text).toContain(FIRST_CONTACT_ACK_WORDS);
+            expect(text.indexOf(FIRST_CONTACT_ACK_WORDS)).toBeLessThan(text.indexOf('/quote/'));
             // The composer was told the room that is left, so what it wrote fits beside that line
             // in one text of two segments rather than coming back from the render too long.
             expect(smsSegmentCount(text)).toBeLessThanOrEqual(SMS_MAX_SEGMENTS);
@@ -447,7 +484,7 @@ describe('the price route and the holds around it', () => {
             expect(ps.bubbles.join(' ')).toContain('/quote/');
             // Something has already gone back to them, so the delivery is a delivery and nothing else.
             expect(lastPrompt()).not.toContain('this is the first message they receive from us');
-            expect(ps.bubbles.join('\n')).not.toContain(FIRST_CONTACT_ACK);
+            expect(ps.bubbles.join('\n')).not.toContain(FIRST_CONTACT_ACK_WORDS);
             expect(priced.json.state.caseFile.hold).toBeNull();
             expect(priced.json.state.caseFile.releases).toHaveLength(0);
         } finally {

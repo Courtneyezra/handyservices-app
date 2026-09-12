@@ -8,9 +8,12 @@
  * Live, the sender refuses a default for those four: only words from the four sources reach a
  * customer. The Goal 1 lines below them are the checklist's own wording and send live.
  * The rest are Goal 1's: money goes to Ben (checklist 2.7), dates come with the quote (2.6), and
- * the acknowledgement a guard hold sends (Contract 4, second failure).
+ * the acknowledgement a guard hold sends (Contract 4, second failure). `first_contact_ack` is
+ * Goal 4's: the quote delivery carries it where the acknowledgement a web-form enquiry was owed
+ * held for Ben and never went, so the first message that ever reaches them names us and the
+ * enquiry it follows rather than being a bare link (`quoting/quoting-door.ts`).
  */
-export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp';
+export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     gas: "Thanks for getting in touch. Gas work isn't something we take on ourselves, so I've passed this to Ben and he'll come back to you.",
@@ -22,6 +25,7 @@ export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     date_change_to_ben: 'Ben will come back to you on the date.',
     held_ack: "Thanks, I've passed this to Ben and he'll come back to you.",
     move_to_whatsapp: "If it's easier, you can message us on WhatsApp on this same number.",
+    first_contact_ack: 'Thanks for your enquiry - Ben here from Handy Services.',
 };
 
 /** The four whose words are Ben's to review; a default for one of these sends in dry run only. The other kinds are Goal 1 wording and send live. */

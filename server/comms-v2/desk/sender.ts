@@ -52,8 +52,28 @@ export type ChannelChoice = { ok: true; channel: ReplyChannel; address: string }
  * carry the reply, and failing that WhatsApp if the number is on it, then SMS, then email. An SMS
  * from a party whose WhatsApp window is open is answered on WhatsApp (the design's "if a known
  * customer also has WhatsApp, prefer it"), never on a shut one.
+ *
+ * `noTemplate` is for a send no approved template can carry, which today is the quote delivery: its
+ * link is on no template of ours. Where the channel the order lands on is one the customer has
+ * never written on and whose window is shut - the WhatsApp record a form or a call lead is given
+ * for a number known to be on WhatsApp - that window would take a template and none carries the
+ * link, so the send takes the next channel that needs no template rather than never reaching them.
+ * A channel the customer chose keeps its normal treatment: a genuine WhatsApp thread gone quiet for
+ * a day still comes back shut, and the caller holds it for Ben.
  */
-export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date = new Date()): ChannelChoice {
+export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date = new Date(), opts: { noTemplate?: boolean } = {}): ChannelChoice {
+    const choice = channelFor(party, wroteOn, now);
+    if (!choice.ok || !opts.noTemplate) return choice;
+    const chosen = party.channels.find((c) => c.kind === choice.channel);
+    if (chosen?.lastInboundAt || windowOf(party, choice.channel, now).state === 'open') return choice;
+    for (const kind of ['sms', 'email'] as const) {
+        const next = party.channels.find((c) => c.kind === kind);
+        if (next) return { ok: true, channel: kind, address: next.address };
+    }
+    return choice;
+}
+
+function channelFor(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date): ChannelChoice {
     const carry = (kind: ReplyChannel) => party.channels.find((c) => c.kind === kind);
     if (wroteOn === 'sms' && carry('whatsapp') && windowOf(party, 'whatsapp', now).state === 'open') return { ok: true, channel: 'whatsapp', address: carry('whatsapp')!.address };
     if (wroteOn === 'whatsapp' || wroteOn === 'sms' || wroteOn === 'email') {

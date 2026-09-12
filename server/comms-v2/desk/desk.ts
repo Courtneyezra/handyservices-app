@@ -147,13 +147,13 @@ export class Desk implements DeskLike {
                 } else if (quoting?.proposal.hold?.reason === 'money') {
                     fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                     this.holdFor(file, 'money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
-                } else if (quoting?.proposal.hold?.reason === 'acceptance' && !file.hold) {
-                    setHold(file, { approver: approverFor(file, null), reason: `acceptance in chat: ${quoting.proposal.hold.match}; acceptance stays on the quote page and with Ben` }, this.fileDeps());
+                } else if (quoting?.proposal.hold?.reason === 'acceptance') {
+                    this.holdFor(file, null, `acceptance in chat: ${quoting.proposal.hold.match}; acceptance stays on the quote page and with Ben`);
                 } else if (quoting?.proposal.hold?.reason === 'stale_quote') {
-                    if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: `the quote is no longer live (${quoting.proposal.hold.match}): no figure may be read from it and the customer has been told Ben will come back to them on it`, failures: [] }, this.fileDeps());
+                    this.holdFor(file, null, `the quote is no longer live (${quoting.proposal.hold.match}): no figure may be read from it and the customer has been told Ben will come back to them on it`);
                 } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
                     fixedLines.push(await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, failures: [] }, this.fileDeps());
+                    this.holdFor(file, null, `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`);
                     if (scoping) { scoping.proposal.nextQuestion = null; scoping.proposal.mentionPhotos = false; scoping.proposal.ready = false; }
                 }
                 // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change holds for Ben and the reply still answers the rest.

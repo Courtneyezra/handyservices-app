@@ -138,7 +138,9 @@ describe('the scheduling fixture on the door', () => {
         const seeded = await post('/scheduling/fixture', { quote: true });
         expect(seeded.status).toBe(200);
         expect(seeded.json.linked).toMatchObject({ stage: 'quoted', bookingRef: null });
-        expect(seeded.json.linked.quoteRef).toBe(seeded.json.seeded.quoteRef);
+        // One spelling of job.quoteRef across both specialists: the diary resolves either, the
+        // quote store reads only the slug, so the file names the slug.
+        expect(seeded.json.linked.quoteRef).toBe(seeded.json.seeded.quoteSlug);
         const r = await post('/message', { text: 'What dates do you have?', channel: 'whatsapp' });
         const ps = plannedSendOfResponse(r.json);
         expect(ps.delivered).toBe(true);
@@ -147,6 +149,18 @@ describe('the scheduling fixture on the door', () => {
         expect(r.json.state.conversation.stage).toBe('quoted');
         expect(ps.evidence.summary).toMatch(/Dates are picked on the quote page/);
     });
+    it('names the fixture quote the way the quote store reads one, so Quoting finds the row the file points at', async () => {
+        await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
+        const seeded = await post('/scheduling/fixture', { quote: true });
+        const { quoteRef, quoteSlug } = seeded.json.seeded;
+        // Live there is one quotes table, so the row the fixture wrote is one the quote store reads.
+        quoteStore.rows.set(quoteSlug, { id: quoteRef, shortSlug: quoteSlug, isDraft: false, basePrice: 12000, depositAmountPence: 4000, pricingLineItems: [{ lineId: 'card_1', label: 'Repair leaking tap', qty: 1, pricePence: 12000 }] });
+        const read = await fetch(`${base}/quote`);
+        const body = await read.json() as any;
+        expect(body.record).toMatchObject({ slug: quoteSlug, status: 'sent' });
+        expect(body.record.lines[0]).toMatchObject({ label: 'Repair leaking tap', pricePence: 12000 });
+    });
+
     it('5.5: changing a booked date holds for Ben, the reply confirms the booked date from the diary and carries the fixed line', async () => {
         await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
         const seeded = await post('/scheduling/fixture', { booked: true });

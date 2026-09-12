@@ -18,21 +18,23 @@
  *   GET  /quote   The quote as the file records it and as the row holds it: status, lines to the
  *                 penny, Ben's recorded notifications.
  *
- * Mounted by desk/sandbox-door.ts in the place of its Goal 1 refusal. One sentence here is the
- * route's own, `FIRST_CONTACT_ACK` below, fixed word for word, and every other word is the desk
- * composer's: the delivery through `composeQuoteSent` and the acknowledgement on acceptance
- * through the desk itself.
+ * Mounted by desk/sandbox-door.ts in the place of its Goal 1 refusal. Every word the customer reads
+ * is the desk composer's - the delivery through `composeQuoteSent`, the acknowledgement on
+ * acceptance through the desk itself - but one, the `first_contact_ack` fixed line the delivery
+ * puts ahead of the link where nothing has ever reached them, taken from the one registry of Ben's
+ * fixed sentences (`desk/fixed-lines.ts`) like every other.
  */
 import { Router, type Response } from 'express';
 import { appendTurn, hold as setHold, noteOnHold, release as releaseHold, type CaseFile, type ModelCallRecord, type Party, type ReplyChannel, type Turn } from '../desk/case-file';
 import { compose } from '../desk/composer';
+import { fixedLine, knowledgeBaseFixedLines } from '../desk/fixed-lines';
 import type { DeskDeps } from '../desk/desk';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict } from '../desk/desk-types';
 import { AnthropicModelClient } from '../desk/models';
 import type { Gateway } from '../desk/gateway';
 import { BEN, noReplyToCheck, runGuards, type GuardOutcome } from '../desk/guards';
 import type { PlannedSend } from '../desk/planned-send';
-import { chooseChannel, render, send, windowOf, type ChannelChoice } from '../desk/sender';
+import { chooseChannel, render, send, windowOf } from '../desk/sender';
 import { acknowledgesEnquiry } from '../channels/composer-lines';
 import { quoteRecordOf } from './quote-record';
 import { humanRunId, markQuoteSent, priceQuote, recordAcceptance, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
@@ -62,43 +64,6 @@ const priceHold = (slug: string) => `quote ${slug} priced;`;
 function newestCustomerTurn(file: CaseFile, party: Party): Turn {
     return [...file.turns].reverse().find((t) => t.direction === 'inbound' && t.partyId === party.personId) ?? file.turns[file.turns.length - 1];
 }
-
-/**
- * The channel the quote delivery goes out on: the desk's own choice, unless that choice is a
- * channel the customer has never written on whose window cannot carry the send now. That is the
- * WhatsApp record a form or a call lead is given for a number known to be on WhatsApp: its window
- * has never opened, a shut window takes an approved template and none of the desk's carries a
- * quote link, so the delivery takes the next channel in the order, which needs no template, rather
- * than the link never reaching them. A channel the customer chose keeps its normal treatment: a
- * genuine WhatsApp thread that has gone quiet for a day holds the delivery for Ben (5.1), and so
- * does a party with no other channel. Only the delivery does this; an acknowledgement on a shut
- * window is still the approved template's to carry.
- */
-function deliveryChannel(party: Party, wroteOn: Parameters<typeof chooseChannel>[1], now: Date): ChannelChoice {
-    const choice = chooseChannel(party, wroteOn, now);
-    if (!choice.ok) return choice;
-    const chosen = party.channels.find((c) => c.kind === choice.channel);
-    if (chosen?.lastInboundAt || windowOf(party, choice.channel, now).state === 'open') return choice;
-    for (const kind of ['sms', 'email'] as const) {
-        const next = party.channels.find((c) => c.kind === kind);
-        if (next) return { ok: true, channel: kind, address: next.address };
-    }
-    return choice;
-}
-
-/**
- * The one sentence this route sends of its own, for the case where the quote delivery is the first
- * thing that will ever reach them because the acknowledgement their web-form enquiry was owed held
- * for Ben rather than went (a WhatsApp window that never opened, with no approved template for the
- * purpose). Ben's own voice, naming the business and the enquiry it follows, with no figure, no
- * timing, no promise and no question. Fixed word for word and nothing interpolated: no
- * model-written fact reaches a customer through it, and no guard can fail on words the composer's
- * retry has no power to change, which is what `quoting-tools.test.ts` runs the eight guards over.
- * It goes ahead of the composer's words as the first bubble where the channel has bubbles, and as
- * the opening line of the one message where it does not; the composer is given the room that is
- * left rather than the whole channel budget.
- */
-export const FIRST_CONTACT_ACK = 'Thanks for your enquiry - Ben here from Handy Services.';
 
 /**
  * Whether the quote going out clears the hold on the thread. Exactly one hold it clears: the one
@@ -213,8 +178,8 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             const turn = newestCustomerTurn(file, party);
             // Read before the delivery lands, because the send itself appends an outbound turn:
             // after it, nothing can tell that this send was the first thing they ever received.
-            const ack = acknowledgesEnquiry(file, turn) ? FIRST_CONTACT_ACK : null;
-            const choice = deliveryChannel(party, turn?.channel ?? null, opts.now());
+            const ack = acknowledgesEnquiry(file, turn) ? (await fixedLine('first_contact_ack', opts.deps.fixedLines ?? knowledgeBaseFixedLines)).text : null;
+            const choice = chooseChannel(party, turn?.channel ?? null, opts.now(), { noTemplate: true });
             if (!choice.ok) { res.status(409).json({ error: choice.reason }); return; }
             const window = windowOf(party, choice.channel, opts.now());
             // The quote is never marked sent unless the text that went IS the quote. On a shut
@@ -226,7 +191,7 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             // desk's sender is its own cutover item; submitting a template to Meta is not the
             // desk's to do.
             const holdAndAnswer = (why: string, draft: string | null, failures: string[], guards: Record<GuardName, GuardVerdict> = noReplyToCheck(), calls: ModelCallRecord[] = []) => {
-                if (file.hold) noteOnHold(file, { reason: why, draft, failures });
+                if (file.hold) noteOnHold(file, { reason: why, draft, failures, ownCard: priceHold(priced.record.slug) });
                 else setHold(file, { approver: BEN, reason: why, draft: draft ?? undefined, failures }, { now: opts.now, newId: opts.deps.newId });
                 const held: DeskResult = { runId, decision: 'hold', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: null, bubbles: [], factIds: priced.factIds, kbIds: [], guards, approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls, note: why, summary: `ben priced ${priced.record.slug}; not sent`, error: null, landedTurnId: null, composerCalls: calls.length };
                 respond(res, file, held, { slug: priced.record.slug, totals: priced.totals, quoteUrl: priced.quoteUrl, sent: false });

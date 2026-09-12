@@ -227,7 +227,8 @@ lead is given for a number known to be on WhatsApp. Holding on that never-opened
 the link from the lead the fallback order was written for, so the delivery takes the next channel
 in the order, which needs no template. A WhatsApp thread the customer wrote on holds as above.
 
-One sentence of the send is the route's own rather than the composer's, fixed word for word: where
+One sentence of the send is a fixed line rather than the composer's, from the one registry of Ben's
+fixed sentences (`first_contact_ack`, desk/fixed-lines.ts): where
 the acknowledgement a web-form enquiry was owed held for Ben and never went, the delivery is the
 first message that will ever reach them, so it opens with a line naming us and the enquiry it
 follows, ahead of the composer's words. The composer is told the room left after that line, not the
@@ -281,7 +282,9 @@ on the read that worked at the top of the turn, and the brief then forbids a fig
 the amounts an earlier turn recorded are still on the file and the reply is still written.
 
 **What Ben's send releases.** Exactly one hold, and only while it still says nothing but what that
-step wrote: the one the price route itself put on the thread when an earlier attempt did not send,
+step wrote. The route saying its own card again with a later reason - a second shut window, a
+second guard failure - restates that card rather than adding a near-duplicate to it (`own_card` on
+`note_on_hold`), so a card one step owns end to end stays that step's to clear: the one the price route itself put on the thread when an earlier attempt did not send,
 which this attempt has now done. It clears in the desk's own words naming that send, never the
 delivery that went, because nobody read those words before they went and a release recorded in them
 would read as Ben's own answer to whatever the card asked. A hold is one card carrying every reason

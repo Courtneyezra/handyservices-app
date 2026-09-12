@@ -9,14 +9,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import { appendTurn, ask, customerVisibleFacts, isInternalFact, open, recordFact, type CaseFile } from '../desk/case-file';
+import { DEFAULT_FIXED_LINES } from '../desk/fixed-lines';
 import { GUARD_NAMES, runGuards } from '../desk/guards';
 import { smsSegmentCount } from '../channels/sms-adapter';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
 import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteRowLike, type QuoteStatus } from './quote-record';
 import { MemoryQuoteStore, QUOTE_READ_COLUMNS } from './quote-store';
-import { FIRST_CONTACT_ACK } from './quoting-door';
 import { CHASE_MAX, chase, draftQuote, liveFigureQuotes, loadQuote, notifyBen, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
+
+/** The one registry of Ben's fixed sentences is where the delivery's first contact comes from. */
+const FIRST_CONTACT_ACK_WORDS = DEFAULT_FIXED_LINES.first_contact_ack;
 
 function fixture(text = 'Hi, my kitchen tap is leaking, NG9 2AB', ready = true): CaseFile {
     const r = open({
@@ -134,14 +137,14 @@ describe('the first-contact acknowledgement the delivery sends of its own', () =
         // become a hold the composer's retry has no power to clear.
         const file = fixture();
         const out = runGuards({
-            file, party: file.parties[0], turn: file.turns[0], reply: FIRST_CONTACT_ACK,
+            file, party: file.parties[0], turn: file.turns[0], reply: FIRST_CONTACT_ACK_WORDS,
             factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, prompted: 'human_action', liveQuoteRefs: new Set<string>(),
         });
         expect(Object.keys(out.guards).sort()).toEqual([...GUARD_NAMES].sort());
         expect(Object.entries(out.guards).filter(([, v]) => v.result !== 'pass')).toEqual([]);
         expect(out.ok).toBe(true);
         // Short enough to sit ahead of a quote message in one text of two segments.
-        expect(smsSegmentCount(FIRST_CONTACT_ACK)).toBe(1);
+        expect(smsSegmentCount(FIRST_CONTACT_ACK_WORDS)).toBe(1);
     });
 });
 
