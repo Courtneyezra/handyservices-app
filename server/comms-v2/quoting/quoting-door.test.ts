@@ -321,6 +321,47 @@ describe('the price route and the holds around it', () => {
         }
     });
 
+    it('leaves the card standing when a question was added to it since, rather than clearing the question with the delivery', async () => {
+        const { call, close } = await standUp();
+        try {
+            // The window shuts, so Ben's attempt holds and the card is this route's own.
+            await call('/age', { hours: 25 });
+            const held = await call('/price', {});
+            expect(held.json.sent).toBe(false);
+            expect(held.json.state.caseFile.hold.reason).toMatch(/window is shut/);
+
+            // They write again, which reopens the window and adds a money question to that card.
+            const asked = await call('/message', { text: 'Do you charge a call-out fee on top?', channel: 'whatsapp' });
+            expect(asked.json.state.caseFile.hold.reason).toMatch(/money: /);
+
+            const priced = await call('/price', {});
+            expect(priced.json.sent).toBe(true);
+            // A card is one card: clearing it would take the fee question with it, and the delivery
+            // carries the link and nothing else, so nobody has answered that question.
+            expect(priced.json.state.caseFile.hold.reason).toMatch(/money: /);
+            expect(priced.json.state.caseFile.releases).toHaveLength(0);
+        } finally {
+            await close();
+        }
+    });
+
+    it('says on the open card that the priced quote did not go out, rather than losing that to a card already standing', async () => {
+        const { call, close } = await standUp();
+        try {
+            const asked = await call('/message', { text: 'How much roughly?', channel: 'whatsapp' });
+            expect(asked.json.state.caseFile.hold).toMatchObject({ exception: 'money' });
+            await call('/age', { hours: 25 });
+
+            const priced = await call('/price', {});
+            expect(priced.json.sent).toBe(false);
+            // Ben reads one card, so what stopped the delivery is added to the one he already has.
+            expect(priced.json.state.caseFile.hold.reason).toMatch(/money: /);
+            expect(priced.json.state.caseFile.hold.reason).toMatch(/window is shut.*no approved template carries a quote link/);
+        } finally {
+            await close();
+        }
+    });
+
     it('sends the quote on the channel the customer wrote on, not a channel it names: an SMS thread whose number is on WhatsApp but never wrote there', async () => {
         const { call, close } = await standUp({ door: 'sms', seed: { whatsapp: true } });
         try {

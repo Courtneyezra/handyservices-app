@@ -280,15 +280,19 @@ again and Quoting sets the money hold itself. The same applies when the speciali
 on the read that worked at the top of the turn, and the brief then forbids a figure outright, because
 the amounts an earlier turn recorded are still on the file and the reply is still written.
 
-**What Ben's send releases.** Exactly one hold: the one the price route itself put on the thread
-when an earlier attempt did not send, which this attempt has now done. It clears in the desk's own
-words naming that send, never the delivery that went, because nobody read those words before they
-went and a release recorded in them would read as Ben's own answer to whatever the card asked.
-Every other card stands. A money hold is not answered by the quote being about money: the delivery
-carries the link and nothing else, so a question Ben owed an answer to ("do you charge a call-out
-fee?") is still unanswered and still his. The same goes for the first-contact acknowledgement's
-hold, for a complaint, refund, trust or regulated hold, and for acceptance, which stays human. A
-delivery that held reaches nobody and releases nothing.
+**What Ben's send releases.** Exactly one hold, and only while it still says nothing but what that
+step wrote: the one the price route itself put on the thread when an earlier attempt did not send,
+which this attempt has now done. It clears in the desk's own words naming that send, never the
+delivery that went, because nobody read those words before they went and a release recorded in them
+would read as Ben's own answer to whatever the card asked. A hold is one card carrying every reason
+it has been raised for (`note_on_hold`), so a card that has been added to since is nobody's to clear
+automatically: a question Ben owed an answer to ("do you charge a call-out fee?") would go with it,
+and the delivery carries the link and nothing else. The card records that it has been added to
+(`noted_on`), which is the one place any automatic release asks. The same rule governs the desk's
+own release of the draft-failed card once a later turn drafts the quote. Every other card stands
+outright: the first-contact acknowledgement's hold, a complaint, refund, trust or regulated hold,
+and acceptance, which stays human. A delivery that held reaches nobody and releases nothing, and
+what stopped it is added to whatever card is already open rather than lost.
 
 **A quote that is no longer live for figures.** Expired, revoked and superseded are one path on
 purpose: no figure may be read from any of them, no fresh link is recorded, the reply says Ben will

@@ -69,7 +69,7 @@ Written 8 Sep 2026 against `941f467` plus PRs 17, 19 and 20 pending.
 | 4.1 | The job and the location are enough. Photos are optional **[C]** | Describe a job with a postcode, send no photo |
 | 4.2 | Once it has that, the clerk builds a quote without further prompting **[C]** | Watch for the clerk running |
 | 4.3 | Ben gets one notification with a link to the price screen **[O]** (§9) | The recorded push in the sandbox |
-| 4.4 | Anything missing shows to Ben in the ready-to-price notice, for him to request. Not on the price screen: that page is served to anyone holding the quote's slug, so the customer reads it **[C]** | The notice's own words, "no photo (asked once, none sent)" |
+| 4.4 | Anything missing shows to Ben in the ready-to-price notice, for him to request. Not on the quote row the price screen reads: that row is served to anyone holding the quote's slug, so the customer would read it **[C]** | The notice's own words, "no photo (asked once, none sent)" |
 | 4.5 | An unpriced quote is chased, not left after one notification **[O]** (§9) | Leave it and watch the chase |
 
 ## Stage 5 - The quote, and questions about it
@@ -120,5 +120,6 @@ and each needs work or a decision before a thread can match this document.
    replies still wait for Ben. Stage 2 cannot fully pass until more intents send.
 6. **4.4's surface on the new desk.** Settled, not a gap: the missing list is the internal
    `ben_to_request` fact on the case file and Ben reads it in the ready-to-price notice. It is on
-   no field of the quote row on purpose, because that row is customer readable. Putting it on Ben's
+   no field of the quote row on purpose, because that row is served to anyone holding the quote's
+   slug and is therefore customer readable. Putting it on Ben's
    board card as well is filed as its own item (`server/comms-v2/README.md`, Goal 4).

@@ -18,7 +18,7 @@ import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked,
 import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
-import type { DeskLike, DeskResult, GuardName, GuardVerdict, Proposal, SpecialistReturn } from './desk-types';
+import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { offersCall, scopingQuestionCount, textAsks } from './lexicon';
@@ -48,10 +48,6 @@ export interface DeskDeps extends CaseFileDeps {
 
 const FIXED_LINE_ONLY: ReadonlySet<Exception> = new Set<Exception>(['complaint', 'refund', 'trust_doubt', 'regulated']);
 
-function passGuards(): Record<GuardName, GuardVerdict> {
-    const v = (): GuardVerdict => ({ result: 'pass', note: null });
-    return { figure: v(), date_time_duration: v(), commitment_fault: v(), business_claim: v(), disclosure: v(), one_reply: v(), ask_ledger: v(), regulated: v() };
-}
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
 const DRAFT_FAILED_HOLD = 'the quote draft failed';
 
@@ -140,7 +136,7 @@ export class Desk implements DeskLike {
                 // A quote the desk failed to draft earlier exists now, so the hold that told Ben to
                 // build it himself is answered: the desk releases it in its own words and the card
                 // points at the price screen, rather than leaving him to make a second quote by hand.
-                if (file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) && file.job.quoteRef) {
+                if (file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) && !file.hold.notedOn && file.job.quoteRef) {
                     const priceScreen = quoteStateOf(file)?.priceScreen;
                     releaseHold(file, file.hold.approver, `the desk drafted quote ${file.job.quoteRef} on a later turn and Ben has been notified${priceScreen ? `: ${priceScreen}` : ''}`, this.fileDeps());
                 }
@@ -243,13 +239,13 @@ export class Desk implements DeskLike {
             // holds for Ben instead, with the word he owes them named; his push has already gone.
             if (turn.kind === 'portal_action') {
                 const why = `the customer accepted the quote and the ${choice.channel} window is shut, so the desk cannot acknowledge it: a word from Ben is what they are waiting on`;
-                setHold(file, { approver: approverFor(file, exception), reason: why, exception, draft: reply, failures: [] }, this.fileDeps());
+                this.holdFor(file, exception, why, reply);
                 return { ...this.nothing(file, party.personId, runId, calls, why, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             const tmpl = templateChoiceFor(file, turn);
             const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic, at: this.now() }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
-                setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
+                this.holdFor(file, exception, `window shut and ${pick.reason}`, reply);
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             template = pick.template;
@@ -270,10 +266,10 @@ export class Desk implements DeskLike {
         };
     }
 
-    private holdFor(file: CaseFile, exception: Exception | null, reason: string): void {
+    private holdFor(file: CaseFile, exception: Exception | null, reason: string, draft: string | null = null): void {
         // One turn can raise two: a price and a date change in one message. Ben answers what his card names, so the second is added to it rather than dropped.
-        if (file.hold) { noteOnHold(file, { reason }); return; }
-        setHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
+        if (file.hold) { noteOnHold(file, { reason, draft }); return; }
+        setHold(file, { approver: approverFor(file, exception), reason, exception, draft }, this.fileDeps());
     }
 
     /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement. */

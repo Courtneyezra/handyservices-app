@@ -145,6 +145,13 @@ export interface Hold {
     /** The router exception that raised it, when one did: a fixed-line exception keeps the specialists off the thread until release. */
     exception: Exception | null;
     since: string;
+    /**
+     * Whether a second reason has been added to the card since it was raised. A card one automatic
+     * step raised is that step's to clear, but only while it still says what that step wrote: once
+     * a customer's question has been added to it, clearing it would take the question with it, so
+     * the card stands until the person it is for answers it.
+     */
+    notedOn: boolean;
     /** The draft and the failures when a guard hold raised it. */
     draft: string | null;
     failures: string[];
@@ -447,7 +454,7 @@ export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: st
     const now = deps.now ?? (() => new Date());
     if (file.hold) return refuse(`the file is already held for ${approverLabel(file.hold.approver)}: ${file.hold.reason}`);
     if (!input.reason.trim()) return refuse('a hold needs a reason');
-    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), draft: input.draft ?? null, failures: input.failures ?? [] };
+    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), notedOn: false, draft: input.draft ?? null, failures: input.failures ?? [] };
     return accept(file.hold);
 }
 
@@ -460,7 +467,7 @@ export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: st
 export function noteOnHold(file: CaseFile, input: { reason: string; draft?: string | null; failures?: string[] }): Outcome<Hold> {
     if (!file.hold) return refuse('the file is not held');
     const reason = input.reason.trim();
-    if (reason && !file.hold.reason.includes(reason)) file.hold.reason = `${file.hold.reason}; ${reason}`;
+    if (reason && !file.hold.reason.includes(reason)) { file.hold.reason = `${file.hold.reason}; ${reason}`; file.hold.notedOn = true; }
     if (input.draft && !file.hold.draft) file.hold.draft = input.draft;
     if (input.failures?.length) file.hold.failures = Array.from(new Set([...file.hold.failures, ...input.failures]));
     return accept(file.hold);

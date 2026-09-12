@@ -431,19 +431,35 @@ describe('price_quote, the stage, and acceptance', () => {
 });
 
 describe('the live read', () => {
-    it('selects every column the quote record is built from, so the live row reads the same as the whole row', () => {
-        const now = new Date('2026-09-11T10:00:00.000Z');
-        const whole: QuoteRowLike = {
-            id: 'quote_1', shortSlug: 'abcd1234', customerName: 'Sam', phone: '+447700900942', postcode: 'NG9 2AB',
-            isDraft: false, revokedAt: null, supersededAt: null, depositPaidAt: null, expiresAt: '2026-09-01T00:00:00.000Z',
-            createdAt: '2026-08-30T10:00:00.000Z', basePrice: 12000, depositAmountPence: 4000,
-            pricingLineItems: [{ lineId: 'card_1', label: 'Replace kitchen tap', qty: 1, pricePence: 12000, materialsPence: 2000, description: 'mixer tap' }],
-            pricingSuggestions: { totals: { suggestedPence: 11000 }, lines: [{ lineId: 'card_1', checkThis: true }] },
-            customerPhotoUrls: ['https://example.test/a.jpg'],
-        };
-        // What liveQuoteStore.read hands back: the row narrowed to the columns it asked for.
-        const asRead = Object.fromEntries(Object.keys(QUOTE_READ_COLUMNS).map((k) => [k, (whole as any)[k]])) as QuoteRowLike;
-        expect(quoteRecordOf(asRead, now)).toEqual(quoteRecordOf(whole, now));
-        expect(quoteRecordOf(asRead, now).totalPence).toBe(12000);
+    const now = new Date('2026-09-11T10:00:00.000Z');
+    const sent: QuoteRowLike = {
+        id: 'quote_1', shortSlug: 'abcd1234', customerName: 'Sam', phone: '+447700900942', postcode: 'NG9 2AB',
+        isDraft: false, revokedAt: null, supersededAt: null, depositPaidAt: null, expiresAt: '2026-09-01T00:00:00.000Z',
+        createdAt: '2026-08-30T10:00:00.000Z', basePrice: 12000, depositAmountPence: 4000,
+        pricingLineItems: [{ lineId: 'card_1', label: 'Replace kitchen tap', qty: 1, pricePence: 12000, materialsPence: 2000, description: 'mixer tap' }],
+        pricingSuggestions: { totals: { suggestedPence: 11000 }, lines: [{ lineId: 'card_1', checkThis: true }] },
+        customerPhotoUrls: ['https://example.test/a.jpg'],
+    };
+    /** What the row must say for the column under test to change anything the record shows. */
+    const observable: Partial<Record<string, Partial<QuoteRowLike>>> = {
+        revokedAt: { revokedAt: '2026-09-05T09:00:00.000Z' },
+        supersededAt: { supersededAt: '2026-09-05T09:00:00.000Z' },
+        depositPaidAt: { depositPaidAt: '2026-09-05T09:00:00.000Z' },
+    };
+    /** What `liveQuoteStore.read` hands back: the row narrowed to the columns it asked the database for. */
+    const asRead = (row: QuoteRowLike, columns: string[]): QuoteRowLike =>
+        Object.fromEntries(columns.map((k) => [k, (row as any)[k]])) as QuoteRowLike;
+
+    it.each(Object.keys(QUOTE_READ_COLUMNS))('reads %s: dropping that column from the live select changes the record', (column) => {
+        const row = { ...sent, ...(observable[column] ?? {}) };
+        const whole = quoteRecordOf(row, now);
+        const short = Object.keys(QUOTE_READ_COLUMNS).filter((k) => k !== column);
+        expect(quoteRecordOf(asRead(row, short), now)).not.toEqual(whole);
+    });
+
+    it('asks for nothing the record does not need: columns outside the list change nothing when the read drops them', () => {
+        const withExtras = { ...sent, status: 'sent', conversationId: 'conv_1', updatedAt: '2026-09-02T10:00:00.000Z', internalNotes: 'no photo yet' } as QuoteRowLike;
+        expect(quoteRecordOf(asRead(withExtras, Object.keys(QUOTE_READ_COLUMNS)), now)).toEqual(quoteRecordOf(withExtras, now));
+        expect(quoteRecordOf(asRead(withExtras, Object.keys(QUOTE_READ_COLUMNS)), now).totalPence).toBe(12000);
     });
 });

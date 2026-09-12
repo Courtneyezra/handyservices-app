@@ -54,11 +54,13 @@ test:
     /admin/price/<slug>; GET /quote shows record.status draft with every pricePence null.
     4.4: the ready_to_price notice is the surface that shows Ben what is missing, so read its own
     words for the missing list ("photo (asked once, none sent)") and check GET /quote carries the
-    same list as the internal fact ben_to_request on the file. The price screen is excluded on
-    purpose: http://127.0.0.1:$PORT/admin/price/<slug> is served to anyone holding the quote's
-    slug, so anything written on the row reaches the customer. Open that screen as Ben and
-    screenshot it anyway for 4.3 - the lines with the customer's own words and the suggestions -
-    and expect no missing list on it. Showing the list on Ben's board card is its own item.
+    same list as the internal fact ben_to_request on the file. The missing list is kept off every
+    field of the quote row on purpose, because that row is served to anyone holding the quote's
+    slug (GET /api/personalized-quotes/:slug), so anything written on it reaches the customer; the
+    price screen reads that row and is itself behind the admin check. Open
+    http://127.0.0.1:$PORT/admin/price/<slug> as Ben and screenshot it for 4.3 - the lines with the
+    customer's own words and the suggestions - and expect no missing list on it. Showing the list
+    on Ben's board card is its own item.
     4.5: POST /run (expect the note "not due"), POST /age {"hours": 5}, POST /run again: the note
     says "chase 1 recorded for Ben" and state.quote.notifications gains a chase; nothing is sent
     to the customer on either pass.

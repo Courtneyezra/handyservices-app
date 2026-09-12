@@ -24,7 +24,7 @@
  * through the desk itself.
  */
 import { Router, type Response } from 'express';
-import { appendTurn, hold as setHold, release as releaseHold, type CaseFile, type ModelCallRecord, type Party, type ReplyChannel, type Turn } from '../desk/case-file';
+import { appendTurn, hold as setHold, noteOnHold, release as releaseHold, type CaseFile, type ModelCallRecord, type Party, type ReplyChannel, type Turn } from '../desk/case-file';
 import { compose } from '../desk/composer';
 import type { DeskDeps } from '../desk/desk';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict } from '../desk/desk-types';
@@ -103,15 +103,16 @@ export const FIRST_CONTACT_ACK = 'Thanks for your enquiry - Ben here from Handy 
 /**
  * Whether the quote going out clears the hold on the thread. Exactly one hold it clears: the one
  * this route put there itself when an earlier attempt did not send, which this attempt has now
- * done. No other card on Ben's board is this send's to clear, and a hold is not answered by being
- * about money: a question he owed an answer to ("do you charge a call-out fee?") stands until he
- * answers it, because the delivery carries the link and nothing else, so nobody has answered it.
- * The same goes for the acknowledgement a web-form enquiry was owed, for a complaint, refund,
- * trust or regulated hold, and for acceptance, which stays human. Read only where the send landed:
- * a delivery that held cleared nothing at all.
+ * done, and only while that card still says nothing but what this route wrote on it. A hold is one
+ * card carrying every reason it has been raised for, so a customer's question added to it since
+ * ("do you charge a call-out fee?") would be cleared with it, and the delivery carries the link
+ * and nothing else, so nobody has answered that question. No other card is this send's to clear
+ * either: not the acknowledgement a web-form enquiry was owed, not a complaint, refund, trust or
+ * regulated hold, and not acceptance, which stays human. Read only where the send landed: a
+ * delivery that held cleared nothing at all.
  */
 function answeredByThisQuote(file: CaseFile, slug: string): boolean {
-    return !!file.hold && file.hold.reason.startsWith(priceHold(slug));
+    return !!file.hold && !file.hold.notedOn && file.hold.reason.startsWith(priceHold(slug));
 }
 
 /**
@@ -225,7 +226,8 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             // desk's sender is its own cutover item; submitting a template to Meta is not the
             // desk's to do.
             const holdAndAnswer = (why: string, draft: string | null, failures: string[], guards: Record<GuardName, GuardVerdict> = noReplyToCheck(), calls: ModelCallRecord[] = []) => {
-                if (!file.hold) setHold(file, { approver: BEN, reason: why, draft: draft ?? undefined, failures }, { now: opts.now, newId: opts.deps.newId });
+                if (file.hold) noteOnHold(file, { reason: why, draft, failures });
+                else setHold(file, { approver: BEN, reason: why, draft: draft ?? undefined, failures }, { now: opts.now, newId: opts.deps.newId });
                 const held: DeskResult = { runId, decision: 'hold', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: null, bubbles: [], factIds: priced.factIds, kbIds: [], guards, approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls, note: why, summary: `ben priced ${priced.record.slug}; not sent`, error: null, landedTurnId: null, composerCalls: calls.length };
                 respond(res, file, held, { slug: priced.record.slug, totals: priced.totals, quoteUrl: priced.quoteUrl, sent: false });
             };
