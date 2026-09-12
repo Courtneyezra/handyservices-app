@@ -51,6 +51,15 @@ describe('guards', () => {
         expect(second.result).toBe('fail');
         expect(second.note).toContain('Thursday');
         expect(second.note).not.toContain('"Tuesday"');
+        // A fragment of a diary date is not that date: "the 5 September" must not ride in on "25 September 2026".
+        const g = fixture();
+        const booked = recordFact(g.file, { key: 'booked_date', value: '25 September 2026', source: { kind: 'diary', rowId: 'b2' }, by: 'scheduling' });
+        const ids = booked.ok ? [booked.value.id] : [];
+        const dated = (reply: string) => runGuards({ file: g.file, party: g.party, turn: g.turn, reply, factIds: ids, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration;
+        expect(dated('You are booked in for 25 September 2026.').result).toBe('pass');
+        const fragment = dated('We can do the 5 September if that suits.');
+        expect(fragment.result).toBe('fail');
+        expect(fragment.note).toContain('5 September');
     });
     it('commitment and fault: fails closed', () => {
         expect(runGuards(input("We'll fix that no problem.")).guards.commitment_fault.result).toBe('fail');

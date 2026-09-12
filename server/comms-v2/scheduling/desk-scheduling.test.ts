@@ -196,6 +196,8 @@ describe('the desk with Scheduling (Goal 5)', () => {
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                expect(user).not.toMatch(/about 3 days|usually booking|quote page/);
+                expect(user).not.toContain(DEFAULT_FIXED_LINES.dates_with_quote);
                 return { reply: 'Ben will come back to you on the date.\n\nAnd yes, bring the old tap out if you can.', factIds: [], kbIds: [] };
             },
         }, diary);
@@ -214,6 +216,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
         const said = r.bubbles.map((b) => b.text).join(' ');
         expect(said).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
         expect(said).toContain('bring the old tap out');
+        // The diary holds a lead time, and a job the customer is asking to move is not a job to quote a lead time about.
+        expect(second.file.facts.filter((f) => f.key === 'lead_time' || f.key === 'picker_link')).toEqual([]);
+        expect(r.summary).not.toMatch(/Typical lead time from the diary/);
     });
 
     it('a booked date the composer paraphrased with a weekday fails the date guard once and is written again from the diary', async () => {

@@ -213,6 +213,23 @@ describe('the Scheduling specialist', () => {
         expect(r.brief.join(' ')).toMatch(/no booked date to confirm/);
     });
 
+    it('a date change the router flagged holds even with nothing booked, and looks up no lead time and no picker', async () => {
+        const file = fixture('Can we move the appointment to the week after?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['date_change'], 'the week after'), { diary: diaryWith(6), now, baseUrl: 'https://example.test' }, { dateChange: true });
+        assertNoProse(r, file);
+        expect(r.scheduling.asks).toEqual(['date_change']);
+        expect(r.proposal.hold).toEqual({ reason: 'date_change', match: 'move the appointment' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(r.scheduling.leadTime).toBeNull();
+        expect(r.scheduling.picker).toBeNull();
+        expect(file.facts.find((f) => f.key === 'lead_time')).toBeUndefined();
+        expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(file.facts.find((f) => f.key === 'date_change_requested')?.value).toBe('the week after');
+        expect(r.brief.join(' ')).not.toMatch(/3 days|quote page|usually booking/);
+        expect(r.brief.join(' ')).toMatch(/no typical lead time, and give no link for picking a date/);
+    });
+
     it('a date change with nothing booked is an availability question: no hold', async () => {
         const file = fixture('Can we move it to Friday?');
         file.job.quoteRef = 'q1';

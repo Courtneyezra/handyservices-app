@@ -64,11 +64,24 @@ export function checkFigure(input: GuardInput): GuardVerdict {
     return bad.length ? fail(`a figure appears that is not a cited quote line or customer record: ${bad.join(', ')}`) : pass();
 }
 
+/**
+ * Whole words only: "the 5 September" must not ride in on a cited "25 September 2026", so the
+ * match has to sit in the diary value with a non-word character, or nothing, on either side.
+ */
+function saysWhole(value: string, match: string): boolean {
+    for (let i = value.indexOf(match); i !== -1; i = value.indexOf(match, i + 1)) {
+        const before = value[i - 1];
+        const after = value[i + match.length];
+        if (!/\w/.test(before ?? '') && !/\w/.test(after ?? '')) return true;
+    }
+    return false;
+}
+
 export function checkDate(input: GuardInput): GuardVerdict {
     const matches = Array.from(input.reply.matchAll(new RegExp(RE_DATE_TIME_DURATION.source, 'gi'))).map((m) => m[0]);
     if (!matches.length) return pass();
     const diary = citedFacts(input).filter((f) => f.source.kind === 'diary').map((f) => f.value.toLowerCase());
-    const bad = matches.filter((m) => !diary.some((v) => v.includes(m.toLowerCase())));
+    const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())));
     return bad.length ? fail(`a date, time or duration appears that is not a diary fact: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
 }
 

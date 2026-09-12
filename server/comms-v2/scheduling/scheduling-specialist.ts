@@ -9,8 +9,10 @@
  * change, the words they used. The tool server (scheduling-tools.ts) then decides everything
  * deterministically from the diary: a lead time when the diary has one, "dates come with your
  * quote" when it does not, the picker once a quote has been sent, the booked date once one
- * exists, and a hold for Ben on a date change to a booked job while the file is still answered
- * on everything else. The specialist never sees the customer and holds no send tool.
+ * exists, and a hold for Ben on a date change while the file is still answered on everything
+ * else. A date change is the one ask that looks nothing else up: the job is already in the
+ * diary, so a lead time and the picker would answer a question they did not ask.
+ * The specialist never sees the customer and holds no send tool.
  *
  * Its return carries no prose: facts by id, the fixed lines to include by kind, and a brief for
  * the composer that names which fact to copy verbatim. The composer voices it.
@@ -50,7 +52,7 @@ export interface SchedulingFindings {
     leadTime: LeadTimeResult | null;
     bookedDate: BookedDate | null;
     picker: PickerLink | null;
-    /** The belt's match on the turn, when the job is booked and the turn asks to move it. */
+    /** The words the turn asked to move the date in, when it did. */
     dateChange: string | null;
     /** The fixed lines the reply must carry, by kind. */
     fixedLines: FixedLineKind[];
@@ -62,9 +64,15 @@ export interface SchedulingReturn extends SpecialistReturn {
     scheduling: SchedulingFindings;
 }
 
+/** What the desk already decided about this turn before the specialist ran. */
+export interface SchedulingContext {
+    /** The router's date_change exception: the desk reads this turn as a request to move a job the customer already has. */
+    dateChange: boolean;
+}
+
 const NO_QUESTION: Proposal = { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null };
 
-export async function schedule(file: CaseFile, turn: Turn, _party: Party, client: ModelClient, deps: SchedulingDeps = {}): Promise<SchedulingReturn> {
+export async function schedule(file: CaseFile, turn: Turn, _party: Party, client: ModelClient, deps: SchedulingDeps = {}, routed: SchedulingContext = { dateChange: false }): Promise<SchedulingReturn> {
     const calls: ModelCallRecord[] = [];
     const factIds: string[] = [];
     const brief: string[] = [];
@@ -90,10 +98,14 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         else error = res.error;
     }
 
-    // The belt: a date change to a booked job is a hold whatever the model read.
-    const belt = booked ? dateChangeMatch(turn.body) : null;
-    if (belt && !asks.includes('date_change')) asks.push('date_change');
-    if (!booked) asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('date_change') && !asks.includes('availability') ? ['availability'] : []);
+    // A date change is live when the diary shows a booking, and when the router called the turn one:
+    // nothing outside the door's fixture writes a booking onto a case file yet, so the exception stands in
+    // for a booking the desk cannot see. Only then is a change request not an availability question.
+    const changePossible = booked || routed.dateChange;
+    // The belt: a date change is a hold whatever the model read.
+    const belt = changePossible ? dateChangeMatch(turn.body) : null;
+    if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
+    if (!changePossible) asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('date_change') && !asks.includes('availability') ? ['availability'] : []);
     // A date question the belt matched is answered whatever the model read, or failed to: an unanswered date question is the one thing the desk may not do.
     if (!asks.length && dateQuestionMatch(turn.body)) asks = [booked ? 'booked_date' : 'availability'];
 
@@ -104,7 +116,8 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     // The turn asks nothing about dates: nothing is looked up and nothing is said about timing.
     if (!asks.length) return { specialist: 'scheduling', factIds, proposal, brief, calls, error, scheduling: findings };
 
-    if (booked) {
+    /** What the diary says stands right now, or why it can say nothing. Never a date the diary did not give. */
+    const confirmWhatStands = () => {
         findings.bookedDate = bookedDateOf(standing);
         if (findings.bookedDate.ok) {
             const bd = findings.bookedDate;
@@ -121,16 +134,23 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         } else {
             brief.push(`The diary has no booked date to confirm (${findings.bookedDate.reason}): say Ben will confirm the date, and give no day, time or lead time.`);
         }
-        if (asks.includes('date_change')) {
-            findings.dateChange = belt ?? requestedChange ?? turn.body.slice(0, 80);
-            if (requestedChange) {
-                const c = recordFact(file, { key: 'date_change_requested', value: requestedChange, source: { kind: 'thread', turnId: turn.id }, by }, fileDeps);
-                if (c.ok) factIds.push(c.value.id);
-            }
-            findings.fixedLines.push('date_change_to_ben');
-            proposal.hold = { reason: 'date_change', match: findings.dateChange };
-            brief.push('They want to change the booked date: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day or time. Answer anything else they asked.');
+    };
+
+    // A date change is Ben's, and nothing about how soon we could come belongs beside it: the job they
+    // are asking about is already in the diary, so a typical lead time and the quote's picker would both
+    // answer a question they did not ask. Neither is looked up on this path.
+    if (asks.includes('date_change')) {
+        confirmWhatStands();
+        findings.dateChange = belt ?? requestedChange ?? turn.body.slice(0, 80);
+        if (requestedChange) {
+            const c = recordFact(file, { key: 'date_change_requested', value: requestedChange, source: { kind: 'thread', turnId: turn.id }, by }, fileDeps);
+            if (c.ok) factIds.push(c.value.id);
         }
+        findings.fixedLines.push('date_change_to_ben');
+        proposal.hold = { reason: 'date_change', match: findings.dateChange };
+        brief.push('They want to change the date of a job they already have: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
+    } else if (booked) {
+        confirmWhatStands();
     } else {
         findings.leadTime = await typicalLeadTime(deps);
         if (file.job.quoteRef) findings.picker = await pickerLink(file, deps);
