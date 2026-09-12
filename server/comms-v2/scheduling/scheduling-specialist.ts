@@ -86,7 +86,12 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
 
     const standing = await confirmBookedDate(file, deps);
     if (!standing.ok && standing.detail) details.push(`${standing.reason}: ${standing.detail}`);
-    const booked = standing.state !== 'none';
+    // Something may stand: the fail-closed reading, which a request to move a date is answered on.
+    const couldStand = standing.state !== 'none';
+    // A read that threw where nothing on the file says there is a booking is nothing known rather than a
+    // booking: a customer holding only a quote asked what dates we have, and the picker answers that.
+    const unreadable = !standing.ok && standing.state === 'unknown' && !!standing.detail && !file.job.bookingRef && file.stage !== 'booked';
+    const booked = couldStand && !unreadable;
 
     // The model classifies the ask.
     let asks: SchedulingAsk[] = [];
@@ -106,7 +111,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     // A date change is live when the diary shows a booking, and when the router called the turn one:
     // nothing outside the door's fixture writes a booking onto a case file yet, so the exception stands in
     // for a booking the desk cannot see. Only then is a change request not an availability question.
-    const changePossible = booked || routed.dateChange;
+    const changePossible = couldStand || routed.dateChange;
     // The belt: a date change is a hold whatever the model read.
     const belt = changePossible ? dateChangeMatch(turn.body) : null;
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
@@ -139,7 +144,8 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             brief.push('There is no date to confirm and they may be expecting one: include the fixed line that Ben will come back on the date, never say they are booked in, say nothing about why, and give no day, time or lead time. Answer anything else they asked.');
             return;
         }
-        brief.push(`The diary has no booked date to confirm (${standing.reason}): say Ben will confirm the date, and give no day, time or lead time.`);
+        // Why there is no date is Ben's to give, in his own words: a cancellation a customer reads from the desk is how a thread becomes a complaint.
+        brief.push('The diary has no booked date to confirm: say Ben will confirm the date, say nothing about why, and give no day, time or lead time.');
     };
 
     // A date change is Ben's, and nothing about how soon we could come belongs beside it: the job they

@@ -254,9 +254,8 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.bookedDate).toMatchObject({ ok: false });
         expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
         expect(r.brief.join(' ')).toMatch(/no booked date to confirm/);
-        // The composer is told the category and never the machine text; that goes to the log and the run summary.
-        expect(r.brief.join(' ')).toContain('the diary could not be read');
-        expect(r.brief.join(' ')).not.toContain('connection lost');
+        // Why there is no date is Ben's to give: neither the machine text nor the category reaches the composer, only the log and the run summary.
+        expect(r.brief.join(' ')).not.toMatch(/connection lost|could not be read/);
         expect(r.error).toContain('connection lost');
     });
 
@@ -401,6 +400,33 @@ describe('the Scheduling specialist', () => {
         expect(r.error).toContain('connection lost');
         expect(r.brief.join(' ')).not.toMatch(/connection lost|could not be read/);
         expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
+    });
+
+    it('a cancelled booking is never the desk\'s news to break: the change still holds, and the brief says nothing about why', async () => {
+        const diary = diaryWith(6, true);
+        diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';
+        const file = fixture('Can we move it to the week after?');
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['date_change'], 'the week after'), { diary, now });
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_change' });
+        expect(r.scheduling.bookedDate).toMatchObject({ state: 'cancelled' });
+        expect(r.brief.join(' ')).not.toMatch(/cancel|declin|taken (?:it )?on/i);
+        expect(r.brief.join(' ')).toMatch(/say nothing about why/);
+    });
+
+    it('5.4 holds through a diary that threw: a thread with only a quote is answered by the picker, not told Ben will come back on a date', async () => {
+        const diary = diaryWith(6);
+        diary.bookingForQuote = async () => { throw new Error('connection lost'); };
+        const file = fixture('What dates do you have?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.scheduling.picker).toMatchObject({ ok: true, url: 'https://example.test/quote/abcdefgh' });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days' });
+        expect(r.proposal.hold).toBeNull();
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.brief.join(' ')).not.toMatch(/Ben will come back on the date|no date to confirm/);
+        // The read still failed, so the run carries it even though the customer's question was answered.
+        expect(r.error).toContain('connection lost');
     });
 
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {
