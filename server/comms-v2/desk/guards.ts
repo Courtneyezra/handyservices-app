@@ -65,11 +65,11 @@ export function checkFigure(input: GuardInput): GuardVerdict {
 }
 
 export function checkDate(input: GuardInput): GuardVerdict {
-    const m = RE_DATE_TIME_DURATION.exec(input.reply);
-    if (!m) return pass();
+    const matches = Array.from(input.reply.matchAll(new RegExp(RE_DATE_TIME_DURATION.source, 'gi'))).map((m) => m[0]);
+    if (!matches.length) return pass();
     const diary = citedFacts(input).filter((f) => f.source.kind === 'diary').map((f) => f.value.toLowerCase());
-    if (diary.some((v) => v.includes(m[0].toLowerCase()))) return pass();
-    return fail(`a date, time or duration appears that is not a diary fact: "${m[0]}"`);
+    const bad = matches.filter((m) => !diary.some((v) => v.includes(m.toLowerCase())));
+    return bad.length ? fail(`a date, time or duration appears that is not a diary fact: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
 }
 
 export function checkCommitment(input: GuardInput): GuardVerdict {

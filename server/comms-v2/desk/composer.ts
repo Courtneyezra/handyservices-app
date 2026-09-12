@@ -52,6 +52,7 @@ export const COMPOSER_SYSTEM = [
     'What you may say:',
     '- Only what the customer wrote, the facts listed on the file, and the fixed lines you are given. Nothing else about the business.',
     '- Never a price, a figure, a cost, a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees.',
+    '- The one exception: a date, a slot or a lead time that is a diary fact on the file which the notes from Scheduling tell you to copy verbatim; copy it exactly and cite its fact id. Never offer, suggest or agree a day, a slot or a change of date yourself.',
     '- Never say or hint that you are an assistant, a bot, AI or automated. No disclosure line. Never sign off with a name.',
     '',
     'How to sound:',
@@ -111,7 +112,7 @@ export function buildComposerUser(input: ComposeInput): string {
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
-    if (route.subjects.includes('scheduling')) lines.push('They asked about dates or timing: say dates come with the quote (no lead time, no day, no time), then carry on.');
+    for (const s of specialists) if (s.specialist !== 'scoping' && s.brief?.length) { lines.push(`Notes from ${s.specialist} (facts to copy verbatim, what not to say):`); for (const b of s.brief) lines.push(`- ${b}`); }
     if (fixedLines.length) {
         lines.push('Fixed lines to include, in Ben\'s words:');
         for (const f of fixedLines) lines.push(`- ${f.text}`);

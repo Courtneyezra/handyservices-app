@@ -27,6 +27,7 @@ import type { PlannedSend } from './planned-send';
 import { ChannelDesk } from '../channels/channel-desk';
 import { channelDoors } from '../channels/channel-doors';
 import { ChannelGateway } from '../channels/channel-gateway';
+import { schedulingDoor, withScheduling } from '../scheduling/scheduling-door';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -72,13 +73,18 @@ export interface SandboxDoor {
     reset(): void;
 }
 
-export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
+export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
+    const deps = withScheduling(rawDeps);
     const now = deps.now ?? (() => new Date());
     const desk = () => new ChannelDesk(new Desk({ ...deps, mode: 'dry_run' }), { client: deps.client, templates: deps.templates, sender: deps.sender, now, newId: deps.newId, mode: 'dry_run', log: deps.log });
     let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
-    const reset = () => { gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId }); };
+    const reset = () => {
+        deps.scheduling.diaryMode.completed = 'diary';
+        gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
+    };
     const router = Router();
     router.use((req, _res, next) => { (req as any).v2Gateway = gateway; next(); });
+    router.use('/scheduling', schedulingDoor(deps.scheduling));
 
     const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: SANDBOX_MAX_FILE_BYTES, files: SANDBOX_MAX_FILES, fields: 5 } });
 

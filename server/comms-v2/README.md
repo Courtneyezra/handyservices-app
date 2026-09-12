@@ -103,6 +103,30 @@ would receive customers' full message bodies and attachments, so it must be reco
 `docs/COMMS_RECORD_OF_PROCESSING.md` and on the customer-facing list in
 `client/src/pages/PrivacyPolicyPage.tsx` before anything is pointed at one.
 
+## Goal 5: the Scheduling specialist and the diary read (`scheduling/`)
+
+The specialist for dates and lead time, on the Scoping pattern: it states typical lead time and
+confirms a date that is already booked, never offers a slot and never books one. Booking stays on
+the quote's picker. Registered in the desk by one gather step (desk/desk.ts: the router's
+`scheduling` subject, its `date_change` exception, or either belt, so a date change the router
+missed still reaches the specialist and holds), voiced by the
+composer from the specialist's notes (desk/composer.ts, "Notes from scheduling"), and mounted on
+the door under `/scheduling` (desk/sandbox-door.ts). Nothing under server/spine/ is touched.
+
+| File | What it is |
+|---|---|
+| `scheduling/diary.ts` | The diary read, read-only. The one authoritative booked date is `contractor_booking_requests.scheduled_date` (spans through shared/schedule-composition.expandSpanDates); the five quote-side columns on `personalized_quotes` (`selected_date`, `available_dates`, `date_time_preferences`, `flex_booking_within_days`, `slot_offer`) are preferences, never read. Lead time is new: the median days from a booking being made to its first booked day over completed bookings from the last 180 days, at most 100 rows, nothing below 5. Lead time counts calendar days, so a booking made on the morning of its visit is 0 rather than a discarded fraction. `liveDiary` opens the branch database on first use and every read refuses unless `COMMS_V2_DATABASE_URL` names the database actually open, so the door mounted on the production server reads no real diary; `MemoryDiary` for tests. |
+| `scheduling/scheduling-tools.ts` | The shelf: `typical_lead_time` (nothing when the sample is too small, when the door fixture emptied the diary, or when the read fails; never a guess), `confirm_booked_date` (the booking the file references, else the booking made from its quote, the diary being the only source it reads; refuses a declined, cancelled, done or past booking and a booking with no date, giving no date at all), `picker_link` (`/quote/<slug>`, the canonical customer quote URL the live sender uses, for a sent quote; refuses no quote, a draft, superseded, revoked or expired one), and `standingBooking` (the one resolution of the file's booking, shared by the confirmation and the belt: a standing booking, nothing, or a diary that could not say, which the belt treats as booked so a change still reaches Ben) and two belts: `dateChangeMatch` (a request to move a booked job holds whatever the models read; only `move` takes a bare "it", every other verb needs a date, day, booking, appointment, visit, job or slot as its object, so "bring it with you" is not a date change) and `dateQuestionMatch` (a date question the router missed still reaches the specialist); both run at the desk's gate. Every date fact carries `{ kind: 'diary', rowId }`, which the date guard already recognises; the picker link cites the quote. |
+| `scheduling/scheduling-specialist.ts` | Sonnet 5 classifies what the newest turn asks (lead_time, availability, booked_date, date_change) and, for a change, their words; the tools decide the rest from the diary. A turn that asks nothing about dates is left alone: no lead time, no picker, no fact. A classification that read no ask is not the same thing: whenever the date-question belt matches the turn and the model returned no asks, failed call or not, the deterministic reading stands in, so a date question is never met with silence. A turn neither the model nor the belt reads as a date question is still left alone. Returns facts by id, the fixed lines to include by kind (`dates_with_quote` when the diary has no lead time, `date_change_to_ben` on a change to a booked job), a proposal (the hold), and a brief for the composer naming which fact to copy verbatim. Never prose; the tests assert it. |
+| `scheduling/fixture.ts`, `scheduling/scheduling-door.ts` | The door's fixture: seeds N completed bookings, a sent quote and one booked job on the drama number, hung on a synthetic contractor of its own rather than a real one on the branch (every row marked; `reset` deletes exactly those, the contractor included), links the current sandbox thread (quote reference, booking reference) and walks its stage to `quoted` or `booked`; `diary: 'none'` tells the lead-time read the diary holds no completed bookings, so the "dates come with your quote" path is drivable live against a branch that already has a diary. Every write refuses through the same branch check the diary reads through, so the fixture can only write the database the specialist may read; `/reset` on the door puts the diary mode back to `diary`, so a fresh thread always starts from the real diary. |
+
+What the customer sees, from the diary only: during scoping a date question gets the typical lead
+time when the diary has one ("we're usually booking in about 3 days") and "dates come with your
+quote" when it does not; after the quote an availability question points at the picker; once
+booked the date is confirmed from the diary, and a request to move it holds for Ben (`date_change`)
+while the reply still answers everything else. A hold on a date change is not a fixed-line hold:
+later turns still get the desk.
+
 ## Driving the door
 
 ```
@@ -122,6 +146,29 @@ response carries `plannedSend` and `state`; an email turn adds `email` (the repl
 thread headers). The drama customer is one person on every door: the sandbox phone and the sandbox
 email (`sandbox-customer@example.invalid`) are linked, so a form, an SMS, an email and a call are
 one thread (channels/channel-doors.ts).
+
+Goal 5 adds `POST /scheduling/fixture`
+(`{ completed: N, quote: true, booked: true, diary: 'diary' | 'none' }`: seed the diary on the
+sandbox number and link the current thread, after `/start` with the job type and location in the
+opening message), `POST /scheduling/fixture/reset` and `GET /scheduling/fixture`. Seeding only
+ever adds rows, so `GET` reports the seeds added up: a post that only flips `diary` writes nothing
+and leaves the record of the earlier seeds standing. Only `/reset` empties it.
+
+The Goal 5 scenarios, each after `/start` with an opening message that names the job and a
+postcode (`"Hi, my kitchen tap is dripping, NG9 2AB"`):
+
+- 2.6 replaced, diary has a lead time: `/scheduling/fixture` `{ "completed": 6 }` (the branch diary
+  may hold too few completed bookings of its own), then `/message` "When can you come?"; the planned
+  send carries a `lead_time` fact with a `diary` source, the bubble copies its value, every guard
+  passes.
+- 2.6 replaced, no lead time: `/scheduling/fixture` `{ "diary": "none" }`, then the same question;
+  the bubble carries "Dates come with your quote" and no lead time, day or time; `factIds` empty.
+- 5.4: `/scheduling/fixture` `{ "quote": true }` (stage becomes `quoted`), then "What dates do you
+  have?"; the bubble carries the `/quote/<slug>` picker link, no day or slot is offered.
+- 5.5: `/scheduling/fixture` `{ "booked": true }` (stage becomes `booked`), then "Can we move it to
+  the week after?"; the planned send holds for `ben` with reason `date_change: ...`, the bubbles
+  carry "Ben will come back to you on the date" and the booked date read from the diary.
+- Then `/scheduling/fixture/reset`.
 
 The door has no session, so it has no answer action of its own: Ben's reply goes through the
 board's authenticated route, which only his approver slot may call.

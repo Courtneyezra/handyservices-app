@@ -411,7 +411,11 @@ they are listed one by one under "Goal 3's stop condition" below.
 **Goals 4 to 6 - Quoting, Scheduling, Service**
 One specialist per goal. Stop for each: the pipeline's test step passes that specialist's stage
 of the checklist with evidence. Then ten real threads read, the switch on the word, and the old
-desk deleted.
+desk deleted. Goal 5's stop is checklist 5.4, 5.5 and the replacement of 2.6: a date question
+during scoping answered with the typical lead time read from the diary when one exists and
+"dates come with your quote" when it does not, never a guess; a booked date confirmed from the
+diary once one exists. The diary read and the lead-time computation live in
+`server/comms-v2/scheduling/`, documented in `server/comms-v2/README.md`.
 
 **Goals with independent files run in parallel.** A goal is dispatched as soon as the files it
 touches are free, not when the goal before it is done: Goal 2's board and Goal 3's adapters share

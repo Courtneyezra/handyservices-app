@@ -160,6 +160,25 @@ case file through its calls. The specialist itself, on Sonnet 5, returns facts a
 source. A proposal: the next question, whether to offer a call, whether to thank for media,
 whether the job is ready, or a hold with the reason regulated. Never a sentence for the customer.
 
+## The Scheduling tool server (Goal 5)
+
+The specialist for dates and lead time, on the same pattern as Contract 6: read-only against the
+world, writing only to the case file. It confirms and estimates; it never offers a slot and never
+books one. Booking stays on the quote's picker. Built under `server/comms-v2/scheduling/`.
+
+| Tool | Input | Returns | Refuses when |
+|---|---|---|---|
+| `typical_lead_time` | the diary | the median days from a booking being made to its first booked day over recent completed bookings, as a phrase ("about 3 days", exact days up to a fortnight), with the sample size and a diary row id | fewer than five completed bookings in the last 180 days; the diary emptied by the door fixture; a read that fails. Nothing is ever guessed: the specialist then proposes "dates come with your quote". |
+| `confirm_booked_date` | the case file | the one authoritative booked date (`contractor_booking_requests.scheduled_date`, spans read through `expandSpanDates`), the slot, the days, a diary row id | the diary is its only source, so the five quote-side preference columns (`selected_date`, `available_dates`, `date_time_preferences`, `flex_booking_within_days`, `slot_offer`) are never read; nothing booked on the file or from its quote; a declined or cancelled booking; a booking already done, or one whose last booked day has passed, since a visit that has happened is not a standing booking; a booking with no date. Every refusal gives no date at all, so the composer has none to state. A date question about a finished job belongs to the Service goals to route, not this one. |
+| `picker_link` | the case file | the quote's picker, `/quote/<slug>`, cited as the quote | no quote on the file; a draft (not sent), superseded, revoked or expired quote |
+| `date_change` | the turn | the belt: a request to move a booked job | only when a booking stands, or when the diary could not say whether one does (the belt fails closed and Ben still hears it); with nothing booked a change request is an availability question |
+
+**What the specialist returns.** Facts: the lead time, the booked date and slot, each with a diary
+source the date guard recognises; the picker link cited as the quote; a change request in the
+customer's words from the thread. A proposal: the fixed lines to include (`dates_with_quote`,
+`date_change_to_ben`) and a hold for Ben on a date change to a booked job while the file is still
+answered on everything else. Never a sentence for the customer.
+
 ## Validation
 
 Each goal is validated by the no-mistakes pipeline's end-to-end test step against the desk's

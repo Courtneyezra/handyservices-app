@@ -88,6 +88,18 @@ test:
     sender will not carry, one over the bubble ceiling, is refused with its reason shown on the
     board and nothing sent.
 
+    For the Scheduling specialist (server/comms-v2/scheduling, checklist 2.6 as replaced, 5.4 and 5.5)
+    drive the door's scheduling fixture as server/comms-v2/README.md describes, opening each thread
+    with a message that names the job and a postcode: (a) POST /scheduling/fixture {"completed": 6}
+    then "When can you come?" during scoping, the reply carrying the lead time read from the diary
+    as a diary-sourced fact, never a day; (b) POST
+    /scheduling/fixture {"diary":"none"} then the same question, the reply carrying "Dates come with
+    your quote" and no lead time; (c) POST /scheduling/fixture {"quote":true} then "What dates do you
+    have?", the reply carrying the /quote/ picker link and no day or slot; (d) POST /scheduling/fixture
+    {"booked":true} then "Can we move it to the week after?", the planned send holding for ben with
+    a date_change reason and the reply confirming the booked date from the diary; then POST
+    /scheduling/fixture/reset. The fixture writes marked synthetic rows on the branch only.
+
     Evidence is screenshots of the sandbox thread, the sandbox data pages and Ben's board
     (/admin/comms-v2) only; never screenshot another admin list or page, and never attach the
     server log. The board is permitted because it reads the board's own sandbox door store, so

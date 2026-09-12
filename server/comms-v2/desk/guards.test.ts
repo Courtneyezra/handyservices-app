@@ -46,6 +46,11 @@ describe('guards', () => {
         const f = fixture();
         const fact = recordFact(f.file, { key: 'booked_date', value: 'Tuesday 15 September', source: { kind: 'diary', rowId: 'b1' }, by: 'scheduling' });
         expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday.', factIds: fact.ok ? [fact.value.id] : [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration.result).toBe('pass');
+        // Every date in the reply is checked, not just the first: once a diary date can legitimately pass, a second one must not ride in behind it.
+        const second = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday. If Thursday suits better I can do that instead.', factIds: fact.ok ? [fact.value.id] : [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration;
+        expect(second.result).toBe('fail');
+        expect(second.note).toContain('Thursday');
+        expect(second.note).not.toContain('"Tuesday"');
     });
     it('commitment and fault: fails closed', () => {
         expect(runGuards(input("We'll fix that no problem.")).guards.commitment_fault.result).toBe('fail');

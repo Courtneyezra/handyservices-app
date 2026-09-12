@@ -1,0 +1,294 @@
+/**
+ * The Scheduling tool server: typical_lead_time over completed bookings and its refusals (too
+ * few, the diary emptied by the fixture, no diary, a read that fails); confirm_booked_date from
+ * the one authoritative booked date and its refusals (the five quote-side preference columns,
+ * nothing booked, a declined or cancelled booking, no date); picker_link for a sent quote and its
+ * refusals (no quote, draft, superseded, revoked, expired); the date-change and date-question belts.
+ */
+import { describe, expect, it } from 'vitest';
+import { open, type CaseFile } from '../desk/case-file';
+import { bookingRowToDiary, formatDiaryDate, leadDaysOf, leadTimePhrase, liveDiary, MemoryDiary, medianOf, MIN_COMPLETED_BOOKINGS, typicalLeadTimeOf, type DiaryBooking } from './diary';
+import { liveFixture } from './fixture';
+import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, pickerLink, standingBooking, typicalLeadTime } from './scheduling-tools';
+
+const NOW = new Date('2026-09-11T10:00:00.000Z');
+const now = () => NOW;
+
+function fixture(): CaseFile {
+    const r = open({
+        identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam' },
+        channel: 'whatsapp', address: '+447700900942',
+        firstTurn: { at: '2026-09-11T10:00:00.000Z', channel: 'whatsapp', kind: 'text', body: 'hi', media: [] },
+    });
+    if (!r.ok) throw new Error(r.reason);
+    return r.value;
+}
+
+function completed(id: string, leadDays: number, daysAgo: number): DiaryBooking {
+    const visit = new Date(NOW.getTime() - daysAgo * 86_400_000);
+    const made = new Date(visit.getTime() - leadDays * 86_400_000);
+    return { id, quoteRef: null, scheduledDate: visit.toISOString().slice(0, 10), scheduledDays: [visit.toISOString().slice(0, 10)], durationDays: 1, slot: 'am', status: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: visit.toISOString() };
+}
+
+describe('typical_lead_time', () => {
+    it('is the median of days from booking to visit over completed bookings, as a phrase the guard can find', () => {
+        const rows = [completed('a', 2, 5), completed('b', 3, 7), completed('c', 3, 9), completed('d', 4, 11), completed('e', 10, 13)];
+        const lt = typicalLeadTimeOf(rows);
+        expect(lt.ok).toBe(true);
+        if (!lt.ok) return;
+        expect(lt.days).toBe(3);
+        expect(lt.phrase).toBe('about 3 days');
+        expect(lt.sample).toBe(5);
+        expect(lt.rowId).toMatch(/^lead-time:completed-bookings:5:/);
+    });
+    it('returns nothing below the minimum sample, and counts only completed bookings with both dates', () => {
+        const rows = [completed('a', 2, 5), completed('b', 3, 7), completed('c', 3, 9), completed('d', 4, 11)];
+        expect(typicalLeadTimeOf(rows)).toMatchObject({ ok: false, sample: 4 });
+        const notCompleted = { ...completed('e', 3, 13), completedAt: null };
+        const noCreated = { ...completed('f', 3, 15), createdAt: null };
+        const backwards = { ...completed('g', 3, 17), createdAt: new Date(NOW.getTime() + 86_400_000).toISOString() };
+        expect(typicalLeadTimeOf([...rows, notCompleted, noCreated, backwards])).toMatchObject({ ok: false, sample: 4 });
+        expect(MIN_COMPLETED_BOOKINGS).toBe(5);
+    });
+    it('counts calendar days, so a booking made on the morning of the visit is a lead time of 0 and not dropped', () => {
+        const sameDay = (id: string, daysAgo: number): DiaryBooking => {
+            const visit = new Date(NOW.getTime() - daysAgo * 86_400_000);
+            const day = visit.toISOString().slice(0, 10);
+            return { id, quoteRef: null, scheduledDate: day, scheduledDays: [day], durationDays: 1, slot: 'am', status: 'completed', dayOfStatus: 'completed', createdAt: `${day}T14:00:00.000Z`, completedAt: visit.toISOString() };
+        };
+        expect(leadDaysOf(sameDay('s', 3))).toBe(0);
+        const twoDaysOut = { ...sameDay('t', 3), scheduledDate: '2026-09-13', scheduledDays: ['2026-09-13'], createdAt: '2026-09-11T14:00:00.000Z' };
+        expect(leadDaysOf(twoDaysOut)).toBe(2);
+        const rows = [sameDay('a', 3), sameDay('b', 5), sameDay('c', 7), sameDay('d', 9), sameDay('e', 11), sameDay('f', 13)];
+        expect(typicalLeadTimeOf(rows)).toMatchObject({ ok: true, days: 0, sample: 6 });
+    });
+
+    it('phrases days and weeks; the phrase contains the span the date guard matches', () => {
+        expect(leadTimePhrase(0.4)).toBe('about a day');
+        expect(leadTimePhrase(1)).toBe('about a day');
+        expect(leadTimePhrase(3.3)).toBe('about 3 days');
+        expect(leadTimePhrase(6.6)).toBe('about 7 days');
+        expect(leadTimePhrase(10)).toBe('about 10 days');
+        expect(leadTimePhrase(13)).toBe('about 13 days');
+        expect(leadTimePhrase(14)).toBe('about 2 weeks');
+        expect(leadTimePhrase(17)).toBe('about 2 weeks');
+        expect(medianOf([1, 5, 3])).toBe(3);
+        expect(medianOf([1, 5, 3, 7])).toBe(4);
+        expect(medianOf([])).toBeNull();
+        expect(leadDaysOf(completed('x', 4, 2))).toBe(4);
+    });
+    it('reads the diary within the window; refuses no diary, a read that fails, and the fixture\'s empty diary by name', async () => {
+        const diary = new MemoryDiary();
+        for (let i = 0; i < 6; i++) diary.bookings.push(completed(`b${i}`, 2 + i, 3 + i * 2));
+        diary.bookings.push(completed('old', 40, 300));
+        const lt = await typicalLeadTime({ diary, now });
+        expect(lt).toMatchObject({ ok: true, sample: 6, mode: 'diary' });
+        expect(await typicalLeadTime({ now })).toMatchObject({ ok: false, reason: 'no diary to read', mode: 'diary' });
+        expect(await typicalLeadTime({ diary, diaryMode: { completed: 'none' }, now })).toMatchObject({ ok: false, sample: 0, mode: 'none' });
+        const broken = { ...diary, completedBookings: async () => { throw new Error('boom'); } } as unknown as MemoryDiary;
+        expect(await typicalLeadTime({ diary: broken, now })).toMatchObject({ ok: false, reason: 'the diary could not be read: boom' });
+    });
+});
+
+describe('the live diary', () => {
+    it('refuses to read anything but the branch COMMS_V2_DATABASE_URL names, so the production-mounted sandbox never reads a real diary', async () => {
+        const before = { branch: process.env.COMMS_V2_DATABASE_URL, db: process.env.DATABASE_URL };
+        try {
+            delete process.env.COMMS_V2_DATABASE_URL;
+            process.env.DATABASE_URL = 'postgres://user:pw@prod.example/app';
+            await expect(liveDiary.completedBookings({ since: NOW, limit: 10 })).rejects.toThrow(/COMMS_V2_DATABASE_URL/);
+            process.env.COMMS_V2_DATABASE_URL = 'postgres://user:pw@branch.example/app';
+            await expect(liveDiary.booking('bk1')).rejects.toThrow(/not the database in use/);
+            await expect(liveDiary.bookingForQuote('q1')).rejects.toThrow(/not the database in use/);
+            await expect(liveDiary.quote('q1')).rejects.toThrow(/not the database in use/);
+        } finally {
+            if (before.branch === undefined) delete process.env.COMMS_V2_DATABASE_URL; else process.env.COMMS_V2_DATABASE_URL = before.branch;
+            if (before.db === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = before.db;
+        }
+    });
+
+    it('a refused read is not a guess: the lead time comes back as nothing with the reason', async () => {
+        const before = { branch: process.env.COMMS_V2_DATABASE_URL, db: process.env.DATABASE_URL };
+        try {
+            delete process.env.COMMS_V2_DATABASE_URL;
+            process.env.DATABASE_URL = 'postgres://user:pw@prod.example/app';
+            const lt = await typicalLeadTime({ diary: liveDiary, now });
+            expect(lt.ok).toBe(false);
+            if (!lt.ok) expect(lt.reason).toContain('COMMS_V2_DATABASE_URL');
+        } finally {
+            if (before.branch === undefined) delete process.env.COMMS_V2_DATABASE_URL; else process.env.COMMS_V2_DATABASE_URL = before.branch;
+            if (before.db === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = before.db;
+        }
+    });
+});
+
+describe('the live fixture', () => {
+    it('writes only the branch the diary reads, so the writer and the reader can never disagree', async () => {
+        const before = { branch: process.env.COMMS_V2_DATABASE_URL, db: process.env.DATABASE_URL };
+        try {
+            delete process.env.COMMS_V2_DATABASE_URL;
+            process.env.DATABASE_URL = 'postgres://user:pw@branch.example/app';
+            await expect(liveFixture.seed({ completed: 6, quote: false, booked: false }, NOW)).rejects.toThrow(/COMMS_V2_DATABASE_URL/);
+            await expect(liveFixture.reset()).rejects.toThrow(/COMMS_V2_DATABASE_URL/);
+            process.env.COMMS_V2_DATABASE_URL = 'postgres://user:pw@other-branch.example/app';
+            await expect(liveFixture.seed({ completed: 6, quote: false, booked: false }, NOW)).rejects.toThrow(/not the database in use/);
+            await expect(liveFixture.reset()).rejects.toThrow(/not the database in use/);
+        } finally {
+            if (before.branch === undefined) delete process.env.COMMS_V2_DATABASE_URL; else process.env.COMMS_V2_DATABASE_URL = before.branch;
+            if (before.db === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = before.db;
+        }
+    });
+});
+
+describe('confirm_booked_date', () => {
+    const booked = (id: string, over: Partial<DiaryBooking> = {}): DiaryBooking => ({ id, quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, slot: 'am', status: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null, ...over });
+    it('reads the booking the file references, with the date as the customer reads it and a diary row id', async () => {
+        const diary = new MemoryDiary();
+        diary.bookings.push(booked('bk1'));
+        const file = fixture();
+        file.job.bookingRef = 'bk1';
+        const bd = await confirmBookedDate(file, { diary, now });
+        expect(bd).toEqual({ ok: true, bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', slot: 'in the morning', days: 1, rowId: 'booking:bk1' });
+    });
+    it('falls back to the live booking made from the file\'s quote, newest first, skipping declined and cancelled ones', async () => {
+        const diary = new MemoryDiary();
+        diary.bookings.push(booked('bk1', { status: 'declined', createdAt: '2026-09-11T00:00:00.000Z' }), booked('bk2', { scheduledDate: '2026-09-29', scheduledDays: ['2026-09-29'], createdAt: '2026-09-09T00:00:00.000Z' }));
+        const file = fixture();
+        file.job.quoteRef = 'q1';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, bookingRef: 'bk2', words: '29 September 2026' });
+    });
+    it('returns nothing when nothing is booked, and refuses a declined, cancelled or undated booking', async () => {
+        const diary = new MemoryDiary();
+        const file = fixture();
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'nothing is booked on this file' });
+        file.job.quoteRef = 'q1';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'nothing is booked from this quote yet' });
+        file.job.bookingRef = 'missing';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking the file references is not in the diary' });
+        diary.bookings.push(booked('dec', { status: 'declined' }), booked('can', { status: 'cancelled' }), booked('dayof', { dayOfStatus: 'cancelled_day_of' }), booked('nodate', { scheduledDate: null, scheduledDays: [] }));
+        file.job.bookingRef = 'dec';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking is declined; nothing stands in the diary' });
+        file.job.bookingRef = 'can';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking is cancelled; nothing stands in the diary' });
+        file.job.bookingRef = 'dayof';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking is cancelled; nothing stands in the diary' });
+        file.job.bookingRef = 'nodate';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking carries no date yet' });
+        expect(await confirmBookedDate(file, { now })).toMatchObject({ ok: false, reason: 'no diary to read' });
+    });
+    it('refuses a booking that is already done, and one whose last booked day has passed', async () => {
+        const diary = new MemoryDiary();
+        diary.bookings.push(
+            booked('done', { status: 'completed', dayOfStatus: 'completed', scheduledDate: '2026-09-03', scheduledDays: ['2026-09-03'], completedAt: '2026-09-03T16:00:00.000Z' }),
+            booked('past', { scheduledDate: '2026-09-03', scheduledDays: ['2026-09-03'] }),
+            booked('spanning', { scheduledDate: '2026-09-10', scheduledDays: ['2026-09-10', '2026-09-12'], durationDays: 2 }),
+        );
+        const file = fixture();
+        file.job.bookingRef = 'done';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking is done; that visit has happened' });
+        file.job.bookingRef = 'past';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booked date has passed' });
+        // A job part way through its span is still the one they are waiting for.
+        file.job.bookingRef = 'spanning';
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, words: '10 September 2026' });
+        // The resolver behind the quote agrees: a finished job is not the live booking made from it.
+        const byQuote = fixture();
+        byQuote.job.quoteRef = 'q1';
+        expect(await confirmBookedDate(byQuote, { diary, now })).toMatchObject({ ok: true, bookingRef: 'spanning' });
+        diary.bookings.splice(diary.bookings.findIndex((b) => b.id === 'spanning'), 1);
+        expect(await confirmBookedDate(byQuote, { diary, now })).toMatchObject({ ok: false, reason: 'nothing is booked from this quote yet' });
+    });
+    it('reads a span through expandSpanDates: the first actual day, and the days it occupies', () => {
+        const b = bookingRowToDiary({ id: 'r', quoteId: null, scheduledDate: new Date('2026-09-25T09:00:00.000Z'), scheduledDates: ['2026-09-25', '2026-09-28'], durationDays: 2, scheduledSlot: 'full_day', status: 'accepted', dayOfStatus: 'scheduled', createdAt: new Date('2026-09-10T10:00:00.000Z'), completedAt: null });
+        expect(b.scheduledDate).toBe('2026-09-25');
+        expect(b.scheduledDays).toEqual(['2026-09-25', '2026-09-28']);
+        expect(b.slot).toBe('full_day');
+        const legacy = bookingRowToDiary({ id: 'r2', quoteId: null, scheduledDate: new Date('2026-09-25T09:00:00.000Z'), scheduledDates: null, durationDays: 2, scheduledSlot: 'weird', status: 'accepted', dayOfStatus: null, createdAt: null, completedAt: null });
+        expect(legacy.scheduledDays).toEqual(['2026-09-25', '2026-09-26']);
+        expect(legacy.slot).toBeNull();
+        expect(formatDiaryDate('2026-01-03')).toBe('3 January 2026');
+        expect(formatDiaryDate('nonsense')).toBe('nonsense');
+    });
+});
+
+describe('picker_link', () => {
+    const quote = (over: Partial<MemoryDiary['quotes'][number]> = {}) => ({ id: 'q1', slug: 'abcdefgh', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: '2026-09-20T00:00:00.000Z', ...over });
+    it('returns the quote\'s picker for a sent quote', async () => {
+        const diary = new MemoryDiary();
+        diary.quotes.push(quote());
+        const file = fixture();
+        file.job.quoteRef = 'q1';
+        expect(await pickerLink(file, { diary, now, baseUrl: 'https://example.test/' })).toEqual({ ok: true, quoteRef: 'q1', slug: 'abcdefgh', url: 'https://example.test/quote/abcdefgh' });
+    });
+    it('refuses no quote on the file, a missing, draft, superseded, revoked or expired quote', async () => {
+        const file = fixture();
+        expect(await pickerLink(file, { diary: new MemoryDiary(), now })).toMatchObject({ ok: false, reason: 'no quote on the file yet; dates come with the quote' });
+        file.job.quoteRef = 'q1';
+        expect(await pickerLink(file, { diary: new MemoryDiary(), now })).toMatchObject({ ok: false, reason: 'the quote the file references does not exist' });
+        expect(await pickerLink(file, { now })).toMatchObject({ ok: false, reason: 'no diary to read' });
+        const cases: Array<[Partial<MemoryDiary['quotes'][number]>, string]> = [
+            [{ isDraft: true }, 'the quote is a draft, not sent; dates come with the quote'],
+            [{ supersededAt: '2026-09-10T00:00:00.000Z' }, 'the quote is superseded'],
+            [{ revokedAt: '2026-09-10T00:00:00.000Z' }, 'the quote is revoked'],
+            [{ expiresAt: '2026-09-01T00:00:00.000Z' }, 'the quote has expired'],
+        ];
+        for (const [over, reason] of cases) {
+            const diary = new MemoryDiary();
+            diary.quotes.push(quote(over));
+            expect(await pickerLink(file, { diary, now })).toMatchObject({ ok: false, reason });
+        }
+    });
+});
+
+describe('the belts', () => {
+    it('date_change matches a request to move a booking, and only that', () => {
+        expect(dateChangeMatch('Can we move it to the week after?')).toBeTruthy();
+        expect(dateChangeMatch('Could we push it back a week')).toBeTruthy();
+        expect(dateChangeMatch('Any chance of a different day?')).toBeTruthy();
+        expect(dateChangeMatch('I need to reschedule')).toBeTruthy();
+        expect(dateChangeMatch('Could we bring it forward?')).toBeTruthy();
+        expect(dateChangeMatch('What day is it booked for?')).toBeNull();
+        expect(dateChangeMatch('The tap is still dripping')).toBeNull();
+        expect(dateChangeMatch('Could you bring it with you?')).toBeNull();
+        expect(dateChangeMatch('Can you change it to a chrome tap instead?')).toBeNull();
+        expect(dateChangeMatch('Could we swap it for the brushed steel one?')).toBeNull();
+        expect(dateChangeMatch('Switch it off at the mains?')).toBeNull();
+        expect(dateChangeMatch('Just put it through the letterbox')).toBeNull();
+        expect(dateChangeMatch('Can you change the date please')).toBeTruthy();
+        expect(dateChangeMatch('I need to shift my appointment')).toBeTruthy();
+    });
+    it('date_question matches a question about dates or timing, never a statement', () => {
+        expect(dateQuestionMatch('When can you come?')).toBeTruthy();
+        expect(dateQuestionMatch('when could you come out')).toBeTruthy();
+        expect(dateQuestionMatch('What dates do you have?')).toBeTruthy();
+        expect(dateQuestionMatch('How soon could you do it?')).toBeTruthy();
+        expect(dateQuestionMatch('How long until you can come?')).toBeTruthy();
+        // A duration question is not a date question: a booking lead time is not how long the job takes.
+        expect(dateQuestionMatch('How long will it take?')).toBeNull();
+        expect(dateQuestionMatch('I am available Tuesday')).toBeNull();
+        expect(dateQuestionMatch('Is the old tap still connected?')).toBeNull();
+        expect(dateQuestionMatch('What time works for a call?')).toBeNull();
+    });
+    it('booked is a booking reference on the file, the booked stage, or a booking made from the file\'s quote on the picker', async () => {
+        const file = fixture();
+        expect((await standingBooking(file, { now })).state).toBe('none');
+        file.job.bookingRef = 'bk1';
+        expect((await standingBooking(file, { now })).state).toBe('unknown');
+        // The picker books against the quote and never writes back to the case file: the diary is the only place it shows.
+        const diary = new MemoryDiary();
+        const picked = fixture();
+        picked.job.quoteRef = 'q1';
+        expect((await standingBooking(picked, { diary, now })).state).toBe('none');
+        diary.bookings.push({ id: 'bk9', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, slot: 'am', status: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
+        expect(await standingBooking(picked, { diary, now })).toMatchObject({ state: 'standing', booking: { id: 'bk9' } });
+    });
+
+    it('a diary that cannot be read is not a thread with nothing booked: the belt keeps its hold', async () => {
+        const broken = { ...new MemoryDiary(), bookingForQuote: async () => { throw new Error('connection lost'); } } as unknown as MemoryDiary;
+        const picked = fixture();
+        picked.job.quoteRef = 'q1';
+        const lookup = await standingBooking(picked, { diary: broken, now });
+        expect(lookup.state).toBe('unknown');
+        expect(await confirmBookedDate(picked, { diary: broken, now })).toMatchObject({ ok: false, reason: expect.stringContaining('connection lost') });
+    });
+});

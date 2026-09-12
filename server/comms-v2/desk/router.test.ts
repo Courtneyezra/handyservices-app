@@ -58,8 +58,11 @@ describe('the composer\'s brief', () => {
         const user = buildComposerUser({
             file, party: file.parties[0], turn: file.turns[0],
             route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question', belts: { regulated: null, money: 'how much' }, call: {} as any, error: null },
-            specialists: [{ specialist: 'scoping', factIds: ['fact_1'], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null }],
-            fixedLines: [{ kind: 'money_to_ben', text: 'Ben will come back to you on the price.', kbId: null }],
+            specialists: [
+                { specialist: 'scoping', factIds: ['fact_1'], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null },
+                { specialist: 'scheduling', factIds: [], proposal: { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, brief: ['The diary has no typical lead time to give: include the fixed line that dates come with the quote.'], calls: [], error: null },
+            ],
+            fixedLines: [{ kind: 'money_to_ben', text: 'Ben will come back to you on the price.', kbId: null }, { kind: 'dates_with_quote', text: 'Dates come with your quote.', kbId: null }],
             failures: ['figure: a figure appears'],
         });
         expect(user).toContain('fact_1: job_type = fence panel');
@@ -67,7 +70,9 @@ describe('the composer\'s brief', () => {
         expect(user).toContain('this turn: ask one question about their location (postcode)');
         expect(user).toContain('offer a call: no, do not mention calling');
         expect(user).toContain('Never ask again (already asked or declined): photos or video');
+        expect(user).toContain('Notes from scheduling');
         expect(user).toContain('dates come with the quote');
+        expect(user).toContain('Dates come with your quote.');
         expect(user).toContain('Ben will come back to you on the price.');
         expect(user).toContain('figure: a figure appears');
     });

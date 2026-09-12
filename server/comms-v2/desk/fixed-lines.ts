@@ -10,7 +10,7 @@
  * The rest are Goal 1's: money goes to Ben (checklist 2.7), dates come with the quote (2.6), and
  * the acknowledgement a guard hold sends (Contract 4, second failure).
  */
-export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'held_ack' | 'move_to_whatsapp';
+export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     gas: "Thanks for getting in touch. Gas work isn't something we take on ourselves, so I've passed this to Ben and he'll come back to you.",
@@ -19,6 +19,7 @@ export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     trust: "That's a fair question. I've passed it to Ben and he'll come back to you himself.",
     money_to_ben: 'Ben will come back to you on the price.',
     dates_with_quote: 'Dates come with your quote.',
+    date_change_to_ben: 'Ben will come back to you on the date.',
     held_ack: "Thanks, I've passed this to Ben and he'll come back to you.",
     move_to_whatsapp: "If it's easier, you can message us on WhatsApp on this same number.",
 };

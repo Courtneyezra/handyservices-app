@@ -15,6 +15,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
+import { schedule } from '../scheduling/scheduling-specialist';
+import { dateChangeMatch, dateQuestionMatch, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
@@ -35,13 +37,13 @@ export interface DeskDeps extends CaseFileDeps {
     templates?: TemplateStatusSource;
     kb?: KbReader;
     scoping?: ScopingDeps;
+    scheduling?: SchedulingDeps;
     sender?: SenderDeps;
     mode?: 'dry_run' | 'live';
     log?: (line: string) => void;
 }
 
 const FIXED_LINE_ONLY: ReadonlySet<Exception> = new Set<Exception>(['complaint', 'refund', 'trust_doubt', 'regulated']);
-const ANSWER_THE_REST: ReadonlySet<Exception> = new Set<Exception>(['money', 'date_change']);
 
 function passGuards(): Record<GuardName, GuardVerdict> {
     const v = (): GuardVerdict => ({ result: 'pass', note: null });
@@ -121,12 +123,21 @@ export class Desk implements DeskLike {
                 this.holdFor(file, 'regulated', `regulated: ${scoping.proposal.hold.match}`);
                 reply = line.text;
             } else {
-                if (exception && ANSWER_THE_REST.has(exception)) {
+                if (exception === 'money') {
                     const line = await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines);
                     fixedLines.push(line);
                     this.holdFor(file, exception, `${exception}: ${route.belts.money ?? turn.body.slice(0, 80)}`);
                 }
-                if (route.subjects.includes('scheduling')) fixedLines.push(await fixedLine('dates_with_quote', this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change to a booked job holds for Ben and the reply still answers the rest.
+                const couldBeBooked = !!(file.job.bookingRef || file.job.quoteRef || file.stage === 'booked');
+                if (route.subjects.includes('scheduling') || exception === 'date_change' || dateQuestionMatch(turn.body) || (couldBeBooked && dateChangeMatch(turn.body))) {
+                    const sched = await schedule(file, turn, party, this.client, { ...this.deps.scheduling, now: this.now });
+                    calls.push(...sched.calls);
+                    specialists.push(sched);
+                    if (sched.error) log(`scheduling: ${sched.error}`);
+                    for (const kind of sched.scheduling.fixedLines) fixedLines.push(await fixedLine(kind, this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    if (sched.proposal.hold) this.holdFor(file, 'date_change', `date_change: ${sched.proposal.hold.match}`);
+                }
                 fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
                 if (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready') {
@@ -275,6 +286,7 @@ function summarise(route: Route, specialists: SpecialistReturn[]): string {
     const bits = [`turn ${route.turnKind}`, `subjects ${route.subjects.join('+')}`, `exception ${route.exception ?? 'none'}`];
     if (p) bits.push(`ask ${p.nextQuestion ? `${p.nextQuestion.subject}${p.nextQuestion.unknowns.length ? ' (' + p.nextQuestion.unknowns.join(', ') + ')' : ''}` : 'none'}`, `call ${p.offerCall ? 'yes' : 'no'}`, `photos ${p.mentionPhotos ? 'mention' : p.thankForMedia ? 'thank' : 'no'}`, `ready ${p.ready ? 'yes' : 'no'}`);
     if (specialists[0]?.error) bits.push(`specialist error: ${specialists[0].error}`);
+    for (const s of specialists.slice(1)) bits.push(`${s.specialist}: ${s.brief?.length ? s.brief.join(' | ') : 'nothing to add'}${s.error ? ` (error: ${s.error})` : ''}`);
     if (route.error) bits.push(`router error: ${route.error}`);
     return bits.join('; ');
 }
