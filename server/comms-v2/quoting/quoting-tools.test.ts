@@ -311,12 +311,11 @@ describe('the live read and a figure the quote has moved on from', () => {
             pricingLineItems: [{ lineId: 'card_1', label: 'Replace kitchen tap', qty: 1, pricePence: 12000, materialsPence: 2000, description: 'mixer tap' }],
             pricingSuggestions: { totals: { suggestedPence: 11000 }, lines: [{ lineId: 'card_1', checkThis: true }] },
             customerPhotoUrls: ['https://example.test/a.jpg'],
-            extensionCount: 2,
         };
         // What liveQuoteStore.read hands back: the row narrowed to the columns it asked for.
         const asRead = Object.fromEntries(Object.keys(QUOTE_READ_COLUMNS).map((k) => [k, (whole as any)[k]])) as QuoteRowLike;
         expect(quoteRecordOf(asRead, now)).toEqual(quoteRecordOf(whole, now));
-        expect(quoteRecordOf(asRead, now).selfRefreshesLeft).toBe(1);
+        expect(quoteRecordOf(asRead, now).totalPence).toBe(12000);
     });
 
     it('a figure the quote has moved on from is neither shown to the composer nor accepted by the guard', async () => {
@@ -325,14 +324,14 @@ describe('the live read and a figure the quote has moved on from', () => {
         await draftQuote(file, file.parties[0], intake, d);
         await priceQuote(file, {}, d);
         expect((await markQuoteSent(file, d)).ok).toBe(true);
-        const lapsed = (await loadQuote(file, d))!;
-        const was = recordQuoteFacts(file, lapsed, d);
+        const before = (await loadQuote(file, d))!;
+        const was = recordQuoteFacts(file, before, d);
         const old = file.facts.find((f) => f.id === was.lines.Total)!;
         expect(old.value).toBe('£120.00');
 
-        // The customer refreshes their own lapsed quote on the quote page: the row comes back live
-        // at the new price, and the next turn records that amount beside the old one.
-        const row = d.store.rows.get(lapsed.slug)!;
+        // Ben edits the quote and the price moves: the next turn records the new amount beside the
+        // one already on the file, because facts are append-only.
+        const row = d.store.rows.get(before.slug)!;
         Object.assign(row, { basePrice: 12600, pricingLineItems: (row.pricingLineItems as any[]).map((l) => ({ ...l, pricePence: 12600, labourPence: 10600 })) });
         const refreshed = (await loadQuote(file, d))!;
         const nowIds = recordQuoteFacts(file, refreshed, d);

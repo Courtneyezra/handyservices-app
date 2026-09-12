@@ -2,7 +2,6 @@ import { Router } from "express";
 import { db } from "./db";
 import { notifyQuoteViewed } from "./pushover";
 import { pushEvent } from "./web-push";
-import { QUOTE_HARD_EXPIRY_FALLBACK_MS, REISSUE_MAX_SELF, REISSUE_SURCHARGE } from "@shared/quote-reissue";
 import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users, contractorTeams, contractorTeamMembers, contractorAvailabilityDates, conversations } from "@shared/schema";
 import { eq, desc, inArray, or, sql } from "drizzle-orm";
 import crypto from 'crypto';
@@ -60,6 +59,12 @@ export function quoteValidityMs(pricePence?: number | null): number {
     return QUOTE_VALIDITY_MS;
 }
 
+// Customer self-reissue: once a quote's price-lock has lapsed the customer can
+// refresh it themselves, but each refresh bumps the price 5% (compounding).
+// After REISSUE_MAX_SELF self-refreshes it's admin-only (the admin "renew" path
+// stays free of the surcharge). REISSUE_SURCHARGE is the per-refresh multiplier.
+export const REISSUE_SURCHARGE = 1.05;
+export const REISSUE_MAX_SELF = 3;
 
 /**
  * The quote's real expiry, falling back to createdAt + validity window for
@@ -72,6 +77,11 @@ export function effectiveExpiryMs(quote: { expiresAt?: Date | string | null; cre
     return Date.now() + QUOTE_VALIDITY_MS;
 }
 
+// Track A hard-expiry gate. Legacy rows without expiresAt fall back to
+// createdAt + 30 days (deliberately more generous than the 48h price-lock
+// fallback above — the price-lock drives the client's reissue overlay, this
+// gate drives server-side HTTP 410s and must not strand recent legacy quotes).
+export const QUOTE_HARD_EXPIRY_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
 
 type ExpiryGateQuote = {
     expiresAt?: Date | string | null;

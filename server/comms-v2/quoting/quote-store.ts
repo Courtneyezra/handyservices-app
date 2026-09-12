@@ -55,7 +55,6 @@ export interface QuoteStore {
 export const QUOTE_READ_COLUMNS = {
     id: true, shortSlug: true, customerName: true, phone: true, postcode: true, isDraft: true, revokedAt: true, supersededAt: true,
     depositPaidAt: true, expiresAt: true, createdAt: true, basePrice: true, depositAmountPence: true, pricingLineItems: true, pricingSuggestions: true, customerPhotoUrls: true,
-    extensionCount: true,
 } as const;
 
 /** Who the database refusal names when this store is the one that asked (live-database.ts). */

@@ -185,63 +185,29 @@ describe('after the quote', () => {
         expect(ret?.calls).toHaveLength(0);
     });
 
-    it('an expired quote gives no figure and points at the refresh on the customer\'s own page, holding nothing while a refresh is left', async () => {
+    it('an expired quote gives no figure: the status fact only, and Ben comes back', async () => {
         const { file, d, store } = await sentQuote();
         const row = store.rows.get(file.job.quoteRef!)!;
         row.expiresAt = '2026-09-01T00:00:00.000Z';
         const before = file.facts.filter((f) => f.key.startsWith('quote_line:')).length;
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on a stale quote'); } });
         const ret = await quote(file, later(file, 'How much was the total again?'), file.parties[0], routeOf(), client, d);
-        expect(ret?.brief?.[0]).toMatch(/is expired, 3 refreshes left/);
-        expect(ret?.brief?.join('\n')).toMatch(/Their quote page refreshes it themselves/);
-        expect(ret?.proposal.hold).toBeNull();
-        // No figure is readable, and the link is, because that page is where the refresh happens.
-        expect(file.facts.filter((f) => f.key.startsWith('quote_line:')).length).toBe(before);
-        expect(file.facts.find((f) => f.key === QUOTE_FACT.link)?.value).toBe(`https://test.local/quote/${file.job.quoteRef}`);
-        expect(file.facts.find((f) => f.key === QUOTE_FACT.status && /expired/.test(f.value))).toBeTruthy();
-    });
-
-    it('a quote whose page is past the hard window holds for Ben, refreshes left or not', async () => {
-        const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on a stale quote'); } });
-        const { file, d, store } = await sentQuote();
-        const row = store.rows.get(file.job.quoteRef!)!;
-        // Created 41 days before the clock: past its price lock and past the 30-day window the
-        // public quote GET serves within, so there is no page left to refresh on.
-        row.createdAt = '2026-08-01T10:00:00.000Z';
-        row.expiresAt = '2026-08-03T10:00:00.000Z';
-        row.extensionCount = 0;
-        const ret = await quote(file, later(file, 'is that price still good?'), file.parties[0], routeOf(), client, d);
+        expect(ret?.brief?.[0]).toMatch(/is expired/);
         expect(ret?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${file.job.quoteRef} is expired` });
         expect(ret?.brief?.join('\n')).toMatch(/say Ben will come back to them on the quote/);
-        expect(ret?.brief?.join('\n')).not.toMatch(/refreshes it themselves/);
+        expect(file.facts.filter((f) => f.key.startsWith('quote_line:')).length).toBe(before);
+        expect(file.facts.find((f) => f.key === QUOTE_FACT.status && /expired/.test(f.value))).toBeTruthy();
+        // The status is the only fact this turn records: no figure, and no fresh link either.
+        expect(ret?.factIds).toEqual([file.facts.find((f) => f.key === QUOTE_FACT.status && /expired/.test(f.value))!.id]);
     });
 
-    it('a money question about an expired quote never tells the composer to withhold the words the money line carries', async () => {
+    it('a revoked or superseded quote holds for Ben exactly as an expired one does', async () => {
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on a stale quote'); } });
-        const { file, d, store } = await sentQuote();
-        store.rows.get(file.job.quoteRef!)!.expiresAt = '2026-09-01T00:00:00.000Z';
-        const money = routeOf({ exception: 'money', belts: { regulated: null, money: 'cheaper' } });
-        const ret = await quote(file, later(file, 'can you do it any cheaper?'), file.parties[0], money, client, d);
-        const brief = ret?.brief?.join('\n') ?? '';
-        expect(brief).toMatch(/refreshes it themselves/);
-        expect(brief).not.toMatch(/do not say Ben will come back to them/);
-        expect(brief).toMatch(/their money question is beyond a line of the quote/);
-    });
-
-    it('a quote nothing on the page helps with holds for Ben: every refresh used up, revoked, superseded', async () => {
-        const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on a stale quote'); } });
-        const used = await sentQuote();
-        const usedRow = used.store.rows.get(used.file.job.quoteRef!)!;
-        usedRow.expiresAt = '2026-09-01T00:00:00.000Z';
-        usedRow.extensionCount = 3;
-        const spent = await quote(used.file, later(used.file, 'any chance of sorting this?'), used.file.parties[0], routeOf(), client, used.d);
-        expect(spent?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${used.file.job.quoteRef} is expired` });
-        expect(spent?.brief?.join('\n')).toMatch(/say Ben will come back to them on the quote/);
-
         const gone = await sentQuote();
         gone.store.rows.get(gone.file.job.quoteRef!)!.revokedAt = '2026-09-11T12:00:00.000Z';
         const revoked = await quote(gone.file, later(gone.file, 'is that still ok?'), gone.file.parties[0], routeOf(), client, gone.d);
         expect(revoked?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${gone.file.job.quoteRef} is revoked` });
+        expect(revoked?.brief?.join('\n')).toMatch(/say Ben will come back to them on the quote/);
 
         const old = await sentQuote();
         old.store.rows.get(old.file.job.quoteRef!)!.supersededAt = '2026-09-11T12:00:00.000Z';

@@ -274,7 +274,7 @@ describe('the desk', () => {
     });
 
     /** A thread whose quote Ben priced and sent, then left to expire: the stage stays quoted, the row does not. */
-    async function expiredQuote(composerReply: string, refreshesUsed = 0) {
+    async function expiredQuote(composerReply: string) {
         const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
         const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
         let composerUser = '';
@@ -295,30 +295,15 @@ describe('the desk', () => {
         const sent = await markQuoteSent(first.file, d);
         if (!sent.ok) throw new Error(sent.reason);
         expect(first.file.stage).toBe('quoted');
-        // The price lock has passed, and the customer has used `refreshesUsed` of their own
-        // refreshes on the quote page. A fixed timestamp, not the wall clock, so the row is expired
-        // whenever this runs.
-        const row = store.rows.get(first.file.job.quoteRef!)!;
-        row.expiresAt = '2026-09-12T10:00:00.000Z';
-        row.extensionCount = refreshesUsed;
+        // Past the price lock, on a fixed timestamp rather than the wall clock, so the row reads
+        // expired whenever this runs.
+        store.rows.get(first.file.job.quoteRef!)!.expiresAt = '2026-09-12T10:00:00.000Z';
         clock.t += 72 * 3_600_000;
         return { gateway, clock, slug: first.file.job.quoteRef!, user: () => composerUser };
     }
 
-    it('an expired quote the customer can still refresh points them at their own page and holds nothing', async () => {
-        const { gateway, clock, slug, user } = await expiredQuote('The price on that one has lapsed, but you can refresh it yourself on your quote page.');
-        const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
-        if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(user()).toContain(`quoting: ${slug} is expired, 3 refreshes left to the customer`);
-        expect(user()).toContain(`https://test.local/quote/${slug}`);
-        expect(user()).not.toMatch(/say Ben will come back to them on the quote/);
-        expect(out.file.hold).toBeNull();
-        expect(out.result.decision).toBe('send');
-        expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
-    });
-
-    it('an expired quote with every refresh used up holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
-        const { gateway, clock, slug, user } = await expiredQuote('Let me get Ben to come back to you on that.', 3);
+    it('a question about an expired quote holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
+        const { gateway, clock, slug, user } = await expiredQuote('Let me get Ben to come back to you on that.');
         const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(user()).toContain(`quoting: ${slug} is expired`);
@@ -333,10 +318,6 @@ describe('the desk', () => {
         const out = await gateway.inbound(turn('can you do it any cheaper?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
-        // The fixed line and the refreshable brief reach the composer together, so the brief must
-        // not tell it to withhold the promise the line makes.
-        expect(user()).not.toMatch(/do not say Ben will come back to them/);
-        expect(user()).toMatch(/their money question is beyond a line of the quote/);
         expect(out.file.hold?.exception).toBe('money');
         expect(out.file.hold?.reason).toContain('money');
         expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);

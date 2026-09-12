@@ -12,7 +12,6 @@
  * 35). Scope (what a line covers, what is not included) may be read from a draft as well, because
  * it is the desk's own record of the customer's words, and never carries a figure.
  */
-import { QUOTE_HARD_EXPIRY_FALLBACK_MS, REISSUE_MAX_SELF } from '@shared/quote-reissue';
 import { recordFact, type CaseFile, type CaseFileDeps, type Fact, type FactSource } from '../desk/case-file';
 
 export type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'revoked' | 'superseded' | 'expired';
@@ -53,11 +52,6 @@ export interface QuoteRecord {
     suggestedTotalPence: number | null;
     checkThis: number;
     photoUrls: string[];
-    /**
-     * Refreshes the customer may still make on their own quote page once the price lock has passed
-     * (shared/quote-reissue.ts). Zero is the point the page itself hands off to a human.
-     */
-    selfRefreshesLeft: number;
 }
 
 /** The row fields this module reads, in the column names drizzle gives them. */
@@ -78,8 +72,6 @@ export interface QuoteRowLike {
     pricingLineItems?: unknown;
     pricingSuggestions?: unknown;
     customerPhotoUrls?: unknown;
-    /** The customer's own refreshes of a lapsed quote, as the reissue route counts them. */
-    extensionCount?: number | null;
 }
 
 const iso = (v: Date | string | null | undefined): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -128,21 +120,7 @@ export function quoteRecordOf(row: QuoteRowLike, now: Date = new Date()): QuoteR
         suggestedTotalPence: int(suggestions?.totals?.suggestedPence),
         checkThis: (suggestions?.lines ?? []).filter((l) => l?.checkThis).length,
         photoUrls: strings(row.customerPhotoUrls),
-        selfRefreshesLeft: Math.max(0, REISSUE_MAX_SELF - Math.max(0, int(row.extensionCount) ?? 0)),
     };
-}
-
-/**
- * The customer can still put this right themselves: the price lock has passed, a refresh is left on
- * their own quote page, and that page will still serve. Past the hard window the public quote GET
- * answers 410 and the page renders not-found (server/quotes.ts `isQuoteGone`), so there is nothing
- * to point them at and the thread is Ben's.
- */
-export function selfRefreshable(q: QuoteRecord, now: Date = new Date()): boolean {
-    if (q.status !== 'expired' || q.selfRefreshesLeft <= 0 || !q.createdAt) return false;
-    const lock = q.expiresAt ? Date.parse(q.expiresAt) : 0;
-    const hard = Date.parse(q.createdAt) + QUOTE_HARD_EXPIRY_FALLBACK_MS;
-    return now.getTime() <= Math.max(lock, hard);
 }
 
 // ---------------------------------------------------------------- figures

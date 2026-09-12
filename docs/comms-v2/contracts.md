@@ -211,9 +211,8 @@ that the customer was never shown.
 **What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,
 assumptions, link and status, each with source `quote_line` naming the quote and the label. A
 brief: the quote is with Ben, or answer from these facts, or point at the quote page to accept, or
-acknowledge a not-ready customer, or point an expired quote at the refresh on the customer's own
-page. Holds: money beyond a quote line, acceptance in chat, a quote nothing on that page helps with,
-and a draft the clerk could not build, where the brief promises the customer nothing, the turn asks nothing and
+acknowledge a not-ready customer. Holds: money beyond a quote line, acceptance in chat, a quote no
+longer live for figures, and a draft the clerk could not build, where the brief promises the customer nothing, the turn asks nothing and
 carries the held acknowledgement instead, and the hold reason names the failure, because no quote
 exists and Ben has had no notification. A later turn that does draft the quote answers that hold:
 the desk releases it in its own words, naming the quote and its price screen, so the card never
@@ -222,22 +221,21 @@ sentence for the customer. Acceptance is a human event the door (live, the payme
 records; the specialist can only read it.
 
 **A figure the quote has moved on from.** Facts are append-only, so a line whose amount changes -
-the customer refreshing, Ben re-pricing - leaves the old `quote_line:<label>` fact beside the new
-one. The newest for a label on a quote is that quote's current line and the only one the composer is
-shown or the figure guard accepts (`isSupersededFigure`, desk/case-file.ts), so a price from before
-a refresh can never be read back.
+Ben re-pricing or editing the quote - leaves the old `quote_line:<label>` fact beside the new one.
+The newest for a label on a quote is that quote's current line and the only one the composer is
+shown or the figure guard accepts (`isSupersededFigure`, desk/case-file.ts), so a price the quote no
+longer carries can never be read back.
 
-**A quote that is no longer live for figures.** Expired, revoked or superseded: no figure may be
-read from any of them, and the split is what the customer can actually do. An expired quote is
-theirs to refresh on their own quote page while `selfRefreshable` holds (quote-record.ts): a refresh
-left of `REISSUE_MAX_SELF` and the page still inside the hard window the public quote GET serves
-within, both in `shared/quote-reissue.ts`. Then the reply points at that page - the link fact is
-recorded for an expired quote for exactly that - and nothing holds. Revoked, superseded, every
-refresh used up, and a page past that window leave nothing for them there, so the reply says Ben
-will come back to them on it and the hold is what asks him. A money question on any of them is
-beyond a line of the quote, because no line is live: the money fixed line and its hold stand, and
-the brief never contradicts them. On superseded, answering from the newer quote
-instead is the better answer and belongs to its own task.
+**A quote that is no longer live for figures.** Expired, revoked and superseded are one path on
+purpose: no figure may be read from any of them, no fresh link is recorded, the reply says Ben will
+come back to them on the quote, and the hold is what asks him, so the promise is one that is kept
+(6.3). A money question on such a thread is beyond a line of the quote, because no line is live, so
+the money fixed line and its hold stand.
+
+Expired deliberately gets no softer treatment than revoked, though the quote page can refresh a
+lapsed price itself: telling the customer to do that is its own item, to settle once Ben has used the
+board and can say how many cards a two-day-old thread is worth. On superseded, answering from the
+newer quote is the better answer and is its own item too.
 
 ## Validation
 

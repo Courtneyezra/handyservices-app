@@ -194,10 +194,9 @@ export interface QuoteFactIds {
 }
 
 /**
- * The quote onto the file as facts, once each, cited to the quote and the line: status; the link,
- * which an expired quote carries too because that page is where the customer refreshes it; every
- * figure the customer can be read (each line, its halves, the total, the deposit) only when the
- * quote is live for figures; and scope, not-included and assumptions when live for scope.
+ * The quote onto the file as facts, once each, cited to the quote and the line: status; the link;
+ * every figure the customer can be read (each line, its halves, the total, the deposit) only when
+ * the quote is live for figures; and scope, not-included and assumptions when live for scope.
  */
 export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDeps = {}): QuoteFactIds {
     const d = resolveQuotingDeps(deps);
@@ -205,15 +204,11 @@ export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDe
     const once = (key: string, value: string, line: string): Fact | null => factOnce(file, { key, value, source: quoteSource(q.slug, line), by: BY }, d.file);
     const statusText: Record<QuoteStatus, string> = {
         draft: 'draft: with Ben to price', sent: 'sent: the customer has the link', accepted: 'accepted: the deposit is paid',
-        revoked: 'revoked by Ben', superseded: 'superseded by a newer quote', expired: 'expired: the price lock has passed',
+        revoked: 'revoked by Ben', superseded: 'superseded by a newer quote', expired: 'expired: Ben to reissue',
     };
     ids.status = once(QUOTE_FACT.status, statusText[q.status], 'status')?.id ?? null;
-    // The link is the page itself, not a figure, so an expired quote carries it too: that page is
-    // where the customer refreshes their own lapsed quote (shared/quote-reissue.ts).
-    if (q.status === 'sent' || q.status === 'accepted' || q.status === 'expired') {
-        ids.link = once(QUOTE_FACT.link, quoteUrlFor(q.slug, d.baseUrl), 'link')?.id ?? null;
-    }
     if (q.status === 'sent' || q.status === 'accepted') {
+        ids.link = once(QUOTE_FACT.link, quoteUrlFor(q.slug, d.baseUrl), 'link')?.id ?? null;
         for (const f of figureLabels(q)) {
             const read = readQuoteLine(q, f.label);
             if (!read.ok) continue;
