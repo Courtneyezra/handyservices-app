@@ -178,8 +178,11 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         if (confirming && !asks.some((a) => a === 'lead_time' || a === 'availability')) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
         findings.leadTime = await typicalLeadTime(deps);
         if (!findings.leadTime.ok && findings.leadTime.detail) details.push(`${findings.leadTime.reason}: ${findings.leadTime.detail}`);
-        if (file.job.quoteRef) findings.picker = await pickerLink(file, deps);
+        if (file.job.quoteRef) findings.picker = await pickerLink(file, deps, standing);
         if (findings.picker && !findings.picker.ok) details.push(findings.picker.detail ? `${findings.picker.reason}: ${findings.picker.detail}` : findings.picker.reason);
+        // The picker was refused because that job already stands in the diary. They did not ask to move it,
+        // and a reply that says nothing about a day already in the diary reads as not knowing about it.
+        if (!confirming && standing.ok && findings.picker && !findings.picker.ok) confirmWhatStands(false);
         if (findings.picker?.ok) {
             const p = findings.picker;
             const f = recordFact(file, { key: 'picker_link', value: p.url, source: { kind: 'quote_line', quoteRef: p.quoteRef, line: 'picker' }, by }, fileDeps);

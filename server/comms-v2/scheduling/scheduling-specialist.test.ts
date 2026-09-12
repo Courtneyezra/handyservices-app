@@ -536,6 +536,22 @@ describe('the Scheduling specialist', () => {
         expect(r.proposal.hold).toBeNull();
     });
 
+    it('a job already booked gets no picker for the quote it was booked from, and the day it stands on is mentioned', async () => {
+        const file = fixture("Great. While you're here, could you look at the fence panel too? What dates have you got?");
+        file.job.quoteRef = 'q1';
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(6, true), now, baseUrl: 'https://example.test' });
+        assertNoProse(r, file);
+        // Picking a date is what the picker is for, and theirs is picked; moving it is Ben's.
+        expect(r.scheduling.picker).toMatchObject({ ok: false, quoteRef: 'q1' });
+        expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(r.brief.join(' ')).toMatch(/no link to give/);
+        // The new job is answered with the lead time, and the day they already have is not passed over in silence.
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
+        expect(r.proposal.hold).toBeNull();
+    });
+
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {
         const diary = diaryWith(6, true);
         diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';

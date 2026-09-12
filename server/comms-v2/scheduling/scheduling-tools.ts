@@ -15,7 +15,8 @@
  *                       booking is still something the customer thinks they have, so a request to
  *                       move it reaches Ben; a finished one is a new job, not a change.
  *   picker_link         the quote's picker, for a quote that has been sent: refuses no quote on
- *                       the file, a draft, a superseded, revoked or expired quote.
+ *                       the file, a draft, a superseded, revoked or expired quote, and a quote whose
+ *                       job already stands in the diary, since that date was chosen there already.
  *   date_change         the deterministic belt under the model: a request to move a booked job
  *                       is a hold for Ben whatever the router or the specialist read.
  *
@@ -116,9 +117,14 @@ function baseUrlOf(deps: SchedulingDeps): string {
     return getBaseUrlFromEnv();
 }
 
-/** The quote's picker, for a quote that has been sent. Booking stays there; the desk never books. */
-export async function pickerLink(file: CaseFile, deps: SchedulingDeps = {}): Promise<PickerLink> {
+/**
+ * The quote's picker, for a quote that has been sent. Booking stays there; the desk never books.
+ * Refused once that quote's job stands in the diary: the picker is where a date is chosen, and a
+ * customer whose date is chosen is not choosing again. Moving that one is Ben's.
+ */
+export async function pickerLink(file: CaseFile, deps: SchedulingDeps = {}, booked: BookedDate | null = null): Promise<PickerLink> {
     if (!file.job.quoteRef) return { ok: false, reason: 'no quote on the file yet; dates come with the quote', quoteRef: null };
+    if (booked?.ok) return { ok: false, reason: 'the job from this quote is already booked; its date is Ben\'s to move', quoteRef: file.job.quoteRef };
     if (!deps.diary) return { ok: false, reason: 'no diary to read', quoteRef: file.job.quoteRef };
     let quote;
     try {
