@@ -222,6 +222,10 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     const q: QuoteRecord | null = await loadQuote(file, deps).catch((e: any) => { error = `quote read failed: ${e?.message ?? e}`; return null; });
     const ready = isReady(file);
     if (!q && !ready) return null;
+    // A file naming a quote the shelf cannot read is not a file with no quote: one job has one
+    // draft and a change to it is Ben's, so a read that came back empty is treated as a read that
+    // failed rather than drafting a second quote over the one the reference names.
+    if (!q && file.job.quoteRef && !error) error = `quote ${file.job.quoteRef} is on the file but no row came back for it`;
     if (!q && file.job.quoteRef && error) {
         // The router cleared the money belt on the read that succeeded at the top of the turn
         // (desk.ts), so this read failing must not lose the hold with it: money beyond a quote line

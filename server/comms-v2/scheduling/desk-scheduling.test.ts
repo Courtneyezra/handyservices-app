@@ -13,6 +13,9 @@ import { FakeModelClient } from '../desk/models';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
+import { recordingNotifier } from '../quoting/ben-notifier';
+import { FakeDrafter } from '../quoting/draft-quote';
+import { MemoryQuoteStore } from '../quoting/quote-store';
 import { MemoryDiary } from './diary';
 import { linkFixture } from './scheduling-door';
 import { MemoryFixture } from './fixture';
@@ -26,16 +29,31 @@ function turn(text: string, at: string): InboundTurn {
 const scoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
 const scheduling = (over: Record<string, unknown> = {}) => ({ subjects: ['scheduling'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question', ...over });
 
-/** The scripted specialists: Scoping on the first call of a turn, Scheduling when the router sent the turn there. */
+/**
+ * The scripted specialists: Scoping on the first call of a turn, Scheduling when the router sent
+ * the turn there, and Quoting's own two calls, which the job and the postcode together make due on
+ * the first turn (Goal 4) whatever the turn asks about dates.
+ */
 function specialists(schedulingAsks: string[], requestedChange: string | null = null) {
-    return ({ system }: { system: string }) => system.includes('Scheduling specialist') ? { asks: schedulingAsks, requestedChange } : { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] };
+    return ({ system }: { system: string }) => {
+        if (system.includes('Scheduling specialist')) return { asks: schedulingAsks, requestedChange };
+        if (/lines of a quote/.test(system)) return { lines: [{ title: 'Repair leaking kitchen tap', category: 'plumbing', qty: 1, detail: 'leaking at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] };
+        if (/what it concerns/.test(system)) return { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false };
+        return { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] };
+    };
 }
 
 function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], diary: MemoryDiary, extra: Partial<DeskDeps> = {}, mode: 'diary' | 'none' = 'diary') {
     const client = new FakeModelClient(handlers);
     const clock = { t: NOW };
     const now = () => new Date(clock.t += 1000);
-    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, scheduling: { diary, diaryMode: { completed: mode }, baseUrl: 'https://example.test' }, ...extra });
+    const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+    // One quotes table live: a quote the desk drafts through Quoting is one the diary reads back.
+    diary.quoteFallback = async (ref) => {
+        const row = (await store.read(ref)) as Record<string, any> | null;
+        return row ? { id: String(row.id), slug: String(row.shortSlug), isDraft: row.isDraft !== false, supersededAt: row.supersededAt ?? null, revokedAt: row.revokedAt ?? null, expiresAt: row.expiresAt ?? null } : null;
+    };
+    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' }, scheduling: { diary, diaryMode: { completed: mode }, baseUrl: 'https://example.test' }, ...extra });
     return { client, gateway: new Gateway({ desk: d, now }), now };
 }
 
@@ -75,7 +93,8 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(r.summary).toMatch(/scheduling: Typical lead time from the diary/);
         expect(second.file.facts.find((f) => f.id === leadFactId)?.source).toMatchObject({ kind: 'diary' });
         expect(second.file.hold).toBeNull();
-        expect(client.calls.filter((c) => c.role === 'specialist').map((c) => c.model)).toEqual(['claude-sonnet-5', 'claude-sonnet-5', 'claude-sonnet-5']);
+        // Scoping and Quoting's intake on the first turn, then Scoping, Quoting and Scheduling on the second.
+        expect(client.calls.filter((c) => c.role === 'specialist').map((c) => c.model)).toEqual(['claude-sonnet-5', 'claude-sonnet-5', 'claude-sonnet-5', 'claude-sonnet-5', 'claude-sonnet-5']);
         expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(2);
     });
 
