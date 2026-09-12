@@ -52,9 +52,12 @@ test:
     containing "quoting: drafted".
     4.3: state.quote.notifications has exactly one entry of kind ready_to_price whose link is
     /admin/price/<slug>; GET /quote shows record.status draft with every pricePence null.
-    4.4: open http://127.0.0.1:$PORT/admin/price/<slug> in the app as Ben and screenshot it: the
-    lines, the suggestions, and the missing list ("Missing, yours to request") on the first line's
-    notes.
+    4.4: GET /quote and check the file carries the internal fact ben_to_request naming what to
+    request ("photo (asked once, none sent)"), which the ready_to_price notice repeats; then open
+    http://127.0.0.1:$PORT/admin/price/<slug> in the app as Ben and screenshot it: the lines with
+    the customer's own words and the suggestions. The missing list is deliberately on no field of
+    the quote row, because that row is served to anyone holding the quote's slug; showing it on
+    Ben's board card is filed as its own item.
     4.5: POST /run (expect the note "not due"), POST /age {"hours": 5}, POST /run again: the note
     says "chase 1 recorded for Ben" and state.quote.notifications gains a chase; nothing is sent
     to the customer on either pass.

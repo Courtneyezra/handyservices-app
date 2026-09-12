@@ -8,7 +8,7 @@
  * never a fact.
  */
 import { describe, expect, it } from 'vitest';
-import { ask, open, recordFact, type CaseFile } from '../desk/case-file';
+import { ask, customerVisibleFacts, isInternalFact, open, recordFact, type CaseFile } from '../desk/case-file';
 import { runGuards } from '../desk/guards';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
@@ -90,24 +90,28 @@ describe('draft_quote and notify_ben', () => {
         expect(file.facts.filter((f) => f.key === QUOTE_FACT.benNotified)).toHaveLength(1);
     });
 
-    it('keeps Ben\'s missing list off every customer-facing surface: it is on the row\'s notes for his price screen only', async () => {
+    it('keeps Ben\'s missing list off the quote row in every field, and records it on the file as his own fact', async () => {
         const d = deps();
         const file = fixture();
         const out = await draftQuote(file, file.parties[0], intake, d);
         expect(out.ok).toBe(true);
         if (!out.ok) return;
         const row = (await d.store.read(out.slug))!;
+        // The row is public: /api/personalized-quotes/:slug serves every line-item field but the
+        // materials array verbatim to anyone holding the slug, so nothing internal may be on it.
+        expect(JSON.stringify(row)).not.toMatch(/photo \(asked once, none sent\)|yours to request/i);
         const line = (row.pricingLineItems as any[])[0];
-        // The price screen reads `notes` (server/spine/price-screen.ts buildScreenLine); the quote
-        // page and the desk's own scope read `description`.
-        expect(line.notes).toContain('Missing, yours to request: photo (asked once, none sent)');
         expect(line.description).toBe('mixer tap, dripping at the base');
+        expect(line.notes).toBe('mixer tap, dripping at the base');
         const scope = readQuoteScope(quoteRecordOf(row, d.now!()));
         expect(scope.ok).toBe(true);
         if (!scope.ok) return;
         expect(scope.value.lines[0].notes).toBe('mixer tap, dripping at the base');
-        const said = [...scope.value.lines.flatMap((l) => [l.label, l.notes ?? '', ...l.assumptions, ...l.notIncluded]), ...file.facts.map((f) => f.value)];
-        expect(said.some((t) => /Missing, yours to request/.test(t))).toBe(false);
+        // It lives on the file instead, under a key the composer boundary keeps out of a reply.
+        const missing = file.facts.find((f) => f.key === QUOTE_FACT.benToRequest)!;
+        expect(missing.value).toBe('photo (asked once, none sent)');
+        expect(isInternalFact(missing)).toBe(true);
+        expect(customerVisibleFacts(file).map((f) => f.id)).not.toContain(missing.id);
     });
 
     it('records the drafter\'s failure as a refusal, with nothing on the file and no notification', async () => {

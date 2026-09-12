@@ -177,8 +177,8 @@ brief for the composer, and never sees a figure.
 
 | Tool | Input | Returns | Refuses when |
 |---|---|---|---|
-| `quote_readiness` | the case file | ready, and what Ben may want to request from the price screen (photo state, access) | ready is job type and location both present; photos never required |
-| `draft_quote` | the case file, the party, the intake | the draft's slug and lines, Ben's notice, the facts recorded | not ready; the file's quote reference names a quote that exists (one draft per job; changes are Ben's) |
+| `quote_readiness` | the case file | ready, and what Ben may want to request before pricing (photo state, access) | ready is job type and location both present; photos never required |
+| `draft_quote` | the case file, the party, the intake | the draft's slug and lines, Ben's notice, the facts recorded (the missing list among them, as the internal `ben_to_request` fact; it is never written to the quote row, whose every field is served to anyone holding the slug) | not ready; the file's quote reference names a quote that exists (one draft per job; changes are Ben's) |
 | `notify_ben` | a notice (ready to price, chase, accepted) | recorded on the file as a fact cited to the quote; nothing is dispatched (dispatch to Ben's phone is a cutover item) | a second ready-to-price or accepted notice for the same quote (one notification); no quote on the file |
 | `chase` | the case file, the clock | a numbered chase for Ben | the quote is not an unpriced draft; Ben not yet notified; not due (four hours after the notification, then daily); three chases already |
 | `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote |

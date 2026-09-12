@@ -350,12 +350,13 @@ export function recordFact(file: CaseFile, input: { key: string; value: string; 
 }
 
 /**
- * Facts the desk writes for Ben, never for a customer: each carries an admin link or an internal
- * note. They sit on the file like any other fact, so the one place they are kept out of a customer
- * reply is the composer boundary (`customerVisibleFacts`). Any new fact written for Ben's eyes
- * belongs in this list on the day it is written.
+ * Facts the desk writes for Ben, never for a customer: each carries an admin link, an internal note
+ * or what he may want to request before pricing. They sit on the file like any other fact, so the
+ * one place they are kept out of a customer reply is the composer boundary
+ * (`customerVisibleFacts`). Any new fact written for Ben's eyes belongs in this list on the day it
+ * is written.
  */
-export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'quote_accepted'];
+export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted'];
 
 /** True when the fact was written for Ben, not for the customer. Matches the key and any `key:label` form. */
 export function isInternalFact(fact: Pick<Fact, 'key'>): boolean {

@@ -31,7 +31,7 @@ export interface QuoteLine {
     materialsPence: number | null;
     assumptions: string[];
     notIncluded: string[];
-    /** The line's own customer-facing words, as the quote page renders them. Never Ben's internal note on the row. */
+    /** The line's own customer-facing words, as the quote page renders them. */
     notes: string | null;
 }
 
@@ -209,6 +209,8 @@ export const QUOTE_FACT = {
     assumption: 'quote_assumption',
     benNotified: 'ben_notified',
     benChased: 'ben_chased',
+    benToRequest: 'ben_to_request', // Ben's own: what the draft is missing, for him to request
+
     accepted: 'quote_accepted',
 } as const;
 

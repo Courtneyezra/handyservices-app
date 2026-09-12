@@ -3,7 +3,7 @@
  * Scoping tool server (desk/scoping-tools.ts): every call is read-only against the world except
  * through the quote machinery it wraps, and writes to the case file only through its calls.
  *
- *   quote_readiness   job type and location both present; photos optional; what is missing, for Ben
+ *   quote_readiness   job type and location both present; photos optional; what is missing, for Ben alone
  *   draft_quote       the existing clerk chain (draft-quote.ts), once per job; refuses while any quote stands.
  *                     The price catalogue is reached only from inside that chain, which matches each
  *                     line to a SKU for Ben's screen and the engine; it is never a shelf of its own,
@@ -60,7 +60,7 @@ const BY = 'quoting';
 
 // ---------------------------------------------------------------- quote_readiness
 
-/** Ready is job type and location (photos optional, answer 3); `missing` is what Ben may want to request from the price screen. */
+/** Ready is job type and location (photos optional, answer 3); `missing` is what Ben may want to request before pricing, which reaches him on his notification and as the internal `ben_to_request` fact, never on the quote row. */
 export function quoteReadiness(file: CaseFile): { ready: boolean; missing: string[] } {
     const missing: string[] = [];
     if (!mediaReceived(file)) {
@@ -105,6 +105,11 @@ export async function draftQuote(file: CaseFile, party: Party, intake: DraftInta
     const rec = (key: string, value: string, line: string) => { const f = factOnce(file, { key, value, source: quoteSource(out.slug, line), by: BY }, d.file); if (f) factIds.push(f.id); };
     rec(QUOTE_FACT.ref, out.slug, 'reference');
     rec(QUOTE_FACT.status, 'draft: with Ben to price', 'status');
+    // What the draft is missing is Ben's alone (4.4). It goes on the file, where the ask ledger
+    // already holds what was asked and never answered, under a key the composer boundary keeps out
+    // of a customer reply (INTERNAL_FACT_KEYS); it never goes on the quote row, because every field
+    // of that row is readable by anyone holding the quote's slug.
+    if (intake.missing.length) rec(QUOTE_FACT.benToRequest, intake.missing.join('; '), 'missing');
     for (const l of intake.lines) rec(`${QUOTE_FACT.scope}:${l.title}`, [l.qty > 1 ? `${l.qty} x ${l.title}` : l.title, l.detail].filter(Boolean).join(' - '), l.title);
     for (const l of intake.lines) for (const n of l.notIncluded) rec(`${QUOTE_FACT.notIncluded}:${l.title}`, n, l.title);
     // notify_ben: once, with the price screen link.

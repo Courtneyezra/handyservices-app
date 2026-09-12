@@ -56,7 +56,7 @@ describe('the composer boundary', () => {
     it('never shows the composer a fact written for Ben', async () => {
         const { file, slug } = await fileWithBensFacts();
         const internal = file.facts.filter(isInternalFact);
-        expect(internal.map((f) => f.key)).toEqual(['ben_notified', 'ben_chased']);
+        expect(internal.map((f) => f.key)).toEqual(['ben_to_request', 'ben_notified', 'ben_chased']);
         expect(internal.some((f) => f.value.includes(`/admin/price/${slug}`))).toBe(true);
 
         const user = buildComposerUser(composeInput(file));
@@ -87,6 +87,7 @@ describe('the composer boundary', () => {
         // The notifier writes one fact per notice kind; each must be on the list.
         expect(new Set(INTERNAL_FACT_KEYS)).toContain('ben_notified');
         expect(new Set(INTERNAL_FACT_KEYS)).toContain('ben_chased');
+        expect(new Set(INTERNAL_FACT_KEYS)).toContain('ben_to_request');
         expect(new Set(INTERNAL_FACT_KEYS)).toContain('quote_accepted');
         expect(file.facts.filter((f) => f.key.startsWith('ben_')).every(isInternalFact)).toBe(true);
     });

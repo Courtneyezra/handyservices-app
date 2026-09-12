@@ -41,7 +41,13 @@ export interface DraftIntake {
     postcode: string | null;
     customerType: CustomerType;
     lines: IntakeLineInput[];
-    /** What Ben may want to request from the price screen: short labels ("photo (asked once, none sent)", "access"). */
+    /**
+     * What Ben may want to request before pricing: short labels ("photo (asked once, none sent)",
+     * "access"). It never goes on the quote row, in any field: `GET /api/personalized-quotes/:slug`
+     * is reachable by slug with no session and returns every line-item field but the materials
+     * array verbatim, so anything written there reaches the customer. It goes to Ben on his
+     * notification and onto the case file as the internal `ben_to_request` fact (quoting-tools.ts).
+     */
     missing: string[];
 }
 
@@ -51,16 +57,6 @@ export type DraftOutcome =
 
 export interface Drafter {
     draft(input: { file: CaseFile; party: Party; intake: DraftIntake; now: Date; baseUrl?: string }): Promise<DraftOutcome>;
-}
-
-/**
- * Ben's internal note for a line of the price screen: the line's own words, and on the first line
- * what he may want to request before pricing (checklist 4.4). It is never customer-facing and is
- * never read back to the customer: the quote page renders the line's `description` and the desk
- * reads that same field for scope (quote-record.ts), neither of which this touches.
- */
-export function priceScreenNotes(ownWords: string | null, missing: string[]): string | null {
-    return [ownWords, missing.length ? `Missing, yours to request: ${missing.join('; ')}` : null].filter(Boolean).join(' | ') || null;
 }
 
 /** The clerk's artifact as the chain reads it (server/spine/quote-intake.ts intakeFromArtifact). Customer-facing words only. */
@@ -129,10 +125,12 @@ export function chainDrafter(store: QuoteStore): Drafter {
                 const outcome = await runRouteAChain({ caseFile: caseFile as any, pack: pack as any, triage: triage as any, clerkRunId: `comms_v2_${randomUUID()}`, artifact: artifact as any }, {
                     createDraft: async (input) => {
                         const built = pricedDraftRow({ intake: input.intake, estimate: input.estimate, suggestions: input.suggestions, phone: address, contactName: party.name, media, now });
-                        // `notes` is the price screen's own field (server/spine/price-screen.ts
-                        // buildScreenLine) and Ben's alone: the line's words and the missing list.
-                        // The chain's row builder leaves it unset, so it is written here.
-                        const row = { ...built, pricingLineItems: (built.pricingLineItems as any[]).map((li, i) => ({ ...li, notes: priceScreenNotes(li.notes ?? li.description ?? null, i === 0 ? intake.missing : []) })) };
+                        // `notes` is the field the price screen reads for the line's words
+                        // (server/spine/price-screen.ts buildScreenLine) and the chain's row builder
+                        // leaves it unset, so the line's own customer-facing words are copied into
+                        // it. Nothing internal joins them: every field on this row can be read by
+                        // anyone holding the quote's slug.
+                        const row = { ...built, pricingLineItems: (built.pricingLineItems as any[]).map((li) => ({ ...li, notes: li.notes ?? li.description ?? null })) };
                         const shortSlug = await newSlug(store);
                         const id = `quote_${randomUUID().replace(/-/g, '').slice(0, 21)}`;
                         const insert: DraftInsert = { ...(row as any), id, shortSlug, sourceChannel: SOURCE_CHANNEL, createdBy: CREATED_BY, createdByName: CREATED_BY_NAME };
@@ -183,7 +181,7 @@ export class FakeDrafter implements Drafter {
         const row: DraftInsert = {
             id, shortSlug, customerName: intake.customerName ?? party.name ?? 'Customer', phone: address, postcode: intake.postcode, customerType: intake.customerType,
             jobDescription: intake.lines.map((l) => l.title).join('; '), isDraft: true, sourceChannel: SOURCE_CHANNEL, createdBy: CREATED_BY, createdByName: CREATED_BY_NAME,
-            pricingLineItems: lines.map((l, i) => ({ lineId: `card_${i + 1}`, label: l.title, title: l.title, description: l.detail, notes: priceScreenNotes(l.detail, i === 0 ? intake.missing : []), category: l.category, qty: l.qty, pricePence: null, labourPence: null, materialsPence: this.opts.materialsPence ?? 0, assumptions: l.assumptions, notIncluded: l.notIncluded, source: 'quote_intake' })),
+            pricingLineItems: lines.map((l, i) => ({ lineId: `card_${i + 1}`, label: l.title, title: l.title, description: l.detail, notes: l.detail, category: l.category, qty: l.qty, pricePence: null, labourPence: null, materialsPence: this.opts.materialsPence ?? 0, assumptions: l.assumptions, notIncluded: l.notIncluded, source: 'quote_intake' })),
             pricingSuggestions: { estimateId: 'est_fake', at: now.toISOString(), lines: suggestions, totals: { suggestedPence: suggestions.reduce((a, s) => a + (s.suggestedPence ?? 0), 0) }, engine: 'fake' },
             customerPhotoUrls: threadMediaOf(file).filter((m) => m.kind === 'image').map((m) => m.url),
             expiresAt: new Date(now.getTime() + 30 * 24 * 3_600_000).toISOString(),
