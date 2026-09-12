@@ -230,7 +230,8 @@ export class Desk implements DeskLike {
     }
 
     private holdFor(file: CaseFile, exception: Exception | null, reason: string): void {
-        if (file.hold) return;
+        // One turn can raise two: a price and a date change in one message. Ben answers what his card names, so the second is added to it rather than dropped.
+        if (file.hold) { noteOnHold(file, { reason }); return; }
         setHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
     }
 

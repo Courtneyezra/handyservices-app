@@ -282,6 +282,30 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(third.file.hold?.draft).toContain('25 September 2026');
     });
 
+    it('a turn that asks to move a booked job and asks the price names both on Ben\'s card', async () => {
+        const { diary, seeded } = await seededDiary(6, { booked: true });
+        const { gateway } = desk({
+            router: ({ n }) => n === 1 ? scoping() : scheduling({ proposedStage: 'booked', exception: 'money' }),
+            specialist: specialists(['date_change'], 'the week after'),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
+                expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+                expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                return { reply: 'Ben will come back to you on the price. Ben will come back to you on the date.', factIds: [], kbIds: [] };
+            },
+        }, diary);
+        const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        linkFixture(first.file, seeded);
+        const second = await gateway.inbound(turn('Can we move it to the week after? And how much extra will that be?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        const hold = second.file.hold!;
+        // He answers what his card names, so a turn that raised two reasons names both.
+        expect(hold.exception).toBe('money');
+        expect(hold.reason).toMatch(/^money: /);
+        expect(hold.reason).toContain('date_change: move it');
+    });
+
     it('a booked date the composer paraphrased with a weekday fails the date guard once and is written again from the diary', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({

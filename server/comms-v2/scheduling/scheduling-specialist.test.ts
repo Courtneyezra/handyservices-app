@@ -429,6 +429,19 @@ describe('the Scheduling specialist', () => {
         expect(r.error).toContain('connection lost');
     });
 
+    it('asked what day we are coming through a diary that threw, the customer is not told to book again: that one is still Ben\'s', async () => {
+        const diary = diaryWith(6);
+        diary.bookingForQuote = async () => { throw new Error('connection lost'); };
+        const file = fixture('When are you coming?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.proposal.hold).toEqual({ reason: 'date_unconfirmed', match: 'the diary could not be read' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(r.scheduling.picker).toBeNull();
+        expect(r.scheduling.leadTime).toBeNull();
+        expect(file.facts.filter((f) => f.key === 'picker_link' || f.key === 'lead_time')).toEqual([]);
+    });
+
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {
         const diary = diaryWith(6, true);
         diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';

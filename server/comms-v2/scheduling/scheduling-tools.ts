@@ -137,8 +137,13 @@ export async function pickerLink(file: CaseFile, deps: SchedulingDeps = {}): Pro
 
 // ---------------------------------------------------------------- date_change, the belt
 
-/** A request to move, change or push a date. Only `move` takes a bare it, that or this; every other verb needs a date, day, booking, appointment, visit, job or slot as its object. The belt under the router's date_change exception. */
-export const RE_DATE_CHANGE = /\b(?:(?:move\s+(?:it|that|this)|(?:move|change|shift|push|swap|switch|bring|put)\s+(?:the (?:date|day|booking|appointment|visit|job|slot)|my (?:date|day|booking|appointment|visit|slot)))\b|(?:re-?schedule|re-?arrange|re-?book|postpone|push (?:it |that )?back|bring (?:it |that )?forward|different (?:day|date|time)|another (?:day|date|time)|a (?:later|earlier|different) (?:day|date|time|slot))\b|\b(?:can|could) (?:we|you|i) (?:do|make) (?:it|that) (?:a )?(?:different|another|later|earlier)\b)/i;
+/**
+ * A request to move, change or push a date. Only `move` takes a bare it, that or this; every other
+ * verb needs a date, day, booking, appointment, visit or slot as its object, and only the verbs of
+ * movement take the job itself: "move the job" is a date, while "change the job" is the work they
+ * want done. The belt under the router's date_change exception.
+ */
+export const RE_DATE_CHANGE = /\b(?:(?:move\s+(?:it|that|this)|(?:move|shift|push|bring)\s+(?:the (?:date|day|booking|appointment|visit|job|slot)|my (?:date|day|booking|appointment|visit|slot))|(?:change|swap|switch|put)\s+(?:the (?:date|day|booking|appointment|visit|slot)|my (?:date|day|booking|appointment|visit|slot)))\b|(?:re-?schedule|re-?arrange|re-?book|postpone|push (?:it |that )?back|bring (?:it |that )?forward|different (?:day|date|time)|another (?:day|date|time)|a (?:later|earlier|different) (?:day|date|time|slot))\b|\b(?:can|could) (?:we|you|i) (?:do|make) (?:it|that) (?:a )?(?:different|another|later|earlier)\b)/i;
 
 export function dateChangeMatch(text: string): string | null {
     const m = RE_DATE_CHANGE.exec(text);

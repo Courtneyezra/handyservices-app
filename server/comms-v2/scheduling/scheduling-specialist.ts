@@ -91,7 +91,6 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     // A read that threw where nothing on the file says there is a booking is nothing known rather than a
     // booking: a customer holding only a quote asked what dates we have, and the picker answers that.
     const unreadable = !standing.ok && standing.state === 'unknown' && !!standing.detail && !file.job.bookingRef && file.stage !== 'booked';
-    const booked = couldStand && !unreadable;
 
     // The model classifies the ask.
     let asks: SchedulingAsk[] = [];
@@ -117,7 +116,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
     if (!changePossible) asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('date_change') && !asks.includes('availability') ? ['availability'] : []);
     // A classification that never came back is not a turn that asked nothing: a date question the belt matched is still answered, because an unanswered date question is the one thing the desk may not do. A model that read no ask is taken at its word.
-    if (!asks.length && error && dateQuestionMatch(turn.body)) asks = [booked ? 'booked_date' : 'availability'];
+    if (!asks.length && error && dateQuestionMatch(turn.body)) asks = [couldStand ? 'booked_date' : 'availability'];
 
     // The tools, from the diary.
     const findings: SchedulingFindings = { asks, leadTime: null, bookedDate: null, picker: null, dateChange: null, fixedLines: [] };
@@ -161,7 +160,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         findings.fixedLines.push('date_change_to_ben');
         proposal.hold = { reason: 'date_change', match: findings.dateChange };
         brief.push('They want to change the date of a job they already have: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
-    } else if (booked) {
+    } else if (couldStand && !(unreadable && !asks.includes('booked_date'))) {
         confirmWhatStands(false);
     } else {
         findings.leadTime = await typicalLeadTime(deps);

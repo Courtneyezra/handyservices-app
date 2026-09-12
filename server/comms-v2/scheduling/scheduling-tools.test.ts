@@ -268,6 +268,11 @@ describe('the belts', () => {
         expect(dateChangeMatch('Just put it through the letterbox')).toBeNull();
         expect(dateChangeMatch('Can you change the date please')).toBeTruthy();
         expect(dateChangeMatch('I need to shift my appointment')).toBeTruthy();
+        // Only the verbs of movement take the job itself: changing the job is the work they want done, not the day.
+        expect(dateChangeMatch('Can we change the job to include the bathroom tap?')).toBeNull();
+        expect(dateChangeMatch('Could we swap the job for the downstairs one instead?')).toBeNull();
+        expect(dateChangeMatch('Can you move the job to next week?')).toBeTruthy();
+        expect(dateChangeMatch('Could you push the job back a bit?')).toBeTruthy();
     });
     it('date_question matches an explicit question about dates, never a statement or a passing mention of a booking', () => {
         expect(dateQuestionMatch('When can you come?')).toBeTruthy();
