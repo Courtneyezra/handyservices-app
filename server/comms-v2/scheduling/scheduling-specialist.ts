@@ -106,8 +106,8 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     const belt = changePossible ? dateChangeMatch(turn.body) : null;
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
     if (!changePossible) asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('date_change') && !asks.includes('availability') ? ['availability'] : []);
-    // A date question the belt matched is answered whatever the model read, or failed to: an unanswered date question is the one thing the desk may not do.
-    if (!asks.length && dateQuestionMatch(turn.body)) asks = [booked ? 'booked_date' : 'availability'];
+    // A classification that never came back is not a turn that asked nothing: a date question the belt matched is still answered, because an unanswered date question is the one thing the desk may not do. A model that read no ask is taken at its word.
+    if (!asks.length && error && dateQuestionMatch(turn.body)) asks = [booked ? 'booked_date' : 'availability'];
 
     // The tools, from the diary.
     const findings: SchedulingFindings = { asks, leadTime: null, bookedDate: null, picker: null, dateChange: null, fixedLines: [] };
@@ -117,22 +117,29 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     if (!asks.length) return { specialist: 'scheduling', factIds, proposal, brief, calls, error, scheduling: findings };
 
     /** What the diary says stands right now, or why it can say nothing. Never a date the diary did not give. */
-    const confirmWhatStands = () => {
+    const confirmWhatStands = (changing: boolean) => {
         findings.bookedDate = bookedDateOf(standing);
         if (findings.bookedDate.ok) {
             const bd = findings.bookedDate;
             const f = recordFact(file, { key: 'booked_date', value: bd.words, source: { kind: 'diary', rowId: bd.rowId }, by }, fileDeps);
             if (f.ok) { factIds.push(f.value.id); brief.push(`Booked date from the diary: say exactly "${bd.words}" and cite fact ${f.value.id}. Write the date in those words only: no weekday, no "this" or "next" before it, and nothing about the time of day or how many days it takes: the diary gave the date and nothing else.`); }
-        } else {
-            brief.push(`The diary has no booked date to confirm (${findings.bookedDate.reason}): say Ben will confirm the date, and give no day, time or lead time.`);
+            return;
         }
+        if (standing.state === 'unaccepted' && !changing) {
+            // Asked what day we are coming about a job no contractor has taken on: only Ben can answer that, and nobody may be told a date first.
+            findings.fixedLines.push('date_change_to_ben');
+            proposal.hold = { reason: 'date_unconfirmed', match: standing.reason };
+            brief.push('The job is in the diary but no contractor has taken it on, so there is no date to confirm: include the fixed line that Ben will come back on the date, never say they are booked in, and give no day, time or lead time. Answer anything else they asked.');
+            return;
+        }
+        brief.push(`The diary has no booked date to confirm (${findings.bookedDate.reason}): say Ben will confirm the date, and give no day, time or lead time.`);
     };
 
     // A date change is Ben's, and nothing about how soon we could come belongs beside it: the job they
     // are asking about is already in the diary, so a typical lead time and the quote's picker would both
     // answer a question they did not ask. Neither is looked up on this path.
     if (asks.includes('date_change')) {
-        confirmWhatStands();
+        confirmWhatStands(true);
         findings.dateChange = belt ?? requestedChange ?? turn.body.slice(0, 80);
         if (requestedChange) {
             const c = recordFact(file, { key: 'date_change_requested', value: requestedChange, source: { kind: 'thread', turnId: turn.id }, by }, fileDeps);
@@ -142,7 +149,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         proposal.hold = { reason: 'date_change', match: findings.dateChange };
         brief.push('They want to change the date of a job they already have: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
     } else if (booked) {
-        confirmWhatStands();
+        confirmWhatStands(false);
     } else {
         findings.leadTime = await typicalLeadTime(deps);
         if (file.job.quoteRef) findings.picker = await pickerLink(file, deps);

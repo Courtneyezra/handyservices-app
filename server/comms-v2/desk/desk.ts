@@ -137,7 +137,7 @@ export class Desk implements DeskLike {
                     specialists.push(sched);
                     if (sched.error) log(`scheduling: ${sched.error}`);
                     for (const kind of sched.scheduling.fixedLines) fixedLines.push(await fixedLine(kind, this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    if (sched.proposal.hold) this.holdFor(file, 'date_change', `date_change: ${sched.proposal.hold.match}`);
+                    if (sched.proposal.hold) this.holdFor(file, sched.proposal.hold.reason === 'date_change' ? 'date_change' : null, `${sched.proposal.hold.reason}: ${sched.proposal.hold.match}`);
                 }
                 fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
@@ -228,7 +228,7 @@ export class Desk implements DeskLike {
         };
     }
 
-    private holdFor(file: CaseFile, exception: Exception, reason: string): void {
+    private holdFor(file: CaseFile, exception: Exception | null, reason: string): void {
         if (file.hold) return;
         setHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
     }

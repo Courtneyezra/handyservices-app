@@ -10,7 +10,8 @@
  *                       the file references, else the live booking made from its quote. The diary
  *                       is the only source: the five quote-side date columns on the quote are
  *                       preferences, never bookings, and are never read. Refuses a cancelled or
- *                       declined booking, and a booking with no date.
+ *                       declined booking, a booking with no date, and a booking no contractor has
+ *                       taken on, whose date nobody has agreed to work.
  *   picker_link         the quote's picker, for a quote that has been sent: refuses no quote on
  *                       the file, a draft, a superseded, revoked or expired quote.
  *   date_change         the deterministic belt under the model: a request to move a booked job
@@ -21,7 +22,7 @@
  */
 import { getBaseUrlFromEnv } from '../../url-utils';
 import type { CaseFile } from '../desk/case-file';
-import { formatDiaryDate, isoDayOf, LEAD_TIME_SAMPLE_LIMIT, LEAD_TIME_WINDOW_DAYS, notStandingReason, typicalLeadTimeOf, type DiaryBooking, type DiaryReader, type LeadTime } from './diary';
+import { formatDiaryDate, isoDayOf, LEAD_TIME_SAMPLE_LIMIT, LEAD_TIME_WINDOW_DAYS, notStandingReason, typicalLeadTimeOf, unacceptedReason, type DiaryBooking, type DiaryReader, type LeadTime } from './diary';
 
 // ---------------------------------------------------------------- the deps every tool reads
 
@@ -60,9 +61,10 @@ export type BookedDate =
     | { ok: true; bookingRef: string; date: string; words: string; rowId: string }
     | { ok: false; reason: string; bookingRef: string | null };
 
-/** The job the customer is still waiting for: one standing booking, nothing at all, or a diary that could not say. */
+/** The job the customer is still waiting for: one standing booking, one no contractor has taken on, nothing at all, or a diary that could not say. */
 export type StandingBooking =
     | { state: 'standing'; booking: DiaryBooking }
+    | { state: 'unaccepted'; reason: string; bookingRef: string }
     | { state: 'none'; reason: string; bookingRef: string | null }
     | { state: 'unknown'; reason: string; bookingRef: string | null };
 
@@ -72,7 +74,9 @@ export type StandingBooking =
  * its quote; the diary is the only source. A declined, cancelled, done or past booking is not one
  * the customer is waiting for, so a visit that has happened is never confirmed as if it stands.
  * `unknown` is the fail-closed answer: something may stand and the diary could not say, so a
- * request to move it still goes to Ben.
+ * request to move it still goes to Ben. `unaccepted` is a booking sitting in the dispatch pool that
+ * no contractor has taken on: it gives no date to confirm, and it is still something the customer
+ * has, so a request to move it goes to Ben too.
  */
 export async function standingBooking(file: CaseFile, deps: SchedulingDeps = {}): Promise<StandingBooking> {
     const ref = file.job.bookingRef;
@@ -92,6 +96,8 @@ export async function standingBooking(file: CaseFile, deps: SchedulingDeps = {})
     }
     const gone = notStandingReason(booking, today);
     if (gone) return { state: 'none', reason: gone, bookingRef: booking.id };
+    const unaccepted = unacceptedReason(booking);
+    if (unaccepted) return { state: 'unaccepted', reason: unaccepted, bookingRef: booking.id };
     if (!booking.scheduledDate) return { state: 'unknown', reason: 'the booking carries no date yet', bookingRef: booking.id };
     return { state: 'standing', booking };
 }
@@ -149,7 +155,7 @@ export function dateChangeMatch(text: string): string | null {
 }
 
 /** A question about dates or timing, so the scheduling specialist runs even when the router missed the subject. */
-export const RE_DATE_QUESTION = /\b(?:when (?:can|could|will|would|are|do|is|were) (?:you|ben|someone|we|it|the)|how (?:soon|quickly)|how long (?:until|before)|what (?:dates?|days?)|which (?:dates?|days?)|any (?:dates?|days?|availability|slots?)|availability|lead[- ]?time|earliest|soonest|book(?:ed|ing)? (?:in|for|on)|what (?:day|date) (?:is|are|was|were))\b/i;
+export const RE_DATE_QUESTION = /\b(?:when (?:can|could|will|would|are|do|is|were) (?:you|ben|someone|we|it|the)|how (?:soon|quickly)|how long (?:until|before)|what (?:dates?|days?)|which (?:dates?|days?)|any (?:dates?|days?|availability|slots?)|lead[- ]?time|what (?:day|date) (?:is|are|was|were))\b/i;
 
 /** Only a question counts: a question mark, or an opening question word. A statement about their own availability is scoping. */
 export function dateQuestionMatch(text: string): string | null {

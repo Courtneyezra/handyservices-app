@@ -29,11 +29,11 @@ function diaryWith(completed: number, booked = false): MemoryDiary {
     for (let i = 0; i < completed; i++) {
         const visit = new Date(NOW.getTime() - (3 + i * 2) * 86_400_000);
         const made = new Date(visit.getTime() - (2 + (i % 4)) * 86_400_000);
-        diary.bookings.push({ id: `c${i}`, quoteRef: null, scheduledDate: visit.toISOString().slice(0, 10), scheduledDays: [visit.toISOString().slice(0, 10)], durationDays: 1, status: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: visit.toISOString() });
+        diary.bookings.push({ id: `c${i}`, quoteRef: null, scheduledDate: visit.toISOString().slice(0, 10), scheduledDays: [visit.toISOString().slice(0, 10)], durationDays: 1, status: 'completed', assignmentStatus: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: visit.toISOString() });
     }
     diary.quotes.push({ id: 'q1', slug: 'abcdefgh', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: '2026-09-20T00:00:00.000Z' });
     if (booked) {
-        const b: DiaryBooking = { id: 'bk1', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null };
+        const b: DiaryBooking = { id: 'bk1', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null };
         diary.bookings.push(b);
     }
     return diary;
@@ -255,24 +255,56 @@ describe('the Scheduling specialist', () => {
         expect(r.brief.join(' ')).toMatch(/never guess a day/);
     });
 
-    it('a classifier that read nothing on a turn the belt matches still answers it: the model is not the only path to an answer', async () => {
+    it('a classifier that read no ask is taken at its word, even on a turn the belt matches: nothing is looked up', async () => {
         const file = fixture('When can you come?');
         const r = await schedule(file, file.turns[0], party(file), client([]), { diary: diaryWith(0), now });
         expect(r.error).toBeNull();
-        expect(r.scheduling.asks).toEqual(['availability']);
-        expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
-        expect(r.brief.join(' ')).toMatch(/never guess a day/);
+        expect(r.scheduling.asks).toEqual([]);
+        expect(r.scheduling.leadTime).toBeNull();
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.brief).toEqual([]);
     });
 
-    it('a classifier that read nothing on a booked job the belt matches confirms the booked date', async () => {
+    it('a classification that never came back on a booked job the belt matches still confirms the booked date', async () => {
         const file = fixture('When are you coming?');
         file.job.quoteRef = 'q1';
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client([]), { diary: diaryWith(6, true), now });
-        expect(r.error).toBeNull();
+        const r = await schedule(file, file.turns[0], party(file), new FakeModelClient({ specialist: () => ({ error: 'rate limited' }) }), { diary: diaryWith(6, true), now });
+        expect(r.error).toBe('rate limited');
         expect(r.scheduling.asks).toEqual(['booked_date']);
         expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
         expect(r.proposal.hold).toBeNull();
+    });
+
+    it('asked what day we are coming about a job no contractor has taken on: no date, and Ben is the one who answers', async () => {
+        const file = fixture('When are you coming?');
+        file.job.quoteRef = 'q1';
+        file.job.bookingRef = 'bk1';
+        const diary = diaryWith(6, true);
+        const pool = diary.bookings.find((b) => b.id === 'bk1')!;
+        pool.status = 'pending';
+        pool.assignmentStatus = 'unassigned';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary, now });
+        assertNoProse(r, file);
+        expect(r.scheduling.bookedDate).toMatchObject({ ok: false, bookingRef: 'bk1' });
+        expect(file.facts.filter((f) => f.key === 'booked_date')).toEqual([]);
+        expect(r.proposal.hold).toEqual({ reason: 'date_unconfirmed', match: expect.stringContaining('no contractor has taken the booking on yet') });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(r.scheduling.leadTime).toBeNull();
+        expect(r.brief.join(' ')).toMatch(/never say they are booked in/);
+    });
+
+    it('a request to move a job no contractor has taken on still reaches Ben as a date change', async () => {
+        const file = fixture('Can we move it to the week after?');
+        file.job.bookingRef = 'bk1';
+        const diary = diaryWith(6, true);
+        const pool = diary.bookings.find((b) => b.id === 'bk1')!;
+        pool.status = 'pending';
+        pool.assignmentStatus = 'unassigned';
+        const r = await schedule(file, file.turns[0], party(file), client(['date_change'], 'the week after'), { diary, now });
+        expect(r.proposal.hold).toEqual({ reason: 'date_change', match: 'move it' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(file.facts.filter((f) => f.key === 'booked_date')).toEqual([]);
     });
 
     it('a turn that asks nothing about dates is left alone: no lead time, no picker, no fact, no brief', async () => {

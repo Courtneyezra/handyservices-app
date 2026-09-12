@@ -55,7 +55,7 @@ export interface Proposal {
     mentionPhotos: boolean;
     thankForMedia: boolean;
     ready: boolean;
-    hold: { reason: 'regulated' | 'date_change'; match: string } | null;
+    hold: { reason: 'regulated' | 'date_change' | 'date_unconfirmed'; match: string } | null;
 }
 
 export interface SpecialistReturn {

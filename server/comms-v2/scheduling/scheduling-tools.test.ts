@@ -27,7 +27,7 @@ function fixture(): CaseFile {
 function completed(id: string, leadDays: number, daysAgo: number): DiaryBooking {
     const visit = new Date(NOW.getTime() - daysAgo * 86_400_000);
     const made = new Date(visit.getTime() - leadDays * 86_400_000);
-    return { id, quoteRef: null, scheduledDate: visit.toISOString().slice(0, 10), scheduledDays: [visit.toISOString().slice(0, 10)], durationDays: 1, status: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: visit.toISOString() };
+    return { id, quoteRef: null, scheduledDate: visit.toISOString().slice(0, 10), scheduledDays: [visit.toISOString().slice(0, 10)], durationDays: 1, status: 'completed', assignmentStatus: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: visit.toISOString() };
 }
 
 describe('typical_lead_time', () => {
@@ -54,7 +54,7 @@ describe('typical_lead_time', () => {
         const sameDay = (id: string, daysAgo: number): DiaryBooking => {
             const visit = new Date(NOW.getTime() - daysAgo * 86_400_000);
             const day = visit.toISOString().slice(0, 10);
-            return { id, quoteRef: null, scheduledDate: day, scheduledDays: [day], durationDays: 1, status: 'completed', dayOfStatus: 'completed', createdAt: `${day}T14:00:00.000Z`, completedAt: visit.toISOString() };
+            return { id, quoteRef: null, scheduledDate: day, scheduledDays: [day], durationDays: 1, status: 'completed', assignmentStatus: 'completed', dayOfStatus: 'completed', createdAt: `${day}T14:00:00.000Z`, completedAt: visit.toISOString() };
         };
         expect(leadDaysOf(sameDay('s', 3))).toBe(0);
         const twoDaysOut = { ...sameDay('t', 3), scheduledDate: '2026-09-13', scheduledDays: ['2026-09-13'], createdAt: '2026-09-11T14:00:00.000Z' };
@@ -141,7 +141,7 @@ describe('the live fixture', () => {
 });
 
 describe('confirm_booked_date', () => {
-    const booked = (id: string, over: Partial<DiaryBooking> = {}): DiaryBooking => ({ id, quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null, ...over });
+    const booked = (id: string, over: Partial<DiaryBooking> = {}): DiaryBooking => ({ id, quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null, ...over });
     it('reads the booking the file references, with the date as the customer reads it and a diary row id', async () => {
         const diary = new MemoryDiary();
         diary.bookings.push(booked('bk1'));
@@ -199,10 +199,10 @@ describe('confirm_booked_date', () => {
         expect(await confirmBookedDate(byQuote, { diary, now })).toMatchObject({ ok: false, reason: 'nothing is booked from this quote yet' });
     });
     it('reads a span through expandSpanDates: the first actual day, and the days it occupies', () => {
-        const b = bookingRowToDiary({ id: 'r', quoteId: null, scheduledDate: new Date('2026-09-25T09:00:00.000Z'), scheduledDates: ['2026-09-25', '2026-09-28'], durationDays: 2, status: 'accepted', dayOfStatus: 'scheduled', createdAt: new Date('2026-09-10T10:00:00.000Z'), completedAt: null });
+        const b = bookingRowToDiary({ id: 'r', quoteId: null, scheduledDate: new Date('2026-09-25T09:00:00.000Z'), scheduledDates: ['2026-09-25', '2026-09-28'], durationDays: 2, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: new Date('2026-09-10T10:00:00.000Z'), completedAt: null });
         expect(b.scheduledDate).toBe('2026-09-25');
         expect(b.scheduledDays).toEqual(['2026-09-25', '2026-09-28']);
-        const legacy = bookingRowToDiary({ id: 'r2', quoteId: null, scheduledDate: new Date('2026-09-25T09:00:00.000Z'), scheduledDates: null, durationDays: 2, status: 'accepted', dayOfStatus: null, createdAt: null, completedAt: null });
+        const legacy = bookingRowToDiary({ id: 'r2', quoteId: null, scheduledDate: new Date('2026-09-25T09:00:00.000Z'), scheduledDates: null, durationDays: 2, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: null, createdAt: null, completedAt: null });
         expect(legacy.scheduledDays).toEqual(['2026-09-25', '2026-09-26']);
         expect(formatDiaryDate('2026-01-03')).toBe('3 January 2026');
         expect(formatDiaryDate('nonsense')).toBe('nonsense');
@@ -255,7 +255,7 @@ describe('the belts', () => {
         expect(dateChangeMatch('Can you change the date please')).toBeTruthy();
         expect(dateChangeMatch('I need to shift my appointment')).toBeTruthy();
     });
-    it('date_question matches a question about dates or timing, never a statement', () => {
+    it('date_question matches an explicit question about dates, never a statement or a passing mention of a booking', () => {
         expect(dateQuestionMatch('When can you come?')).toBeTruthy();
         expect(dateQuestionMatch('when could you come out')).toBeTruthy();
         expect(dateQuestionMatch('What dates do you have?')).toBeTruthy();
@@ -266,6 +266,27 @@ describe('the belts', () => {
         expect(dateQuestionMatch('I am available Tuesday')).toBeNull();
         expect(dateQuestionMatch('Is the old tap still connected?')).toBeNull();
         expect(dateQuestionMatch('What time works for a call?')).toBeNull();
+        // A turn that mentions a booking, or wants the soonest of something else, asks the desk nothing about a date.
+        expect(dateQuestionMatch('Do I need to be in for the booking on the day?')).toBeNull();
+        expect(dateQuestionMatch('Can you fix it? The last lot I booked in for this never showed up.')).toBeNull();
+        expect(dateQuestionMatch('Which is the earliest you would do it for?')).toBeNull();
+        expect(dateQuestionMatch('Has the availability of that tap been checked?')).toBeNull();
+    });
+
+    it('a booking no contractor has taken on is not a date to confirm, and is still something the customer has', async () => {
+        const diary = new MemoryDiary();
+        const file = fixture();
+        file.job.bookingRef = 'bk7';
+        diary.bookings.push({ id: 'bk7', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'pending', assignmentStatus: 'unassigned', dayOfStatus: null, createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
+        const pool = await standingBooking(file, { diary, now });
+        expect(pool).toEqual({ state: 'unaccepted', reason: expect.stringContaining('no contractor has taken the booking on yet'), bookingRef: 'bk7' });
+        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, reason: pool.state === 'unaccepted' ? pool.reason : '', bookingRef: 'bk7' });
+        // Assigned to somebody who has not accepted it is still nobody's job yet.
+        diary.bookings[0].assignmentStatus = 'assigned';
+        expect((await standingBooking(file, { diary, now })).state).toBe('unaccepted');
+        diary.bookings[0].assignmentStatus = 'accepted';
+        expect((await standingBooking(file, { diary, now })).state).toBe('standing');
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, words: '25 September 2026' });
     });
     it('booked is a booking reference on the file, the booked stage, or a booking made from the file\'s quote on the picker', async () => {
         const file = fixture();
@@ -277,7 +298,7 @@ describe('the belts', () => {
         const picked = fixture();
         picked.job.quoteRef = 'q1';
         expect((await standingBooking(picked, { diary, now })).state).toBe('none');
-        diary.bookings.push({ id: 'bk9', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
+        diary.bookings.push({ id: 'bk9', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
         expect(await standingBooking(picked, { diary, now })).toMatchObject({ state: 'standing', booking: { id: 'bk9' } });
     });
 

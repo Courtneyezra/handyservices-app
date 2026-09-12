@@ -31,6 +31,8 @@ export interface DiaryBooking {
     durationDays: number;
     /** 'pending' | 'accepted' | 'declined' | 'in_progress' | 'completed' | 'cancelled' */
     status: string;
+    /** 'unassigned' | 'assigned' | 'accepted' | 'rejected' | 'in_progress' | 'completed'; the dispatch board's own column. */
+    assignmentStatus: string | null;
     dayOfStatus: string | null;
     /** ISO timestamps. */
     createdAt: string | null;
@@ -134,16 +136,29 @@ export function notStandingReason(b: DiaryBooking, today: string): string | null
     return last && last < today ? 'the booked date has passed' : null;
 }
 
+const TAKEN_STATUS = new Set(['accepted', 'in_progress']);
+const TAKEN_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
+
+/**
+ * Why no contractor has taken this booking on, or null when one has. A row sitting in the dispatch
+ * pool (`status: 'pending'`, `assignment_status: 'unassigned'`) carries a date nobody has agreed to
+ * work, so it is never a date to confirm to a customer: somebody would wait in for a visit no one
+ * is making. Fail-closed, so 'assigned' but not yet accepted counts as not taken.
+ */
+export function unacceptedReason(b: DiaryBooking): string | null {
+    return TAKEN_STATUS.has(b.status) || TAKEN_ASSIGNMENT.has(b.assignmentStatus ?? '') ? null : 'no contractor has taken the booking on yet, so there is no date to confirm';
+}
+
 /** The ISO day a date falls on, the form every diary date is compared in. */
 export function isoDayOf(d: Date): string {
     return d.toISOString().slice(0, 10);
 }
 
 /** A row from the database into the diary's shape. */
-export function bookingRowToDiary(row: { id: string; quoteId: string | null; scheduledDate: Date | string | null; scheduledDates: unknown; durationDays: number | null; status: string; dayOfStatus: string | null; createdAt: Date | string | null; completedAt: Date | string | null }): DiaryBooking {
+export function bookingRowToDiary(row: { id: string; quoteId: string | null; scheduledDate: Date | string | null; scheduledDates: unknown; durationDays: number | null; status: string; assignmentStatus: string | null; dayOfStatus: string | null; createdAt: Date | string | null; completedAt: Date | string | null }): DiaryBooking {
     const iso = (v: Date | string | null): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
     const days = row.scheduledDate ? expandSpanDates(row.scheduledDate instanceof Date ? row.scheduledDate : String(row.scheduledDate), row.durationDays, row.scheduledDates) : [];
-    return { id: row.id, quoteRef: row.quoteId, scheduledDate: days[0] ?? null, scheduledDays: days, durationDays: Math.max(1, row.durationDays ?? 1), status: row.status, dayOfStatus: row.dayOfStatus, createdAt: iso(row.createdAt), completedAt: iso(row.completedAt) };
+    return { id: row.id, quoteRef: row.quoteId, scheduledDate: days[0] ?? null, scheduledDays: days, durationDays: Math.max(1, row.durationDays ?? 1), status: row.status, assignmentStatus: row.assignmentStatus, dayOfStatus: row.dayOfStatus, createdAt: iso(row.createdAt), completedAt: iso(row.completedAt) };
 }
 
 // ---------------------------------------------------------------- readers
@@ -181,7 +196,7 @@ export const liveDiary: DiaryReader = {
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { and, desc, gte, isNotNull } = await import('drizzle-orm');
-        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
+        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, assignmentStatus: t.assignmentStatus, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t)
             .where(and(isNotNull(t.completedAt), isNotNull(t.scheduledDate), gte(t.completedAt, since)))
             .orderBy(desc(t.completedAt))
@@ -193,7 +208,7 @@ export const liveDiary: DiaryReader = {
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { eq } = await import('drizzle-orm');
-        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
+        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, assignmentStatus: t.assignmentStatus, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t).where(eq(t.id, bookingRef)).limit(1);
         return rows[0] ? bookingRowToDiary(rows[0]) : null;
     },
@@ -202,7 +217,7 @@ export const liveDiary: DiaryReader = {
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { desc, eq } = await import('drizzle-orm');
-        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
+        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, assignmentStatus: t.assignmentStatus, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t).where(eq(t.quoteId, quoteRef)).orderBy(desc(t.createdAt)).limit(10);
         return rows.map(bookingRowToDiary).find((b) => !notStandingReason(b, today)) ?? null;
     },
