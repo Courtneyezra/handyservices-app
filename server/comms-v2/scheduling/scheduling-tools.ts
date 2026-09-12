@@ -17,7 +17,8 @@
  *   picker_link         the quote's picker, for a quote that has been sent: refuses no quote on
  *                       the file, a draft, a superseded, revoked or expired quote, and a quote the
  *                       customer already has a booking from, standing or waiting on a contractor,
- *                       since that date was chosen there already.
+ *                       since that date was chosen there already, or one the diary could not say
+ *                       about on a file that names a booking, since it may be that same one.
  *   date_change         the deterministic belt under the model: a request to move a booked job
  *                       is a hold for Ben whatever the router or the specialist read.
  *
@@ -78,8 +79,23 @@ export type BookedDate =
     | { ok: false; state: 'unaccepted' | 'cancelled' | 'none' | 'unknown'; reason: string; expected?: boolean; detail?: string | null; bookingRef: string | null; quoteRef?: string | null };
 
 /** A booking the customer made and is still waiting on, whether or not a contractor has taken it. */
-export function isTheirs(booked: BookedDate | null): boolean {
+function isTheirs(booked: BookedDate | null): boolean {
     return booked?.state === 'standing' || booked?.state === 'unaccepted';
+}
+
+/**
+ * The one reading of the booking this file says the customer has, which the confirmation, the
+ * picker's refusal and the classifier's fallback all key on, so one file can never get two answers.
+ * Either the diary gave a booking of theirs from the quote the file carries, or it could not say on
+ * a file that names a booking at all, which is the fail-closed half: the diary may well be holding
+ * the booking they made on this quote's picker. A read that could not say where nothing on the file
+ * says there is a booking is nothing known rather than a booking, and an availability question there
+ * is still the picker's and the lead time's to answer.
+ */
+export function isTheirBooking(file: CaseFile, booked: BookedDate | null): boolean {
+    if (!booked) return false;
+    if (booked.state === 'unknown') return !!file.job.bookingRef || file.stage === 'booked' || (!!file.job.quoteRef && booked.quoteRef === file.job.quoteRef);
+    return isTheirs(booked) && !!file.job.quoteRef && booked.quoteRef === file.job.quoteRef;
 }
 
 /**
@@ -119,8 +135,13 @@ export async function confirmBookedDate(file: CaseFile, deps: SchedulingDeps = {
 
 export type PickerLink =
     | { ok: true; quoteRef: string; slug: string; url: string }
-    /** `expected` marks a refusal that is the right answer rather than something wrong: it stays out of the run's error. */
-    | { ok: false; reason: string; expected?: boolean; detail?: string | null; quoteRef: string | null };
+    /**
+     * `expected` marks a refusal that is the right answer rather than something wrong: it stays out of
+     * the run's error. `unsent` marks the two refusals where the customer has no quote to pick dates on
+     * at all, none on the file or one still in draft, which is the cell "dates come with your quote"
+     * answers: the specialist reads it rather than the reason, so the tool and the cell cannot disagree.
+     */
+    | { ok: false; reason: string; expected?: boolean; unsent?: boolean; detail?: string | null; quoteRef: string | null };
 
 function baseUrlOf(deps: SchedulingDeps): string {
     if (deps.baseUrl) return deps.baseUrl.replace(/\/$/, '');
@@ -131,13 +152,19 @@ function baseUrlOf(deps: SchedulingDeps): string {
  * The quote's picker, for a quote that has been sent. Booking stays there; the desk never books.
  * Refused once the customer has a booking from this same quote, whether a contractor has taken it on
  * or it is still waiting for one: the picker is where a date is chosen, they have chosen, and picking
- * again would make a second booking from the one quote. Moving the one they have is Ben's. A booking
- * cancelled off them is not refused, since rebooking is exactly what they need, and neither is a
- * booking from some earlier quote, which says nothing about this one.
+ * again would make a second booking from the one quote. Moving the one they have is Ben's. Refused
+ * the same way, and on the same reading (`isTheirBooking`), when the diary could not say on a file
+ * that names a booking: the one it could not read may be that same one. A booking cancelled off them
+ * is not refused, since rebooking is exactly what they need, and neither is a booking from some
+ * earlier quote, which says nothing about this one.
  */
 export async function pickerLink(file: CaseFile, deps: SchedulingDeps = {}, booked: BookedDate | null = null): Promise<PickerLink> {
-    if (!file.job.quoteRef) return { ok: false, reason: 'no quote on the file yet; dates come with the quote', quoteRef: null };
-    if (isTheirs(booked) && booked?.quoteRef === file.job.quoteRef) return { ok: false, reason: 'the customer already has a booking from this quote; picking again would make a second', expected: true, quoteRef: file.job.quoteRef };
+    if (!file.job.quoteRef) return { ok: false, reason: 'no quote on the file yet; dates come with the quote', unsent: true, quoteRef: null };
+    if (isTheirBooking(file, booked)) {
+        return booked!.state === 'unknown'
+            ? { ok: false, reason: 'the diary could not say whether the customer already has a booking from this quote', quoteRef: file.job.quoteRef }
+            : { ok: false, reason: 'the customer already has a booking from this quote; picking again would make a second', expected: true, quoteRef: file.job.quoteRef };
+    }
     if (!deps.diary) return { ok: false, reason: 'no diary to read', quoteRef: file.job.quoteRef };
     let quote;
     try {
@@ -146,7 +173,7 @@ export async function pickerLink(file: CaseFile, deps: SchedulingDeps = {}, book
         return { ok: false, reason: 'the quote could not be read', detail: String(err?.message ?? err), quoteRef: file.job.quoteRef };
     }
     if (!quote) return { ok: false, reason: 'the quote the file references does not exist', quoteRef: file.job.quoteRef };
-    if (quote.isDraft) return { ok: false, reason: 'the quote is a draft, not sent; dates come with the quote', expected: true, quoteRef: quote.id };
+    if (quote.isDraft) return { ok: false, reason: 'the quote is a draft, not sent; dates come with the quote', expected: true, unsent: true, quoteRef: quote.id };
     if (quote.supersededAt) return { ok: false, reason: 'the quote is superseded', quoteRef: quote.id };
     if (quote.revokedAt) return { ok: false, reason: 'the quote is revoked', quoteRef: quote.id };
     const now = deps.now ?? (() => new Date());

@@ -273,6 +273,35 @@ describe('picker_link', () => {
             expect(await pickerLink(file, { diary, now })).toMatchObject({ ok: false, reason });
         }
     });
+    it('refuses a quote the diary could not say about on a file that names a booking, and only there', async () => {
+        const diary = new MemoryDiary();
+        diary.quotes.push(quote());
+        const file = fixture();
+        file.job.quoteRef = 'q1';
+        const unread = { ok: false, state: 'unknown', reason: 'the diary could not be read', detail: 'connection lost', bookingRef: 'bk1' } as const;
+        file.job.bookingRef = 'bk1';
+        // The booking it could not read may be the one they made on this picker, so no link goes and the
+        // refusal is not an expected one: a read that failed reaches the run.
+        expect(await pickerLink(file, { diary, now, baseUrl: 'https://example.test' }, unread)).toMatchObject({ ok: false, reason: 'the diary could not say whether the customer already has a booking from this quote', quoteRef: 'q1' });
+        expect(await pickerLink(file, { diary, now, baseUrl: 'https://example.test' }, unread)).not.toHaveProperty('expected', true);
+        // A booking the read resolved from this quote counts the same, with nothing on the file naming it.
+        file.job.bookingRef = null;
+        expect(await pickerLink(file, { diary, now }, { ok: false, state: 'unknown', reason: 'the booking carries no date yet', bookingRef: 'bk1', quoteRef: 'q1' })).toMatchObject({ ok: false, quoteRef: 'q1' });
+        // Nothing anywhere says there is a booking: the read that failed is nothing known, and the picker answers.
+        expect(await pickerLink(file, { diary, now, baseUrl: 'https://example.test' }, { ok: false, state: 'unknown', reason: 'the diary could not be read', detail: 'connection lost', bookingRef: null })).toEqual({ ok: true, quoteRef: 'q1', slug: 'abcdefgh', url: 'https://example.test/quote/abcdefgh' });
+    });
+
+    it('marks the two refusals that mean the customer has no quote to pick dates on, and no others', async () => {
+        const file = fixture();
+        expect(await pickerLink(file, { diary: new MemoryDiary(), now })).toMatchObject({ ok: false, unsent: true });
+        file.job.quoteRef = 'q1';
+        const draft = new MemoryDiary();
+        draft.quotes.push(quote({ isDraft: true }));
+        expect(await pickerLink(file, { diary: draft, now })).toMatchObject({ ok: false, unsent: true, expected: true });
+        const expired = new MemoryDiary();
+        expired.quotes.push(quote({ expiresAt: '2026-09-01T00:00:00.000Z' }));
+        expect(await pickerLink(file, { diary: expired, now })).not.toHaveProperty('unsent', true);
+    });
 });
 
 describe('the belts', () => {

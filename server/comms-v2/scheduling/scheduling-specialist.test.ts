@@ -673,6 +673,65 @@ describe('the Scheduling specialist', () => {
         expect(q.error).toBeNull();
     });
 
+    it('a diary that could not say on a booked thread gives no picker, whether or not the classification came back', async () => {
+        // The file shape the door's fixture makes: the quote and the booking made from it.
+        const make = () => {
+            const diary = diaryWith(6, true);
+            diary.booking = async () => { throw new Error('connection lost'); };
+            const file = fixture('What dates have you got?');
+            file.job.quoteRef = 'q1';
+            file.job.bookingRef = 'bk1';
+            return { diary, file };
+        };
+        const read = make();
+        const r = await schedule(read.file, read.file.turns[0], party(read.file), client(['availability']), { diary: read.diary, now, baseUrl: 'https://example.test' });
+        assertNoProse(r, read.file);
+        // The booking the diary could not read may be the one they made on this picker: sending them back
+        // to it would make a second booking from the one quote.
+        expect(r.scheduling.picker).toBeNull();
+        expect(read.file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(r.proposal.hold).toEqual({ reason: 'date_unconfirmed', match: 'the diary could not be read' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        // The new job is still answered, and the failed read reaches the run rather than the customer.
+        expect(read.file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        expect(r.error).toContain('connection lost');
+        expect(r.brief.join(' ')).not.toMatch(/connection lost|could not be read/);
+        // The same file in the same state, answered when the classifier never came back: the same reading.
+        const guessed = make();
+        const failed = new FakeModelClient({ specialist: () => ({ error: 'rate limited' }) });
+        const g = await schedule(guessed.file, guessed.file.turns[0], party(guessed.file), failed, { diary: guessed.diary, now, baseUrl: 'https://example.test' });
+        expect(g.scheduling.picker).toBeNull();
+        expect(guessed.file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(g.proposal.hold).toEqual({ reason: 'date_unconfirmed', match: 'the diary could not be read' });
+        expect(g.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+    });
+
+    it('a quote still in draft is no quote at all: dates come with the quote, not a promise that Ben will come back on a date', async () => {
+        const diary = diaryWith(2);
+        diary.quotes[0].isDraft = true;
+        const file = fixture('What dates have you got?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
+        assertNoProse(r, file);
+        expect(r.scheduling.picker).toMatchObject({ ok: false, reason: 'the quote is a draft, not sent; dates come with the quote' });
+        expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
+        expect(r.proposal.hold).toBeNull();
+        expect(file.facts.filter((f) => f.key === 'picker_link' || f.key === 'lead_time')).toEqual([]);
+        expect(r.brief.join(' ')).not.toMatch(/draft|Ben will come back/);
+        // A refusal the desk meant, so the run stays clean.
+        expect(r.error).toBeNull();
+        // With a lead time to give, that answers and the line does not go.
+        const withLead = diaryWith(6);
+        withLead.quotes[0].isDraft = true;
+        const f2 = fixture('What dates have you got?');
+        f2.job.quoteRef = 'q1';
+        const r2 = await schedule(f2, f2.turns[0], party(f2), client(['availability']), { diary: withLead, now, baseUrl: 'https://example.test' });
+        expect(r2.scheduling.fixedLines).toEqual([]);
+        expect(f2.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        expect(f2.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(r2.proposal.hold).toBeNull();
+    });
+
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {
         const diary = diaryWith(6, true);
         diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';
