@@ -72,9 +72,10 @@ guards check each one. The router never sees a tool; the specialists never see t
 
 **Ben's facts are not the customer's.** Some facts on the file are written for Ben and carry an
 admin link or an internal note: the three notification facts (`ben_notified`, `ben_chased`,
-`quote_accepted`). No guard reads a fact's meaning, so the composer boundary is the one place they
-are kept out: `customerVisibleFacts` filters them from the prompt and from the ids the composer may
-cite. Any new fact written for Ben's eyes goes on `INTERNAL_FACT_KEYS` on the day it is written.
+`quote_accepted`) and the draft's missing list (`ben_to_request`). No guard reads a fact's meaning,
+so the composer boundary is the one place they are kept out: `customerVisibleFacts` filters them
+from the prompt and from the ids the composer may cite. Any new fact written for Ben's eyes goes on
+`INTERNAL_FACT_KEYS` on the day it is written.
 
 ## Contract 4 - Guards and the approver slot
 
@@ -181,7 +182,7 @@ brief for the composer, and never sees a figure.
 | `draft_quote` | the case file, the party, the intake | the draft's slug and lines, Ben's notice, the facts recorded (the missing list among them, as the internal `ben_to_request` fact; it is never written to the quote row, whose every field is served to anyone holding the slug) | not ready; the file's quote reference names a quote that exists (one draft per job; changes are Ben's) |
 | `notify_ben` | a notice (ready to price, chase, accepted) | recorded on the file as a fact cited to the quote; nothing is dispatched (dispatch to Ben's phone is a cutover item) | a second ready-to-price or accepted notice for the same quote (one notification); no quote on the file |
 | `chase` | the case file, the clock | a numbered chase for Ben | the quote is not an unpriced draft; Ben not yet notified; not due (four hours after the notification, then daily); three chases already |
-| `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote |
+| `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote; a label two lines share |
 | `read_quote_scope` | the quote | what each line covers, its assumptions, what is not included; no figure | revoked, superseded, expired |
 | `live_figure_quotes` | the case file | which quotes a figure may be read from now, for the figure guard's own check of a cited line | the same rule as `read_quote_line`: a draft, revoked, superseded or expired quote is not in the answer |
 | `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, the total, the deposit; never half a line, which is a breakdown rather than a line and is printed in whole pounds on the quote page) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |

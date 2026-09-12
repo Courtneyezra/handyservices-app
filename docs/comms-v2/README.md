@@ -9,7 +9,7 @@ loop has it to read from the repo instead of from outside sources.
   either passes or fails against.
 - `design.md` is the shape: the agent-map architecture, the box-for-box mapping, the channels, the
   specialist roster, the landlord seams, the settled decisions, and the build plan.
-- `contracts.md` is what a goal loop builds against: the six contracts, each a record shape, its
+- `contracts.md` is what a goal loop builds against: the contracts, each a record shape, its
   named calls, what each call refuses, and the invariants a test can check; then how a goal is
   validated.
 

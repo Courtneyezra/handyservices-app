@@ -58,8 +58,8 @@ written.
 ### Driving Goal 4's checklist lines
 
 The pipeline reads `test.instructions` from the default branch, so the scenarios are spelled out
-here too. One thread on the comms-v2 door, in this order; the ready turn runs the estimator and
-the pricing engine, so allow up to five minutes for it.
+here too. One thread on the comms-v2 door, in this order; the ready turn is the slow one
+("Driving the door", below, says how long to allow for it).
 
 | Line | Drive | Passes when |
 |---|---|---|
@@ -153,17 +153,17 @@ the board's own sandbox door under `/api/comms-v2/sandbox` seeding the thread:
 The door needs the branch database string and the model keys from the ordinary environment. The
 desk's one database variable is `COMMS_V2_DATABASE_URL` (a Neon branch, never production); the
 door host refuses a missing value and a production one and never reads `DATABASE_URL`. Every live
-store and live reader in the desk asks the same question again at the moment it would open the
-database, in `live-database.ts`: the database in use must be the branch that variable names, and a
-refusal names that requirement and falls back to nothing. That is what the door host gives for
-free and the deployed server does not: `/api/comms-v2/sandbox` is mounted there for Ben's board, on
-the production database, where the quote machinery would otherwise write a real quote row and
-publish a quote page with real prices. Ben's board reading its own `comms_v2_approvers` row is the
-one caller outside the rule, because that row is meant to be read on the server the board runs on.
-Cutover replaces this with the desk switch. The
-pipeline's run copies inherit a non-production environment through direnv from their run root
-(see `.no-mistakes.yaml`, `test.instructions`); a developer's shell carries its own. Nothing in the
-desk loads a file of its own or prints a value.
+store and every writing path in the desk asks the same question again at the moment it would open
+the database, in `live-database.ts`: the database in use must be the branch that variable names,
+and a refusal names that requirement and falls back to nothing. That is what the door host gives
+for free and the deployed server does not: `/api/comms-v2/sandbox` is mounted there for Ben's
+board, on the production database, where the quote machinery would otherwise write a real quote row
+and publish a quote page with real prices. Writing is the whole subject, so the reviewed
+knowledge-base readers and Ben's board reading its own `comms_v2_approvers` row do not ask
+(contracts.md, Contract 7, "Which database the tools open", has why). Cutover replaces this with
+the desk switch. The pipeline's run copies inherit a non-production environment through direnv from
+their run root (see `.no-mistakes.yaml`, `test.instructions`); a developer's shell carries its own.
+Nothing in the desk loads a file of its own or prints a value.
 
 ## Tests
 
