@@ -295,6 +295,25 @@ describe('the channel desk on a call', () => {
         expect(a.file.sends).toHaveLength(0);
         expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
     });
+    it('what Ben asked for on the phone is on the ledger even when the follow-up holds for him, so the desk does not ask for it again', async () => {
+        const { gateway } = rig({
+            specialist: ({ n }) => n === 1 ? read() : ({ facts: [], jobUnknowns: [], answeredSubjects: [] }),
+            router: () => routeScoping(),
+            composer: ({ user }) => { expect(user).toMatch(/Never ask again.*photos/); return { reply: 'Noted, thanks.\n\nWhereabouts are you?', factIds: [], kbIds: [] }; },
+        }, noTemplateApproved);
+        const a = await gateway.inbound(call('ben_rang', '2026-09-11T10:00:00.000Z'), { whatsapp: true });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result).toMatchObject({ decision: 'hold', delivered: false, channel: 'whatsapp', windowState: 'shut' });
+        expect(a.file.hold?.reason).toMatch(/no approved template for purpose post_call_followup/);
+        expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        expect(a.file.ledger.find((l) => l.subject === 'media')).toMatchObject({ askCount: 1, answeredAt: null });
+        // Nothing went to the customer, but Ben asked them on the phone, so the next reply collects it rather than asking again.
+        const b = await gateway.inbound(wa('hi, back about the fan', '2026-09-11T11:00:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.decision).toBe('send');
+        expect(b.result.bubbles.map((x) => x.text).join(' ')).not.toMatch(/photo/i);
+        expect(b.file.ledger.find((l) => l.subject === 'media')).toMatchObject({ askCount: 1 });
+    });
     it('every other channel\'s turn reaches the desk unchanged: an SMS is answered on SMS with the move-to-WhatsApp line once, then never again', async () => {
         const { gateway } = rig({
             router: () => routeScoping({ turnKind: 'enquiry' }),

@@ -97,10 +97,11 @@ export function benAskedSubjects(file: CaseFile, out: CallRead): Array<'media' |
 }
 
 /**
- * After the follow-up has gone: Ben's asks go on the ledger as asked, so the desk never asks for
- * them again (the old ledger "did not hear calls"). A subject already asked and unanswered is
- * marked answered first: Ben asked again himself and the customer agreed on the phone, so the
- * follow-up's ask is the one now standing. `handoff` is answered: the call happened.
+ * As soon as the call has been read: Ben's asks go on the ledger as asked, so the desk never asks
+ * for them again (the old ledger "did not hear calls"). He asked by saying it on the phone, so this
+ * does not wait on a follow-up text going out (channel-desk.ts). A subject already asked and
+ * unanswered is marked answered first: Ben asked again himself and the customer agreed on the
+ * phone, so his ask is the one now standing. `handoff` is answered: the call happened.
  */
 export function ledgerAfterCall(file: CaseFile, subjects: ReadonlyArray<'media' | 'postcode' | 'access'>, deps: CaseFileDeps = {}): void {
     for (const s of subjects) {

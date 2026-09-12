@@ -19,6 +19,11 @@
  *                     goes out with the name and the job (1.3), or its words on SMS; the thread
  *                     continues from the file (3.2) and nothing is held for Ben (3.4).
  *
+ * What Ben asked for on the phone goes on the ask ledger as soon as the transcript is read, before
+ * any follow-up is attempted: he asked by saying it, so a follow-up held for Ben, refused by the
+ * sender, or waiting on a template Meta has not approved must not leave the desk free to ask the
+ * same thing again. Never move that write after the send.
+ *
  * A template's words were approved at registration (server/window-templates.ts,
  * window-templates.test.ts checks every body), so the eight guards are recorded as passed with
  * that note rather than run on words the composer did not write; the same is true of the desk's
@@ -108,9 +113,9 @@ export class ChannelDesk implements DeskLike {
                 summary += `; reader error: ${read.error}`;
             }
         }
+        ledgerAfterCall(file, asked, deps);
 
         if (outcome === 'answered_inbound') {
-            ledgerAfterCall(file, asked, deps);
             return this.result(file, party.personId, runId, calls, { decision: 'none', factIds, summary, note: 'answered inbound call: no acknowledgement (checklist 3.5); the transcript and its facts are on the file' });
         }
 
@@ -119,7 +124,6 @@ export class ChannelDesk implements DeskLike {
 
         // One text back per thread (checklist 3.5). They may ring three times in five minutes; they hear back once.
         if (outcome === 'missed' && everAsked(file, MISSED_CALL_ACK_SUBJECT)) {
-            ledgerAfterCall(file, asked, deps);
             return this.result(file, party.personId, runId, calls, { decision: 'none', factIds, summary, note: 'the missed-call text already went on this thread; one text back, never a second (checklist 3.5)' });
         }
 
@@ -167,7 +171,6 @@ export class ChannelDesk implements DeskLike {
             setHold(file, { approver: BEN, reason: `${purpose}: send refused: ${sent.reason}`, draft: body }, deps);
             return this.result(file, party.personId, runId, calls, { decision: 'hold', channel: choice.channel, windowState: window.state, factIds, summary, note: `send refused: ${sent.reason}` });
         }
-        ledgerAfterCall(file, asked, deps);
         if (purpose === 'missed_call') {
             const marked = ledgerAsk(file, MISSED_CALL_ACK_SUBJECT, deps);
             if (!marked.ok) log(`missed-call acknowledgement not recorded: ${marked.reason}`);
