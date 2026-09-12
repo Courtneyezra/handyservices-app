@@ -19,7 +19,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { RE_THANKS_MEDIA, offersCall, scopingQuestionCount, textAsks } from './lexicon';
+import { offersCall, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, Route } from './router';
 import { route as routeTurn } from './router';
@@ -268,10 +268,11 @@ export class Desk implements DeskLike {
         for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(reply, subject)) ledgerAsk(file, subject, deps);
         if (proposal?.nextQuestion && reply.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
         if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(reply)) ledgerAsk(file, 'media', deps);
-        // The one reading of "this reply thanked for a photo" (lexicon.ts), so the ledger records
-        // exactly what the ask-ledger guard will later refuse a second time. A local regex here
-        // missed the ordinary "Thanks for the photo" and left the ledger saying it never happened.
-        if (proposal?.thankForMedia && RE_THANKS_MEDIA.test(reply)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
+        // The desk's own instruction to thank for the photo is what the ledger records, not the
+        // words the composer chose: reading the sentence back missed every thanks that does not
+        // name the photo ("Thanks for sending that over"), and left the ledger saying the photo was
+        // never thanked for, so the next turn thanked for it again.
+        if (proposal?.thankForMedia) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
         if (offersCall(reply)) party.callOffered = true;
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
     }

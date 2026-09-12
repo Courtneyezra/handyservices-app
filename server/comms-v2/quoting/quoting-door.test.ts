@@ -45,7 +45,9 @@ beforeAll(async () => {
         },
         composer: ({ user }) => {
             if (/they accepted the quote on the quote page/.test(user)) return { reply: 'Brilliant, thank you Sam.\n\nBen has been told and will be in touch about the day.', factIds: [], kbIds: [] };
-            if (/thank for media: yes/.test(user)) return { reply: 'Thanks for the photo, that is the one.\n\nBen has everything he needs now.', factIds: [], kbIds: [] };
+            // The composer thanks in its own words, without naming the photo: the ledger's mark
+            // comes from the desk's instruction, not from the sentence that went.
+            if (/thank for media: yes/.test(user)) return { reply: 'Thanks for sending that over, that is the one.\n\nBen has everything he needs now.', factIds: [], kbIds: [] };
             const m = /^(fact_[^:]+): quote_line:Replace kitchen tap = (£[\d.]+)$/m.exec(user);
             if (m && /answer from the quote only/.test(user)) return { reply: `It covers taking the old tap out and fitting the new one, and you supply the tap.\n\nThat line on your quote is ${m[2]}.`, factIds: [m[1]], kbIds: [] };
             if (/Ben has priced the quote and is sending it now/.test(user)) {
@@ -114,16 +116,25 @@ describe('the quoting door', () => {
         expect(due.json.state.quote.notifications.map((n: any) => n.kind)).toEqual(['ready_to_price', 'chase']);
     });
 
-    it('a photo sent while the draft is with Ben is thanked for once and joins the quote', async () => {
-        const form = new FormData();
-        form.set('text', 'here is the tap');
-        form.set('channel', 'whatsapp');
-        form.append('media', new Blob([new Uint8Array(Buffer.from('89504e470d0a1a0a', 'hex'))], { type: 'image/png' }), 'tap.png');
-        const r = await post('/message', undefined, form);
+    it('a photo sent while the draft is with Ben is thanked for once and joins the quote, and the same photo again is not thanked for twice', async () => {
+        const photo = () => {
+            const form = new FormData();
+            form.set('text', 'here is the tap');
+            form.set('channel', 'whatsapp');
+            form.append('media', new Blob([new Uint8Array(Buffer.from('89504e470d0a1a0a', 'hex'))], { type: 'image/png' }), 'tap.png');
+            return post('/message', undefined, form);
+        };
+        const r = await photo();
         expect(r.status).toBe(200);
-        expect(plannedSendOfResponse(r.json).bubbles.join(' ')).toMatch(/Thanks for the photo/);
-        expect(r.json.state.caseFile.ledger.find((l: any) => l.subject === 'media')?.thankedAt).toBeTruthy();
+        expect(plannedSendOfResponse(r.json).bubbles.join(' ')).toMatch(/Thanks for sending that over/);
+        const thankedAt = r.json.state.caseFile.ledger.find((l: any) => l.subject === 'media')?.thankedAt;
+        expect(thankedAt).toBeTruthy();
         expect(store.rows.get(r.json.state.quote.slug)?.customerPhotoUrls).toHaveLength(1);
+        // The mark stands, so the next turn carrying the same photo is not thanked for again.
+        const again = await photo();
+        expect(again.status).toBe(200);
+        expect(plannedSendOfResponse(again.json).bubbles.join(' ')).not.toMatch(/thank|cheers/i);
+        expect(again.json.state.caseFile.ledger.find((l: any) => l.subject === 'media')?.thankedAt).toBe(thankedAt);
     });
 
     it('a shut window holds the priced quote for Ben and leaves it a draft, rather than delivering a nudge with no link', async () => {
