@@ -209,11 +209,11 @@ export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDe
     ids.status = once(QUOTE_FACT.status, statusText[q.status], 'status')?.id ?? null;
     if (q.status === 'sent' || q.status === 'accepted') {
         ids.link = once(QUOTE_FACT.link, quoteUrlFor(q.slug, d.baseUrl), 'link')?.id ?? null;
+        // Keyed by the figure's own citation, not its label: two lines may share a label, and keying
+        // by that collapsed the second into the first and gave its price as the other's.
         for (const f of figureLabels(q)) {
-            const read = readQuoteLine(q, f.label);
-            if (!read.ok) continue;
-            const fact = once(`${QUOTE_FACT.line}:${read.value.label}`, read.value.amount, read.value.citation.line);
-            if (fact) ids.lines[read.value.label] = fact.id;
+            const fact = once(`${QUOTE_FACT.line}:${f.citation}`, pounds(f.amountPence), f.citation);
+            if (fact) ids.lines[f.citation] = fact.id;
         }
     }
     const scope = readQuoteScope(q);

@@ -221,6 +221,35 @@ describe('read_quote_line and read_quote_scope', () => {
         expect(runGuards({ ...base, reply: 'The labour on it is £100.00.', factIds: [tap.id] }).guards.figure.result).toBe('fail');
     });
 
+    it('two lines the quote titles the same keep their own figures, and neither is given as the other', async () => {
+        const d = deps();
+        const file = fixture();
+        const panels: DraftIntake = { ...intake, lines: [
+            { title: 'Replace a fence panel', category: 'garden', qty: 1, detail: 'the front one, 6ft', assumptions: [], notIncluded: [] },
+            { title: 'Replace a fence panel', category: 'garden', qty: 1, detail: 'the rear one, 3ft', assumptions: [], notIncluded: [] },
+        ] };
+        await draftQuote(file, file.parties[0], panels, d);
+        expect((await priceQuote(file, { lines: [{ lineId: 'card_1', finalPence: 12000 }, { lineId: 'card_2', finalPence: 8000 }] }, d)).ok).toBe(true);
+        expect((await markQuoteSent(file, d)).ok).toBe(true);
+        const live = (await loadQuote(file, d))!;
+        const ids = recordQuoteFacts(file, live, d);
+
+        // One fact per line, each carrying its own line's amount.
+        expect(Object.keys(ids.lines).sort()).toEqual(['Deposit', 'Replace a fence panel (line 1)', 'Replace a fence panel (line 2)', 'Total']);
+        const front = file.facts.find((f) => f.id === ids.lines['Replace a fence panel (line 1)'])!;
+        const rear = file.facts.find((f) => f.id === ids.lines['Replace a fence panel (line 2)'])!;
+        expect(front.value).toBe('£120.00');
+        expect(rear.value).toBe('£80.00');
+        // Neither hides the other from the composer: they are different lines, not one line re-priced.
+        const visible = customerVisibleFacts(file).map((f) => f.id);
+        expect(visible).toContain(front.id);
+        expect(visible).toContain(rear.id);
+
+        // Asked for under the title they share, neither line is meant, so no figure is read at all.
+        expect(readQuoteLine(live, 'Replace a fence panel')).toMatchObject({ ok: false });
+        expect(readQuoteLine(live, 'Replace a fence panel (line 2)')).toMatchObject({ ok: true, value: { amount: '£80.00', citation: { quoteRef: live.slug, line: 'Replace a fence panel (line 2)' } } });
+    });
+
     it('refuses a cited figure once the quote is no longer live, status by status, though the fact stays on the file', async () => {
         const d = deps();
         const file = fixture();

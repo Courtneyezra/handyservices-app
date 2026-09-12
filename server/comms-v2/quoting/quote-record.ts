@@ -143,24 +143,43 @@ export interface QuoteLineRead {
 
 export type QuoteLineReadOutcome = { ok: true; value: QuoteLineRead } | { ok: false; reason: string; status: QuoteStatus };
 
+/** One figure of the quote: which line it came from, the quote's own label for it, and the name it is cited under. */
+export interface QuoteFigure {
+    /** The line's own id on the row, or the total's and the deposit's own names: what the figure IS, whatever it is labelled. */
+    ref: string;
+    /** The quote's label for it, as the page prints it. Two lines may share one. */
+    label: string;
+    /**
+     * The name this figure is cited and recorded under, unique on the quote: the label, or the label
+     * with its position when another line carries the same one. Two lines titled the same is ordinary
+     * work (two fence panels, two taps), and one line's price may never be given as another's.
+     */
+    citation: string;
+    amountPence: number;
+}
+
 /**
- * Every label a figure can be read under: each priced line, the total and the deposit. A line's
- * labour and materials halves are not among them. They are a breakdown of a line rather than a line
+ * Every figure a customer may be read: each priced line, the total and the deposit. A line's labour
+ * and materials halves are not among them. They are a breakdown of a line rather than a line
  * (behaviour.md answer 23: a figure may be given only as one line of the live quote, to the penny,
  * cited as that line), and the quote page prints them rounded to whole pounds, so an amount to the
  * penny would be one that appears nowhere on the quote the customer holds.
  */
-export function figureLabels(q: QuoteRecord): Array<{ label: string; amountPence: number }> {
-    const out: Array<{ label: string; amountPence: number }> = [];
-    for (const l of q.lines) {
-        if (l.pricePence != null) out.push({ label: l.label, amountPence: l.pricePence });
-    }
-    if (q.totalPence != null) out.push({ label: TOTAL_LABEL, amountPence: q.totalPence });
-    if (q.depositPence != null && q.depositPence > 0) out.push({ label: DEPOSIT_LABEL, amountPence: q.depositPence });
+export function figureLabels(q: QuoteRecord): QuoteFigure[] {
+    const priced = q.lines.filter((l) => l.pricePence != null);
+    const shared = (label: string) => priced.filter((l) => norm(l.label) === norm(label)).length > 1;
+    const out: QuoteFigure[] = priced.map((l, i) => ({
+        ref: l.lineId,
+        label: l.label,
+        citation: shared(l.label) ? `${l.label} (line ${i + 1})` : l.label,
+        amountPence: l.pricePence!,
+    }));
+    if (q.totalPence != null) out.push({ ref: 'total', label: TOTAL_LABEL, citation: TOTAL_LABEL, amountPence: q.totalPence });
+    if (q.depositPence != null && q.depositPence > 0) out.push({ ref: 'deposit', label: DEPOSIT_LABEL, citation: DEPOSIT_LABEL, amountPence: q.depositPence });
     return out;
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function norm(s: string): string { return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
 
 /**
  * Whether a figure may be read from this quote at all. The one liveness rule, asked the same way by
@@ -179,9 +198,15 @@ export function quoteLiveForFigures(q: QuoteRecord): boolean {
 export function readQuoteLine(q: QuoteRecord, label: string): QuoteLineReadOutcome {
     if (!quoteLiveForFigures(q)) return { ok: false, reason: `the quote is ${q.status}; a figure is read only from the live quote the customer holds`, status: q.status };
     const want = norm(label);
-    const hit = figureLabels(q).find((f) => norm(f.label) === want);
-    if (!hit) return { ok: false, reason: `no line labelled "${label}" on quote ${q.slug}`, status: q.status };
-    return { ok: true, value: { label: hit.label, amountPence: hit.amountPence, amount: pounds(hit.amountPence), citation: { quoteRef: q.slug, line: hit.label } } };
+    const figures = figureLabels(q);
+    // The citation is unique, the label may not be: named by its citation one line is meant, named by
+    // a label two lines share none is, and a figure is given only as the one line it is cited as.
+    const cited = figures.find((f) => norm(f.citation) === want);
+    const hits = cited ? [cited] : figures.filter((f) => norm(f.label) === want);
+    if (!hits.length) return { ok: false, reason: `no line labelled "${label}" on quote ${q.slug}`, status: q.status };
+    if (hits.length > 1) return { ok: false, reason: `quote ${q.slug} carries ${hits.length} lines labelled "${label}"; which one is meant is not the desk's to guess`, status: q.status };
+    const hit = hits[0];
+    return { ok: true, value: { label: hit.citation, amountPence: hit.amountPence, amount: pounds(hit.amountPence), citation: { quoteRef: q.slug, line: hit.citation } } };
 }
 
 // ---------------------------------------------------------------- scope

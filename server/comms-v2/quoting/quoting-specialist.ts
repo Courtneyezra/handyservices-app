@@ -23,7 +23,7 @@ import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
-import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factsWithPrefix, newestFact, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
+import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factsWithPrefix, figureLabels, newestFact, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 
 // ---------------------------------------------------------------- the two structured outputs
@@ -73,6 +73,9 @@ export function clampIntake(out: IntakeOutput): IntakeOutput {
 }
 
 export const CONCERN_KINDS = ['line_amount', 'total', 'deposit', 'scope', 'not_included', 'on_the_day', 'link', 'status'] as const;
+
+/** The concerns that ask for an amount: each must name a figure the live quote actually carries. */
+const FIGURE_KINDS: ReadonlySet<string> = new Set(['line_amount', 'total', 'deposit']);
 
 /** After the draft: what the question concerns, named by label; no amount, no sentence. */
 export const questionOutputSchema = z.object({
@@ -302,7 +305,7 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     const skipModel = route.turnKind === 'short_pause' || route.turnKind === 'acknowledgement' || route.turnKind === 'promise_of_more' || !turn.body.trim();
     let questionRead = false;
     if (!skipModel) {
-        const labels = [...q.lines.map((l) => l.label), ...(q.totalPence != null ? ['Total'] : []), ...(q.depositPence ? ['Deposit'] : [])];
+        const labels = figureLabels(q).map((f) => f.citation);
         const user = [
             `Quote ${q.slug}, status ${q.status}. Labels on it: ${labels.join('; ') || 'none'}. Not included: ${q.lines.flatMap((l) => l.notIncluded).join('; ') || 'nothing listed'}. Assumptions: ${q.lines.flatMap((l) => l.assumptions).join('; ') || 'none'}.`,
             'Thread, oldest first (the newest turn is marked >>):',
@@ -320,15 +323,14 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
             // label the model returned, never of a clamped copy: a line's label runs to 120
             // characters and the brief clamps at 60, so a truncated label would match no line and
             // turn a question the quote answers (5.3) into a hold.
-            const offQuote = quoteLiveForFigures(q)
-                ? asked.filter((c) => c.kind === 'line_amount' && c.label && !readQuoteLine(q, c.label).ok)
-                : [];
             // A total and a deposit are named by their kind, so the label is the quote's own rather
             // than the customer's words for it: "the total price" asks about the same one figure.
-            proposal.concerns = asked.filter((c) => !offQuote.includes(c)).map((c) => ({
-                kind: c.kind,
-                label: c.kind === 'total' ? TOTAL_LABEL : c.kind === 'deposit' ? DEPOSIT_LABEL : c.label ? clamp(c.label, 60) : null,
-            }));
+            const named = asked.map((c) => ({ kind: c.kind, label: c.kind === 'total' ? TOTAL_LABEL : c.kind === 'deposit' ? DEPOSIT_LABEL : c.label }));
+            // Any amount asked for under a name the live quote does not carry - a labour or materials
+            // half, a deposit on a quote that has none, a label two lines share - is money beyond a
+            // quote line and goes to Ben, rather than being answered with another line's figure.
+            const offQuote = quoteLiveForFigures(q) ? named.filter((c) => FIGURE_KINDS.has(c.kind) && c.label && !readQuoteLine(q, c.label).ok) : [];
+            proposal.concerns = named.filter((c) => !offQuote.includes(c)).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
             proposal.beyondQuoteLine = res.output.beyondQuoteLine || offQuote.length > 0;
             proposal.acceptanceInChat = res.output.acceptanceInChat && q.status === 'sent';
             proposal.notReady = proposal.notReady || res.output.notReady;

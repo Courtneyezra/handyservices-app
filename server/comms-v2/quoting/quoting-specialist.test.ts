@@ -231,6 +231,28 @@ describe('after the quote', () => {
         expect(two?.brief?.join('\n')).toMatch(/they asked about: Total/);
     });
 
+    it('a deposit the quote does not carry goes to Ben, while a deposit it does carry is answered', async () => {
+        const asks = () => new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'deposit', label: 'a deposit up front' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        // A labour-only job can be sent with no deposit at all: the row supports it.
+        const { d, store } = deps();
+        const file = fixture();
+        await quote(file, file.turns[0], file.parties[0], routeOf({ turnKind: 'enquiry' }), new FakeModelClient({ specialist: () => intakeOutput }), d);
+        expect((await priceQuote(file, {}, d)).ok).toBe(true);
+        store.rows.get(file.job.quoteRef!)!.depositAmountPence = 0;
+        expect((await markQuoteSent(file, d)).ok).toBe(true);
+        const held = await quote(file, later(file, 'is there a deposit to pay up front?'), file.parties[0], routeOf({ belts: { regulated: null, money: 'deposit' } }), asks(), d);
+        expect(held?.proposal.hold).toMatchObject({ reason: 'money' });
+        expect(held?.brief?.join('\n')).toMatch(/beyond a line of the quote/);
+        expect(file.facts.some((f) => f.key === 'quote_line:Deposit')).toBe(false);
+
+        const has = await sentQuote();
+        const answered = await quote(has.file, later(has.file, 'is there a deposit to pay up front?'), has.file.parties[0], routeOf({ belts: { regulated: null, money: 'deposit' } }), asks(), has.d);
+        expect(answered?.proposal.hold).toBeNull();
+        const deposit = has.file.facts.find((f) => f.key === 'quote_line:Deposit')!;
+        expect(deposit.value).toBe('£45.00');
+        expect(answered?.brief?.join('\n')).toMatch(/they asked about: Deposit/);
+    });
+
     it('a money exception the router\'s own model raised is held by Quoting when its reading does not answer', async () => {
         const { file, d } = await sentQuote();
         // The wording belt found nothing ("would you take 200 for the lot?" has no match), the model

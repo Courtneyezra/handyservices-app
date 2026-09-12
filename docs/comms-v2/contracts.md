@@ -221,11 +221,19 @@ sentence for the customer. Acceptance is a human event the door (live, the payme
 records; the specialist can only read it.
 
 **A price the quote does not state as a line.** The question model names which labels a turn asks
-about, and a line label the live quote does not carry - the labour or materials half of a line, most
-often - is money beyond a quote line, so it goes to Ben. The quote is asked about the label the model
-returned, not the copy the brief shortens, so a line whose label runs past that clamp is still a line
-of the quote and its price is answered (5.3). A total and a deposit are named by their kind rather
-than their label, so "the total price" is the quote's one total and is answered from it. Answering it from the line's own
+about, and any amount asked for under a name the live quote does not carry is money beyond a quote
+line, so it goes to Ben: the labour or materials half of a line, a deposit on a quote priced without
+one, or a label two lines share. The quote is asked about the label the model returned, not the copy
+the brief shortens, so a line whose label runs past that clamp is still a line of the quote and its
+price is answered (5.3). A total and a deposit are named by their kind rather than their label, so
+"the total price" is the quote's one total, and that name is then checked against the quote like any
+other.
+
+**Two lines the quote titles the same.** Ordinary work: two fence panels, two taps. Each figure is
+recorded and cited under a name unique on the quote - the label, or the label with its line position
+when another line shares it - so one line's price can never be recorded or read back as another's.
+Asked for under the title they share, no figure is read at all: which line is meant is not the desk's
+to guess, so it goes to Ben. Answering it from the line's own
 figure under that name would state an amount the customer's quote does not, and every check would
 pass it, which is worse than a hold.
 
