@@ -74,6 +74,9 @@ export function clampIntake(out: IntakeOutput): IntakeOutput {
 
 export const CONCERN_KINDS = ['line_amount', 'total', 'deposit', 'scope', 'not_included', 'on_the_day', 'link', 'status'] as const;
 
+/** The concerns that ask for an amount, so a label they carry must be one the quote actually has. */
+const FIGURE_CONCERNS: ReadonlySet<string> = new Set(['line_amount', 'total', 'deposit']);
+
 /** After the draft: what the question concerns, named by label; no amount, no sentence. */
 export const questionOutputSchema = z.object({
     concerns: z.array(z.object({ kind: z.enum(CONCERN_KINDS), label: z.string().max(300).nullable() })).max(12),
@@ -231,7 +234,11 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         // goes to Ben, and a read that failed can answer nothing about a figure.
         const failed = emptyProposal();
         if (route.belts.money) failed.hold = { reason: 'money', match: turn.body.slice(0, 80) };
-        return { specialist: 'quoting', factIds, proposal: failed, brief: ['quoting: the quote could not be read'], calls, error };
+        const readBrief = [
+            'quoting: the quote could not be read',
+            'the quote could not be read this turn, so nothing about it is known: give no figure at all and answer nothing about a price, whatever amounts stand on the file; if they asked about money the fixed line covers it',
+        ];
+        return { specialist: 'quoting', factIds, proposal: failed, brief: readBrief, calls, error };
     }
 
     const proposal: QuotingProposal = {
@@ -304,14 +311,19 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         calls.push(res.record);
         if (res.output) {
             questionRead = true;
-            const concerns = res.output.concerns.slice(0, 6).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
+            const asked = res.output.concerns.slice(0, 6);
             // A figure is a line of the quote. A price the turn asks for under a label the quote does
             // not carry - the labour or materials half of a line, most often - is money beyond a
             // quote line: it goes to Ben rather than being answered with the line's own figure under
-            // the wrong name, which would state an amount the customer's quote does not.
-            const unreadable = quoteLiveForFigures(q) ? concerns.filter((c) => c.kind === 'line_amount' && c.label && !readQuoteLine(q, c.label).ok) : [];
-            proposal.concerns = concerns.filter((c) => !unreadable.includes(c));
-            proposal.beyondQuoteLine = res.output.beyondQuoteLine || unreadable.length > 0;
+            // the wrong name, which would state an amount the customer's quote does not. Asked of the
+            // label the model returned, never of a clamped copy: a line's label runs to 120
+            // characters and the brief clamps at 60, so a truncated label would match no line and
+            // turn a question the quote answers (5.3) into a hold.
+            const offQuote = quoteLiveForFigures(q)
+                ? asked.filter((c) => FIGURE_CONCERNS.has(c.kind) && c.label && !readQuoteLine(q, c.label).ok)
+                : [];
+            proposal.concerns = asked.filter((c) => !offQuote.includes(c)).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
+            proposal.beyondQuoteLine = res.output.beyondQuoteLine || offQuote.length > 0;
             proposal.acceptanceInChat = res.output.acceptanceInChat && q.status === 'sent';
             proposal.notReady = proposal.notReady || res.output.notReady;
         } else error = res.error ?? 'the question model returned nothing';

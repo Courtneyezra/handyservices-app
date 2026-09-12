@@ -218,6 +218,28 @@ describe('after the quote', () => {
         const brief = ret?.brief?.join('\n') ?? '';
         expect(brief).toMatch(/beyond a line of the quote/);
         expect(brief).not.toMatch(/they asked about: Replace kitchen tap labour/);
+
+        // The same under another kind that asks for an amount: a label the quote does not carry.
+        const other = await sentQuote();
+        const asTotal = new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'total', label: 'the labour across the job' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const two = await quote(other.file, later(other.file, 'what is the labour across the job?'), other.file.parties[0], routeOf(), asTotal, other.d);
+        expect(two?.proposal.hold).toMatchObject({ reason: 'money' });
+    });
+
+    it('a line whose label is longer than the brief clamps is still a line of the quote, and its price is answered', async () => {
+        // 68 characters, past the 60 the brief clamps to: the check must ask the quote about the
+        // label the model returned, or 5.3 turns into a hold on the customer's own quote line.
+        const long = 'Refit the bathroom extractor fan and make good the ceiling around it';
+        const intake = { lines: [{ title: long, category: 'plumbing' as const, qty: 1, detail: 'ceiling fan, plaster to patch', assumptions: [], notIncluded: [] }], customerType: 'homeowner' as const, missing: [] };
+        const { file, d } = await sentQuote(new FakeModelClient({ specialist: () => intake }));
+        const asks = new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'line_amount', label: long }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const ret = await quote(file, later(file, 'how much is that line?'), file.parties[0], routeOf(), asks, d);
+        expect(ret?.proposal.hold).toBeNull();
+        const fact = file.facts.find((f) => f.key === `quote_line:${long}`)!;
+        expect(fact.value).toBe('£120.00');
+        expect(ret?.factIds).toContain(fact.id);
+        expect(ret?.brief?.join('\n')).toContain(`${long} = fact ${fact.id}`);
+        expect(ret?.brief?.join('\n')).not.toMatch(/beyond a line of the quote/);
     });
 
     it('a failed quote read still sends a money question to Ben, because the belt was cleared on the read that worked', async () => {
@@ -227,8 +249,11 @@ describe('after the quote', () => {
         const money = routeOf({ belts: { regulated: null, money: 'discount' } });
         const ret = await quote(file, later(file, 'any chance of a discount if I pay cash?'), file.parties[0], money, client, blind);
         expect(ret?.error).toMatch(/quote read failed/);
-        expect(ret?.brief).toEqual(['quoting: the quote could not be read']);
+        expect(ret?.brief?.[0]).toBe('quoting: the quote could not be read');
         expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+        // The amounts recorded on an earlier turn are still on the file, so the brief forbids a
+        // figure rather than relying on the hold alone: the reply is still written.
+        expect(ret?.brief?.join('\n')).toMatch(/give no figure at all/);
 
         // A turn the belt never fired on is unchanged: a read failure alone holds nothing.
         const quiet = await sentQuote();

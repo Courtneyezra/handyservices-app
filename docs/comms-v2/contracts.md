@@ -221,8 +221,10 @@ sentence for the customer. Acceptance is a human event the door (live, the payme
 records; the specialist can only read it.
 
 **A price the quote does not state as a line.** The question model names which labels a turn asks
-about, and a `line_amount` label the live quote does not carry - the labour or materials half of a
-line, most often - is money beyond a quote line, so it goes to Ben. Answering it from the line's own
+about, and a label the live quote does not carry on a concern that asks for an amount - the labour or
+materials half of a line, most often - is money beyond a quote line, so it goes to Ben. The quote is
+asked about the label the model returned, not the copy the brief shortens, so a line whose label runs
+past that clamp is still a line of the quote and its price is answered (5.3). Answering it from the line's own
 figure under that name would state an amount the customer's quote does not, and every check would
 pass it, which is worse than a hold.
 
@@ -232,8 +234,8 @@ quote is live for figures, because the Quoting question model then reads whether
 line (5.3). When that reading does not happen - the turn was read as a pause, an acknowledgement or a
 promise of more, the body was empty, or the call failed - the belt stands and the money hold is set
 without it. The same applies when the specialist's own read of the quote fails: the belt was cleared
-on the read that worked at the top of the turn, and a read that failed can answer nothing about a
-figure.
+on the read that worked at the top of the turn, and the brief then forbids a figure outright, because
+the amounts an earlier turn recorded are still on the file and the reply is still written.
 
 **What Ben's send releases.** The quote going out answers two holds: one the price route itself put
 on the thread when an earlier attempt did not send, and a money hold, because 2.7's promise is that
