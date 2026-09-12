@@ -471,6 +471,34 @@ describe('the Scheduling specialist', () => {
         expect(read.scheduling.fixedLines).toEqual([]);
     });
 
+    it('a booked customer asking how soon a new job could be done is answered about the new one, not told their old date again', async () => {
+        const file = fixture("The tap's sorted, thanks. A fence panel came down though, how soon could you get to that?");
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6, true), now });
+        assertNoProse(r, file);
+        expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days' });
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
+        expect(r.scheduling.bookedDate).toBeNull();
+        expect(r.proposal.hold).toBeNull();
+        expect(r.scheduling.fixedLines).toEqual([]);
+    });
+
+    it('5.4: an availability question on a thread whose booking nobody has taken on still points at the picker', async () => {
+        const diary = diaryWith(6, true);
+        const pool = diary.bookings.find((b) => b.id === 'bk1')!;
+        pool.status = 'pending';
+        pool.assignmentStatus = 'unassigned';
+        const file = fixture('What dates do you have?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.scheduling.picker).toMatchObject({ ok: true, url: 'https://example.test/quote/abcdefgh' });
+        expect(file.facts.find((f) => f.key === 'picker_link')?.value).toBe('https://example.test/quote/abcdefgh');
+        expect(r.proposal.hold).toBeNull();
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.brief.join(' ')).not.toMatch(/Ben will come back on the date/);
+    });
+
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {
         const diary = diaryWith(6, true);
         diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';

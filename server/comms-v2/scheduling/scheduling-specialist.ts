@@ -24,6 +24,12 @@ import type { FixedLineKind } from '../desk/fixed-lines';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
 
+/**
+ * What the turn asks, and every value is load-bearing: `date_change` holds for Ben, `booked_date`
+ * confirms the day they already have, and `lead_time` or `availability` reads the diary's lead time
+ * and the quote's picker, whether or not a booking stands. Somebody with a visit booked who asks how
+ * soon a new job could be done is asking about the new one.
+ */
 export const SCHEDULING_ASKS = ['lead_time', 'availability', 'booked_date', 'date_change'] as const;
 export type SchedulingAsk = (typeof SCHEDULING_ASKS)[number];
 
@@ -162,7 +168,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         findings.fixedLines.push('date_change_to_ben');
         proposal.hold = { reason: 'date_change', match: findings.dateChange };
         brief.push('They want to change the date of a job they already have: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
-    } else if (couldStand && !(unreadable && !asks.includes('booked_date'))) {
+    } else if (couldStand && asks.includes('booked_date')) {
         confirmWhatStands(false);
     } else {
         findings.leadTime = await typicalLeadTime(deps);

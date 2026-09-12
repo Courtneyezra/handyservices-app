@@ -173,7 +173,7 @@ describe('the scheduling fixture on the door', () => {
 });
 
 describe('the door\'s scheduling deps', () => {
-    it('a caller\'s diary is kept even when it comes without a fixture, so a test diary is never paired with the live writer', async () => {
+    it('a caller\'s diary is kept even when it comes without a fixture; the live writer beside it is safe, since every write refuses off the branch', async () => {
         const mine = new MemoryDiary();
         mine.quotes.push({ id: 'q9', slug: 'callers', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: null });
         const wired = withScheduling({ scheduling: { diary: mine } });
