@@ -74,6 +74,14 @@ writes to a customer.
 that asserts a figure, a date or a business fact carries a fact id or a knowledge-base id, and the
 guards check each one. The router never sees a tool; the specialists never see the customer.
 
+**No reason reaches the composer.** A specialist's notes say what the reply may say, never why it
+may not. No internal state goes into them: not a cancelled or declined booking, not a revoked,
+superseded or expired quote, not a read that failed, not a count of anything the business has done.
+A reason handed to a writer is a reason that can end up in the reply, and no guard checks a sentence
+like that. Where the reason matters, it goes to the hold the approver reads, and to the log line and
+the run summary; the brief says only that there is no date, or no link, and to say nothing about
+why.
+
 ## Contract 4 - Guards and the approver slot
 
 Deterministic code, no model. Every composed reply passes here before the sender. The approver

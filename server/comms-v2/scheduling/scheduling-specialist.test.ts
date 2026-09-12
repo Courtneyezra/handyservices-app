@@ -259,7 +259,7 @@ describe('the Scheduling specialist', () => {
         expect(r.error).toContain('connection lost');
     });
 
-    it('a read that fails tells the composer the category and the run the machine text, on the lead time and the picker too', async () => {
+    it('a read that fails tells the run what happened and the composer nothing at all, on the lead time and the picker too', async () => {
         const broken = diaryWith(6);
         broken.completedBookings = async () => { throw new Error('COMMS_V2_DATABASE_URL is not set'); };
         broken.quote = async () => { throw new Error('SSL handshake to db.internal failed'); };
@@ -270,8 +270,10 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.picker).toMatchObject({ ok: false, reason: 'the quote could not be read' });
         const said = r.brief.join(' ');
         expect(said).not.toMatch(/COMMS_V2_DATABASE_URL|db\.internal|SSL/);
-        expect(said).toContain('the diary could not be read');
-        expect(said).toContain('the quote could not be read');
+        // Why there is nothing to give is never in the notes: a reason handed to a writer can end up in the reply.
+        expect(said).not.toMatch(/could not be read/);
+        expect(said).toMatch(/no typical lead time to give/);
+        expect(said).toMatch(/no link to give/);
         expect(r.error).toContain('COMMS_V2_DATABASE_URL is not set');
         expect(r.error).toContain('SSL handshake to db.internal failed');
     });
@@ -497,6 +499,19 @@ describe('the Scheduling specialist', () => {
         expect(r.proposal.hold).toBeNull();
         expect(r.scheduling.fixedLines).toEqual([]);
         expect(r.brief.join(' ')).not.toMatch(/Ben will come back on the date/);
+    });
+
+    it('a turn that asks two things is answered on both: the booked date and how soon a new job could be done', async () => {
+        const file = fixture("When are you coming? And how soon could you look at the fence panel while you're here?");
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'lead_time']), { diary: diaryWith(6, true), now });
+        assertNoProse(r, file);
+        expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days' });
+        expect(r.brief.join(' ')).toMatch(/say exactly "25 September 2026"/);
+        expect(r.brief.join(' ')).toMatch(/say exactly "about 3 days"/);
+        expect(r.proposal.hold).toBeNull();
     });
 
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {

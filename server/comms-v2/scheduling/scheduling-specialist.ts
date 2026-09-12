@@ -168,13 +168,16 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         findings.fixedLines.push('date_change_to_ben');
         proposal.hold = { reason: 'date_change', match: findings.dateChange };
         brief.push('They want to change the date of a job they already have: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
-    } else if (couldStand && asks.includes('booked_date')) {
-        confirmWhatStands(false);
     } else {
+        const confirming = couldStand && asks.includes('booked_date');
+        if (confirming) confirmWhatStands(false);
+        // A turn can ask more than one thing and each is answered: the shelf runs beside a confirmation
+        // when they also asked how soon or what dates, and on its own when there was no date to confirm.
+        if (confirming && !asks.some((a) => a === 'lead_time' || a === 'availability')) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
         findings.leadTime = await typicalLeadTime(deps);
         if (!findings.leadTime.ok && findings.leadTime.detail) details.push(`${findings.leadTime.reason}: ${findings.leadTime.detail}`);
         if (file.job.quoteRef) findings.picker = await pickerLink(file, deps);
-        if (findings.picker && !findings.picker.ok && findings.picker.detail) details.push(`${findings.picker.reason}: ${findings.picker.detail}`);
+        if (findings.picker && !findings.picker.ok) details.push(findings.picker.detail ? `${findings.picker.reason}: ${findings.picker.detail}` : findings.picker.reason);
         if (findings.picker?.ok) {
             const p = findings.picker;
             const f = recordFact(file, { key: 'picker_link', value: p.url, source: { kind: 'quote_line', quoteRef: p.quoteRef, line: 'picker' }, by }, fileDeps);
@@ -186,11 +189,11 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             if (f.ok) { factIds.push(f.value.id); brief.push(`Typical lead time from the diary: say exactly "${lt.phrase}" and cite fact ${f.value.id} (for example "we're usually booking in ${lt.phrase}"). Do not write the words "lead time". Not a promise of a day: never a specific day, date or time.`); }
         } else if (!findings.picker?.ok) {
             findings.fixedLines.push('dates_with_quote');
-            brief.push(`The diary has no typical lead time to give (${findings.leadTime.reason}): include the fixed line that dates come with the quote, and never guess a day, a time or a lead time.`);
+            brief.push('The diary has no typical lead time to give: include the fixed line that dates come with the quote, and never guess a day, a time or a lead time.');
         } else {
-            brief.push(`The diary has no typical lead time to give (${findings.leadTime.reason}): say nothing about how soon; the picker shows the dates.`);
+            brief.push('The diary has no typical lead time to give: say nothing about how soon; the picker shows the dates.');
         }
-        if (!findings.picker?.ok && file.job.quoteRef && findings.picker) brief.push(`The quote's picker is not available (${findings.picker.reason}); do not give a link.`);
+        if (!findings.picker?.ok && file.job.quoteRef && findings.picker) brief.push('There is no link to give for picking a date: give none, and say nothing about why.');
     }
 
     return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
