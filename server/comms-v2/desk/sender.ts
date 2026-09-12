@@ -27,6 +27,7 @@ import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
 import { renderEmail } from '../channels/email-adapter';
+import { firstNameOf } from '../channels/envelope';
 import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
 import type { ChannelReplyPurpose } from '../channels/templates';
 import { isOutOfHours, ukHour } from '../../working-hours';
@@ -81,7 +82,7 @@ export function windowOf(party: Party, channel: ReplyChannel, now: Date): Window
 
 // ---------------------------------------------------------------- render
 
-export type RenderResult = { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: 'ceiling' | 'empty' | 'channel'; bubbles: RenderedBubble[] };
+export type RenderResult = { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: 'ceiling' | 'empty'; bubbles: RenderedBubble[] };
 
 function typingGap(text: string): number {
     return Math.max(GAP_MIN_MS, Math.min(GAP_MAX_MS, Math.round(GAP_MIN_MS + text.length * 8)));
@@ -130,10 +131,9 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
 
 /** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). Every one of them honours `asTyped`: a person's own words are never reflowed, rewritten or wrapped. */
 export function render(channel: ReplyChannel, reply: string, opts: RenderOptions & { name?: string | null } = {}): RenderResult {
-    if (channel === 'whatsapp') return renderWhatsApp(reply, opts);
     if (channel === 'sms') return renderSms(reply, opts);
     if (channel === 'email') return renderEmail(reply, opts);
-    return { ok: false, reason: 'channel', bubbles: [] };
+    return renderWhatsApp(reply, opts);
 }
 
 /**
@@ -204,7 +204,7 @@ export function templateRowsFor<T extends { purpose: string; trigger: { id: stri
  * live acknowledgement fills this template with today (server/first-contact-ack.ts).
  */
 export function templateVariables(body: string, vars: TemplateVars): Record<string, string> {
-    const first = (vars.name ?? '').trim().split(/\s+/)[0] || 'there';
+    const first = firstNameOf(vars.name) ?? 'there';
     const when = isOutOfHours(ukHour(vars.at)) ? 'in the morning' : 'shortly';
     const out: Record<string, string> = {};
     const re = /\{\{\s*(\d+)\s*\}\}/g;

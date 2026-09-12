@@ -156,7 +156,11 @@ export class ChannelDesk implements DeskLike {
             body = words.body;
         }
         const rendered = choice.channel === 'whatsapp' ? { ok: true as const, bubbles: [{ text: body, gapMs: 0 }] } : render(choice.channel, body, { name: party.name });
-        if (!rendered.ok) return this.result(file, party.personId, runId, calls, { decision: 'none', channel: choice.channel, factIds, summary, note: `the template did not render for ${choice.channel}: ${rendered.reason}` });
+        if (!rendered.ok) {
+            const why = `the template did not render for ${choice.channel}: ${rendered.reason}`;
+            setHold(file, { approver: BEN, reason: `${purpose}: ${why}`, draft: body }, deps);
+            return this.result(file, party.personId, runId, calls, { decision: 'hold', channel: choice.channel, windowState: window.state, factIds, summary, note: why });
+        }
         const guards = templateGuards();
         const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards: { ok: true, guards, failures: [] }, factIds, kbIds: [], fixedLines: [], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) {

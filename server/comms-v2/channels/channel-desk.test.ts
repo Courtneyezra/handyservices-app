@@ -281,6 +281,20 @@ describe('the channel desk on a call', () => {
         expect(d.result.decision).toBe('hold');
         expect(d.result.delivered).toBe(false);
     });
+    it('a follow-up the SMS render refuses holds for Ben with the purpose named and the template\'s words as the draft, never left silent', async () => {
+        // One character outside GSM 03.38 in the name halves the segment size, so this body is three segments, not two.
+        const { gateway } = rig({ specialist: () => read(), router: () => routeScoping(), composer: () => ({ reply: 'x', factIds: [], kbIds: [] }) }, noTemplateApproved);
+        const rang = fromDoorCall({ outcome: 'ben_rang', transcript: TRANSCRIPT, durationSeconds: 120, name: '\u0141ukasz Kowalski', address: '+447700900942', at: '2026-09-11T10:00:00.000Z' });
+        const a = await gateway.inbound(rang, { whatsapp: false });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result).toMatchObject({ decision: 'hold', delivered: false, channel: 'sms' });
+        expect(a.result.note).toMatch(/did not render for sms: ceiling/);
+        expect(a.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(a.file.hold?.reason).toContain('post_call_followup');
+        expect(a.file.hold?.draft).toMatch(/^Hi \u0141ukasz, good to speak just now about the bathroom fan/);
+        expect(a.file.sends).toHaveLength(0);
+        expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+    });
     it('every other channel\'s turn reaches the desk unchanged: an SMS is answered on SMS with the move-to-WhatsApp line once, then never again', async () => {
         const { gateway } = rig({
             router: () => routeScoping({ turnKind: 'enquiry' }),

@@ -187,7 +187,7 @@ export class Desk implements DeskLike {
                 if (g3.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; guards = g3; rendered = r3; }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : rendered.reason === 'channel' ? `no render for ${choice.channel}` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
+        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let template: TemplateSend | null = null;
         let templateWording: string | null = null;
