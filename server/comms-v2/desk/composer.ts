@@ -7,15 +7,18 @@
  *
  * The reply is one text with a blank line where a person would start a new bubble; the sender
  * splits it (Contract 5). The composer is called once per customer turn; a guard failure sends
- * it back once with the failures named, and the bubble ceiling sends it back once to shorten.
+ * it back once with the failures named, and a reply too long for its channel comes back once to
+ * shorten, told in that channel's own measure: bubbles on WhatsApp, segments on SMS.
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import type { CaseFile, Party, Turn } from './case-file';
+import { ASK_SUBJECTS, type CaseFile, type Party, type Turn } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
+import { composerChannelLines } from '../channels/composer-lines';
+import type { ShortenBrief } from './sender';
 
 export const composerOutputSchema = z.object({
     /** The one reply. A blank line separates bubbles. */
@@ -37,8 +40,10 @@ export interface ComposeInput {
     fixedLines: FixedLine[];
     /** Second attempt only: the guard failures, named. */
     failures?: string[];
-    /** Second attempt only: the reply was over the bubble ceiling. */
-    shorten?: { previous: string; bubbles: number; ceiling: number } | null;
+    /** Second attempt only: the reply was too long for the channel it is going out on. */
+    shorten?: ShortenBrief | null;
+    /** The desk's clock. The channel lines re-run chooseChannel, whose WhatsApp window depends on it. */
+    now?: Date;
 }
 
 export const COMPOSER_SYSTEM = [
@@ -80,10 +85,12 @@ function threadFor(file: CaseFile, turn: Turn): string {
 export function buildComposerUser(input: ComposeInput): string {
     const { file, party, turn, route, specialists, fixedLines } = input;
     const proposal = specialists.find((s) => s.specialist === 'scoping')?.proposal ?? null;
-    const neverAsk = file.ledger.filter((l) => l.askedAt && !(proposal?.nextQuestion?.subject === l.subject)).map((l) => l.subject);
+    // Question subjects only: the ledger also carries markers for things done once per thread, which are nothing to ask about.
+    const neverAsk = file.ledger.filter((l) => l.askedAt && (ASK_SUBJECTS as readonly string[]).includes(l.subject) && !(proposal?.nextQuestion?.subject === l.subject)).map((l) => l.subject);
     const declined = file.facts.filter((f) => f.key === 'media_declined' && /true/i.test(f.value)).length ? ['media'] : [];
     const lines: string[] = [];
     lines.push(`Customer: ${party.name ?? 'unknown name'}. Stage: ${file.stage}. Prefers text only: ${party.prefersText ? 'yes' : 'no'}.`);
+    lines.push(...composerChannelLines(party, turn, input.now ?? new Date()));
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
     lines.push(threadFor(file, turn));
     lines.push('');
@@ -114,10 +121,13 @@ export function buildComposerUser(input: ComposeInput): string {
         lines.push('Your previous draft failed these checks; write it again without them:');
         for (const f of input.failures) lines.push(`- ${f}`);
     }
-    if (input.shorten) {
+    const shorten = input.shorten;
+    if (shorten) {
         lines.push('');
-        lines.push(`Your previous reply came to ${input.shorten.bubbles} bubbles, over the ceiling of ${input.shorten.ceiling}. Say the same in at most ${input.shorten.ceiling} short bubbles. Previous reply:`);
-        lines.push(input.shorten.previous);
+        lines.push(shorten.channel === 'sms'
+            ? `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use. Say the same in one text message under ${shorten.charBudget} characters. Previous reply:`
+            : `Your previous reply came to ${shorten.measured} bubbles, over the ceiling of ${shorten.ceiling}. Say the same in at most ${shorten.ceiling} short bubbles. Previous reply:`);
+        lines.push(shorten.previous);
     }
     lines.push('');
     lines.push('Write the reply now.');

@@ -21,6 +21,7 @@ import { stageAfterInbound, stageAfterOutbound } from './conversation-stage';
 import { fetchWithTimeout, SHORT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS } from './lib/fetch-with-timeout';
 import { notifyIncomingWhatsApp } from './pushover';
 import { pushEvent } from './web-push';
+import { forwardToCommsV2 } from './comms-v2/channels/intake';
 
 /** Timeout for Meta Graph API calls (15 seconds). Most calls are fast. */
 const META_API_TIMEOUT_MS = 15_000;
@@ -180,6 +181,9 @@ metaWhatsAppRouter.post('/webhook', async (req: Request, res: Response) => {
         if (body.object !== 'whatsapp_business_account') {
             return res.sendStatus(404);
         }
+
+        // comms-v2 (Goal 3): the same webhook also reaches the new desk's gateway behind COMMS_V2_INTAKE; off by default, never blocks.
+        forwardToCommsV2({ kind: 'meta_webhook', payload: body });
 
         // Process each entry
         for (const entry of body.entry || []) {

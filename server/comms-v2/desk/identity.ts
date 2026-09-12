@@ -113,8 +113,10 @@ export class Identity {
 
     /**
      * Resolve an address on a channel to one person and a role. Refuses when the address matches
-     * two different people, and when Ben's own handset or a staff number would resolve as a customer
-     * (an internal key always resolves internal, first in the order, so it never becomes a customer).
+     * two different people, when the address matches nobody and only a key the turn asserts names
+     * someone (`namedByAssertedKey`: those are candidates for Ben, never a silent bind), and when
+     * Ben's own handset or a staff number would resolve as a customer (an internal key always
+     * resolves internal, first in the order, so it never becomes a customer).
      */
     resolve(channel: ChannelKind, address: string, hints: ResolveHints = {}): ResolveResult {
         const key = canonical(address) ?? (channel === 'email' ? null : canonical(hints.phone)) ?? canonical(hints.email);
@@ -125,17 +127,41 @@ export class Identity {
         let person = matches[0] ?? null;
         let isNew = false;
         if (!person) {
+            const asserted = this.namedByAssertedKey(key, hints);
+            if (asserted.length) return { ok: false, reason: 'candidates', candidates: asserted };
             // Known customer would be looked up in the CRM here; Goal 1 has no seeded record, so a
             // fresh key is a new homeowner.
             person = { id: this.newId(), role: 'homeowner', customerId: null, name: hints.name?.trim() || null, keys: [key], propertyId: null, landlordId: null };
-            this.directory.upsert(person);
             isNew = true;
-        } else if (!person.name && hints.name?.trim()) {
-            person = { ...person, name: hints.name.trim() };
-            this.directory.upsert(person);
+        } else {
+            person = { ...person, keys: person.keys.includes(key) ? person.keys : [...person.keys, key], name: person.name || (hints.name?.trim() || null) };
         }
+        this.directory.upsert(person);
         const role = ROLE_ORDER.find((r) => r === person!.role) ?? 'homeowner';
         return { ok: true, personId: person.id, customerId: person.customerId, role, isNew, canonical: key, propertyId: person.propertyId, landlordId: person.landlordId, name: person.name };
+    }
+
+    /**
+     * The people another key on the same turn only asserts, when the turn's own address matches
+     * nobody. A hint key is free text the sender typed about themselves - the web form's email
+     * above all - so it is never proof of who they are. Binding on it alone would append a
+     * stranger's enquiry to the file of whoever holds a shared household address, or the address a
+     * typo lands on, and the reply, composed from that whole thread, could then be addressed to
+     * that stranger's phone. So the turn is held as candidates for Ben, exactly as an address
+     * matching two people is (Contract 1).
+     *
+     * Binding without asking happens only where the turn's own keys corroborate, which is the match
+     * above this: a form whose phone the business already knows lands on that person's file, and
+     * the email it asserts is linked to them on the way past.
+     */
+    private namedByAssertedKey(key: CanonicalKey, hints: ResolveHints): Person[] {
+        const named = new Map<string, Person>();
+        for (const raw of [hints.phone, hints.email]) {
+            const other = canonical(raw);
+            if (!other || other === key) continue;
+            for (const p of this.directory.byKey(other)) named.set(p.id, p);
+        }
+        return Array.from(named.values());
     }
 
     /** Two keys belong together, with the evidence. Refused when either already belongs to a different person. */

@@ -68,6 +68,48 @@ describe('a person answers from the board', () => {
         expect(file.releases).toHaveLength(1);
     });
 
+    it('a letter he writes goes as he typed it: his line breaks kept and no greeting or sign-off put around his words', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'email:sam@example.invalid', propertyId: null, landlordId: null, name: 'Sam' },
+            channel: 'email', address: 'sam@example.invalid',
+            firstTurn: { at: AT, channel: 'email', kind: 'text', body: 'Morning,\n\nThe extractor fan has stopped turning. What would a new one be?\n\nRegards, Sam', media: [] },
+        }, { now: now(AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        const words = 'Sam,\nThe part is \u00a340 plus fitting.\nI can do Thursday.';
+
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words }, { now: now() });
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.channel).toBe('email');
+        expect(out.result.bubbles).toEqual([{ text: words, gapMs: 0 }]);
+        expect(file.turns[file.turns.length - 1].body).toBe(words);
+        expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, channel: 'email' });
+    });
+
+    it('refuses an over-long SMS in the SMS measure: the segments it came to, not bubbles it does not have', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam' },
+            channel: 'sms', address: '+447700900942',
+            firstTurn: { at: AT, channel: 'sms', kind: 'text', body: 'What would a new kitchen tap come to?', media: [] },
+        }, { now: now(AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        // His own words keep their typographic punctuation, which costs UCS-2 and halves what two segments hold.
+        const words = 'That’s £40 for the tap itself plus an hour of labour, so £85 all in. I can pick the part up in the morning and fit it the same afternoon if that suits, otherwise Thursday is clear for me as well.';
+
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words }, { now: now() });
+
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/comes to \d+ segments, over the 2 one text message may use/);
+        expect(out.reason).toMatch(/about 134 characters fit/);
+        expect(out.reason).not.toMatch(/bubble/);
+        expect(file.sends).toHaveLength(0);
+        expect(file.turns).toHaveLength(1);
+    });
+
     it('answers again after the customer writes back, the hold still cleared', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);

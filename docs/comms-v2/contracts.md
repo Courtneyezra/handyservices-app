@@ -13,14 +13,18 @@ passes through it; nothing downstream ever sees a raw phone number.
 
 | Call | Input | Returns | Refuses when |
 |---|---|---|---|
-| `resolve` | channel kind; the address as received; optional hints from the turn: name, email, phone, property postcode | person id; customer id; role, one of `homeowner`, `tenant`, `landlord`, `contractor`, `internal`; whether this person is new; the canonical address; for a tenant, the property and landlord ids | The address matches two different people: returns the candidates and no reply may be sent until a person picks one. Ben's own handset or a staff number resolving as a customer. |
+| `resolve` | channel kind; the address as received; optional hints from the turn: name, email, phone, property postcode | person id; customer id; role, one of `homeowner`, `tenant`, `landlord`, `contractor`, `internal`; whether this person is new; the canonical address; for a tenant, the property and landlord ids | The address matches two different people: returns the candidates and no reply may be sent until a person picks one. The address matches nobody and a key the turn only asserts, such as the email typed into the web form, names someone else: those are candidates too, never a silent bind. Ben's own handset or a staff number resolving as a customer. |
 | `canonical` | a phone or an email, in any form | one canonical key: `phone:+44...` in E.164, or `email:<lowercase>`. Same convention the customer record already uses | Not a phone or an email. Five phone spellings today collapse to one key. |
 | `link` | two canonical keys and the evidence they belong together | one person carrying both keys | Either key already belongs to a different person. The web form is the normal evidence, because it gives phone and email together. Anything weaker is Ben's call. |
 | `register_internal` | a canonical key and a name | the key marked `internal` | The key is already a customer. Ben's handset, staff, and the business's own numbers live here so they are never treated as a customer. |
 
-**Invariants.** One canonical key never maps to two people. A person may carry many keys. Role
-resolution runs in a fixed order, internal, contractor, tenant, landlord, known customer, new
-customer, and stops at the first match. For Goal 1 only `homeowner` and `internal` are live; the
+**Invariants.** One canonical key never maps to two people. A person may carry many keys. A turn
+binds to an existing person only on a key the turn itself proves, the address it arrived on, or on a
+key the business already holds for that person; a key the sender merely asserts about themselves is
+evidence for `link`, never for `resolve`, because a shared household address or a typo would
+otherwise append a stranger's enquiry to someone else's file and let a reply written from that whole
+thread be addressed to the stranger. Role resolution runs in a fixed order, internal, contractor,
+tenant, landlord, known customer, new customer, and stops at the first match. For Goal 1 only `homeowner` and `internal` are live; the
 tenant and landlord roles exist in the type and return nothing until the landlord service attaches.
 
 ## Contract 2 - Case file

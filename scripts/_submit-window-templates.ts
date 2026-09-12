@@ -39,27 +39,27 @@ function auth(): string {
     return 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64');
 }
 
-/** The Content resource body, exactly as the Content API wants it. */
+/** The Content resource body, exactly as the Content API wants it. Only the first rung is ever submitted: a fallback rung is a name the account already has. */
 function contentPayload(t: WindowTemplate) {
     return {
-        friendly_name: t.names[0],
+        friendly_name: t.rungs[0].name,
         language: t.language,
-        variables: t.variables,
-        types: { 'twilio/text': { body: t.body } },
+        variables: t.rungs[0].variables,
+        types: { 'twilio/text': { body: t.rungs[0].body } },
     };
 }
 
 /** The approval request. The category is the whole point of it. */
 function approvalPayload(t: WindowTemplate) {
-    return { name: t.names[0], category: t.category };
+    return { name: t.rungs[0].name, category: t.category };
 }
 
 /** Every reason not to submit this one, in the order a person would want to hear them. */
 function refusals(t: WindowTemplate): string[] {
     const out: string[] = [];
-    const voice = chatVoiceViolations(t.body);
+    const voice = chatVoiceViolations(t.rungs[0].body);
     if (voice.length) out.push(`chat voice: ${voice.join(', ')}`);
-    const guard = checkDraft({ body: renderSample(t), intent: 'ack_enquiry', quoteSeen: false, customerText: null });
+    const guard = checkDraft({ body: renderSample(t.rungs[0]), intent: 'ack_enquiry', quoteSeen: false, customerText: null });
     if (guard) out.push(`draft guard: ${guard.code}`);
     return out;
 }
@@ -69,9 +69,9 @@ async function main() {
     const onlyIdx = process.argv.indexOf('--only');
     const only = onlyIdx > -1 ? process.argv[onlyIdx + 1] : null;
 
-    const chosen = WINDOW_TEMPLATES.filter((t) => !only || t.names[0] === only || t.trigger.id === only);
+    const chosen = WINDOW_TEMPLATES.filter((t) => !only || t.rungs[0].name === only || t.trigger.id === only);
     if (!chosen.length) {
-        console.error(`No template matches --only ${only}. Names: ${WINDOW_TEMPLATES.map((t) => t.names[0]).join(', ')}`);
+        console.error(`No template matches --only ${only}. Names: ${WINDOW_TEMPLATES.map((t) => t.rungs[0].name).join(', ')}`);
         process.exit(2);
     }
 
@@ -79,9 +79,9 @@ async function main() {
     let blocked = 0;
     for (const t of chosen) {
         const bad = refusals(t);
-        console.log(`${t.names[0]}  [${t.category}]  trigger: ${t.trigger.id}  (${t.submission})`);
-        console.log(`   ${t.body}`);
-        console.log(`   sample: ${renderSample(t)}`);
+        console.log(`${t.rungs[0].name}  [${t.category}]  trigger: ${t.trigger.id}  (${t.submission})`);
+        console.log(`   ${t.rungs[0].body}`);
+        console.log(`   sample: ${renderSample(t.rungs[0])}`);
         console.log(`   POST ${CONTENT_API}/Content  ${JSON.stringify(contentPayload(t))}`);
         console.log(`   POST ${CONTENT_API}/Content/<sid>/ApprovalRequests/whatsapp  ${JSON.stringify(approvalPayload(t))}`);
         console.log(`   checks: ${bad.length ? 'BLOCKED — ' + bad.join('; ') : 'clean'}\n`);
@@ -98,7 +98,7 @@ async function main() {
     const existing = await fetchTwilioTemplates();
 
     for (const t of chosen) {
-        const name = t.names[0];
+        const name = t.rungs[0].name;
         const dup = existing.find((e) => e.name === name);
         if (dup) { console.log(`SKIP  ${name} — already on the account (${dup.contentSid}, ${dup.status}). Nothing submitted.`); continue; }
 

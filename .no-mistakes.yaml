@@ -43,6 +43,28 @@ test:
     comms-v2:door` serves it on a loopback port (the URL is printed once; POST /start, /message,
     /run, /age, /reset). Model calls are live; a refused or rate-limited model is a finding, not a pass.
 
+    The door has five doors, one per channel, on the same drama customer (server/comms-v2/README.md,
+    "Driving the door"): POST /start with door whatsapp, sms, form, email or call; POST /message
+    with channel whatsapp, sms or email; POST /call for Ben ringing them. The seed's `whatsapp:
+    true | false` says whether the number is known to be on WhatsApp, which decides where a form or
+    a call's reply goes (WhatsApp template, else SMS, else email). Drive these checklist lines as
+    scenarios, one per line, and judge each on the planned send: 1.2 form door, seed whatsapp true
+    and again false, the acknowledgement carries the enquiry (the web form template with the
+    enquiry quoted, or the freeform SMS that quotes it); 1.3 call door outcome ben_rang with a
+    transcript, seed whatsapp true, the post-call template with the name and the job from the call,
+    or, when the branch's template cache has no approved post-call template, a hold for Ben whose
+    reason names the purpose and whose draft carries the words (record which, that hold is the
+    contract's rule, never an SMS fallback); 1.4 sms door, seed whatsapp false, the reply is on
+    SMS, one message, and invites them to WhatsApp; 1.5 call door outcome answered_inbound with a
+    transcript, then a WhatsApp message, no reply mentions a call; 3.1 sms or whatsapp door, ignore
+    the call offer and keep messaging, scoping continues; 3.2 and 3.3 whatsapp door, then POST
+    /call with a transcript in which Ben asks for photos, the follow-up names the job, the file
+    carries ben_asked_for, media is on the ledger as asked, then a WhatsApp message with a photo is
+    thanked once and scoping continues; 3.4 the same thread with "yes please call me" before the
+    call, no hold on the file after it; 3.5 call door outcome missed gets one text back (seed
+    whatsapp true: the missed-call template; false: its words on SMS) and outcome answered_inbound
+    gets nothing.
+
     For a change to Ben's board (/admin/comms-v2, server/comms-v2/api), drive the board itself in
     the browser as Ben and run the scenario list the goal's section of server/comms-v2/README.md
     carries. First give the pipeline's admin account Ben's approver slot on the branch database, or

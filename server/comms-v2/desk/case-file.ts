@@ -7,7 +7,8 @@
  * Every call here is a pure function over the file's record: it returns a refusal or applies the
  * change in place. Turns are append only. A fact without a source is refused. The seven stages
  * move only through `setStage`. The ask ledger refuses a second ask of an unanswered subject and a
- * second thank. The hold is a flag, not a stage, released only with the approver's words. A send
+ * second thank; it is also where anything the desk does once per thread is recorded, so a second
+ * attempt at it is refused by the same row (the missed-call acknowledgement, checklist 3.5). The hold is a flag, not a stage, released only with the approver's words. A send
  * carries a run id, an approver and the facts it was written from.
  */
 import { randomUUID } from 'node:crypto';
@@ -42,6 +43,8 @@ export interface PartyChannel {
     lastInboundAt: string | null;
     /** WhatsApp only: the sender the customer last wrote to, so the reply goes back the same way. Null: not yet known, Twilio is assumed. */
     transport?: WhatsAppTransport | null;
+    /** Email only: the thread the customer wrote on, so the reply stays on it (channels/email-adapter.ts). */
+    thread?: { subject: string | null; messageId: string | null; references: string[] } | null;
 }
 
 export interface Party {
@@ -112,6 +115,7 @@ export interface Fact {
     by: string;
 }
 
+/** The subjects the desk asks a customer about. The ledger also carries one-per-thread markers that are not questions. */
 export const ASK_SUBJECTS = ['media', 'postcode', 'access', 'handoff', 'job'] as const;
 export type AskSubject = string;
 
@@ -280,7 +284,11 @@ export function addParty(file: CaseFile, party: Party): Outcome<Party> {
 
 // ---------------------------------------------------------------- turns
 
-/** Adds a turn. Refuses when the party is not on the file or the turn is out of order. */
+/**
+ * Adds a turn. Refuses when the party is not on the file or the turn is out of order. An inbound
+ * WhatsApp turn opens the window on the party's WhatsApp channel; the channel itself is the
+ * gateway's to put there from the address the turn proves, never invented from another channel's.
+ */
 export function appendTurn(file: CaseFile, turn: Omit<Turn, 'id'> & { id?: string }, deps: CaseFileDeps = {}): Outcome<Turn> {
     const newId = deps.newId ?? defaultNewId;
     const party = partyOf(file, turn.partyId);
@@ -293,7 +301,6 @@ export function appendTurn(file: CaseFile, turn: Omit<Turn, 'id'> & { id?: strin
     if (t.direction === 'inbound' && t.channel === 'whatsapp') {
         const ch = party.channels.find((c) => c.kind === 'whatsapp');
         if (ch) ch.lastInboundAt = t.at;
-        else party.channels.push({ kind: 'whatsapp', address: party.channels[0]?.address ?? '', lastInboundAt: t.at });
     }
     return accept(t);
 }

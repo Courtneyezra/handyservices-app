@@ -404,8 +404,9 @@ from Goal 1 is visible and a held draft can be released from the board.
 
 **Goal 3 - The other four channels**
 SMS, email, form and voice adapters against the same desk, the old handlers forwarding into the
-new gateway, and the remaining Stage 1 lines. Nothing below the gateway changes. Stop: the
-pipeline's test step passes the remaining Stage 1 lines with evidence, through each new door.
+new gateway, and the remaining Stage 1 lines with all of Stage 3. Nothing below the gateway
+changes. Stop: the pipeline's test step passes those lines with evidence, through each new door;
+they are listed one by one under "Goal 3's stop condition" below.
 
 **Goals 4 to 6 - Quoting, Scheduling, Service**
 One specialist per goal. Stop for each: the pipeline's test step passes that specialist's stage
@@ -441,6 +442,28 @@ scenarios the pipeline's test step exercises for Goal 1.
 Deferred to Goal 3 because they need a second channel: 1.2 the web form acknowledgement, 1.3 the
 post-call template, 1.4 replying on SMS and moving them to WhatsApp, 1.5 not asking a caller
 whether we may call.
+
+### Goal 3's stop condition, line by line
+
+The remaining Stage 1 lines and all of Stage 3, each through its own door on the desk's sandbox
+(server/comms-v2/README.md, "Driving the door"). Built under `server/comms-v2/channels/`.
+
+| # | Expected | How it is met |
+|---|---|---|
+| 1.2 | The web form acknowledgement carries the enquiry's context. | The form door. The number on WhatsApp: the approved web form template quoting the enquiry, the one without the call offer when they have already rung us (1.5). Not on it: the composer's freeform reply on SMS, then email. |
+| 1.3 | The post-call template opens WhatsApp with the name and context from the call. | The call door, outcome `ben_rang`. The post-call template with `{{1}}` the name and `{{2}}` the job phrase the reader took from the transcript. No approved post-call template on the account holds the follow-up for Ben with its words as the draft, never an SMS fallback (answer 34). Off WhatsApp the same words go on SMS. |
+| 1.4 | Inbound SMS gets a reply on SMS that tries to move them to WhatsApp. | The SMS door. One message of at most two segments, carrying the fixed `move_to_whatsapp` line once. |
+| 1.5 | A customer who already rang is not asked whether we may call. | The call door, outcome `missed` or `answered_inbound`, marks the party as having rung; `offer_call` refuses from then on, and the web form acknowledgement, which is a template rather than a composed reply, reads the same `offer_call` and takes the row with the offer taken out (`webform_first_contact_no_call`). Until Meta approves that row the acknowledgement holds for Ben with its words as the draft, never the asking one instead. |
+| 3.1 | The call offer never blocks; they can carry on by message. | Unchanged from Goal 1 on every channel: the offer is a sentence, never a gate. |
+| 3.2 | After Ben's outbound call the thread continues and collects what he asked for. | The reader records what Ben asked for and puts it on the ask ledger as soon as the call is read, whether or not a follow-up text goes; the next turn's photos are thanked once and scoping continues from the file. |
+| 3.3 | The assistant sees enough of the call to know what Ben asked for. | The transcript is a turn on the file and `ben_asked_for` a fact with that turn as its source; the follow-up names the job. |
+| 3.4 | An earlier "yes please call me" does not send the thread back to Ben after the call. | A callback is not an exception the desk holds on; the call turn settles the `handoff` ask and raises no hold. |
+| 3.5 | A missed call gets one text back; an answered inbound call gets no acknowledgement. | The call door: `missed` sends the missed-call template (or its words on SMS) once per thread, the acknowledgement written to the ask ledger so a customer who rings three times still hears back once; `answered_inbound` reads the transcript for facts and sends nothing. |
+
+The old inputs forward into the new gateway behind `COMMS_V2_INTAKE` (off by default; the old
+handler still runs). Inbound email has no webhook here: the email sandbox door is the only way an
+email reaches the desk, and a webhook is cutover work (`server/comms-v2/README.md`, "Inbound
+email", which owns what that needs).
 
 ---
 

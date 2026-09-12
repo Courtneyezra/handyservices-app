@@ -21,6 +21,7 @@ import { notifyWebformLead } from "./pushover";
 import { pushEvent } from "./web-push";
 import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
 import { relativeTime } from "./utils/datetime";
+import { forwardToCommsV2 } from './comms-v2/channels/intake';
 
 export const leadsRouter = Router();
 
@@ -68,6 +69,9 @@ leadsRouter.post('/api/leads', async (req, res) => {
 
         // Insert into DB
         await db.insert(leads).values({ ...newLead, ...(leadClientId ? { clientId: leadClientId } : {}) });
+
+        // comms-v2 (Goal 3): the form also reaches the new desk's gateway behind COMMS_V2_INTAKE; off by default, never blocks.
+        forwardToCommsV2({ kind: 'web_form', lead: { customerName: newLead.customerName, phone: newLead.phone, email: newLead.email, jobDescription: newLead.jobDescription, postcode: newLead.postcode, address: newLead.address, source: newLead.source, leadId: newLead.id } });
 
         // A lead posted AFTER a successful payment (quote-page booking tracking) is not a
         // new enquiry — the payment flow already fires its own "quote accepted" alert, so

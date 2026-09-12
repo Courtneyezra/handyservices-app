@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { compose, type ComposeInput } from './composer';
-import type { DeskLike, DeskResult, GuardName, GuardVerdict, SpecialistReturn } from './desk-types';
+import type { DeskLike, DeskResult, GuardName, GuardVerdict, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
 import { approverFor, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { offersCall, scopingQuestionCount, textAsks } from './lexicon';
@@ -24,8 +24,10 @@ import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, Route } from './router';
 import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
-import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
+import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
+import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
+import { templateChoiceFor } from '../channels/templates';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -125,6 +127,7 @@ export class Desk implements DeskLike {
                     this.holdFor(file, exception, `${exception}: ${route.belts.money ?? turn.body.slice(0, 80)}`);
                 }
                 if (route.subjects.includes('scheduling')) fixedLines.push(await fixedLine('dates_with_quote', this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
                 if (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready') {
                     scoping.proposal.nextQuestion = null;
@@ -132,7 +135,7 @@ export class Desk implements DeskLike {
                     if (route.turnKind === 'not_ready') scoping.proposal.offerCall = false;
                 }
                 // 4. Compose, once; a guard failure sends it back once; the ceiling sends it back once.
-                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines };
+                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, now: this.now() };
                 const first = await compose(input, this.client);
                 calls.push(first.record);
                 composerCalls++;
@@ -156,7 +159,7 @@ export class Desk implements DeskLike {
         };
         let guards: GuardOutcome = withOneThing(runGuards(guardInput(reply!, factIds)), reply!);
         if (!guards.ok && !(exception && FIXED_LINE_ONLY.has(exception)) && !specialists[0]?.proposal.hold) {
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures }, this.client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, this.client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
@@ -171,29 +174,32 @@ export class Desk implements DeskLike {
         }
 
         // 6. Channel, window, render, template.
-        const choice = chooseChannel(party, turn.channel);
+        const choice = chooseChannel(party, turn.channel, this.now());
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
-        let rendered = render(choice.channel, reply!);
+        let rendered = render(choice.channel, reply!, { name: party.name });
         if (!rendered.ok && rendered.reason === 'ceiling' && !(exception && FIXED_LINE_ONLY.has(exception))) {
-            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: { previous: reply!, bubbles: rendered.bubbles.length, ceiling: BUBBLE_CEILING } }, this.client);
+            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, this.client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {
                 const g3 = runGuards(guardInput(shorter.output.reply, shorter.output.factIds));
-                const r3 = render(choice.channel, shorter.output.reply);
+                const r3 = render(choice.channel, shorter.output.reply, { name: party.name });
                 if (g3.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; guards = g3; rendered = r3; }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten` : rendered.reason === 'channel' ? `no render for ${choice.channel}: the desk replies on WhatsApp only` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
+        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let template: TemplateSend | null = null;
+        let templateWording: string | null = null;
         if (window.state === 'shut') {
-            const pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? turn.body.slice(0, 60) }, this.deps.templates ?? liveTemplateStatus);
+            const tmpl = templateChoiceFor(file, turn);
+            const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic, at: this.now() }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
                 setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             template = pick.template;
+            templateWording = pick.wording;
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
         }
 
@@ -201,8 +207,8 @@ export class Desk implements DeskLike {
         const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines, calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
-        // 8. The ledger and the stage, from what actually went.
-        this.afterSend(file, party.personId, reply!, specialists);
+        // 8. The ledger and the stage, from what the business itself said.
+        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : specialists[0]?.proposal ?? null, templateWording ? [] : fixedLines);
         return {
             runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
@@ -221,28 +227,38 @@ export class Desk implements DeskLike {
         if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: why, draft, failures: failed?.failures ?? [] }, this.fileDeps());
         const line = await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null });
-        const choice = chooseChannel(party, turn.channel);
+        const choice = chooseChannel(party, turn.channel, this.now());
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
-        const rendered = choice.ok ? render(choice.channel, line.text) : null;
+        const rendered = choice.ok ? render(choice.channel, line.text, { name: party.name }) : null;
         const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
         if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
         const bubbles: RenderedBubble[] = rendered.bubbles;
         const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
-        this.afterSend(file, partyId, line.text, specialists);
+        this.afterSend(file, partyId, line.text, specialists[0]?.proposal ?? null, [line]);
         return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
     }
 
-    /** The ledger records what the reply actually asked and thanked for; the stage moves to ready when the file is. */
-    private afterSend(file: CaseFile, partyId: string, reply: string, specialists: SpecialistReturn[]): void {
+    /**
+     * The ledger records what the reply asked and thanked for, written from what the business
+     * itself said: an approved template's own wording with its placeholders unfilled, because a
+     * filled body quotes the customer's enquiry back and those are their words, not ours; or the
+     * composed reply, not the greeting and sign-off the renderer wraps it in. A template's words
+     * are nobody's proposal, so for those only the words themselves speak.
+     *
+     * A fixed line that went is recorded by its kind, not by its wording: the composer is asked to
+     * weave it in naturally, so the invitation to move to WhatsApp is spent here, on this send,
+     * rather than looked for in the text of a later one (channels/channel-lines.ts).
+     */
+    private afterSend(file: CaseFile, partyId: string, said: string, proposal: Proposal | null, lines: FixedLine[]): void {
         const deps = this.fileDeps();
         const party = partyOf(file, partyId)!;
-        const proposal = specialists[0]?.proposal ?? null;
-        for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(reply, subject)) ledgerAsk(file, subject, deps);
-        if (proposal?.nextQuestion && reply.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
-        if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(reply)) ledgerAsk(file, 'media', deps);
-        if (proposal?.thankForMedia && /\b(?:thank|cheers|ta)\b/i.test(reply)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
-        if (offersCall(reply)) party.callOffered = true;
+        for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(said, subject)) ledgerAsk(file, subject, deps);
+        if (proposal?.nextQuestion && said.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
+        if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(said)) ledgerAsk(file, 'media', deps);
+        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(said)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
+        if (offersCall(said)) party.callOffered = true;
+        if (lines.some((l) => l.kind === 'move_to_whatsapp')) ledgerAsk(file, MOVE_TO_WHATSAPP_SUBJECT, deps);
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
     }
 

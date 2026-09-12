@@ -90,9 +90,10 @@ describe('the new desk\'s sandbox door', () => {
         expect(r.json.state.caseFile.facts.some((f: any) => f.key === 'media_image')).toBe(true);
         expect(fs.readdirSync(dir).length).toBe(1);
     });
-    it('refuses the doors that are not open in Goal 1', async () => {
-        expect((await post('/call', { transcript: 'x'.repeat(50) })).status).toBe(409);
+    it('refuses the doors that are not open, and a call without a transcript to read', async () => {
+        expect((await post('/call', { transcript: 'too short' })).status).toBe(400);
         expect((await post('/price', {})).status).toBe(409);
-        expect((await post('/start', { door: 'sms', text: 'hi' })).status).toBe(400);
+        expect((await post('/start', { door: 'portal', text: 'hi' })).status).toBe(400);
+        expect((await post('/message', { text: 'hi', channel: 'portal' })).status).toBe(400);
     });
 });

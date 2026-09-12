@@ -7,7 +7,8 @@
  * specialist and its tools (Gemini for a photo), the composer, the guards, the render, the
  * window. Nothing leaves: the sender runs in dry run and lands the planned reply on the case
  * file's thread as an outbound turn, so the next turn sees it. Every response carries the
- * planned send (planned-send.ts) the desk emits itself, and the thread's state.
+ * planned send (planned-send.ts) the desk emits itself, and the thread's state. The SMS, form,
+ * email and call doors are mounted in front (channels/channel-doors.ts) on the same gateway.
  *
  * Case files live in memory for the length of the process; /start clears them. The door is
  * mounted only by the door host (door-host.ts, in-process on COMMS_V2_DATABASE_URL) and by
@@ -23,6 +24,9 @@ import { Gateway, type SeedInput } from './gateway';
 import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
 import type { PlannedSend } from './planned-send';
+import { ChannelDesk } from '../channels/channel-desk';
+import { channelDoors } from '../channels/channel-doors';
+import { ChannelGateway } from '../channels/channel-gateway';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -38,7 +42,7 @@ export interface DoorDeps extends DeskDeps {
 
 export function plannedSendOf(file: CaseFile, r: DeskResult): PlannedSend {
     const party = file.parties.find((p) => p.personId === r.partyId) ?? file.parties[0];
-    const address = party.channels.find((c) => c.kind === 'whatsapp')?.address ?? party.channels[0]?.address ?? '';
+    const address = party.channels.find((c) => c.kind === (r.channel ?? 'whatsapp'))?.address ?? party.channels.find((c) => c.kind === 'whatsapp')?.address ?? party.channels[0]?.address ?? '';
     const guards = {} as PlannedSend['guards'];
     for (const [name, v] of Object.entries(r.guards)) guards[name as keyof PlannedSend['guards']] = { result: v.result, note: v.note };
     return {
@@ -70,8 +74,9 @@ export interface SandboxDoor {
 
 export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
     const now = deps.now ?? (() => new Date());
-    let gateway = new Gateway({ desk: new Desk({ ...deps, mode: 'dry_run' }), now, newId: deps.newId });
-    const reset = () => { gateway = new Gateway({ desk: new Desk({ ...deps, mode: 'dry_run' }), now, newId: deps.newId }); };
+    const desk = () => new ChannelDesk(new Desk({ ...deps, mode: 'dry_run' }), { client: deps.client, templates: deps.templates, sender: deps.sender, now, newId: deps.newId, mode: 'dry_run', log: deps.log });
+    let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
+    const reset = () => { gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId }); };
     const router = Router();
     router.use((req, _res, next) => { (req as any).v2Gateway = gateway; next(); });
 
@@ -104,6 +109,9 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, ...extra, run: { runId: result.runId, agent: 'comms_v2', decision: { kind: result.decision, approver: result.approver, reason: result.note ?? undefined }, guards: null, proposal: null, error: result.error, caseFile: { stage: file.stage } }, plannedSend, mirrored: null, state: stateOf() });
     };
 
+    // The other four channels' doors answer first; a WhatsApp turn falls through to the routes below.
+    router.use(channelDoors({ gateway: () => gateway as ChannelGateway, reset, phone: SANDBOX_PHONE_E164, now, mediaDir: deps.mediaDir, seedOf, currentFile, respond, maxFileBytes: SANDBOX_MAX_FILE_BYTES, maxFiles: SANDBOX_MAX_FILES }));
+
     router.get('/', (_req, res) => { res.json(stateOf()); });
 
     router.post('/reset', (_req, res) => { reset(); res.json({ ok: true, deleted: 1, state: stateOf() }); });
@@ -112,7 +120,7 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
         try {
             const text = String(req.body?.text ?? '').trim();
             if (!text) { res.status(400).json({ error: 'text is required' }); return; }
-            if (req.body?.door && req.body.door !== 'whatsapp') { res.status(400).json({ error: `door ${req.body.door} is not open on the new desk in Goal 1; whatsapp only` }); return; }
+            if (req.body?.door && req.body.door !== 'whatsapp') { res.status(400).json({ error: `door ${req.body.door} is not one of whatsapp, sms, form, email, call` }); return; }
             reset();
             const seed = seedOf(req.body?.seed);
             const name = String(req.body?.name ?? '').trim() || null;
@@ -127,7 +135,7 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
     });
 
     const parseUpload = (req: Request, res: Response, next: () => void) => {
-        if (!req.is('multipart/form-data')) { next(); return; }
+        if (!req.is('multipart/form-data') || req.files) { next(); return; }
         upload.array('media', SANDBOX_MAX_FILES)(req, res, (err: unknown) => {
             if (err) { res.status(400).json({ error: (err as Error)?.message ?? 'upload failed' }); return; }
             next();
@@ -139,7 +147,7 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
             const files = ((req.files as Express.Multer.File[] | undefined) ?? []).map((f) => ({ bytes: f.buffer, mime: f.mimetype }));
             const text = String(req.body?.text ?? '').trim();
             if (!text && !files.length) { res.status(400).json({ error: 'text or media is required' }); return; }
-            if (req.body?.channel && req.body.channel !== 'whatsapp') { res.status(400).json({ error: 'the new desk carries whatsapp only in Goal 1' }); return; }
+            if (req.body?.channel && req.body.channel !== 'whatsapp') { res.status(400).json({ error: 'channel must be whatsapp, sms or email' }); return; }
             const existing = currentFile();
             const turn = fromDoor({ address: SANDBOX_PHONE_E164, name: existing?.parties[0]?.name ?? null, text, media: files, at: now().toISOString() }, { mediaDir: deps.mediaDir });
             const out = await gateway.inbound(turn);
@@ -172,7 +180,6 @@ export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, hours, window: st.window, state: st });
     });
 
-    router.post('/call', (_req, res) => { res.status(409).json({ error: 'the call door is Goal 3; the new desk carries whatsapp only in Goal 1' }); });
     router.post('/price', (_req, res) => { res.status(409).json({ error: 'pricing is Goal 4; the new desk has no quote yet' }); });
 
     return { router, get gateway() { return gateway; }, reset };

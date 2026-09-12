@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
-import { BUBBLE_CEILING, chooseChannel, render, send, windowOf } from './sender';
+import { chooseChannel, render, send, shortenBriefFor, windowOf } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 
 export interface HumanReplyInput {
@@ -98,8 +98,11 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     if (!choice.ok) return refuse(choice.reason);
     const rendered = render(choice.channel, words, { asTyped: true });
     if (!rendered.ok) {
-        const why = rendered.reason === 'ceiling' ? `the reply renders to ${rendered.bubbles.length} bubbles, over the ceiling of ${BUBBLE_CEILING}; shorten it or use fewer blank lines` : rendered.reason === 'channel' ? `no render for ${choice.channel}: the desk replies on WhatsApp only` : 'the reply rendered to nothing';
-        return refuse(why);
+        if (rendered.reason === 'empty') return refuse('the reply rendered to nothing');
+        const over = shortenBriefFor(choice.channel, words, rendered.bubbles);
+        return refuse(over.channel === 'sms'
+            ? `the reply comes to ${over.measured} segments, over the ${over.ceiling} one text message may use; about ${over.charBudget} characters fit, and one curly quote or dash halves that, so plain punctuation buys room`
+            : `the reply renders to ${over.measured} bubbles, over the ceiling of ${over.ceiling}; shorten it or use fewer blank lines`);
     }
     const window = windowOf(party, choice.channel, now());
     if (window.state === 'shut') return refuse(`the ${choice.channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`);

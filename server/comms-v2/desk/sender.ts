@@ -6,7 +6,10 @@
  * planned reply on the case file's thread as an outbound turn, so later turns see it. Live
  * delivery goes through the surviving outbound send (server/outbound.ts) under the desk's own
  * registered approver, and only once its switch has been turned on by hand: the desk is
- * sandbox-only until cutover. Goal 1 renders for WhatsApp only.
+ * sandbox-only until cutover. SMS and email render through server/comms-v2/channels (Goal 3); a
+ * form or a call cannot carry a reply, so `chooseChannel` opens a real channel. Live delivery is
+ * WhatsApp and SMS only, because the surviving outbound send is the one path that consults the
+ * opt-out ledger; a live email send is refused rather than routed around it.
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
  * a customer without passing the guards, while a person's own words from Ben's board carry their
@@ -23,6 +26,11 @@ import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, t
 import { KB_BACKED, type FixedLine } from './fixed-lines';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
+import { renderEmail } from '../channels/email-adapter';
+import { firstNameOf } from '../channels/envelope';
+import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
+import type { ChannelReplyPurpose } from '../channels/templates';
+import { isOutOfHours, ukHour } from '../../working-hours';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -33,15 +41,20 @@ export const GAP_MAX_MS = 3000;
 /** The desk's own approver name for an unattended send: `agent.comms_v2` in server/sender-registry.ts, switch key `comms_v2`. */
 export const DESK_APPROVER: Approver = 'agent.comms_v2';
 
-export type ReplyPurpose = 'service_reply';
+export type ReplyPurpose = 'service_reply' | ChannelReplyPurpose;
 
 // ---------------------------------------------------------------- choose_channel
 
 export type ChannelChoice = { ok: true; channel: ReplyChannel; address: string } | { ok: false; reason: string };
 
-/** The channel the party wrote on; for a form or a call, WhatsApp if the number is on it, then SMS, then email. */
-export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null): ChannelChoice {
+/**
+ * The channel the party wrote on; for a form or a call, WhatsApp if the number is on it, then SMS,
+ * then email. An SMS from a party whose WhatsApp window is open is answered on WhatsApp (the
+ * design's "if a known customer also has WhatsApp, prefer it"), never on a shut one.
+ */
+export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date = new Date()): ChannelChoice {
     const carry = (kind: ReplyChannel) => party.channels.find((c) => c.kind === kind);
+    if (wroteOn === 'sms' && carry('whatsapp') && windowOf(party, 'whatsapp', now).state === 'open') return { ok: true, channel: 'whatsapp', address: carry('whatsapp')!.address };
     if (wroteOn === 'whatsapp' || wroteOn === 'sms' || wroteOn === 'email') {
         const c = carry(wroteOn);
         if (c) return { ok: true, channel: wroteOn, address: c.address };
@@ -69,7 +82,7 @@ export function windowOf(party: Party, channel: ReplyChannel, now: Date): Window
 
 // ---------------------------------------------------------------- render
 
-export type RenderResult = { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: 'ceiling' | 'empty' | 'channel'; bubbles: RenderedBubble[] };
+export type RenderResult = { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: 'ceiling' | 'empty'; bubbles: RenderedBubble[] };
 
 function typingGap(text: string): number {
     return Math.max(GAP_MIN_MS, Math.min(GAP_MAX_MS, Math.round(GAP_MIN_MS + text.length * 8)));
@@ -116,10 +129,36 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
     return { ok: true, bubbles };
 }
 
-/** Goal 1 replies on WhatsApp only: any other channel is refused here, never rendered by guesswork. */
-export function render(channel: ReplyChannel, reply: string, opts: RenderOptions = {}): RenderResult {
-    if (channel === 'whatsapp') return renderWhatsApp(reply, opts);
-    return { ok: false, reason: 'channel', bubbles: [] };
+/** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). Every one of them honours `asTyped`: a person's own words are never reflowed, rewritten or wrapped. */
+export function render(channel: ReplyChannel, reply: string, opts: RenderOptions & { name?: string | null } = {}): RenderResult {
+    if (channel === 'sms') return renderSms(reply, opts);
+    if (channel === 'email') return renderEmail(reply, opts);
+    return renderWhatsApp(reply, opts);
+}
+
+/**
+ * What the composer is told when a render refuses for length, in the refusing channel's own
+ * measure. Only SMS carries a character budget: the WhatsApp brief counts bubbles, and a character
+ * number there is read by nobody.
+ */
+export type ShortenBrief =
+    | { previous: string; channel: 'sms'; measured: number; ceiling: number; charBudget: number }
+    | { previous: string; channel: Exclude<ReplyChannel, 'sms'>; measured: number; ceiling: number };
+
+/**
+ * A reply too long for its channel, described the way that channel counts: WhatsApp counts bubbles
+ * against the ceiling, SMS counts segments against the two a single text message may use. Telling
+ * the composer the other channel's numbers gives it no reason to shorten, so the retry fails too.
+ * The SMS budget is the refusing text's own encoding: one character outside GSM 03.38 halves what
+ * two segments hold, so a GSM7 number would send the shortened reply back over the ceiling again.
+ */
+export function shortenBriefFor(channel: ReplyChannel, previous: string, rendered: RenderedBubble[]): ShortenBrief {
+    if (channel === 'sms') {
+        const text = rendered[0]?.text ?? '';
+        const multi = smsCost(text).encoding === 'ucs2' ? UCS2_MULTI : GSM7_MULTI;
+        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: multi * SMS_MAX_SEGMENTS };
+    }
+    return { previous, channel, measured: rendered.length, ceiling: BUBBLE_CEILING };
 }
 
 // ---------------------------------------------------------------- pick_template
@@ -145,12 +184,59 @@ export const liveTemplateStatus: TemplateStatusSource = {
 export const noTemplateApproved: TemplateStatusSource = { async approved() { return null; } };
 
 /** Which registry triggers carry a reply of each purpose. Branches on purpose, never on a name. */
-const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = { service_reply: ['question_unanswered'] };
+const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = {
+    service_reply: ['question_unanswered'], web_form_ack: ['webform_first_contact'], web_form_ack_no_call: ['webform_first_contact_no_call'],
+    post_call_followup: ['post_call_followup'], missed_call: ['missed_call'],
+};
+
+/** What a template body is filled from: the party's name, the turn's topic, and the instant the reply goes. */
+export interface TemplateVars { name: string | null; topic: string; at: Date }
+
+/** The rows of the one registry (server/window-templates.ts) that carry a reply of this purpose. */
+export function templateRowsFor<T extends { purpose: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): T[] {
+    return registry.filter((t) => t.purpose === 'service_reply' && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
+}
+
+/**
+ * The variables a template body takes: {{1}} the first name or 'there', {{2}} the topic, {{3}} when
+ * we would ring (the web form's "a quick call {{3}}"), by the UK hour of the desk's own clock:
+ * 'shortly' inside Ben's hours, 'in the morning' outside them. The same rule and the same words the
+ * live acknowledgement fills this template with today (server/first-contact-ack.ts).
+ */
+export function templateVariables(body: string, vars: TemplateVars): Record<string, string> {
+    const first = firstNameOf(vars.name) ?? 'there';
+    const when = isOutOfHours(ukHour(vars.at)) ? 'in the morning' : 'shortly';
+    const out: Record<string, string> = {};
+    const re = /\{\{\s*(\d+)\s*\}\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(body)) !== null) out[m[1]] = m[1] === '1' ? first : m[1] === '2' ? vars.topic.slice(0, 120) : when;
+    return out;
+}
+
+/** A template body with its variables filled in. */
+export function fillTemplate(body: string, variables: Record<string, string>): string {
+    return body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n] ?? '');
+}
+
+/** The words a template of this purpose carries off WhatsApp, where no approval is needed: the best rung's body as one SMS or one email. Null when no row exists. */
+export async function templateBodyFor(purpose: ReplyPurpose, vars: TemplateVars): Promise<{ name: string; body: string } | null> {
+    const { WINDOW_TEMPLATES } = await import('../../window-templates');
+    const t = templateRowsFor(purpose, WINDOW_TEMPLATES)[0];
+    if (!t) return null;
+    const rung = t.rungs[0];
+    return { name: rung.name, body: fillTemplate(rung.body, templateVariables(rung.body, vars)) };
+}
 
 /** An approved template with everything either transport needs to carry it. */
 export interface TemplateSend { name: string; language: string; contentSid: string; variables: Record<string, string> }
 
-export type TemplatePick = { ok: true; template: TemplateSend; body: string } | { ok: false; reason: string };
+/**
+ * An approved template picked for a purpose: the wire fields, the body with its variables filled
+ * in for the customer, and the rung's approved wording with the placeholders left unfilled. The
+ * wording is the sentences the business itself says; a filled variable is the customer's own words
+ * quoted back, which is why the ask ledger reads the wording and never the body (desk.ts).
+ */
+export type TemplatePick = { ok: true; template: TemplateSend; body: string; wording: string } | { ok: false; reason: string };
 
 /** The fields the outbound gate needs for this template on this transport, and nothing for the other one. */
 export type TemplateWire =
@@ -163,15 +249,21 @@ export function templateWire(transport: WhatsAppTransport, t: TemplateSend): Tem
     return { via: 'meta', templateName: t.name, templateLanguage: t.language, templateComponents: [{ type: 'body', parameters }] };
 }
 
-/** When the window is shut: one approved template for the reply's purpose from the registry. None approved: the reply is held as a pending draft for Ben. Never an SMS fallback. */
-export async function pickTemplate(purpose: ReplyPurpose, vars: { name: string | null; topic: string }, status: TemplateStatusSource = liveTemplateStatus): Promise<TemplatePick> {
+/**
+ * When the window is shut: one approved template for the reply's purpose from the registry. None
+ * approved: the reply is held as a pending draft for Ben. Never an SMS fallback.
+ *
+ * The words and the variables come from the rung that is actually approved, never from the best
+ * rung: a fallback rung is a different template with different wording, and filling a variable it
+ * has no slot for would send one message while the file, the board and the send record another.
+ */
+export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, status: TemplateStatusSource = liveTemplateStatus): Promise<TemplatePick> {
     const { WINDOW_TEMPLATES } = await import('../../window-templates');
-    const candidates = WINDOW_TEMPLATES.filter((t) => t.purpose === purpose && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
-    for (const t of candidates) for (const name of t.names) {
-        const live = await status.approved(name);
+    for (const t of templateRowsFor(purpose, WINDOW_TEMPLATES)) for (const rung of t.rungs) {
+        const live = await status.approved(rung.name);
         if (live) {
-            const variables = { '1': vars.name ?? 'there', '2': vars.topic.slice(0, 120) };
-            return { ok: true, template: { name, language: t.language, contentSid: live.contentSid, variables }, body: t.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => variables[n as '1' | '2'] ?? '') };
+            const variables = templateVariables(rung.body, vars);
+            return { ok: true, template: { name: rung.name, language: t.language, contentSid: live.contentSid, variables }, body: fillTemplate(rung.body, variables), wording: rung.body };
         }
     }
     return { ok: false, reason: `no approved template for purpose ${purpose}; held as a pending draft for Ben` };
@@ -195,21 +287,21 @@ export type DeliveryOutcome = { ok: true; sid: string | null } | { ok: false; re
 export const liveDeliverer: Deliverer = {
     async deliver(input) {
         const delivered: RenderedBubble[] = [];
-        if (input.channel !== 'whatsapp') return { ok: false, reason: `the desk replies on WhatsApp only; ${input.channel} has no live delivery`, delivered };
         const { registryEntryFor } = await import('../../sender-registry');
         const entry = registryEntryFor(input.approver);
         if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered };
         const { getSpineConfig } = await import('../../spine/config');
         const cfg = await getSpineConfig();
         if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
+        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
             const res = await sendCustomerMessage({
                 approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
-                ...(input.template ? templateWire(input.transport, input.template) : {}),
-                via: input.transport,
+                ...(input.template && input.channel === 'whatsapp' ? templateWire(input.transport, input.template) : {}),
+                ...(input.channel === 'whatsapp' ? { via: input.transport } : {}),
             });
             if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed', delivered };
             delivered.push(b);

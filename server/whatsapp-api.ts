@@ -6,6 +6,7 @@ import { notifyIncomingSms, notifyIncomingWhatsApp, notifyOutboundSendFailure } 
 import { pushEvent } from "./web-push";
 import { resolveCallerName } from "./caller-lookup";
 import { requireAdmin } from "./auth";
+import { forwardToCommsV2 } from './comms-v2/channels/intake';
 
 export const whatsappRouter = Router();
 
@@ -42,6 +43,9 @@ whatsappRouter.post('/incoming', async (req, res) => {
                 await notifyIncomingSms({ senderName, phoneNumber: phone, body: Body });
             }
         })().catch((e) => console.warn('[WhatsApp API] Pushover notification failed:', e));
+
+        // comms-v2 (Goal 3): the same inbound also reaches the new desk's gateway behind COMMS_V2_INTAKE; off by default, never blocks.
+        forwardToCommsV2({ kind: 'twilio_incoming', body: req.body });
 
         // Tenant/landlord AI fork removed 24 Aug 2026 (Switchboard Atlas step 4): it auto-replied
         // with no kill switch, no draft queue, no opt-out check and no window check — the only
