@@ -2,7 +2,7 @@
  * Goal 6 through the desk, with a scripted model client: a business question is answered from a
  * reviewed row verbatim and cited (the guards pass on the citation); a question with no source
  * holds for Ben with the fixed line and still answers the rest (7.1); a customer asking for a call
- * holds for Ben (7.2); a held thread still hears an acknowledgement on every turn (7.3); Ben's
+ * holds for Ben (7.2), and a turn that asks a price and a call carries both fixed lines; a held thread still hears an acknowledgement on every turn (7.3); Ben's
  * reply from any surface releases the hold and the next customer turn is routed as normal (7.4);
  * scoping that is not converging goes to Ben on its fixed line with no composer and lets the thread
  * go again once he has replied, while a facts-and-aftercare thread with no job on it is answered
@@ -105,9 +105,9 @@ describe('the Service specialist on the desk', () => {
         expect(b.result.bubbles[0].text).toContain('parking');
         expect(b.file.hold?.exception).toBe('no_source');
     });
-    it('7.2: a customer asking for a call holds for Ben, by the belt even when the router misses it, and the reply says Ben will call', async () => {
+    it('7.2: a customer asking for a call holds for Ben on the router\'s own reading, and the reply says Ben will call', async () => {
         const { gateway } = desk({
-            router: () => route({ turnKind: 'question' }),
+            router: () => route({ turnKind: 'question', exception: 'callback' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut([{ key: 'job_type', value: 'fence panel' }]),
             composer: ({ user }) => { expect(user).toContain(DEFAULT_FIXED_LINES.callback_to_ben); expect(user).toContain('offer a call: no'); return { reply: `Fence panel, got it. ${DEFAULT_FIXED_LINES.callback_to_ben}\n\nWhereabouts are you?`, factIds: [], kbIds: [] }; },
         });
@@ -115,6 +115,24 @@ describe('the Service specialist on the desk', () => {
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(out.file.hold).toMatchObject({ exception: 'callback' });
         expect(out.result.delivered).toBe(true);
+    });
+    it('7.2: a turn that asks a price and a call carries both fixed lines, and the belt is not displaced by the router\'s reading', async () => {
+        const { gateway } = desk({
+            router: () => route({ subjects: ['quoting', 'scoping'], turnKind: 'question', exception: 'callback' }),
+            specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut([{ key: 'job_type', value: 'fence panel' }]),
+            composer: ({ user }) => {
+                expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+                expect(user).toContain(DEFAULT_FIXED_LINES.callback_to_ben);
+                expect(user).toContain('offer a call: no');
+                return { reply: `${DEFAULT_FIXED_LINES.money_to_ben} ${DEFAULT_FIXED_LINES.callback_to_ben}`, factIds: [], kbIds: [] };
+            },
+        });
+        const out = await gateway.inbound(turn('Fence panel down. How much roughly, and can you ring me about it?', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.result.delivered).toBe(true);
+        // One record of what the thread is held on: the graver of the two, money, and the reply carried both lines.
+        expect(out.file.hold).toMatchObject({ exception: 'money' });
+        expect(out.result.summary).toContain('exception money+callback');
     });
     it('a change of details is recorded as a fact and a hold for Ben; the customer hears it has been passed on', async () => {
         const { gateway } = desk({

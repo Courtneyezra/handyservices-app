@@ -10,7 +10,6 @@
  *                     photos; refuses a subject asked and unanswered, and photos asked once.
  *   offer_call        not when the party prefers text, has already rung, or has been offered one.
  *   regulated         gas or asbestos only.
- *   kb_lookup         reviewed knowledge-base rows by id, verbatim; read-only; may return nothing.
  */
 import { askedUnanswered, everAsked, factFor, isReady, ledgerEntry, type CaseFile, type ModelCallRecord, type Party, type Turn } from './case-file';
 import { parseLocation, regulatedMatch, type LocationParse } from './lexicon';
@@ -122,7 +121,7 @@ export function regulated(turn: Turn): { regulated: boolean; match: string | nul
     return { regulated: !!m, match: m };
 }
 
-// ---------------------------------------------------------------- kb_lookup
+// ---------------------------------------------------------------- the reviewed knowledge base
 
 export interface KbReader { list(): Promise<Array<{ id: string; topic: string; approvedWords: string }>> }
 
@@ -139,12 +138,3 @@ export const reviewedKb: KbReader = {
 };
 
 export const emptyKb: KbReader = { async list() { return []; } };
-
-/** Reviewed rows whose topic shares words with the question, verbatim. Read-only; may return nothing. */
-export async function kbLookup(question: string, reader: KbReader = reviewedKb): Promise<Array<{ id: string; topic: string; approvedWords: string }>> {
-    // A cheap stem (the first five letters) so "insured" finds "insurance"; a selection, not a search.
-    const stems = question.toLowerCase().split(/\W+/).filter((w) => w.length > 3).map((w) => w.slice(0, 5));
-    if (!stems.length) return [];
-    const rows = await reader.list();
-    return rows.filter((r) => { const t = r.topic.toLowerCase(); return stems.some((w) => t.includes(w)); }).slice(0, 5);
-}

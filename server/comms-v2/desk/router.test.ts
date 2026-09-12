@@ -38,14 +38,31 @@ describe('route', () => {
     it('the belts: regulated and money hold whatever the model read', async () => {
         const gas = fixture('my gas fire is not lighting');
         const r1 = await route(gas, gas.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }) }));
-        expect(r1.exception).toBe('regulated');
+        expect(r1.exceptions).toEqual(['regulated']);
         const money = fixture('How much roughly?');
         const r2 = await route(money, money.turns[0], new FakeModelClient({ router: () => ({ subjects: ['quoting'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question' }) }));
-        expect(r2.exception).toBe('money');
+        expect(r2.exceptions).toEqual(['money']);
         expect(r2.belts.money).toBeTruthy();
         const quote = fixture('Can I get a quote for a fence panel?');
         const r3 = await route(quote, quote.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'first_contact', party: 'customer', exception: null, turnKind: 'enquiry' }) }));
-        expect(r3.exception).toBeNull();
+        expect(r3.exceptions).toEqual([]);
+    });
+    it('a belt adds to what the model read rather than displacing it, gravest first', async () => {
+        const both = fixture('How much would that be, and can you call me about it?');
+        const r = await route(both, both.turns[0], new FakeModelClient({ router: () => ({ subjects: ['quoting', 'scoping'], proposedStage: 'scoping', party: 'customer', exception: 'callback', turnKind: 'question' }) }));
+        expect(r.exceptions).toEqual(['money', 'callback']);
+        // The graver reading the model made is not lost under a belt either.
+        const unhappy = fixture('That price was a rip-off and the job is still not right');
+        const r2 = await route(unhappy, unhappy.turns[0], new FakeModelClient({ router: () => ({ subjects: ['service'], proposedStage: 'scoping', party: 'customer', exception: 'complaint', turnKind: 'other' }) }));
+        expect(r2.exceptions).toEqual(['complaint', 'money']);
+    });
+    it('reads a request for a call from the router itself: there is no callback belt', async () => {
+        const call = fixture('Can you ring me about it?');
+        const r = await route(call, call.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: 'callback', turnKind: 'question' }) }));
+        expect(r.exceptions).toEqual(['callback']);
+        const visit = fixture('Can you call round tomorrow to look at it?');
+        const r2 = await route(visit, visit.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question' }) }));
+        expect(r2.exceptions).toEqual([]);
     });
 });
 
@@ -59,7 +76,7 @@ describe('the composer\'s brief', () => {
         file.ledger.push({ subject: 'media', askedAt: 'x', answeredAt: null, thankedAt: null, askCount: 1 });
         const user = buildComposerUser({
             file, party: file.parties[0], turn: file.turns[0],
-            route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question', belts: { regulated: null, money: 'how much' }, call: {} as any, error: null },
+            route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exceptions: ['money'], turnKind: 'question', belts: { regulated: null, money: 'how much' }, call: {} as any, error: null },
             specialists: [
                 { specialist: 'scoping', factIds: ['fact_1'], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null },
                 { specialist: 'scheduling', factIds: ['fact_now'], proposal: { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, brief: ['The diary has no typical lead time to give: include the fixed line that dates come with the quote.'], calls: [], error: null },
@@ -87,7 +104,7 @@ describe('the composer\'s brief', () => {
         const file = fixture('New bathroom tap, please quote');
         return buildComposerUser({
             file, party: file.parties[0], turn: file.turns[0],
-            route: { subjects: ['scoping'], proposedStage: 'first_contact', party: 'customer', exception: null, turnKind: 'enquiry', belts: { regulated: null, money: null }, call: {} as any, error: null },
+            route: { subjects: ['scoping'], proposedStage: 'first_contact', party: 'customer', exceptions: [], turnKind: 'enquiry', belts: { regulated: null, money: null }, call: {} as any, error: null },
             specialists: [{ specialist: 'scoping', factIds: [], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null }],
             fixedLines: [],
             ...over,

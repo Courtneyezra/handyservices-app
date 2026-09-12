@@ -113,7 +113,7 @@ much as a held one, so a slot minted for a landlord's thread can never reply on 
 | figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file |
 | date, time, duration | any date, time, lead time or duration appears, anywhere in the reply, that is not a diary fact this turn looked up | facts with a diary source a specialist read on this run; one written on an earlier turn is not citable, since the diary may have moved since |
 | commitment and fault | a promise to do, fix or guarantee something, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
-| business claim | a statement about the business, its services, hours, coverage or policies, with no knowledge-base citation, or a citation whose row is not reviewed or whose body does not support the sentence | reviewed knowledge-base rows by id, verbatim |
+| business claim | two rules. The verbatim rail: the reply cites a knowledge-base row, by id or through a fact, that is not a reviewed row the desk resolved, or whose body the reply does not carry word for word. Under it, the claim lexicon: a statement about the business, its services, hours, coverage or policies with no citation supporting it. The rail runs whatever the reply is about, so payment terms, invoicing and aftercare are covered where no word list reaches | reviewed knowledge-base rows by id, verbatim |
 | disclosure | any line describing the sender as automated or an assistant | a fixed phrase list |
 | one reply | a second reply to the same party with no customer turn in between | the file's turns |
 | ask ledger | the reply asks a subject already asked and unanswered, or thanks for something already thanked for | the file's ledger |
@@ -163,7 +163,6 @@ case file through its calls. The specialist itself, on Sonnet 5, returns facts a
 | `next_question` | the case file | the one subject to ask next, in a fixed order: job, location, access, photos | a subject already asked and unanswered; photos already asked once |
 | `offer_call` | the case file | whether a call is worth offering | the party prefers text, has already rung, or has been offered one |
 | `regulated` | the turn | whether the work is gas or asbestos | only those two; plumbing, roofing, structural and electrical are ours |
-| `kb_lookup` | a question | reviewed knowledge-base rows by id, verbatim | read-only; may return nothing in Goal 1 |
 
 **What the specialist returns.** Facts: job type, location, media descriptions, each with its
 source. A proposal: the next question, whether to offer a call, whether to thank for media,
@@ -252,8 +251,10 @@ is no source. Never a sentence for the customer.
 
 **Holds and what the customer hears.** Fixed line only, no composer, no specialist until Ben
 releases: complaint, refund, trust doubt, gas, not converging. Answer the rest, with the fixed line
-in the reply: money, a date change, a customer asking for a call (`callback`, a router exception
-with a deterministic belt), no source, a change of details. Every later turn on a held thread is
+in the reply: money, a date change, a customer asking for a call (`callback`, the router's own
+reading: "call round", "call in" and "call out" ask for a visit in this trade, which no matcher
+separated reliably from a phone call), no source, a change of details. A turn can raise more than
+one exception: each carries its own fixed line into the reply, and the hold records the gravest. Every later turn on a held thread is
 acknowledged (checklist 7.3).
 
 **Return to automation (7.4).** `human_reply(file, by, surface, words)`: any human's reply from any

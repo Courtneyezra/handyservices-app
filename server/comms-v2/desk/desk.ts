@@ -7,6 +7,8 @@
  *
  * Exceptions (Contract 3): money, callbacks, date changes, a question with no source and a change
  * of details hold for Ben and the reply still answers the rest, saying Ben will come back on that.
+ * A turn can raise more than one: each carries its own fixed line into the reply and the hold
+ * records the gravest, so a price question that also asks for a call gets both lines.
  * Complaints, refunds, trust doubts, gas and scoping that is not converging: one fixed line in
  * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
  * the short acknowledgement that Ben will come back. The vocabulary is server/comms-v2/service/
@@ -26,8 +28,8 @@ import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineSourc
 import { approverFor, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { offersCall, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
-import type { HoldException, Route } from './router';
-import { route as routeTurn } from './router';
+import type { Exception, HoldException, Route } from './router';
+import { matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { chaseIfDue, type ChaseState } from '../service/chase';
 import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
@@ -110,7 +112,7 @@ export class Desk implements DeskLike {
         // 2. Exceptions that the Scoper does not scope: one fixed line, a hold, no composer.
         const fixedLines: FixedLine[] = [];
         const fixedLineKbIds: string[] = [];
-        const exception = route.exception;
+        const exceptions: Exception[] = route.exceptions;
         let composerCalls = 0;
         let reply: string | null = null;
         let factIds: string[] = [];
@@ -125,9 +127,11 @@ export class Desk implements DeskLike {
             this.holdFor(file, reason, `${reason}: ${match}`);
             reply = line.text;
         };
-        let fixedLineOnly = !!(exception && FIXED_LINE_ONLY.has(exception));
-        if (exception && FIXED_LINE_ONLY.has(exception)) {
-            await fixedLineHold(exception, route.belts.regulated ?? turn.body.slice(0, 80));
+        // Gravest first: a fixed-line-only exception on the turn takes the thread off the composer, whatever else it raised.
+        const fixedOnlyException = exceptions.find((e) => FIXED_LINE_ONLY.has(e)) ?? null;
+        let fixedLineOnly = !!fixedOnlyException;
+        if (fixedOnlyException) {
+            await fixedLineHold(fixedOnlyException, matchFor(route, fixedOnlyException, turn.body));
         } else {
             // 3. Gather: every routed specialist that exists. Scoping runs unless the turn is service only;
             // Service runs its deterministic tools every turn and its model when routed here.
@@ -144,9 +148,10 @@ export class Desk implements DeskLike {
                 fixedLineOnly = true;
                 await fixedLineHold(fixedOnly.reason, fixedOnly.match);
             } else {
-                if (exception && ANSWER_THE_REST.has(exception)) {
-                    fixedLines.push(await fixedLine(FIXED_LINE_FOR[exception], this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    this.holdFor(file, exception, `${exception}: ${route.belts.money ?? route.belts.callback ?? turn.body.slice(0, 80)}`);
+                // Every exception the turn raised carries its own fixed line; the hold records the gravest.
+                for (const e of exceptions.filter((x) => ANSWER_THE_REST.has(x))) {
+                    fixedLines.push(await fixedLine(FIXED_LINE_FOR[e], this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    this.holdFor(file, e, `${e}: ${matchFor(route, e, turn.body)}`);
                 }
                 for (const h of holds.filter((x) => ANSWER_THE_REST.has(x.reason))) {
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[h.reason], this.deps.fixedLines ?? knowledgeBaseFixedLines));
@@ -155,8 +160,8 @@ export class Desk implements DeskLike {
                 // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change holds for Ben and the reply still answers the rest.
                 // The router's date_change exception is passed in and stands in for a booking the desk cannot see: until a real booking reaches the case file, a request to move one must still reach Ben (checklist 5.5).
                 const couldBeBooked = !!(file.job.bookingRef || file.job.quoteRef || file.stage === 'booked');
-                if (route.subjects.includes('scheduling') || exception === 'date_change' || dateQuestionMatch(turn.body) || (couldBeBooked && dateChangeMatch(turn.body))) {
-                    const sched = await schedule(file, turn, party, this.client, { ...this.deps.scheduling, now: this.now }, { dateChange: exception === 'date_change', scheduling: route.subjects.includes('scheduling') });
+                if (route.subjects.includes('scheduling') || exceptions.includes('date_change') || dateQuestionMatch(turn.body) || (couldBeBooked && dateChangeMatch(turn.body))) {
+                    const sched = await schedule(file, turn, party, this.client, { ...this.deps.scheduling, now: this.now }, { dateChange: exceptions.includes('date_change'), scheduling: route.subjects.includes('scheduling') });
                     calls.push(...sched.calls);
                     specialists.push(sched);
                     if (sched.error) log(`scheduling: ${sched.error}`);
@@ -165,7 +170,7 @@ export class Desk implements DeskLike {
                 }
                 fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
-                if (scoping && exception === 'callback') scoping.proposal.offerCall = false;
+                if (scoping && exceptions.includes('callback')) scoping.proposal.offerCall = false;
                 if (scoping && (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready')) {
                     scoping.proposal.nextQuestion = null;
                     scoping.proposal.mentionPhotos = false;
@@ -191,7 +196,7 @@ export class Desk implements DeskLike {
         // An attempt is guarded against its own citations: the rows are resolved from the ids that attempt returned, and the fixed lines' own rows, which every attempt carries.
         const guardAttempt = async (text: string, ids: string[], cited: string[]): Promise<{ guards: GuardOutcome; kbIds: string[] }> => {
             const merged = Array.from(new Set([...fixedLineKbIds, ...cited]));
-            const kbRows = await this.kbRows(merged);
+            const kbRows = await this.kbRows(merged, fixedLines);
             return { guards: runGuards({ file, party, turn, reply: text, factIds: ids, kbIds: merged, kbRows, fixedLines, lookedUp, proposedSubject }), kbIds: merged };
         };
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
@@ -240,7 +245,7 @@ export class Desk implements DeskLike {
             const tmpl = templateChoiceFor(file, turn);
             const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic, at: this.now() }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
-                setHold(file, { approver: approverFor(file, exception), reason: `window shut and ${pick.reason}`, exception, draft: reply, failures: [] }, this.fileDeps());
+                setHold(file, { approver: approverFor(file, exceptions[0] ?? null), reason: `window shut and ${pick.reason}`, exception: exceptions[0] ?? null, draft: reply, failures: [] }, this.fileDeps());
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             template = pick.template;
@@ -285,7 +290,7 @@ export class Desk implements DeskLike {
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
         const line = await fixedLine(regulatedMatch(turn.body) ? 'gas' : 'held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const kbIds = line.kbId ? [line.kbId] : [];
-        const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds), fixedLines: [line], proposedSubject: null });
+        const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds, [line]), fixedLines: [line], proposedSubject: null });
         const choice = chooseChannel(party, turn.channel, this.now());
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
         const rendered = choice.ok ? render(choice.channel, line.text, { name: party.name }) : null;
@@ -321,10 +326,18 @@ export class Desk implements DeskLike {
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
     }
 
-    private async kbRows(ids: string[]): Promise<KbRow[]> {
+    /**
+     * The reviewed rows behind the cited ids. A fixed line resolves from itself: its words came
+     * from the reviewed row `fixedLine` read (fixed-lines.ts), which is a different reader from the
+     * knowledge base's own list, and the guards' verbatim rail must see the same words either way.
+     */
+    private async kbRows(ids: string[], fixedLines: FixedLine[] = []): Promise<KbRow[]> {
         if (!ids.length) return [];
+        const own = fixedLines.filter((f) => f.kbId && ids.includes(f.kbId)).map((f) => ({ id: f.kbId!, approvedWords: f.text, reviewed: true }));
+        const rest = ids.filter((id) => !own.some((r) => r.id === id));
+        if (!rest.length) return own;
         const rows = await (this.deps.kb ?? reviewedKb).list();
-        return rows.filter((r) => ids.includes(r.id)).map((r) => ({ id: r.id, approvedWords: r.approvedWords, reviewed: true }));
+        return [...own, ...rows.filter((r) => rest.includes(r.id)).map((r) => ({ id: r.id, approvedWords: r.approvedWords, reviewed: true }))];
     }
 }
 
@@ -336,7 +349,7 @@ function scopingProposal(specialists: SpecialistReturn[]): Proposal | null {
 /** One line of evidence: the route and the proposal behind a reply. */
 function summarise(route: Route, specialists: SpecialistReturn[]): string {
     const p = scopingProposal(specialists);
-    const bits = [`turn ${route.turnKind}`, `subjects ${route.subjects.join('+')}`, `exception ${route.exception ?? 'none'}`];
+    const bits = [`turn ${route.turnKind}`, `subjects ${route.subjects.join('+')}`, `exception ${route.exceptions.join('+') || 'none'}`];
     if (p) bits.push(`ask ${p.nextQuestion ? `${p.nextQuestion.subject}${p.nextQuestion.unknowns.length ? ' (' + p.nextQuestion.unknowns.join(', ') + ')' : ''}` : 'none'}`, `call ${p.offerCall ? 'yes' : 'no'}`, `photos ${p.mentionPhotos ? 'mention' : p.thankForMedia ? 'thank' : 'no'}`, `ready ${p.ready ? 'yes' : 'no'}`);
     for (const s of specialists) {
         if (s.specialist === 'scoping') { if (s.error) bits.push(`specialist error: ${s.error}`); continue; }

@@ -4,11 +4,15 @@
  * stage, the party addressed, and an exception if one applies. Never invents a subject: an
  * unclassifiable turn goes to Scoping before ready and to Service after. The router never sees a
  * tool. Two deterministic belts sit under it: the regulated matcher (a hold the model cannot
- * unsay) and the money-question matcher (2.7 cannot depend on one model reading).
+ * unsay) and the money-question matcher (2.7 cannot depend on one model reading). A belt adds its
+ * exception to what the model read rather than replacing it, so a turn that asks a price and also
+ * asks for a call raises both; `exceptions` is the ordered list and gravest is first. There is no
+ * belt for a call request: in this trade "call round", "call in" and "call out" ask for a visit,
+ * which no matcher separated from a phone call reliably, so the router reads it.
  */
 import { z } from 'zod/v4';
 import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES } from './case-file';
-import { callbackRequestMatch, moneyQuestionMatch, regulatedMatch } from './lexicon';
+import { moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';
 
 export const SUBJECTS = ['scoping', 'quoting', 'scheduling', 'service'] as const;
@@ -30,11 +34,26 @@ export const routerOutputSchema = z.object({
 });
 export type RouterOutput = z.infer<typeof routerOutputSchema>;
 
-export interface Route extends RouterOutput {
+/** Gravest first: the order the desk takes an exception in, so one fixed-line-only reason outranks the rest. */
+export const EXCEPTION_GRAVITY: readonly Exception[] = ['regulated', 'complaint', 'refund', 'trust_doubt', 'money', 'date_change', 'callback'];
+
+export interface Route extends Omit<RouterOutput, 'exception'> {
+    /**
+     * Every exception this turn raises, gravest first: the belts' and the model's, deduplicated.
+     * A belt is never displaced by a model-named exception, and a turn can carry more than one.
+     */
+    exceptions: Exception[];
     /** What the deterministic belts found, beside the model's reading. */
-    belts: { regulated: string | null; money: string | null; callback: string | null };
+    belts: { regulated: string | null; money: string | null };
     call: ModelCallRecord;
     error: string | null;
+}
+
+/** The text a belt matched for an exception, for the hold's record; the turn itself when no belt read it. */
+export function matchFor(route: Route, exception: Exception, body: string): string {
+    if (exception === 'regulated' && route.belts.regulated) return route.belts.regulated;
+    if (exception === 'money' && route.belts.money) return route.belts.money;
+    return body.slice(0, 80);
 }
 
 const SYSTEM = [
@@ -42,7 +61,7 @@ const SYSTEM = [
     'Subjects, in order of primacy for this turn: scoping (what the job is and where, access, photos, a call), quoting (price, what a quote includes), scheduling (dates, when we can come, lead time), service (facts about the business, changes of details, invoices, aftercare).',
     'A turn can touch two subjects ("how much, and when can you come?"): list both, primary first. A bare statement about the job, an answer to a question, a pause or a thanks is scoping while the job is being scoped.',
     'proposedStage: first_contact for the opening message; scoping once the conversation is under way; ready only when the job type and the location are both known; quoted, accepted, booked, done are later stages you do not propose unless the file already shows them.',
-    'exception, or null: money (asks a price, a cost, a discount, anything beyond reading a quote line back), complaint (unhappy with us or our work), refund, trust_doubt (are you legit, a scam worry, doubting we are who we say), regulated (gas or asbestos work), date_change (changing a booked date), callback (asks us to call or ring them, or accepts a call we offered). "Can I get a quote for X" is an enquiry, not money. "Are you insured" is a factual question for service, not a trust doubt.',
+    'exception, or null: money (asks a price, a cost, a discount, anything beyond reading a quote line back), complaint (unhappy with us or our work), refund, trust_doubt (are you legit, a scam worry, doubting we are who we say), regulated (gas or asbestos work), date_change (changing a booked date), callback (asks us to call or ring them on the phone, or accepts a call we offered). "Can I get a quote for X" is an enquiry, not money. "Are you insured" is a factual question for service, not a trust doubt. In this trade "call round", "call in", "call out" and "call by" ask for a visit, not a phone call: they are scoping, not callback.',
     'turnKind: enquiry (a new job), answer (details in reply to a question), question (asks us something), short_pause ("one sec", "let me check", "hang on"), promise_of_more ("I\'ll send photos tomorrow", "I\'ll get back to you with the measurements"), acknowledgement ("ok thanks", "makes sense"), decline (declines a photo, a call or a suggestion), not_ready ("I\'ll get back to you next month"), other.',
     'Reply with the JSON object only.',
 ].join('\n');
@@ -53,7 +72,7 @@ function threadFor(file: CaseFile, turn: Turn): string {
 }
 
 export async function route(file: CaseFile, turn: Turn, client: ModelClient): Promise<Route> {
-    const belts = { regulated: regulatedMatch(turn.body), money: moneyQuestionMatch(turn.body), callback: callbackRequestMatch(turn.body) };
+    const belts = { regulated: regulatedMatch(turn.body), money: moneyQuestionMatch(turn.body) };
     const user = [
         `Stage now: ${file.stage}. Job type known: ${file.job.type ? 'yes' : 'no'}. Location known: ${file.job.location ? 'yes' : 'no'}.`,
         `Thread (the turn to route is marked >>):`,
@@ -65,10 +84,14 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient): Pr
     const out = res.output ?? fallback;
     // Never invents a subject: an empty list is unclassifiable.
     if (!out.subjects.length) out.subjects = [...fallback.subjects];
-    // The belts: regulated and money are holds the model cannot unsay.
-    if (belts.regulated) out.exception = 'regulated';
-    else if (belts.money && !out.exception) out.exception = 'money';
-    else if (belts.callback && !out.exception) out.exception = 'callback';
+    // The belts: regulated and money are holds the model cannot unsay. Each adds to what the model
+    // read; neither displaces it, so a price question that also asks for a call carries both.
+    const raised = new Set<Exception>();
+    if (belts.regulated) raised.add('regulated');
+    if (belts.money) raised.add('money');
+    if (out.exception) raised.add(out.exception);
+    const exceptions = EXCEPTION_GRAVITY.filter((e) => raised.has(e));
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
-    return { ...out, belts, call: res.record, error: res.error };
+    const { exception: _modelException, ...rest } = out;
+    return { ...rest, exceptions, belts, call: res.record, error: res.error };
 }
