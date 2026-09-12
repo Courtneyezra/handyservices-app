@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { compose, type ComposeInput } from './composer';
-import type { DeskLike, DeskResult, GuardName, GuardVerdict, SpecialistReturn } from './desk-types';
+import type { DeskLike, DeskResult, GuardName, GuardVerdict, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineKind, type FixedLineSource } from './fixed-lines';
 import { approverFor, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { offersCall, scopingQuestionCount, textAsks } from './lexicon';
@@ -206,7 +206,7 @@ export class Desk implements DeskLike {
         if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
         // 8. The ledger and the stage, from what actually went.
-        this.afterSend(file, party.personId, reply!, specialists);
+        this.afterSend(file, party.personId, wordsOf(rendered.bubbles), template ? null : specialists[0]?.proposal ?? null);
         return {
             runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
@@ -233,20 +233,23 @@ export class Desk implements DeskLike {
         const bubbles: RenderedBubble[] = rendered.bubbles;
         const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
-        this.afterSend(file, partyId, line.text, specialists);
+        this.afterSend(file, partyId, wordsOf(bubbles), specialists[0]?.proposal ?? null);
         return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
     }
 
-    /** The ledger records what the reply actually asked and thanked for; the stage moves to ready when the file is. */
-    private afterSend(file: CaseFile, partyId: string, reply: string, specialists: SpecialistReturn[]): void {
+    /**
+     * The ledger records what the reply actually asked and thanked for, so it is written from the
+     * words that went out, never from a draft a template replaced; a template's words are nobody's
+     * proposal, so only the words themselves speak for them.
+     */
+    private afterSend(file: CaseFile, partyId: string, sent: string, proposal: Proposal | null): void {
         const deps = this.fileDeps();
         const party = partyOf(file, partyId)!;
-        const proposal = specialists[0]?.proposal ?? null;
-        for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(reply, subject)) ledgerAsk(file, subject, deps);
-        if (proposal?.nextQuestion && reply.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
-        if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(reply)) ledgerAsk(file, 'media', deps);
-        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(reply)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
-        if (offersCall(reply)) party.callOffered = true;
+        for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(sent, subject)) ledgerAsk(file, subject, deps);
+        if (proposal?.nextQuestion && sent.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
+        if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(sent)) ledgerAsk(file, 'media', deps);
+        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(sent)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
+        if (offersCall(sent)) party.callOffered = true;
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
     }
 
@@ -255,6 +258,11 @@ export class Desk implements DeskLike {
         const rows = await (this.deps.kb ?? reviewedKb).list();
         return rows.filter((r) => ids.includes(r.id)).map((r) => ({ id: r.id, approvedWords: r.approvedWords, reviewed: true }));
     }
+}
+
+/** The words that actually went to the customer: the bubbles the sender put out. */
+function wordsOf(bubbles: RenderedBubble[]): string {
+    return bubbles.map((b) => b.text).join('\n');
 }
 
 /** One line of evidence: the route and the proposal behind a reply. */

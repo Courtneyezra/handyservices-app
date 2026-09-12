@@ -157,7 +157,7 @@ export function channelDoors(ctx: ChannelDoorContext): Router {
             const gateway = ctx.gateway();
             const existing = ctx.currentFile();
             if (!existing) { res.status(409).json({ error: 'no sandbox thread: start one first (or start on the call door)' }); return; }
-            const v = validateDoorCall(req.body, { address: ctx.phone, name: existing.parties[0]?.name ?? null });
+            const v = validateDoorCall(req.body, { address: ctx.phone, name: existing.parties[0]?.name ?? null, outcome: 'ben_rang' });
             if (!v.ok) { res.status(400).json({ error: v.error }); return; }
             const out = await gateway.inbound(fromDoorCall({ ...v.input, at: ctx.now().toISOString() }));
             if (!handled(res, out)) return;

@@ -36,7 +36,10 @@ beforeAll(async () => {
         },
     });
     const templates = { async approved(name: string) { return name === 'web_enquiry_ack_context' || name === 'missed_call_ack' ? { contentSid: `HX_${name}` } : null; } };
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, mediaDir: dir, scoping: { describe: async () => ({ ok: true, description: 'a ceiling fan', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) } });
+    // A fixed clock inside Ben's hours: the acknowledgement's third variable is 'shortly' or 'in the morning' by the UK hour at send time, so wall-clock time must not decide it.
+    const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
+    const now = () => new Date(clock.t += 1000);
+    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, mediaDir: dir, now, scoping: { describe: async () => ({ ok: true, description: 'a ceiling fan', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) } });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);
@@ -129,5 +132,6 @@ describe('the channel doors', () => {
         expect(c.evidence.summary).toMatch(/asked for media/);
         expect((await post('/call', { transcript: 'short' })).status).toBe(400);
         expect((await post('/start', { door: 'call', outcome: 'nope' })).status).toBe(400);
+        expect((await post('/start', { door: 'call', transcript: TRANSCRIPT })).status).toBe(400);
     });
 });

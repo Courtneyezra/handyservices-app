@@ -140,16 +140,17 @@ describe('the call adapter', () => {
         expect(long).toMatch(/transcript cut at 6000 characters\]$/);
         expect(transcriptOf({ body: env.text } as any)).toBe('Agent: hi. Customer: hello.');
     });
-    it('validates the door\'s call: an outcome from the three, a transcript long enough for an answered call, and only a duration the door gave', () => {
+    it('validates the door\'s call: an outcome from the three, required unless the door names its own, a transcript long enough for an answered call, and only a duration the door gave', () => {
         expect(validateDoorCall({ outcome: 'lost' }, { address: '+447700900942' })).toMatchObject({ ok: false });
         expect(validateDoorCall({ outcome: 'ben_rang', transcript: 'short' }, { address: '+447700900942' })).toMatchObject({ ok: false });
         const missed = validateDoorCall({ outcome: 'missed' }, { address: '+447700900942', name: 'Sam' });
         expect(missed).toMatchObject({ ok: true, input: { outcome: 'missed', transcript: null, durationSeconds: null, name: 'Sam' } });
-        const rang = validateDoorCall({ transcript: 'x'.repeat(600) }, { address: '+447700900942' });
+        expect(validateDoorCall({ transcript: 'x'.repeat(600) }, { address: '+447700900942' })).toMatchObject({ ok: false });
+        const rang = validateDoorCall({ transcript: 'x'.repeat(600) }, { address: '+447700900942', outcome: 'ben_rang' });
         expect(rang).toMatchObject({ ok: true, input: { outcome: 'ben_rang', durationSeconds: null } });
         if (!rang.ok) throw new Error(rang.error);
         expect(fromDoorCall(rang.input).text).toMatch(/^\[call: Ben rang them and they answered\]\n/);
-        expect(validateDoorCall({ transcript: 'x'.repeat(600), durationSeconds: 240 }, { address: '+447700900942' })).toMatchObject({ ok: true, input: { durationSeconds: 240 } });
+        expect(validateDoorCall({ transcript: 'x'.repeat(600), durationSeconds: 240 }, { address: '+447700900942', outcome: 'ben_rang' })).toMatchObject({ ok: true, input: { durationSeconds: 240 } });
         expect(fromDoorCall(rang.input).via).toBe('door');
     });
     it('reads the outcome back off the file for the call turn, and picks the template purpose per turn', () => {

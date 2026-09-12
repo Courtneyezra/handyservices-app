@@ -63,6 +63,23 @@ describe('the web form acknowledgement', () => {
         expect(a.result.bubbles[0].text).toContain('Bathroom extractor fan has died, light works but no fan');
         expect(a.result.bubbles[0].text).toContain('quick call');
     });
+    it('the ledger records the acknowledgement that went, not the draft the template replaced, so the desk can still ask for a photo on the next turn', async () => {
+        const { gateway } = rig({
+            router: () => routeScoping({ turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [{ key: 'job_type', value: 'bathroom extractor fan dead' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: () => ({ reply: 'Got it, a dead bathroom fan. Could you send a photo of the fan and the switch?', factIds: [], kbIds: [] }),
+        }, approvedAll);
+        const a = await gateway.inbound(await form(), { whatsapp: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result).toMatchObject({ decision: 'send', delivered: true, templateId: 'web_enquiry_ack_context' });
+        expect(a.result.bubbles[0].text).not.toMatch(/photo/i);
+        expect(a.file.ledger.find((l) => l.subject === 'media')?.askedAt ?? null).toBeNull();
+        const b = await gateway.inbound(wa('Yes please, it is the fan over the bath', '2026-09-11T10:05:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result).toMatchObject({ decision: 'send', delivered: true, channel: 'whatsapp', templateId: null, composerCalls: 1 });
+        expect(b.result.bubbles.map((x) => x.text).join(' ')).toMatch(/photo/i);
+        expect(b.file.ledger.find((l) => l.subject === 'media')?.askedAt).toBeTruthy();
+    });
     it('the no-call row is the same acknowledgement with the offer taken out: once approved it goes, quoting the enquiry and asking nothing', async () => {
         const { gateway } = formRig(approvedAll);
         const a = await gateway.inbound(await form(), { whatsapp: true, alreadyRung: true } as ChannelSeed);
