@@ -89,7 +89,10 @@ export class Desk implements DeskLike {
         // 1. Route. The quotes a figure may be read from now are read once for the turn: the
         // router's money exemption (5.3 replaces 2.7) stands only while the file's quote is one of
         // them, and the figure guard resolves a cited line against the same set.
-        const liveQuoteRefs = await liveFigureQuotes(file, this.quotingDeps());
+        const liveQuoteRefs = await liveFigureQuotes(file, this.quotingDeps()).catch((e: any) => {
+            log(`quoting: the quote could not be read (${e?.message ?? e})`);
+            return new Set<string>() as ReadonlySet<string>;
+        });
         const route: Route = await routeTurn(file, turn, this.client, liveQuoteRefs);
         calls.push(route.call);
         if (route.error) log(`router: ${route.error} (fallback route used)`);

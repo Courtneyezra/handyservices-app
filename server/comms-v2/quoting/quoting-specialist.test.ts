@@ -142,15 +142,17 @@ describe('after the quote', () => {
     it('answers a price question from the quote: the line facts are on the file to the penny, the brief names them, the model saw labels only', async () => {
         const { file, d } = await sentQuote();
         expect(quotingOwnsThread(file)).toBe(true);
-        const client = new FakeModelClient({ specialist: ({ user, system }) => { expect(system).toMatch(/never see or state a figure/); expect(user).not.toContain('£'); return { concerns: [{ kind: 'line_amount', label: 'Replace kitchen tap labour' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }; } });
+        const client = new FakeModelClient({ specialist: ({ user, system }) => { expect(system).toMatch(/never see or state a figure/); expect(user).not.toContain('£'); return { concerns: [{ kind: 'line_amount', label: 'Replace kitchen tap' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }; } });
         const turn = later(file, 'What does that include, and how much is the labour?');
         const ret = await quote(file, turn, file.parties[0], routeOf(), client, d);
         expect(ret?.proposal.hold).toBeNull();
-        const labour = file.facts.find((f) => f.key === 'quote_line:Replace kitchen tap labour');
-        expect(labour).toMatchObject({ value: '£100.00', source: { kind: 'quote_line', line: 'Replace kitchen tap labour' } });
-        expect(ret?.factIds).toContain(labour!.id);
-        expect(ret?.brief?.join('\n')).toContain(`Replace kitchen tap labour = fact ${labour!.id}`);
-        expect(ret?.brief?.join('\n')).toMatch(/they asked about: Replace kitchen tap labour/);
+        const tap = file.facts.find((f) => f.key === 'quote_line:Replace kitchen tap');
+        expect(tap).toMatchObject({ value: '£120.00', source: { kind: 'quote_line', line: 'Replace kitchen tap' } });
+        expect(ret?.factIds).toContain(tap!.id);
+        expect(ret?.brief?.join('\n')).toContain(`Replace kitchen tap = fact ${tap!.id}`);
+        expect(ret?.brief?.join('\n')).toMatch(/they asked about: Replace kitchen tap/);
+        // No half of a line is on the file to quote back.
+        expect(file.facts.some((f) => /labour|materials/i.test(f.key))).toBe(false);
         expect(ret?.brief?.join('\n')).toMatch(/quote link is fact/);
         expect(ret?.brief?.join('\n')).toMatch(/Ben will come back to them on it/);
     });
@@ -166,6 +168,31 @@ describe('after the quote', () => {
         expect(r2?.proposal.hold).toMatchObject({ reason: 'acceptance' });
         expect(r2?.brief?.join('\n')).toMatch(/acceptance happens on the quote page/);
         expect(file.stage).toBe('quoted');
+    });
+
+    it('the money belt stands when the question model is skipped or answers nothing, so money still goes to Ben', async () => {
+        // The belt is cleared for a live quote only because this reading replaces it. When the
+        // reading does not happen, 2.7 applies again and the hold is the desk's, not the model's.
+        const tripwire = new FakeModelClient({ specialist: () => { throw new Error('the question model must not run on a skipped turn'); } });
+        const skipped = await sentQuote();
+        const belt = routeOf({ turnKind: 'acknowledgement', belts: { regulated: null, money: 'knocking a bit off' } });
+        const one = await quote(skipped.file, later(skipped.file, 'Cheers for that. Any chance of knocking a bit off?'), skipped.file.parties[0], belt, tripwire, skipped.d);
+        expect(one?.proposal.hold).toMatchObject({ reason: 'money' });
+        expect(one?.brief?.join('\n')).toMatch(/beyond a line of the quote/);
+
+        const failed = await sentQuote();
+        const refusing = new FakeModelClient({ specialist: () => ({ error: 'rate limited' }) });
+        const asked = routeOf({ turnKind: 'question', belts: { regulated: null, money: 'discount' } });
+        const two = await quote(failed.file, later(failed.file, 'any discount if I pay cash?'), failed.file.parties[0], asked, refusing, failed.d);
+        expect(two?.error).toMatch(/rate limited/);
+        expect(two?.proposal.hold).toMatchObject({ reason: 'money' });
+        expect(two?.brief?.join('\n')).toMatch(/beyond a line of the quote/);
+
+        // A turn the belt never fired on is unchanged: the model's reading stands.
+        const quiet = await sentQuote();
+        const plain = new FakeModelClient({ specialist: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const three = await quote(quiet.file, later(quiet.file, 'what does that include?'), quiet.file.parties[0], routeOf(), plain, quiet.d);
+        expect(three?.proposal.hold).toBeNull();
     });
 
     it('a not-ready customer gets an acknowledgement brief and no chase', async () => {

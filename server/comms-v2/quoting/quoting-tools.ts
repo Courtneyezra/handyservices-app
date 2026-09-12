@@ -195,7 +195,7 @@ export interface QuoteFactIds {
 
 /**
  * The quote onto the file as facts, once each, cited to the quote and the line: status; the link;
- * every figure the customer can be read (each line, its halves, the total, the deposit) only when
+ * every figure the customer can be read (each line, the total, the deposit) only when
  * the quote is live for figures; and scope, not-included and assumptions when live for scope.
  */
 export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDeps = {}): QuoteFactIds {

@@ -184,7 +184,7 @@ brief for the composer, and never sees a figure.
 | `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote |
 | `read_quote_scope` | the quote | what each line covers, its assumptions, what is not included; no figure | revoked, superseded, expired |
 | `live_figure_quotes` | the case file | which quotes a figure may be read from now, for the figure guard's own check of a cited line | the same rule as `read_quote_line`: a draft, revoked, superseded or expired quote is not in the answer |
-| `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, its halves, total, deposit) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
+| `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, the total, the deposit; never half a line, which is a breakdown rather than a line and is printed in whole pounds on the quote page) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
 | `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record and the totals; the row stays a draft | not a draft; a line with no suggestion and no figure from Ben |
 | `mark_quote_sent` | the case file, after the delivery landed | the quote leaves draft, its figures reach the file, the stage walks to quoted | no quote on the file; a row the store will not mark sent |
 | `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |
@@ -219,6 +219,13 @@ the desk releases it in its own words, naming the quote and its price screen, so
 tells Ben to build a quote that is already waiting for him. Never a
 sentence for the customer. Acceptance is a human event the door (live, the payment webhook)
 records; the specialist can only read it.
+
+**The money belt and the reading that replaces it.** The router's deterministic belt raises `money`
+on the wording alone, so 2.7 never depends on one model reading. It is cleared only while the file's
+quote is live for figures, because the Quoting question model then reads whether the ask is beyond a
+line (5.3). When that reading does not happen - the turn was read as a pause, an acknowledgement or a
+promise of more, the body was empty, or the call failed - the belt stands and the money hold is set
+without it.
 
 **A figure the quote has moved on from.** Facts are append-only, so a line whose amount changes -
 Ben re-pricing or editing the quote - leaves the old `quote_line:<label>` fact beside the new one.

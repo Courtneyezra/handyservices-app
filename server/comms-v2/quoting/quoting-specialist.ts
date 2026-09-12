@@ -285,6 +285,7 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         return { specialist: 'quoting', factIds, proposal: emptyProposal(), brief: briefLines(proposal), calls, error };
     }
     const skipModel = route.turnKind === 'short_pause' || route.turnKind === 'acknowledgement' || route.turnKind === 'promise_of_more' || !turn.body.trim();
+    let questionRead = false;
     if (!skipModel) {
         const labels = [...q.lines.map((l) => l.label), ...(q.totalPence != null ? ['Total'] : []), ...(q.depositPence ? ['Deposit'] : [])];
         const user = [
@@ -295,12 +296,17 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         const res = await client.structured({ role: 'specialist', model: SPECIALIST_MODEL, effort: 'medium', system: QUESTION_SYSTEM, user, schema: questionOutputSchema, maxTokens: 600 });
         calls.push(res.record);
         if (res.output) {
+            questionRead = true;
             proposal.concerns = res.output.concerns.slice(0, 6).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
             proposal.beyondQuoteLine = res.output.beyondQuoteLine;
             proposal.acceptanceInChat = res.output.acceptanceInChat && q.status === 'sent';
             proposal.notReady = proposal.notReady || res.output.notReady;
         } else error = res.error ?? 'the question model returned nothing';
     }
+    // The router's money belt is cleared for a live quote only because this reading replaces it
+    // (5.3 for a figure on the quote, applyQuotingRoute). When the reading did not run or did not
+    // answer, the belt stands: money beyond a quote line goes to Ben, never on one model reading.
+    if (route.belts.money && !questionRead) proposal.beyondQuoteLine = true;
     const p = emptyProposal();
     p.ready = true;
     // Holds: money beyond a line, and acceptance in chat (acceptance stays human).

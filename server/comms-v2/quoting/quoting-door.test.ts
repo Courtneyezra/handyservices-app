@@ -40,14 +40,14 @@ beforeAll(async () => {
         },
         specialist: ({ system, user }) => {
             if (/lines of a quote/.test(system)) return intakeOutput;
-            if (/what it concerns/.test(system)) return { concerns: [{ kind: 'line_amount', label: 'Replace kitchen tap labour' }], beyondQuoteLine: /cheaper/i.test(user.split('>>').pop() ?? ''), acceptanceInChat: false, notReady: false };
+            if (/what it concerns/.test(system)) return { concerns: [{ kind: 'line_amount', label: 'Replace kitchen tap' }], beyondQuoteLine: /cheaper/i.test(user.split('>>').pop() ?? ''), acceptanceInChat: false, notReady: false };
             return { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] };
         },
         composer: ({ user }) => {
             if (/they accepted the quote on the quote page/.test(user)) return { reply: 'Brilliant, thank you Sam.\n\nBen has been told and will be in touch about the day.', factIds: [], kbIds: [] };
             if (/thank for media: yes/.test(user)) return { reply: 'Thanks for the photo, that is the one.\n\nBen has everything he needs now.', factIds: [], kbIds: [] };
-            const m = /^(fact_[^:]+): quote_line:Replace kitchen tap labour = (£[\d.]+)$/m.exec(user);
-            if (m && /answer from the quote only/.test(user)) return { reply: `It covers taking the old tap out and fitting the new one, and you supply the tap.\n\nThe labour on your quote is ${m[2]}.`, factIds: [m[1]], kbIds: [] };
+            const m = /^(fact_[^:]+): quote_line:Replace kitchen tap = (£[\d.]+)$/m.exec(user);
+            if (m && /answer from the quote only/.test(user)) return { reply: `It covers taking the old tap out and fitting the new one, and you supply the tap.\n\nThat line on your quote is ${m[2]}.`, factIds: [m[1]], kbIds: [] };
             if (/Ben has priced the quote and is sending it now/.test(user)) {
                 const link = /(https:\/\/test\.local\/quote\/[a-z0-9]+)/.exec(user)?.[1] ?? '';
                 // Second attempt: the first draft carries a figure the guards refuse, so the file
@@ -167,16 +167,16 @@ describe('the quoting door', () => {
     });
 
     it('a question after the quote is answered from it: the figure equals the cited line to the penny and every guard passes', async () => {
-        const r = await post('/message', { text: 'What does that include, and how much is the labour?', channel: 'whatsapp' });
+        const r = await post('/message', { text: 'What does that include, and how much is that line?', channel: 'whatsapp' });
         expect(r.status).toBe(200);
         const ps = plannedSendOfResponse(r.json);
         expect(ps.delivered).toBe(true);
         expect(ps.hold).toBeNull();
-        expect(ps.bubbles.join(' ')).toContain('£100.00');
+        expect(ps.bubbles.join(' ')).toContain('£120.00');
         expect(ps.guards.figure.result).toBe('pass');
         expect(Object.values(ps.guards).every((g) => g.result === 'pass')).toBe(true);
         const cited = r.json.state.caseFile.facts.find((f: any) => ps.factIds.includes(f.id));
-        expect(cited).toMatchObject({ key: 'quote_line:Replace kitchen tap labour', value: '£100.00', source: { kind: 'quote_line', line: 'Replace kitchen tap labour' } });
+        expect(cited).toMatchObject({ key: 'quote_line:Replace kitchen tap', value: '£120.00', source: { kind: 'quote_line', line: 'Replace kitchen tap' } });
     });
 
     it('money beyond a quote line holds for Ben', async () => {
@@ -207,5 +207,51 @@ describe('the quoting door', () => {
         expect(r.status).toBe(200);
         expect(r.json.quotes.quotes).toBe(1);
         expect(store.rows.size).toBe(0);
+    });
+});
+
+describe('the price route and a hold it did not set', () => {
+    it('leaves a complaint hold standing when Ben prices and sends, because pricing a quote is not the answer to it', async () => {
+        const own = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        const client = new FakeModelClient({
+            router: ({ user }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: /not happy/i.test(user.split('>>').pop() ?? '') ? 'complaint' : null, turnKind: 'question' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? intakeOutput
+                : { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] }),
+            composer: ({ user }) => {
+                if (/Ben has priced the quote and is sending it now/.test(user)) {
+                    const link = /(https:\/\/test\.local\/quote\/[a-z0-9]+)/.exec(user)?.[1] ?? '';
+                    return { reply: `Your quote is ready, Sam.\n\nEverything is on the link: ${link}`, factIds: [], kbIds: [] };
+                }
+                return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.', factIds: [], kbIds: [] };
+            },
+        });
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-price-hold-'));
+        const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir: dir, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store: own, drafter: new FakeDrafter(own, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+        const app = express();
+        app.use(express.json());
+        app.use('/door', router);
+        const own_server: import('node:http').Server = await new Promise((resolve) => { const sv = app.listen(0, '127.0.0.1', () => resolve(sv)); });
+        const at = `http://127.0.0.1:${(own_server.address() as { port: number }).port}/door`;
+        const call = async (route: string, body: unknown) => {
+            const res = await fetch(`${at}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+            return { status: res.status, json: await res.json() as any };
+        };
+        try {
+            const started = await call('/start', { door: 'whatsapp', text: 'Hi, my kitchen tap is leaking, NG9 2AB', name: 'Sam' });
+            expect(started.json.state.quote.slug).toBeTruthy();
+            const complaint = await call('/message', { text: "I'm not happy with how the last job was left", channel: 'whatsapp' });
+            expect(complaint.json.state.caseFile.hold).toMatchObject({ exception: 'complaint' });
+
+            const priced = await call('/price', {});
+            expect(priced.status).toBe(200);
+            expect(priced.json.sent).toBe(true);
+            // The thread stays with the person who was meant to answer the complaint.
+            expect(priced.json.state.caseFile.hold).toMatchObject({ exception: 'complaint' });
+            expect(priced.json.state.caseFile.releases).toHaveLength(0);
+        } finally {
+            await new Promise<void>((r) => own_server.close(() => r()));
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

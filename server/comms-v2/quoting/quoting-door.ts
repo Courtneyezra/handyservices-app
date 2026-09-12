@@ -50,6 +50,13 @@ export interface QuotingDoorOptions {
 export const BEN_APPROVER = 'human:ben' as const;
 
 /**
+ * The opening of every hold reason this route writes, and the one it reads back when Ben's next send
+ * lands: only a hold this route put on the thread is answered by that send. A complaint, refund,
+ * trust or regulated hold is a person's to answer, and pricing a quote is not that answer.
+ */
+const priceHold = (slug: string) => `quote ${slug} priced;`;
+
+/**
  * The desk behind the gateway. Bracket access on purpose: server/spine/desk-switch.test.ts scans
  * every module for a dotted read of that property name and treats one as a module deciding for
  * itself which desk is live, which is the spine's config key, not this.
@@ -154,7 +161,7 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
                 respond(res, file, held, { slug: priced.record.slug, totals: priced.totals, quoteUrl: priced.quoteUrl, sent: false });
             };
             if (window.state === 'shut') {
-                holdAndAnswer(`quote ${priced.record.slug} priced; the WhatsApp window is shut (${window.reason}) and no approved template carries a quote link, so the quote is not sent and stays a draft`, null, []);
+                holdAndAnswer(`${priceHold(priced.record.slug)} the WhatsApp window is shut (${window.reason}) and no approved template carries a quote link, so the quote is not sent and stays a draft`, null, []);
                 return;
             }
 
@@ -163,15 +170,16 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             // the delivery from the file, with the quote link, and Contract 4 checks it like any
             // other composed reply (behaviour.md answer 43 is about who WROTE the words).
             const written = await composeQuoteSent(file, party, priced.quoteUrl, opts.deps);
-            if (!written.ok) { holdAndAnswer(`quote ${priced.record.slug} priced; the delivery message did not pass the guards (${written.failures.join('; ')})`, written.draft, written.failures, written.verdicts.guards, written.calls); return; }
+            if (!written.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the delivery message did not pass the guards (${written.failures.join('; ')})`, written.draft, written.failures, written.verdicts.guards, written.calls); return; }
             const rendered = render(choice.channel, written.reply);
-            if (!rendered.ok) { holdAndAnswer(`quote ${priced.record.slug} priced; the delivery message could not be rendered (${rendered.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
+            if (!rendered.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the delivery message could not be rendered (${rendered.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
             const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: BEN_APPROVER, guards: written.verdicts, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: written.calls, mode: 'dry_run' }, { now: opts.now, newId: opts.deps.newId });
-            if (!sent.ok) { holdAndAnswer(`quote ${priced.record.slug} priced; the send was refused (${sent.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
+            if (!sent.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the send was refused (${sent.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
             // The send landed: only now does the quote leave draft and its figures reach the file.
             // A hold this route put on the thread the last time Ben tried is what his send just
-            // answered, so it clears with the words that went, the way any human send releases one.
-            if (file.hold) releaseHold(file, BEN, written.reply, { now: opts.now, newId: opts.deps.newId });
+            // answered, so that one clears with the words that went, the way any human send releases
+            // one. Any other hold is a person's to answer and stands.
+            if (file.hold?.reason.startsWith(priceHold(priced.record.slug))) releaseHold(file, BEN, written.reply, { now: opts.now, newId: opts.deps.newId });
             const staged = await markQuoteSent(file, quotingDeps());
             const record = staged.ok ? staged.record : priced.record;
             const result: DeskResult = {

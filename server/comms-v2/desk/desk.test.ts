@@ -15,7 +15,7 @@ import { noTemplateApproved } from './sender';
 import type { InboundTurn } from './whatsapp-adapter';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
-import { MemoryQuoteStore } from '../quoting/quote-store';
+import { MemoryQuoteStore, type QuoteStore } from '../quoting/quote-store';
 import { markQuoteSent, priceQuote } from '../quoting/quoting-tools';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
@@ -321,5 +321,44 @@ describe('the desk', () => {
         expect(out.file.hold?.exception).toBe('money');
         expect(out.file.hold?.reason).toContain('money');
         expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+    });
+
+    it('a quote read that fails leaves the turn answered instead of taking it down, with no figure readable', async () => {
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        let failing = false;
+        const flaky: QuoteStore = {
+            read: async (slug) => { if (failing) throw new Error('connection reset by peer'); return store.read(slug); },
+            insertDraft: (row) => store.insertDraft(row),
+            price: (slug, input) => store.price(slug, input),
+            markSent: (slug) => store.markSent(slug),
+            accept: (slug, now) => store.accept(slug, now),
+            addPhotos: (slug, urls) => store.addPhotos(slug, urls),
+            deleteSandbox: (phone) => store.deleteSandbox(phone),
+        };
+        const logs: string[] = [];
+        const { gateway } = desk({
+            router: () => routeScoping(),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : /what it concerns/.test(system)
+                    ? { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }
+                    : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            composer: () => ({ reply: 'Hi Sam, got it.\n\nBen will be in touch.', factIds: [], kbIds: [] }),
+        }, undefined, { quoting: { store: flaky, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' }, log: (m) => logs.push(m) });
+
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.job.quoteRef).toBeTruthy();
+
+        failing = true;
+        const second = await gateway.inbound(turn('any news?', '2026-09-11T10:05:00.000Z'));
+        // The turn is answered rather than thrown away: the customer's message is not left silent.
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.result.decision).toBe('send');
+        expect(second.result.bubbles.length).toBeGreaterThan(0);
+        expect(logs.join(' | ')).toMatch(/connection reset by peer/);
+        // Fails closed: with no quote live for figures, a cited amount is refused.
+        expect(second.result.guards.figure.result).toBe('pass');
+        expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
     });
 });

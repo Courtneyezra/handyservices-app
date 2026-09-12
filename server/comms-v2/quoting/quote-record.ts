@@ -143,15 +143,17 @@ export interface QuoteLineRead {
 
 export type QuoteLineReadOutcome = { ok: true; value: QuoteLineRead } | { ok: false; reason: string; status: QuoteStatus };
 
-/** Every label a figure can be read under: each line, its labour and materials halves when priced, the total and the deposit. */
+/**
+ * Every label a figure can be read under: each priced line, the total and the deposit. A line's
+ * labour and materials halves are not among them. They are a breakdown of a line rather than a line
+ * (behaviour.md answer 23: a figure may be given only as one line of the live quote, to the penny,
+ * cited as that line), and the quote page prints them rounded to whole pounds, so an amount to the
+ * penny would be one that appears nowhere on the quote the customer holds.
+ */
 export function figureLabels(q: QuoteRecord): Array<{ label: string; amountPence: number }> {
     const out: Array<{ label: string; amountPence: number }> = [];
     for (const l of q.lines) {
         if (l.pricePence != null) out.push({ label: l.label, amountPence: l.pricePence });
-        if (l.labourPence != null && l.materialsPence != null && l.materialsPence > 0) {
-            out.push({ label: `${l.label} labour`, amountPence: l.labourPence });
-            out.push({ label: `${l.label} materials`, amountPence: l.materialsPence });
-        }
     }
     if (q.totalPence != null) out.push({ label: TOTAL_LABEL, amountPence: q.totalPence });
     if (q.depositPence != null && q.depositPence > 0) out.push({ label: DEPOSIT_LABEL, amountPence: q.depositPence });

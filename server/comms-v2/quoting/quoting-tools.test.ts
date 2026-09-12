@@ -180,7 +180,10 @@ describe('read_quote_line and read_quote_scope', () => {
         expect(live.status).toBe('sent');
         const line = readQuoteLine(live, 'replace kitchen tap');
         expect(line).toMatchObject({ ok: true, value: { label: 'Replace kitchen tap', amountPence: 12000, amount: '£120.00', citation: { quoteRef: live.slug, line: 'Replace kitchen tap' } } });
-        expect(readQuoteLine(live, 'Replace kitchen tap labour')).toMatchObject({ ok: true, value: { amount: '£100.00' } });
+        // A line's labour and materials halves are not labels a figure may be read under: they are a
+        // breakdown of a line, and the quote page prints them in whole pounds.
+        expect(readQuoteLine(live, 'Replace kitchen tap labour')).toMatchObject({ ok: false });
+        expect(readQuoteLine(live, 'Replace kitchen tap materials')).toMatchObject({ ok: false });
         expect(readQuoteLine(live, 'Total')).toMatchObject({ ok: true, value: { amount: '£120.00' } });
         expect(readQuoteLine(live, 'Deposit')).toMatchObject({ ok: true, value: { amount: '£45.00' } });
         expect(readQuoteLine(live, 'call-out fee')).toMatchObject({ ok: false });
@@ -203,18 +206,19 @@ describe('read_quote_line and read_quote_scope', () => {
         expect((await markQuoteSent(file, d)).ok).toBe(true);
         const live = (await loadQuote(file, d))!;
         const ids = recordQuoteFacts(file, live, d);
-        expect(Object.keys(ids.lines).sort()).toEqual(['Deposit', 'Replace kitchen tap', 'Replace kitchen tap labour', 'Replace kitchen tap materials', 'Total']);
+        expect(Object.keys(ids.lines).sort()).toEqual(['Deposit', 'Replace kitchen tap', 'Total']);
         const again = recordQuoteFacts(file, live, d);
         expect(again.lines).toEqual(ids.lines);
-        const labour = file.facts.find((f) => f.id === ids.lines['Replace kitchen tap labour'])!;
-        expect(labour).toMatchObject({ key: 'quote_line:Replace kitchen tap labour', value: '£100.00', source: { kind: 'quote_line', quoteRef: live.slug, line: 'Replace kitchen tap labour' } });
+        const tap = file.facts.find((f) => f.id === ids.lines['Replace kitchen tap'])!;
+        expect(tap).toMatchObject({ key: 'quote_line:Replace kitchen tap', value: '£120.00', source: { kind: 'quote_line', quoteRef: live.slug, line: 'Replace kitchen tap' } });
+        expect(file.facts.some((f) => /labour|materials/i.test(f.key))).toBe(false);
         const party = file.parties[0]; const turn = file.turns[0];
         const liveQuoteRefs = await liveFigureQuotes(file, d);
         const base = { file, party, turn, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs };
-        expect(runGuards({ ...base, reply: 'The labour on your quote is £100.00.', factIds: [labour.id] }).guards.figure.result).toBe('pass');
-        expect(runGuards({ ...base, reply: 'The labour on your quote is £100.', factIds: [labour.id] }).guards.figure.result).toBe('fail');
-        expect(runGuards({ ...base, reply: 'The labour on your quote is £100.00.', factIds: [] }).guards.figure.result).toBe('fail');
-        expect(runGuards({ ...base, reply: 'That comes to £220.00 with the materials.', factIds: [labour.id] }).guards.figure.result).toBe('fail');
+        expect(runGuards({ ...base, reply: 'That line on your quote is £120.00.', factIds: [tap.id] }).guards.figure.result).toBe('pass');
+        expect(runGuards({ ...base, reply: 'That line on your quote is £120.', factIds: [tap.id] }).guards.figure.result).toBe('fail');
+        expect(runGuards({ ...base, reply: 'That line on your quote is £120.00.', factIds: [] }).guards.figure.result).toBe('fail');
+        expect(runGuards({ ...base, reply: 'The labour on it is £100.00.', factIds: [tap.id] }).guards.figure.result).toBe('fail');
     });
 
     it('refuses a cited figure once the quote is no longer live, status by status, though the fact stays on the file', async () => {
