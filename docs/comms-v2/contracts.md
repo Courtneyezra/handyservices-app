@@ -211,7 +211,9 @@ that the customer was never shown.
 **What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,
 assumptions, link and status, each with source `quote_line` naming the quote and the label. A
 brief: the quote is with Ben, or answer from these facts, or point at the quote page to accept, or
-acknowledge a not-ready customer. Holds: money beyond a quote line, acceptance in chat. Never a
+acknowledge a not-ready customer. Holds: money beyond a quote line, acceptance in chat, and a draft
+the clerk could not build, where the brief promises the customer nothing and the hold reason names
+the failure, because no quote exists and Ben has had no notification. Never a
 sentence for the customer. Acceptance is a human event the door (live, the payment webhook)
 records; the specialist can only read it.
 

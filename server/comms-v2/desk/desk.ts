@@ -129,6 +129,9 @@ export class Desk implements DeskLike {
                     this.holdFor(file, 'money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
                 } else if (quoting?.proposal.hold?.reason === 'acceptance' && !file.hold) {
                     setHold(file, { approver: approverFor(file, null), reason: `acceptance in chat: ${quoting.proposal.hold.match}; acceptance stays on the quote page and with Ben` }, this.fileDeps());
+                } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
+                    if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: `the quote draft failed (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, failures: [] }, this.fileDeps());
+                    if (scoping) scoping.proposal.ready = false;
                 }
                 if (route.subjects.includes('scheduling')) fixedLines.push(await fixedLine('dates_with_quote', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.

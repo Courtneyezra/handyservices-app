@@ -34,7 +34,7 @@ export interface PriceInput {
 }
 
 export type PriceOutcome =
-    | { ok: true; totals: { totalPence: number; depositPence: number; materialsPence: number; labourPence: number }; quoteUrl: string; lines: Array<{ lineId: string; label: string; finalPence: number }> }
+    | { ok: true; totals: { totalPence: number; depositPence: number }; quoteUrl: string }
     | { ok: false; status: number; reason: string };
 
 export type AcceptOutcome = { ok: true; depositPence: number } | { ok: false; status: number; reason: string };
@@ -96,9 +96,8 @@ export const liveQuoteStore: QuoteStore = {
         if (!c.ok) return { ok: false, status: c.status, reason: c.errors.join('; ') };
         return {
             ok: true,
-            totals: { totalPence: c.totals.totalPence, depositPence: c.totals.depositPence, materialsPence: c.totals.materialsPence, labourPence: c.totals.labourPence },
+            totals: { totalPence: c.totals.totalPence, depositPence: c.totals.depositPence },
             quoteUrl: c.payload.quoteUrl,
-            lines: finals.map((f) => ({ lineId: f.lineId, label: loaded.lines.find((l) => l.lineId === f.lineId)?.title ?? f.lineId, finalPence: f.finalPence })),
         };
     },
 
@@ -213,7 +212,7 @@ export class MemoryQuoteStore implements QuoteStore {
         Object.assign(row, { pricingLineItems: priced, basePrice: totalPence, depositAmountPence: depositPence, expiresAt: new Date(Date.now() + 48 * 3_600_000).toISOString() });
         const base = (this.opts.baseUrl ?? 'https://handyservices.app').replace(/\/$/, '');
         const quoteUrl = `${base}/quote/${slug}`;
-        return { ok: true, totals: { totalPence, depositPence, materialsPence, labourPence: totalPence - materialsPence }, quoteUrl, lines: finals.map((f) => ({ lineId: f.lineId, label: items.find((l) => l.lineId === f.lineId)?.label ?? f.lineId, finalPence: f.finalPence })) };
+        return { ok: true, totals: { totalPence, depositPence }, quoteUrl };
     }
 
     async markSent(slug: string): Promise<MarkSentOutcome> {

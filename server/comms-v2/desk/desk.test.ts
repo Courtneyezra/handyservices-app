@@ -230,4 +230,25 @@ describe('the desk', () => {
         expect(b.file.hold?.reason).toMatch(/no approved template/);
         expect(b.file.hold?.draft).toContain('Still here');
     });
+
+    it('a quote the clerk could not build holds for Ben, and the customer is promised nothing', async () => {
+        const store = new MemoryQuoteStore();
+        let composerUser = '';
+        const { gateway } = desk({
+            router: () => routeScoping(),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : specialistFacts([{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }, { key: 'access', value: 'parking outside, someone in all day' }], ['job', 'postcode', 'access'])),
+            composer: ({ user }) => { composerUser = user; return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.\n\nBen will come back to you himself.', factIds: [], kbIds: [] }; },
+        }, undefined, { quoting: { store, drafter: new FakeDrafter(store, { fail: 'estimator down' }), notifier: recordingNotifier } });
+        const out = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.file.job.quoteRef).toBeNull();
+        expect(out.file.hold?.reason).toContain('the quote draft failed (estimator down)');
+        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(composerUser).toContain('quoting: draft failed (estimator down)');
+        expect(composerUser).not.toMatch(/with Ben to price|put the quote together|send it over/);
+        expect(composerUser).toContain('an acknowledgement only');
+        expect(out.result.bubbles.join(' ')).not.toMatch(/quote/i);
+    });
 });

@@ -135,8 +135,13 @@ export function briefLines(p: QuotingProposal): string[] {
     const ids = p.answerFrom;
     const figureList = Object.entries(ids.figures).map(([label, id]) => `${label} = fact ${id}`).join('; ');
     if (p.phase === 'draft') {
-        out.push(p.drafted ? `quoting: drafted ${p.quoteRef} for Ben to price` : `quoting: draft failed (${p.draftError ?? 'unknown'})`);
-        out.push('the quote is with Ben to price: nothing about a price exists yet, so no figure; if this turn is a wrap-up, Ben will put the quote together and send it over, no timing');
+        if (p.drafted) {
+            out.push(`quoting: drafted ${p.quoteRef} for Ben to price`);
+            out.push('the quote is with Ben to price: nothing about a price exists yet, so no figure; if this turn is a wrap-up, Ben will put the quote together and send it over, no timing');
+        } else {
+            out.push(`quoting: draft failed (${p.draftError ?? 'unknown'})`);
+            out.push('nothing has been built for this job and Ben has the thread now: promise nothing about a price, a document or when anything happens, and give no figure; acknowledge what they said in one line and say Ben will come back to them himself');
+        }
     } else if (p.phase === 'with_ben') {
         out.push(`quoting: ${p.quoteRef} with Ben to price`);
         if (ids.scope.length && p.concerns.some((c) => c.kind === 'scope' || c.kind === 'not_included' || c.kind === 'on_the_day')) {
@@ -257,6 +262,7 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         else { proposal.draftError = drafted.reason; error = error ? `${error}; ${drafted.reason}` : drafted.reason; }
         const p = emptyProposal();
         p.ready = true;
+        if (!drafted.ok) p.hold = { reason: 'draft_failed', match: drafted.reason };
         return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(proposal), calls, error };
     }
 

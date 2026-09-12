@@ -56,7 +56,7 @@ export interface Proposal {
     thankForMedia: boolean;
     ready: boolean;
     /** regulated from Scoping; money beyond a quote line and acceptance in chat from Quoting. */
-    hold: { reason: 'regulated' | 'money' | 'acceptance'; match: string } | null;
+    hold: { reason: 'regulated' | 'money' | 'acceptance' | 'draft_failed'; match: string } | null;
 }
 
 export interface SpecialistReturn {
