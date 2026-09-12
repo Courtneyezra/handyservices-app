@@ -231,6 +231,36 @@ describe('after the quote', () => {
         expect(two?.brief?.join('\n')).toMatch(/they asked about: Total/);
     });
 
+    it('two lines titled the same are named to the question model by that one title, so the turn holds instead of picking one', async () => {
+        const { d, store } = deps();
+        const file = fixture();
+        const panels = { lines: [
+            { title: 'Replace a fence panel', category: 'garden' as const, qty: 1, detail: 'the front one, 6ft', assumptions: [], notIncluded: [] },
+            { title: 'Replace a fence panel', category: 'garden' as const, qty: 1, detail: 'the rear one, 3ft', assumptions: [], notIncluded: [] },
+        ], customerType: 'homeowner' as const, missing: [] };
+        await quote(file, file.turns[0], file.parties[0], routeOf({ turnKind: 'enquiry' }), new FakeModelClient({ specialist: () => panels }), d);
+        expect((await priceQuote(file, { lines: [{ lineId: 'card_1', finalPence: 12000 }, { lineId: 'card_2', finalPence: 8000 }] }, d)).ok).toBe(true);
+        expect((await markQuoteSent(file, d)).ok).toBe(true);
+        expect(store.rows.get(file.job.quoteRef!)).toBeTruthy();
+
+        // A model that answers with a label exactly as the prompt listed it, which is what it is
+        // asked to do. Named by the title both lines carry, no one line is meant.
+        let listed: string[] = [];
+        const picks = new FakeModelClient({
+            specialist: ({ user }) => {
+                listed = (/Labels on it: ([^.]+)\./.exec(user)?.[1] ?? '').split('; ');
+                return { concerns: [{ kind: 'line_amount', label: listed.find((l) => /fence panel/i.test(l)) ?? '' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false };
+            },
+        });
+        const ret = await quote(file, later(file, 'how much for the rear one?'), file.parties[0], routeOf(), picks, d);
+        expect(listed).toEqual(['Replace a fence panel', 'Total', 'Deposit']);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+        expect(ret?.brief?.join('\n')).toMatch(/beyond a line of the quote/);
+        // Both figures are still on the file, each under its own name: neither collapsed into the other.
+        expect(file.facts.find((f) => f.key === 'quote_line:Replace a fence panel (line 1)')?.value).toBe('£120.00');
+        expect(file.facts.find((f) => f.key === 'quote_line:Replace a fence panel (line 2)')?.value).toBe('£80.00');
+    });
+
     it('a deposit the quote does not carry goes to Ben, while a deposit it does carry is answered', async () => {
         const asks = () => new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'deposit', label: 'a deposit up front' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
         // A labour-only job can be sent with no deposit at all: the row supports it.

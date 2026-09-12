@@ -363,26 +363,9 @@ export function isInternalFact(fact: Pick<Fact, 'key'>): boolean {
     return INTERNAL_FACT_KEYS.some((k) => fact.key === k || fact.key.startsWith(`${k}:`));
 }
 
-/**
- * A figure the quote has moved on from. Facts are append-only, so a line whose amount changes - the
- * customer refreshing their own lapsed quote, Ben re-pricing - leaves the old `quote_line:<label>`
- * fact on the file beside the new one. The newest for a label on a quote is that quote's current
- * line, and it is the only one the composer may be shown or the figure guard may accept: every
- * amount is checked to the penny against the line it cites.
- */
-export function isSupersededFigure(file: CaseFile, fact: Pick<Fact, 'id' | 'key' | 'source'>): boolean {
-    if (!fact.key.startsWith('quote_line:') || fact.source.kind !== 'quote_line') return false;
-    const ref = fact.source.quoteRef;
-    for (let i = file.facts.length - 1; i >= 0; i--) {
-        const f = file.facts[i];
-        if (f.key === fact.key && f.source.kind === 'quote_line' && f.source.quoteRef === ref) return f.id !== fact.id;
-    }
-    return false;
-}
-
-/** The facts a customer reply may be written from: everything on the file except Ben's own and a figure the quote has moved on from. */
+/** The facts a customer reply may be written from: everything on the file except Ben's own. */
 export function customerVisibleFacts(file: CaseFile): Fact[] {
-    return file.facts.filter((f) => !isInternalFact(f) && !isSupersededFigure(file, f));
+    return file.facts.filter((f) => !isInternalFact(f));
 }
 
 /** The newest fact for a key. */

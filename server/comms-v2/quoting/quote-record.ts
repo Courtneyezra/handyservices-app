@@ -143,10 +143,8 @@ export interface QuoteLineRead {
 
 export type QuoteLineReadOutcome = { ok: true; value: QuoteLineRead } | { ok: false; reason: string; status: QuoteStatus };
 
-/** One figure of the quote: which line it came from, the quote's own label for it, and the name it is cited under. */
+/** One figure of the quote: the quote's own label for it, and the name it is cited and recorded under. */
 export interface QuoteFigure {
-    /** The line's own id on the row, or the total's and the deposit's own names: what the figure IS, whatever it is labelled. */
-    ref: string;
     /** The quote's label for it, as the page prints it. Two lines may share one. */
     label: string;
     /**
@@ -169,13 +167,12 @@ export function figureLabels(q: QuoteRecord): QuoteFigure[] {
     const priced = q.lines.filter((l) => l.pricePence != null);
     const shared = (label: string) => priced.filter((l) => norm(l.label) === norm(label)).length > 1;
     const out: QuoteFigure[] = priced.map((l, i) => ({
-        ref: l.lineId,
         label: l.label,
         citation: shared(l.label) ? `${l.label} (line ${i + 1})` : l.label,
         amountPence: l.pricePence!,
     }));
-    if (q.totalPence != null) out.push({ ref: 'total', label: TOTAL_LABEL, citation: TOTAL_LABEL, amountPence: q.totalPence });
-    if (q.depositPence != null && q.depositPence > 0) out.push({ ref: 'deposit', label: DEPOSIT_LABEL, citation: DEPOSIT_LABEL, amountPence: q.depositPence });
+    if (q.totalPence != null) out.push({ label: TOTAL_LABEL, citation: TOTAL_LABEL, amountPence: q.totalPence });
+    if (q.depositPence != null && q.depositPence > 0) out.push({ label: DEPOSIT_LABEL, citation: DEPOSIT_LABEL, amountPence: q.depositPence });
     return out;
 }
 

@@ -232,8 +232,10 @@ other.
 **Two lines the quote titles the same.** Ordinary work: two fence panels, two taps. Each figure is
 recorded and cited under a name unique on the quote - the label, or the label with its line position
 when another line shares it - so one line's price can never be recorded or read back as another's.
-Asked for under the title they share, no figure is read at all: which line is meant is not the desk's
-to guess, so it goes to Ben. Answering it from the line's own
+The specialist names the quote's own labels to its question model, each once and never those
+positions, which it has no way to map onto the customer's words: asked for under the title they
+share, no figure is read at all, because which line is meant is not the desk's to guess, so it goes
+to Ben. Answering it from the line's own
 figure under that name would state an amount the customer's quote does not, and every check would
 pass it, which is worse than a hold.
 
@@ -251,12 +253,6 @@ the amounts an earlier turn recorded are still on the file and the reply is stil
 on the thread when an earlier attempt did not send, and a money hold, because 2.7's promise is that
 Ben will come back to them on the price and this is him doing it. A complaint, refund, trust or
 regulated hold is a person's to answer and stands, and so does an acceptance hold.
-
-**A figure the quote has moved on from.** Facts are append-only, so a line whose amount changes -
-Ben re-pricing or editing the quote - leaves the old `quote_line:<label>` fact beside the new one.
-The newest for a label on a quote is that quote's current line and the only one the composer is
-shown or the figure guard accepts (`isSupersededFigure`, desk/case-file.ts), so a price the quote no
-longer carries can never be read back.
 
 **A quote that is no longer live for figures.** Expired, revoked and superseded are one path on
 purpose: no figure may be read from any of them, no fresh link is recorded, the reply says Ben will

@@ -16,7 +16,7 @@
  * guards: Ben for a homeowner; for a tenant issue, later, the landlord's rules, then the landlord,
  * then Ben. A rule-based approver is a legal value from day one and has no rules yet.
  */
-import { askedUnanswered, customerWroteSinceLastReply, everAsked, isSupersededFigure, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
+import { askedUnanswered, customerWroteSinceLastReply, everAsked, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
 import { RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DISCLOSURE, RE_FIGURE, RE_THANKS_MEDIA, regulatedMatch, sentencesOf, textAsks } from './lexicon';
@@ -75,7 +75,7 @@ function citedFacts(input: GuardInput): Fact[] {
 export function checkFigure(input: GuardInput): GuardVerdict {
     const matches = Array.from(input.reply.matchAll(new RegExp(RE_FIGURE.source, 'gi'))).map((m) => m[0]);
     if (!matches.length) return pass();
-    const live = citedFacts(input).filter((f) => (f.source.kind === 'quote_line' ? input.liveQuoteRefs.has(f.source.quoteRef) && !isSupersededFigure(input.file, f) : f.source.kind === 'customer_record'));
+    const live = citedFacts(input).filter((f) => (f.source.kind === 'quote_line' ? input.liveQuoteRefs.has(f.source.quoteRef) : f.source.kind === 'customer_record'));
     const allowed = new Set(live.map((f) => normaliseFigure(f.value)));
     const bad = matches.filter((m) => !allowed.has(normaliseFigure(m)));
     return bad.length ? fail(`a figure appears that is not a line of the live quote or a customer record: ${bad.join(', ')}`) : pass();

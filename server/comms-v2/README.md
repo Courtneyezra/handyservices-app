@@ -45,10 +45,7 @@ quote machinery that survives the rebuild is wrapped.
 Facts the specialist writes carry the quote and the line as their source: `quote_line:<label> = £x.xx`
 (`source: { kind: 'quote_line', quoteRef, line }`), `quote_scope:<label>`, `quote_not_included:<label>`,
 `quote_assumption:<label>`, `quote_link`, `quote_status`. The composer copies a figure exactly as
-written and cites the fact; the figure guard passes only that. A line whose amount changes leaves the
-old fact on the append-only file, so only the newest `quote_line:<label>` for a quote is shown or
-accepted (`isSupersededFigure`, `desk/case-file.ts`): a price the quote no longer carries cannot be
-read back.
+written and cites the fact; the figure guard passes only that.
 
 Four facts are Ben's, not the customer's: the three notifications carry the admin price screen link
 and an internal note, and `ben_to_request` carries what the draft is missing. No guard reads what a

@@ -305,7 +305,10 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     const skipModel = route.turnKind === 'short_pause' || route.turnKind === 'acknowledgement' || route.turnKind === 'promise_of_more' || !turn.body.trim();
     let questionRead = false;
     if (!skipModel) {
-        const labels = figureLabels(q).map((f) => f.citation);
+        // The quote's own labels, each once. Never the citations the facts are keyed by: those carry
+        // a line's position, which the model has no way to map onto the customer's words, so it
+        // would pick one. Named by a title two lines share, the read refuses and the turn is Ben's.
+        const labels = Array.from(new Set(figureLabels(q).map((f) => f.label)));
         const user = [
             `Quote ${q.slug}, status ${q.status}. Labels on it: ${labels.join('; ') || 'none'}. Not included: ${q.lines.flatMap((l) => l.notIncluded).join('; ') || 'nothing listed'}. Assumptions: ${q.lines.flatMap((l) => l.assumptions).join('; ') || 'none'}.`,
             'Thread, oldest first (the newest turn is marked >>):',
