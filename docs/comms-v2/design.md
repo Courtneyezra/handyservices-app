@@ -460,7 +460,9 @@ The remaining Stage 1 lines and all of Stage 3, each through its own door on the
 | 3.5 | A missed call gets one text back; an answered inbound call gets no acknowledgement. | The call door: `missed` sends the missed-call template (or its words on SMS) once per thread, the acknowledgement written to the ask ledger so a customer who rings three times still hears back once; `answered_inbound` reads the transcript for facts and sends nothing. |
 
 The old inputs forward into the new gateway behind `COMMS_V2_INTAKE` (off by default; the old
-handler still runs); inbound email is new, a webhook under the new code; see the README.
+handler still runs). Inbound email has no webhook here: the email sandbox door is the only way an
+email reaches the desk, and a webhook is cutover work (`server/comms-v2/README.md`, "Inbound
+email", which owns what that needs).
 
 ---
 

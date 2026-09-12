@@ -48,6 +48,22 @@ describe('the channel gateway', () => {
         expect(g.store.all()).toHaveLength(1);
         expect(seen).toHaveLength(3);
     });
+    it('a WhatsApp turn on a file opened by email gives the party its own number: a WhatsApp channel never carries a mailbox', async () => {
+        const g = new ChannelGateway({ desk: fakeDesk, now: () => new Date('2026-09-11T10:00:00.000Z') });
+        // The business already knows this person by both keys, which is how a mail turn and a WhatsApp turn meet on one file.
+        g.identity.resolve('whatsapp', '+447700900942');
+        const linked = g.identity.link('phone:07700900942', 'email:sam@example.invalid', 'one person on both keys');
+        expect(linked.ok).toBe(true);
+        const mail = await g.inbound(fromDoorEmail({ address: 'sam@example.invalid', name: 'Sam Jones', subject: 'Dead fan', text: 'My extractor fan has stopped turning.', at: '2026-09-11T10:00:00.000Z', messageId: '<e1@x>' }));
+        if (mail.kind !== 'handled') throw new Error(mail.kind);
+        expect(mail.file.parties[0].channels.map((c) => [c.kind, c.address])).toEqual([['email', 'sam@example.invalid']]);
+        const onWa = await g.inbound(wa('same thing, on WhatsApp now', '2026-09-11T10:05:00.000Z'));
+        if (onWa.kind !== 'handled') throw new Error(onWa.kind);
+        expect(onWa.file.id).toBe(mail.file.id);
+        const ch = onWa.file.parties[0].channels.find((c) => c.kind === 'whatsapp');
+        expect(ch).toMatchObject({ address: '+447700900942', lastInboundAt: '2026-09-11T10:05:00.000Z', transport: 'meta' });
+        expect(chooseChannel(onWa.file.parties[0], 'whatsapp', new Date('2026-09-11T10:06:00.000Z'))).toEqual({ ok: true, channel: 'whatsapp', address: '+447700900942' });
+    });
     it('a form whose phone the business already knows joins that person, and its email is linked on the way past', async () => {
         const byWhatsApp = new ChannelGateway({ desk: fakeDesk });
         const c = await byWhatsApp.inbound(wa('my kitchen fan is dead', '2026-09-11T09:00:00.000Z'));

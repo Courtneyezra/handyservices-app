@@ -68,25 +68,44 @@ export class ChannelGateway extends Gateway {
             file = opened.value;
             landed = file.turns[0];
             this.applySeed(file, seed);
+            await this.reach(file, resolved, env, address, seed);
             this.store.put(file);
         } else {
             const party = partyOf(file, resolved.personId)!;
             if (!party.name && resolved.name) party.name = resolved.name;
+            await this.reach(file, resolved, env, address, seed);
             const appended = appendTurn(file, { ...turnBody, partyId: resolved.personId, direction: 'inbound', runId: null, approver: null }, this.fileDeps());
             if (!appended.ok) return { kind: 'refused', reason: appended.reason };
             landed = appended.value;
         }
-        const party = partyOf(file, resolved.personId)!;
 
-        // The party's reach: every address this turn proves, once each. A phone channel's own address counts as SMS reach.
+        // What the adapter established, with this turn as the source.
+        for (const f of env.facts ?? []) {
+            const rec = recordFact(file, { key: f.key, value: f.value, source: { kind: 'thread', turnId: landed.id }, by: `${env.channel}_adapter` }, this.fileDeps());
+            if (!rec.ok) this.log(`intake fact ${f.key} refused: ${rec.reason}`);
+        }
+
+        const result = await this.desk.handleTurn(file, landed);
+        return { kind: 'handled', file, turn: landed, result };
+    }
+
+    /**
+     * The party's reach: every address this turn proves, once each. A phone channel's own address
+     * counts as SMS reach, and a WhatsApp turn proves the number it came from, so the WhatsApp
+     * channel carries that number and not whichever address the party already had. It runs before
+     * the turn lands, so the window the turn opens is recorded on a channel that is already right.
+     */
+    private async reach(file: CaseFile, resolved: Extract<ResolveResult, { ok: true }>, env: InboundEnvelope, address: string, seed: ChannelSeed): Promise<void> {
+        const party = partyOf(file, resolved.personId)!;
         const reach = [...(env.reach ?? [])];
-        if (env.channel === 'call' || env.channel === 'form') { const phone = e164Of(resolved.canonical); if (phone) reach.push({ kind: 'sms', address: phone }); }
+        if (env.channel === 'call' || env.channel === 'form') { const p = e164Of(resolved.canonical); if (p) reach.push({ kind: 'sms', address: p }); }
         if (env.channel === 'sms') reach.push({ kind: 'sms', address });
+        if (env.channel === 'whatsapp') reach.push({ kind: 'whatsapp', address });
         if (env.channel === 'email') reach.push({ kind: 'email', address });
         for (const r of reach) if (!party.channels.some((c) => c.kind === r.kind && c.address === r.address)) party.channels.push({ kind: r.kind, address: r.address, lastInboundAt: null });
         const phone = e164Of(resolved.canonical) ?? party.channels.find((c) => c.kind === 'sms')?.address ?? null;
         if (phone && !party.channels.some((c) => c.kind === 'whatsapp')) {
-            const on = seed.whatsapp !== undefined ? seed.whatsapp : env.channel === 'whatsapp' ? true : await this.presence.knownOnWhatsApp(phone);
+            const on = seed.whatsapp !== undefined ? seed.whatsapp : await this.presence.knownOnWhatsApp(phone);
             if (on) party.channels.push({ kind: 'whatsapp', address: phone, lastInboundAt: null });
         }
         if (env.channel === 'whatsapp' && (env.via === 'twilio' || env.via === 'meta')) {
@@ -100,14 +119,5 @@ export class ChannelGateway extends Gateway {
                 ch.thread = { subject: prev?.subject ?? env.email.subject, messageId: env.email.messageId ?? prev?.messageId ?? null, references: Array.from(new Set([...(prev?.references ?? []), ...env.email.references])) };
             }
         }
-
-        // What the adapter established, with this turn as the source.
-        for (const f of env.facts ?? []) {
-            const rec = recordFact(file, { key: f.key, value: f.value, source: { kind: 'thread', turnId: landed.id }, by: `${env.channel}_adapter` }, this.fileDeps());
-            if (!rec.ok) this.log(`intake fact ${f.key} refused: ${rec.reason}`);
-        }
-
-        const result = await this.desk.handleTurn(file, landed);
-        return { kind: 'handled', file, turn: landed, result };
     }
 }

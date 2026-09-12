@@ -315,6 +315,31 @@ describe('the channel desk on a call', () => {
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.bubbles[0].text).not.toContain('WhatsApp');
     });
+    it('a first SMS reply held for Ben carries no invitation, so the next real reply still carries it, and only that once (1.4)', async () => {
+        const { gateway } = rig({
+            router: () => routeScoping({ turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [{ key: 'job_type', value: 'dropped gate' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user, n }) => {
+                // The first two attempts fail the figure guard, so the thread holds and the acknowledgement goes instead.
+                if (n <= 2) return { reply: 'That would be about \u00a380.', factIds: [], kbIds: [] };
+                const briefed = (user.split('Fixed lines to include')[1] ?? '').includes(DEFAULT_FIXED_LINES.move_to_whatsapp);
+                return { reply: briefed ? `A dropped gate, got it. Whereabouts are you? ${DEFAULT_FIXED_LINES.move_to_whatsapp}` : 'NG9, lovely. Is there parking outside?', factIds: [], kbIds: [] };
+            },
+        });
+        const a = await gateway.inbound(fromDoorSms({ address: '+447700900942', name: 'Sam', text: 'my gate has dropped', at: '2026-09-11T10:00:00.000Z' }), { whatsapp: false });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result).toMatchObject({ decision: 'hold', delivered: true, channel: 'sms' });
+        expect(a.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.held_ack);
+        expect(a.result.bubbles[0].text).not.toContain('WhatsApp');
+        const b = await gateway.inbound(fromDoorSms({ address: '+447700900942', text: 'any news?', at: '2026-09-11T10:05:00.000Z' }));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result).toMatchObject({ decision: 'send', delivered: true, channel: 'sms' });
+        expect(b.result.bubbles[0].text).toContain(DEFAULT_FIXED_LINES.move_to_whatsapp);
+        const c = await gateway.inbound(fromDoorSms({ address: '+447700900942', text: 'NG9 2AB', at: '2026-09-11T10:10:00.000Z' }));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result.bubbles[0].text).not.toContain('WhatsApp');
+        expect(c.file.turns.filter((t) => t.direction === 'outbound' && t.body.includes(DEFAULT_FIXED_LINES.move_to_whatsapp))).toHaveLength(1);
+    });
     it('the move-to-WhatsApp line still goes to someone whose number is merely known to be on WhatsApp: they have never written there, and they have just texted us', async () => {
         const { gateway } = rig({
             router: () => routeScoping({ turnKind: 'enquiry' }),

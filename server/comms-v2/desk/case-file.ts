@@ -284,7 +284,11 @@ export function addParty(file: CaseFile, party: Party): Outcome<Party> {
 
 // ---------------------------------------------------------------- turns
 
-/** Adds a turn. Refuses when the party is not on the file or the turn is out of order. */
+/**
+ * Adds a turn. Refuses when the party is not on the file or the turn is out of order. An inbound
+ * WhatsApp turn opens the window on the party's WhatsApp channel; the channel itself is the
+ * gateway's to put there from the address the turn proves, never invented from another channel's.
+ */
 export function appendTurn(file: CaseFile, turn: Omit<Turn, 'id'> & { id?: string }, deps: CaseFileDeps = {}): Outcome<Turn> {
     const newId = deps.newId ?? defaultNewId;
     const party = partyOf(file, turn.partyId);
@@ -297,7 +301,6 @@ export function appendTurn(file: CaseFile, turn: Omit<Turn, 'id'> & { id?: strin
     if (t.direction === 'inbound' && t.channel === 'whatsapp') {
         const ch = party.channels.find((c) => c.kind === 'whatsapp');
         if (ch) ch.lastInboundAt = t.at;
-        else party.channels.push({ kind: 'whatsapp', address: party.channels[0]?.address ?? '', lastInboundAt: t.at });
     }
     return accept(t);
 }
