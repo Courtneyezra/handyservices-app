@@ -34,7 +34,7 @@ export interface PriceInput {
 }
 
 export type PriceOutcome =
-    | { ok: true; totals: { totalPence: number; depositPence: number; materialsPence: number; labourPence: number }; message: string; quoteUrl: string; lines: Array<{ lineId: string; label: string; finalPence: number }> }
+    | { ok: true; totals: { totalPence: number; depositPence: number; materialsPence: number; labourPence: number }; quoteUrl: string; lines: Array<{ lineId: string; label: string; finalPence: number }> }
     | { ok: false; status: number; reason: string };
 
 export type AcceptOutcome = { ok: true; depositPence: number } | { ok: false; status: number; reason: string };
@@ -94,11 +94,9 @@ export const liveQuoteStore: QuoteStore = {
         const body = { version: loaded.version, lines: finals, message: null, messageEdited: false, resolutions: [] };
         const c = await confirmPrices(slug, body, { id: input.by.replace(/^human:/, ''), email: null });
         if (!c.ok) return { ok: false, status: c.status, reason: c.errors.join('; ') };
-        const { withQuoteLink } = await import('../../spine/price-brief');
         return {
             ok: true,
             totals: { totalPence: c.totals.totalPence, depositPence: c.totals.depositPence, materialsPence: c.totals.materialsPence, labourPence: c.totals.labourPence },
-            message: withQuoteLink(c.payload.message.body, c.payload.quoteUrl),
             quoteUrl: c.payload.quoteUrl,
             lines: finals.map((f) => ({ lineId: f.lineId, label: loaded.lines.find((l) => l.lineId === f.lineId)?.title ?? f.lineId, finalPence: f.finalPence })),
         };
@@ -215,23 +213,7 @@ export class MemoryQuoteStore implements QuoteStore {
         Object.assign(row, { pricingLineItems: priced, basePrice: totalPence, depositAmountPence: depositPence, expiresAt: new Date(Date.now() + 48 * 3_600_000).toISOString() });
         const base = (this.opts.baseUrl ?? 'https://handyservices.app').replace(/\/$/, '');
         const quoteUrl = `${base}/quote/${slug}`;
-        const first = String(row.customerName ?? 'there').split(/\s+/)[0];
-        const job = items.map((l) => l.label).join(', ');
-        // The words the price screen actually drafts (server/spine/price-brief.ts
-        // draftCustomerMessage): on a thread with photos they open "thanks for the photos and the
-        // details", which the desk has usually already said. A fake that wrote its own message
-        // could not fail on that, so it writes this one.
-        const photos = Array.isArray(row.customerPhotoUrls) && (row.customerPhotoUrls as string[]).length > 0;
-        const thanks = photos ? 'thanks for the photos and the details.' : 'thanks for the details.';
-        const message = [
-            `Hi ${first}, ${thanks}`,
-            `Your quote for ${job} is ready, link below.`,
-            'It is itemised so you can see exactly what is included, and you can pick a date that suits you on the same page.',
-            'Any questions, just reply here.',
-            '',
-            quoteUrl,
-        ].join('\n');
-        return { ok: true, totals: { totalPence, depositPence, materialsPence, labourPence: totalPence - materialsPence }, message, quoteUrl, lines: finals.map((f) => ({ lineId: f.lineId, label: items.find((l) => l.lineId === f.lineId)?.label ?? f.lineId, finalPence: f.finalPence })) };
+        return { ok: true, totals: { totalPence, depositPence, materialsPence, labourPence: totalPence - materialsPence }, quoteUrl, lines: finals.map((f) => ({ lineId: f.lineId, label: items.find((l) => l.lineId === f.lineId)?.label ?? f.lineId, finalPence: f.finalPence })) };
     }
 
     async markSent(slug: string): Promise<MarkSentOutcome> {

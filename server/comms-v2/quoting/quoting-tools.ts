@@ -233,7 +233,7 @@ export { TOTAL_LABEL, DEPOSIT_LABEL, pounds };
 // ---------------------------------------------------------------- price_quote (Ben)
 
 export type PriceQuoteOutcome =
-    | { ok: true; record: QuoteRecord; message: string; quoteUrl: string; totals: { totalPence: number; depositPence: number }; factIds: string[] }
+    | { ok: true; record: QuoteRecord; quoteUrl: string; totals: { totalPence: number; depositPence: number }; factIds: string[] }
     | { ok: false; status: number; reason: string };
 
 /** Ben prices the draft: the price screen's own write, which leaves the row a draft. The quote leaves draft and its figures reach the file only once his send has landed (markQuoteSent). */
@@ -248,7 +248,7 @@ export async function priceQuote(file: CaseFile, input: Omit<PriceInput, 'by'> &
     const record = quoteRecordOf(row, d.now());
     const ids = recordQuoteFacts(file, record, deps);
     const factIds = [ids.status, ids.link, ...Object.values(ids.lines)].filter((x): x is string => !!x);
-    return { ok: true, record, message: r.message, quoteUrl: r.quoteUrl, totals: { totalPence: r.totals.totalPence, depositPence: r.totals.depositPence }, factIds };
+    return { ok: true, record, quoteUrl: r.quoteUrl, totals: { totalPence: r.totals.totalPence, depositPence: r.totals.depositPence }, factIds };
 }
 
 export type MarkSentOutcome =

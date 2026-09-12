@@ -266,7 +266,7 @@ describe('price_quote, the stage, and acceptance', () => {
         expect(priced.ok).toBe(true);
         if (!priced.ok) return;
         expect(priced.totals.totalPence).toBe(15000);
-        expect(priced.message).toContain(`https://test.local/quote/${priced.record.slug}`);
+        expect(priced.quoteUrl).toBe(`https://test.local/quote/${priced.record.slug}`);
         expect(priced.factIds.length).toBeGreaterThan(0);
         expect(file.stage).toBe('first_contact');
         // The price screen's write leaves the row a draft, exactly as confirmPrices does live:
