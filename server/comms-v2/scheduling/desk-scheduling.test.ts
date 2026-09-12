@@ -188,6 +188,34 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(third.result.decision).toBe('send');
     });
 
+    it('5.5: the router\'s date_change exception holds for Ben even when the desk can see no booking, and the reply still answers the rest', async () => {
+        const { diary } = await seededDiary(6);
+        const { gateway } = desk({
+            router: ({ n }) => n === 1 ? scoping() : scheduling({ exception: 'date_change' }),
+            specialist: specialists(['date_change'], 'the week after'),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
+                expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                return { reply: 'Ben will come back to you on the date.\n\nAnd yes, bring the old tap out if you can.', factIds: [], kbIds: [] };
+            },
+        }, diary);
+        const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.job.bookingRef).toBeNull();
+        expect(first.file.stage).not.toBe('booked');
+        const second = await gateway.inbound(turn('Can we move the appointment to the week after? Also should I take the old tap out?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        const r = second.result;
+        expect(r.decision).toBe('send');
+        expect(r.delivered).toBe(true);
+        expect(r.hold).toMatchObject({ approver: { kind: 'human', id: 'ben' }, exception: 'date_change' });
+        expect(r.hold?.reason).toMatch(/^date_change: move the appointment/);
+        expect(r.guards.date_time_duration.result).toBe('pass');
+        const said = r.bubbles.map((b) => b.text).join(' ');
+        expect(said).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(said).toContain('bring the old tap out');
+    });
+
     it('a booked date the composer paraphrased with a weekday fails the date guard once and is written again from the diary', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({

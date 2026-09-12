@@ -128,15 +128,19 @@ export class Desk implements DeskLike {
                     fixedLines.push(line);
                     this.holdFor(file, exception, `${exception}: ${route.belts.money ?? turn.body.slice(0, 80)}`);
                 }
-                // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change to a booked job holds for Ben and the reply still answers the rest.
+                // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change holds for Ben and the reply still answers the rest.
+                // The router's date_change exception holds whatever the diary could see: until the desk can resolve a real booking from the party, a request to move one must still reach Ben (checklist 5.5).
                 const couldBeBooked = !!(file.job.bookingRef || file.job.quoteRef || file.stage === 'booked');
                 if (route.subjects.includes('scheduling') || exception === 'date_change' || dateQuestionMatch(turn.body) || (couldBeBooked && dateChangeMatch(turn.body))) {
                     const sched = await schedule(file, turn, party, this.client, { ...this.deps.scheduling, now: this.now });
                     calls.push(...sched.calls);
                     specialists.push(sched);
                     if (sched.error) log(`scheduling: ${sched.error}`);
-                    for (const kind of sched.scheduling.fixedLines) fixedLines.push(await fixedLine(kind, this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    if (sched.proposal.hold) this.holdFor(file, 'date_change', `date_change: ${sched.proposal.hold.match}`);
+                    const kinds = new Set<FixedLineKind>(sched.scheduling.fixedLines);
+                    const dateChange = sched.proposal.hold?.match ?? (exception === 'date_change' ? dateChangeMatch(turn.body) ?? turn.body.slice(0, 80) : null);
+                    if (dateChange) kinds.add('date_change_to_ben');
+                    for (const kind of kinds) fixedLines.push(await fixedLine(kind, this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    if (dateChange) this.holdFor(file, 'date_change', `date_change: ${dateChange}`);
                 }
                 fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.

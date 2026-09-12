@@ -127,6 +127,13 @@ booked the date is confirmed from the diary, and a request to move it holds for 
 while the reply still answers everything else. A hold on a date change is not a fixed-line hold:
 later turns still get the desk.
 
+The date-change gate is deliberately loose: the router's `date_change` exception holds for Ben on
+its own, whether or not the diary could find a standing booking, because nothing outside the door's
+fixture writes a booking reference onto a case file yet, so a real customer asking to move a real
+visit would otherwise be answered with a lead time about a job already in the diary. A hold on a
+job that turned out not to be booked is a harmless false positive; the missed one is not. Once the
+desk can resolve a booking from the party itself, the gate tightens back to a standing booking.
+
 ## Driving the door
 
 ```
