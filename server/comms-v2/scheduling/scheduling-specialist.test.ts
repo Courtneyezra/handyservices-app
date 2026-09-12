@@ -442,6 +442,22 @@ describe('the Scheduling specialist', () => {
         expect(file.facts.filter((f) => f.key === 'picker_link' || f.key === 'lead_time')).toEqual([]);
     });
 
+    it('a thrown read and a classification that never came back together still leave a quote-only thread with the picker, not a hold', async () => {
+        const diary = diaryWith(6);
+        diary.bookingForQuote = async () => { throw new Error('connection lost'); };
+        const file = fixture('What dates do you have?');
+        file.job.quoteRef = 'q1';
+        const failed = new FakeModelClient({ specialist: () => ({ error: 'rate limited' }) });
+        const r = await schedule(file, file.turns[0], party(file), failed, { diary, now, baseUrl: 'https://example.test' });
+        expect(r.scheduling.asks).toEqual(['availability']);
+        expect(r.proposal.hold).toBeNull();
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.scheduling.picker).toMatchObject({ ok: true, url: 'https://example.test/quote/abcdefgh' });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days' });
+        expect(r.error).toContain('rate limited');
+        expect(r.error).toContain('connection lost');
+    });
+
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {
         const diary = diaryWith(6, true);
         diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';

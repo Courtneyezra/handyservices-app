@@ -261,6 +261,8 @@ describe('the desk with Scheduling (Goal 5)', () => {
                     dateFact = date[2];
                     return { reply: `You're booked in for ${date[1]}.`, factIds: [dateFact], kbIds: [] };
                 }
+                // The date this turn did not look up is no longer offered as a fact to cite, though the thread still shows what was said and a composer that repeats it is still refused.
+                expect(user).not.toContain(dateFact);
                 return { reply: 'Yes, Ben brings the parts with him. See you on 25 September 2026.', factIds: [dateFact], kbIds: [] };
             },
         }, diary);

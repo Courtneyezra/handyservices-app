@@ -95,8 +95,12 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
     lines.push(threadFor(file, turn));
     lines.push('');
+    // A diary fact is only citable while this run looked it up: an older booked date was true when it was
+    // written and the diary may have moved since, so it is left off the list rather than dangled and refused.
+    const lookedUp = new Set(specialists.flatMap((s) => s.factIds));
+    const citable = file.facts.filter((f) => f.source.kind !== 'diary' || lookedUp.has(f.id));
     lines.push('Facts on the file (id: key = value):');
-    lines.push(file.facts.length ? file.facts.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
+    lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
     lines.push('');
     lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exception: ${route.exception ?? 'none'}.`);
     if (proposal) {
