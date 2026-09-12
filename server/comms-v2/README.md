@@ -163,8 +163,9 @@ one thread (channels/channel-doors.ts).
 Goal 5 adds `POST /scheduling/fixture`
 (`{ completed: N, quote: true, booked: true, diary: 'diary' | 'none' }`: seed the diary on the
 sandbox number and link the current thread, after `/start` with the job type and location in the
-opening message) and `POST /scheduling/fixture/reset`. Both answer with what they seeded, what
-they linked and the diary mode, which is everything the scenarios below need.
+opening message) and `POST /scheduling/fixture/reset`. The seed answers with what it seeded, what
+it linked and the diary mode; the reset with what it deleted and the mode back to the diary, which
+is everything the scenarios below need.
 
 The Goal 5 scenarios, each after `/start` with an opening message that names the job and a
 postcode (`"Hi, my kitchen tap is dripping, NG9 2AB"`):
