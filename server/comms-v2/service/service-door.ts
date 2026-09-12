@@ -4,15 +4,16 @@
  * ledger. Everything here goes through the same case file and desk the customer's turns do.
  *
  *   POST /fixture           write the knowledge-base rows and chase template approvals on the branch
- *   POST /ben-replies       { text, surface? } Ben's reply lands on the thread and releases the hold
+ *   POST /ben-replies       { text } Ben's reply goes out through desk/human-reply.ts and releases the hold
  *   POST /chase-intervals   { chaseAfterMinutes, escalateAfterMinutes } test values; then /age and /run
  *   GET  /chase             the chase ledger for the current thread
  */
 import { Router, type Request } from 'express';
 import type { ApproverSlot, CaseFile, CaseFileDeps } from '../desk/case-file';
 import type { ChaseState } from './chase';
+import { humanReply } from '../desk/human-reply';
 import { applySandboxFixture } from './fixture';
-import { automationState, humanReply, type HumanSurface } from './return-to-automation';
+import { automationState } from './return-to-automation';
 
 /**
  * Who a request may reply and release as. On a router the app mounts this is the slot the
@@ -28,8 +29,6 @@ export interface ServiceDoorDeps extends CaseFileDeps {
     stateOf: () => unknown;
     approver: ApproverForRequest;
 }
-
-const SURFACES: readonly HumanSurface[] = ['kanban', 'admin', 'handset', 'email', 'sandbox'];
 
 export function serviceDoorRouter(deps: ServiceDoorDeps): Router {
     const router = Router();
@@ -48,13 +47,11 @@ export function serviceDoorRouter(deps: ServiceDoorDeps): Router {
         if (!approver || approver.kind !== 'human') { res.status(403).json({ error: 'no approver slot is assigned to this session' }); return; }
         const file = deps.currentFile();
         if (!file) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
-        const text = String(req.body?.text ?? '').trim();
-        if (!text) { res.status(400).json({ error: 'text is required: a human reply needs words' }); return; }
-        const surface = SURFACES.includes(req.body?.surface) ? (req.body.surface as HumanSurface) : 'sandbox';
-        const out = humanReply(file, { by: approver.id, surface, text }, { now: deps.now, newId: deps.newId });
+        const user = (req as any).user;
+        const out = await humanReply({ file, approver, person: user?.email ?? user?.id ?? approver.id, words: String(req.body?.text ?? '') }, { now: deps.now, newId: deps.newId });
         if (!out.ok) { res.status(400).json({ error: out.reason }); return; }
-        if (out.released) deps.chase.ledger.clear(file.id);
-        res.json({ ok: true, event: 'return_to_automation', turnId: out.turn.id, approver: out.approver, surface, released: out.released, stillHeldBy: out.stillHeldBy, automation: automationState(file), state: deps.stateOf() });
+        if (out.release) deps.chase.ledger.clear(file.id);
+        res.json({ ok: true, event: 'return_to_automation', turnId: out.result.turnId, approver: out.result.approver, channel: out.result.channel, released: out.release, automation: automationState(file), state: deps.stateOf() });
     });
 
     router.post('/chase-intervals', (req, res) => {

@@ -238,13 +238,14 @@ model when the router sends the turn to `service`.
 | Tool | Input | Returns | Refuses when |
 |---|---|---|---|
 | `kb_lookup` | the customer's question | reviewed knowledge-base rows selected by question, best first, by id with the body verbatim | read-only; an unreviewed, retired or blank row is invisible; may return nothing |
-| `customer_record` | the case file and the party | the party's own details: name, the phone and email addresses on the file, and facts whose source is the customer record | another party's record is never read |
+| `customer_record` | the case file and the party | the party's own details: name, the phone and email addresses on the file, and facts whose source is the customer record; the specialist's model sees the email and address only as held, never their values | another party's record is never read |
 | `change_of_details` | a field, the new value, the turn | a fact `change_of_details` with the turn as its source, and a hold for Ben | a field not on the record; an empty value; a figure; a value the record already holds. The record itself is never written here. |
 | `convergence` | the case file | converging, or not with why | not converging when the job has been asked JOB_ASKS_MAX times with no job type, or SCOPING_REPLIES_MAX replies have gone since the last release while a job is being scoped (the turn routed to the Scoper, the job asked, or a job detail on the file) and the file is not ready; a ready file, or one past scoping, always converges |
 
 **What the specialist returns.** Facts: each answer as a fact whose value is the reviewed row's
-body verbatim (source `knowledge_base` by id) or the record's own value (source `customer_record`),
-and a requested change as a fact. A proposal: a hold with its reason from the vocabulary
+body verbatim (source `knowledge_base` by id) or the record's own name or phone (source `customer_record`),
+and a requested change as a fact. A question about the email or address we hold is never read back:
+it holds for Ben as `no_source`, naming the masked field. A proposal: a hold with its reason from the vocabulary
 (`complaint`, `refund`, `trust_doubt`, `no_source`, `not_converging`, `change_of_details`), or none.
 A brief for the composer naming the exact words and the id to cite. An id the lookup did not return
 is no source. Never a sentence for the customer.
@@ -257,10 +258,11 @@ separated reliably from a phone call), no source, a change of details. A turn ca
 one exception: each carries its own fixed line into the reply, and the hold records the gravest. Every later turn on a held thread is
 acknowledged (checklist 7.3).
 
-**Return to automation (7.4).** `human_reply(file, by, surface, words)`: any human's reply from any
-surface lands on the thread as an outbound turn with a `human:<id>` approver and a run id, is
-recorded as a send, releases the hold with those words (only from the named approver), and records
-the surface as a fact. The next customer turn is routed as any other: the release records where the
+**Return to automation (7.4).** Any human's reply, from Ben's board or the door's "Ben replies",
+goes through the one human-reply path (`desk/human-reply.ts`, Contract 5): it is sent on the
+thread's own channel under a `human:<person>` approver and a run id, lands on the thread as an
+outbound turn, records what it asked on the ask ledger, and releases the hold with those words (only
+from the named approver). The next customer turn is routed as any other: the release records where the
 thread stood, so a rule counting replies counts them from there and not for all time.
 
 **Ben's chase (7.5).** On the desk's clock pass, a held thread chases Ben after one interval and

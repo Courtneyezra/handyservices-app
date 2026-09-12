@@ -23,7 +23,7 @@ import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
 import { CHASE_TEMPLATES, createChaseState } from './chase';
-import { humanReply } from './return-to-automation';
+import { humanReply } from '../desk/human-reply';
 
 const INSURED = "Yes, we're fully insured, with public liability cover in place for every job.";
 const kb = { async list() { return [{ id: 'kb-insured', topic: 'Are you insured?', approvedWords: INSURED }]; } };
@@ -161,8 +161,9 @@ describe('the Service specialist on the desk', () => {
         expect(b.result.delivered).toBe(true);
         expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
         expect(client.calls).toHaveLength(1);
-        const ben = humanReply(a.file, { by: 'ben', surface: 'kanban', text: 'Sorry Sam, that is on me. I will come and put it right.' }, { now: () => new Date(clock.t += 1000) });
-        expect(ben.ok && ben.released?.words).toMatch(/put it right/);
+        clock.t = Date.parse('2026-09-11T10:15:00.000Z');
+        const ben = await humanReply({ file: a.file, approver: BEN, person: 'ben', words: 'Sorry Sam, that is on me. I will come and put it right.' }, { now: () => new Date(clock.t += 1000) });
+        expect(ben.ok && ben.release?.words).toMatch(/put it right/);
         expect(a.file.hold).toBeNull();
         const c = await gateway.inbound(turn('Thanks Ben, appreciated', '2026-09-11T10:20:00.000Z'));
         if (c.kind !== 'handled') throw new Error(c.kind);
@@ -270,8 +271,9 @@ describe('the Service specialist on the desk', () => {
         }
         if (!last || last.kind !== 'handled') throw new Error('not handled');
         expect(last.file.hold?.exception).toBe('not_converging');
-        const ben = humanReply(last.file, { by: 'ben', surface: 'handset', text: 'Sam, I will pick this up with you directly.' }, { now: () => new Date(clock.t += 1000) });
-        expect(ben.ok && ben.released).toBeTruthy();
+        clock.t = Date.parse('2026-09-11T10:30:00.000Z');
+        const ben = await humanReply({ file: last.file, approver: BEN, person: 'ben', words: 'Sam, I will pick this up with you directly.' }, { now: () => new Date(clock.t += 1000) });
+        expect(ben.ok && ben.release).toBeTruthy();
         const after = await gateway.inbound(turn('so what did you need from me', '2026-09-11T10:40:00.000Z'));
         if (after.kind !== 'handled') throw new Error(after.kind);
         expect(after.file.hold).toBeNull();
@@ -333,7 +335,7 @@ describe('the Service specialist on the desk', () => {
         const escalated = await gateway.clock(a.file.id);
         expect(escalated?.chase?.action).toBe('escalated');
         expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
-        humanReply(a.file, { by: 'ben', surface: 'admin', text: 'Refund on its way, sorry.' }, { now: () => new Date(clock.t += 1000) });
+        await humanReply({ file: a.file, approver: BEN, person: 'ben', words: 'Refund on its way, sorry.' }, { now: () => new Date(clock.t += 1000) });
         chase.ledger.clear(a.file.id);
         const after = await gateway.clock(a.file.id);
         expect(after?.chase).toBeNull();
