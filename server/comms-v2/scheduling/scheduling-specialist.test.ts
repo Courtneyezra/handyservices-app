@@ -137,7 +137,7 @@ describe('the Scheduling specialist', () => {
         diary.bookings.find((b) => b.id === 'bk1')!.durationDays = 2;
         const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary, now });
         assertNoProse(r, file);
-        expect(r.scheduling.bookedDate).toEqual({ ok: true, state: 'standing', bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
+        expect(r.scheduling.bookedDate).toEqual({ ok: true, state: 'standing', bookingRef: 'bk1', quoteRef: 'q1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
         const date = file.facts.find((f) => f.key === 'booked_date')!;
         expect(date.value).toBe('25 September 2026');
         expect(date.source).toEqual({ kind: 'diary', rowId: 'booking:bk1' });
@@ -508,20 +508,20 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.fixedLines).toEqual([]);
     });
 
-    it('a booking waiting on a contractor is still a booking they made: the lead time answers, the picker does not', async () => {
+    it('a booking stuck waiting on a contractor: the lead time answers, no picker goes, and Ben hears about it', async () => {
         const diary = diaryWith(6, true);
         const pool = diary.bookings.find((b) => b.id === 'bk1')!;
         pool.status = 'pending';
         pool.assignmentStatus = 'unassigned';
-        const file = fixture('What dates do you have?');
+        const file = fixture("What dates have you got? I still haven't heard from anyone.");
         file.job.quoteRef = 'q1';
         const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
-        // They picked a date on that page already; picking again would make a second booking from the one quote.
-        expect(r.scheduling.picker).toMatchObject({ ok: false, quoteRef: 'q1' });
+        // They picked a date on that page already, so no link goes; and the reply says we know they booked.
+        expect(r.scheduling.picker).toBeNull();
         expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
         expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
-        expect(r.proposal.hold).toBeNull();
-        expect(r.scheduling.fixedLines).toEqual([]);
         expect(r.error).toBeNull();
     });
 
@@ -538,7 +538,7 @@ describe('the Scheduling specialist', () => {
         expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
         expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
         // One reply does not say Ben will come back on the date and then send them to the page where dates are picked.
-        expect(r.scheduling.picker).toMatchObject({ ok: false });
+        expect(r.scheduling.picker).toBeNull();
         expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
         expect(r.brief.join(' ')).not.toMatch(/Dates are picked on the quote page/);
         expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
@@ -573,6 +573,55 @@ describe('the Scheduling specialist', () => {
         expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
         expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
         expect(r.proposal.hold).toBeNull();
+    });
+
+    it('a cancelled visit asked about both ways: Ben owns the date, so no link to pick another goes with it', async () => {
+        const diary = diaryWith(6, true);
+        diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';
+        const file = fixture('When are you coming? And what dates have you got?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'availability']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
+        expect(r.scheduling.picker).toBeNull();
+        expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+    });
+
+    it('a diary that could not say, asked about both ways: the same, no link beside a date that is Ben\'s', async () => {
+        const diary = diaryWith(6);
+        diary.booking = async () => { throw new Error('connection lost'); };
+        const file = fixture('When are you coming? And what dates have you got?');
+        file.job.quoteRef = 'q1';
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'availability']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
+        expect(r.scheduling.picker).toBeNull();
+        expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(r.error).toContain('connection lost');
+    });
+
+    it('an expired quote is refused and said so where it can be acted on: the run, not the reply', async () => {
+        const diary = diaryWith(6);
+        diary.quotes[0].expiresAt = '2026-09-01T00:00:00.000Z';
+        const file = fixture('What dates do you have?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.scheduling.picker).toMatchObject({ ok: false, reason: 'the quote has expired' });
+        expect(r.error).toContain('the quote has expired');
+        expect(r.brief.join(' ')).not.toMatch(/expired/);
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+    });
+
+    it('a booking from some earlier quote says nothing about this one: the picker still answers', async () => {
+        const diary = diaryWith(6, true);
+        diary.quotes.push({ id: 'q2', slug: 'secondqt', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: '2026-09-20T00:00:00.000Z' });
+        const file = fixture('What dates do you have?');
+        file.job.quoteRef = 'q2';
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
+        expect(r.scheduling.picker).toMatchObject({ ok: true, quoteRef: 'q2', url: 'https://example.test/quote/secondqt' });
+        expect(r.proposal.hold).toBeNull();
+        expect(r.error).toBeNull();
     });
 
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {

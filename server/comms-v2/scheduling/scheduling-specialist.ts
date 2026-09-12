@@ -22,7 +22,7 @@ import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn 
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import type { FixedLineKind } from '../desk/fixed-lines';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
-import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
+import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, isTheirs, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
 
 /**
  * What the turn asks, and every value is load-bearing: `date_change` holds for Ben, `booked_date`
@@ -99,6 +99,9 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     // A read that threw where nothing on the file says there is a booking is nothing known rather than a
     // booking: a customer holding only a quote asked what dates we have, and the picker answers that.
     const unreadable = !standing.ok && standing.state === 'unknown' && !!standing.detail && !file.job.bookingRef && file.stage !== 'booked';
+    // The booking on this file is one they made, from the quote the file carries: the reading the picker
+    // refuses on, so the confirmation, the refusal and what Ben is told can never disagree.
+    const theirsFromThisQuote = !!file.job.quoteRef && isTheirs(standing) && standing.quoteRef === file.job.quoteRef;
 
     // The model classifies the ask.
     let asks: SchedulingAsk[] = [];
@@ -171,19 +174,22 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         proposal.hold = { reason: 'date_change', match: findings.dateChange };
         brief.push('They want to change the date of a job they already have: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
     } else {
-        const confirming = couldStand && asks.includes('booked_date');
+        // The confirmation decides first, and everything else reads from it. It runs when they asked for
+        // the day, and whenever the picker would otherwise have gone to somebody who booked on it already:
+        // a reply that withholds the link and says nothing about their day reads as not knowing they booked.
+        const confirming = couldStand && (asks.includes('booked_date') || theirsFromThisQuote);
         if (confirming) confirmWhatStands(false);
         // A turn can ask more than one thing and each is answered: the shelf runs beside a confirmation
         // when they also asked how soon or what dates, and on its own when there was no date to confirm.
         if (confirming && !asks.some((a) => a === 'lead_time' || a === 'availability')) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
         findings.leadTime = await typicalLeadTime(deps);
         if (!findings.leadTime.ok && findings.leadTime.detail) details.push(`${findings.leadTime.reason}: ${findings.leadTime.detail}`);
-        if (file.job.quoteRef) findings.picker = await pickerLink(file, deps, standing);
-        // Only a read that threw is filed: a refusal the desk meant is not an error, and an error channel full of them is one a real failure hides in.
-        if (findings.picker && !findings.picker.ok && findings.picker.detail) details.push(`${findings.picker.reason}: ${findings.picker.detail}`);
-        // The picker was refused because that job already stands in the diary. They did not ask to move it,
-        // and a reply that says nothing about a day already in the diary reads as not knowing about it.
-        if (!confirming && standing.ok && findings.picker && !findings.picker.ok) confirmWhatStands(false);
+        // No link while the date is Ben's: one reply must not say he will come back on it and then send
+        // them to the page where dates are picked.
+        if (file.job.quoteRef && !proposal.hold) findings.picker = await pickerLink(file, deps, standing);
+        // A refusal the desk meant is not an error; every other one reaches the log and the run summary,
+        // because an expired or missing quote nobody is told about is one nobody fixes.
+        if (findings.picker && !findings.picker.ok && !findings.picker.expected) details.push(findings.picker.detail ? `${findings.picker.reason}: ${findings.picker.detail}` : findings.picker.reason);
         if (findings.picker?.ok) {
             const p = findings.picker;
             const f = recordFact(file, { key: 'picker_link', value: p.url, source: { kind: 'quote_line', quoteRef: p.quoteRef, line: 'picker' }, by }, fileDeps);

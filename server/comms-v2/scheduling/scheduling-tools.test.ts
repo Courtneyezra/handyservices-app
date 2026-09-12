@@ -150,7 +150,7 @@ describe('confirm_booked_date', () => {
         const file = fixture();
         file.job.bookingRef = 'bk1';
         const bd = await confirmBookedDate(file, { diary, now });
-        expect(bd).toEqual({ ok: true, state: 'standing', bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
+        expect(bd).toEqual({ ok: true, state: 'standing', bookingRef: 'bk1', quoteRef: 'q1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
     });
     it('falls back to the live booking made from the file\'s quote, newest first, skipping declined and cancelled ones', async () => {
         const diary = new MemoryDiary();
@@ -183,7 +183,7 @@ describe('confirm_booked_date', () => {
         const file = fixture();
         file.job.quoteRef = 'q1';
         diary.bookings.push(booked('canq', { status: 'cancelled' }));
-        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'cancelled', reason: 'the booking is cancelled; nothing stands in the diary', bookingRef: 'canq' });
+        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'cancelled', reason: 'the booking is cancelled; nothing stands in the diary', bookingRef: 'canq', quoteRef: 'q1' });
         // A standing booking from the same quote still wins over one that does not stand, whichever is newer.
         diary.bookings.push(booked('liveq', { createdAt: '2026-09-01T00:00:00.000Z' }));
         expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, state: 'standing', bookingRef: 'liveq' });
@@ -297,7 +297,7 @@ describe('the belts', () => {
         const file = fixture();
         file.job.bookingRef = 'bk7';
         diary.bookings.push({ id: 'bk7', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'pending', assignmentStatus: 'unassigned', dayOfStatus: null, createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
-        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'unaccepted', reason: expect.stringContaining('no contractor has taken the booking on yet'), bookingRef: 'bk7' });
+        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'unaccepted', reason: expect.stringContaining('no contractor has taken the booking on yet'), bookingRef: 'bk7', quoteRef: 'q1' });
         // Assigned to somebody who has not accepted it is still nobody's job yet.
         diary.bookings[0].assignmentStatus = 'assigned';
         expect((await confirmBookedDate(file, { diary, now })).state).toBe('unaccepted');
