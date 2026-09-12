@@ -146,9 +146,11 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             // Asked what day we are coming and the diary gave no date: a job nobody has taken on, one taken
             // off them, or a diary that could not say. The reply promises that Ben will come back on it, so
             // Ben is told; the hold's reason names which, since an unreadable diary may only need a retry.
+            // What it forbids is a day of the desk's own: a typical lead time this turn looked up for a
+            // second question they asked is the shelf's to give, and sits beside this without contradicting it.
             findings.fixedLines.push('date_change_to_ben');
             proposal.hold = { reason: 'date_unconfirmed', match: standing.reason };
-            brief.push('There is no date to confirm and they may be expecting one: include the fixed line that Ben will come back on the date, never say they are booked in, say nothing about why, and give no day, time or lead time. Answer anything else they asked.');
+            brief.push('There is no date to confirm and they may be expecting one: include the fixed line that Ben will come back on the date, never say they are booked in, say nothing about why, and never name a day or a time of your own. Answer anything else they asked.');
             return;
         }
         // Why there is no date is Ben's to give, in his own words: a cancellation a customer reads from the desk is how a thread becomes a complaint.

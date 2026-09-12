@@ -308,6 +308,39 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(hold.reason).toContain('date_change: move it');
     });
 
+    it('both halves of a two-part question are answered when there is no date to confirm: the lead time goes, no day does', async () => {
+        const { diary, seeded } = await seededDiary(6, { booked: true });
+        const pool = diary.bookings.find((b) => b.id === seeded.bookingRef)!;
+        pool.status = 'pending';
+        pool.assignmentStatus = 'unassigned';
+        const { gateway } = desk({
+            router: ({ n }) => n === 1 ? scoping() : scheduling({ proposedStage: 'booked' }),
+            specialist: specialists(['booked_date', 'lead_time']),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
+                expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                const lead = /say exactly "about 3 days" and cite fact (fact_[\w-]+)/.exec(user)!;
+                return { reply: `Ben will come back to you on the date.\n\nOn the fence panel, we're usually booking in about 3 days.`, factIds: [lead[1]], kbIds: [] };
+            },
+        }, diary);
+        const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        linkFixture(first.file, seeded);
+        const second = await gateway.inbound(turn('When are you coming? And how soon could you get to a fence panel?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        const r = second.result;
+        expect(r.decision).toBe('send');
+        expect(r.composerCalls).toBe(1);
+        expect(r.guards.date_time_duration.result).toBe('pass');
+        const said = r.bubbles.map((b) => b.text).join(' ');
+        expect(said).toContain('about 3 days');
+        expect(said).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(said).not.toMatch(/September|\d{1,2}(?:st|nd|rd|th)\b/);
+        expect(r.hold).toMatchObject({ exception: null });
+        expect(r.hold?.reason).toMatch(/^date_unconfirmed: /);
+        expect(second.file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
+    });
+
     it('a booked date the composer paraphrased with a weekday fails the date guard once and is written again from the diary', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({

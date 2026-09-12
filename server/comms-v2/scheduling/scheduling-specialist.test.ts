@@ -389,7 +389,29 @@ describe('the Scheduling specialist', () => {
         expect(r.factIds).toEqual([]);
         expect(r.proposal.hold).toEqual({ reason: 'date_unconfirmed', match: 'the booking the file references is not in the diary' });
         expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
-        expect(r.brief.join(' ')).toMatch(/no day, time or lead time/);
+        expect(r.brief.join(' ')).toMatch(/never name a day or a time of your own/);
+        // Nothing was looked up to say, so there is no lead time on the file for the reply to reach for either.
+        expect(file.facts).toEqual([]);
+    });
+
+    it('asked two things with no date to confirm, the lead time still answers the second: the notes do not forbid what they require', async () => {
+        const diary = diaryWith(6, true);
+        const pool = diary.bookings.find((b) => b.id === 'bk1')!;
+        pool.status = 'pending';
+        pool.assignmentStatus = 'unassigned';
+        const file = fixture('When are you coming? And how soon could you get to the fence panel?');
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'lead_time']), { diary, now });
+        assertNoProse(r, file);
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        const said = r.brief.join(' ');
+        expect(said).toMatch(/say exactly "about 3 days"/);
+        // A day of the desk's own is still forbidden; the lead time this turn looked up is not.
+        expect(said).toMatch(/never name a day or a time of your own/);
+        expect(said).not.toMatch(/no lead time|give no .*lead time/);
     });
 
     it('a read that threw on a booked thread holds as well, and the customer is told nothing about the diary', async () => {
