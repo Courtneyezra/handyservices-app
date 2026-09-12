@@ -221,13 +221,22 @@ tells Ben to build a quote that is already waiting for him. Never a
 sentence for the customer. Acceptance is a human event the door (live, the payment webhook)
 records; the specialist can only read it.
 
+**A figure the quote has moved on from.** Facts are append-only, so a line whose amount changes -
+the customer refreshing, Ben re-pricing - leaves the old `quote_line:<label>` fact beside the new
+one. The newest for a label on a quote is that quote's current line and the only one the composer is
+shown or the figure guard accepts (`isSupersededFigure`, desk/case-file.ts), so a price from before
+a refresh can never be read back.
+
 **A quote that is no longer live for figures.** Expired, revoked or superseded: no figure may be
 read from any of them, and the split is what the customer can actually do. An expired quote is
-theirs to refresh on their own quote page, capped at `REISSUE_MAX_SELF`
-(`shared/quote-reissue.ts`), so while a refresh is left the reply points at that page - the link
-fact is recorded for an expired quote for exactly that - and nothing holds. Revoked, superseded, and
-expired with every refresh used up leave nothing on the page for them, so the reply says Ben will
-come back to them on it and the hold is what asks him. On superseded, answering from the newer quote
+theirs to refresh on their own quote page while `selfRefreshable` holds (quote-record.ts): a refresh
+left of `REISSUE_MAX_SELF` and the page still inside the hard window the public quote GET serves
+within, both in `shared/quote-reissue.ts`. Then the reply points at that page - the link fact is
+recorded for an expired quote for exactly that - and nothing holds. Revoked, superseded, every
+refresh used up, and a page past that window leave nothing for them there, so the reply says Ben
+will come back to them on it and the hold is what asks him. A money question on any of them is
+beyond a line of the quote, because no line is live: the money fixed line and its hold stand, and
+the brief never contradicts them. On superseded, answering from the newer quote
 instead is the better answer and belongs to its own task.
 
 ## Validation

@@ -12,8 +12,8 @@ import { ask, customerVisibleFacts, isInternalFact, open, recordFact, type CaseF
 import { runGuards } from '../desk/guards';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
-import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteStatus } from './quote-record';
-import { MemoryQuoteStore } from './quote-store';
+import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteRowLike, type QuoteStatus } from './quote-record';
+import { MemoryQuoteStore, QUOTE_READ_COLUMNS } from './quote-store';
 import { CHASE_MAX, chase, draftQuote, liveFigureQuotes, loadQuote, notifyBen, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
 
 function fixture(text = 'Hi, my kitchen tap is leaking, NG9 2AB', ready = true): CaseFile {
@@ -301,3 +301,53 @@ describe('price_quote, the stage, and acceptance', () => {
     });
 });
 
+describe('the live read and a figure the quote has moved on from', () => {
+    it('selects every column the quote record is built from, so the live row reads the same as the whole row', () => {
+        const now = new Date('2026-09-11T10:00:00.000Z');
+        const whole: QuoteRowLike = {
+            id: 'quote_1', shortSlug: 'abcd1234', customerName: 'Sam', phone: '+447700900942', postcode: 'NG9 2AB',
+            isDraft: false, revokedAt: null, supersededAt: null, depositPaidAt: null, expiresAt: '2026-09-01T00:00:00.000Z',
+            createdAt: '2026-08-30T10:00:00.000Z', basePrice: 12000, depositAmountPence: 4000,
+            pricingLineItems: [{ lineId: 'card_1', label: 'Replace kitchen tap', qty: 1, pricePence: 12000, materialsPence: 2000, description: 'mixer tap' }],
+            pricingSuggestions: { totals: { suggestedPence: 11000 }, lines: [{ lineId: 'card_1', checkThis: true }] },
+            customerPhotoUrls: ['https://example.test/a.jpg'],
+            extensionCount: 2,
+        };
+        // What liveQuoteStore.read hands back: the row narrowed to the columns it asked for.
+        const asRead = Object.fromEntries(Object.keys(QUOTE_READ_COLUMNS).map((k) => [k, (whole as any)[k]])) as QuoteRowLike;
+        expect(quoteRecordOf(asRead, now)).toEqual(quoteRecordOf(whole, now));
+        expect(quoteRecordOf(asRead, now).selfRefreshesLeft).toBe(1);
+    });
+
+    it('a figure the quote has moved on from is neither shown to the composer nor accepted by the guard', async () => {
+        const d = deps();
+        const file = fixture();
+        await draftQuote(file, file.parties[0], intake, d);
+        await priceQuote(file, {}, d);
+        expect((await markQuoteSent(file, d)).ok).toBe(true);
+        const lapsed = (await loadQuote(file, d))!;
+        const was = recordQuoteFacts(file, lapsed, d);
+        const old = file.facts.find((f) => f.id === was.lines.Total)!;
+        expect(old.value).toBe('£120.00');
+
+        // The customer refreshes their own lapsed quote on the quote page: the row comes back live
+        // at the new price, and the next turn records that amount beside the old one.
+        const row = d.store.rows.get(lapsed.slug)!;
+        Object.assign(row, { basePrice: 12600, pricingLineItems: (row.pricingLineItems as any[]).map((l) => ({ ...l, pricePence: 12600, labourPence: 10600 })) });
+        const refreshed = (await loadQuote(file, d))!;
+        const nowIds = recordQuoteFacts(file, refreshed, d);
+        const current = file.facts.find((f) => f.id === nowIds.lines.Total)!;
+        expect(current.value).toBe('£126.00');
+        expect(file.facts.filter((f) => f.key === 'quote_line:Total')).toHaveLength(2);
+
+        // The composer sees the current line only, and the guard refuses the old amount even cited.
+        const visible = customerVisibleFacts(file).map((f) => f.id);
+        expect(visible).toContain(current.id);
+        expect(visible).not.toContain(old.id);
+        const base = { file, party: file.parties[0], turn: file.turns[0], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: await liveFigureQuotes(file, d) };
+        expect(runGuards({ ...base, reply: 'The total on your quote is £126.00.', factIds: [current.id] }).guards.figure.result).toBe('pass');
+        const stale = runGuards({ ...base, reply: 'The total on your quote is £120.00.', factIds: [old.id] }).guards.figure;
+        expect(stale.result).toBe('fail');
+        expect(stale.note).toMatch(/live quote/);
+    });
+});

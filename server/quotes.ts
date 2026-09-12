@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "./db";
 import { notifyQuoteViewed } from "./pushover";
 import { pushEvent } from "./web-push";
-import { REISSUE_MAX_SELF, REISSUE_SURCHARGE } from "@shared/quote-reissue";
+import { QUOTE_HARD_EXPIRY_FALLBACK_MS, REISSUE_MAX_SELF, REISSUE_SURCHARGE } from "@shared/quote-reissue";
 import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users, contractorTeams, contractorTeamMembers, contractorAvailabilityDates, conversations } from "@shared/schema";
 import { eq, desc, inArray, or, sql } from "drizzle-orm";
 import crypto from 'crypto';
@@ -72,11 +72,6 @@ export function effectiveExpiryMs(quote: { expiresAt?: Date | string | null; cre
     return Date.now() + QUOTE_VALIDITY_MS;
 }
 
-// Track A hard-expiry gate. Legacy rows without expiresAt fall back to
-// createdAt + 30 days (deliberately more generous than the 48h price-lock
-// fallback above — the price-lock drives the client's reissue overlay, this
-// gate drives server-side HTTP 410s and must not strand recent legacy quotes).
-export const QUOTE_HARD_EXPIRY_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
 
 type ExpiryGateQuote = {
     expiresAt?: Date | string | null;

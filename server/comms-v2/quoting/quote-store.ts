@@ -51,9 +51,11 @@ export interface QuoteStore {
     deleteSandbox(phoneE164: string): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number }>;
 }
 
-const QUOTE_COLUMNS = {
+/** The columns the live read selects, which must cover every field `quoteRecordOf` reads from a row. */
+export const QUOTE_READ_COLUMNS = {
     id: true, shortSlug: true, customerName: true, phone: true, postcode: true, isDraft: true, revokedAt: true, supersededAt: true,
     depositPaidAt: true, expiresAt: true, createdAt: true, basePrice: true, depositAmountPence: true, pricingLineItems: true, pricingSuggestions: true, customerPhotoUrls: true,
+    extensionCount: true,
 } as const;
 
 /** Who the database refusal names when this store is the one that asked (live-database.ts). */
@@ -69,7 +71,7 @@ export const liveQuoteStore: QuoteStore = {
         const db = await commsV2Db(READER);
         const { personalizedQuotes } = await import('@shared/schema');
         const { eq } = await import('drizzle-orm');
-        const cols = Object.fromEntries(Object.keys(QUOTE_COLUMNS).map((k) => [k, (personalizedQuotes as any)[k]]));
+        const cols = Object.fromEntries(Object.keys(QUOTE_READ_COLUMNS).map((k) => [k, (personalizedQuotes as any)[k]]));
         const [row] = await db.select(cols as any).from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
         return (row as QuoteRowLike | undefined) ?? null;
     },

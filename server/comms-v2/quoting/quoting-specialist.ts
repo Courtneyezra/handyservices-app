@@ -23,7 +23,7 @@ import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
-import { QUOTE_FACT, factsWithPrefix, newestFact, type QuoteRecord, type QuoteStatus } from './quote-record';
+import { QUOTE_FACT, factsWithPrefix, newestFact, selfRefreshable, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 
 // ---------------------------------------------------------------- the two structured outputs
@@ -155,7 +155,7 @@ export function briefLines(p: QuotingProposal): string[] {
         } else out.push(`if they ask about the quote: it is with Ben and on its way (fact ${ids.status ?? 'none'}); no figure, no timing`);
     } else if (p.phase === 'refreshable') {
         out.push(`quoting: ${p.quoteRef} is expired, ${p.selfRefreshesLeft} refresh${p.selfRefreshesLeft === 1 ? '' : 'es'} left to the customer`);
-        out.push(`the price on their quote has lapsed (fact ${ids.status ?? 'none'}): no figure may be read from it, so give none. Their quote page refreshes it themselves - point them at it with the link exactly as written on fact ${ids.link ?? 'none'} and say the price is refreshed on that page; no percentage, no amount, no date, and do not say Ben will come back to them`);
+        out.push(`the price on their quote has lapsed (fact ${ids.status ?? 'none'}): no figure may be read from it, so give none. Their quote page refreshes it themselves - point them at it with the link exactly as written on fact ${ids.link ?? 'none'} and say the price is refreshed on that page; no percentage, no amount, no date${p.beyondQuoteLine ? '' : ', and do not say Ben will come back to them'}`);
     } else if (p.phase === 'stale') {
         out.push(`quoting: ${p.quoteRef} is ${p.status}`);
         out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; say Ben will come back to them on the quote`);
@@ -246,12 +246,15 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     if (!q || q.status === 'revoked' || q.status === 'superseded' || q.status === 'expired') {
         if (q) {
             // An expired quote is the customer's own to refresh on their quote page while a refresh
-            // is left (shared/quote-reissue.ts), so the honest answer is that page, not a callback.
-            // Revoked, superseded, and expired with none left leave nothing there for them: those
-            // hold for Ben, because the reply then does promise him.
-            const refreshable = q.status === 'expired' && q.selfRefreshesLeft > 0;
+            // is left and that page still serves (quote-record.ts selfRefreshable), so the honest
+            // answer is that page, not a callback. Revoked, superseded, a page past its hard window
+            // and every refresh used up leave nothing there for them: those hold for Ben, because
+            // the reply then does promise him. A money question on any of them is beyond a line of
+            // the quote, because no line is live, so the money fixed line and its hold stand.
+            const refreshable = selfRefreshable(q, d.now());
             proposal.phase = refreshable ? 'refreshable' : 'stale';
             proposal.selfRefreshesLeft = q.selfRefreshesLeft;
+            proposal.beyondQuoteLine = route.exception === 'money' || !!route.belts.money;
             const ids = recordQuoteFacts(file, q, deps);
             proposal.answerFrom.status = ids.status;
             proposal.answerFrom.link = ids.link;

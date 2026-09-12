@@ -12,3 +12,10 @@
  */
 export const REISSUE_SURCHARGE = 1.05;
 export const REISSUE_MAX_SELF = 3;
+
+/**
+ * The hard window after which the quote page itself is gone (HTTP 410 from the public quote GET,
+ * server/quotes.ts `isQuoteGone`), measured from the quote's creation. Past it there is no page to
+ * refresh on, whatever the refresh count says.
+ */
+export const QUOTE_HARD_EXPIRY_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;

@@ -333,6 +333,10 @@ describe('the desk', () => {
         const out = await gateway.inbound(turn('can you do it any cheaper?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+        // The fixed line and the refreshable brief reach the composer together, so the brief must
+        // not tell it to withhold the promise the line makes.
+        expect(user()).not.toMatch(/do not say Ben will come back to them/);
+        expect(user()).toMatch(/their money question is beyond a line of the quote/);
         expect(out.file.hold?.exception).toBe('money');
         expect(out.file.hold?.reason).toContain('money');
         expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
