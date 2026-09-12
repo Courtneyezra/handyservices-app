@@ -4,11 +4,13 @@
  * sandbox drive.
  *
  * Everything up to delivery runs for real: identity, the case file, the router, the Scoping
- * specialist and its tools (Gemini for a photo), the composer, the guards, the render, the
+ * specialist and its tools (Gemini for a photo), the Scheduling specialist and its diary read,
+ * the composer, the guards, the render, the
  * window. Nothing leaves: the sender runs in dry run and lands the planned reply on the case
  * file's thread as an outbound turn, so the next turn sees it. Every response carries the
  * planned send (planned-send.ts) the desk emits itself, and the thread's state. The SMS, form,
- * email and call doors are mounted in front (channels/channel-doors.ts) on the same gateway.
+ * email and call doors are mounted in front (channels/channel-doors.ts) on the same gateway, and
+ * the scheduling fixture sits under /scheduling (scheduling/scheduling-door.ts).
  *
  * Case files live in memory for the length of the process; /start clears them. The door is
  * mounted only by the door host (door-host.ts, in-process on COMMS_V2_DATABASE_URL) and by
