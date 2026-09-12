@@ -57,9 +57,14 @@ describe('guards', () => {
         const ids = booked.ok ? [booked.value.id] : [];
         const dated = (reply: string) => runGuards({ file: g.file, party: g.party, turn: g.turn, reply, factIds: ids, kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration;
         expect(dated('You are booked in for 25 September 2026.').result).toBe('pass');
+        expect(dated('You are booked in for 25 September.').result).toBe('pass');
         const fragment = dated('We can do the 5 September if that suits.');
         expect(fragment.result).toBe('fail');
         expect(fragment.note).toContain('5 September');
+        // A year the diary did not give is a different date: the year is read, not skipped over.
+        const wrongYear = dated('You are booked in for 25 September 2025.');
+        expect(wrongYear.result).toBe('fail');
+        expect(wrongYear.note).toContain('25 September 2025');
     });
     it('commitment and fault: fails closed', () => {
         expect(runGuards(input("We'll fix that no problem.")).guards.commitment_fault.result).toBe('fail');

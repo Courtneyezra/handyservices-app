@@ -68,14 +68,14 @@ export function planFixture(input: FixtureInput, now: Date, newId: (prefix: stri
         const visit = new Date(now.getTime() - (3 + k * 2) * DAY_MS);
         const made = new Date(visit.getTime() - lead * DAY_MS);
         leads.push(lead);
-        bookings.push({ id: newId('sbxbk'), quoteRef: null, scheduledDate: isoDay(visit), scheduledDays: [isoDay(visit)], durationDays: 1, slot: 'am', status: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: new Date(visit.getTime() + 15 * 3_600_000).toISOString() });
+        bookings.push({ id: newId('sbxbk'), quoteRef: null, scheduledDate: isoDay(visit), scheduledDays: [isoDay(visit)], durationDays: 1, status: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: new Date(visit.getTime() + 15 * 3_600_000).toISOString() });
     }
     let quote: DiaryQuote | null = null;
     if (input.quote) {
         quote = { id: newId('sbxq'), slug: `sb${randomUUID().replace(/[^a-z]/gi, '').slice(0, 6).toLowerCase() || 'xqzwvy'}`, isDraft: false, supersededAt: null, revokedAt: null, expiresAt: new Date(now.getTime() + 7 * DAY_MS).toISOString() };
         if (input.booked) {
             const visit = new Date(now.getTime() + FIXTURE_BOOKED_DAYS_AHEAD * DAY_MS);
-            bookings.push({ id: newId('sbxbk'), quoteRef: quote.id, scheduledDate: isoDay(visit), scheduledDays: [isoDay(visit)], durationDays: 1, slot: 'am', status: 'accepted', dayOfStatus: 'scheduled', createdAt: now.toISOString(), completedAt: null });
+            bookings.push({ id: newId('sbxbk'), quoteRef: quote.id, scheduledDate: isoDay(visit), scheduledDays: [isoDay(visit)], durationDays: 1, status: 'accepted', dayOfStatus: 'scheduled', createdAt: now.toISOString(), completedAt: null });
         }
     }
     return { bookings, quote, leads };

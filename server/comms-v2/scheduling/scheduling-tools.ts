@@ -21,7 +21,7 @@
  */
 import { getBaseUrlFromEnv } from '../../url-utils';
 import type { CaseFile } from '../desk/case-file';
-import { formatDiaryDate, isoDayOf, LEAD_TIME_SAMPLE_LIMIT, LEAD_TIME_WINDOW_DAYS, notStandingReason, slotWords, typicalLeadTimeOf, type DiaryBooking, type DiaryReader, type LeadTime } from './diary';
+import { formatDiaryDate, isoDayOf, LEAD_TIME_SAMPLE_LIMIT, LEAD_TIME_WINDOW_DAYS, notStandingReason, typicalLeadTimeOf, type DiaryBooking, type DiaryReader, type LeadTime } from './diary';
 
 // ---------------------------------------------------------------- the deps every tool reads
 
@@ -57,7 +57,7 @@ export async function typicalLeadTime(deps: SchedulingDeps = {}): Promise<LeadTi
 // ---------------------------------------------------------------- confirm_booked_date
 
 export type BookedDate =
-    | { ok: true; bookingRef: string; date: string; words: string; slot: string | null; days: number; rowId: string }
+    | { ok: true; bookingRef: string; date: string; words: string; rowId: string }
     | { ok: false; reason: string; bookingRef: string | null };
 
 /** The job the customer is still waiting for: one standing booking, nothing at all, or a diary that could not say. */
@@ -100,7 +100,7 @@ export async function standingBooking(file: CaseFile, deps: SchedulingDeps = {})
 export function bookedDateOf(standing: StandingBooking): BookedDate {
     if (standing.state !== 'standing') return { ok: false, reason: standing.reason, bookingRef: standing.bookingRef };
     const b = standing.booking;
-    return { ok: true, bookingRef: b.id, date: b.scheduledDate!, words: formatDiaryDate(b.scheduledDate!), slot: slotWords(b.slot), days: b.durationDays, rowId: `booking:${b.id}` };
+    return { ok: true, bookingRef: b.id, date: b.scheduledDate!, words: formatDiaryDate(b.scheduledDate!), rowId: `booking:${b.id}` };
 }
 
 /** The one authoritative booked date for the file's job. */

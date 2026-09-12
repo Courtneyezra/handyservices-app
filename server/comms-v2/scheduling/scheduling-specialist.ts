@@ -122,15 +122,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         if (findings.bookedDate.ok) {
             const bd = findings.bookedDate;
             const f = recordFact(file, { key: 'booked_date', value: bd.words, source: { kind: 'diary', rowId: bd.rowId }, by }, fileDeps);
-            if (f.ok) { factIds.push(f.value.id); brief.push(`Booked date from the diary: say exactly "${bd.words}" and cite fact ${f.value.id}. Write the date in those words only: no weekday, no "this" or "next" before it.`); }
-            if (bd.slot) {
-                const s = recordFact(file, { key: 'booked_slot', value: bd.slot, source: { kind: 'diary', rowId: bd.rowId }, by }, fileDeps);
-                if (s.ok) { factIds.push(s.value.id); brief.push(`The booked slot from the diary: "${bd.slot}" (fact ${s.value.id}).`); }
-            }
-            if (bd.days > 1) {
-                const d = recordFact(file, { key: 'booked_days', value: `${bd.days} days`, source: { kind: 'diary', rowId: bd.rowId }, by }, fileDeps);
-                if (d.ok) { factIds.push(d.value.id); brief.push(`It is booked over "${bd.days} days" (fact ${d.value.id}).`); }
-            }
+            if (f.ok) { factIds.push(f.value.id); brief.push(`Booked date from the diary: say exactly "${bd.words}" and cite fact ${f.value.id}. Write the date in those words only: no weekday, no "this" or "next" before it, and nothing about the time of day or how many days it takes: the diary gave the date and nothing else.`); }
         } else {
             brief.push(`The diary has no booked date to confirm (${findings.bookedDate.reason}): say Ben will confirm the date, and give no day, time or lead time.`);
         }

@@ -229,9 +229,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 const date = /say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user)!;
-                if (n === 2) return { reply: `You're booked in for next Friday, ${date[1]}, in the morning.`, factIds: [date[2]], kbIds: [] };
+                if (n === 2) return { reply: `You're booked in for next Friday, ${date[1]}.`, factIds: [date[2]], kbIds: [] };
                 expect(user).toContain('date_time_duration:');
-                return { reply: `You're booked in for ${date[1]}, in the morning.`, factIds: [date[2]], kbIds: [] };
+                return { reply: `You're booked in for ${date[1]}.`, factIds: [date[2]], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));

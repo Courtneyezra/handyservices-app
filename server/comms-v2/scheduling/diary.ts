@@ -21,8 +21,6 @@
 import { COMMS_V2_DATABASE_ENV, resolveCommsV2Database } from '../desk/door-host';
 import { expandSpanDates } from '../../../shared/schedule-composition';
 
-export type DiarySlot = 'am' | 'pm' | 'full_day';
-
 export interface DiaryBooking {
     id: string;
     quoteRef: string | null;
@@ -31,7 +29,6 @@ export interface DiaryBooking {
     /** The actual days the span occupies, through expandSpanDates. Empty when no date. */
     scheduledDays: string[];
     durationDays: number;
-    slot: DiarySlot | null;
     /** 'pending' | 'accepted' | 'declined' | 'in_progress' | 'completed' | 'cancelled' */
     status: string;
     dayOfStatus: string | null;
@@ -142,16 +139,11 @@ export function isoDayOf(d: Date): string {
     return d.toISOString().slice(0, 10);
 }
 
-export function slotWords(slot: DiarySlot | null): string | null {
-    return slot === 'am' ? 'in the morning' : slot === 'pm' ? 'in the afternoon' : slot === 'full_day' ? 'for the whole day' : null;
-}
-
 /** A row from the database into the diary's shape. */
-export function bookingRowToDiary(row: { id: string; quoteId: string | null; scheduledDate: Date | string | null; scheduledDates: unknown; durationDays: number | null; scheduledSlot: string | null; status: string; dayOfStatus: string | null; createdAt: Date | string | null; completedAt: Date | string | null }): DiaryBooking {
+export function bookingRowToDiary(row: { id: string; quoteId: string | null; scheduledDate: Date | string | null; scheduledDates: unknown; durationDays: number | null; status: string; dayOfStatus: string | null; createdAt: Date | string | null; completedAt: Date | string | null }): DiaryBooking {
     const iso = (v: Date | string | null): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
     const days = row.scheduledDate ? expandSpanDates(row.scheduledDate instanceof Date ? row.scheduledDate : String(row.scheduledDate), row.durationDays, row.scheduledDates) : [];
-    const slot = row.scheduledSlot === 'am' || row.scheduledSlot === 'pm' || row.scheduledSlot === 'full_day' ? row.scheduledSlot : null;
-    return { id: row.id, quoteRef: row.quoteId, scheduledDate: days[0] ?? null, scheduledDays: days, durationDays: Math.max(1, row.durationDays ?? 1), slot, status: row.status, dayOfStatus: row.dayOfStatus, createdAt: iso(row.createdAt), completedAt: iso(row.completedAt) };
+    return { id: row.id, quoteRef: row.quoteId, scheduledDate: days[0] ?? null, scheduledDays: days, durationDays: Math.max(1, row.durationDays ?? 1), status: row.status, dayOfStatus: row.dayOfStatus, createdAt: iso(row.createdAt), completedAt: iso(row.completedAt) };
 }
 
 // ---------------------------------------------------------------- readers
@@ -189,7 +181,7 @@ export const liveDiary: DiaryReader = {
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { and, desc, gte, isNotNull } = await import('drizzle-orm');
-        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, scheduledSlot: t.scheduledSlot, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
+        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t)
             .where(and(isNotNull(t.completedAt), isNotNull(t.scheduledDate), gte(t.completedAt, since)))
             .orderBy(desc(t.completedAt))
@@ -201,7 +193,7 @@ export const liveDiary: DiaryReader = {
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { eq } = await import('drizzle-orm');
-        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, scheduledSlot: t.scheduledSlot, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
+        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t).where(eq(t.id, bookingRef)).limit(1);
         return rows[0] ? bookingRowToDiary(rows[0]) : null;
     },
@@ -210,7 +202,7 @@ export const liveDiary: DiaryReader = {
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { desc, eq } = await import('drizzle-orm');
-        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, scheduledSlot: t.scheduledSlot, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
+        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t).where(eq(t.quoteId, quoteRef)).orderBy(desc(t.createdAt)).limit(10);
         return rows.map(bookingRowToDiary).find((b) => !notStandingReason(b, today)) ?? null;
     },

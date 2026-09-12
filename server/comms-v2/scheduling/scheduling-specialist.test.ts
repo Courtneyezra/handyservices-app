@@ -29,11 +29,11 @@ function diaryWith(completed: number, booked = false): MemoryDiary {
     for (let i = 0; i < completed; i++) {
         const visit = new Date(NOW.getTime() - (3 + i * 2) * 86_400_000);
         const made = new Date(visit.getTime() - (2 + (i % 4)) * 86_400_000);
-        diary.bookings.push({ id: `c${i}`, quoteRef: null, scheduledDate: visit.toISOString().slice(0, 10), scheduledDays: [visit.toISOString().slice(0, 10)], durationDays: 1, slot: 'am', status: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: visit.toISOString() });
+        diary.bookings.push({ id: `c${i}`, quoteRef: null, scheduledDate: visit.toISOString().slice(0, 10), scheduledDays: [visit.toISOString().slice(0, 10)], durationDays: 1, status: 'completed', dayOfStatus: 'completed', createdAt: made.toISOString(), completedAt: visit.toISOString() });
     }
     diary.quotes.push({ id: 'q1', slug: 'abcdefgh', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: '2026-09-20T00:00:00.000Z' });
     if (booked) {
-        const b: DiaryBooking = { id: 'bk1', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, slot: 'am', status: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null };
+        const b: DiaryBooking = { id: 'bk1', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null };
         diary.bookings.push(b);
     }
     return diary;
@@ -126,17 +126,22 @@ describe('the Scheduling specialist', () => {
         expect(r.brief.join(' ')).toMatch(/say nothing about how soon/);
     });
 
-    it('once booked, the booked date is confirmed from the diary as a diary fact, with the slot', async () => {
+    it('once booked, the booked date is confirmed from the diary as a diary fact, and nothing else about the visit is stated', async () => {
         const file = fixture('What day is it booked for again?');
         file.job.quoteRef = 'q1';
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary: diaryWith(6, true), now });
+        const diary = diaryWith(6, true);
+        diary.bookings.find((b) => b.id === 'bk1')!.durationDays = 2;
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary, now });
         assertNoProse(r, file);
-        expect(r.scheduling.bookedDate).toMatchObject({ ok: true, bookingRef: 'bk1', words: '25 September 2026', slot: 'in the morning' });
+        expect(r.scheduling.bookedDate).toEqual({ ok: true, bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
         const date = file.facts.find((f) => f.key === 'booked_date')!;
         expect(date.value).toBe('25 September 2026');
         expect(date.source).toEqual({ kind: 'diary', rowId: 'booking:bk1' });
-        expect(file.facts.find((f) => f.key === 'booked_slot')?.value).toBe('in the morning');
+        // The shelf is the booked date: a half of the day and a number of days are things no guard can check against the diary, so neither is recorded or briefed.
+        expect(file.facts.map((f) => f.key)).toEqual(['booked_date']);
+        expect(r.factIds).toEqual([date.id]);
+        expect(r.brief.join(' ')).not.toMatch(/morning|afternoon|whole day|2 days/);
         expect(r.scheduling.leadTime).toBeNull();
         expect(r.scheduling.picker).toBeNull();
         expect(r.proposal.hold).toBeNull();
