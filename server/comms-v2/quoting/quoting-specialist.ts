@@ -182,17 +182,22 @@ export function quotingOwnsThread(file: CaseFile): boolean {
 
 /**
  * The router's post-processing for this specialist, applied to the model's reading before the desk
- * sees it: a portal action (acceptance) is Quoting's turn; once the quote is sent, a money question
- * goes to Quoting first (checklist 5.3 replaces 2.7) and Quoting holds it when it is beyond a line.
+ * sees it: a portal action (acceptance) is Quoting's turn; while the file's quote is live for
+ * figures, a money question goes to Quoting first (checklist 5.3 replaces 2.7) and Quoting holds it
+ * when it is beyond a line.
+ *
+ * The exemption is keyed on that liveness, not on the stage: the stage stays `quoted` after the
+ * quote expires, is revoked or is superseded, and there is then no line to answer a figure from, so
+ * the ordinary rule that money goes to Ben (2.7) applies again. An empty set is no exemption.
  */
-export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput): void {
+export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput, liveFigureRefs: ReadonlySet<string> = new Set()): void {
     if (turn.kind === 'portal_action') {
         out.subjects = ['quoting'];
         out.exception = null;
         out.turnKind = 'acknowledgement';
         return;
     }
-    if (out.exception === 'money' && quotingOwnsThread(file)) {
+    if (out.exception === 'money' && file.job.quoteRef && liveFigureRefs.has(file.job.quoteRef)) {
         out.exception = null;
         if (!out.subjects.includes('quoting')) out.subjects.unshift('quoting');
     }
@@ -235,7 +240,9 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
             const ids = recordQuoteFacts(file, q, deps);
             proposal.answerFrom.status = ids.status;
             if (ids.status) factIds.push(ids.status);
-            return { specialist: 'quoting', factIds, proposal: emptyProposal(), brief: briefLines(proposal), calls, error };
+            const stale = emptyProposal();
+            stale.hold = { reason: 'stale_quote', match: `${q.slug} is ${q.status}` };
+            return { specialist: 'quoting', factIds, proposal: stale, brief: briefLines(proposal), calls, error };
         }
         const readiness = quoteReadiness(file);
         const user = [

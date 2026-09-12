@@ -211,7 +211,9 @@ that the customer was never shown.
 **What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,
 assumptions, link and status, each with source `quote_line` naming the quote and the label. A
 brief: the quote is with Ben, or answer from these facts, or point at the quote page to accept, or
-acknowledge a not-ready customer. Holds: money beyond a quote line, acceptance in chat, and a draft
+acknowledge a not-ready customer. Holds: money beyond a quote line, acceptance in chat, a quote no
+longer live for figures (expired, revoked, superseded), where the reply says Ben will come back to
+them on it and the hold is what asks him, and a draft
 the clerk could not build, where the brief promises the customer nothing, the turn asks nothing and
 carries the held acknowledgement instead, and the hold reason names the failure, because no quote
 exists and Ben has had no notification. A later turn that does draft the quote answers that hold:

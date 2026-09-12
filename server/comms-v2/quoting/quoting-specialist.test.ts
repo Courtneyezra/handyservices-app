@@ -14,7 +14,7 @@ import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter } from './draft-quote';
 import { QUOTE_FACT } from './quote-record';
 import { MemoryQuoteStore } from './quote-store';
-import { markQuoteSent, priceQuote, type QuotingDeps } from './quoting-tools';
+import { liveFigureQuotes, markQuoteSent, priceQuote, type QuotingDeps } from './quoting-tools';
 import { applyQuotingRoute, clampIntake, intakeOutputSchema, questionOutputSchema, quote, quotingClock, quotingOwnsThread, quoteStateOf } from './quoting-specialist';
 
 function fixture(text = 'Hi, my kitchen tap is leaking, NG9 2AB'): CaseFile {
@@ -193,6 +193,7 @@ describe('after the quote', () => {
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on a stale quote'); } });
         const ret = await quote(file, later(file, 'How much was the total again?'), file.parties[0], routeOf(), client, d);
         expect(ret?.brief?.[0]).toMatch(/is expired/);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${file.job.quoteRef} is expired` });
         expect(file.facts.filter((f) => f.key.startsWith('quote_line:')).length).toBe(before);
         expect(file.facts.find((f) => f.key === QUOTE_FACT.status && /expired/.test(f.value))).toBeTruthy();
     });
@@ -210,18 +211,24 @@ describe('after the quote', () => {
 });
 
 describe('the router hook and the clock', () => {
-    it('clears a money exception once the quote is sent and routes it to Quoting; forces a portal action to Quoting', async () => {
-        const { file } = await sentQuote();
+    it('clears a money exception while the quote is live for figures and routes it to Quoting; leaves it on a quote that is not; forces a portal action to Quoting', async () => {
+        const { file, d } = await sentQuote();
+        const live = await liveFigureQuotes(file, d);
         const out = { subjects: ['scoping' as const], proposedStage: 'quoted' as const, party: 'customer' as const, exception: 'money' as const, turnKind: 'question' as const };
-        applyQuotingRoute(file, later(file, 'how much is the labour?'), out as any);
+        applyQuotingRoute(file, later(file, 'how much is the labour?'), out as any, live);
         expect(out.exception).toBeNull();
         expect(out.subjects[0]).toBe('quoting');
+        // The same thread once the quote has expired: the stage is still quoted, but there is no
+        // line left to answer a figure from, so money goes to Ben again (2.7).
+        const stale = { subjects: ['scoping'], proposedStage: 'quoted', party: 'customer', exception: 'money', turnKind: 'question' } as any;
+        applyQuotingRoute(file, later(file, 'can you do it any cheaper?'), stale, new Set<string>());
+        expect(stale.exception).toBe('money');
         const fresh = fixture();
         const early = { subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question' } as any;
-        applyQuotingRoute(fresh, fresh.turns[0], early);
+        applyQuotingRoute(fresh, fresh.turns[0], early, new Set<string>());
         expect(early.exception).toBe('money');
         const portal = { subjects: ['scoping'], proposedStage: 'quoted', party: 'customer', exception: 'money', turnKind: 'question' } as any;
-        applyQuotingRoute(file, later(file, 'Accepted quote', 'portal_action', 'form'), portal);
+        applyQuotingRoute(file, later(file, 'Accepted quote', 'portal_action', 'form'), portal, live);
         expect(portal).toMatchObject({ subjects: ['quoting'], exception: null, turnKind: 'acknowledgement' });
     });
 

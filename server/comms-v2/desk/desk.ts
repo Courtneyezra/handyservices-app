@@ -86,8 +86,11 @@ export class Desk implements DeskLike {
             return this.heldAck(file, party.personId, turn, runId, calls, `held for Ben on ${file.hold.exception}: the desk does not scope this thread until he releases it`, null, 0, []);
         }
 
-        // 1. Route.
-        const route: Route = await routeTurn(file, turn, this.client);
+        // 1. Route. The quotes a figure may be read from now are read once for the turn: the
+        // router's money exemption (5.3 replaces 2.7) stands only while the file's quote is one of
+        // them, and the figure guard resolves a cited line against the same set.
+        const liveQuoteRefs = await liveFigureQuotes(file, this.quotingDeps());
+        const route: Route = await routeTurn(file, turn, this.client, liveQuoteRefs);
         calls.push(route.call);
         if (route.error) log(`router: ${route.error} (fallback route used)`);
         if (file.stage === 'first_contact') setStage(file, 'scoping', 'first customer turn routed', this.fileDeps());
@@ -138,6 +141,8 @@ export class Desk implements DeskLike {
                     this.holdFor(file, 'money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
                 } else if (quoting?.proposal.hold?.reason === 'acceptance' && !file.hold) {
                     setHold(file, { approver: approverFor(file, null), reason: `acceptance in chat: ${quoting.proposal.hold.match}; acceptance stays on the quote page and with Ben` }, this.fileDeps());
+                } else if (quoting?.proposal.hold?.reason === 'stale_quote') {
+                    if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: `the quote is no longer live (${quoting.proposal.hold.match}): no figure may be read from it and the customer has been told Ben will come back to them on it`, failures: [] }, this.fileDeps());
                 } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
                     fixedLines.push(await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                     if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, failures: [] }, this.fileDeps());
@@ -167,7 +172,6 @@ export class Desk implements DeskLike {
         // 5. Guards, with one retry to the composer.
         const kbRows = await this.kbRows(kbIds);
         const proposedSubject = scoping?.proposal.nextQuestion?.subject ?? null;
-        const liveQuoteRefs = await liveFigureQuotes(file, this.quotingDeps());
         const guardInput = (text: string, ids: string[]) => ({ file, party, turn, reply: text, factIds: ids, kbIds, kbRows, fixedLines, proposedSubject, liveQuoteRefs });
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {

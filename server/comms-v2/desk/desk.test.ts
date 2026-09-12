@@ -16,6 +16,7 @@ import type { InboundTurn } from './whatsapp-adapter';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
+import { markQuoteSent, priceQuote } from '../quoting/quoting-tools';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
 const specialistFacts = (facts: Array<{ key: string; value: string }>, answered: string[] = []) => ({ facts, jobUnknowns: [], answeredSubjects: answered });
@@ -270,5 +271,52 @@ describe('the desk', () => {
         expect(words).toContain(slug!);
         expect(words).toContain(`https://test.local/admin/price/${slug}`);
         expect(composerUser).toContain(`quoting: drafted ${slug} for Ben to price`);
+    });
+
+    /** A thread whose quote Ben priced and sent, then left to expire: the stage stays quoted, the row does not. */
+    async function expiredQuote(composerReply: string) {
+        const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        let composerUser = '';
+        const { gateway } = desk({
+            router: ({ user }) => routeScoping({ exception: /cheaper/i.test(user.split('>>').pop() ?? '') ? 'money' : null, turnKind: 'question' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : /what it concerns/.test(system)
+                    ? { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }
+                    : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            composer: ({ user }) => { composerUser = user; return { reply: composerReply, factIds: [], kbIds: [] }; },
+        }, clock, { quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', new Date(clock.t).toISOString()));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        const d = { store, notifier: recordingNotifier, baseUrl: 'https://test.local', now: () => new Date(clock.t) };
+        const priced = await priceQuote(first.file, {}, d);
+        if (!priced.ok) throw new Error(priced.reason);
+        const sent = await markQuoteSent(first.file, d);
+        if (!sent.ok) throw new Error(sent.reason);
+        expect(first.file.stage).toBe('quoted');
+        // Past the expiry confirmPrices stamps on the row.
+        clock.t += 72 * 3_600_000;
+        return { gateway, clock, slug: first.file.job.quoteRef!, user: () => composerUser };
+    }
+
+    it('a question about an expired quote holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
+        const { gateway, clock, slug, user } = await expiredQuote('Let me get Ben to come back to you on that.');
+        const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(user()).toContain(`quoting: ${slug} is expired`);
+        expect(out.file.hold?.reason).toContain(`the quote is no longer live (${slug} is expired)`);
+        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(out.result.bubbles.join(' ')).not.toMatch(/£/);
+    });
+
+    it('money on an expired quote goes back to Ben: the fixed line and the money hold, because no line is left to answer from', async () => {
+        const { gateway, clock, user } = await expiredQuote(DEFAULT_FIXED_LINES.money_to_ben);
+        const out = await gateway.inbound(turn('can you do it any cheaper?', new Date(clock.t).toISOString()));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+        expect(out.file.hold?.exception).toBe('money');
+        expect(out.file.hold?.reason).toContain('money');
+        expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
     });
 });
