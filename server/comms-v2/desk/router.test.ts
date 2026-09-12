@@ -55,7 +55,7 @@ describe('the composer\'s brief', () => {
         file.ledger.push({ subject: 'media', askedAt: 'x', answeredAt: null, thankedAt: null, askCount: 1 });
         const user = buildComposerUser({
             file, party: file.parties[0], turn: file.turns[0],
-            route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question', belts: { regulated: null, money: 'how much' }, call: {} as any, error: null },
+            route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question', belts: { regulated: null, money: 'how much' }, moneyToQuoting: false, call: {} as any, error: null },
             specialists: [{ specialist: 'scoping', factIds: ['fact_1'], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null }],
             fixedLines: [{ kind: 'money_to_ben', text: 'Ben will come back to you on the price.', kbId: null }],
             failures: ['figure: a figure appears'],

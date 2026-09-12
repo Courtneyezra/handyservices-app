@@ -221,19 +221,21 @@ sentence for the customer. Acceptance is a human event the door (live, the payme
 records; the specialist can only read it.
 
 **A price the quote does not state as a line.** The question model names which labels a turn asks
-about, and a label the live quote does not carry on a concern that asks for an amount - the labour or
-materials half of a line, most often - is money beyond a quote line, so it goes to Ben. The quote is
-asked about the label the model returned, not the copy the brief shortens, so a line whose label runs
-past that clamp is still a line of the quote and its price is answered (5.3). Answering it from the line's own
+about, and a line label the live quote does not carry - the labour or materials half of a line, most
+often - is money beyond a quote line, so it goes to Ben. The quote is asked about the label the model
+returned, not the copy the brief shortens, so a line whose label runs past that clamp is still a line
+of the quote and its price is answered (5.3). A total and a deposit are named by their kind rather
+than their label, so "the total price" is the quote's one total and is answered from it. Answering it from the line's own
 figure under that name would state an amount the customer's quote does not, and every check would
 pass it, which is worse than a hold.
 
 **The money belt and the reading that replaces it.** The router's deterministic belt raises `money`
-on the wording alone, so 2.7 never depends on one model reading. It is cleared only while the file's
-quote is live for figures, because the Quoting question model then reads whether the ask is beyond a
-line (5.3). When that reading does not happen - the turn was read as a pause, an acknowledgement or a
-promise of more, the body was empty, or the call failed - the belt stands and the money hold is set
-without it. The same applies when the specialist's own read of the quote fails: the belt was cleared
+on the wording alone, so 2.7 never depends on one model reading. A money exception is cleared only
+while the file's quote is live for figures, because the Quoting question model then reads whether the
+ask is beyond a line (5.3), and the route says so (`moneyToQuoting`) whichever raised it, the belt or
+the router's own model. When that reading does not happen - the turn was read as a pause, an
+acknowledgement or a promise of more, the body was empty, or the call failed - the exception stands
+again and Quoting sets the money hold itself. The same applies when the specialist's own read of the quote fails: the belt was cleared
 on the read that worked at the top of the turn, and the brief then forbids a figure outright, because
 the amounts an earlier turn recorded are still on the file and the reply is still written.
 

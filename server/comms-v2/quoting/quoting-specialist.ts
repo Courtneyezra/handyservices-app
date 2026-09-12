@@ -23,7 +23,7 @@ import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
-import { QUOTE_FACT, factsWithPrefix, newestFact, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
+import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factsWithPrefix, newestFact, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 
 // ---------------------------------------------------------------- the two structured outputs
@@ -74,9 +74,6 @@ export function clampIntake(out: IntakeOutput): IntakeOutput {
 
 export const CONCERN_KINDS = ['line_amount', 'total', 'deposit', 'scope', 'not_included', 'on_the_day', 'link', 'status'] as const;
 
-/** The concerns that ask for an amount, so a label they carry must be one the quote actually has. */
-const FIGURE_CONCERNS: ReadonlySet<string> = new Set(['line_amount', 'total', 'deposit']);
-
 /** After the draft: what the question concerns, named by label; no amount, no sentence. */
 export const questionOutputSchema = z.object({
     concerns: z.array(z.object({ kind: z.enum(CONCERN_KINDS), label: z.string().max(300).nullable() })).max(12),
@@ -99,7 +96,7 @@ const INTAKE_SYSTEM = [
 
 const QUESTION_SYSTEM = [
     'You are the Quoting specialist for a small handyman business\'s desk. You never write to the customer and you never see or state a figure. You read the newest customer turn against the quote\'s labels and say what it concerns.',
-    'concerns: which labels of the quote the turn asks about. kind line_amount with the label of a line, total for the quote total, deposit for the deposit, scope for what a line covers, not_included for what is excluded, on_the_day for what happens on the day (the quote\'s assumptions), link when they want the quote link again, status when they ask whether it has been sent or what happens next. Empty when the turn asks nothing about the quote.',
+    'concerns: which labels of the quote the turn asks about. kind line_amount with the label of a line, spelled exactly as the quote spells it and never in the customer\'s own words, total for the quote total, deposit for the deposit, scope for what a line covers, not_included for what is excluded, on_the_day for what happens on the day (the quote\'s assumptions), link when they want the quote link again, status when they ask whether it has been sent or what happens next. Empty when the turn asks nothing about the quote.',
     'beyondQuoteLine: true when the turn asks for money that is not a line already on the quote: a discount, "can you do it for less", a different total, a payment plan, a price for extra work, a comparison with another trader, or how a line splits into labour and materials, which the quote does not state as a line.',
     'acceptanceInChat: true when the turn says yes to the quote, go ahead, book it, or asks how to accept.',
     'notReady: true when the turn defers ("I\'ll get back to you next month", "leave it with me for now").',
@@ -193,17 +190,21 @@ export function quotingOwnsThread(file: CaseFile): boolean {
  * quote expires, is revoked or is superseded, and there is then no line to answer a figure from, so
  * the ordinary rule that money goes to Ben (2.7) applies again. An empty set is no exemption.
  */
-export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput, liveFigureRefs: ReadonlySet<string> = new Set()): void {
+export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput, liveFigureRefs: ReadonlySet<string> = new Set()): { moneyToQuoting: boolean } {
     if (turn.kind === 'portal_action') {
         out.subjects = ['quoting'];
         out.exception = null;
         out.turnKind = 'acknowledgement';
-        return;
+        return { moneyToQuoting: false };
     }
     if (out.exception === 'money' && file.job.quoteRef && liveFigureRefs.has(file.job.quoteRef)) {
         out.exception = null;
         if (!out.subjects.includes('quoting')) out.subjects.unshift('quoting');
+        // Said so, whichever raised it: the exception is gone and Quoting owes the hold if its own
+        // reading of the turn does not answer it.
+        return { moneyToQuoting: true };
     }
+    return { moneyToQuoting: false };
 }
 
 function emptyProposal(): Proposal {
@@ -233,7 +234,7 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         // (desk.ts), so this read failing must not lose the hold with it: money beyond a quote line
         // goes to Ben, and a read that failed can answer nothing about a figure.
         const failed = emptyProposal();
-        if (route.belts.money) failed.hold = { reason: 'money', match: turn.body.slice(0, 80) };
+        if (route.belts.money || route.moneyToQuoting) failed.hold = { reason: 'money', match: turn.body.slice(0, 80) };
         const readBrief = [
             'quoting: the quote could not be read',
             'the quote could not be read this turn, so nothing about it is known: give no figure at all and answer nothing about a price, whatever amounts stand on the file; if they asked about money the fixed line covers it',
@@ -320,18 +321,23 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
             // characters and the brief clamps at 60, so a truncated label would match no line and
             // turn a question the quote answers (5.3) into a hold.
             const offQuote = quoteLiveForFigures(q)
-                ? asked.filter((c) => FIGURE_CONCERNS.has(c.kind) && c.label && !readQuoteLine(q, c.label).ok)
+                ? asked.filter((c) => c.kind === 'line_amount' && c.label && !readQuoteLine(q, c.label).ok)
                 : [];
-            proposal.concerns = asked.filter((c) => !offQuote.includes(c)).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
+            // A total and a deposit are named by their kind, so the label is the quote's own rather
+            // than the customer's words for it: "the total price" asks about the same one figure.
+            proposal.concerns = asked.filter((c) => !offQuote.includes(c)).map((c) => ({
+                kind: c.kind,
+                label: c.kind === 'total' ? TOTAL_LABEL : c.kind === 'deposit' ? DEPOSIT_LABEL : c.label ? clamp(c.label, 60) : null,
+            }));
             proposal.beyondQuoteLine = res.output.beyondQuoteLine || offQuote.length > 0;
             proposal.acceptanceInChat = res.output.acceptanceInChat && q.status === 'sent';
             proposal.notReady = proposal.notReady || res.output.notReady;
         } else error = res.error ?? 'the question model returned nothing';
     }
-    // The router's money belt is cleared for a live quote only because this reading replaces it
-    // (5.3 for a figure on the quote, applyQuotingRoute). When the reading did not run or did not
-    // answer, the belt stands: money beyond a quote line goes to Ben, never on one model reading.
-    if (route.belts.money && !questionRead) proposal.beyondQuoteLine = true;
+    // A money exception is cleared for a live quote only because this reading replaces it (5.3 for a
+    // figure on the quote, applyQuotingRoute). When the reading did not run or did not answer, it
+    // stands again, whichever raised it: money beyond a quote line goes to Ben, never on one reading.
+    if ((route.belts.money || route.moneyToQuoting) && !questionRead) proposal.beyondQuoteLine = true;
     const p = emptyProposal();
     p.ready = true;
     // Holds: money beyond a line, and acceptance in chat (acceptance stays human).

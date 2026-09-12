@@ -30,7 +30,7 @@ function fixture(text = 'Hi, my kitchen tap is leaking, NG9 2AB'): CaseFile {
     return file;
 }
 
-const routeOf = (over: Partial<Route> = {}): Route => ({ subjects: ['quoting'], proposedStage: 'ready', party: 'customer', exception: null, turnKind: 'question', belts: { regulated: null, money: null }, call: {} as any, error: null, ...over });
+const routeOf = (over: Partial<Route> = {}): Route => ({ subjects: ['quoting'], proposedStage: 'ready', party: 'customer', exception: null, turnKind: 'question', belts: { regulated: null, money: null }, moneyToQuoting: false, call: {} as any, error: null, ...over });
 
 function later(file: CaseFile, body: string, kind: Turn['kind'] = 'text', channel: Turn['channel'] = 'whatsapp'): Turn {
     const last = file.turns[file.turns.length - 1];
@@ -219,11 +219,27 @@ describe('after the quote', () => {
         expect(brief).toMatch(/beyond a line of the quote/);
         expect(brief).not.toMatch(/they asked about: Replace kitchen tap labour/);
 
-        // The same under another kind that asks for an amount: a label the quote does not carry.
+        // A total asked in the customer's own words is still the quote's one total: the kind names
+        // which figure it is, so it is answered from that line rather than held.
         const other = await sentQuote();
-        const asTotal = new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'total', label: 'the labour across the job' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
-        const two = await quote(other.file, later(other.file, 'what is the labour across the job?'), other.file.parties[0], routeOf(), asTotal, other.d);
-        expect(two?.proposal.hold).toMatchObject({ reason: 'money' });
+        const asTotal = new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'total', label: 'the total price' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const two = await quote(other.file, later(other.file, "what's the total price?"), other.file.parties[0], routeOf(), asTotal, other.d);
+        expect(two?.proposal.hold).toBeNull();
+        const total = other.file.facts.find((f) => f.key === 'quote_line:Total')!;
+        expect(total.value).toBe('£120.00');
+        expect(two?.factIds).toContain(total.id);
+        expect(two?.brief?.join('\n')).toMatch(/they asked about: Total/);
+    });
+
+    it('a money exception the router\'s own model raised is held by Quoting when its reading does not answer', async () => {
+        const { file, d } = await sentQuote();
+        // The wording belt found nothing ("would you take 200 for the lot?" has no match), the model
+        // raised money, and the hook handed the turn to Quoting; the question model then fails.
+        const refusing = new FakeModelClient({ specialist: () => ({ error: 'rate limited' }) });
+        const handed = routeOf({ moneyToQuoting: true });
+        const ret = await quote(file, later(file, 'would you take 200 for the lot?'), file.parties[0], handed, refusing, d);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+        expect(ret?.brief?.join('\n')).toMatch(/beyond a line of the quote/);
     });
 
     it('a line whose label is longer than the brief clamps is still a line of the quote, and its price is answered', async () => {
@@ -246,7 +262,7 @@ describe('after the quote', () => {
         const { file, d } = await sentQuote();
         const blind: QuotingDeps = { ...d, store: failingRead(d.store as MemoryQuoteStore) };
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call once the quote cannot be read'); } });
-        const money = routeOf({ belts: { regulated: null, money: 'discount' } });
+        const money = routeOf({ moneyToQuoting: true });
         const ret = await quote(file, later(file, 'any chance of a discount if I pay cash?'), file.parties[0], money, client, blind);
         expect(ret?.error).toMatch(/quote read failed/);
         expect(ret?.brief?.[0]).toBe('quoting: the quote could not be read');
@@ -326,13 +342,15 @@ describe('the router hook and the clock', () => {
         const { file, d } = await sentQuote();
         const live = await liveFigureQuotes(file, d);
         const out = { subjects: ['scoping' as const], proposedStage: 'quoted' as const, party: 'customer' as const, exception: 'money' as const, turnKind: 'question' as const };
-        applyQuotingRoute(file, later(file, 'how much is the labour?'), out as any, live);
+        const handed = applyQuotingRoute(file, later(file, 'how much is the labour?'), out as any, live);
         expect(out.exception).toBeNull();
         expect(out.subjects[0]).toBe('quoting');
+        // Said so, so Quoting owes the hold if its own reading of the turn does not answer it.
+        expect(handed.moneyToQuoting).toBe(true);
         // The same thread once the quote has expired: the stage is still quoted, but there is no
         // line left to answer a figure from, so money goes to Ben again (2.7).
         const stale = { subjects: ['scoping'], proposedStage: 'quoted', party: 'customer', exception: 'money', turnKind: 'question' } as any;
-        applyQuotingRoute(file, later(file, 'can you do it any cheaper?'), stale, new Set<string>());
+        expect(applyQuotingRoute(file, later(file, 'can you do it any cheaper?'), stale, new Set<string>()).moneyToQuoting).toBe(false);
         expect(stale.exception).toBe('money');
         const fresh = fixture();
         const early = { subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question' } as any;
