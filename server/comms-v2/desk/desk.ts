@@ -14,7 +14,7 @@
  * otherwise; a clock pass never sends ("no chasing", "one acknowledgement, then quiet").
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
+import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, noteOnHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
@@ -236,7 +236,9 @@ export class Desk implements DeskLike {
     /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement. */
     private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
         const party = partyOf(file, partyId)!;
-        if (!file.hold) setHold(file, { approver: approverFor(file, null), reason: why, draft, failures: failed?.failures ?? [] }, this.fileDeps());
+        const held = { reason: why, draft, failures: failed?.failures ?? [] };
+        if (file.hold) noteOnHold(file, held);
+        else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
         const line = await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null });
         const choice = chooseChannel(party, turn.channel, this.now());

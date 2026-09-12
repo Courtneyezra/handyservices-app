@@ -426,6 +426,21 @@ export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: st
     return accept(file.hold);
 }
 
+/**
+ * What the desk nearly sent and what stopped it, written onto a hold that already stands. A hold
+ * raised before the composer ran (an exception, a specialist) carries no draft, so the reply that
+ * then failed the guards would otherwise be lost to the card Ben reads. The reason it was raised
+ * for is never overwritten: a later one is added after it.
+ */
+export function noteOnHold(file: CaseFile, input: { reason: string; draft?: string | null; failures?: string[] }): Outcome<Hold> {
+    if (!file.hold) return refuse('the file is not held');
+    const reason = input.reason.trim();
+    if (reason && !file.hold.reason.includes(reason)) file.hold.reason = `${file.hold.reason}; ${reason}`;
+    if (input.draft && !file.hold.draft) file.hold.draft = input.draft;
+    if (input.failures?.length) file.hold.failures = Array.from(new Set([...file.hold.failures, ...input.failures]));
+    return accept(file.hold);
+}
+
 /** Clears the hold. Refuses release without words, and by anyone other than the named approver. */
 export function release(file: CaseFile, approver: ApproverSlot, words: string, deps: CaseFileDeps = {}): Outcome<HoldRelease> {
     const now = deps.now ?? (() => new Date());

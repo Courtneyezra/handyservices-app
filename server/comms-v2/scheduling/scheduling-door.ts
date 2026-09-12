@@ -1,6 +1,6 @@
 /**
  * The scheduling side of the desk's sandbox door (Goal 5), mounted under /scheduling by
- * desk/sandbox-door.ts. Three calls, all about the fixture (fixture.ts):
+ * desk/sandbox-door.ts. Two calls, both about the fixture (fixture.ts):
  *
  *   POST /scheduling/fixture        { completed: N, quote: true, booked: true, diary: 'diary' | 'none' }
  *                                   seeds N completed bookings, a sent quote and one booked job on the
@@ -10,9 +10,8 @@
  *                                   holds no completed bookings, so the "dates come with your quote"
  *                                   path is drivable live; `diary: 'diary'` (the default) reads it.
  *   POST /scheduling/fixture/reset  deletes every row the fixture wrote and puts the diary back.
- *   GET  /scheduling/fixture        what the fixture holds now and the diary mode. Seeds add up
- *                                   (addFixture), because a seed only ever adds rows: a post that
- *                                   only flips the diary mode does not empty the record.
+ *
+ * Both posts answer with what they seeded and the diary mode, which is everything the drives need.
  *
  * `withScheduling` gives the door its scheduling deps: the live diary and fixture on the branch
  * database, or whatever the caller passed (a memory diary in tests).
@@ -52,25 +51,6 @@ export function linkReady(file: CaseFile | null, wantsQuote: boolean): { ok: tru
     return { ok: true };
 }
 
-/**
- * What the fixture holds after a seed, given what it held before. A seed only ever adds rows
- * (fixture.ts never deletes; only reset does), so the door's record has to add up the same way:
- * the completed count sums, and a seed that wrote no quote or no booking leaves the references
- * the earlier seed wrote still standing. Otherwise a post that only flips the diary mode, which
- * validates to nothing seeded, would report an empty fixture while the earlier rows sit on the
- * branch.
- */
-export function addFixture(before: FixtureResult | null, seeded: FixtureResult): FixtureResult {
-    if (!before) return seeded;
-    return {
-        completedSeeded: before.completedSeeded + seeded.completedSeeded,
-        quoteRef: seeded.quoteRef ?? before.quoteRef,
-        quoteSlug: seeded.quoteRef ? seeded.quoteSlug : before.quoteSlug,
-        bookingRef: seeded.bookingRef ?? before.bookingRef,
-        bookedDate: seeded.bookingRef ? seeded.bookedDate : before.bookedDate,
-    };
-}
-
 /** Links the current sandbox thread to the seeded quote and booking and walks its stage there. Refuses a file that is not ready. */
 export function linkFixture(file: CaseFile, seeded: FixtureResult, deps: { now?: () => Date } = {}): { ok: true; stage: CaseFile['stage'] } | { ok: false; reason: string } {
     const ready = linkReady(file, !!seeded.quoteRef);
@@ -94,7 +74,6 @@ export function linkFixture(file: CaseFile, seeded: FixtureResult, deps: { now?:
 export function schedulingDoor(deps: SchedulingDoorDeps): Router {
     const now = deps.now ?? (() => new Date());
     const router = Router();
-    let last: FixtureResult | null = null;
 
     const currentFile = (req: any): CaseFile | null => {
         const gateway = req.v2Gateway as Gateway | undefined;
@@ -104,9 +83,7 @@ export function schedulingDoor(deps: SchedulingDoorDeps): Router {
         return open[0] ?? null;
     };
 
-    const stateOf = () => ({ diaryMode: deps.diaryMode.completed, fixture: last });
-
-    router.get('/fixture', (_req, res) => { res.json({ ok: true, ...stateOf() }); });
+    const stateOf = () => ({ diaryMode: deps.diaryMode.completed });
 
     router.post('/fixture', async (req, res) => {
         try {
@@ -119,7 +96,6 @@ export function schedulingDoor(deps: SchedulingDoorDeps): Router {
             if (!ready.ok) { res.status(409).json({ error: ready.reason, ...stateOf() }); return; }
             const seeded = await deps.fixture.seed(v.input, now());
             deps.diaryMode.completed = diaryMode === 'none' ? 'none' : 'diary';
-            last = addFixture(last, seeded);
             const linked = file ? linkFixture(file, seeded, { now }) : null;
             if (linked && !linked.ok) { res.status(409).json({ error: linked.reason, seeded, ...stateOf() }); return; }
             res.json({ ok: true, seeded, linked: linked ? { caseId: file!.id, stage: linked.stage, quoteRef: file!.job.quoteRef, bookingRef: file!.job.bookingRef } : null, ...stateOf() });
@@ -132,7 +108,6 @@ export function schedulingDoor(deps: SchedulingDoorDeps): Router {
         try {
             const deleted = await deps.fixture.reset();
             deps.diaryMode.completed = 'diary';
-            last = null;
             res.json({ ok: true, deleted, ...stateOf() });
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'scheduling fixture reset failed' });

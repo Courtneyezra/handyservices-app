@@ -55,11 +55,6 @@ async function post(route: string, body?: unknown) {
     const res = await fetch(`${base}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
     return { status: res.status, json: await res.json() as any };
 }
-async function get(route: string) {
-    const res = await fetch(`${base}${route}`);
-    return { status: res.status, json: await res.json() as any };
-}
-
 describe('the scheduling fixture on the door', () => {
     it('refuses a bad body, and a quote with no thread to link it to', async () => {
         expect((await post('/scheduling/fixture', { completed: -1 })).status).toBe(400);
@@ -72,7 +67,6 @@ describe('the scheduling fixture on the door', () => {
         // A refusal writes nothing: no orphan quote or booking is left on the branch.
         expect(scheduling.diary.quotes).toHaveLength(0);
         expect(scheduling.diary.bookings).toHaveLength(0);
-        expect((await get('/scheduling/fixture')).json.fixture).toBeNull();
         await post('/scheduling/fixture/reset');
     });
     it('seeds completed bookings without a thread, and reports the diary mode', async () => {
@@ -82,18 +76,16 @@ describe('the scheduling fixture on the door', () => {
         expect(r.json.linked).toBeNull();
         expect(r.json.diaryMode).toBe('diary');
         expect(scheduling.diary.bookings).toHaveLength(6);
-        expect((await get('/scheduling/fixture')).json).toMatchObject({ ok: true, diaryMode: 'diary', fixture: { completedSeeded: 6 } });
     });
-    it('a post that only flips the diary mode leaves the record of what is seeded standing', async () => {
-        const before = (await get('/scheduling/fixture')).json.fixture?.completedSeeded ?? 0;
+    it('a post that only flips the diary mode writes nothing and deletes nothing', async () => {
         const rows = scheduling.diary.bookings.length;
         const flipped = await post('/scheduling/fixture', { diary: 'none' });
         expect(flipped.status).toBe(200);
         expect(flipped.json.seeded).toMatchObject({ completedSeeded: 0 });
-        // Nothing was written and nothing was deleted, so the record still describes the branch.
+        expect(flipped.json.diaryMode).toBe('none');
         expect(scheduling.diary.bookings).toHaveLength(rows);
-        expect((await get('/scheduling/fixture')).json).toMatchObject({ diaryMode: 'none', fixture: { completedSeeded: before } });
-        await post('/scheduling/fixture', { diary: 'diary' });
+        const back = await post('/scheduling/fixture', { diary: 'diary' });
+        expect(back.json.diaryMode).toBe('diary');
     });
     it('2.6 replaced: a date question during scoping is answered with the lead time from the diary', async () => {
         const start = await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
@@ -123,8 +115,7 @@ describe('the scheduling fixture on the door', () => {
     it('a fresh thread starts from the real diary: /reset puts the emptied diary back', async () => {
         const empty = await post('/scheduling/fixture', { diary: 'none' });
         expect(empty.json.diaryMode).toBe('none');
-        await post('/reset');
-        expect((await get('/scheduling/fixture')).json.diaryMode).toBe('diary');
+        expect((await post('/reset')).status).toBe(200);
         const start = await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
         expect(start.status).toBe(200);
         const r = await post('/message', { text: 'When can you come?', channel: 'whatsapp' });
@@ -177,7 +168,6 @@ describe('the scheduling fixture on the door', () => {
         expect(r.json.deleted.bookings).toBeGreaterThan(0);
         expect(r.json.diaryMode).toBe('diary');
         expect(scheduling.diary.bookings).toHaveLength(0);
-        expect((await get('/scheduling/fixture')).json.fixture).toBeNull();
     });
 });
 
@@ -192,7 +182,6 @@ describe('a scheduling fixture seed that fails', () => {
         const url = `http://127.0.0.1:${(s.address() as { port: number }).port}/scheduling/fixture`;
         const failed = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ diary: 'none', completed: 6 }) });
         expect(failed.status).toBe(500);
-        expect((await (await fetch(url)).json() as any).diaryMode).toBe('diary');
         expect(await typicalLeadTime(broken)).toMatchObject({ ok: false, mode: 'diary' });
         await new Promise<void>((done) => s.close(() => done()));
     });

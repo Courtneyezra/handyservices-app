@@ -221,6 +221,33 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(r.summary).not.toMatch(/Typical lead time from the diary/);
     });
 
+    it('a reply that fails the guards twice on a thread already held for Ben still puts the draft and the failures on his card', async () => {
+        const { diary, seeded } = await seededDiary(6, { booked: true });
+        const { gateway } = desk({
+            router: ({ n }) => n === 1 ? scoping() : scheduling({ proposedStage: 'booked', exception: 'date_change' }),
+            specialist: specialists(['date_change'], 'the week after'),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
+                const date = /say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user)!;
+                return { reply: `No problem. You're booked in for next Friday, ${date[1]}.`, factIds: [date[2]], kbIds: [] };
+            },
+        }, diary);
+        const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        linkFixture(first.file, seeded);
+        const second = await gateway.inbound(turn('Can we move it to the week after?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.result.decision).toBe('hold');
+        expect(second.result.composerCalls).toBe(2);
+        const hold = second.file.hold!;
+        // The hold was raised before the composer ran, and what the desk nearly sent is added to it rather than lost.
+        expect(hold.reason).toMatch(/^date_change: move it/);
+        expect(hold.reason).toMatch(/guards failed twice/);
+        expect(hold.draft).toContain('next Friday');
+        expect(hold.failures.join(' ')).toMatch(/date, time or duration/);
+        expect(second.result.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.held_ack);
+    });
+
     it('a booked date the composer paraphrased with a weekday fails the date guard once and is written again from the diary', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({
