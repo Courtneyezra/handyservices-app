@@ -147,8 +147,9 @@ The rejection reason arrives on the Pushover alert and is stored on the row
 3. **Anything else.** Edit the body in `server/window-templates.ts`, run the dry run, and submit
    again with `--only <name>`. A Content resource's body is fixed once created, so the old one has to
    go first: delete it in the Twilio console (Messaging → Content Template Builder → the template →
-   Delete), or bump the name (`..._v2`) and add the old name as the second entry in the definition's
-   `names` list, which is how `holding_line_v1` and `holding_line` already work. Bumping the name is
+   Delete), or bump the name (`..._v2`) and add the old name as the second rung of the definition's
+   `rungs` list, carrying the body that name was approved with; a rung is a whole template, name and
+   wording and variables together, never a name on its own. Bumping the name is
    the safer of the two, because the submission script refuses to create a name that already exists
    and a delete cannot be undone.
 4. Record what happened in the log at the bottom of this file.

@@ -404,8 +404,9 @@ from Goal 1 is visible and a held draft can be released from the board.
 
 **Goal 3 - The other four channels**
 SMS, email, form and voice adapters against the same desk, the old handlers forwarding into the
-new gateway, and the remaining Stage 1 lines. Nothing below the gateway changes. Stop: the
-pipeline's test step passes the remaining Stage 1 lines with evidence, through each new door.
+new gateway, and the remaining Stage 1 lines with all of Stage 3. Nothing below the gateway
+changes. Stop: the pipeline's test step passes those lines with evidence, through each new door;
+they are listed one by one under "Goal 3's stop condition" below.
 
 **Goals 4 to 6 - Quoting, Scheduling, Service**
 One specialist per goal. Stop for each: the pipeline's test step passes that specialist's stage
