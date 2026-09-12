@@ -29,13 +29,20 @@ const WEEKDAY_ABBR = '(?:mon|tues?|weds?|thur?s?|fri|sat|sun)';
 const BEFORE = '(?:on|this|next|by|for|from|until|till|every|coming)';
 const AFTER = '(?:morning|afternoon|evening|night|week|\\d{1,2}(?:st|nd|rd|th))';
 
+const DAY_AND_MONTH = [
+    `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH}\\b(?:,?\\s+\\d{4}\\b)?`,
+    `\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4}\\b)?`,
+];
+
+/** A day with its month, the shape a date the diary gave takes: "25 September 2026". */
+export const RE_DAY_AND_MONTH = new RegExp(DAY_AND_MONTH.join('|'), 'i');
+
 /** A date, a time, a lead time or a duration, in a reply. */
 export const RE_DATE_TIME_DURATION = new RegExp([
     `\\b${WEEKDAY}\\b`,
     `\\b${BEFORE}\\s+${WEEKDAY_ABBR}\\b`,
     `\\b${WEEKDAY_ABBR}\\s+${AFTER}\\b`,
-    `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH}\\b`,
-    `\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`,
+    ...DAY_AND_MONTH,
     `\\b\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}\\b`,
     `\\b(?:tomorrow|tonight|this (?:morning|afternoon|evening|week|weekend)|next (?:week|month|day|few days)|end of (?:the )?(?:week|month)|first thing|later today|by the weekend|within the week)\\b`,
     `\\b(?:at|by|from|around|about)\\s+\\d{1,2}(?::\\d{2}\\b|(?::\\d{2})?\\s*(?:am|pm|o'?clock)\\b)`,
@@ -45,6 +52,13 @@ export const RE_DATE_TIME_DURATION = new RegExp([
     `\\blead[- ]time\\b`,
     `\\b(?:same[- ]day|next[- ]day)\\b`,
 ].join('|'), 'i');
+
+/**
+ * A bare ordinal day: "the 2nd". Read as a date only beside a date the reply looked up, since that
+ * is how one is said out loud here; on its own, or beside a lead time, it is the 1st floor, the
+ * 3rd bedroom or first fix.
+ */
+export const RE_ORDINAL_DAY = /\b\d{1,2}(?:st|nd|rd|th)\b/i;
 
 /** A promise to do, fix or guarantee something, or an admission of fault. Fails closed: broad on purpose. */
 export const RE_COMMITMENT_OR_FAULT = new RegExp([

@@ -55,14 +55,16 @@ export interface Proposal {
     mentionPhotos: boolean;
     thankForMedia: boolean;
     ready: boolean;
-    hold: { reason: 'regulated'; match: string } | null;
+    hold: { reason: 'regulated' | 'date_change' | 'date_unconfirmed'; match: string } | null;
 }
 
 export interface SpecialistReturn {
-    specialist: 'scoping';
+    specialist: 'scoping' | 'scheduling';
     /** Ids of the facts this pass recorded on the file. */
     factIds: string[];
     proposal: Proposal;
+    /** Notes for the composer from a specialist other than Scoping: which fact to copy verbatim, what not to say. Never a sentence for the customer. */
+    brief?: string[];
     calls: ModelCallRecord[];
     error: string | null;
 }

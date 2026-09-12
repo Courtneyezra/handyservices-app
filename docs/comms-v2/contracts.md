@@ -66,13 +66,21 @@ writes to a customer.
 | Call | Input | Returns | Rule |
 |---|---|---|---|
 | `route` - Haiku 4.5, low | the case file and the new turn | the subjects the turn touches in order of primacy (scoping, quoting, scheduling, service), a proposed stage, the party addressed, and an exception if one applies: money beyond a quote line, complaint, refund, trust doubt, regulated work, a date change to a booked job | Never invents a subject. An unclassifiable turn goes to Scoping before ready and to Service after. Structured output, no prose. |
-| `gather` | each routed specialist, with the case file and the turn | from each: facts with sources, and a proposal: next question, offer a call, ready, thank for media, hold with reason | Specialists return no prose, ever. A specialist that returns a sentence is a contract failure. |
+| `gather` | each routed specialist, with the case file and the turn | from each: facts with sources, a proposal (next question, offer a call, ready, thank for media, hold with reason), and from a specialist other than Scoping the notes the composer is given: which fact to copy verbatim and what not to say | Specialists return no prose, ever. A specialist that returns a sentence is a contract failure. |
 | `compose` - Fable 5.1, medium | the case file, every specialist's return, the party, and any exception | one reply, the ids of the facts it was written from, and for each business claim the knowledge-base row it cites | One reply per customer turn that answers everything the turn asked. Written from facts on the file only. No figure, date, duration or commitment unless it is a sourced fact. No disclosure line. Mirrors the customer's language and register. Never silent, with two exceptions: identity returned candidates, or a promise of more, which gets one acknowledgement then quiet. |
 | on exception | the exception from `route` | a hold on the file for the approver, and a reply that still answers what it can | Money, callbacks and date changes: answer the rest and say Ben will come back on that. Complaints, refunds, trust doubts and gas: one fixed line in Ben's words, then nothing until Ben. |
 
 **Invariants.** Exactly one composer call per customer turn. Every sentence the composer writes
 that asserts a figure, a date or a business fact carries a fact id or a knowledge-base id, and the
 guards check each one. The router never sees a tool; the specialists never see the customer.
+
+**No reason reaches the composer.** A specialist's notes say what the reply may say, never why it
+may not. No internal state goes into them: not a cancelled or declined booking, not a revoked,
+superseded or expired quote, not a read that failed, not a count of anything the business has done.
+A reason handed to a writer is a reason that can end up in the reply, and no guard checks a sentence
+like that. Where the reason matters, it goes to the hold the approver reads, and to the log line and
+the run summary; the brief says only that there is no date, or no link, and to say nothing about
+why.
 
 ## Contract 4 - Guards and the approver slot
 
@@ -102,7 +110,7 @@ much as a held one, so a slot minted for a landlord's thread can never reply on 
 | Guard | Fails when | Checked against |
 |---|---|---|
 | figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file |
-| date, time, duration | any date, time, lead time or duration appears that is not a diary fact or the picker pointer | facts with a diary source |
+| date, time, duration | any date, time, lead time or duration appears, anywhere in the reply, that is not a diary fact this turn looked up | facts with a diary source a specialist read on this run; one written on an earlier turn is not citable, since the diary may have moved since |
 | commitment and fault | a promise to do, fix or guarantee something, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
 | business claim | a statement about the business, its services, hours, coverage or policies, with no knowledge-base citation, or a citation whose row is not reviewed or whose body does not support the sentence | reviewed knowledge-base rows by id, verbatim |
 | disclosure | any line describing the sender as automated or an assistant | a fixed phrase list |
@@ -159,6 +167,66 @@ case file through its calls. The specialist itself, on Sonnet 5, returns facts a
 **What the specialist returns.** Facts: job type, location, media descriptions, each with its
 source. A proposal: the next question, whether to offer a call, whether to thank for media,
 whether the job is ready, or a hold with the reason regulated. Never a sentence for the customer.
+
+## The Scheduling tool server (Goal 5)
+
+The specialist for dates and lead time, on the same pattern as Contract 6: read-only against the
+world, writing only to the case file. It confirms and estimates; it never offers a slot and never
+books one. Booking stays on the quote's picker. Built under `server/comms-v2/scheduling/`.
+
+| Tool | Input | Returns | Refuses when |
+|---|---|---|---|
+| `typical_lead_time` | the diary | the median days from a booking being made to its first booked day over recent completed bookings, as a phrase ("about 3 days", exact days up to a fortnight), with the sample size and a diary row id | fewer than five completed bookings in the last 180 days; the diary emptied by the door fixture; a read that fails. Nothing is ever guessed: the specialist then proposes "dates come with your quote". |
+| `confirm_booked_date` | the case file | the one authoritative booked date (`contractor_booking_requests.scheduled_date`, spans read through `expandSpanDates`) and a diary row id, and nothing else: no slot and no duration, because no guard can check a half of the day against the diary | the diary is its only source, so the five quote-side preference columns (`selected_date`, `available_dates`, `date_time_preferences`, `flex_booking_within_days`, `slot_offer`) are never read; nothing booked on the file or from its quote; a declined or cancelled booking; a booking already done, or one whose last booked day has passed, since a visit that has happened is not a standing booking; a booking with no date; a booking no contractor has taken on (`assignment_status`), whose date nobody has agreed to work, which instead holds for Ben so he answers what day we are coming, as a cancelled or declined one does: that is a visit taken off the customer, which they may still be expecting, so a request to move it goes to Ben, while a job already done or past is a new job rather than a change. Every refusal gives no date at all, so the composer has none to state, and names the state it refused in, which is also what the date-change belt reads: this is the one entry point to the file's booking, so the confirmation and the belt can never disagree. A refusal the diary threw gives a stable category and keeps both it and the machine text off the prompt, since why there is no date, a cancellation above all, is Ben's to give in his own words. On a date question it holds for Ben as well, since the reply has just promised that he will come back on the date, and the hold names the read, so his card says whether it may only need a retry; the one exception is a thread where nothing says there is a booking at all, no reference on the file, no stage of `booked` and no booking the read resolved from its quote, where a read that could not say is nothing known rather than a booking, so an availability or lead-time question is still answered by the picker and the diary's lead time. That exception is the one reading `isTheirBooking` names, which the picker refuses on and the classifier's fallback guesses on; the rest of that reading governs the confirmation and the picker alone, since the fallback guesses `booked_date` for any read that was not plainly `none`. A question about the day they are booked for is not covered by it: that one still holds for Ben, because telling somebody who has a day to pick one is worse than answering late. The booking a quote is answered by is the newest from it that stands, else the newest that does not, so a cancelled visit is seen whether or not the case file happens to carry a booking reference. Refusals are marked the way the picker's are: a state of the world it read plainly, nothing booked, a booking cancelled or done, one still waiting on a contractor, is the right answer and stays out of the run's error, while a refusal that is the read failing, a diary that threw, a booking reference the diary does not hold, a file booked with nothing to read, a booking carrying no date, reaches the log and the run summary, since a case file pointing at a booking that is not there is a defect nobody else will find. A date question about a finished job belongs to the Service goals to route, not this one. |
+| `picker_link` | the case file | the quote's picker, `/quote/<slug>`, cited as the quote | no quote on the file; a draft (not sent), superseded, revoked or expired quote; a quote the customer already has a booking from, standing or still waiting on a contractor, since the picker is where that date was chosen and picking again would make a second booking from the one quote, and a quote the diary could not say about on a file that names a booking, since the booking it could not read may be that same one. Those last two are the one reading `isTheirBooking`, which the specialist's confirmation reads as well; the classifier's fallback reads only its unreadable-diary half. A booking cancelled off them is not refused, nor is one from an earlier quote, which says nothing about this one. The specialist asks for no link at all while a date is already Ben's to give, so no reply that holds for Ben ever carries the link; where the link was asked for first and refused, the hold that follows names that refusal. Two refusals are the right answer rather than something wrong, a booking they already have and a quote still in draft; those alone stay out of the run's error, and every other one, the unreadable diary included, reaches the log and the run summary. The two refusals that mean the customer has no quote to pick dates on, none on the file and one still in draft, are marked `unsent`, and that mark, not the reason, is what the specialist reads for the cell "dates come with your quote" answers. |
+| `date_change` | the turn | the belt: a request to move a job the customer already has, where only the verbs of movement take the job itself, since changing or swapping the job is the work they want rather than the day | when a booking stands, when one sits in the dispatch pool no contractor has taken on, when the diary could not say whether one does (the belt fails closed and Ben still hears it), and when the router raised its `date_change` exception, which the desk passes in and which stands in for a booking no case file carries yet; only then, and a change is answered with no lead time and no picker |
+
+**Ask by diary state.** The shelf that runs is chosen by what the turn asked and what
+`confirm_booked_date` found, and the two together make a grid wider than the branches read. Every
+cell, as the code stands:
+
+| ask \ state | `standing` | `unaccepted` | `cancelled` | `unknown` | `none` |
+|---|---|---|---|---|---|
+| `date_change` | the date confirmed, a hold for Ben, the fixed line that he will come back on it; no lead time, no picker | no date, the same hold and fixed line | no date, the same hold and fixed line | no date, the same hold and fixed line | only reachable from the router's own exception, since a belt match alone is rewritten to `availability`; then no date, the same hold and fixed line |
+| `booked_date` | the date, said verbatim | no date, a hold for Ben (`date_unconfirmed`) and the fixed line, nothing about why | the same hold and fixed line | the same hold and fixed line | the lead time and the picker answer, as for `availability`, and the cell is that cell, hold and all |
+| `lead_time` or `availability` | the lead time; the day it stands on confirmed beside it, and no picker, because they booked on it from this quote already; with no lead time, nothing about how soon, since the day they have is the answer | the lead time; the same confirmation, which here is the hold and the fixed line, so they hear we know they booked and Ben hears the job is stuck; no picker | the lead time and the picker: the visit was taken off them, so rebooking is what they need; with neither to give, a hold for Ben and the fixed line that he will come back on the date | where the file names a booking, or the read resolved one from this quote, the `unaccepted` cell exactly: the lead time, the hold and the fixed line, and no picker, because the booking the diary could not read may be the one they made on it; where nothing says there is a booking at all, the lead time and the picker, a read that could not say being nothing known rather than a booking; with neither to give, the same hold and fixed line | the lead time and the picker; with no quote the customer has been sent, the fixed line that dates come with the quote; with a sent quote but neither to give, the same hold and fixed line |
+| none of them | nothing is looked up and nothing is said about timing, on every state |
+
+Three readings drove those cells apart over several rounds, so there is now one, `isTheirBooking`:
+the booking the diary gave is theirs (`standing` or `unaccepted`) and came from the quote the file
+carries, or the read could not say (`unknown`) on a file that names a booking, by its own reference,
+by a stage of `booked`, or by the booking the read resolved from this quote. That one reading decides
+whether the date is confirmed and whether the picker is refused, so those two can never disagree
+about one file in one state. A classification that never came back is not decided by it: the
+fallback guesses `booked_date` whenever the diary read was not plainly `none`, and `availability`
+only where it was, or where a read that could not say found nothing on the file saying there is a
+booking at all. It is deliberately the wider guess, and the two part on `cancelled`, where the
+reading says the booking is not theirs and the fallback still holds for Ben: sending somebody whose
+visit was taken off them to the picker, with nothing reaching him, is the worse way to be wrong
+about a turn nobody could read. Above it sits one rule of sequence: **no picker goes in a reply that
+holds for Ben**, in any state, because a message must not say he will come back on the date and then
+hand over the page where dates are picked. A booking from an earlier quote is not theirs for this
+purpose, and neither is a read that could not say on a file that names no booking.
+
+Two rules fill the cells where the diary gave nothing, and they read across every column. **The
+fixed line that dates come with the quote belongs only to a file with no quote the customer has been
+sent**, none on the file at all or one still in draft, which the picker refuses as `unsent` for that
+very reason, so the tool and the cell cannot state opposite answers: telling somebody who is holding
+a quote, and a booking made from it, that dates come with their quote reads as not knowing who they
+are. And **a
+cell left with nothing to say about dates at all holds for Ben**, with the fixed line that he will
+come back on the date: no day confirmed, no lead time and no picker is a reply that would answer a
+date question with silence, which is the one thing the desk may not do. A cell that says one of
+those three says nothing further about how soon.
+
+A turn that asks two of them gets both: `booked_date` and `lead_time` together confirm the date and
+give the lead time, and only `date_change` is exclusive.
+
+**What the specialist returns.** Facts: the lead time and the booked date, each with a diary
+source the date guard recognises; the picker link cited as the quote; a change request in the
+customer's words from the thread. A proposal: the fixed lines to include (`dates_with_quote`,
+`date_change_to_ben`) and a hold for Ben on a date change while the file is still
+answered on everything else. Never a sentence for the customer.
 
 ## Validation
 

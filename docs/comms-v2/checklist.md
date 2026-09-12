@@ -48,7 +48,7 @@ Written 8 Sep 2026 against `941f467` plus PRs 17, 19 and 20 pending.
 | 2.3 | It asks about the job, one thing at a time, in its own words **[O]** (§5.1) | Any scoping thread |
 | 2.4 | A short pause ("one sec", "let me check") does not stop it **[C]** | Send that, then a real answer |
 | 2.5 | A real promise ("I'll send photos tomorrow") gets **one acknowledgement, then quiet** until the customer writes. Not silence. **[C]** | Send that and expect one reply, then nothing until you write again |
-| 2.6 | A date question gets "dates come with your quote" and scoping continues; no lead-time guess **[O]** (§7) | Ask "when can you come?" |
+| 2.6 | A date question during scoping is answered with the **typical lead time read from the diary** when one exists, and with "dates come with your quote" when it does not; never a guess. Once a date is booked it is confirmed from the diary. Scoping continues. **[C]** (answers 12 and 22; Goal 5 replaced the old "dates come with your quote" only line) | Ask "when can you come?" during scoping; on the new desk's door, `/scheduling/fixture` with `diary: "none"` for the empty diary |
 | 2.7 | Anything about money or price goes to Ben, not answered **[O]** (§8, under review) | Ask "how much roughly?" |
 | 2.8 | It never sends a second **reply** without the customer writing in between. One reply per customer turn, however many bubbles. **[C]** (answer 27) | Watch after any reply |
 
@@ -79,8 +79,8 @@ Written 8 Sep 2026 against `941f467` plus PRs 17, 19 and 20 pending.
 | 5.1 | Ben prices and sends; the customer gets a link to the quote **[O]** | Price and send in the sandbox |
 | 5.2 | Questions **before** the quote about what is included get answered, not deflected **[C]** | Ask mid-scoping |
 | 5.3 | Questions **after** the quote are answered **from the quote**: what is included and excluded, prices already on it, what happens on the day **[C]** | Ask after sending |
-| 5.4 | Availability questions point at the picker **[O]** (§7) | Ask "what dates?" after the quote |
-| 5.5 | Changing a **booked** date still goes to Ben **[O]** (§13, open) | Ask after acceptance |
+| 5.4 | Availability questions point at the picker; the desk never offers a slot and never books one **[C]** (answer 12; Goal 5) | Ask "what dates?" after the quote (`/scheduling/fixture` with `quote: true` on the new desk's door) |
+| 5.5 | Changing a **booked** date still goes to Ben: a hold for Ben, the booked date confirmed from the diary, the rest of the turn still answered **[C]** (answer 21; Goal 5) | Ask after booking (`/scheduling/fixture` with `booked: true` on the new desk's door) |
 
 ## Stage 6 - Acceptance and after
 

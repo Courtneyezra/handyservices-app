@@ -45,7 +45,50 @@ describe('guards', () => {
         expect(runGuards(input('Dates come with your quote.')).guards.date_time_duration.result).toBe('pass');
         const f = fixture();
         const fact = recordFact(f.file, { key: 'booked_date', value: 'Tuesday 15 September', source: { kind: 'diary', rowId: 'b1' }, by: 'scheduling' });
-        expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday.', factIds: fact.ok ? [fact.value.id] : [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.date_time_duration.result).toBe('pass');
+        const looked = fact.ok ? [fact.value.id] : [];
+        expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday.', factIds: looked, kbIds: [], kbRows: [], fixedLines: [], lookedUp: looked, proposedSubject: null }).guards.date_time_duration.result).toBe('pass');
+        // The same fact, not looked up on this run: it was true when it was written and the diary may have moved since.
+        const stale = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday.', factIds: looked, kbIds: [], kbRows: [], fixedLines: [], lookedUp: [], proposedSubject: null }).guards.date_time_duration;
+        expect(stale.result).toBe('fail');
+        expect(stale.note).toContain('did not look up');
+        // Every date in the reply is checked, not just the first: once a diary date can legitimately pass, a second one must not ride in behind it.
+        const second = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'You are booked in for Tuesday. If Thursday suits better I can do that instead.', factIds: looked, kbIds: [], kbRows: [], fixedLines: [], lookedUp: looked, proposedSubject: null }).guards.date_time_duration;
+        expect(second.result).toBe('fail');
+        expect(second.note).toContain('Thursday');
+        expect(second.note).not.toContain('"Tuesday"');
+        // A fragment of a diary date is not that date: "the 5 September" must not ride in on "25 September 2026".
+        const g = fixture();
+        const booked = recordFact(g.file, { key: 'booked_date', value: '25 September 2026', source: { kind: 'diary', rowId: 'b2' }, by: 'scheduling' });
+        const ids = booked.ok ? [booked.value.id] : [];
+        const dated = (reply: string) => runGuards({ file: g.file, party: g.party, turn: g.turn, reply, factIds: ids, kbIds: [], kbRows: [], fixedLines: [], lookedUp: ids, proposedSubject: null }).guards.date_time_duration;
+        expect(dated('You are booked in for 25 September 2026.').result).toBe('pass');
+        expect(dated('You are booked in for 25 September.').result).toBe('pass');
+        const fragment = dated('We can do the 5 September if that suits.');
+        expect(fragment.result).toBe('fail');
+        expect(fragment.note).toContain('5 September');
+        // A year the diary did not give is a different date: the year is read, not skipped over.
+        const wrongYear = dated('You are booked in for 25 September 2025.');
+        expect(wrongYear.result).toBe('fail');
+        expect(wrongYear.note).toContain('25 September 2025');
+        // A bare ordinal is how a date is said out loud, so it is a date the guard reads: nothing about "25 September 2026" licenses "the 2nd".
+        const ordinal = dated('Ben will look at moving you to the 2nd.');
+        expect(ordinal.result).toBe('fail');
+        expect(ordinal.note).toContain('2nd');
+        // A written-out ordinal date is still read whole, not as a bare ordinal with the month left behind.
+        const ordinalDate = dated('We could do 26th September 2026.');
+        expect(ordinalDate.result).toBe('fail');
+        expect(ordinalDate.note).toContain('26th September 2026');
+        // An ordinal with no looked-up date beside it is left alone: in this trade "the 1st floor", "the 3rd bedroom"
+        // and "1st fix carpentry" are everyday wording, and a reply that cites no date is not paraphrasing one.
+        expect(runGuards(input('There is no charge for the 1st visit.')).guards.date_time_duration.result).toBe('pass');
+        expect(runGuards(input('Is that the 1st floor bathroom, or the 3rd bedroom?')).guards.date_time_duration.result).toBe('pass');
+        // A lead time is a diary fact but not a date, so it does not turn the ordinal reading on either: the customer's
+        // own words about their bathroom come back beside "about 3 days" without the reply being sent round again.
+        const h = fixture();
+        const lead = recordFact(h.file, { key: 'lead_time', value: 'about 3 days', source: { kind: 'diary', rowId: 'lead-time:x' }, by: 'scheduling' });
+        const leadIds = lead.ok ? [lead.value.id] : [];
+        const withLead = runGuards({ file: h.file, party: h.party, turn: h.turn, reply: "Thanks Sam, a dripping tap in the 1st floor bathroom. We're usually booking in about 3 days.", factIds: leadIds, kbIds: [], kbRows: [], fixedLines: [], lookedUp: leadIds, proposedSubject: null }).guards.date_time_duration;
+        expect(withLead.result).toBe('pass');
     });
     it('commitment and fault: fails closed', () => {
         expect(runGuards(input("We'll fix that no problem.")).guards.commitment_fault.result).toBe('fail');

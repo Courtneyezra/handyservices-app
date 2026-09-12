@@ -52,6 +52,7 @@ export const COMPOSER_SYSTEM = [
     'What you may say:',
     '- Only what the customer wrote, the facts listed on the file, and the fixed lines you are given. Nothing else about the business.',
     '- Never a price, a figure, a cost, a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees.',
+    '- The one exception: a date or a lead time that is a diary fact on the file which the notes from Scheduling tell you to copy verbatim; copy it exactly and cite its fact id. Never offer, suggest or agree a day, a time of day, a slot or a change of date yourself.',
     '- Never say or hint that you are an assistant, a bot, AI or automated. No disclosure line. Never sign off with a name.',
     '',
     'How to sound:',
@@ -94,8 +95,12 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
     lines.push(threadFor(file, turn));
     lines.push('');
+    // A diary fact is only citable while this run looked it up: an older booked date was true when it was
+    // written and the diary may have moved since, so it is left off the list rather than dangled and refused.
+    const lookedUp = new Set(specialists.flatMap((s) => s.factIds));
+    const citable = file.facts.filter((f) => f.source.kind !== 'diary' || lookedUp.has(f.id));
     lines.push('Facts on the file (id: key = value):');
-    lines.push(file.facts.length ? file.facts.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
+    lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
     lines.push('');
     lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exception: ${route.exception ?? 'none'}.`);
     if (proposal) {
@@ -111,7 +116,7 @@ export function buildComposerUser(input: ComposeInput): string {
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
-    if (route.subjects.includes('scheduling')) lines.push('They asked about dates or timing: say dates come with the quote (no lead time, no day, no time), then carry on.');
+    for (const s of specialists) if (s.specialist !== 'scoping' && s.brief?.length) { lines.push(`Notes from ${s.specialist} (facts to copy verbatim, what not to say):`); for (const b of s.brief) lines.push(`- ${b}`); }
     if (fixedLines.length) {
         lines.push('Fixed lines to include, in Ben\'s words:');
         for (const f of fixedLines) lines.push(`- ${f.text}`);

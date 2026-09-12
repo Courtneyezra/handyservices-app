@@ -19,11 +19,12 @@ exercises, and the captain reviews sandbox threads before any flip. Goals with i
 run in parallel.
 
 The build lands in `server/comms-v2/` beside `server/spine/`; it never goes inside `server/spine/`.
-Goal 1's desk (sandbox-only until cutover), Goal 2's board over it (`/admin/comms-v2`) and Goal 3's
+Goal 1's desk (sandbox-only until cutover), Goal 2's board over it (`/admin/comms-v2`), Goal 3's
 other four channels (SMS, email, the web form and calls, each with its own sandbox door, and the
-old inputs forwarding into the new gateway behind one switch that is off by default) are there
+old inputs forwarding into the new gateway behind one switch that is off by default) and Goal 5's
+Scheduling specialist with its diary read under `server/comms-v2/scheduling/` are there
 already, with the board's answer action beside its release (Ben's own words out through the one
 sender, no guards over them, recorded as his); `server/comms-v2/README.md` covers them, the desk contract
-by contract with its sandbox door, the door host and the environment they read, the channels
-channel by channel, and the board piece by piece. The old desk stays live
-as rollback until the new one is proven and cut over.
+by contract with its sandbox door and that door's scheduling fixture, the door host and the
+environment they read, the channels channel by channel, and the board piece by piece. The old desk
+stays live as rollback until the new one is proven and cut over.

@@ -54,12 +54,17 @@ describe('the composer\'s brief', () => {
         const file = fixture('Text only please');
         file.parties[0].prefersText = true;
         file.facts.push({ id: 'fact_1', key: 'job_type', value: 'fence panel', source: { kind: 'thread', turnId: file.turns[0].id }, at: 'x', by: 'scoping' });
+        file.facts.push({ id: 'fact_old', key: 'booked_date', value: '25 September 2026', source: { kind: 'diary', rowId: 'booking:bk1' }, at: 'x', by: 'scheduling' });
+        file.facts.push({ id: 'fact_now', key: 'lead_time', value: 'about 3 days', source: { kind: 'diary', rowId: 'lead-time:x' }, at: 'x', by: 'scheduling' });
         file.ledger.push({ subject: 'media', askedAt: 'x', answeredAt: null, thankedAt: null, askCount: 1 });
         const user = buildComposerUser({
             file, party: file.parties[0], turn: file.turns[0],
             route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question', belts: { regulated: null, money: 'how much' }, call: {} as any, error: null },
-            specialists: [{ specialist: 'scoping', factIds: ['fact_1'], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null }],
-            fixedLines: [{ kind: 'money_to_ben', text: 'Ben will come back to you on the price.', kbId: null }],
+            specialists: [
+                { specialist: 'scoping', factIds: ['fact_1'], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null },
+                { specialist: 'scheduling', factIds: ['fact_now'], proposal: { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, brief: ['The diary has no typical lead time to give: include the fixed line that dates come with the quote.'], calls: [], error: null },
+            ],
+            fixedLines: [{ kind: 'money_to_ben', text: 'Ben will come back to you on the price.', kbId: null }, { kind: 'dates_with_quote', text: 'Dates come with your quote.', kbId: null }],
             failures: ['figure: a figure appears'],
         });
         expect(user).toContain('fact_1: job_type = fence panel');
@@ -67,9 +72,15 @@ describe('the composer\'s brief', () => {
         expect(user).toContain('this turn: ask one question about their location (postcode)');
         expect(user).toContain('offer a call: no, do not mention calling');
         expect(user).toContain('Never ask again (already asked or declined): photos or video');
+        expect(user).toContain('Notes from scheduling');
         expect(user).toContain('dates come with the quote');
+        expect(user).toContain('Dates come with your quote.');
         expect(user).toContain('Ben will come back to you on the price.');
         expect(user).toContain('figure: a figure appears');
+        // A diary fact this run looked up is citable; one from an earlier turn is not offered at all, because the date guard would refuse it.
+        expect(user).toContain('fact_now: lead_time = about 3 days');
+        expect(user).not.toContain('fact_old');
+        expect(user).not.toContain('25 September 2026');
     });
 
     const brief = (over: Partial<Parameters<typeof buildComposerUser>[0]>) => {

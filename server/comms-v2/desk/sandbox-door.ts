@@ -4,11 +4,13 @@
  * sandbox drive.
  *
  * Everything up to delivery runs for real: identity, the case file, the router, the Scoping
- * specialist and its tools (Gemini for a photo), the composer, the guards, the render, the
+ * specialist and its tools (Gemini for a photo), the Scheduling specialist and its diary read,
+ * the composer, the guards, the render, the
  * window. Nothing leaves: the sender runs in dry run and lands the planned reply on the case
  * file's thread as an outbound turn, so the next turn sees it. Every response carries the
  * planned send (planned-send.ts) the desk emits itself, and the thread's state. The SMS, form,
- * email and call doors are mounted in front (channels/channel-doors.ts) on the same gateway.
+ * email and call doors are mounted in front (channels/channel-doors.ts) on the same gateway, and
+ * the scheduling fixture sits under /scheduling (scheduling/scheduling-door.ts).
  *
  * Case files live in memory for the length of the process; /start clears them. The door is
  * mounted only by the door host (door-host.ts, in-process on COMMS_V2_DATABASE_URL) and by
@@ -27,6 +29,7 @@ import type { PlannedSend } from './planned-send';
 import { ChannelDesk } from '../channels/channel-desk';
 import { channelDoors } from '../channels/channel-doors';
 import { ChannelGateway } from '../channels/channel-gateway';
+import { schedulingDoor, withScheduling } from '../scheduling/scheduling-door';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -72,13 +75,18 @@ export interface SandboxDoor {
     reset(): void;
 }
 
-export function createSandboxDoor(deps: DoorDeps = {}): SandboxDoor {
+export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
+    const deps = withScheduling(rawDeps);
     const now = deps.now ?? (() => new Date());
     const desk = () => new ChannelDesk(new Desk({ ...deps, mode: 'dry_run' }), { client: deps.client, templates: deps.templates, sender: deps.sender, now, newId: deps.newId, mode: 'dry_run', log: deps.log });
     let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
-    const reset = () => { gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId }); };
+    const reset = () => {
+        deps.scheduling.diaryMode.completed = 'diary';
+        gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
+    };
     const router = Router();
     router.use((req, _res, next) => { (req as any).v2Gateway = gateway; next(); });
+    router.use('/scheduling', schedulingDoor(deps.scheduling));
 
     const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: SANDBOX_MAX_FILE_BYTES, files: SANDBOX_MAX_FILES, fields: 5 } });
 

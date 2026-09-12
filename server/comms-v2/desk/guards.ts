@@ -17,7 +17,7 @@
 import { askedUnanswered, customerWroteSinceLastReply, everAsked, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
-import { RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DISCLOSURE, RE_FIGURE, RE_THANKS_MEDIA, regulatedMatch, sentencesOf, textAsks } from './lexicon';
+import { RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DAY_AND_MONTH, RE_DISCLOSURE, RE_FIGURE, RE_ORDINAL_DAY, RE_THANKS_MEDIA, regulatedMatch, sentencesOf, textAsks } from './lexicon';
 
 export const GUARD_NAMES: readonly GuardName[] = ['figure', 'date_time_duration', 'commitment_fault', 'business_claim', 'disclosure', 'one_reply', 'ask_ledger', 'regulated'];
 
@@ -33,6 +33,8 @@ export interface GuardInput {
     /** Reviewed knowledge-base rows the composer cited, resolved by id (unknown ids are absent). */
     kbRows: KbRow[];
     fixedLines: FixedLine[];
+    /** The ids of the facts the specialists looked up on this run. A date is only ever one of these: a fact from an earlier turn was true when it was written, and the diary may have moved since. Absent means none, so nothing dated passes. */
+    lookedUp?: string[];
     /** The subject the specialist proposed asking this turn; the ledger records it after the send. */
     proposedSubject: string | null;
 }
@@ -64,12 +66,34 @@ export function checkFigure(input: GuardInput): GuardVerdict {
     return bad.length ? fail(`a figure appears that is not a cited quote line or customer record: ${bad.join(', ')}`) : pass();
 }
 
+/**
+ * Whole words only: "the 5 September" must not ride in on a cited "25 September 2026", so the
+ * match has to sit in the diary value with a non-word character, or nothing, on either side.
+ */
+function saysWhole(value: string, match: string): boolean {
+    for (let i = value.indexOf(match); i !== -1; i = value.indexOf(match, i + 1)) {
+        const before = value[i - 1];
+        const after = value[i + match.length];
+        if (!/\w/.test(before ?? '') && !/\w/.test(after ?? '')) return true;
+    }
+    return false;
+}
+
+function allOf(re: RegExp, text: string): string[] {
+    return Array.from(text.matchAll(new RegExp(re.source, 'gi'))).map((m) => m[0]);
+}
+
 export function checkDate(input: GuardInput): GuardVerdict {
-    const m = RE_DATE_TIME_DURATION.exec(input.reply);
-    if (!m) return pass();
-    const diary = citedFacts(input).filter((f) => f.source.kind === 'diary').map((f) => f.value.toLowerCase());
-    if (diary.some((v) => v.includes(m[0].toLowerCase()))) return pass();
-    return fail(`a date, time or duration appears that is not a diary fact: "${m[0]}"`);
+    const looked = new Set(input.lookedUp ?? []);
+    const diary = citedFacts(input).filter((f) => f.source.kind === 'diary' && looked.has(f.id)).map((f) => f.value.toLowerCase());
+    // An ordinal is only read as a day beside a date this reply looked up, which is the paraphrase to
+    // catch. A lead time is not a date, so with no day and month in play it is a floor, a bedroom or a
+    // coat of paint, which is not this guard's.
+    const anyDate = diary.some((v) => RE_DAY_AND_MONTH.test(v));
+    const matches = [...allOf(RE_DATE_TIME_DURATION, input.reply), ...(anyDate ? allOf(RE_ORDINAL_DAY, input.reply) : [])];
+    if (!matches.length) return pass();
+    const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())));
+    return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
 }
 
 export function checkCommitment(input: GuardInput): GuardVerdict {
