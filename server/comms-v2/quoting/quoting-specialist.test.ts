@@ -377,6 +377,18 @@ describe('after the quote', () => {
         expect(superseded?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${old.file.job.quoteRef} is superseded` });
     });
 
+    it('money beyond a line while the quote is still with Ben holds for him too, with no fixed line claimed that is not there', async () => {
+        const { d } = deps();
+        const file = fixture();
+        await quote(file, file.turns[0], file.parties[0], routeOf({ turnKind: 'enquiry' }), new FakeModelClient({ specialist: () => intakeOutput }), d);
+        // Neither the wording belt nor the router model caught it; the question read did.
+        const client = new FakeModelClient({ specialist: () => ({ concerns: [], beyondQuoteLine: true, acceptanceInChat: false, notReady: false }) });
+        const ret = await quote(file, later(file, 'Any chance of a better deal on this one?'), file.parties[0], routeOf(), client, d);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+        expect(ret?.brief?.join('\n')).toMatch(/beyond a line of the quote: give no figure and do not answer it/);
+        expect(file.facts.some((f) => f.key.startsWith('quote_line:'))).toBe(false);
+    });
+
     it('while the draft is with Ben, a scope question is answered from the draft with no figure', async () => {
         const { d } = deps();
         const file = fixture();

@@ -160,7 +160,7 @@ export function briefLines(p: QuotingProposal): string[] {
         } else if (p.acceptanceInChat) {
             out.push(`they said yes in chat: acceptance happens on the quote page, so point them to the quote link (fact ${ids.link ?? 'none'}) to accept and pick a date; Ben has been told; no date, no time`);
         } else if (p.beyondQuoteLine) {
-            out.push(`their money question is beyond a line of the quote: give no figure and do not answer it, the fixed line covers it; answer anything else they asked from the quote's scope facts (${ids.scope.join(', ') || 'none'})`);
+            out.push(`their money question is beyond a line of the quote: give no figure and do not answer it, Ben's fixed line in this reply covers it; answer anything else they asked from the quote's scope facts (${ids.scope.join(', ') || 'none'})`);
         } else {
             const asked = p.concerns.filter((c) => c.kind === 'line_amount' || c.kind === 'total' || c.kind === 'deposit').map((c) => c.label ?? c.kind);
             out.push(`answer from the quote only. Figures on it, each copied exactly as written on its fact and its fact id cited: ${figureList || 'none'}${asked.length ? `; they asked about: ${asked.join(', ')}` : ''}`);
@@ -169,7 +169,7 @@ export function briefLines(p: QuotingProposal): string[] {
             out.push('anything about money beyond these figures: say Ben will come back to them on it');
         }
     }
-    if (p.beyondQuoteLine && p.phase !== 'sent' && p.phase !== 'accepted') out.push('their money question is beyond a line of the quote: do not answer it; the fixed line covers it');
+    if (p.beyondQuoteLine && p.phase !== 'sent' && p.phase !== 'accepted') out.push('their money question is beyond a line of the quote: give no figure and do not answer it, Ben\'s fixed line in this reply covers it');
     if (p.notReady) out.push('they are not ready: one short acknowledgement, no question, and the desk will not chase');
     return out;
 }
@@ -345,8 +345,10 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     if ((route.belts.money || route.moneyToQuoting) && !questionRead) proposal.beyondQuoteLine = true;
     const p = emptyProposal();
     p.ready = true;
-    // Holds: money beyond a line, and acceptance in chat (acceptance stays human).
-    if (proposal.beyondQuoteLine && (q.status === 'sent' || q.status === 'accepted')) p.hold = { reason: 'money', match: turn.body.slice(0, 80) };
+    // Holds: money beyond a line, whatever the quote's status, and acceptance in chat (acceptance
+    // stays human). 5.3's exemption is a figure already on the sent quote; a quote still with Ben has
+    // no figure to answer from at all, so that is the one state money must certainly reach him in.
+    if (proposal.beyondQuoteLine) p.hold = { reason: 'money', match: turn.body.slice(0, 80) };
     else if (proposal.acceptanceInChat) p.hold = { reason: 'acceptance', match: turn.body.slice(0, 80) };
     return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(proposal), calls, error };
 }

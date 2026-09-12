@@ -361,4 +361,32 @@ describe('the desk', () => {
         expect(second.result.guards.figure.result).toBe('pass');
         expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
     });
+
+    it('a money question while the quote is still with Ben carries his fixed line and holds the thread, so the brief is telling the truth', async () => {
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        let composerUser = '';
+        const { gateway } = desk({
+            router: () => routeScoping({ turnKind: 'question' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : /what it concerns/.test(system)
+                    // The wording belt and the router model both missed it; this read catches it.
+                    ? { concerns: [], beyondQuoteLine: true, acceptanceInChat: false, notReady: false }
+                    : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            composer: ({ user }) => { composerUser = user; return { reply: DEFAULT_FIXED_LINES.money_to_ben, factIds: [], kbIds: [] }; },
+        }, undefined, { quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.job.quoteRef).toBeTruthy();
+
+        const second = await gateway.inbound(turn('Any chance of a better deal on this one?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.file.hold?.exception).toBe('money');
+        expect(second.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        // The brief tells the composer the fixed line covers it, and the desk put that line there.
+        expect(composerUser).toMatch(/beyond a line of the quote: give no figure and do not answer it/);
+        expect(composerUser).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+        expect(second.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+    });
 });
