@@ -17,7 +17,7 @@ import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
 import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteRowLike, type QuoteStatus } from './quote-record';
 import { MemoryQuoteStore, QUOTE_READ_COLUMNS } from './quote-store';
-import { CHASE_MAX, chase, draftQuote, liveFigureQuotes, loadQuote, notifyBen, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
+import { CHASE_MAX, READINESS_SUBJECTS, chase, draftQuote, liveFigureQuotes, loadQuote, notifyBen, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
 
 /** The one registry of Ben's fixed sentences is where the delivery's first contact comes from. */
 const FIRST_CONTACT_ACK_WORDS = DEFAULT_FIXED_LINES.first_contact_ack;
@@ -56,6 +56,19 @@ describe('quote_readiness', () => {
         recordFact(file, { key: 'media_declined', value: 'true', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' });
         recordFact(file, { key: 'access', value: 'parking outside', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' });
         expect(quoteReadiness(file).missing).toEqual(['photo (declined)']);
+    });
+
+    it('names every entry it can report after one of the subjects the price screen recomputes', () => {
+        // The price screen answers a stored entry again by its subject, so an entry this reports
+        // under a subject that list does not carry would be trusted forever (`ben-to-request.ts`).
+        const seen = new Set<string>();
+        const asked = fixture();
+        quoteReadiness(asked).missing.forEach((m) => seen.add(m.split(' ')[0]));
+        ask(asked, 'media');
+        quoteReadiness(asked).missing.forEach((m) => seen.add(m.split(' ')[0]));
+        recordFact(asked, { key: 'media_declined', value: 'true', source: { kind: 'thread', turnId: asked.turns[0].id }, by: 'scoping' });
+        quoteReadiness(asked).missing.forEach((m) => seen.add(m.split(' ')[0]));
+        expect(Array.from(seen).sort()).toEqual([...READINESS_SUBJECTS].sort());
     });
 });
 
@@ -99,6 +112,7 @@ describe('draft_quote and notify_ben', () => {
     it('keeps Ben\'s missing list off the quote row in every field, and records it on the file as his own fact', async () => {
         const d = deps();
         const file = fixture();
+        ask(file, 'media');
         const out = await draftQuote(file, file.parties[0], intake, d);
         expect(out.ok).toBe(true);
         if (!out.ok) return;
@@ -121,6 +135,25 @@ describe('draft_quote and notify_ben', () => {
         // 4.4: the admin-gated price screen is the one surface it reaches, through this read.
         expect(benToRequestOn([file], out.slug)).toEqual(['photo (asked once, none sent)']);
         expect(benToRequestOn([file], 'some-other-slug')).toEqual([]);
+    });
+
+    it('stops asking for what the customer has since sent: the screen answers the list again rather than showing the draft\'s', async () => {
+        const d = deps();
+        const file = fixture();
+        ask(file, 'media');
+        const out = await draftQuote(file, file.parties[0], { ...intake, missing: ['photo (asked once, none sent)', 'access (parking, someone in)', 'which tap it is'] }, d);
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(benToRequestOn([file], out.slug)).toEqual(['photo (asked once, none sent)', 'access (parking, someone in)', 'which tap it is']);
+
+        // Two turns later they send the photo and say where to park.
+        const sent = appendTurn(file, { at: '2026-09-11T10:20:00.000Z', channel: 'whatsapp', direction: 'inbound', partyId: file.parties[0].personId, kind: 'image', body: 'here it is', media: [{ id: 'media_1', kind: 'image', mime: 'image/jpeg', path: '/tmp/a.jpg', url: null, description: null }], runId: null, approver: null });
+        expect(sent.ok).toBe(true);
+        recordFact(file, { key: 'access', value: 'parking outside', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' });
+
+        // The fact still records what the draft was built without; the screen shows what is missing now.
+        expect(file.facts.find((f) => f.key === QUOTE_FACT.benToRequest)!.value).toContain('photo (asked once, none sent)');
+        expect(benToRequestOn([file], out.slug)).toEqual(['which tap it is']);
     });
 
     it('records the drafter\'s failure as a refusal, with nothing on the file and no notification', async () => {

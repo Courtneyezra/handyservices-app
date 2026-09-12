@@ -308,6 +308,70 @@ describe('the desk', () => {
         expect(third.file.releases[0]?.words).toContain(third.file.job.quoteRef!);
     });
 
+    it('clears its own draft-failed card even after the same run could not send, because that note is the desk\'s own voice', async () => {
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        const fake = new FakeDrafter(store, { materialsPence: 2000 });
+        let attempts = 0;
+        const drafter = { draft: (input: Parameters<typeof fake.draft>[0]) => (attempts++ === 0 ? Promise.resolve({ ok: false as const, reason: 'estimator down', log: [], calls: [] }) : fake.draft(input)) };
+        let composerCalls = 0;
+        const { gateway } = desk({
+            router: () => routeScoping(),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            // The draft-failed turn's reply never gets written: the composer refuses both times, so
+            // the desk falls to its held acknowledgement and notes that on the card it just raised.
+            composer: () => (++composerCalls === 1 ? { error: 'the composer refused' } : { reply: 'Hi Sam, a dripping mixer tap in NG9, got it.', factIds: [], kbIds: [] }),
+        }, undefined, { quoting: { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.job.quoteRef).toBeNull();
+        expect(first.file.hold?.reason).toContain('the quote draft failed (estimator down)');
+        // Both are on the card Ben reads, the draft failure and what stopped the reply going.
+        expect(first.file.hold?.reason).toMatch(/composer (declined|failed)/);
+
+        const second = await gateway.inbound(turn('any news?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        const slug = second.file.job.quoteRef;
+        expect(slug).toBeTruthy();
+        // The quote exists and Ben has his notice, so the card saying neither does is gone.
+        expect(second.file.hold).toBeNull();
+        expect(second.file.releases[0]?.words).toContain(`https://test.local/admin/price/${slug}`);
+    });
+
+    it('keeps a card a customer\'s question was added to, even while the desk notes its own run on it', async () => {
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        const fake = new FakeDrafter(store, { materialsPence: 2000 });
+        let attempts = 0;
+        const drafter = { draft: (input: Parameters<typeof fake.draft>[0]) => (attempts++ < 2 ? Promise.resolve({ ok: false as const, reason: 'estimator down', log: [], calls: [] }) : fake.draft(input)) };
+        const { gateway } = desk({
+            router: ({ user }) => routeScoping({ exception: /cheaper/i.test(user.split('>>').pop() ?? '') ? 'money' : null, turnKind: 'question' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            composer: () => ({ reply: 'Hi Sam, a dripping mixer tap in NG9, got it.', factIds: [], kbIds: [] }),
+        }, undefined, { quoting: { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.hold?.reason).toContain('the quote draft failed (estimator down)');
+
+        // The draft fails again and the customer's own question joins that same card.
+        const second = await gateway.inbound(turn('can you do it any cheaper?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.file.job.quoteRef).toBeNull();
+        expect(second.file.hold?.reason).toMatch(/money: /);
+
+        // The draft succeeds now, but clearing the card would take the price question with it, so
+        // it stands for Ben to answer: only he can say what the discount is.
+        const third = await gateway.inbound(turn('any news?', '2026-09-11T10:10:00.000Z'));
+        if (third.kind !== 'handled') throw new Error(third.kind);
+        expect(third.file.job.quoteRef).toBeTruthy();
+        expect(third.file.hold?.reason).toMatch(/money: /);
+        expect(third.file.releases).toHaveLength(0);
+    });
+
     /** A thread whose quote Ben priced and sent, then left to expire: the stage stays quoted, the row does not. */
     async function expiredQuote(composerReply: string) {
         const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };

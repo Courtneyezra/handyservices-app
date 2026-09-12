@@ -462,21 +462,26 @@ export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: st
  * What the desk nearly sent and what stopped it, written onto a hold that already stands. A hold
  * raised before the composer ran (an exception, a specialist) carries no draft, so the reply that
  * then failed the guards would otherwise be lost to the card Ben reads. The reason it was raised
- * for is never overwritten by another's: a later one is added after it, and the card records that
- * it has been added to, because a card carrying two voices is nobody's to clear automatically.
+ * for is never overwritten by another's: a later one is added after it.
  *
- * `ownCard` is the opening a step writes on every card it raises. Where the standing card opens
- * with it and nobody else has written on it since, this is that same step saying the same card
- * again with what stopped it this time, so its reason is replaced rather than a near-duplicate
- * added: a card one step owns end to end stays that step's to clear. Once anyone else has added to
- * it, it is a shared card and the later reason joins the rest.
+ * `ownCard` says the note is the desk's own automatic step speaking rather than another voice on
+ * the card, and names the opening that step writes on every card it raises. Two things follow.
+ * Where the standing card opens with it and nobody else has written on it since, the step is saying
+ * the same card again with what stopped it this time, so its reason is replaced rather than a
+ * near-duplicate added. Where it is not, the note is still that step's own - a shut window, no
+ * approved template, a reply the guards refused - so it joins the card without marking it.
+ *
+ * Only a note with no `ownCard` marks the card as noted on, because that is a reason carrying
+ * someone else's words: a customer's question routed onto the card. Clearing the card would take
+ * that question with it, so from then on the card is nobody's to clear automatically and only the
+ * person it is for may answer it.
  */
 export function noteOnHold(file: CaseFile, input: { reason: string; draft?: string | null; failures?: string[]; ownCard?: string }): Outcome<Hold> {
     if (!file.hold) return refuse('the file is not held');
     const reason = input.reason.trim();
-    const mine = !!input.ownCard && !file.hold.notedOn && file.hold.reason.startsWith(input.ownCard);
-    if (reason && mine) file.hold.reason = reason;
-    else if (reason && !file.hold.reason.includes(reason)) { file.hold.reason = `${file.hold.reason}; ${reason}`; file.hold.notedOn = true; }
+    const restating = !!input.ownCard && !file.hold.notedOn && file.hold.reason.startsWith(input.ownCard);
+    if (reason && restating) file.hold.reason = reason;
+    else if (reason && !file.hold.reason.includes(reason)) { file.hold.reason = `${file.hold.reason}; ${reason}`; if (!input.ownCard) file.hold.notedOn = true; }
     if (input.draft && !file.hold.draft) file.hold.draft = input.draft;
     if (input.failures?.length) file.hold.failures = Array.from(new Set([...file.hold.failures, ...input.failures]));
     return accept(file.hold);

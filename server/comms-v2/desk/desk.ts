@@ -51,6 +51,14 @@ const FIXED_LINE_ONLY: ReadonlySet<Exception> = new Set<Exception>(['complaint',
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
 const DRAFT_FAILED_HOLD = 'the quote draft failed';
 
+/**
+ * What the desk calls a note about its own run - a shut window, no approved template, a reply the
+ * guards refused. It opens no card of its own, so it never restates one; saying it marks the note
+ * as the same automatic step speaking rather than a customer's question added to Ben's card, which
+ * is what decides whether the card is still the desk's to clear (`case-file.ts` noteOnHold).
+ */
+const DESK_RUN_NOTE = 'the desk could not finish this run';
+
 export class Desk implements DeskLike {
     private readonly client: ModelClient;
     private readonly deps: DeskDeps;
@@ -239,13 +247,13 @@ export class Desk implements DeskLike {
             // holds for Ben instead, with the word he owes them named; his push has already gone.
             if (turn.kind === 'portal_action') {
                 const why = `the customer accepted the quote and the ${choice.channel} window is shut, so the desk cannot acknowledge it: a word from Ben is what they are waiting on`;
-                this.holdFor(file, exception, why, reply);
+                this.holdFor(file, exception, why, reply, DESK_RUN_NOTE);
                 return { ...this.nothing(file, party.personId, runId, calls, why, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             const tmpl = templateChoiceFor(file, turn);
             const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic, at: this.now() }, this.deps.templates ?? liveTemplateStatus);
             if (!pick.ok) {
-                this.holdFor(file, exception, `window shut and ${pick.reason}`, reply);
+                this.holdFor(file, exception, `window shut and ${pick.reason}`, reply, DESK_RUN_NOTE);
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             template = pick.template;
@@ -276,7 +284,7 @@ export class Desk implements DeskLike {
     private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
         const party = partyOf(file, partyId)!;
         const held = { reason: why, draft, failures: failed?.failures ?? [] };
-        if (file.hold) noteOnHold(file, held);
+        if (file.hold) noteOnHold(file, { ...held, ownCard: DESK_RUN_NOTE });
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
         const line = await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds: [], kbRows: [], fixedLines: [line], proposedSubject: null, liveQuoteRefs: new Set() });

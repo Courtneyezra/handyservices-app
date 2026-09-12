@@ -60,6 +60,15 @@ const BY = 'quoting';
 
 // ---------------------------------------------------------------- quote_readiness
 
+/**
+ * The subjects `quoteReadiness` reports on, which is every entry it can put in `missing`: each one
+ * opens with its subject. A stored entry named after one of these is recomputable from the file, so
+ * the price screen asks again rather than trusting what was true at draft time (`ben-to-request.ts`);
+ * anything else came from the intake model and cannot be recomputed. One definition, and
+ * `quoting-tools.test.ts` holds it to what `quoteReadiness` actually produces.
+ */
+export const READINESS_SUBJECTS: readonly string[] = ['photo', 'access'];
+
 /** Ready is job type and location (photos optional, answer 3); `missing` is what Ben may want to request before pricing, which reaches him on his notification and as the internal `ben_to_request` fact, never on the quote row. */
 export function quoteReadiness(file: CaseFile): { ready: boolean; missing: string[] } {
     const missing: string[] = [];

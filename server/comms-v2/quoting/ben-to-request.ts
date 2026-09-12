@@ -15,13 +15,34 @@
  */
 import type { CaseFile } from '../desk/case-file';
 import { QUOTE_FACT } from './quote-record';
+import { READINESS_SUBJECTS, quoteReadiness } from './quoting-tools';
 
-/** The list as `draft_quote` wrote it, off the file that names this quote. Nothing there is nothing to show. */
+const subjectOf = (entry: string): string => entry.split(' ')[0].toLowerCase();
+const RECOMPUTABLE: ReadonlySet<string> = new Set(READINESS_SUBJECTS);
+
+/**
+ * What the draft is still missing, asked at the moment Ben looks. The stored fact is what was
+ * missing when the draft was built, and a thread moves on: the customer sends the photo two turns
+ * later, or gives access, and a card still asking for it sends Ben to request something he already
+ * has. So every entry `quote_readiness` owns - the photo and access, the two it computes from the
+ * file - is answered again here and dropped once it is no longer missing, in its current wording
+ * rather than the wording of the day the draft was built. The intake model's own labels ("which
+ * tap", "wall material") cannot be recomputed from the file, so they stand as written until Ben
+ * clears them himself. Nothing is rewritten: the fact records what the draft was built without.
+ */
 export function benToRequestOn(files: readonly CaseFile[], slug: string): string[] {
     const file = files.find((f) => f.job.quoteRef === slug);
     if (!file) return [];
     const fact = [...file.facts].reverse().find((f) => f.key === QUOTE_FACT.benToRequest);
-    return fact ? fact.value.split(';').map((s) => s.trim()).filter(Boolean) : [];
+    if (!fact) return [];
+    const stored = fact.value.split(';').map((s) => s.trim()).filter(Boolean);
+    const still = new Map(quoteReadiness(file).missing.map((m) => [subjectOf(m), m]));
+    return stored.flatMap((entry) => {
+        const subject = subjectOf(entry);
+        if (!RECOMPUTABLE.has(subject)) return [entry];
+        const current = still.get(subject);
+        return current ? [current] : [];
+    });
 }
 
 export async function benToRequestFor(slug: string): Promise<string[]> {
