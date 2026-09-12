@@ -31,8 +31,9 @@ export interface SchedulingDoorDeps extends SchedulingDeps {
 
 /** The door's scheduling deps: whatever the caller passed (memoryScheduling in tests), else the branch database. */
 export function withScheduling<T extends { scheduling?: SchedulingDeps; now?: () => Date }>(deps: T): T & { scheduling: SchedulingDoorDeps } {
-    // What the caller passed wins over the branch database, whichever half of it they passed: a test diary
-    // paired with the live writer is the one mix that must not be possible.
+    // Whatever the caller passed wins, whichever half of it they passed, so a diary handed in is never
+    // quietly swapped for the branch one. A memory diary can therefore sit beside the live writer, which
+    // is safe: every write it makes refuses unless COMMS_V2_DATABASE_URL names the database actually open.
     return { ...deps, scheduling: { diaryMode: { completed: 'diary' }, diary: liveDiary, fixture: liveFixture, ...deps.scheduling } };
 }
 

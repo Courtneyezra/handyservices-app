@@ -82,6 +82,13 @@ describe('guards', () => {
         // and "1st fix carpentry" are everyday wording, and a reply that cites no date is not paraphrasing one.
         expect(runGuards(input('There is no charge for the 1st visit.')).guards.date_time_duration.result).toBe('pass');
         expect(runGuards(input('Is that the 1st floor bathroom, or the 3rd bedroom?')).guards.date_time_duration.result).toBe('pass');
+        // A lead time is a diary fact but not a date, so it does not turn the ordinal reading on either: the customer's
+        // own words about their bathroom come back beside "about 3 days" without the reply being sent round again.
+        const h = fixture();
+        const lead = recordFact(h.file, { key: 'lead_time', value: 'about 3 days', source: { kind: 'diary', rowId: 'lead-time:x' }, by: 'scheduling' });
+        const leadIds = lead.ok ? [lead.value.id] : [];
+        const withLead = runGuards({ file: h.file, party: h.party, turn: h.turn, reply: "Thanks Sam, a dripping tap in the 1st floor bathroom. We're usually booking in about 3 days.", factIds: leadIds, kbIds: [], kbRows: [], fixedLines: [], lookedUp: leadIds, proposedSubject: null }).guards.date_time_duration;
+        expect(withLead.result).toBe('pass');
     });
     it('commitment and fault: fails closed', () => {
         expect(runGuards(input("We'll fix that no problem.")).guards.commitment_fault.result).toBe('fail');

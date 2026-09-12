@@ -17,7 +17,7 @@
 import { askedUnanswered, customerWroteSinceLastReply, everAsked, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
-import { RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DISCLOSURE, RE_FIGURE, RE_ORDINAL_DAY, RE_THANKS_MEDIA, regulatedMatch, sentencesOf, textAsks } from './lexicon';
+import { RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DAY_AND_MONTH, RE_DISCLOSURE, RE_FIGURE, RE_ORDINAL_DAY, RE_THANKS_MEDIA, regulatedMatch, sentencesOf, textAsks } from './lexicon';
 
 export const GUARD_NAMES: readonly GuardName[] = ['figure', 'date_time_duration', 'commitment_fault', 'business_claim', 'disclosure', 'one_reply', 'ask_ledger', 'regulated'];
 
@@ -87,8 +87,10 @@ export function checkDate(input: GuardInput): GuardVerdict {
     const looked = new Set(input.lookedUp ?? []);
     const diary = citedFacts(input).filter((f) => f.source.kind === 'diary' && looked.has(f.id)).map((f) => f.value.toLowerCase());
     // An ordinal is only read as a day beside a date this reply looked up, which is the paraphrase to
-    // catch. With no date in play it is a floor, a bedroom or a coat of paint, which is not this guard's.
-    const matches = [...allOf(RE_DATE_TIME_DURATION, input.reply), ...(diary.length ? allOf(RE_ORDINAL_DAY, input.reply) : [])];
+    // catch. A lead time is not a date, so with no day and month in play it is a floor, a bedroom or a
+    // coat of paint, which is not this guard's.
+    const anyDate = diary.some((v) => RE_DAY_AND_MONTH.test(v));
+    const matches = [...allOf(RE_DATE_TIME_DURATION, input.reply), ...(anyDate ? allOf(RE_ORDINAL_DAY, input.reply) : [])];
     if (!matches.length) return pass();
     const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())));
     return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
