@@ -102,7 +102,7 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push('Facts on the file (id: key = value):');
     lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
     lines.push('');
-    lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exception: ${route.exception ?? 'none'}.`);
+    lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exceptions: ${route.exceptions.join(', ') || 'none'}.`);
     if (proposal) {
         lines.push('Proposal from Scoping:');
         const q = proposal.nextQuestion;

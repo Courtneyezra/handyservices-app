@@ -1,12 +1,11 @@
 /**
  * Contract 6: describe_media once per media and refused when not fetched; confirm_location;
  * readiness is job type and location, photos never required; next_question in the fixed order
- * with its refusals; offer_call's three refusals; regulated is gas and asbestos only; kb_lookup
- * read-only and allowed to return nothing.
+ * with its refusals; offer_call's three refusals; regulated is gas and asbestos only.
  */
 import { describe, expect, it } from 'vitest';
 import { answered, ask, open, recordFact, type CaseFile, type Turn } from './case-file';
-import { confirmLocation, describeMedia, emptyKb, kbLookup, nextQuestion, offerCall, readiness, regulated } from './scoping-tools';
+import { confirmLocation, describeMedia, nextQuestion, offerCall, readiness, regulated } from './scoping-tools';
 import { moneyQuestionMatch, offersCall, scopingQuestionCount, textAsks } from './lexicon';
 
 function fixture(text = 'hi', media: Turn['media'] = []): CaseFile {
@@ -112,14 +111,6 @@ describe('offer_call and regulated', () => {
         expect(regulated(t('a few roof tiles have slipped')).regulated).toBe(false);
         expect(regulated(t('a socket has stopped working and a wall needs a lintel')).regulated).toBe(false);
         expect(regulated(t('the boiler cupboard door is hanging off')).regulated).toBe(false);
-    });
-});
-
-describe('kb_lookup', () => {
-    it('is read-only and may return nothing', async () => {
-        expect(await kbLookup('do you do weekends?', emptyKb)).toEqual([]);
-        const rows = await kbLookup('are you insured?', { async list() { return [{ id: 'kb-insured', topic: 'insurance cover', approvedWords: 'We are fully insured.' }, { id: 'kb-hours', topic: 'opening hours', approvedWords: 'Weekdays.' }]; } });
-        expect(rows.map((r) => r.id)).toEqual(['kb-insured']);
     });
 });
 
