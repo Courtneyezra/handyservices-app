@@ -458,6 +458,19 @@ describe('the Scheduling specialist', () => {
         expect(r.error).toContain('connection lost');
     });
 
+    it('a date question the router read but the belt does not is still answered when the classification never came back', async () => {
+        const file = fixture("Any idea when you'd be able to fit us in?");
+        const failed = new FakeModelClient({ specialist: () => ({ error: 'rate limited' }) });
+        const r = await schedule(file, file.turns[0], party(file), failed, { diary: diaryWith(0), now }, { dateChange: false, scheduling: true });
+        expect(r.scheduling.asks).toEqual(['availability']);
+        expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
+        expect(r.brief.join(' ')).toMatch(/never guess a day/);
+        // The model reading no ask is still taken at its word: the stand-in is for a call that never came back.
+        const read = await schedule(fixture("Any idea when you'd be able to fit us in?"), file.turns[0], party(file), client([]), { diary: diaryWith(0), now }, { dateChange: false, scheduling: true });
+        expect(read.scheduling.asks).toEqual([]);
+        expect(read.scheduling.fixedLines).toEqual([]);
+    });
+
     it('a visit cancelled off the quote, with no booking reference on the file, still reaches Ben', async () => {
         const diary = diaryWith(6, true);
         diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';

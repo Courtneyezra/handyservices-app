@@ -68,6 +68,8 @@ export interface SchedulingReturn extends SpecialistReturn {
 export interface SchedulingContext {
     /** The router's date_change exception: the desk reads this turn as a request to move a job the customer already has. */
     dateChange: boolean;
+    /** The router's scheduling subject: it read the turn as about dates, whatever wording it used to ask. */
+    scheduling?: boolean;
 }
 
 const NO_QUESTION: Proposal = { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null };
@@ -116,7 +118,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
     if (!changePossible) asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('date_change') && !asks.includes('availability') ? ['availability'] : []);
     // A classification that never came back is not a turn that asked nothing: a date question the belt matched is still answered, because an unanswered date question is the one thing the desk may not do. A model that read no ask is taken at its word.
-    if (!asks.length && error && dateQuestionMatch(turn.body)) asks = [couldStand && !unreadable ? 'booked_date' : 'availability'];
+    if (!asks.length && error && (dateQuestionMatch(turn.body) || routed.scheduling)) asks = [couldStand && !unreadable ? 'booked_date' : 'availability'];
 
     // The tools, from the diary.
     const findings: SchedulingFindings = { asks, leadTime: null, bookedDate: null, picker: null, dateChange: null, fixedLines: [] };

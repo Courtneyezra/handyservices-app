@@ -31,9 +31,9 @@ export interface SchedulingDoorDeps extends SchedulingDeps {
 
 /** The door's scheduling deps: whatever the caller passed (memoryScheduling in tests), else the branch database. */
 export function withScheduling<T extends { scheduling?: SchedulingDeps; now?: () => Date }>(deps: T): T & { scheduling: SchedulingDoorDeps } {
-    const given = deps.scheduling ?? {};
-    if (given.diary && (given as SchedulingDoorDeps).fixture) return { ...deps, scheduling: { diaryMode: { completed: 'diary' }, ...given } as SchedulingDoorDeps };
-    return { ...deps, scheduling: { diaryMode: { completed: 'diary' }, ...given, diary: liveDiary, fixture: liveFixture } };
+    // What the caller passed wins over the branch database, whichever half of it they passed: a test diary
+    // paired with the live writer is the one mix that must not be possible.
+    return { ...deps, scheduling: { diaryMode: { completed: 'diary' }, diary: liveDiary, fixture: liveFixture, ...deps.scheduling } };
 }
 
 /** A memory diary and fixture for tests, in one call. */

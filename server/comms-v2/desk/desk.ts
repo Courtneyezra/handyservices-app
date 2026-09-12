@@ -132,7 +132,7 @@ export class Desk implements DeskLike {
                 // The router's date_change exception is passed in and stands in for a booking the desk cannot see: until a real booking reaches the case file, a request to move one must still reach Ben (checklist 5.5).
                 const couldBeBooked = !!(file.job.bookingRef || file.job.quoteRef || file.stage === 'booked');
                 if (route.subjects.includes('scheduling') || exception === 'date_change' || dateQuestionMatch(turn.body) || (couldBeBooked && dateChangeMatch(turn.body))) {
-                    const sched = await schedule(file, turn, party, this.client, { ...this.deps.scheduling, now: this.now }, { dateChange: exception === 'date_change' });
+                    const sched = await schedule(file, turn, party, this.client, { ...this.deps.scheduling, now: this.now }, { dateChange: exception === 'date_change', scheduling: route.subjects.includes('scheduling') });
                     calls.push(...sched.calls);
                     specialists.push(sched);
                     if (sched.error) log(`scheduling: ${sched.error}`);

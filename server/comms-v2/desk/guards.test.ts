@@ -78,7 +78,10 @@ describe('guards', () => {
         const ordinalDate = dated('We could do 26th September 2026.');
         expect(ordinalDate.result).toBe('fail');
         expect(ordinalDate.note).toContain('26th September 2026');
-        expect(runGuards(input('There is no charge for the 1st visit.')).guards.date_time_duration.result).toBe('fail');
+        // An ordinal with no looked-up date beside it is left alone: in this trade "the 1st floor", "the 3rd bedroom"
+        // and "1st fix carpentry" are everyday wording, and a reply that cites no date is not paraphrasing one.
+        expect(runGuards(input('There is no charge for the 1st visit.')).guards.date_time_duration.result).toBe('pass');
+        expect(runGuards(input('Is that the 1st floor bathroom, or the 3rd bedroom?')).guards.date_time_duration.result).toBe('pass');
     });
     it('commitment and fault: fails closed', () => {
         expect(runGuards(input("We'll fix that no problem.")).guards.commitment_fault.result).toBe('fail');

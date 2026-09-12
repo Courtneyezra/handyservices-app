@@ -12,7 +12,8 @@ import { plannedSendOfResponse, sendLanded } from '../desk/planned-send';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
-import { memoryScheduling, schedulingDoor } from './scheduling-door';
+import { memoryScheduling, schedulingDoor, withScheduling } from './scheduling-door';
+import { MemoryDiary } from './diary';
 import { typicalLeadTime } from './scheduling-tools';
 
 let server: import('node:http').Server;
@@ -168,6 +169,19 @@ describe('the scheduling fixture on the door', () => {
         expect(r.json.deleted.bookings).toBeGreaterThan(0);
         expect(r.json.diaryMode).toBe('diary');
         expect(scheduling.diary.bookings).toHaveLength(0);
+    });
+});
+
+describe('the door\'s scheduling deps', () => {
+    it('a caller\'s diary is kept even when it comes without a fixture, so a test diary is never paired with the live writer', async () => {
+        const mine = new MemoryDiary();
+        mine.quotes.push({ id: 'q9', slug: 'callers', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: null });
+        const wired = withScheduling({ scheduling: { diary: mine } });
+        expect(wired.scheduling.diary).toBe(mine);
+        expect(await wired.scheduling.diary.quote('q9')).toMatchObject({ slug: 'callers' });
+        expect(wired.scheduling.diaryMode).toEqual({ completed: 'diary' });
+        const both = memoryScheduling();
+        expect(withScheduling({ scheduling: both }).scheduling.fixture).toBe(both.fixture);
     });
 });
 
