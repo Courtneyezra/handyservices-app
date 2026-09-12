@@ -130,8 +130,10 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             if (f.ok) { factIds.push(f.value.id); brief.push(`Booked date from the diary: say exactly "${bd.words}" and cite fact ${f.value.id}. Write the date in those words only: no weekday, no "this" or "next" before it, and nothing about the time of day or how many days it takes: the diary gave the date and nothing else.`); }
             return;
         }
-        if (!changing && (standing.state === 'unaccepted' || standing.state === 'cancelled')) {
-            // Asked what day we are coming about a job nobody has taken on, or one taken off them: only Ben can answer that, and nobody may be told a date, or why, first.
+        if (!changing) {
+            // Asked what day we are coming and the diary gave no date: a job nobody has taken on, one taken
+            // off them, or a diary that could not say. The reply promises that Ben will come back on it, so
+            // Ben is told; the hold's reason names which, since an unreadable diary may only need a retry.
             findings.fixedLines.push('date_change_to_ben');
             proposal.hold = { reason: 'date_unconfirmed', match: standing.reason };
             brief.push('There is no date to confirm and they may be expecting one: include the fixed line that Ben will come back on the date, never say they are booked in, say nothing about why, and give no day, time or lead time. Answer anything else they asked.');

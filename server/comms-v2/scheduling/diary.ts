@@ -53,7 +53,7 @@ export interface DiaryReader {
     completedBookings(opts: { since: Date; limit: number }): Promise<DiaryBooking[]>;
     /** The booking row by its reference, or nothing. */
     booking(bookingRef: string): Promise<DiaryBooking | null>;
-    /** The newest booking made from a quote that still stands on `today` (an ISO day), or nothing. */
+    /** The newest booking made from a quote that still stands on `today` (an ISO day), else the newest that does not, or nothing. */
     bookingForQuote(quoteRef: string, today: string): Promise<DiaryBooking | null>;
     /** The quote row by its reference, or nothing. */
     quote(quoteRef: string): Promise<DiaryQuote | null>;
@@ -157,6 +157,15 @@ export function isoDayOf(d: Date): string {
     return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The booking a quote is answered by, from its bookings newest first: the newest that stands, else
+ * the newest that does not. A cancelled visit the customer may still be expecting has to come back
+ * for the tool to classify, or it reads as a quote nobody ever booked from.
+ */
+export function newestFromQuote(newestFirst: DiaryBooking[], today: string): DiaryBooking | null {
+    return newestFirst.find((b) => !notStandingReason(b, today)) ?? newestFirst[0] ?? null;
+}
+
 /** A row from the database into the diary's shape. */
 export function bookingRowToDiary(row: { id: string; quoteId: string | null; scheduledDate: Date | string | null; scheduledDates: unknown; durationDays: number | null; status: string; assignmentStatus: string | null; dayOfStatus: string | null; createdAt: Date | string | null; completedAt: Date | string | null }): DiaryBooking {
     const iso = (v: Date | string | null): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -178,9 +187,9 @@ export class MemoryDiary implements DiaryReader {
     }
     async booking(bookingRef: string): Promise<DiaryBooking | null> { return this.bookings.find((b) => b.id === bookingRef) ?? null; }
     async bookingForQuote(quoteRef: string, today: string): Promise<DiaryBooking | null> {
-        const live = this.bookings.filter((b) => b.quoteRef === quoteRef && !notStandingReason(b, today));
-        live.sort((a, b) => Date.parse(b.createdAt ?? '0') - Date.parse(a.createdAt ?? '0'));
-        return live[0] ?? null;
+        const mine = this.bookings.filter((b) => b.quoteRef === quoteRef);
+        mine.sort((a, b) => Date.parse(b.createdAt ?? '0') - Date.parse(a.createdAt ?? '0'));
+        return newestFromQuote(mine, today);
     }
     async quote(quoteRef: string): Promise<DiaryQuote | null> { return this.quotes.find((q) => q.id === quoteRef) ?? null; }
 }
@@ -222,7 +231,7 @@ export const liveDiary: DiaryReader = {
         const { desc, eq } = await import('drizzle-orm');
         const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, assignmentStatus: t.assignmentStatus, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t).where(eq(t.quoteId, quoteRef)).orderBy(desc(t.createdAt)).limit(10);
-        return rows.map(bookingRowToDiary).find((b) => !notStandingReason(b, today)) ?? null;
+        return newestFromQuote(rows.map(bookingRowToDiary), today);
     },
     async quote(quoteRef) {
         branchInUse();

@@ -178,6 +178,17 @@ describe('confirm_booked_date', () => {
         expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: false, reason: 'the booking carries no date yet' });
         expect(await confirmBookedDate(file, { now })).toMatchObject({ ok: false, reason: 'no diary to read' });
     });
+    it('a visit cancelled off a quote is not a quote nobody booked from: the tool sees it and says so', async () => {
+        const diary = new MemoryDiary();
+        const file = fixture();
+        file.job.quoteRef = 'q1';
+        diary.bookings.push(booked('canq', { status: 'cancelled' }));
+        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'cancelled', reason: 'the booking is cancelled; nothing stands in the diary', bookingRef: 'canq' });
+        // A standing booking from the same quote still wins over one that does not stand, whichever is newer.
+        diary.bookings.push(booked('liveq', { createdAt: '2026-09-01T00:00:00.000Z' }));
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, state: 'standing', bookingRef: 'liveq' });
+    });
+
     it('refuses a booking that is already done, and one whose last booked day has passed', async () => {
         const diary = new MemoryDiary();
         diary.bookings.push(
@@ -198,7 +209,8 @@ describe('confirm_booked_date', () => {
         byQuote.job.quoteRef = 'q1';
         expect(await confirmBookedDate(byQuote, { diary, now })).toMatchObject({ ok: true, bookingRef: 'spanning' });
         diary.bookings.splice(diary.bookings.findIndex((b) => b.id === 'spanning'), 1);
-        expect(await confirmBookedDate(byQuote, { diary, now })).toMatchObject({ ok: false, reason: 'nothing is booked from this quote yet' });
+        // With nothing standing, the newest that does not still comes back, so the tool says which rather than that the quote was never booked from.
+        expect(await confirmBookedDate(byQuote, { diary, now })).toMatchObject({ ok: false, state: 'none', reason: 'the booking is done; that visit has happened' });
     });
     it('reads a span through expandSpanDates: the first actual day, and the days it occupies', () => {
         const b = bookingRowToDiary({ id: 'r', quoteId: null, scheduledDate: new Date('2026-09-25T09:00:00.000Z'), scheduledDates: ['2026-09-25', '2026-09-28'], durationDays: 2, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: new Date('2026-09-10T10:00:00.000Z'), completedAt: null });
