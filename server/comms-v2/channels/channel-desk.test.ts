@@ -5,6 +5,9 @@
  * and the job (1.3) or its words go on SMS, the thread continues from the file and collects what
  * he asked for (3.2) with nothing held for Ben (3.4); every other turn reaches the desk unchanged.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Desk } from '../desk/desk';
 import { DEFAULT_FIXED_LINES, noFixedLineSource } from '../desk/fixed-lines';
@@ -13,6 +16,7 @@ import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved, type TemplateStatusSource } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
 import { fromDoorCall } from './call-adapter';
+import { EMAIL_SIGN_OFF, fromDoorEmail } from './email-adapter';
 import { ChannelDesk } from './channel-desk';
 import { ChannelGateway, type ChannelSeed } from './channel-gateway';
 import { fromDoorForm } from './form-adapter';
@@ -63,17 +67,20 @@ describe('the web form acknowledgement', () => {
         expect(a.result.bubbles[0].text).toContain('Bathroom extractor fan has died, light works but no fan');
         expect(a.result.bubbles[0].text).toContain('quick call');
     });
-    it('the ledger records the acknowledgement that went, not the draft the template replaced, so the desk can still ask for a photo on the next turn', async () => {
+    it('the ledger records the template\'s own wording, neither the draft it replaced nor the enquiry it quotes back, so the desk can still ask for a photo on the next turn', async () => {
         const { gateway } = rig({
             router: () => routeScoping({ turnKind: 'enquiry' }),
             specialist: () => ({ facts: [{ key: 'job_type', value: 'bathroom extractor fan dead' }], jobUnknowns: [], answeredSubjects: [] }),
             composer: () => ({ reply: 'Got it, a dead bathroom fan. Could you send a photo of the fan and the switch?', factIds: [], kbIds: [] }),
         }, approvedAll);
-        const a = await gateway.inbound(await form(), { whatsapp: true } as ChannelSeed);
+        // The enquiry itself says "can send photos", which the acknowledgement quotes back: the customer's words, not ours.
+        const a = await gateway.inbound(await fromDoorForm({ name: 'Sam Jones', phone: '+447700900942', job: 'Fan died, can send photos', at: '2026-09-11T10:00:00.000Z' }), { whatsapp: true } as ChannelSeed);
         if (a.kind !== 'handled') throw new Error(a.kind);
         expect(a.result).toMatchObject({ decision: 'send', delivered: true, templateId: 'web_enquiry_ack_context' });
-        expect(a.result.bubbles[0].text).not.toMatch(/photo/i);
+        expect(a.result.bubbles[0].text).toContain('"Fan died, can send photos"');
         expect(a.file.ledger.find((l) => l.subject === 'media')?.askedAt ?? null).toBeNull();
+        // The acknowledgement does offer a call in its own words, so that is on the file.
+        expect(a.file.parties[0].callOffered).toBe(true);
         const b = await gateway.inbound(wa('Yes please, it is the fan over the bath', '2026-09-11T10:05:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result).toMatchObject({ decision: 'send', delivered: true, channel: 'whatsapp', templateId: null, composerCalls: 1 });
@@ -87,6 +94,33 @@ describe('the web form acknowledgement', () => {
         expect(a.result).toMatchObject({ decision: 'send', delivered: true, channel: 'whatsapp', templateId: 'web_enquiry_ack_no_call_v1' });
         expect(a.result.bubbles[0].text).toContain('Bathroom extractor fan has died, light works but no fan');
         expect(a.result.bubbles[0].text).not.toMatch(/call/i);
+    });
+});
+
+describe('an email reply', () => {
+    it('the renderer\'s sign-off marks nothing: a letter whose own words thank nobody leaves the photo unthanked, so the next letter can still thank for it', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-desk-email-'));
+        try {
+            const { gateway } = rig({
+                router: () => routeScoping(),
+                specialist: () => ({ facts: [{ key: 'job_type', value: 'bathroom extractor fan dead' }], jobUnknowns: [], answeredSubjects: [] }),
+                composer: () => ({ reply: 'That fan looks like a straight swap.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
+            }, approvedAll);
+            const env = fromDoorEmail({
+                address: 'sam@example.invalid', name: 'Sam Jones', subject: 'Dead bathroom fan', at: '2026-09-11T10:00:00.000Z',
+                text: 'Morning,\n\nThe extractor fan in the bathroom has stopped turning. I have attached one of it.\n\nRegards, Sam',
+                media: [{ bytes: Buffer.from('89504e470d0a1a0a', 'hex'), mime: 'image/png' }],
+            }, { mediaDir: dir });
+            const a = await gateway.inbound(env);
+            if (a.kind !== 'handled') throw new Error(a.kind);
+            expect(a.result).toMatchObject({ decision: 'send', delivered: true, channel: 'email', windowState: 'open', templateId: null });
+            expect(a.result.bubbles[0].text).toContain(EMAIL_SIGN_OFF);
+            expect(a.result.bubbles[0].text).not.toMatch(/thanks for the (?:photo|picture)/i);
+            expect(a.file.turns[0].media).toHaveLength(1);
+            expect(a.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).toBeNull();
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
 

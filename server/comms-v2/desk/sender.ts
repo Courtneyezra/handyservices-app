@@ -230,7 +230,13 @@ export async function templateBodyFor(purpose: ReplyPurpose, vars: TemplateVars)
 /** An approved template with everything either transport needs to carry it. */
 export interface TemplateSend { name: string; language: string; contentSid: string; variables: Record<string, string> }
 
-export type TemplatePick = { ok: true; template: TemplateSend; body: string } | { ok: false; reason: string };
+/**
+ * An approved template picked for a purpose: the wire fields, the body with its variables filled
+ * in for the customer, and the rung's approved wording with the placeholders left unfilled. The
+ * wording is the sentences the business itself says; a filled variable is the customer's own words
+ * quoted back, which is why the ask ledger reads the wording and never the body (desk.ts).
+ */
+export type TemplatePick = { ok: true; template: TemplateSend; body: string; wording: string } | { ok: false; reason: string };
 
 /** The fields the outbound gate needs for this template on this transport, and nothing for the other one. */
 export type TemplateWire =
@@ -257,7 +263,7 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, st
         const live = await status.approved(rung.name);
         if (live) {
             const variables = templateVariables(rung.body, vars);
-            return { ok: true, template: { name: rung.name, language: t.language, contentSid: live.contentSid, variables }, body: fillTemplate(rung.body, variables) };
+            return { ok: true, template: { name: rung.name, language: t.language, contentSid: live.contentSid, variables }, body: fillTemplate(rung.body, variables), wording: rung.body };
         }
     }
     return { ok: false, reason: `no approved template for purpose ${purpose}; held as a pending draft for Ben` };

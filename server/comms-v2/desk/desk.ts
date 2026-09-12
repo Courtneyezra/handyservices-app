@@ -190,6 +190,7 @@ export class Desk implements DeskLike {
         if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : rendered.reason === 'channel' ? `no render for ${choice.channel}` : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let template: TemplateSend | null = null;
+        let templateWording: string | null = null;
         if (window.state === 'shut') {
             const tmpl = templateChoiceFor(file, turn);
             const pick = await pickTemplate(tmpl.purpose, { name: party.name, topic: tmpl.topic, at: this.now() }, this.deps.templates ?? liveTemplateStatus);
@@ -198,6 +199,7 @@ export class Desk implements DeskLike {
                 return { ...this.nothing(file, party.personId, runId, calls, pick.reason, 'hold'), factIds, kbIds, guards: guards.guards, composerCalls, windowState: 'shut', channel: choice.channel, summary };
             }
             template = pick.template;
+            templateWording = pick.wording;
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
         }
 
@@ -205,8 +207,8 @@ export class Desk implements DeskLike {
         const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines, calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
-        // 8. The ledger and the stage, from what actually went.
-        this.afterSend(file, party.personId, wordsOf(rendered.bubbles), template ? null : specialists[0]?.proposal ?? null);
+        // 8. The ledger and the stage, from what the business itself said.
+        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : specialists[0]?.proposal ?? null);
         return {
             runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
@@ -233,23 +235,25 @@ export class Desk implements DeskLike {
         const bubbles: RenderedBubble[] = rendered.bubbles;
         const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
-        this.afterSend(file, partyId, wordsOf(bubbles), specialists[0]?.proposal ?? null);
+        this.afterSend(file, partyId, line.text, specialists[0]?.proposal ?? null);
         return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
     }
 
     /**
-     * The ledger records what the reply actually asked and thanked for, so it is written from the
-     * words that went out, never from a draft a template replaced; a template's words are nobody's
-     * proposal, so only the words themselves speak for them.
+     * The ledger records what the reply asked and thanked for, written from what the business
+     * itself said: an approved template's own wording with its placeholders unfilled, because a
+     * filled body quotes the customer's enquiry back and those are their words, not ours; or the
+     * composed reply, not the greeting and sign-off the renderer wraps it in. A template's words
+     * are nobody's proposal, so for those only the words themselves speak.
      */
-    private afterSend(file: CaseFile, partyId: string, sent: string, proposal: Proposal | null): void {
+    private afterSend(file: CaseFile, partyId: string, said: string, proposal: Proposal | null): void {
         const deps = this.fileDeps();
         const party = partyOf(file, partyId)!;
-        for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(sent, subject)) ledgerAsk(file, subject, deps);
-        if (proposal?.nextQuestion && sent.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
-        if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(sent)) ledgerAsk(file, 'media', deps);
-        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(sent)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
-        if (offersCall(sent)) party.callOffered = true;
+        for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(said, subject)) ledgerAsk(file, subject, deps);
+        if (proposal?.nextQuestion && said.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
+        if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(said)) ledgerAsk(file, 'media', deps);
+        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(said)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
+        if (offersCall(said)) party.callOffered = true;
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
     }
 
@@ -258,11 +262,6 @@ export class Desk implements DeskLike {
         const rows = await (this.deps.kb ?? reviewedKb).list();
         return rows.filter((r) => ids.includes(r.id)).map((r) => ({ id: r.id, approvedWords: r.approvedWords, reviewed: true }));
     }
-}
-
-/** The words that actually went to the customer: the bubbles the sender put out. */
-function wordsOf(bubbles: RenderedBubble[]): string {
-    return bubbles.map((b) => b.text).join('\n');
 }
 
 /** One line of evidence: the route and the proposal behind a reply. */
