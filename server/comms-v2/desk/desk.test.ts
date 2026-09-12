@@ -259,7 +259,7 @@ describe('the desk', () => {
         expect(composerUser).toContain('an acknowledgement only');
         expect(composerUser).not.toMatch(/ask one question about/);
         expect(composerUser).toContain(DEFAULT_FIXED_LINES.held_ack);
-        expect(first.result.bubbles.join(' ')).not.toMatch(/quote/i);
+        expect(first.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/quote/i);
 
         const second = await gateway.inbound(turn('any news?', '2026-09-11T10:05:00.000Z'));
         if (second.kind !== 'handled') throw new Error(second.kind);
@@ -274,7 +274,7 @@ describe('the desk', () => {
     });
 
     /** A thread whose quote Ben priced and sent, then left to expire: the stage stays quoted, the row does not. */
-    async function expiredQuote(composerReply: string) {
+    async function expiredQuote(composerReply: string, refreshesUsed = 0) {
         const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
         const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
         let composerUser = '';
@@ -295,19 +295,37 @@ describe('the desk', () => {
         const sent = await markQuoteSent(first.file, d);
         if (!sent.ok) throw new Error(sent.reason);
         expect(first.file.stage).toBe('quoted');
-        // Past the expiry confirmPrices stamps on the row.
+        // The price lock has passed, and the customer has used `refreshesUsed` of their own
+        // refreshes on the quote page. A fixed timestamp, not the wall clock, so the row is expired
+        // whenever this runs.
+        const row = store.rows.get(first.file.job.quoteRef!)!;
+        row.expiresAt = '2026-09-12T10:00:00.000Z';
+        row.extensionCount = refreshesUsed;
         clock.t += 72 * 3_600_000;
         return { gateway, clock, slug: first.file.job.quoteRef!, user: () => composerUser };
     }
 
-    it('a question about an expired quote holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
-        const { gateway, clock, slug, user } = await expiredQuote('Let me get Ben to come back to you on that.');
+    it('an expired quote the customer can still refresh points them at their own page and holds nothing', async () => {
+        const { gateway, clock, slug, user } = await expiredQuote('The price on that one has lapsed, but you can refresh it yourself on your quote page.');
+        const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(user()).toContain(`quoting: ${slug} is expired, 3 refreshes left to the customer`);
+        expect(user()).toContain(`https://test.local/quote/${slug}`);
+        expect(user()).not.toMatch(/say Ben will come back to them on the quote/);
+        expect(out.file.hold).toBeNull();
+        expect(out.result.decision).toBe('send');
+        expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
+    });
+
+    it('an expired quote with every refresh used up holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
+        const { gateway, clock, slug, user } = await expiredQuote('Let me get Ben to come back to you on that.', 3);
         const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(user()).toContain(`quoting: ${slug} is expired`);
+        expect(user()).toContain('say Ben will come back to them on the quote');
         expect(out.file.hold?.reason).toContain(`the quote is no longer live (${slug} is expired)`);
         expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
-        expect(out.result.bubbles.join(' ')).not.toMatch(/£/);
+        expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
     });
 
     it('money on an expired quote goes back to Ben: the fixed line and the money hold, because no line is left to answer from', async () => {

@@ -112,7 +112,11 @@ function threadFor(file: CaseFile, turn: Turn): string {
 
 // ---------------------------------------------------------------- what the specialist proposes
 
-export type QuotingPhase = 'draft' | 'with_ben' | 'sent' | 'accepted' | 'stale';
+/**
+ * `refreshable` is an expired quote the customer can still refresh on their own page; `stale` is a
+ * quote nothing on that page helps with: revoked, superseded, or expired with no refresh left.
+ */
+export type QuotingPhase = 'draft' | 'with_ben' | 'sent' | 'accepted' | 'refreshable' | 'stale';
 
 export interface QuotingProposal {
     phase: QuotingPhase;
@@ -122,6 +126,8 @@ export interface QuotingProposal {
     draftError: string | null;
     /** Fact ids the composer should answer from, by what they are. */
     answerFrom: { figures: Record<string, string>; scope: string[]; notIncluded: string[]; assumptions: string[]; link: string | null; status: string | null };
+    /** On `refreshable`, the refreshes the customer has left on their own page. */
+    selfRefreshesLeft: number;
     concerns: QuestionOutput['concerns'];
     beyondQuoteLine: boolean;
     acceptanceInChat: boolean;
@@ -147,6 +153,9 @@ export function briefLines(p: QuotingProposal): string[] {
         if (ids.scope.length && p.concerns.some((c) => c.kind === 'scope' || c.kind === 'not_included' || c.kind === 'on_the_day')) {
             out.push(`answer what is included from the draft's scope facts (${ids.scope.join(', ')})${ids.notIncluded.length ? ` and what is not included (${ids.notIncluded.join(', ')})` : ''}; no figure, the quote is not priced yet; Ben confirms it when he sends the quote`);
         } else out.push(`if they ask about the quote: it is with Ben and on its way (fact ${ids.status ?? 'none'}); no figure, no timing`);
+    } else if (p.phase === 'refreshable') {
+        out.push(`quoting: ${p.quoteRef} is expired, ${p.selfRefreshesLeft} refresh${p.selfRefreshesLeft === 1 ? '' : 'es'} left to the customer`);
+        out.push(`the price on their quote has lapsed (fact ${ids.status ?? 'none'}): no figure may be read from it, so give none. Their quote page refreshes it themselves - point them at it with the link exactly as written on fact ${ids.link ?? 'none'} and say the price is refreshed on that page; no percentage, no amount, no date, and do not say Ben will come back to them`);
     } else if (p.phase === 'stale') {
         out.push(`quoting: ${p.quoteRef} is ${p.status}`);
         out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; say Ben will come back to them on the quote`);
@@ -230,19 +239,26 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     const proposal: QuotingProposal = {
         phase: 'draft', quoteRef: q?.slug ?? file.job.quoteRef ?? null, status: q?.status ?? null, drafted: false, draftError: null,
         answerFrom: { figures: {}, scope: [], notIncluded: [], assumptions: [], link: null, status: null },
-        concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: route.turnKind === 'not_ready', acceptedNow: turn.kind === 'portal_action',
+        selfRefreshesLeft: 0, concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: route.turnKind === 'not_ready', acceptedNow: turn.kind === 'portal_action',
     };
 
     // 1. No quote yet and the job and location are known: the clerk's intake, then the draft.
     if (!q || q.status === 'revoked' || q.status === 'superseded' || q.status === 'expired') {
         if (q) {
-            proposal.phase = 'stale';
+            // An expired quote is the customer's own to refresh on their quote page while a refresh
+            // is left (shared/quote-reissue.ts), so the honest answer is that page, not a callback.
+            // Revoked, superseded, and expired with none left leave nothing there for them: those
+            // hold for Ben, because the reply then does promise him.
+            const refreshable = q.status === 'expired' && q.selfRefreshesLeft > 0;
+            proposal.phase = refreshable ? 'refreshable' : 'stale';
+            proposal.selfRefreshesLeft = q.selfRefreshesLeft;
             const ids = recordQuoteFacts(file, q, deps);
             proposal.answerFrom.status = ids.status;
-            if (ids.status) factIds.push(ids.status);
-            const stale = emptyProposal();
-            stale.hold = { reason: 'stale_quote', match: `${q.slug} is ${q.status}` };
-            return { specialist: 'quoting', factIds, proposal: stale, brief: briefLines(proposal), calls, error };
+            proposal.answerFrom.link = ids.link;
+            for (const id of [ids.status, ids.link]) if (id) factIds.push(id);
+            const p = emptyProposal();
+            if (!refreshable) p.hold = { reason: 'stale_quote', match: `${q.slug} is ${q.status}` };
+            return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(proposal), calls, error };
         }
         const readiness = quoteReadiness(file);
         const user = [

@@ -12,6 +12,7 @@
  * 35). Scope (what a line covers, what is not included) may be read from a draft as well, because
  * it is the desk's own record of the customer's words, and never carries a figure.
  */
+import { REISSUE_MAX_SELF } from '@shared/quote-reissue';
 import { recordFact, type CaseFile, type CaseFileDeps, type Fact, type FactSource } from '../desk/case-file';
 
 export type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'revoked' | 'superseded' | 'expired';
@@ -52,6 +53,11 @@ export interface QuoteRecord {
     suggestedTotalPence: number | null;
     checkThis: number;
     photoUrls: string[];
+    /**
+     * Refreshes the customer may still make on their own quote page once the price lock has passed
+     * (shared/quote-reissue.ts). Zero is the point the page itself hands off to a human.
+     */
+    selfRefreshesLeft: number;
 }
 
 /** The row fields this module reads, in the column names drizzle gives them. */
@@ -72,6 +78,8 @@ export interface QuoteRowLike {
     pricingLineItems?: unknown;
     pricingSuggestions?: unknown;
     customerPhotoUrls?: unknown;
+    /** The customer's own refreshes of a lapsed quote, as the reissue route counts them. */
+    extensionCount?: number | null;
 }
 
 const iso = (v: Date | string | null | undefined): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -120,6 +128,7 @@ export function quoteRecordOf(row: QuoteRowLike, now: Date = new Date()): QuoteR
         suggestedTotalPence: int(suggestions?.totals?.suggestedPence),
         checkThis: (suggestions?.lines ?? []).filter((l) => l?.checkThis).length,
         photoUrls: strings(row.customerPhotoUrls),
+        selfRefreshesLeft: Math.max(0, REISSUE_MAX_SELF - Math.max(0, int(row.extensionCount) ?? 0)),
     };
 }
 
