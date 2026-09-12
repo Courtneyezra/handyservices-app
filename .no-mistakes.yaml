@@ -83,7 +83,9 @@ test:
     line, never about the labour or the materials: those are not lines of the quote, so a figure
     given for one would be a figure the customer's quote does not state.
     A labour question after 5.3: POST /message "How much of that is labour?": a hold for ben, the
-    money line, and no figure in the reply, because how a line splits is money beyond a quote line.
+    money line, and no labour or materials figure in the reply, because how a line splits is money
+    beyond a quote line. Naming the line's own total back is not a failure: any figure that does
+    appear must equal a line of the live quote to the penny, which is the rule the guard enforces.
     2.7 still after the quote: POST /message "Can you do it any cheaper?": a hold for ben whose
     reason names money beyond a quote line, and no figure in the reply.
     6.2: POST /message "Leave it with me, I'll get back to you next month": one acknowledgement
