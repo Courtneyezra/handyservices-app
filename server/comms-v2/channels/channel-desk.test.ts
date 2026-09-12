@@ -15,6 +15,9 @@ import { FakeModelClient } from '../desk/models';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved, type TemplateStatusSource } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
+import { recordingNotifier } from '../quoting/ben-notifier';
+import { FakeDrafter } from '../quoting/draft-quote';
+import { MemoryQuoteStore } from '../quoting/quote-store';
 import { fromDoorCall } from './call-adapter';
 import { EMAIL_SIGN_OFF, fromDoorEmail } from './email-adapter';
 import { ChannelDesk } from './channel-desk';
@@ -31,7 +34,10 @@ function rig(handlers: ConstructorParameters<typeof FakeModelClient>[0], templat
     const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
     const now = () => new Date(clock.t += 1000);
     const client = new FakeModelClient(handlers);
-    const inner = new Desk({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) } });
+    // A call or a form that establishes the job and the location makes the file ready, and Quoting
+    // drafts on a ready file: the store and the drafter here keep that off the live chain.
+    const store = new MemoryQuoteStore();
+    const inner = new Desk({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier } });
     const desk = new ChannelDesk(inner, { client, templates, now });
     const gateway = new ChannelGateway({ desk, now });
     return { client, gateway, now, clock };
@@ -98,7 +104,7 @@ describe('the web form acknowledgement', () => {
 });
 
 describe('an email reply', () => {
-    it('the renderer\'s sign-off marks nothing: a letter whose own words thank nobody leaves the photo unthanked, so the next letter can still thank for it', async () => {
+    it('the letter\'s own words mark nothing either way: the media ledger records the desk\'s instruction to thank, not the wording the renderer wrapped it in', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-desk-email-'));
         try {
             const { gateway } = rig({
@@ -117,7 +123,8 @@ describe('an email reply', () => {
             expect(a.result.bubbles[0].text).toContain(EMAIL_SIGN_OFF);
             expect(a.result.bubbles[0].text).not.toMatch(/thanks for the (?:photo|picture)/i);
             expect(a.file.turns[0].media).toHaveLength(1);
-            expect(a.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).toBeNull();
+            // The proposal is what the ledger reads, so the thanks is spent here whatever the letter said.
+            expect(a.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).not.toBeNull();
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }
@@ -224,7 +231,9 @@ describe('the channel desk on a call', () => {
     it('an earlier "yes please call me" does not send the thread back to Ben after the call happened', async () => {
         const { gateway } = rig({
             router: () => routeScoping({ turnKind: 'enquiry' }),
-            specialist: ({ n }) => n === 3 ? read({ location: 'NG9 2AB' }) : ({ facts: [{ key: 'job_type', value: 'bathroom fan' }], jobUnknowns: [], answeredSubjects: [] }),
+            specialist: ({ n, system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace the bathroom extractor fan', category: 'electrical_minor', qty: 1, detail: 'the old one is dead', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : n === 3 ? read({ location: 'NG9 2AB' }) : ({ facts: [{ key: 'job_type', value: 'bathroom fan' }], jobUnknowns: [], answeredSubjects: [] })),
             composer: ({ n }) => ({ reply: n === 1 ? 'A dead fan, got it.\n\nWhereabouts are you?\n\nHappy to give you a quick call if easier.' : n === 2 ? 'No problem, Ben will give you a ring.' : 'Thanks for the photos.\n\nIs there parking outside?', factIds: [], kbIds: [] }),
         }, approvedAll);
         const a = await gateway.inbound(wa('my bathroom fan is dead', '2026-09-11T10:00:00.000Z'));

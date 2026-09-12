@@ -35,11 +35,17 @@ export type ReplyChannel = 'whatsapp' | 'sms' | 'email';
 /** Which WhatsApp sender carries the thread: the Twilio number, or the coexistence number Meta serves directly. */
 export type WhatsAppTransport = 'twilio' | 'meta';
 
+/** The channels a customer writes on, so writing on one records it: a form and a call are neither written on nor replied to. */
+const WRITTEN_ON_CHANNELS: ReadonlySet<ChannelKind> = new Set<ChannelKind>(['whatsapp', 'sms', 'email']);
+
 export interface PartyChannel {
     kind: ChannelKind;
     /** The canonical address on the wire: E.164 for a phone channel, the lowercase email for email. */
     address: string;
-    /** WhatsApp only: when the customer last wrote, which opens the 24-hour window. Null: never. */
+    /**
+     * When the customer last wrote on this channel, which is what makes it a channel they use rather
+     * than one we can reach them on. Null: never. On WhatsApp it is also the 24-hour window clock.
+     */
     lastInboundAt: string | null;
     /** WhatsApp only: the sender the customer last wrote to, so the reply goes back the same way. Null: not yet known, Twilio is assumed. */
     transport?: WhatsAppTransport | null;
@@ -253,7 +259,7 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
     const at = now().toISOString();
     const party: Party = {
         personId: id.personId, role: id.role, name: id.name, canonical: id.canonical,
-        channels: [{ kind: input.channel, address: input.address, lastInboundAt: input.channel === 'whatsapp' ? input.firstTurn.at : null }],
+        channels: [{ kind: input.channel, address: input.address, lastInboundAt: WRITTEN_ON_CHANNELS.has(input.channel) ? input.firstTurn.at : null }],
         prefersText: false, alreadyRung: input.channel === 'call', callOffered: false,
     };
     const file: CaseFile = {
@@ -298,8 +304,8 @@ export function appendTurn(file: CaseFile, turn: Omit<Turn, 'id'> & { id?: strin
     if (turn.direction === 'outbound' && (!turn.runId || !turn.approver)) return refuse('an outbound turn carries a run id and an approver');
     const t: Turn = { ...turn, id: turn.id ?? newId('turn') };
     file.turns.push(t);
-    if (t.direction === 'inbound' && t.channel === 'whatsapp') {
-        const ch = party.channels.find((c) => c.kind === 'whatsapp');
+    if (t.direction === 'inbound' && WRITTEN_ON_CHANNELS.has(t.channel)) {
+        const ch = party.channels.find((c) => c.kind === t.channel);
         if (ch) ch.lastInboundAt = t.at;
     }
     return accept(t);
@@ -354,6 +360,25 @@ export function recordFact(file: CaseFile, input: { key: string; value: string; 
     if (party && fact.key === 'prefers_text' && /^(true|yes)$/i.test(fact.value)) party.prefersText = true;
     if (party && fact.key === 'already_rung' && /^(true|yes)$/i.test(fact.value)) party.alreadyRung = true;
     return accept(fact);
+}
+
+/**
+ * Facts the desk writes for Ben, never for a customer: each carries an admin link, an internal note
+ * or what he may want to request before pricing. They sit on the file like any other fact, so the
+ * one place they are kept out of a customer reply is the composer boundary
+ * (`customerVisibleFacts`). Any new fact written for Ben's eyes belongs in this list on the day it
+ * is written.
+ */
+export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted'];
+
+/** True when the fact was written for Ben, not for the customer. Matches the key and any `key:label` form. */
+export function isInternalFact(fact: Pick<Fact, 'key'>): boolean {
+    return INTERNAL_FACT_KEYS.some((k) => fact.key === k || fact.key.startsWith(`${k}:`));
+}
+
+/** The facts a customer reply may be written from: everything on the file except Ben's own. */
+export function customerVisibleFacts(file: CaseFile): Fact[] {
+    return file.facts.filter((f) => !isInternalFact(f));
 }
 
 /** The newest fact for a key. */

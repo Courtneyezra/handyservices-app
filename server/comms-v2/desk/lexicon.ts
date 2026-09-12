@@ -91,8 +91,12 @@ export const SUBJECT_WORDS: Record<string, RegExp> = {
     job: /\b(?:what(?:'s| is) (?:the|it|that)|which|how (?:big|many|old|long|wide|tall|high)|what (?:kind|type|sort|size|material)|is it|are they|does it|do they|tell me (?:a bit )?more|describe|whereabouts (?:in|on) the)\b/i,
 };
 
-/** Asking phrasing: a question mark, or an imperative or request to send or tell. */
-export const RE_ASKING = /\?|\b(?:send|share|pop|drop|attach|ping|forward|could you|can you|would you|if you (?:can|could|get a chance|have)|do you have|have you got|let (?:me|us) know|what(?:'s| is)|where|which|when|how|is there|are there|any chance)\b/i;
+/**
+ * Asking phrasing: a question mark, or an imperative or request to send or tell. "Is there" and
+ * "are there" ask only in question order, opening a clause: "the valves are there and working"
+ * states a fact, as a quote's assumptions do.
+ */
+export const RE_ASKING = /\?|\b(?:send|share|pop|drop|attach|ping|forward|could you|can you|would you|if you (?:can|could|get a chance|have)|do you have|have you got|let (?:me|us) know|what(?:'s| is)|where|which|when|how|any chance)\b|(?:^|[,;:]\s*|\b(?:and|but|or|so|also)\s+)(?:is|are) there\b/i;
 
 /** A clause that waves the subject away, so its mention is not an ask of it. */
 export const RE_DISMISSIVE = /\b(?:no worries about|don'?t worry about|do not worry about|no need for|no need to|not to worry about|without (?:a |the |any )?|rather not|no problem (?:at all )?(?:about|with|without)|forget the|skip the|leave the)\b/i;

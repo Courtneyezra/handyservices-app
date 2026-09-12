@@ -1,0 +1,300 @@
+/**
+ * The Quoting part of the desk's sandbox door: the two human actions the pipeline drives in dry run
+ * (design.md, "One quote, box by box", the Ben row and the acceptance), and the quote's state.
+ *
+ *   POST /price   Ben prices and sends. His prices go through the price screen's own write; the
+ *                 desk's own composer then writes the delivery with the quote link, Contract 4
+ *                 checks it, and it goes through the one sender in dry run under approver
+ *                 human:ben, landing on the thread as an outbound turn; the stage moves to quoted.
+ *                 The quote leaves draft only once that send has landed, so a quote is never marked
+ *                 sent when the text that went is not the quote: a shut window, a guard failure or
+ *                 a refused send holds for Ben and leaves the quote a draft he can price again.
+ *                 Body: { lines: [{ lineId, finalPence }] }; absent, the chain's suggestions.
+ *                 Response: the planned send.
+ *   POST /accept  The customer accepts on the quote page and pays the deposit: a human event
+ *                 (answer 42: the payment path is not validated live, so the door records what the
+ *                 Stripe webhook writes). The stage flips to accepted, Ben's push is recorded, and
+ *                 the acceptance enters the desk as the customer's turn for one acknowledgement.
+ *   GET  /quote   The quote as the file records it and as the row holds it: status, lines to the
+ *                 penny, Ben's recorded notifications.
+ *
+ * Mounted by desk/sandbox-door.ts in the place of its Goal 1 refusal. One sentence here is the
+ * route's own, `FIRST_CONTACT_ACK` below, fixed word for word, and every other word is the desk
+ * composer's: the delivery through `composeQuoteSent` and the acknowledgement on acceptance
+ * through the desk itself.
+ */
+import { Router, type Response } from 'express';
+import { appendTurn, hold as setHold, release as releaseHold, type CaseFile, type ModelCallRecord, type Party, type ReplyChannel, type Turn } from '../desk/case-file';
+import { compose } from '../desk/composer';
+import type { DeskDeps } from '../desk/desk';
+import type { DeskLike, DeskResult, GuardName, GuardVerdict } from '../desk/desk-types';
+import { AnthropicModelClient } from '../desk/models';
+import type { Gateway } from '../desk/gateway';
+import { BEN, noReplyToCheck, runGuards, type GuardOutcome } from '../desk/guards';
+import type { PlannedSend } from '../desk/planned-send';
+import { chooseChannel, render, send, windowOf, type ChannelChoice } from '../desk/sender';
+import { acknowledgesEnquiry } from '../channels/composer-lines';
+import { FIRST_CONTACT_ACK_PURPOSES } from '../channels/templates';
+import { quoteRecordOf } from './quote-record';
+import { humanRunId, markQuoteSent, priceQuote, recordAcceptance, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
+import { quoteStateOf } from './quoting-specialist';
+
+export interface QuotingDoorOptions {
+    current: () => CaseFile | null;
+    gateway: () => Gateway;
+    state: () => unknown;
+    plannedSend: (file: CaseFile, r: DeskResult) => PlannedSend;
+    now: () => Date;
+    deps: DeskDeps;
+    /** Every reserved contact the sandbox customer writes from, whose quotes /reset removes: the number and the address. */
+    sandboxContacts: string[];
+}
+
+export const BEN_APPROVER = 'human:ben' as const;
+
+/** The opening of every hold reason this route writes, and the one it reads back when Ben's next send lands. */
+const priceHold = (slug: string) => `quote ${slug} priced;`;
+
+/**
+ * The newest thing the customer said: the channel the quote goes out on, the thread context the
+ * composer writes against, and the turn the regulated guard reads. The desk's own last reply is not
+ * it, and neither is a channel named here: a thread the customer wrote on by SMS is answered there.
+ */
+function newestCustomerTurn(file: CaseFile, party: Party): Turn {
+    return [...file.turns].reverse().find((t) => t.direction === 'inbound' && t.partyId === party.personId) ?? file.turns[file.turns.length - 1];
+}
+
+/**
+ * The channel the quote delivery goes out on: the desk's own choice, unless that choice is a
+ * channel the customer has never written on whose window cannot carry the send now. That is the
+ * WhatsApp record a form or a call lead is given for a number known to be on WhatsApp: its window
+ * has never opened, a shut window takes an approved template and none of the desk's carries a
+ * quote link, so the delivery takes the next channel in the order, which needs no template, rather
+ * than the link never reaching them. A channel the customer chose keeps its normal treatment: a
+ * genuine WhatsApp thread that has gone quiet for a day holds the delivery for Ben (5.1), and so
+ * does a party with no other channel. Only the delivery does this; an acknowledgement on a shut
+ * window is still the approved template's to carry.
+ */
+function deliveryChannel(party: Party, wroteOn: Parameters<typeof chooseChannel>[1], now: Date): ChannelChoice {
+    const choice = chooseChannel(party, wroteOn, now);
+    if (!choice.ok) return choice;
+    const chosen = party.channels.find((c) => c.kind === choice.channel);
+    if (chosen?.lastInboundAt || windowOf(party, choice.channel, now).state === 'open') return choice;
+    for (const kind of ['sms', 'email'] as const) {
+        const next = party.channels.find((c) => c.kind === kind);
+        if (next) return { ok: true, channel: kind, address: next.address };
+    }
+    return choice;
+}
+
+/**
+ * The one sentence this route sends of its own, for the case where the quote delivery is the first
+ * thing that will ever reach them because the acknowledgement their web-form enquiry was owed held
+ * for Ben rather than went (a WhatsApp window that never opened, with no approved template for the
+ * purpose). Ben's own voice, naming the business and the enquiry it follows, with no figure, no
+ * timing, no promise and no question. Fixed word for word and nothing interpolated: no
+ * model-written fact reaches a customer through it, and no guard can fail on words the composer's
+ * retry has no power to change, which is what `quoting-tools.test.ts` runs the eight guards over.
+ * It goes ahead of the composer's words as the first bubble where the channel has bubbles, and as
+ * the opening line of the one message where it does not; the composer is given the room that is
+ * left rather than the whole channel budget.
+ */
+export const FIRST_CONTACT_ACK = 'Thanks for your enquiry - Ben here from Handy Services.';
+
+/**
+ * Whether the quote going out is the answer to the hold on the thread. Three holds it answers: one
+ * this route put there itself when an earlier attempt did not send; a money hold (2.7), because the
+ * promise that hold carries is that Ben will come back to them on the price and the quote he has
+ * just priced and sent is him doing it; and the first-contact acknowledgement, but only once that
+ * acknowledgement has actually been made, which is `firstContactCovered`: either something had
+ * already gone back to them, or this send carried the route's own acknowledgement ahead of the
+ * quote. It is never read off the composed words: what answers that hold is a sentence the desk
+ * itself put in the send, so a model's letter cannot leave it out. A delivery that lands as a bare
+ * quote link on a customer who has never heard from us answers nothing, so Ben keeps his card. A
+ * complaint, refund, trust or regulated hold is a person's to answer and nothing about a quote
+ * answers it; acceptance stays human, so that hold stands too. Read only where the send landed: a
+ * delivery that held answered nothing at all.
+ */
+function answeredByThisQuote(file: CaseFile, slug: string, firstContactCovered: boolean): boolean {
+    if (!file.hold) return false;
+    if (file.hold.reason.startsWith(priceHold(slug)) || file.hold.exception === 'money') return true;
+    return firstContactCovered && !file.hold.exception && FIRST_CONTACT_ACK_PURPOSES.some((p) => file.hold!.reason.includes(p));
+}
+
+/**
+ * The desk behind the gateway. Bracket access on purpose: server/spine/desk-switch.test.ts scans
+ * every module for a dotted read of that property name and treats one as a module deciding for
+ * itself which desk is live, which is the spine's config key, not this.
+ */
+const deskOf = (g: Gateway): DeskLike => g['desk'];
+
+type QuoteSentOutcome =
+    | { ok: true; reply: string; verdicts: GuardOutcome; calls: ModelCallRecord[]; composerCalls: number }
+    | { ok: false; failures: string[]; draft: string | null; verdicts: GuardOutcome; calls: ModelCallRecord[]; composerCalls: number };
+
+/**
+ * The delivery message for a quote Ben has just priced, written by the desk's own composer and
+ * checked by Contract 4. The words are the desk's, not Ben's: the price route carries no message
+ * body, so there is nobody to read a borrowed draft before it goes, and answer 43's exemption is
+ * for words a person typed.
+ *
+ * The composer is told the channel the delivery actually goes out on rather than working it out
+ * for itself, because the door may have skipped the channel `choose_channel` would have picked and
+ * a reply shaped for WhatsApp bubbles is one the SMS render then refuses for length.
+ *
+ * The composer is given the quote link to copy and nothing else about the quote: the figures are
+ * not facts on the file yet (`record_quote_facts` records them only once the quote is sent), which
+ * is exactly why the delivery may not quote one. The one-reply guard is told a person licensed
+ * this send, because Ben pressing send is a fresh licence to speak rather than the desk replying
+ * twice to one customer turn; the other seven run unchanged. One retry with the failures named,
+ * the same one retry the desk gives a composed reply.
+ */
+async function composeQuoteSent(file: CaseFile, party: Party, quoteUrl: string, channel: ReplyChannel, ack: string | null, now: Date, deps: DeskDeps): Promise<QuoteSentOutcome> {
+    const client = deps.client ?? new AnthropicModelClient();
+    const turn = newestCustomerTurn(file, party);
+    const calls: ModelCallRecord[] = [];
+    const brief = [
+        'quoting: Ben has priced the quote and is sending it now',
+        `this is the delivery, not a reply: say the quote is ready and give the link exactly as written here, ${quoteUrl}`,
+        'no figure at all: the prices are on the quote, not in the message',
+        'no date, no time, no lead time; say to reply here with any questions',
+    ];
+    const input = {
+        file, party, turn, channel,
+        reserved: ack ? ack.length + 2 : 0,
+        route: { turnKind: 'other' as const, subjects: ['quoting' as const], exception: null },
+        specialists: [{ specialist: 'quoting' as const, factIds: [], proposal: { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: true, hold: null }, brief, calls: [], error: null }],
+        fixedLines: [],
+        now,
+    };
+    // What goes is the acknowledgement and the composer's words together, so that is what the
+    // guards read and what the send records: nothing reaches the customer unchecked.
+    const words = (reply: string) => (ack ? `${ack}\n\n${reply}` : reply);
+    const guardsFor = (reply: string) => runGuards({ file, party, turn, reply: words(reply), factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, prompted: 'human_action', liveQuoteRefs: new Set<string>() });
+    let draft: string | null = null;
+    let outcome = guardsFor('');
+    for (const failures of [undefined, 'retry'] as const) {
+        const res = await compose(failures ? { ...input, failures: outcome.failures } : input, client);
+        calls.push(res.record);
+        if (!res.output) { outcome = { ok: false, guards: noReplyToCheck(), failures: [res.error ?? 'the composer returned nothing'] }; continue; }
+        draft = res.output.reply;
+        outcome = guardsFor(draft);
+        if (outcome.ok) return { ok: true, reply: words(draft), verdicts: outcome, calls, composerCalls: calls.length };
+    }
+    return { ok: false, failures: outcome.failures, draft, verdicts: outcome, calls, composerCalls: calls.length };
+}
+
+export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; reset(): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number } | { error: string }> } {
+    const router = Router();
+    const quotingDeps = (): QuotingDeps => ({ ...opts.deps.quoting, now: opts.now, newId: opts.deps.newId });
+    const respond = (res: Response, file: CaseFile, result: DeskResult, extra: Record<string, unknown> = {}) => {
+        res.json({ ok: true, ...extra, run: { runId: result.runId, agent: 'comms_v2', decision: { kind: result.decision, approver: result.approver, reason: result.note ?? undefined }, error: result.error, caseFile: { stage: file.stage } }, plannedSend: opts.plannedSend(file, result), state: opts.state() });
+    };
+
+    router.get('/quote', async (_req, res) => {
+        try {
+            const file = opts.current();
+            if (!file) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
+            const d = resolveQuotingDeps(quotingDeps());
+            const row = file.job.quoteRef ? await d.store.read(file.job.quoteRef) : null;
+            const record = row ? quoteRecordOf(row, opts.now()) : null;
+            res.json({ ok: true, quote: quoteStateOf(file), record, facts: file.facts.filter((f) => f.key.startsWith('quote_') || f.key.startsWith('ben_')) });
+        } catch (error: any) {
+            res.status(500).json({ error: error?.message ?? 'quote state failed' });
+        }
+    });
+
+    router.post('/price', async (req, res) => {
+        try {
+            const file = opts.current();
+            if (!file) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
+            if (!file.job.quoteRef) { res.status(409).json({ error: 'no quote on the thread: the desk drafts one once the job and the location are known' }); return; }
+            const party = file.parties[0];
+            const body = (req.body ?? {}) as { lines?: Array<{ lineId: string; finalPence: number }> };
+            const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l && typeof l.lineId === 'string' && Number.isFinite(l.finalPence)).map((l) => ({ lineId: l.lineId, finalPence: Math.round(l.finalPence) })) : undefined;
+            const priced = await priceQuote(file, { lines, by: BEN_APPROVER }, quotingDeps());
+            if (!priced.ok) { res.status(priced.status).json({ error: priced.reason }); return; }
+
+            const runId = humanRunId();
+            const turn = newestCustomerTurn(file, party);
+            // Read before the delivery lands, because the send itself appends an outbound turn: the
+            // acknowledgement a web-form enquiry is owed is either already made or this send's to make.
+            const ack = acknowledgesEnquiry(file, turn) ? FIRST_CONTACT_ACK : null;
+            const firstContactCovered = !!ack || file.turns.some((t) => t.direction === 'outbound');
+            const choice = deliveryChannel(party, turn?.channel ?? null, opts.now());
+            if (!choice.ok) { res.status(409).json({ error: choice.reason }); return; }
+            const window = windowOf(party, choice.channel, opts.now());
+            // The quote is never marked sent unless the text that went IS the quote. On a shut
+            // window the only thing that may go is an approved template, and none of the desk's
+            // carries a quote link, so a send here would deliver a re-open nudge while the file
+            // recorded every figure as live. It holds for Ben instead and the quote stays a draft
+            // he can price again. Wiring the approved `quote_ready_link` template (it carries the
+            // URL as its second variable, docs/comms-build/TEMPLATES-WINDOW-SHUT.md) into the
+            // desk's sender is its own cutover item; submitting a template to Meta is not the
+            // desk's to do.
+            const holdAndAnswer = (why: string, draft: string | null, failures: string[], guards: Record<GuardName, GuardVerdict> = noReplyToCheck(), calls: ModelCallRecord[] = []) => {
+                if (!file.hold) setHold(file, { approver: BEN, reason: why, draft: draft ?? undefined, failures }, { now: opts.now, newId: opts.deps.newId });
+                const held: DeskResult = { runId, decision: 'hold', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: null, bubbles: [], factIds: priced.factIds, kbIds: [], guards, approver: null, hold: file.hold, delivered: false, stageAfter: file.stage, calls, note: why, summary: `ben priced ${priced.record.slug}; not sent`, error: null, landedTurnId: null, composerCalls: calls.length };
+                respond(res, file, held, { slug: priced.record.slug, totals: priced.totals, quoteUrl: priced.quoteUrl, sent: false });
+            };
+            if (window.state === 'shut') {
+                holdAndAnswer(`${priceHold(priced.record.slug)} the WhatsApp window is shut (${window.reason}) and no approved template carries a quote link, so the quote is not sent and stays a draft`, null, []);
+                return;
+            }
+
+            // Ben licenses this send; the words are the desk's own. The price route carries no
+            // message body, so nobody reads a borrowed draft before it goes: the composer writes
+            // the delivery from the file, with the quote link, and Contract 4 checks it like any
+            // other composed reply (behaviour.md answer 43 is about who WROTE the words).
+            const written = await composeQuoteSent(file, party, priced.quoteUrl, choice.channel, ack, opts.now(), opts.deps);
+            if (!written.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the delivery message did not pass the guards (${written.failures.join('; ')})`, written.draft, written.failures, written.verdicts.guards, written.calls); return; }
+            const rendered = render(choice.channel, written.reply, { name: party.name });
+            if (!rendered.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the delivery message could not be rendered (${rendered.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
+            const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: BEN_APPROVER, guards: written.verdicts, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: written.calls, mode: 'dry_run' }, { now: opts.now, newId: opts.deps.newId });
+            if (!sent.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the send was refused (${sent.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
+            // The send landed: only now does the quote leave draft and its figures reach the file.
+            // A hold his send answers clears with the words that went, the way any human send
+            // releases one; any other hold is a person's to answer and stands.
+            if (answeredByThisQuote(file, priced.record.slug, firstContactCovered)) releaseHold(file, BEN, written.reply, { now: opts.now, newId: opts.deps.newId });
+            const staged = await markQuoteSent(file, quotingDeps());
+            const record = staged.ok ? staged.record : priced.record;
+            const result: DeskResult = {
+                runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: null, bubbles: rendered.bubbles,
+                factIds: priced.factIds, kbIds: [], guards: written.verdicts.guards, approver: BEN_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, calls: written.calls,
+                note: staged.ok ? null : `sent, but the quote did not leave draft: ${staged.reason}`, summary: `ben priced ${record.slug} at ${(priced.totals.totalPence / 100).toFixed(2)} and the desk sent the link`, error: null, landedTurnId: sent.record.turnId, composerCalls: written.composerCalls,
+            };
+            respond(res, file, result, { slug: record.slug, totals: priced.totals, quoteUrl: priced.quoteUrl, sent: true, status: record.status, lines: record.lines.map((l) => ({ label: l.label, pricePence: l.pricePence })) });
+        } catch (error: any) {
+            res.status(500).json({ error: error?.message ?? 'sandbox price failed' });
+        }
+    });
+
+    router.post('/accept', async (_req, res) => {
+        try {
+            const file = opts.current();
+            if (!file) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
+            const party = file.parties[0];
+            const accepted = await recordAcceptance(file, party, { by: 'human', via: 'sandbox quote page' }, quotingDeps());
+            if (!accepted.ok) { res.status(accepted.status).json({ error: accepted.reason }); return; }
+            // The acceptance enters the desk as the customer's turn: one acknowledgement, from the composer.
+            const at = new Date(Math.max(opts.now().getTime(), file.turns.length ? Date.parse(file.turns[file.turns.length - 1].at) + 1 : 0)).toISOString();
+            const turn = appendTurn(file, { at, channel: 'form', direction: 'inbound', partyId: party.personId, kind: 'portal_action', body: accepted.turnBody, media: [], runId: null, approver: null }, { now: opts.now, newId: opts.deps.newId });
+            if (!turn.ok) { res.status(409).json({ error: turn.reason }); return; }
+            const result = await deskOf(opts.gateway()).handleTurn(file, turn.value);
+            respond(res, file, result, { slug: file.job.quoteRef, depositPence: accepted.depositPence, notice: accepted.notice, accepted: true });
+        } catch (error: any) {
+            res.status(500).json({ error: error?.message ?? 'sandbox accept failed' });
+        }
+    });
+
+    return {
+        router,
+        async reset() {
+            try {
+                return await resolveQuotingDeps(quotingDeps()).store.deleteSandbox(opts.sandboxContacts);
+            } catch (error: any) {
+                return { error: error?.message ?? 'sandbox quote cleanup failed' };
+            }
+        },
+    };
+}

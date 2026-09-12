@@ -41,7 +41,80 @@ test:
     For a comms change, run the relevant lines of docs/comms-v2/checklist.md as sandbox
     conversations. For the new desk under server/comms-v2 use its own door: `npm run
     comms-v2:door` serves it on a loopback port (the URL is printed once; POST /start, /message,
-    /run, /age, /reset). Model calls are live; a refused or rate-limited model is a finding, not a pass.
+    /run, /age, /reset, and for Goal 4 POST /price, POST /accept, GET /quote). Model calls are live;
+    a refused or rate-limited model is a finding, not a pass.
+
+    Goal 4, the Quoting specialist, on the comms-v2 door, one thread in this order (the ready
+    turn runs the estimator and the pricing engine and can take up to two minutes):
+    4.1 and 4.2: POST /start with a job and a postcode in one message and no photo ("my kitchen
+    mixer tap is dripping at the base and needs replacing, NG9 2AB"); expect a reply with no
+    figure, state.conversation.stage ready, state.quote.slug set and plannedSend.evidence.summary
+    containing "quoting: drafted".
+    4.3: state.quote.notifications has exactly one entry of kind ready_to_price whose link is
+    /admin/price/<slug>; GET /quote shows record.status draft with every pricePence null.
+    4.4: GET /quote and check the file carries the internal fact ben_to_request naming what to
+    request ("photo (asked once, none sent)"), which the ready_to_price notice repeats; then open
+    http://127.0.0.1:$PORT/admin/price/<slug> in the app as Ben and screenshot it: the lines with
+    the customer's own words and the suggestions. The missing list is deliberately on no field of
+    the quote row, because that row is served to anyone holding the quote's slug; showing it on
+    Ben's board card is filed as its own item.
+    4.5: POST /run (expect the note "not due"), POST /age {"hours": 5}, POST /run again: the note
+    says "chase 1 recorded for Ben" and state.quote.notifications gains a chase; nothing is sent
+    to the customer on either pass.
+    5.2: POST /message "Does that include a new tap?": the reply answers from the draft's scope
+    (what the line covers, what is not included) with no figure; a money hold for Ben beside it
+    is 2.7 still standing before the quote, not a failure of 5.2.
+    A photo before 5.1: POST /message as multipart with a photo attached and the text "here is the
+    tap"; the reply thanks for it once, state.caseFile.ledger shows media thankedAt set, and the
+    photo joins the draft.
+    A shut window at 5.1, which must never deliver a nudge with no quote link while recording the
+    figures as live: POST /age {"hours": 25}, then POST /price {}. Expect sent false, the planned
+    send held for ben with a reason naming the shut window and the missing quote-link template, no
+    bubbles, and GET /quote still record.status draft with no quote_line fact on the file. This is
+    the customer's own WhatsApp thread, which the delivery keeps: only a WhatsApp record nobody has
+    written on is skipped for a channel that needs no template. Then
+    POST /message "Any news on the quote?" to reopen the window before driving 5.1.
+    5.1: POST /price {} : plannedSend.approver human:ben, the bubbles carry /quote/<slug> and no
+    figure, the stage is quoted; every entry of plannedSend.guards reads pass, because the delivery
+    is written by the desk's own composer and Contract 4 runs over it (answer 43 exempts words a
+    person typed, and the price route carries no message body); GET /quote shows record.status sent
+    and every line priced.
+    5.3: POST /message "What does that include, and how much is that line?": the reply's figure
+    equals the price of that line on GET /quote's record to the penny (£x.xx), plannedSend.factIds
+    names the quote_line fact carrying that figure, the figure guard passes, no hold. Ask about a
+    line, never about the labour or the materials: those are not lines of the quote, so a figure
+    given for one would be a figure the customer's quote does not state.
+    A labour question after 5.3: POST /message "How much of that is labour?": a hold for ben, the
+    money line, and no labour or materials figure in the reply, because how a line splits is money
+    beyond a quote line. Naming the line's own total back is not a failure: any figure that does
+    appear must equal a line of the live quote to the penny, which is the rule the guard enforces.
+    2.7 still after the quote: POST /message "Can you do it any cheaper?": a hold for ben whose
+    reason names money beyond a quote line, and no figure in the reply that is not a line of the
+    live quote to the penny. Naming a line's own total back is not a failure; a discount, a reduced
+    total or any other figure the quote does not state is.
+    6.2: POST /message "Leave it with me, I'll get back to you next month": one acknowledgement
+    with no question; POST /run sends nothing.
+    6.1 and 6.3: POST /accept: response.notice.title "Quote accepted", state.conversation.stage
+    accepted, state.quote.notifications gains accepted, and the planned send is one acknowledgement
+    whose only promise is that Ben has been told, with no date, time or duration. A second POST
+    /accept answers 409.
+    The form lead nobody has written back to, which is the one delivery that carries the first
+    contact itself: on a fresh thread POST /start with door form, seed {"whatsapp": true}, a job
+    and a postcode, then POST /price {}. Which of two correct shapes runs depends on whether the
+    branch has an approved web_form_ack template, so record which. When the acknowledgement went,
+    the delivery is a delivery: sent on sms with the quote link, no hold and no release. When it
+    held for ben instead, nothing had reached them, so the delivery opens with the desk's own fixed
+    line "Thanks for your enquiry - Ben here from Handy Services." ahead of the quote link in the
+    same message, with no figure, and that send releases the acknowledgement's hold:
+    state.caseFile.hold null with one release. GET /quote reads sent either way.
+
+    The database refusal on a writer, which is what stops the sandbox door mounted on the deployed
+    server from writing a real quote row. The door host always points the desk at the branch, so drive this on
+    the app instead: start a second copy on another free port with the variable removed,
+    `env -u COMMS_V2_DATABASE_URL PORT=<port2> npm run dev`, log in as Ben there, and from that tab
+    POST /api/comms-v2/sandbox/start with a job and a postcode. Expect the ready turn to refuse,
+    naming COMMS_V2_DATABASE_URL, with no quote drafted and no new row on /admin/quotes. Stop that
+    second copy afterwards.
 
     The door has five doors, one per channel, on the same drama customer (server/comms-v2/README.md,
     "Driving the door"): POST /start with door whatsapp, sms, form, email or call; POST /message

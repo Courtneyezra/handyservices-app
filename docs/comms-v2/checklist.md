@@ -118,3 +118,7 @@ and each needs work or a decision before a thread can match this document.
    (T20 finding D14). This may be why Priya's quote was never built.
 5. **Cross-cutting 1 versus the current tier act.** Only asking questions may send today, so most
    replies still wait for Ben. Stage 2 cannot fully pass until more intents send.
+6. **4.4 on the new desk.** What the draft is missing is on no field of the quote row, because that
+   row is served to anyone holding the quote's slug, so it does not show on the price screen: it is
+   the internal `ben_to_request` fact on the case file, repeated in the ready-to-price notice.
+   Putting it on Ben's board card is filed as its own item (`server/comms-v2/README.md`, Goal 4).

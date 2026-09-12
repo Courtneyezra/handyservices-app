@@ -12,7 +12,7 @@
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import { ASK_SUBJECTS, type CaseFile, type Party, type Turn } from './case-file';
+import { ASK_SUBJECTS, customerVisibleFacts, type CaseFile, type Party, type ReplyChannel, type Turn } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
@@ -34,7 +34,12 @@ export interface ComposeInput {
     file: CaseFile;
     party: Party;
     turn: Turn;
-    route: Route;
+    /**
+     * What the router made of the turn. Only the three fields the prompt shows, so a send with no
+     * router call behind it - Ben's priced quote leaving the price screen - can name what it is
+     * without a fabricated call record.
+     */
+    route: Pick<Route, 'turnKind' | 'subjects' | 'exception'>;
     specialists: SpecialistReturn[];
     /** Fixed lines the reply must carry, in Ben's words. */
     fixedLines: FixedLine[];
@@ -44,6 +49,14 @@ export interface ComposeInput {
     shorten?: ShortenBrief | null;
     /** The desk's clock. The channel lines re-run chooseChannel, whose WhatsApp window depends on it. */
     now?: Date;
+    /**
+     * The channel the send actually goes out on, when the caller has already resolved it. The quote
+     * delivery does, and may have resolved one chooseChannel would not, so the composer is told
+     * rather than left to work it out and be shaped for the wrong channel.
+     */
+    channel?: ReplyChannel;
+    /** Characters the caller is putting in the send ahead of this reply: the budget it is told is what is left. */
+    reserved?: number;
 }
 
 export const COMPOSER_SYSTEM = [
@@ -51,7 +64,7 @@ export const COMPOSER_SYSTEM = [
     '',
     'What you may say:',
     '- Only what the customer wrote, the facts listed on the file, and the fixed lines you are given. Nothing else about the business.',
-    '- Never a price, a figure, a cost, a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees.',
+    '- Never a price, a figure or a cost of your own. A figure may appear only when a fact on the file whose key starts with quote_line carries it: copy it exactly as written on that fact, to the penny (£120.00, never £120 or "about £120"), cite the fact id, and never add figures up or work one out. Never a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees.',
     '- The one exception: a date or a lead time that is a diary fact on the file which the notes from Scheduling tell you to copy verbatim; copy it exactly and cite its fact id. Never offer, suggest or agree a day, a time of day, a slot or a change of date yourself.',
     '- Never say or hint that you are an assistant, a bot, AI or automated. No disclosure line. Never sign off with a name.',
     '',
@@ -71,6 +84,7 @@ export const COMPOSER_SYSTEM = [
     '- A short pause from the customer ("one sec") gets a very short "no rush" style reply and nothing else.',
     '- A promise of more ("I\'ll send photos tomorrow") gets one short acknowledgement that you will wait for it, and no question.',
     '- When it is a wrap-up, say that is everything needed for now and that Ben will put the quote together and send it over. No timing. Say this only on a wrap-up turn, never beside a question.',
+    '- When the brief says Ben has priced and sent the quote, you are writing the delivery, not a reply: tell them the quote is ready, give the link exactly as the brief spells it, and say to reply here with any questions. Do not answer their last message again, and give no figure, no timing and no other promise.',
     '- Fixed lines: include each one given, keeping its meaning and the words Ben will come back to them, woven into the reply naturally.',
     '',
     'Plain hyphens only; never an em dash. Return the JSON object only: reply, factIds (the ids of the facts you used), kbIds (the knowledge-base ids you cited, usually none).',
@@ -91,14 +105,15 @@ export function buildComposerUser(input: ComposeInput): string {
     const declined = file.facts.filter((f) => f.key === 'media_declined' && /true/i.test(f.value)).length ? ['media'] : [];
     const lines: string[] = [];
     lines.push(`Customer: ${party.name ?? 'unknown name'}. Stage: ${file.stage}. Prefers text only: ${party.prefersText ? 'yes' : 'no'}.`);
-    lines.push(...composerChannelLines(party, turn, input.now ?? new Date()));
+    lines.push(...composerChannelLines(file, party, turn, input.now ?? new Date(), input.channel, input.reserved));
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
     lines.push(threadFor(file, turn));
     lines.push('');
+    // Ben's own facts carry the admin price screen and internal notes: they never reach the composer.
     // A diary fact is only citable while this run looked it up: an older booked date was true when it was
     // written and the diary may have moved since, so it is left off the list rather than dangled and refused.
     const lookedUp = new Set(specialists.flatMap((s) => s.factIds));
-    const citable = file.facts.filter((f) => f.source.kind !== 'diary' || lookedUp.has(f.id));
+    const citable = customerVisibleFacts(file).filter((f) => f.source.kind !== 'diary' || lookedUp.has(f.id));
     lines.push('Facts on the file (id: key = value):');
     lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
     lines.push('');
@@ -113,6 +128,11 @@ export function buildComposerUser(input: ComposeInput): string {
         lines.push(`- offer a call: ${proposal.offerCall ? 'yes' : 'no, do not mention calling'}`);
         lines.push(`- mention photos once: ${proposal.mentionPhotos ? 'yes, say a photo would help if easy, not as a question' : 'no'}`);
         lines.push(`- thank for media: ${proposal.thankForMedia ? 'yes' : 'no'}`);
+    }
+    for (const s of specialists) {
+        if (s.specialist === 'scoping' || !s.brief?.length) continue;
+        lines.push(`Proposal from ${s.specialist[0].toUpperCase()}${s.specialist.slice(1)}:`);
+        for (const b of s.brief) lines.push(`- ${b}`);
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
@@ -143,8 +163,8 @@ export async function compose(input: ComposeInput, client: ModelClient): Promise
     const user = buildComposerUser(input);
     const res = await client.structured({ role: 'composer', model: COMPOSER_MODEL, effort: 'medium', system: COMPOSER_SYSTEM, user, schema: composerOutputSchema, maxTokens: 2000 });
     if (res.output) {
-        // Only facts that are on the file count as cited; a made-up id is dropped, never recorded.
-        const known = new Set(input.file.facts.map((f) => f.id));
+        // Only facts the composer was shown count as cited; a made-up id, or one of Ben's own, is dropped.
+        const known = new Set(customerVisibleFacts(input.file).map((f) => f.id));
         res.output.factIds = Array.from(new Set(res.output.factIds.filter((id) => known.has(id))));
         res.output.reply = res.output.reply.replace(/\u2014|\u2013/g, '-').trim();
     }

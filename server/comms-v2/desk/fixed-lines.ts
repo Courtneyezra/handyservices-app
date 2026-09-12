@@ -32,7 +32,12 @@ export interface FixedLineSource {
     reviewed(kind: 'gas' | 'complaint' | 'refund' | 'trust'): Promise<{ id: string; words: string } | null>;
 }
 
-/** The knowledge base, read through its reviewed-only helper. Loaded on first use: it opens the database. */
+/**
+ * The knowledge base, read through its reviewed-only helper. Loaded on first use: it opens the
+ * database. A reader, so it does not ask live-database.ts whose subject is writing: on a database
+ * the desk may not write to it simply finds nothing and the caller falls back to Goal 1's wording,
+ * which is what keeps a gas, complaint or refund turn answerable at all.
+ */
 export const knowledgeBaseFixedLines: FixedLineSource = {
     async reviewed(kind) {
         try {

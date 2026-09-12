@@ -10,6 +10,7 @@ import { z } from 'zod/v4';
 import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES } from './case-file';
 import { moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';
+import { applyQuotingRoute } from '../quoting/quoting-specialist';
 
 export const SUBJECTS = ['scoping', 'quoting', 'scheduling', 'service'] as const;
 export type Subject = (typeof SUBJECTS)[number];
@@ -30,6 +31,12 @@ export type RouterOutput = z.infer<typeof routerOutputSchema>;
 export interface Route extends RouterOutput {
     /** What the deterministic belts found, beside the model's reading. */
     belts: { regulated: string | null; money: string | null };
+    /**
+     * The turn carried a money exception and Goal 4's hook handed it to Quoting instead (5.3): true
+     * however the exception was raised, the belt or the model. Quoting raises the hold itself when
+     * its own reading does not answer, so 2.7 never rests on one model reading.
+     */
+    moneyToQuoting: boolean;
     call: ModelCallRecord;
     error: string | null;
 }
@@ -49,7 +56,7 @@ function threadFor(file: CaseFile, turn: Turn): string {
     return lines.join('\n');
 }
 
-export async function route(file: CaseFile, turn: Turn, client: ModelClient): Promise<Route> {
+export async function route(file: CaseFile, turn: Turn, client: ModelClient, liveFigureRefs: ReadonlySet<string> = new Set()): Promise<Route> {
     const belts = { regulated: regulatedMatch(turn.body), money: moneyQuestionMatch(turn.body) };
     const user = [
         `Stage now: ${file.stage}. Job type known: ${file.job.type ? 'yes' : 'no'}. Location known: ${file.job.location ? 'yes' : 'no'}.`,
@@ -65,6 +72,8 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient): Pr
     // The belts: regulated and money are holds the model cannot unsay.
     if (belts.regulated) out.exception = 'regulated';
     else if (belts.money && !out.exception) out.exception = 'money';
+    // Goal 4: a quote that is live for figures answers its own (checklist 5.3 replaces 2.7); an acceptance is Quoting's turn.
+    const quoting = applyQuotingRoute(file, turn, out, liveFigureRefs);
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
-    return { ...out, belts, call: res.record, error: res.error };
+    return { ...out, belts, moneyToQuoting: quoting.moneyToQuoting, call: res.record, error: res.error };
 }

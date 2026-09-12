@@ -27,9 +27,11 @@ import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
 import type { PlannedSend } from './planned-send';
 import { ChannelDesk } from '../channels/channel-desk';
-import { channelDoors } from '../channels/channel-doors';
+import { channelDoors, SANDBOX_EMAIL } from '../channels/channel-doors';
 import { ChannelGateway } from '../channels/channel-gateway';
 import { schedulingDoor, withScheduling } from '../scheduling/scheduling-door';
+import { createQuotingDoor } from '../quoting/quoting-door';
+import { quoteStateOf } from '../quoting/quoting-specialist';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
@@ -106,7 +108,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
             conversation: file ? { id: file.id, stage: file.stage, tags: [] as string[], contactName: party?.name ?? null, createdAt: file.openedAt } : null,
             messages: file ? file.turns.map((t) => ({ id: t.id, direction: t.direction, content: t.body, createdAt: t.at, senderName: t.direction === 'inbound' ? (party?.name ?? null) : (t.approver ?? 'desk'), channel: t.channel, type: t.kind, mediaUrl: t.media[0]?.url ?? null, mediaType: t.media[0]?.mime ?? null })) : [],
             window: window ? { canFreeform: window.state === 'open', summary: window.reason } : null,
-            quote: null,
+            quote: file ? quoteStateOf(file) : null,
             lastCall: null,
             caseFile: file ? snapshot(file) : null,
         };
@@ -120,9 +122,11 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
     // The other four channels' doors answer first; a WhatsApp turn falls through to the routes below.
     router.use(channelDoors({ gateway: () => gateway as ChannelGateway, reset, phone: SANDBOX_PHONE_E164, now, mediaDir: deps.mediaDir, seedOf, currentFile, respond, maxFileBytes: SANDBOX_MAX_FILE_BYTES, maxFiles: SANDBOX_MAX_FILES }));
 
+    const quoting = createQuotingDoor({ current: currentFile, gateway: () => gateway, state: stateOf, plannedSend: plannedSendOf, now, deps, sandboxContacts: [SANDBOX_PHONE_E164, SANDBOX_EMAIL] });
+
     router.get('/', (_req, res) => { res.json(stateOf()); });
 
-    router.post('/reset', (_req, res) => { reset(); res.json({ ok: true, deleted: 1, state: stateOf() }); });
+    router.post('/reset', async (_req, res) => { reset(); const quotes = await quoting.reset(); res.json({ ok: true, deleted: 1, quotes, state: stateOf() }); });
 
     router.post('/start', async (req, res) => {
         try {
@@ -188,7 +192,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, hours, window: st.window, state: st });
     });
 
-    router.post('/price', (_req, res) => { res.status(409).json({ error: 'pricing is Goal 4; the new desk has no quote yet' }); });
+    router.use(quoting.router);
 
     return { router, get gateway() { return gateway; }, reset };
 }
