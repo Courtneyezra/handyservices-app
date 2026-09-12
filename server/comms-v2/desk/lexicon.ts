@@ -44,6 +44,8 @@ export const RE_DATE_TIME_DURATION = new RegExp([
     `\\b(?:within|in)\\s+(?:\\d+|a|an|one|two|three|four|five|six|seven|a couple of|a few)\\s+(?:working\\s+)?(?:days?|weeks?|hours?)\\b`,
     `\\blead[- ]time\\b`,
     `\\b(?:same[- ]day|next[- ]day)\\b`,
+    // A bare ordinal day, last so "25th September" is still matched whole: "the 2nd" is how a date is said out loud here, and it has to sit inside a diary value like any other.
+    `\\b\\d{1,2}(?:st|nd|rd|th)\\b`,
 ].join('|'), 'i');
 
 /** A promise to do, fix or guarantee something, or an admission of fault. Fails closed: broad on purpose. */

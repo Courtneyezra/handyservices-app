@@ -70,6 +70,15 @@ describe('guards', () => {
         const wrongYear = dated('You are booked in for 25 September 2025.');
         expect(wrongYear.result).toBe('fail');
         expect(wrongYear.note).toContain('25 September 2025');
+        // A bare ordinal is how a date is said out loud, so it is a date the guard reads: nothing about "25 September 2026" licenses "the 2nd".
+        const ordinal = dated('Ben will look at moving you to the 2nd.');
+        expect(ordinal.result).toBe('fail');
+        expect(ordinal.note).toContain('2nd');
+        // A written-out ordinal date is still read whole, not as a bare ordinal with the month left behind.
+        const ordinalDate = dated('We could do 26th September 2026.');
+        expect(ordinalDate.result).toBe('fail');
+        expect(ordinalDate.note).toContain('26th September 2026');
+        expect(runGuards(input('There is no charge for the 1st visit.')).guards.date_time_duration.result).toBe('fail');
     });
     it('commitment and fault: fails closed', () => {
         expect(runGuards(input("We'll fix that no problem.")).guards.commitment_fault.result).toBe('fail');
