@@ -68,6 +68,26 @@ describe('a person answers from the board', () => {
         expect(file.releases).toHaveLength(1);
     });
 
+    it('a letter he writes goes as he typed it: his line breaks kept and no greeting or sign-off put around his words', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'email:sam@example.invalid', propertyId: null, landlordId: null, name: 'Sam' },
+            channel: 'email', address: 'sam@example.invalid',
+            firstTurn: { at: AT, channel: 'email', kind: 'text', body: 'Morning,\n\nThe extractor fan has stopped turning. What would a new one be?\n\nRegards, Sam', media: [] },
+        }, { now: now(AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        const words = 'Sam,\nThe part is \u00a340 plus fitting.\nI can do Thursday.';
+
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words }, { now: now() });
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.channel).toBe('email');
+        expect(out.result.bubbles).toEqual([{ text: words, gapMs: 0 }]);
+        expect(file.turns[file.turns.length - 1].body).toBe(words);
+        expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, channel: 'email' });
+    });
+
     it('answers again after the customer writes back, the hold still cleared', async () => {
         const { file } = fixture();
         deskRepliedAndHeld(file);

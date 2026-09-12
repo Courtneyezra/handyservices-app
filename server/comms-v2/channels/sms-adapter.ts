@@ -9,10 +9,12 @@
  * Out: `renderSms` turns the composer's one reply into one message. Typographic quotes and
  * dashes are normalised to their ASCII forms first, because one non-GSM character halves the
  * segment size (UCS-2), and a reply over two segments is returned to the composer to shorten,
- * never cut. An SMS has no window: `windowOf` in the sender reports it open.
+ * never cut. `asTyped` is a person's own words (behaviour.md answer 43): his punctuation and his
+ * line breaks go as he typed them, and only the two-segment ceiling still refuses. An SMS has no
+ * window: `windowOf` in the sender reports it open.
  */
 import type { RenderedBubble } from '../desk/case-file';
-import type { RenderResult } from '../desk/sender';
+import type { RenderOptions, RenderResult } from '../desk/sender';
 import { e164FromWhatsApp } from '../desk/whatsapp-adapter';
 import type { InboundEnvelope } from './envelope';
 
@@ -58,10 +60,11 @@ export function normaliseForSms(text: string): string {
         .replace(/\r\n/g, '\n');
 }
 
-/** One message: the composer's bubbles joined on single line breaks; empty or over two segments is refused. */
-export function renderSms(reply: string): RenderResult {
-    const paragraphs = normaliseForSms(reply).split(/\n\s*\n+/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean);
-    const text = paragraphs.join('\n');
+/** One message: the composer's bubbles joined on single line breaks, or a person's words as typed; empty or over two segments is refused. */
+export function renderSms(reply: string, opts: RenderOptions = {}): RenderResult {
+    const text = opts.asTyped
+        ? reply.replace(/\r\n/g, '\n').split('\n').map((l) => l.trimEnd()).join('\n').trim()
+        : normaliseForSms(reply).split(/\n\s*\n+/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean).join('\n');
     if (!text) return { ok: false, reason: 'empty', bubbles: [] };
     const bubble: RenderedBubble = { text, gapMs: 0 };
     if (smsSegmentCount(text) > SMS_MAX_SEGMENTS) return { ok: false, reason: 'ceiling', bubbles: [bubble] };

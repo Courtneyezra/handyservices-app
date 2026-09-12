@@ -128,10 +128,10 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
     return { ok: true, bubbles };
 }
 
-/** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). */
+/** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). Every one of them honours `asTyped`: a person's own words are never reflowed, rewritten or wrapped. */
 export function render(channel: ReplyChannel, reply: string, opts: RenderOptions & { name?: string | null } = {}): RenderResult {
     if (channel === 'whatsapp') return renderWhatsApp(reply, opts);
-    if (channel === 'sms') return renderSms(reply);
+    if (channel === 'sms') return renderSms(reply, opts);
     if (channel === 'email') return renderEmail(reply, opts);
     return { ok: false, reason: 'channel', bubbles: [] };
 }

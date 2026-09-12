@@ -12,7 +12,7 @@
  * paragraphs, then the sign-off. It is one bubble, because an email is one message.
  */
 import type { PartyChannel } from '../desk/case-file';
-import type { RenderResult } from '../desk/sender';
+import type { RenderOptions, RenderResult } from '../desk/sender';
 import { canonical } from '../desk/identity';
 import type { EmailThreadRef, InboundEnvelope } from './envelope';
 import { firstNameOf } from './envelope';
@@ -103,8 +103,17 @@ export function fromDoorEmail(input: DoorEmail, deps: EmailAdapterDeps = {}): In
 
 // ---------------------------------------------------------------- render
 
-/** One letter: greeting, the reply's paragraphs, the sign-off. */
-export function renderEmail(reply: string, opts: { name?: string | null } = {}): RenderResult {
+/**
+ * One letter: greeting, the reply's paragraphs, the sign-off. `asTyped` is a person's own words
+ * (behaviour.md answer 43): the letter is what he typed, line breaks and all, with no greeting and
+ * no sign-off put around it. If he wants either he writes it himself.
+ */
+export function renderEmail(reply: string, opts: RenderOptions & { name?: string | null } = {}): RenderResult {
+    if (opts.asTyped) {
+        const typed = reply.replace(/\r\n/g, '\n').split('\n').map((l) => l.trimEnd()).join('\n').trim();
+        if (!typed) return { ok: false, reason: 'empty', bubbles: [] };
+        return { ok: true, bubbles: [{ text: typed, gapMs: 0 }] };
+    }
     const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean);
     if (!paragraphs.length) return { ok: false, reason: 'empty', bubbles: [] };
     const first = firstNameOf(opts.name);

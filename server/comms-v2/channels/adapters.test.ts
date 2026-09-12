@@ -48,6 +48,10 @@ describe('the SMS adapter', () => {
         expect(long.ok).toBe(false);
         if (!long.ok) expect(long.reason).toBe('ceiling');
         expect(renderSms('  \n ').ok).toBe(false);
+        // A person's own words: his punctuation and his line breaks as typed.
+        const typed = renderSms('Sam,\nThat’s £40 plus fitting – Thursday suits.', { asTyped: true });
+        expect(typed.bubbles).toEqual([{ text: 'Sam,\nThat’s £40 plus fitting – Thursday suits.', gapMs: 0 }]);
+        expect(renderSms(' \n ', { asTyped: true }).ok).toBe(false);
     });
 });
 
@@ -90,6 +94,10 @@ describe('the email adapter', () => {
         expect(r.bubbles).toEqual([{ text: 'Hi Sam,\n\nThanks for the detail.\n\nWhereabouts are you?\n\nThanks,\nBen\nHandy Services', gapMs: 0 }]);
         expect(renderEmail('x', {}).bubbles[0].text.startsWith('Hi there,')).toBe(true);
         expect(renderEmail('   ').ok).toBe(false);
+        // A person's own words: the letter is his, so nothing is put around it and nothing is reflowed.
+        const typed = renderEmail('Sam,\nThe part is £40 plus fitting.\nI can do Thursday.', { name: 'Sam Jones', asTyped: true });
+        expect(typed.bubbles).toEqual([{ text: 'Sam,\nThe part is £40 plus fitting.\nI can do Thursday.', gapMs: 0 }]);
+        expect(renderEmail(' \n ', { asTyped: true }).ok).toBe(false);
         expect(emailThreadingFor({ thread: { subject: 'Leaking tap', messageId: '<m1@x>', references: ['<m0@x>', '<m1@x>'] } })).toEqual({ subject: 'Re: Leaking tap', inReplyTo: '<m1@x>', references: ['<m0@x>', '<m1@x>'] });
         expect(emailThreadingFor({ thread: { subject: 'RE: Leaking tap', messageId: null, references: [] } }).subject).toBe('RE: Leaking tap');
         expect(emailThreadingFor({ thread: null })).toEqual({ subject: 'Your enquiry', inReplyTo: null, references: [] });
