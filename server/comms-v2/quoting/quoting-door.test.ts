@@ -210,11 +210,16 @@ describe('the quoting door', () => {
     });
 });
 
-describe('the price route and a hold it did not set', () => {
-    it('leaves a complaint hold standing when Ben prices and sends, because pricing a quote is not the answer to it', async () => {
+describe('the price route and the holds around it', () => {
+    /** Its own door, so the thread can be taken somewhere the shared one never goes. */
+    async function standUp() {
         const own = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
         const client = new FakeModelClient({
-            router: ({ user }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: /not happy/i.test(user.split('>>').pop() ?? '') ? 'complaint' : null, turnKind: 'question' }),
+            router: ({ user }) => {
+                const last = user.split('>>').pop() ?? '';
+                const exception = /not happy/i.test(last) ? 'complaint' : /how much/i.test(last) ? 'money' : null;
+                return { subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception, turnKind: 'question' };
+            },
             specialist: ({ system }) => (/lines of a quote/.test(system)
                 ? intakeOutput
                 : { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] }),
@@ -231,15 +236,21 @@ describe('the price route and a hold it did not set', () => {
         const app = express();
         app.use(express.json());
         app.use('/door', router);
-        const own_server: import('node:http').Server = await new Promise((resolve) => { const sv = app.listen(0, '127.0.0.1', () => resolve(sv)); });
-        const at = `http://127.0.0.1:${(own_server.address() as { port: number }).port}/door`;
+        const server: import('node:http').Server = await new Promise((resolve) => { const sv = app.listen(0, '127.0.0.1', () => resolve(sv)); });
+        const at = `http://127.0.0.1:${(server.address() as { port: number }).port}/door`;
         const call = async (route: string, body: unknown) => {
             const res = await fetch(`${at}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
             return { status: res.status, json: await res.json() as any };
         };
+        const close = async () => { await new Promise<void>((r) => server.close(() => r())); fs.rmSync(dir, { recursive: true, force: true }); };
+        const started = await call('/start', { door: 'whatsapp', text: 'Hi, my kitchen tap is leaking, NG9 2AB', name: 'Sam' });
+        expect(started.json.state.quote.slug).toBeTruthy();
+        return { call, close };
+    }
+
+    it('leaves a complaint hold standing when Ben prices and sends, because pricing a quote is not the answer to it', async () => {
+        const { call, close } = await standUp();
         try {
-            const started = await call('/start', { door: 'whatsapp', text: 'Hi, my kitchen tap is leaking, NG9 2AB', name: 'Sam' });
-            expect(started.json.state.quote.slug).toBeTruthy();
             const complaint = await call('/message', { text: "I'm not happy with how the last job was left", channel: 'whatsapp' });
             expect(complaint.json.state.caseFile.hold).toMatchObject({ exception: 'complaint' });
 
@@ -250,8 +261,25 @@ describe('the price route and a hold it did not set', () => {
             expect(priced.json.state.caseFile.hold).toMatchObject({ exception: 'complaint' });
             expect(priced.json.state.caseFile.releases).toHaveLength(0);
         } finally {
-            await new Promise<void>((r) => own_server.close(() => r()));
-            fs.rmSync(dir, { recursive: true, force: true });
+            await close();
+        }
+    });
+
+    it('releases the money hold the quote answers: the customer asked the price before it existed, and Ben has now sent it', async () => {
+        const { call, close } = await standUp();
+        try {
+            const asked = await call('/message', { text: 'How much roughly?', channel: 'whatsapp' });
+            expect(asked.json.state.caseFile.hold).toMatchObject({ exception: 'money' });
+
+            const priced = await call('/price', {});
+            expect(priced.status).toBe(200);
+            expect(priced.json.sent).toBe(true);
+            // 2.7's promise was that Ben would come back on the price; the quote is him doing it.
+            expect(priced.json.state.caseFile.hold).toBeNull();
+            expect(priced.json.state.caseFile.releases).toHaveLength(1);
+            expect(priced.json.state.caseFile.releases[0].words).toContain('/quote/');
+        } finally {
+            await close();
         }
     });
 });

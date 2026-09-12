@@ -77,9 +77,13 @@ test:
     is written by the desk's own composer and Contract 4 runs over it (answer 43 exempts words a
     person typed, and the price route carries no message body); GET /quote shows record.status sent
     and every line priced.
-    5.3: POST /message "What does that include, and how much is the labour?": the reply's figure
-    equals one line of GET /quote's record to the penny (£x.xx), plannedSend.factIds names a
-    quote_line fact carrying that figure, the figure guard passes, no hold.
+    5.3: POST /message "What does that include, and how much is that line?": the reply's figure
+    equals the price of that line on GET /quote's record to the penny (£x.xx), plannedSend.factIds
+    names the quote_line fact carrying that figure, the figure guard passes, no hold. Ask about a
+    line, never about the labour or the materials: those are not lines of the quote, so a figure
+    given for one would be a figure the customer's quote does not state.
+    A labour question after 5.3: POST /message "How much of that is labour?": a hold for ben, the
+    money line, and no figure in the reply, because how a line splits is money beyond a quote line.
     2.7 still after the quote: POST /message "Can you do it any cheaper?": a hold for ben whose
     reason names money beyond a quote line, and no figure in the reply.
     6.2: POST /message "Leave it with me, I'll get back to you next month": one acknowledgement

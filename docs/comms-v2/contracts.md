@@ -220,12 +220,25 @@ tells Ben to build a quote that is already waiting for him. Never a
 sentence for the customer. Acceptance is a human event the door (live, the payment webhook)
 records; the specialist can only read it.
 
+**A price the quote does not state as a line.** The question model names which labels a turn asks
+about, and a `line_amount` label the live quote does not carry - the labour or materials half of a
+line, most often - is money beyond a quote line, so it goes to Ben. Answering it from the line's own
+figure under that name would state an amount the customer's quote does not, and every check would
+pass it, which is worse than a hold.
+
 **The money belt and the reading that replaces it.** The router's deterministic belt raises `money`
 on the wording alone, so 2.7 never depends on one model reading. It is cleared only while the file's
 quote is live for figures, because the Quoting question model then reads whether the ask is beyond a
 line (5.3). When that reading does not happen - the turn was read as a pause, an acknowledgement or a
 promise of more, the body was empty, or the call failed - the belt stands and the money hold is set
-without it.
+without it. The same applies when the specialist's own read of the quote fails: the belt was cleared
+on the read that worked at the top of the turn, and a read that failed can answer nothing about a
+figure.
+
+**What Ben's send releases.** The quote going out answers two holds: one the price route itself put
+on the thread when an earlier attempt did not send, and a money hold, because 2.7's promise is that
+Ben will come back to them on the price and this is him doing it. A complaint, refund, trust or
+regulated hold is a person's to answer and stands, and so does an acceptance hold.
 
 **A figure the quote has moved on from.** Facts are append-only, so a line whose amount changes -
 Ben re-pricing or editing the quote - leaves the old `quote_line:<label>` fact beside the new one.

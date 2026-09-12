@@ -23,7 +23,7 @@ import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
-import { QUOTE_FACT, factsWithPrefix, newestFact, type QuoteRecord, type QuoteStatus } from './quote-record';
+import { QUOTE_FACT, factsWithPrefix, newestFact, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 
 // ---------------------------------------------------------------- the two structured outputs
@@ -96,8 +96,8 @@ const INTAKE_SYSTEM = [
 
 const QUESTION_SYSTEM = [
     'You are the Quoting specialist for a small handyman business\'s desk. You never write to the customer and you never see or state a figure. You read the newest customer turn against the quote\'s labels and say what it concerns.',
-    'concerns: which labels of the quote the turn asks about. kind line_amount with the label for a price on a line (or its labour or materials half), total for the quote total, deposit for the deposit, scope for what a line covers, not_included for what is excluded, on_the_day for what happens on the day (the quote\'s assumptions), link when they want the quote link again, status when they ask whether it has been sent or what happens next. Empty when the turn asks nothing about the quote.',
-    'beyondQuoteLine: true when the turn asks for money that is not a line already on the quote: a discount, "can you do it for less", a different total, a payment plan, a price for extra work, a comparison with another trader.',
+    'concerns: which labels of the quote the turn asks about. kind line_amount with the label of a line, total for the quote total, deposit for the deposit, scope for what a line covers, not_included for what is excluded, on_the_day for what happens on the day (the quote\'s assumptions), link when they want the quote link again, status when they ask whether it has been sent or what happens next. Empty when the turn asks nothing about the quote.',
+    'beyondQuoteLine: true when the turn asks for money that is not a line already on the quote: a discount, "can you do it for less", a different total, a payment plan, a price for extra work, a comparison with another trader, or how a line splits into labour and materials, which the quote does not state as a line.',
     'acceptanceInChat: true when the turn says yes to the quote, go ahead, book it, or asks how to accept.',
     'notReady: true when the turn defers ("I\'ll get back to you next month", "leave it with me for now").',
     'Reply with the JSON object only.',
@@ -225,7 +225,14 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     const q: QuoteRecord | null = await loadQuote(file, deps).catch((e: any) => { error = `quote read failed: ${e?.message ?? e}`; return null; });
     const ready = isReady(file);
     if (!q && !ready) return null;
-    if (!q && file.job.quoteRef && error) return { specialist: 'quoting', factIds, proposal: emptyProposal(), brief: ['quoting: the quote could not be read'], calls, error };
+    if (!q && file.job.quoteRef && error) {
+        // The router cleared the money belt on the read that succeeded at the top of the turn
+        // (desk.ts), so this read failing must not lose the hold with it: money beyond a quote line
+        // goes to Ben, and a read that failed can answer nothing about a figure.
+        const failed = emptyProposal();
+        if (route.belts.money) failed.hold = { reason: 'money', match: turn.body.slice(0, 80) };
+        return { specialist: 'quoting', factIds, proposal: failed, brief: ['quoting: the quote could not be read'], calls, error };
+    }
 
     const proposal: QuotingProposal = {
         phase: 'draft', quoteRef: q?.slug ?? file.job.quoteRef ?? null, status: q?.status ?? null, drafted: false, draftError: null,
@@ -297,8 +304,14 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         calls.push(res.record);
         if (res.output) {
             questionRead = true;
-            proposal.concerns = res.output.concerns.slice(0, 6).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
-            proposal.beyondQuoteLine = res.output.beyondQuoteLine;
+            const concerns = res.output.concerns.slice(0, 6).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
+            // A figure is a line of the quote. A price the turn asks for under a label the quote does
+            // not carry - the labour or materials half of a line, most often - is money beyond a
+            // quote line: it goes to Ben rather than being answered with the line's own figure under
+            // the wrong name, which would state an amount the customer's quote does not.
+            const unreadable = quoteLiveForFigures(q) ? concerns.filter((c) => c.kind === 'line_amount' && c.label && !readQuoteLine(q, c.label).ok) : [];
+            proposal.concerns = concerns.filter((c) => !unreadable.includes(c));
+            proposal.beyondQuoteLine = res.output.beyondQuoteLine || unreadable.length > 0;
             proposal.acceptanceInChat = res.output.acceptanceInChat && q.status === 'sent';
             proposal.notReady = proposal.notReady || res.output.notReady;
         } else error = res.error ?? 'the question model returned nothing';

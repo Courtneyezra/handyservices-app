@@ -13,7 +13,7 @@ import type { Route } from '../desk/router';
 import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter } from './draft-quote';
 import { QUOTE_FACT } from './quote-record';
-import { MemoryQuoteStore } from './quote-store';
+import { MemoryQuoteStore, type QuoteStore } from './quote-store';
 import { liveFigureQuotes, markQuoteSent, priceQuote, type QuotingDeps } from './quoting-tools';
 import { applyQuotingRoute, clampIntake, intakeOutputSchema, questionOutputSchema, quote, quotingClock, quotingOwnsThread, quoteStateOf } from './quoting-specialist';
 
@@ -38,6 +38,19 @@ function later(file: CaseFile, body: string, kind: Turn['kind'] = 'text', channe
     const r = appendTurn(file, { at, channel, direction: 'inbound', partyId: 'p1', kind, body, media: [], runId: null, approver: null });
     if (!r.ok) throw new Error(r.reason);
     return r.value;
+}
+
+/** The same store with a read that throws, for the turn where the quote cannot be read. */
+function failingRead(store: MemoryQuoteStore): QuoteStore {
+    return {
+        read: async () => { throw new Error('connection reset by peer'); },
+        insertDraft: (row) => store.insertDraft(row),
+        price: (slug, input) => store.price(slug, input),
+        markSent: (slug) => store.markSent(slug),
+        accept: (slug, now) => store.accept(slug, now),
+        addPhotos: (slug, urls) => store.addPhotos(slug, urls),
+        deleteSandbox: (phone) => store.deleteSandbox(phone),
+    };
 }
 
 const intakeOutput = { lines: [{ title: 'Replace kitchen tap', category: 'plumbing', qty: 1, detail: 'mixer tap, dripping at the base', assumptions: ['You supply the new tap'], notIncluded: ['A new tap'] }], customerType: 'homeowner', missing: ['which tap'] };
@@ -193,6 +206,35 @@ describe('after the quote', () => {
         const plain = new FakeModelClient({ specialist: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
         const three = await quote(quiet.file, later(quiet.file, 'what does that include?'), quiet.file.parties[0], routeOf(), plain, quiet.d);
         expect(three?.proposal.hold).toBeNull();
+    });
+
+    it('a price asked for under a label the quote does not carry goes to Ben, never answered with the line figure', async () => {
+        const { file, d } = await sentQuote();
+        // The quote carries one line at £120.00, £100.00 of it labour. "How much of that is labour?"
+        // is a price the quote does not state as a line.
+        const client = new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'line_amount', label: 'Replace kitchen tap labour' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const ret = await quote(file, later(file, 'How much of that is labour?'), file.parties[0], routeOf(), client, d);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+        const brief = ret?.brief?.join('\n') ?? '';
+        expect(brief).toMatch(/beyond a line of the quote/);
+        expect(brief).not.toMatch(/they asked about: Replace kitchen tap labour/);
+    });
+
+    it('a failed quote read still sends a money question to Ben, because the belt was cleared on the read that worked', async () => {
+        const { file, d } = await sentQuote();
+        const blind: QuotingDeps = { ...d, store: failingRead(d.store as MemoryQuoteStore) };
+        const client = new FakeModelClient({ specialist: () => { throw new Error('no model call once the quote cannot be read'); } });
+        const money = routeOf({ belts: { regulated: null, money: 'discount' } });
+        const ret = await quote(file, later(file, 'any chance of a discount if I pay cash?'), file.parties[0], money, client, blind);
+        expect(ret?.error).toMatch(/quote read failed/);
+        expect(ret?.brief).toEqual(['quoting: the quote could not be read']);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+
+        // A turn the belt never fired on is unchanged: a read failure alone holds nothing.
+        const quiet = await sentQuote();
+        const plain: QuotingDeps = { ...quiet.d, store: failingRead(quiet.store) };
+        const other = await quote(quiet.file, later(quiet.file, 'what does that include?'), quiet.file.parties[0], routeOf(), client, plain);
+        expect(other?.proposal.hold).toBeNull();
     });
 
     it('a not-ready customer gets an acknowledgement brief and no chase', async () => {

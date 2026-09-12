@@ -49,12 +49,19 @@ export interface QuotingDoorOptions {
 
 export const BEN_APPROVER = 'human:ben' as const;
 
-/**
- * The opening of every hold reason this route writes, and the one it reads back when Ben's next send
- * lands: only a hold this route put on the thread is answered by that send. A complaint, refund,
- * trust or regulated hold is a person's to answer, and pricing a quote is not that answer.
- */
+/** The opening of every hold reason this route writes, and the one it reads back when Ben's next send lands. */
 const priceHold = (slug: string) => `quote ${slug} priced;`;
+
+/**
+ * Whether the quote going out is the answer to the hold on the thread. Two holds it answers: one
+ * this route put there itself when an earlier attempt did not send, and a money hold (2.7), because
+ * the promise that hold carries is that Ben will come back to them on the price and the quote he has
+ * just priced and sent is him doing it. A complaint, refund, trust or regulated hold is a person's
+ * to answer and nothing about a quote answers it; acceptance stays human, so that hold stands too.
+ */
+function answeredByThisQuote(file: CaseFile, slug: string): boolean {
+    return !!file.hold && (file.hold.reason.startsWith(priceHold(slug)) || file.hold.exception === 'money');
+}
 
 /**
  * The desk behind the gateway. Bracket access on purpose: server/spine/desk-switch.test.ts scans
@@ -176,10 +183,9 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: BEN_APPROVER, guards: written.verdicts, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: written.calls, mode: 'dry_run' }, { now: opts.now, newId: opts.deps.newId });
             if (!sent.ok) { holdAndAnswer(`${priceHold(priced.record.slug)} the send was refused (${sent.reason})`, written.reply, [], written.verdicts.guards, written.calls); return; }
             // The send landed: only now does the quote leave draft and its figures reach the file.
-            // A hold this route put on the thread the last time Ben tried is what his send just
-            // answered, so that one clears with the words that went, the way any human send releases
-            // one. Any other hold is a person's to answer and stands.
-            if (file.hold?.reason.startsWith(priceHold(priced.record.slug))) releaseHold(file, BEN, written.reply, { now: opts.now, newId: opts.deps.newId });
+            // A hold his send answers clears with the words that went, the way any human send
+            // releases one; any other hold is a person's to answer and stands.
+            if (answeredByThisQuote(file, priced.record.slug)) releaseHold(file, BEN, written.reply, { now: opts.now, newId: opts.deps.newId });
             const staged = await markQuoteSent(file, quotingDeps());
             const record = staged.ok ? staged.record : priced.record;
             const result: DeskResult = {
