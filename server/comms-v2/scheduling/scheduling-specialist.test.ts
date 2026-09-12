@@ -339,6 +339,32 @@ describe('the Scheduling specialist', () => {
         expect(r.proposal.hold).toBeNull();
     });
 
+    it('a visit cancelled off them, asked what dates we have: the picker when the classifier answers, Ben when it never came back', async () => {
+        const cancelled = () => {
+            const diary = diaryWith(6, true);
+            diary.bookings.find((b) => b.id === 'bk1')!.status = 'cancelled';
+            const file = fixture('What dates have you got?');
+            file.job.quoteRef = 'q1';
+            return { diary, file };
+        };
+        // The one reading says a cancelled booking is not theirs, so the classified turn takes the grid's
+        // cancelled cell: the visit was taken off them and rebooking is what they need.
+        const read = cancelled();
+        const r = await schedule(read.file, read.file.turns[0], party(read.file), client(['availability']), { diary: read.diary, now, baseUrl: 'https://example.test' });
+        expect(r.scheduling.picker?.ok).toBe(true);
+        expect(r.proposal.hold).toBeNull();
+        // The fallback does not key on that reading and is deliberately the wider guess: any state the diary
+        // did not plainly call `none` holds for Ben, rather than sending them to the picker with nothing
+        // reaching him about a turn nobody could read.
+        const guessed = cancelled();
+        const failed = new FakeModelClient({ specialist: () => ({ error: 'rate limited' }) });
+        const g = await schedule(guessed.file, guessed.file.turns[0], party(guessed.file), failed, { diary: guessed.diary, now, baseUrl: 'https://example.test' });
+        expect(g.scheduling.asks).toEqual(['booked_date']);
+        expect(g.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
+        expect(g.scheduling.picker).toBeNull();
+        expect(guessed.file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+    });
+
     it('asked what day we are coming about a job no contractor has taken on: no date, and Ben is the one who answers', async () => {
         const file = fixture('When are you coming?');
         file.job.quoteRef = 'q1';

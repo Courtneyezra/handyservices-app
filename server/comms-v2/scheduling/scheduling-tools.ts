@@ -84,13 +84,15 @@ function isTheirs(booked: BookedDate | null): boolean {
 }
 
 /**
- * The one reading of the booking this file says the customer has, which the confirmation, the
- * picker's refusal and the classifier's fallback all key on, so one file can never get two answers.
+ * The one reading of the booking this file says the customer has, which the confirmation and the
+ * picker's refusal both key on, so the two can never disagree about one file in one state.
  * Either the diary gave a booking of theirs from the quote the file carries, or it could not say on
  * a file that names a booking at all, which is the fail-closed half: the diary may well be holding
  * the booking they made on this quote's picker. A read that could not say where nothing on the file
  * says there is a booking is nothing known rather than a booking, and an availability question there
- * is still the picker's and the lead time's to answer.
+ * is still the picker's and the lead time's to answer. That half is also the only part of this
+ * reading a classification that never came back reads, its guess being wider: any state but `none`
+ * holds for Ben.
  */
 export function isTheirBooking(file: CaseFile, booked: BookedDate | null): boolean {
     if (!booked) return false;
