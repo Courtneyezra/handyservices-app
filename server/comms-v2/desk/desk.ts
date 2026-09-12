@@ -26,7 +26,7 @@ import { route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
-import { channelFixedLines } from '../channels/channel-lines';
+import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
 import { templateChoiceFor } from '../channels/templates';
 
 export interface DeskDeps extends CaseFileDeps {
@@ -208,7 +208,7 @@ export class Desk implements DeskLike {
         if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
         // 8. The ledger and the stage, from what the business itself said.
-        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : specialists[0]?.proposal ?? null);
+        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : specialists[0]?.proposal ?? null, templateWording ? [] : fixedLines);
         return {
             runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
@@ -235,7 +235,7 @@ export class Desk implements DeskLike {
         const bubbles: RenderedBubble[] = rendered.bubbles;
         const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds: [], fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
-        this.afterSend(file, partyId, line.text, specialists[0]?.proposal ?? null);
+        this.afterSend(file, partyId, line.text, specialists[0]?.proposal ?? null, [line]);
         return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
     }
 
@@ -245,8 +245,12 @@ export class Desk implements DeskLike {
      * filled body quotes the customer's enquiry back and those are their words, not ours; or the
      * composed reply, not the greeting and sign-off the renderer wraps it in. A template's words
      * are nobody's proposal, so for those only the words themselves speak.
+     *
+     * A fixed line that went is recorded by its kind, not by its wording: the composer is asked to
+     * weave it in naturally, so the invitation to move to WhatsApp is spent here, on this send,
+     * rather than looked for in the text of a later one (channels/channel-lines.ts).
      */
-    private afterSend(file: CaseFile, partyId: string, said: string, proposal: Proposal | null): void {
+    private afterSend(file: CaseFile, partyId: string, said: string, proposal: Proposal | null, lines: FixedLine[]): void {
         const deps = this.fileDeps();
         const party = partyOf(file, partyId)!;
         for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(said, subject)) ledgerAsk(file, subject, deps);
@@ -254,6 +258,7 @@ export class Desk implements DeskLike {
         if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(said)) ledgerAsk(file, 'media', deps);
         if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(said)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
         if (offersCall(said)) party.callOffered = true;
+        if (lines.some((l) => l.kind === 'move_to_whatsapp')) ledgerAsk(file, MOVE_TO_WHATSAPP_SUBJECT, deps);
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
     }
 
