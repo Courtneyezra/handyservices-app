@@ -508,7 +508,7 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.fixedLines).toEqual([]);
     });
 
-    it('5.4: an availability question on a thread whose booking nobody has taken on still points at the picker', async () => {
+    it('a booking waiting on a contractor is still a booking they made: the lead time answers, the picker does not', async () => {
         const diary = diaryWith(6, true);
         const pool = diary.bookings.find((b) => b.id === 'bk1')!;
         pool.status = 'pending';
@@ -516,11 +516,34 @@ describe('the Scheduling specialist', () => {
         const file = fixture('What dates do you have?');
         file.job.quoteRef = 'q1';
         const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now, baseUrl: 'https://example.test' });
-        expect(r.scheduling.picker).toMatchObject({ ok: true, url: 'https://example.test/quote/abcdefgh' });
-        expect(file.facts.find((f) => f.key === 'picker_link')?.value).toBe('https://example.test/quote/abcdefgh');
+        // They picked a date on that page already; picking again would make a second booking from the one quote.
+        expect(r.scheduling.picker).toMatchObject({ ok: false, quoteRef: 'q1' });
+        expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
         expect(r.proposal.hold).toBeNull();
         expect(r.scheduling.fixedLines).toEqual([]);
-        expect(r.brief.join(' ')).not.toMatch(/Ben will come back on the date/);
+        expect(r.error).toBeNull();
+    });
+
+    it('a turn asking when we are coming and how soon, on a booking waiting on a contractor, never does both at once', async () => {
+        const diary = diaryWith(6, true);
+        const pool = diary.bookings.find((b) => b.id === 'bk1')!;
+        pool.status = 'pending';
+        pool.assignmentStatus = 'unassigned';
+        const file = fixture('When are you coming? And how soon could you get to the fence panel?');
+        file.job.quoteRef = 'q1';
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'lead_time']), { diary, now, baseUrl: 'https://example.test' });
+        assertNoProse(r, file);
+        expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        // One reply does not say Ben will come back on the date and then send them to the page where dates are picked.
+        expect(r.scheduling.picker).toMatchObject({ ok: false });
+        expect(file.facts.find((f) => f.key === 'picker_link')).toBeUndefined();
+        expect(r.brief.join(' ')).not.toMatch(/Dates are picked on the quote page/);
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        // A refusal the desk meant is not an error: the run stays clean so a real failure stands out.
+        expect(r.error).toBeNull();
     });
 
     it('a turn that asks two things is answered on both: the booked date and how soon a new job could be done', async () => {

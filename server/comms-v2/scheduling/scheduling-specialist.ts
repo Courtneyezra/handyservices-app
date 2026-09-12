@@ -179,7 +179,8 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         findings.leadTime = await typicalLeadTime(deps);
         if (!findings.leadTime.ok && findings.leadTime.detail) details.push(`${findings.leadTime.reason}: ${findings.leadTime.detail}`);
         if (file.job.quoteRef) findings.picker = await pickerLink(file, deps, standing);
-        if (findings.picker && !findings.picker.ok) details.push(findings.picker.detail ? `${findings.picker.reason}: ${findings.picker.detail}` : findings.picker.reason);
+        // Only a read that threw is filed: a refusal the desk meant is not an error, and an error channel full of them is one a real failure hides in.
+        if (findings.picker && !findings.picker.ok && findings.picker.detail) details.push(`${findings.picker.reason}: ${findings.picker.detail}`);
         // The picker was refused because that job already stands in the diary. They did not ask to move it,
         // and a reply that says nothing about a day already in the diary reads as not knowing about it.
         if (!confirming && standing.ok && findings.picker && !findings.picker.ok) confirmWhatStands(false);

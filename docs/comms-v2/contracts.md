@@ -185,11 +185,11 @@ books one. Booking stays on the quote's picker. Built under `server/comms-v2/sch
 `confirm_booked_date` found, and the two together make a grid wider than the branches read. Every
 cell, as the code stands:
 
-| ask \ state | `standing` | `unaccepted` or `cancelled` | `unknown` | `none` |
-|---|---|---|---|---|
-| `date_change` | the date confirmed, a hold for Ben, the fixed line that he will come back on it; no lead time, no picker | no date, the same hold and fixed line | no date, the same hold and fixed line | only reachable from the router's own exception, since a belt match alone is rewritten to `availability`; then no date, the same hold and fixed line |
-| `booked_date` | the date, said verbatim | no date, a hold for Ben (`date_unconfirmed`) and the fixed line, nothing about why | the same hold and fixed line | no hold: the lead time and the picker answer, as for `availability` |
-| `lead_time` or `availability` | the lead time; no picker, because that quote's job is already booked; the day it stands on mentioned beside it | the lead time and the picker | the lead time and the picker | the lead time and the picker, or the fixed line that dates come with the quote |
+| ask \ state | `standing` | `unaccepted` | `cancelled` | `unknown` | `none` |
+|---|---|---|---|---|---|
+| `date_change` | the date confirmed, a hold for Ben, the fixed line that he will come back on it; no lead time, no picker | no date, the same hold and fixed line | no date, the same hold and fixed line | no date, the same hold and fixed line | only reachable from the router's own exception, since a belt match alone is rewritten to `availability`; then no date, the same hold and fixed line |
+| `booked_date` | the date, said verbatim | no date, a hold for Ben (`date_unconfirmed`) and the fixed line, nothing about why | the same hold and fixed line | the same hold and fixed line | no hold: the lead time and the picker answer, as for `availability` |
+| `lead_time` or `availability` | the lead time; no picker, because they have a booking from that quote; the day it stands on mentioned beside it | the lead time; no picker either, since the booking they made is waiting on a contractor and a second one would be made by picking again | the lead time and the picker: the visit was taken off them, so rebooking is what they need | the lead time and the picker | the lead time and the picker, or the fixed line that dates come with the quote |
 | none of them | nothing is looked up and nothing is said about timing, on every state |
 
 A turn that asks two of them gets both: `booked_date` and `lead_time` together confirm the date and
