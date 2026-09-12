@@ -269,7 +269,6 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         await d.store.addPhotos(q.slug, turn.media.filter((m) => m.kind === 'image' && m.url).map((m) => m.url!)).catch(() => undefined);
     }
     if (proposal.acceptedNow) {
-        proposal.answerFrom.status = newestFact(file, QUOTE_FACT.accepted)?.id ?? ids.status;
         return { specialist: 'quoting', factIds, proposal: emptyProposal(), brief: briefLines(proposal), calls, error };
     }
     const skipModel = route.turnKind === 'short_pause' || route.turnKind === 'acknowledgement' || route.turnKind === 'promise_of_more' || !turn.body.trim();

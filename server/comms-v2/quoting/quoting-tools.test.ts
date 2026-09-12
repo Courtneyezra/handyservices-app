@@ -84,7 +84,7 @@ describe('draft_quote and notify_ben', () => {
         if (!again.ok) expect(again.reason).toMatch(/one draft per job/);
         expect(d.drafter.drafts).toHaveLength(1);
 
-        const twice = await notifyBen(file, out.notice!, file.parties[0], d);
+        const twice = await notifyBen(file, out.notice!, d);
         expect(twice.ok).toBe(false);
         if (!twice.ok) expect(twice.reason).toMatch(/already been notified/);
         expect(file.facts.filter((f) => f.key === QUOTE_FACT.benNotified)).toHaveLength(1);

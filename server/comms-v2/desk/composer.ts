@@ -11,7 +11,7 @@
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import type { CaseFile, Party, Turn } from './case-file';
+import { customerVisibleFacts, type CaseFile, type Party, type Turn } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
@@ -93,8 +93,10 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
     lines.push(threadFor(file, turn));
     lines.push('');
+    // Ben's own facts carry the admin price screen and internal notes: they never reach the composer.
+    const visible = customerVisibleFacts(file);
     lines.push('Facts on the file (id: key = value):');
-    lines.push(file.facts.length ? file.facts.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
+    lines.push(visible.length ? visible.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
     lines.push('');
     lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exception: ${route.exception ?? 'none'}.`);
     if (proposal) {
@@ -139,8 +141,8 @@ export async function compose(input: ComposeInput, client: ModelClient): Promise
     const user = buildComposerUser(input);
     const res = await client.structured({ role: 'composer', model: COMPOSER_MODEL, effort: 'medium', system: COMPOSER_SYSTEM, user, schema: composerOutputSchema, maxTokens: 2000 });
     if (res.output) {
-        // Only facts that are on the file count as cited; a made-up id is dropped, never recorded.
-        const known = new Set(input.file.facts.map((f) => f.id));
+        // Only facts the composer was shown count as cited; a made-up id, or one of Ben's own, is dropped.
+        const known = new Set(customerVisibleFacts(input.file).map((f) => f.id));
         res.output.factIds = Array.from(new Set(res.output.factIds.filter((id) => known.has(id))));
         res.output.reply = res.output.reply.replace(/\u2014|\u2013/g, '-').trim();
     }

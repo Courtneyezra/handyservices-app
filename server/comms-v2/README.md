@@ -47,6 +47,13 @@ Facts the specialist writes carry the quote and the line as their source: `quote
 `quote_assumption:<label>`, `quote_link`, `quote_status`. The composer copies a figure exactly as
 written and cites the fact; the figure guard passes only that.
 
+The three notification facts are Ben's, not the customer's: they carry the admin price screen link
+and an internal note, and no guard reads what a fact means. They are kept out of the customer's
+reply at the composer boundary - `INTERNAL_FACT_KEYS` and `customerVisibleFacts` in
+`desk/case-file.ts`, used by `desk/composer.ts` for both the prompt and the ids it may cite
+(`desk/composer.test.ts`). A new fact written for Ben's eyes belongs on that list the day it is
+written.
+
 ### Driving Goal 4's checklist lines
 
 The pipeline reads `test.instructions` from the default branch, so the scenarios are spelled out

@@ -70,6 +70,12 @@ writes to a customer.
 that asserts a figure, a date or a business fact carries a fact id or a knowledge-base id, and the
 guards check each one. The router never sees a tool; the specialists never see the customer.
 
+**Ben's facts are not the customer's.** Some facts on the file are written for Ben and carry an
+admin link or an internal note: the three notification facts (`ben_notified`, `ben_chased`,
+`quote_accepted`). No guard reads a fact's meaning, so the composer boundary is the one place they
+are kept out: `customerVisibleFacts` filters them from the prompt and from the ids the composer may
+cite. Any new fact written for Ben's eyes goes on `INTERNAL_FACT_KEYS` on the day it is written.
+
 ## Contract 4 - Guards and the approver slot
 
 Deterministic code, no model. Every composed reply passes here before the sender. The approver

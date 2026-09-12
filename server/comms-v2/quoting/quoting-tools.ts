@@ -109,29 +109,28 @@ export async function draftQuote(file: CaseFile, party: Party, intake: DraftInta
     for (const l of intake.lines) for (const n of l.notIncluded) rec(`${QUOTE_FACT.notIncluded}:${l.title}`, n, l.title);
     // notify_ben: once, with the price screen link.
     const notice = readyToPriceNotice({ customerName: intake.customerName ?? party.name, postcode: intake.postcode, slug: out.slug, lines: out.lines, checkThis: out.checkThis, suggestedTotalPence: out.suggestedTotalPence, estimatorFailed: out.estimatorFailed, missing: intake.missing, at: d.now().toISOString(), baseUrl: d.baseUrl });
-    const n = await notifyBen(file, notice, party, deps);
+    const n = await notifyBen(file, notice, deps);
     if (n.factId) factIds.push(n.factId);
     return { ...out, factIds, notice, notified: n.ok };
 }
 
 // ---------------------------------------------------------------- notify_ben
 
-export type NotifyOutcome = { ok: true; factId: string | null; dispatched: boolean; note: string } | { ok: false; reason: string; factId: null; dispatched: false };
+export type NotifyOutcome = { ok: true; factId: string | null; note: string } | { ok: false; reason: string; factId: null };
 
 /** One notification per quote and kind for ready_to_price and accepted; chases are numbered. Recorded on the file as a fact, cited to the quote. */
-export async function notifyBen(file: CaseFile, notice: BenNotice, party: Party, deps: QuotingDeps = {}): Promise<NotifyOutcome> {
+export async function notifyBen(file: CaseFile, notice: BenNotice, deps: QuotingDeps = {}): Promise<NotifyOutcome> {
     const d = resolveQuotingDeps(deps);
     const slug = file.job.quoteRef;
-    if (!slug) return { ok: false, reason: 'no quote on the file to notify Ben about', factId: null, dispatched: false };
+    if (!slug) return { ok: false, reason: 'no quote on the file to notify Ben about', factId: null };
     const key = notice.kind === 'chase' ? QUOTE_FACT.benChased : notice.kind === 'accepted' ? QUOTE_FACT.accepted : QUOTE_FACT.benNotified;
     if (notice.kind !== 'chase' && factsWithPrefix(file, key).some((f) => f.source.kind === 'quote_line' && f.source.quoteRef === slug)) {
-        return { ok: false, reason: `Ben has already been notified (${notice.kind}) for quote ${slug}; one notification`, factId: null, dispatched: false };
+        return { ok: false, reason: `Ben has already been notified (${notice.kind}) for quote ${slug}; one notification`, factId: null };
     }
-    const address = party.channels.find((c) => c.kind === 'whatsapp')?.address ?? party.channels[0]?.address ?? null;
-    const r = await d.notifier.notify(notice, { slug, caseId: file.id, customerName: party.name, phone: address });
+    const r = await d.notifier.notify(notice);
     const value = `${notice.title}${notice.link ? ` | ${notice.link}` : ''} | ${r.note}`;
     const f = factOnce(file, { key, value, source: quoteSource(slug, notice.kind === 'chase' ? 'chase' : notice.kind === 'accepted' ? 'acceptance' : 'notification'), by: BY }, d.file);
-    return { ok: true, factId: f?.id ?? null, dispatched: r.dispatched, note: r.note };
+    return { ok: true, factId: f?.id ?? null, note: r.note };
 }
 
 // ---------------------------------------------------------------- chase
@@ -159,7 +158,7 @@ export async function chase(file: CaseFile, party: Party, deps: QuotingDeps = {}
     const wait = last ? CHASE_EVERY_MS : CHASE_AFTER_MS;
     if (now.getTime() - since < wait) return { chased: false, n, reason: `not due: ${Math.round((wait - (now.getTime() - since)) / 60_000)} min until chase ${n + 1}`, notice: null };
     const notice = chaseNotice({ customerName: party.name, slug: q.slug, n: n + 1, waitingSince: notified.at, at: now.toISOString(), baseUrl: d.baseUrl });
-    const r = await notifyBen(file, notice, party, deps);
+    const r = await notifyBen(file, notice, deps);
     return { chased: r.ok, n: n + 1, reason: r.ok ? r.note : r.reason, notice: r.ok ? notice : null };
 }
 
@@ -309,7 +308,7 @@ export async function recordAcceptance(file: CaseFile, party: Party, witness: Ac
     }
     const address = party.channels.find((c) => c.kind === 'whatsapp')?.address ?? null;
     const notice = acceptedNotice({ customerName: party.name, phone: address, jobSummary: record?.lines.map((l) => l.label).join('; ') ?? null, depositPence: r.depositPence, at: now.toISOString() });
-    const n = await notifyBen(file, notice, party, deps);
+    const n = await notifyBen(file, notice, deps);
     if (n.ok && n.factId) factIds.push(n.factId);
     return { ok: true, depositPence: r.depositPence, factIds, notice: n.ok ? notice : null, turnBody: `Accepted quote ${file.job.quoteRef} on the quote page${r.depositPence > 0 ? ` and paid the ${pounds(r.depositPence)} deposit` : ''}.` };
 }

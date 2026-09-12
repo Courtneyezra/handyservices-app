@@ -21,16 +21,9 @@ export interface BenNotice {
     at: string;
 }
 
-export interface NotifyContext {
-    slug: string;
-    caseId: string;
-    customerName: string | null;
-    phone: string | null;
-}
-
 export interface BenNotifier {
     /** Record that the notice would have gone. Never throws. */
-    notify(notice: BenNotice, ctx: NotifyContext): Promise<{ dispatched: boolean; note: string }>;
+    notify(notice: BenNotice): Promise<{ note: string }>;
 }
 
 const truncate = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
@@ -75,5 +68,5 @@ export function acceptedNotice(input: { customerName: string | null; phone: stri
 
 /** Records only: the desk's one notifier while it is sandbox-only. */
 export const recordingNotifier: BenNotifier = {
-    async notify(notice) { return { dispatched: false, note: `recorded, not sent: ${notice.title}` }; },
+    async notify(notice) { return { note: `recorded, not sent: ${notice.title}` }; },
 };
