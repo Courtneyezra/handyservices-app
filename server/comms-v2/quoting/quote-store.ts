@@ -161,15 +161,20 @@ export const liveQuoteStore: QuoteStore = {
         const ids = rows.map((r) => r.id);
         const slugs = rows.map((r) => r.short_slug);
         const count = (r: any): number => (typeof r?.rowCount === 'number' ? r.rowCount : Array.isArray(r) ? r.length : 0);
+        // A list in a template is bound as one placeholder per value, so `any($1, $2)` is rejected
+        // by the driver ("requires array on right side"). An `in` list is what those placeholders are.
+        const list = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
         let estimates = 0; let verdicts = 0; let runs = 0;
         try {
-            const convs: any = await db.execute(sql`select distinct conversation_id from quote_estimates where draft_quote_id = any(${ids}) and conversation_id like 'case_%'`);
+            const convs: any = await db.execute(sql`select distinct conversation_id from quote_estimates where draft_quote_id in (${list(ids)}) and conversation_id like 'case_%'`);
             const caseIds: string[] = (Array.isArray(convs) ? convs : (convs?.rows ?? [])).map((r: any) => String(r.conversation_id));
-            if (caseIds.length) runs = count(await db.execute(sql`delete from agent_runs where conversation_id = any(${caseIds})`));
-            estimates = count(await db.execute(sql`delete from quote_estimates where draft_quote_id = any(${ids}) or (conversation_id = any(${caseIds.length ? caseIds : ['-']}) )`));
+            if (caseIds.length) runs = count(await db.execute(sql`delete from agent_runs where conversation_id in (${list(caseIds)})`));
+            estimates = count(await db.execute(caseIds.length
+                ? sql`delete from quote_estimates where draft_quote_id in (${list(ids)}) or conversation_id in (${list(caseIds)})`
+                : sql`delete from quote_estimates where draft_quote_id in (${list(ids)})`));
         } catch { /* the estimate table may be absent on a branch; the quote rows still go */ }
-        try { verdicts = count(await db.execute(sql`delete from quote_price_verdicts where slug = any(${slugs})`)); } catch { /* absent table */ }
-        const quotes = count(await db.execute(sql`delete from personalized_quotes where id = any(${ids})`));
+        try { verdicts = count(await db.execute(sql`delete from quote_price_verdicts where slug in (${list(slugs)})`)); } catch { /* absent table */ }
+        const quotes = count(await db.execute(sql`delete from personalized_quotes where id in (${list(ids)})`));
         return { quotes, estimates, verdicts, runs };
     },
 };
