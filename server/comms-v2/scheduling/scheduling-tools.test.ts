@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { bookingRowToDiary, formatDiaryDate, leadDaysOf, leadTimePhrase, liveDiary, MemoryDiary, medianOf, MIN_COMPLETED_BOOKINGS, typicalLeadTimeOf, type DiaryBooking } from './diary';
 import { liveFixture } from './fixture';
-import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, pickerLink, standingBooking, typicalLeadTime } from './scheduling-tools';
+import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, pickerLink, typicalLeadTime } from './scheduling-tools';
 
 const NOW = new Date('2026-09-11T10:00:00.000Z');
 const now = () => NOW;
@@ -86,7 +86,8 @@ describe('typical_lead_time', () => {
         expect(await typicalLeadTime({ now })).toMatchObject({ ok: false, reason: 'no diary to read', mode: 'diary' });
         expect(await typicalLeadTime({ diary, diaryMode: { completed: 'none' }, now })).toMatchObject({ ok: false, sample: 0, mode: 'none' });
         const broken = { ...diary, completedBookings: async () => { throw new Error('boom'); } } as unknown as MemoryDiary;
-        expect(await typicalLeadTime({ diary: broken, now })).toMatchObject({ ok: false, reason: 'the diary could not be read: boom' });
+        // The reason is a stable category the composer may read; the machine text stays on `detail`, for the log and the run summary.
+        expect(await typicalLeadTime({ diary: broken, now })).toMatchObject({ ok: false, reason: 'the diary could not be read', detail: 'boom' });
     });
 });
 
@@ -114,7 +115,8 @@ describe('the live diary', () => {
             process.env.DATABASE_URL = 'postgres://user:pw@prod.example/app';
             const lt = await typicalLeadTime({ diary: liveDiary, now });
             expect(lt.ok).toBe(false);
-            if (!lt.ok) expect(lt.reason).toContain('COMMS_V2_DATABASE_URL');
+            // What names the environment is diagnostics, not something a prompt may see.
+            if (!lt.ok) { expect(lt.reason).toBe('the diary could not be read'); expect(lt.detail).toContain('COMMS_V2_DATABASE_URL'); }
         } finally {
             if (before.branch === undefined) delete process.env.COMMS_V2_DATABASE_URL; else process.env.COMMS_V2_DATABASE_URL = before.branch;
             if (before.db === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = before.db;
@@ -148,7 +150,7 @@ describe('confirm_booked_date', () => {
         const file = fixture();
         file.job.bookingRef = 'bk1';
         const bd = await confirmBookedDate(file, { diary, now });
-        expect(bd).toEqual({ ok: true, bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
+        expect(bd).toEqual({ ok: true, state: 'standing', bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
     });
     it('falls back to the live booking made from the file\'s quote, newest first, skipping declined and cancelled ones', async () => {
         const diary = new MemoryDiary();
@@ -278,36 +280,31 @@ describe('the belts', () => {
         const file = fixture();
         file.job.bookingRef = 'bk7';
         diary.bookings.push({ id: 'bk7', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'pending', assignmentStatus: 'unassigned', dayOfStatus: null, createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
-        const pool = await standingBooking(file, { diary, now });
-        expect(pool).toEqual({ state: 'unaccepted', reason: expect.stringContaining('no contractor has taken the booking on yet'), bookingRef: 'bk7' });
-        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, reason: pool.state === 'unaccepted' ? pool.reason : '', bookingRef: 'bk7' });
+        expect(await confirmBookedDate(file, { diary, now })).toEqual({ ok: false, state: 'unaccepted', reason: expect.stringContaining('no contractor has taken the booking on yet'), bookingRef: 'bk7' });
         // Assigned to somebody who has not accepted it is still nobody's job yet.
         diary.bookings[0].assignmentStatus = 'assigned';
-        expect((await standingBooking(file, { diary, now })).state).toBe('unaccepted');
+        expect((await confirmBookedDate(file, { diary, now })).state).toBe('unaccepted');
         diary.bookings[0].assignmentStatus = 'accepted';
-        expect((await standingBooking(file, { diary, now })).state).toBe('standing');
-        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, words: '25 September 2026' });
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, state: 'standing', words: '25 September 2026' });
     });
     it('booked is a booking reference on the file, the booked stage, or a booking made from the file\'s quote on the picker', async () => {
         const file = fixture();
-        expect((await standingBooking(file, { now })).state).toBe('none');
+        expect((await confirmBookedDate(file, { now })).state).toBe('none');
         file.job.bookingRef = 'bk1';
-        expect((await standingBooking(file, { now })).state).toBe('unknown');
+        expect((await confirmBookedDate(file, { now })).state).toBe('unknown');
         // The picker books against the quote and never writes back to the case file: the diary is the only place it shows.
         const diary = new MemoryDiary();
         const picked = fixture();
         picked.job.quoteRef = 'q1';
-        expect((await standingBooking(picked, { diary, now })).state).toBe('none');
+        expect((await confirmBookedDate(picked, { diary, now })).state).toBe('none');
         diary.bookings.push({ id: 'bk9', quoteRef: 'q1', scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null });
-        expect(await standingBooking(picked, { diary, now })).toMatchObject({ state: 'standing', booking: { id: 'bk9' } });
+        expect(await confirmBookedDate(picked, { diary, now })).toMatchObject({ ok: true, state: 'standing', bookingRef: 'bk9' });
     });
 
     it('a diary that cannot be read is not a thread with nothing booked: the belt keeps its hold', async () => {
         const broken = { ...new MemoryDiary(), bookingForQuote: async () => { throw new Error('connection lost'); } } as unknown as MemoryDiary;
         const picked = fixture();
         picked.job.quoteRef = 'q1';
-        const lookup = await standingBooking(picked, { diary: broken, now });
-        expect(lookup.state).toBe('unknown');
-        expect(await confirmBookedDate(picked, { diary: broken, now })).toMatchObject({ ok: false, reason: expect.stringContaining('connection lost') });
+        expect(await confirmBookedDate(picked, { diary: broken, now })).toMatchObject({ ok: false, state: 'unknown', reason: 'the diary could not be read', detail: expect.stringContaining('connection lost') });
     });
 });

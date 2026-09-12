@@ -22,7 +22,7 @@ import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn 
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import type { FixedLineKind } from '../desk/fixed-lines';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
-import { bookedDateOf, dateChangeMatch, dateQuestionMatch, pickerLink, standingBooking, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
+import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
 
 export const SCHEDULING_ASKS = ['lead_time', 'availability', 'booked_date', 'date_change'] as const;
 export type SchedulingAsk = (typeof SCHEDULING_ASKS)[number];
@@ -76,11 +76,16 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     const calls: ModelCallRecord[] = [];
     const factIds: string[] = [];
     const brief: string[] = [];
+    const details: string[] = [];
     let error: string | null = null;
     const by = 'scheduling';
     const fileDeps = { now: deps.now };
+    // What went wrong reads the same to Ben and the logs as it does to the composer, except that the
+    // machine text of a failed read stays here: a prompt only ever sees the category.
+    const erroring = () => [error, ...details].filter(Boolean).join('; ') || null;
 
-    const standing = await standingBooking(file, deps);
+    const standing = await confirmBookedDate(file, deps);
+    if (!standing.ok && standing.detail) details.push(`${standing.reason}: ${standing.detail}`);
     const booked = standing.state !== 'none';
 
     // The model classifies the ask.
@@ -88,7 +93,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     let requestedChange: string | null = null;
     if (turn.body.trim()) {
         const user = [
-            `Stage now: ${file.stage}. Quote sent: ${file.job.quoteRef ? 'yes' : 'no'}. Booked: ${standing.state === 'standing' ? 'yes' : standing.state === 'none' ? 'no' : 'not certain'}.`,
+            `Stage now: ${file.stage}. Quote sent: ${file.job.quoteRef ? 'yes' : 'no'}. Booked: ${standing.ok ? 'yes' : standing.state === 'none' ? 'no' : 'not certain'}.`,
             'Thread, oldest first (the newest turn is marked >>):',
             threadFor(file, turn),
         ].join('\n');
@@ -114,13 +119,13 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     const proposal: Proposal = { ...NO_QUESTION };
 
     // The turn asks nothing about dates: nothing is looked up and nothing is said about timing.
-    if (!asks.length) return { specialist: 'scheduling', factIds, proposal, brief, calls, error, scheduling: findings };
+    if (!asks.length) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
 
     /** What the diary says stands right now, or why it can say nothing. Never a date the diary did not give. */
     const confirmWhatStands = (changing: boolean) => {
-        findings.bookedDate = bookedDateOf(standing);
-        if (findings.bookedDate.ok) {
-            const bd = findings.bookedDate;
+        findings.bookedDate = standing;
+        if (standing.ok) {
+            const bd = standing;
             const f = recordFact(file, { key: 'booked_date', value: bd.words, source: { kind: 'diary', rowId: bd.rowId }, by }, fileDeps);
             if (f.ok) { factIds.push(f.value.id); brief.push(`Booked date from the diary: say exactly "${bd.words}" and cite fact ${f.value.id}. Write the date in those words only: no weekday, no "this" or "next" before it, and nothing about the time of day or how many days it takes: the diary gave the date and nothing else.`); }
             return;
@@ -132,7 +137,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             brief.push('The job is in the diary but no contractor has taken it on, so there is no date to confirm: include the fixed line that Ben will come back on the date, never say they are booked in, and give no day, time or lead time. Answer anything else they asked.');
             return;
         }
-        brief.push(`The diary has no booked date to confirm (${findings.bookedDate.reason}): say Ben will confirm the date, and give no day, time or lead time.`);
+        brief.push(`The diary has no booked date to confirm (${standing.reason}): say Ben will confirm the date, and give no day, time or lead time.`);
     };
 
     // A date change is Ben's, and nothing about how soon we could come belongs beside it: the job they
@@ -152,7 +157,9 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         confirmWhatStands(false);
     } else {
         findings.leadTime = await typicalLeadTime(deps);
+        if (!findings.leadTime.ok && findings.leadTime.detail) details.push(`${findings.leadTime.reason}: ${findings.leadTime.detail}`);
         if (file.job.quoteRef) findings.picker = await pickerLink(file, deps);
+        if (findings.picker && !findings.picker.ok && findings.picker.detail) details.push(`${findings.picker.reason}: ${findings.picker.detail}`);
         if (findings.picker?.ok) {
             const p = findings.picker;
             const f = recordFact(file, { key: 'picker_link', value: p.url, source: { kind: 'quote_line', quoteRef: p.quoteRef, line: 'picker' }, by }, fileDeps);
@@ -171,5 +178,5 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         if (!findings.picker?.ok && file.job.quoteRef && findings.picker) brief.push(`The quote's picker is not available (${findings.picker.reason}); do not give a link.`);
     }
 
-    return { specialist: 'scheduling', factIds, proposal, brief, calls, error, scheduling: findings };
+    return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
 }

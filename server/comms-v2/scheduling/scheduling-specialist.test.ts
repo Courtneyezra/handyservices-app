@@ -134,7 +134,7 @@ describe('the Scheduling specialist', () => {
         diary.bookings.find((b) => b.id === 'bk1')!.durationDays = 2;
         const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary, now });
         assertNoProse(r, file);
-        expect(r.scheduling.bookedDate).toEqual({ ok: true, bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
+        expect(r.scheduling.bookedDate).toEqual({ ok: true, state: 'standing', bookingRef: 'bk1', date: '2026-09-25', words: '25 September 2026', rowId: 'booking:bk1' });
         const date = file.facts.find((f) => f.key === 'booked_date')!;
         expect(date.value).toBe('25 September 2026');
         expect(date.source).toEqual({ kind: 'diary', rowId: 'booking:bk1' });
@@ -216,6 +216,27 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.bookedDate).toMatchObject({ ok: false });
         expect(file.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
         expect(r.brief.join(' ')).toMatch(/no booked date to confirm/);
+        // The composer is told the category and never the machine text; that goes to the log and the run summary.
+        expect(r.brief.join(' ')).toContain('the diary could not be read');
+        expect(r.brief.join(' ')).not.toContain('connection lost');
+        expect(r.error).toContain('connection lost');
+    });
+
+    it('a read that fails tells the composer the category and the run the machine text, on the lead time and the picker too', async () => {
+        const broken = diaryWith(6);
+        broken.completedBookings = async () => { throw new Error('COMMS_V2_DATABASE_URL is not set'); };
+        broken.quote = async () => { throw new Error('SSL handshake to db.internal failed'); };
+        const file = fixture('What dates do you have?');
+        file.job.quoteRef = 'q1';
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: broken, now });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'the diary could not be read' });
+        expect(r.scheduling.picker).toMatchObject({ ok: false, reason: 'the quote could not be read' });
+        const said = r.brief.join(' ');
+        expect(said).not.toMatch(/COMMS_V2_DATABASE_URL|db\.internal|SSL/);
+        expect(said).toContain('the diary could not be read');
+        expect(said).toContain('the quote could not be read');
+        expect(r.error).toContain('COMMS_V2_DATABASE_URL is not set');
+        expect(r.error).toContain('SSL handshake to db.internal failed');
     });
 
     it('a date change the router flagged holds even with nothing booked, and looks up no lead time and no picker', async () => {

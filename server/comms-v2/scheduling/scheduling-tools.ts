@@ -37,7 +37,7 @@ export interface SchedulingDeps {
 
 // ---------------------------------------------------------------- typical_lead_time
 
-export type LeadTimeResult = LeadTime & { mode: 'diary' | 'none' };
+export type LeadTimeResult = LeadTime & { mode: 'diary' | 'none'; detail?: string | null };
 
 /** Over recent completed bookings; nothing below the minimum sample, nothing when the fixture emptied the diary. Never a guess. */
 export async function typicalLeadTime(deps: SchedulingDeps = {}): Promise<LeadTimeResult> {
@@ -50,75 +50,62 @@ export async function typicalLeadTime(deps: SchedulingDeps = {}): Promise<LeadTi
     try {
         rows = await deps.diary.completedBookings({ since, limit: LEAD_TIME_SAMPLE_LIMIT });
     } catch (err: any) {
-        return { ok: false, reason: `the diary could not be read: ${err?.message ?? err}`, sample: 0, mode };
+        return { ok: false, reason: 'the diary could not be read', detail: String(err?.message ?? err), sample: 0, mode };
     }
     return { ...typicalLeadTimeOf(rows), mode };
 }
 
 // ---------------------------------------------------------------- confirm_booked_date
 
+/**
+ * The booked date, or why there is none and what the customer still has. `state` is the one
+ * reading of the file's booking the desk works from, so the confirmation and the date-change belt
+ * can never disagree: `none` is nothing to move, and every other state is something the customer
+ * has, so a request to move it goes to Ben. `unknown` is the fail-closed answer, `unaccepted` a
+ * booking sitting in the dispatch pool nobody has taken on. `reason` is said to the composer, so
+ * it is always a stable category; `detail` carries the machine text for the log and the run
+ * summary, and never reaches a prompt.
+ */
 export type BookedDate =
-    | { ok: true; bookingRef: string; date: string; words: string; rowId: string }
-    | { ok: false; reason: string; bookingRef: string | null };
-
-/** The job the customer is still waiting for: one standing booking, one no contractor has taken on, nothing at all, or a diary that could not say. */
-export type StandingBooking =
-    | { state: 'standing'; booking: DiaryBooking }
-    | { state: 'unaccepted'; reason: string; bookingRef: string }
-    | { state: 'none'; reason: string; bookingRef: string | null }
-    | { state: 'unknown'; reason: string; bookingRef: string | null };
+    | { ok: true; state: 'standing'; bookingRef: string; date: string; words: string; rowId: string }
+    | { ok: false; state: 'unaccepted' | 'none' | 'unknown'; reason: string; detail?: string | null; bookingRef: string | null };
 
 /**
- * The one resolution of the file's booking, for the confirmation and for the date-change belt, so
- * the two can never disagree. Reads the booking the file references, else the booking made from
- * its quote; the diary is the only source. A declined, cancelled, done or past booking is not one
- * the customer is waiting for, so a visit that has happened is never confirmed as if it stands.
- * `unknown` is the fail-closed answer: something may stand and the diary could not say, so a
- * request to move it still goes to Ben. `unaccepted` is a booking sitting in the dispatch pool that
- * no contractor has taken on: it gives no date to confirm, and it is still something the customer
- * has, so a request to move it goes to Ben too.
+ * The one authoritative booked date for the file's job, and the one entry point to it. Reads the
+ * booking the file references, else the booking made from its quote; the diary is the only source.
+ * A declined, cancelled, done or past booking is not one the customer is waiting for, so a visit
+ * that has happened is never confirmed as if it stands, and a booking no contractor has taken on
+ * gives no date either: nobody has agreed to work that day. Every refusal gives no date at all.
  */
-export async function standingBooking(file: CaseFile, deps: SchedulingDeps = {}): Promise<StandingBooking> {
+export async function confirmBookedDate(file: CaseFile, deps: SchedulingDeps = {}): Promise<BookedDate> {
     const ref = file.job.bookingRef;
     const today = isoDayOf((deps.now ?? (() => new Date()))());
-    if (!deps.diary) return ref || file.stage === 'booked' ? { state: 'unknown', reason: 'no diary to read', bookingRef: ref } : { state: 'none', reason: 'nothing is booked on this file', bookingRef: null };
+    if (!deps.diary) return ref || file.stage === 'booked' ? { ok: false, state: 'unknown', reason: 'no diary to read', bookingRef: ref } : { ok: false, state: 'none', reason: 'nothing is booked on this file', bookingRef: null };
     let booking: DiaryBooking | null = null;
     try {
         if (ref) booking = await deps.diary.booking(ref);
         else if (file.job.quoteRef) booking = await deps.diary.bookingForQuote(file.job.quoteRef, today);
     } catch (err: any) {
-        return { state: 'unknown', reason: `the diary could not be read: ${err?.message ?? err}`, bookingRef: ref };
+        return { ok: false, state: 'unknown', reason: 'the diary could not be read', detail: String(err?.message ?? err), bookingRef: ref };
     }
     if (!booking) {
-        if (ref) return { state: 'unknown', reason: 'the booking the file references is not in the diary', bookingRef: ref };
-        if (file.job.quoteRef) return { state: 'none', reason: 'nothing is booked from this quote yet', bookingRef: null };
-        return file.stage === 'booked' ? { state: 'unknown', reason: 'the file is booked but references no booking or quote', bookingRef: null } : { state: 'none', reason: 'nothing is booked on this file', bookingRef: null };
+        if (ref) return { ok: false, state: 'unknown', reason: 'the booking the file references is not in the diary', bookingRef: ref };
+        if (file.job.quoteRef) return { ok: false, state: 'none', reason: 'nothing is booked from this quote yet', bookingRef: null };
+        return file.stage === 'booked' ? { ok: false, state: 'unknown', reason: 'the file is booked but references no booking or quote', bookingRef: null } : { ok: false, state: 'none', reason: 'nothing is booked on this file', bookingRef: null };
     }
     const gone = notStandingReason(booking, today);
-    if (gone) return { state: 'none', reason: gone, bookingRef: booking.id };
+    if (gone) return { ok: false, state: 'none', reason: gone, bookingRef: booking.id };
     const unaccepted = unacceptedReason(booking);
-    if (unaccepted) return { state: 'unaccepted', reason: unaccepted, bookingRef: booking.id };
-    if (!booking.scheduledDate) return { state: 'unknown', reason: 'the booking carries no date yet', bookingRef: booking.id };
-    return { state: 'standing', booking };
-}
-
-/** The booked date a standing booking gives the composer; every other state is a refusal carrying its reason, and no date at all. */
-export function bookedDateOf(standing: StandingBooking): BookedDate {
-    if (standing.state !== 'standing') return { ok: false, reason: standing.reason, bookingRef: standing.bookingRef };
-    const b = standing.booking;
-    return { ok: true, bookingRef: b.id, date: b.scheduledDate!, words: formatDiaryDate(b.scheduledDate!), rowId: `booking:${b.id}` };
-}
-
-/** The one authoritative booked date for the file's job. */
-export async function confirmBookedDate(file: CaseFile, deps: SchedulingDeps = {}): Promise<BookedDate> {
-    return bookedDateOf(await standingBooking(file, deps));
+    if (unaccepted) return { ok: false, state: 'unaccepted', reason: unaccepted, bookingRef: booking.id };
+    if (!booking.scheduledDate) return { ok: false, state: 'unknown', reason: 'the booking carries no date yet', bookingRef: booking.id };
+    return { ok: true, state: 'standing', bookingRef: booking.id, date: booking.scheduledDate, words: formatDiaryDate(booking.scheduledDate), rowId: `booking:${booking.id}` };
 }
 
 // ---------------------------------------------------------------- picker_link
 
 export type PickerLink =
     | { ok: true; quoteRef: string; slug: string; url: string }
-    | { ok: false; reason: string; quoteRef: string | null };
+    | { ok: false; reason: string; detail?: string | null; quoteRef: string | null };
 
 function baseUrlOf(deps: SchedulingDeps): string {
     if (deps.baseUrl) return deps.baseUrl.replace(/\/$/, '');
@@ -133,7 +120,7 @@ export async function pickerLink(file: CaseFile, deps: SchedulingDeps = {}): Pro
     try {
         quote = await deps.diary.quote(file.job.quoteRef);
     } catch (err: any) {
-        return { ok: false, reason: `the quote could not be read: ${err?.message ?? err}`, quoteRef: file.job.quoteRef };
+        return { ok: false, reason: 'the quote could not be read', detail: String(err?.message ?? err), quoteRef: file.job.quoteRef };
     }
     if (!quote) return { ok: false, reason: 'the quote the file references does not exist', quoteRef: file.job.quoteRef };
     if (quote.isDraft) return { ok: false, reason: 'the quote is a draft, not sent; dates come with the quote', quoteRef: quote.id };
