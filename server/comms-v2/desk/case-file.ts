@@ -222,6 +222,8 @@ export interface CaseFile {
     ledger: LedgerEntry[];
     hold: Hold | null;
     releases: HoldRelease[];
+    /** How many turns stood on the thread when it was first found being scoped, so convergence counts only the replies since. Null until then. */
+    scopingFrom: number | null;
     job: Job;
     sends: SendRecord[];
     /** Run ids that have been sent, so one run id sends once. */
@@ -271,7 +273,7 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
     const file: CaseFile = {
         id: newId('case'), openedAt: at, parties: [party], turns: [], stage: 'first_contact',
         stageHistory: [{ from: null, to: 'first_contact', at, why: 'opened' }],
-        facts: [], ledger: [], hold: null, releases: [], job: { type: null, location: null, quoteRef: null, bookingRef: null }, sends: [], sentRunIds: [],
+        facts: [], ledger: [], hold: null, releases: [], scopingFrom: null, job: { type: null, location: null, quoteRef: null, bookingRef: null }, sends: [], sentRunIds: [],
     };
     const turn = appendTurn(file, { ...input.firstTurn, partyId: party.personId, direction: 'inbound', runId: null, approver: null }, deps);
     if (!turn.ok) return turn;

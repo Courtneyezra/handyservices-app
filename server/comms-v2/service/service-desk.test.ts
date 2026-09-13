@@ -143,8 +143,32 @@ describe('the Service specialist on the desk', () => {
         const out = await gateway.inbound(turn('My email has changed to sam@example.org', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(out.file.hold?.exception).toBe('change_of_details');
-        expect(out.file.facts.find((f) => f.key === 'change_of_details')?.value).toBe('email: sam@example.org');
+        expect(out.file.hold?.reason).toBe('change_of_details: email -> sam@example.org');
+        expect(out.file.facts.find((f) => f.key === 'change_of_details')?.value).toBe('email');
         expect(out.result.delivered).toBe(true);
+    });
+    it('a changed email never reaches the composer\'s prompt on a later turn of the same thread, while Ben\'s card still carries it', async () => {
+        const prompts: string[] = [];
+        const { gateway } = desk({
+            router: ({ n }) => route({ subjects: ['service'], turnKind: n === 1 ? 'other' : 'question' }),
+            specialist: ({ n }) => n === 1 ? serviceOut({ changeOfDetails: { field: 'email', value: 'sam@example.org' } }) : serviceOut({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }] }),
+            composer: ({ n, user }) => {
+                prompts.push(user);
+                if (n === 1) return { reply: DEFAULT_FIXED_LINES.change_of_details, factIds: [], kbIds: [] };
+                return { reply: INSURED, factIds: [/\(fact (fact_[^)]+)\)/.exec(user)![1]], kbIds: ['kb-insured'] };
+            },
+        });
+        let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
+        for (let i = 0; i < 17; i++) {
+            last = await gateway.inbound(turn(i === 0 ? 'My email has changed to sam@example.org' : 'And are you insured?', `2026-09-11T10:${String(i).padStart(2, '0')}:00.000Z`));
+            if (last.kind !== 'handled') throw new Error(last.kind);
+            expect(last.result.delivered).toBe(true);
+        }
+        if (!last || last.kind !== 'handled') throw new Error('not handled');
+        expect(prompts).toHaveLength(17);
+        expect(prompts[16]).toContain('change_of_details = email');
+        expect(prompts[16]).not.toContain('sam@example.org');
+        expect(last.file.hold?.reason).toBe('change_of_details: email -> sam@example.org');
     });
     it('7.3 and 7.4: a complaint sits with Ben and every turn is acknowledged; Ben\'s reply from the kanban releases it and the next turn is routed again', async () => {
         const { client, gateway, clock } = desk({
@@ -209,6 +233,25 @@ describe('the Service specialist on the desk', () => {
             expect(out.file.hold).toBeNull();
             expect(out.file.job.type).toBeNull();
         }
+    });
+    it('a facts-and-aftercare thread that turns to a job is scoped, not handed to Ben on its first scoping turn', async () => {
+        const { gateway } = desk({
+            router: ({ n }) => n <= 6 ? route({ subjects: ['service'], turnKind: 'question' }) : route({ turnKind: 'enquiry' }),
+            specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }] }) : scopingOut([{ key: 'job_type', value: 'leaking gutter' }]),
+            composer: ({ n, user }) => n <= 6
+                ? { reply: INSURED, factIds: [/\(fact (fact_[^)]+)\)/.exec(user)![1]], kbIds: ['kb-insured'] }
+                : { reply: 'A leaking gutter, got it. Whereabouts are you?', factIds: [], kbIds: [] },
+        });
+        for (let i = 0; i < 6; i++) {
+            const out = await gateway.inbound(turn('And are you insured?', `2026-09-11T10:${String(i).padStart(2, '0')}:00.000Z`));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.delivered).toBe(true);
+        }
+        const out = await gateway.inbound(turn('My gutter is leaking too, could you take a look?', '2026-09-11T10:10:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.file.job.type).toBe('leaking gutter');
+        expect(out.file.hold).toBeNull();
+        expect(out.result.bubbles.map((b) => b.text).join(' ')).toContain('Whereabouts');
     });
     it('a held thread the customer then turns to gas is still not left silent: it hears the gas line (7.3)', async () => {
         const { gateway } = desk({

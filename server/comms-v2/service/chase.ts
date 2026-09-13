@@ -52,7 +52,7 @@ export interface ChaseRecord {
     releasesBefore: number;
     chased: InitiatedSend | null;
     escalated: InitiatedSend | null;
-    /** Every attempt, refused ones included, so a chase that could not go is on the record. */
+    /** Every attempt, refused ones included, so a chase that could not go is on the record; the same refusal repeated on later passes is recorded once. */
     attempts: Array<{ purpose: InitiatePurpose; at: string; ok: boolean; reason: string | null; runId: string }>;
 }
 
@@ -105,7 +105,8 @@ export async function chaseIfDue(file: CaseFile, state: ChaseState, deps: ChaseD
         const runId = `chase_${randomUUID()}`;
         const template = CHASE_TEMPLATES[purpose];
         const out = await initiate({ file, to: { address: to.address ?? '', name: to.name }, purpose, template: { ...template, variables: { '1': to.name ?? 'there', '2': topicOf(file) } }, runId, approver: DESK_APPROVER, mode: deps.mode ?? 'dry_run' }, { ...deps.sender, now, templates: deps.templates ?? liveTemplateStatus });
-        record!.attempts.push({ purpose, at: now().toISOString(), ok: out.ok, reason: out.ok ? null : out.reason, runId });
+        const previous = record!.attempts.filter((a) => a.purpose === purpose).pop();
+        if (out.ok || !previous || previous.ok || previous.reason !== out.reason) record!.attempts.push({ purpose, at: now().toISOString(), ok: out.ok, reason: out.ok ? null : out.reason, runId });
         if (!out.ok) return { action: 'refused', purpose, reason: out.reason, record: record! };
         if (purpose === 'approver_chase') record!.chased = out.send; else record!.escalated = out.send;
         return { action: purpose === 'approver_chase' ? 'chased' : 'escalated', send: out.send, record: record! };
