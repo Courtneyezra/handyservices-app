@@ -324,6 +324,9 @@ points there so the calls, refusals and invariants live in one place.
   for it, respects the window, records the send. See `contracts.md`.
 - **Contract 6 - The Scoping tool server.** The first specialist's shelf, read-only against the
   world, writing only through its calls. See `contracts.md`.
+- **Contract 7 - The Quoting tool server.** The second specialist's shelf (Goal 4), wrapping the
+  quote machinery it drafts and reads; the price catalogue is never a source for a chat figure. See
+  `contracts.md`.
 - **Validation.** Each goal is validated by the pipeline's end-to-end test step against the
   desk's sandbox door, with recorded evidence in the PR; the goal's checklist lines are the
   scenarios; the captain reviews sandbox threads before any flip. See `contracts.md`.
