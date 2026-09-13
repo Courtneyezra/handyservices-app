@@ -33,6 +33,30 @@ describe('chooseChannel', () => {
         expect(chooseChannel(emailOnly, 'call')).toEqual({ ok: true, channel: 'email', address: 'a@b.co' });
         expect(chooseChannel({ ...party, channels: [{ kind: 'call', address: '+447700900942', lastInboundAt: null }] }, 'call').ok).toBe(false);
     });
+
+    it('a form or a call follows a channel they have written on before it follows the order, so a thread that ran on SMS is answered on SMS', () => {
+        const { party } = fixture();
+        // Scoped and quoted by text; the number is on WhatsApp but has never written there, so that
+        // window has never opened. The acceptance happens on the quote page, which carries no reply.
+        const byText: Party = { ...party, channels: [
+            { kind: 'sms', address: '+447700900942', lastInboundAt: '2026-09-11T10:00:00.000Z' },
+            { kind: 'whatsapp', address: '+447700900942', lastInboundAt: null },
+        ] };
+        expect(chooseChannel(byText, 'form', new Date('2026-09-13T10:00:00.000Z'))).toEqual({ ok: true, channel: 'sms', address: '+447700900942' });
+        expect(chooseChannel(byText, 'call', new Date('2026-09-13T10:00:00.000Z'))).toEqual({ ok: true, channel: 'sms', address: '+447700900942' });
+
+        // A web form first contact has written on nothing, so the order still stands and the reply
+        // goes to WhatsApp, where the approved template is what a shut window may carry.
+        const firstContact: Party = { ...party, channels: [
+            { kind: 'sms', address: '+447700900942', lastInboundAt: null },
+            { kind: 'email', address: 'sam@example.com', lastInboundAt: null },
+            { kind: 'whatsapp', address: '+447700900942', lastInboundAt: null },
+        ] };
+        expect(chooseChannel(firstContact, 'form', new Date('2026-09-13T10:00:00.000Z'))).toEqual({ ok: true, channel: 'whatsapp', address: '+447700900942' });
+
+        // A WhatsApp thread whose window is still open is answered there, as it always was.
+        expect(chooseChannel(party, 'form', new Date('2026-09-11T20:00:00.000Z'))).toEqual({ ok: true, channel: 'whatsapp', address: '+447700900942' });
+    });
 });
 
 describe('windowOf', () => {

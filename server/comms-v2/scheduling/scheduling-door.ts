@@ -37,9 +37,19 @@ export function withScheduling<T extends { scheduling?: SchedulingDeps; now?: ()
     return { ...deps, scheduling: { diaryMode: { completed: 'diary' }, diary: liveDiary, fixture: liveFixture, ...deps.scheduling } };
 }
 
-/** A memory diary and fixture for tests, in one call. */
-export function memoryScheduling(now?: () => Date): SchedulingDoorDeps {
+/**
+ * A memory diary and fixture for tests, in one call. A quote store may stand beside it, and then
+ * the diary answers for the quotes in it too: live there is one quotes table, so a quote Quoting
+ * drafted is one this diary reads back, by its short slug as much as by its id.
+ */
+export function memoryScheduling(now?: () => Date, quotes?: { read(ref: string): Promise<unknown> }): SchedulingDoorDeps & { diary: MemoryDiary } {
     const diary = new MemoryDiary();
+    if (quotes) {
+        diary.quoteFallback = async (ref) => {
+            const row = (await quotes.read(ref)) as Record<string, any> | null;
+            return row ? { id: String(row.id), slug: String(row.shortSlug), isDraft: row.isDraft !== false, supersededAt: row.supersededAt ?? null, revokedAt: row.revokedAt ?? null, expiresAt: row.expiresAt ?? null } : null;
+        };
+    }
     return { diary, diaryMode: { completed: 'diary' }, fixture: new MemoryFixture(diary), now };
 }
 
@@ -57,7 +67,7 @@ export function linkFixture(file: CaseFile, seeded: FixtureResult, deps: { now?:
     const ready = linkReady(file, !!seeded.quoteRef);
     if (!ready.ok) return ready;
     if (!seeded.quoteRef) return { ok: true, stage: file.stage };
-    file.job.quoteRef = seeded.quoteRef;
+    file.job.quoteRef = seeded.quoteSlug ?? seeded.quoteRef;
     const bookingRef = seeded.bookingRef ?? file.job.bookingRef ?? null;
     file.job.bookingRef = bookingRef;
     const target: CaseFile['stage'] = bookingRef ? 'booked' : 'quoted';

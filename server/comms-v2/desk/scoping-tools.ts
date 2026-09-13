@@ -125,7 +125,11 @@ export function regulated(turn: Turn): { regulated: boolean; match: string | nul
 
 export interface KbReader { list(): Promise<Array<{ id: string; topic: string; approvedWords: string }>> }
 
-/** The reviewed-only helper, loaded on first use: it opens the database. */
+/**
+ * The reviewed-only helper, loaded on first use: it opens the database. A reader, so it does not
+ * ask live-database.ts, whose subject is writing: on a database the desk may not write to it
+ * returns nothing and the composer simply has no knowledge-base row to cite.
+ */
 export const reviewedKb: KbReader = {
     async list() {
         try {

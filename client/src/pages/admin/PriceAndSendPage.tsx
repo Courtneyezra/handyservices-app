@@ -93,6 +93,8 @@ export interface PricePayload {
     videos: string[];
     /** T20: what she sent and whether we asked for a photo and she replied without one (server/spine/media-ask.ts). Absent on older payloads. */
     customerMedia?: { sentPhotos: boolean; sentVideo: boolean; askedAt: string | null; repliedWithoutMedia: boolean };
+    /** Checklist 4.4: what the draft is missing, for Ben to request before he prices. */
+    benToRequest?: string[];
     builderUrl: string;
     estimate: { id: string | null; status: string | null; confidence: string | null; at: string | null } | null;
     quoteUrl: string;
@@ -1147,6 +1149,17 @@ export function PriceAndSend({ slug }: { slug: string }) {
                         </button>
                     )}
                 </div>
+                {/* 4.4: what the draft is missing, for Ben to request before he prices. It reaches this
+                    screen off the desk's case file, never off the quote row, which anyone holding the
+                    slug can read. */}
+                {(data.benToRequest?.length ?? 0) > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] font-bold" data-testid="ben-to-request">
+                        <span className="text-slate-500">To request</span>
+                        {data.benToRequest!.map((what) => (
+                            <span key={what} className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">{what}</span>
+                        ))}
+                    </div>
+                )}
                 {queueStrip}
                 {!desktop && (
                     <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 text-sm font-black" role="tablist" data-testid="tabs">

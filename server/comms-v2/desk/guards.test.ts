@@ -20,7 +20,7 @@ function fixture(text = 'Hi, leaking tap in NG9 2AB'): { file: CaseFile; party: 
 
 function input(reply: string, over: Partial<GuardInput> = {}, text?: string): GuardInput {
     const f = fixture(text);
-    return { file: f.file, party: f.party, turn: f.turn, reply, factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, ...over };
+    return { file: f.file, party: f.party, turn: f.turn, reply, factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: new Set(['q1']), ...over };
 }
 
 describe('guards', () => {
@@ -34,10 +34,14 @@ describe('guards', () => {
         expect(runGuards(input('roughly 80 quid')).guards.figure.result).toBe('fail');
         const f = fixture();
         const fact = recordFact(f.file, { key: 'labour', value: '£120.00', source: { kind: 'quote_line', quoteRef: 'q1', line: 'labour' }, by: 'quoting' });
-        const cited = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'The labour line on your quote is £120.00.', factIds: fact.ok ? [fact.value.id] : [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null });
+        const base = { file: f.file, party: f.party, turn: f.turn, reply: 'The labour line on your quote is £120.00.', kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null };
+        const cited = runGuards({ ...base, factIds: fact.ok ? [fact.value.id] : [], liveQuoteRefs: new Set(['q1']) });
         expect(cited.guards.figure.result).toBe('pass');
-        const uncited = runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'The labour line on your quote is £120.00.', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null });
+        const uncited = runGuards({ ...base, factIds: [], liveQuoteRefs: new Set(['q1']) });
         expect(uncited.guards.figure.result).toBe('fail');
+        // The same cited line, once its quote is no longer live: the amount is refused all the same.
+        const stale = runGuards({ ...base, factIds: fact.ok ? [fact.value.id] : [], liveQuoteRefs: new Set() });
+        expect(stale.guards.figure.result).toBe('fail');
     });
     it('date, time, duration: fails unless a diary fact', () => {
         expect(runGuards(input('We could be there on Tuesday.')).guards.date_time_duration.result).toBe('fail');
@@ -127,6 +131,15 @@ describe('guards', () => {
         expect(runGuards({ ...base, reply: 'No worries about photos, what size is the tile?' }).guards.ask_ledger.result).toBe('pass');
         thanked(f.file, 'media');
         expect(runGuards({ ...base, reply: 'Thanks for the photo!' }).guards.ask_ledger.result).toBe('fail');
+    });
+    it('ask ledger: reciting a quote assumption about access is not asking about it', () => {
+        const f = fixture();
+        ask(f.file, 'access');
+        const base = { file: f.file, party: f.party, turn: f.turn, factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null };
+        const answer = 'The "Replace kitchen mixer tap" line is £136.00. It assumes you\'re supplying the new tap unless we agree otherwise, that the standard under-sink isolation valves are there and working, and that access to the under-sink pipework is clear.';
+        expect(runGuards({ ...base, reply: answer }).guards.ask_ledger.result).toBe('pass');
+        expect(runGuards({ ...base, reply: 'Is there access round the back.' }).guards.ask_ledger.result).toBe('fail');
+        expect(runGuards({ ...base, reply: 'A dripping tap, got it, and is there access under the sink.' }).guards.ask_ledger.result).toBe('fail');
     });
     it('regulated: a gas turn answered without the fixed line fails; with it passes; plumbing is ours', async () => {
         const gas = input('Sure, whereabouts are you?', {}, 'My gas boiler is leaking');

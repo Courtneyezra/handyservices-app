@@ -51,6 +51,11 @@ export interface DiaryQuote {
 export interface DiaryReader {
     /** Completed bookings with a scheduled date, newest completion first, at most `limit`, completed on or after `since`. */
     completedBookings(opts: { since: Date; limit: number }): Promise<DiaryBooking[]>;
+    /**
+     * A quote reference on a case file is the quote's id when the scheduling fixture wrote it and
+     * its short slug when Quoting drafted it (`quoting/quoting-tools.ts`), and both name the same
+     * row: every read here takes either.
+     */
     /** The booking row by its reference, or nothing. */
     booking(bookingRef: string): Promise<DiaryBooking | null>;
     /** The newest booking made from a quote that still stands on `today` (an ISO day), else the newest that does not, or nothing. */
@@ -187,11 +192,16 @@ export class MemoryDiary implements DiaryReader {
     }
     async booking(bookingRef: string): Promise<DiaryBooking | null> { return this.bookings.find((b) => b.id === bookingRef) ?? null; }
     async bookingForQuote(quoteRef: string, today: string): Promise<DiaryBooking | null> {
-        const mine = this.bookings.filter((b) => b.quoteRef === quoteRef);
+        const id = (await this.quote(quoteRef))?.id ?? quoteRef;
+        const mine = this.bookings.filter((b) => b.quoteRef === id);
         mine.sort((a, b) => Date.parse(b.createdAt ?? '0') - Date.parse(a.createdAt ?? '0'));
         return newestFromQuote(mine, today);
     }
-    async quote(quoteRef: string): Promise<DiaryQuote | null> { return this.quotes.find((q) => q.id === quoteRef) ?? null; }
+    /** A quote store may stand behind the seeded rows: live there is one quotes table, so a quote Quoting drafted is one this diary reads back. */
+    quoteFallback: ((quoteRef: string) => Promise<DiaryQuote | null>) | null = null;
+    async quote(quoteRef: string): Promise<DiaryQuote | null> {
+        return this.quotes.find((q) => q.id === quoteRef || q.slug === quoteRef) ?? (this.quoteFallback ? await this.quoteFallback(quoteRef) : null);
+    }
 }
 
 /** The one database the desk may touch before the cutover: the branch COMMS_V2_DATABASE_URL names, and only while it is the one open. Reads and the fixture's writes both go through it. */
@@ -229,17 +239,19 @@ export const liveDiary: DiaryReader = {
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { desc, eq } = await import('drizzle-orm');
+        // A booking row carries the quote's id, so a file naming its slug is resolved to one first.
+        const id = (await liveDiary.quote(quoteRef))?.id ?? quoteRef;
         const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, assignmentStatus: t.assignmentStatus, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
-            .from(t).where(eq(t.quoteId, quoteRef)).orderBy(desc(t.createdAt)).limit(10);
+            .from(t).where(eq(t.quoteId, id)).orderBy(desc(t.createdAt)).limit(10);
         return newestFromQuote(rows.map(bookingRowToDiary), today);
     },
     async quote(quoteRef) {
         branchInUse();
         const { db } = await import('../../db');
         const { personalizedQuotes: q } = await import('../../../shared/schema');
-        const { eq } = await import('drizzle-orm');
+        const { eq, or } = await import('drizzle-orm');
         const rows = await db.select({ id: q.id, slug: q.shortSlug, isDraft: q.isDraft, supersededAt: q.supersededAt, revokedAt: q.revokedAt, expiresAt: q.expiresAt })
-            .from(q).where(eq(q.id, quoteRef)).limit(1);
+            .from(q).where(or(eq(q.id, quoteRef), eq(q.shortSlug, quoteRef))).limit(1);
         const r = rows[0];
         if (!r) return null;
         const iso = (v: Date | string | null | undefined): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));

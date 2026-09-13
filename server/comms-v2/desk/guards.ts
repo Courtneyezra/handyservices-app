@@ -3,6 +3,8 @@
  * passes here before the sender. Only a composed reply: words a person typed on Ben's board go
  * straight to the sender under their own human approver (behaviour.md answer 43, human-reply.ts),
  * because these guards exist to stop the composer inventing what Ben himself is the source of.
+ * A message the desk wrote is a composed reply whoever licensed it, so Ben's priced quote is
+ * composed here and checked here like any other (quoting/quoting-door.ts).
  *
  * Eight guards, each checked against the file: figure, date/time/duration, commitment and fault,
  * business claim, disclosure, one reply, ask ledger, regulated. The business-claim guard carries
@@ -39,6 +41,20 @@ export interface GuardInput {
     lookedUp?: string[];
     /** The subject the specialist proposed asking this turn; the ledger records it after the send. */
     proposedSubject: string | null;
+    /**
+     * What licensed this send. `customer_turn`, the default, is the desk answering a turn, and the
+     * one-reply guard holds it to one reply per turn. `human_action` is a person acting on the
+     * thread - Ben pressing send on the price screen - which is a fresh licence to speak, not the
+     * desk speaking twice off one message. The words are still composed, so the other seven run
+     * over them unchanged.
+     */
+    prompted?: 'customer_turn' | 'human_action';
+    /**
+     * The quotes a figure may be read from right now (quoting/quoting-tools.ts liveFigureQuotes).
+     * A cited quote line whose quote is not in here is refused: facts are append-only, so a revoked,
+     * superseded or expired quote's figures stay on the file and must not be repeated.
+     */
+    liveQuoteRefs: ReadonlySet<string>;
 }
 
 export interface GuardOutcome {
@@ -63,9 +79,10 @@ function citedFacts(input: GuardInput): Fact[] {
 export function checkFigure(input: GuardInput): GuardVerdict {
     const matches = Array.from(input.reply.matchAll(new RegExp(RE_FIGURE.source, 'gi'))).map((m) => m[0]);
     if (!matches.length) return pass();
-    const allowed = new Set(citedFacts(input).filter((f) => f.source.kind === 'quote_line' || f.source.kind === 'customer_record').map((f) => normaliseFigure(f.value)));
+    const live = citedFacts(input).filter((f) => (f.source.kind === 'quote_line' ? input.liveQuoteRefs.has(f.source.quoteRef) : f.source.kind === 'customer_record'));
+    const allowed = new Set(live.map((f) => normaliseFigure(f.value)));
     const bad = matches.filter((m) => !allowed.has(normaliseFigure(m)));
-    return bad.length ? fail(`a figure appears that is not a cited quote line or customer record: ${bad.join(', ')}`) : pass();
+    return bad.length ? fail(`a figure appears that is not a line of the live quote or a customer record: ${bad.join(', ')}`) : pass();
 }
 
 /**
@@ -160,6 +177,7 @@ export function checkDisclosure(input: GuardInput): GuardVerdict {
 }
 
 export function checkOneReply(input: GuardInput): GuardVerdict {
+    if (input.prompted === 'human_action') return { result: 'pass', note: 'a person acted on the thread, which licenses this send; the guard counts the desk\'s own replies to one customer turn' };
     return customerWroteSinceLastReply(input.file, input.party.personId) ? pass() : fail('a second reply to the same party with no customer turn in between');
 }
 
@@ -175,11 +193,27 @@ export function checkAskLedger(input: GuardInput): GuardVerdict {
 }
 
 export function checkRegulated(input: GuardInput): GuardVerdict {
-    const match = regulatedMatch(input.turn.body);
+    // Which words this reads turns on what licensed the send. Answering a customer turn, it is that
+    // turn: what they raised is what the fixed line is owed about. Licensed by a person instead, the
+    // send answers no turn at all - Ben's quote delivery says nothing about their last message - so
+    // it is read against its own words, and a delivery that raises regulated work itself still owes
+    // the line. The hold that turn put on the thread is a person's and stands either way.
+    const subject = input.prompted === 'human_action' ? input.reply : input.turn.body;
+    const match = regulatedMatch(subject);
     if (!match) return pass();
     const line = input.fixedLines.find((f) => f.kind === 'gas');
     if (line && input.reply.toLowerCase().includes(line.text.toLowerCase().slice(0, 40))) return pass();
-    return fail(`the turn mentions regulated work ("${match}") and the reply does not carry the fixed line`);
+    return fail(`the ${input.prompted === 'human_action' ? 'reply' : 'turn'} mentions regulated work ("${match}") and the reply does not carry the fixed line`);
+}
+
+/**
+ * The eight with nothing to say, for a result that carries no composed reply at all: a clock pass,
+ * or a quote held before the composer ran. The record is always all eight, so a reader never has to
+ * work out whether a missing guard means it failed.
+ */
+export function noReplyToCheck(): Record<GuardName, GuardVerdict> {
+    const v = (): GuardVerdict => ({ result: 'pass', note: 'no reply was composed, so there was nothing to check' });
+    return { figure: v(), date_time_duration: v(), commitment_fault: v(), business_claim: v(), disclosure: v(), one_reply: v(), ask_ledger: v(), regulated: v() };
 }
 
 /** Every guard, always all eight, so the planned send records each result. */

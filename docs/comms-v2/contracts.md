@@ -2,7 +2,8 @@
 
 The contracts for the clean-sheet comms desk rebuild: a record shape, its named calls, what
 each call refuses, and an invariants paragraph, for each. Then how a goal is validated. Contracts
-1 to 6 are Goal 1's; Contract 7, the Service tool server, is Goal 6's.
+1 to 6 are Goal 1's; Contract 7, the Quoting tool server, is Goal 4's; Contract 8, the Service tool
+server, is Goal 6's. The Scheduling tool server (Goal 5) is unnumbered.
 
 A goal loop builds against these calls; a test checks the invariants. Written from the code
 inventory, not from scratch.
@@ -83,6 +84,13 @@ like that. Where the reason matters, it goes to the hold the approver reads, and
 the run summary; the brief says only that there is no date, or no link, and to say nothing about
 why.
 
+**Ben's facts are not the customer's.** Some facts on the file are written for Ben and carry an
+admin link or an internal note: the three notification facts (`ben_notified`, `ben_chased`,
+`quote_accepted`) and the draft's missing list (`ben_to_request`). No guard reads a fact's meaning,
+so the composer boundary is the one place they are kept out: `customerVisibleFacts` filters them
+from the prompt and from the ids the composer may cite. Any new fact written for Ben's eyes goes on
+`INTERNAL_FACT_KEYS` on the day it is written.
+
 ## Contract 4 - Guards and the approver slot
 
 Deterministic code, no model. Every composed reply passes here before the sender. The approver
@@ -108,9 +116,13 @@ file, not against the row alone: the approver its hold names while one stands, e
 `approverFor` returns for it. A session holding some other slot is refused, on an unheld file as
 much as a held one, so a slot minted for a landlord's thread can never reply on a homeowner's.
 
+Ben's priced quote is the other way round: he licenses the send from the price screen, but the
+route carries no message body, so the words are the desk's own composer's and Contract 4 checks
+them like any other reply (`quoting/quoting-door.ts`).
+
 | Guard | Fails when | Checked against |
 |---|---|---|
-| figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file |
+| figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file, and the cited line's quote resolved for liveness (`live_figure_quotes`): a revoked, superseded or expired quote's figure is refused though the fact stays on the file |
 | date, time, duration | any date, time, lead time or duration appears, anywhere in the reply, that is not a diary fact this turn looked up | facts with a diary source a specialist read on this run; one written on an earlier turn is not citable, since the diary may have moved since |
 | commitment and fault | a promise to do, fix or guarantee something, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
 | business claim | two rules. The verbatim rail: the reply cites a knowledge-base row, by id or through a fact, that is not a reviewed row the desk resolved, or whose body the reply does not carry word for word. Under it, the claim lexicon: a statement about the business, its services, hours, coverage or policies with no citation supporting it. The rail runs whatever the reply is about, so payment terms, invoicing and aftercare are covered where no word list reaches | reviewed knowledge-base rows by id, verbatim |
@@ -138,10 +150,10 @@ send.
 
 | Call | Does | Refuses when |
 |---|---|---|
-| `choose_channel` | the channel the party wrote on; for a form or a call, which cannot carry a reply: WhatsApp if the number is on it, then SMS, then email | the party has no channel that can carry a reply |
+| `choose_channel` | the channel the party wrote on; for a form or a call, which cannot carry a reply: a channel they have written on before whose window can carry it, so a thread that ran on SMS is answered on SMS, and failing that WhatsApp if the number is on it, then SMS, then email, which is what a web-form first contact takes | the party has no channel that can carry a reply |
 | `window` | for WhatsApp, open or shut with the reason, from the party's channel record on the file | never guessed; a channel with no recorded window state is shut |
 | `render` | WhatsApp: splits the one reply into bubbles at the breaks a person would use, sentence and thought boundaries, no bubble longer than about three hundred characters, a soft ceiling of four, typing gaps of one to three seconds scaled to length. A person's own words are rendered as typed instead: a blank line still starts a new bubble, nothing inside one is reflowed. SMS: one message, two segments at most. Email: greeting, body, sign-off, on the same thread | a split that cuts mid-sentence; a ceiling reached, which returns the reply to the composer to shorten rather than sending a wall |
-| `pick_template` | when the window is shut: one approved template for the reply's purpose from the registry, branching on purpose never on name; freeform resumes when the customer replies | no approved template for that purpose: the reply is held as a pending draft for Ben and recorded. Never an SMS fallback. |
+| `pick_template` | when the window is shut: one approved template for the reply's purpose from the registry, branching on purpose never on name; freeform resumes when the customer replies | no approved template for that purpose: the reply is held as a pending draft for Ben and recorded. Never an SMS fallback for a reply. The one carve-out is the quote delivery in Contract 7, which needs a link no template carries and which skips only a WhatsApp record the customer has never written on. |
 | `send` | delivers the rendered reply with an approver and a run id, then records the send on the file with the facts it was written from | no approver or run id; guards not passed on anything the desk composed, a person's own `human:` words carrying no verdicts; window shut and no template; the party not on the file; a run id already sent |
 | `initiate` | a desk-started send, template only, for chasing an approver or a maintenance reminder | unused in Goal 1. Exists so the landlord service can attach without a new exit. |
 
@@ -167,6 +179,138 @@ case file through its calls. The specialist itself, on Sonnet 5, returns facts a
 **What the specialist returns.** Facts: job type, location, media descriptions, each with its
 source. A proposal: the next question, whether to offer a call, whether to thank for media,
 whether the job is ready, or a hold with the reason regulated. Never a sentence for the customer.
+
+## Contract 7 - The Quoting tool server
+
+The second specialist's shelf (Goal 4). Read-only against the world except through the quote
+machinery it wraps (the clerk chain, Ben's price screen), writing to the case file only through
+its calls. There is no price-book shelf: the catalogue is reached only from inside the clerk chain
+`draft_quote` calls, which matches each line to a SKU for Ben's screen and the engine, and it is
+never a source for a figure in chat (answer 35). The specialist itself, on Sonnet 5, returns facts cited to the quote and a
+brief for the composer, and never sees a figure.
+
+| Tool | Input | Returns | Refuses when |
+|---|---|---|---|
+| `quote_readiness` | the case file | ready, and what Ben may want to request before pricing (photo state, access) | ready is job type and location both present; photos never required |
+| `draft_quote` | the case file, the party, the intake | the draft's slug and lines, Ben's notice, the facts recorded (the missing list among them, as the internal `ben_to_request` fact; it is never written to the quote row, whose every field is served to anyone holding the slug) | not ready; the file's quote reference names a quote that exists (one draft per job; changes are Ben's) |
+| `notify_ben` | a notice (ready to price, chase, accepted) | recorded on the file as a fact cited to the quote; nothing is dispatched (dispatch to Ben's phone is a cutover item) | a second ready-to-price or accepted notice for the same quote (one notification); no quote on the file |
+| `chase` | the case file, the clock | a numbered chase for Ben, naming the price an unpriced draft is waiting for or the held delivery a priced one is waiting on | the quote is no longer a draft (it has reached the customer); Ben not yet notified; not due (four hours after the notification, then daily); three chases already |
+| `read_quote_line` | the quote and a line label | the amount to the penny and the citation (quote reference, label) the figure guard verifies | draft, revoked, superseded, expired; a label not on the quote; a label two lines share |
+| `read_quote_scope` | the quote | what each line covers, its assumptions, what is not included; no figure | revoked, superseded, expired |
+| `live_figure_quotes` | the case file | which quotes a figure may be read from now, for the figure guard's own check of a cited line | the same rule as `read_quote_line`: a draft, revoked, superseded or expired quote is not in the answer |
+| `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, the total, the deposit; never half a line, which is a breakdown rather than a line and is printed in whole pounds on the quote page) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
+| `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record and the totals; the row stays a draft | not a draft; a line with no suggestion and no figure from Ben |
+| `mark_quote_sent` | the case file, after the delivery landed | the quote leaves draft, its figures reach the file, the stage walks to quoted | no quote on the file; a row the store will not mark sent |
+| `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |
+
+**Which database the tools open.** Every live WRITER in the desk refuses unless the database in use
+is the Neon branch `COMMS_V2_DATABASE_URL` names, in one place the quote store, the draft chain and
+any future writer call (`server/comms-v2/live-database.ts`). The refusal names that requirement and
+falls back to nothing. It exists because the sandbox door is mounted on the ordinary server for
+Ben's board, and on the deployed server that is the production database: the quote machinery would
+otherwise draft a real quote row and publish a quote page with real prices on it. Writing is the
+whole subject, so the reviewed knowledge-base readers do not ask: a read publishes nothing, and
+made to refuse they would throw on exactly the gas, complaint and money turns the fixed line exists
+for. Ben's board reading its own approver row is a read too. Cutover replaces this with the desk
+switch.
+
+**Delivering the quote.** Ben prices on the price screen and presses send. The price route carries
+no message body, so the delivery is written by the desk's own composer from the file, with the
+quote link, and Contract 4 checks it like any other composed reply. The composer is told the
+channel the send goes out on rather than resolving one of its own, so the shape it writes to is the
+shape the render wants. The quote leaves draft only once that send has landed: a shut window on a
+channel the customer chose (no approved template carries a quote link, so wiring
+`quote_ready_link` into the desk's sender is a cutover item), a guard failure or a refused send all
+hold for Ben and leave the quote a draft he can price again, rather than recording figures as live
+that the customer was never shown. One channel is skipped rather than held on: a channel the
+customer has never written on whose window is shut, which is the WhatsApp record a form or a call
+lead is given for a number known to be on WhatsApp. Holding on that never-opened window would keep
+the link from the lead the fallback order was written for, so the delivery takes the next channel
+in the order, which needs no template. A WhatsApp thread the customer wrote on holds as above.
+
+One sentence of the send is a fixed line rather than the composer's, from the one registry of Ben's
+fixed sentences (`first_contact_ack`, desk/fixed-lines.ts): where
+the acknowledgement a web-form enquiry was owed held for Ben and never went, the delivery is the
+first message that will ever reach them, so it opens with a line naming us and the enquiry it
+follows, ahead of the composer's words. The composer is told the room left after that line, not the
+whole channel budget, because a reply written to the whole budget and then added to is one the
+render refuses. The send does not clear the acknowledgement's hold: that card is Ben's and stays on
+his board until he answers it. Nothing is interpolated into the line, so no model-written fact
+reaches a customer through it and its wording is guard-checked by a test rather than in front of a
+customer.
+
+**What the specialist returns.** Facts: the quote's lines to the penny, scope, not included,
+assumptions, link and status, each with source `quote_line` naming the quote and the label. A
+brief: the quote is with Ben, or answer from these facts, or point at the quote page to accept, or
+acknowledge a not-ready customer. Holds: money beyond a quote line whatever the quote's status, since
+5.3's exemption is a figure already on the sent quote and a quote still with Ben has none to answer
+from, acceptance in chat, a quote no
+longer live for figures, and a draft the clerk could not build, where the brief promises the customer nothing, the turn asks nothing and
+carries the held acknowledgement instead, and the hold reason names the failure, because no quote
+exists and Ben has had no notification. A later turn that does draft the quote answers that hold:
+the desk releases it in its own words, naming the quote and its price screen, so the card never
+tells Ben to build a quote that is already waiting for him. Never a
+sentence for the customer. Acceptance is a human event the door (live, the payment webhook)
+records; the specialist can only read it.
+
+**A price the quote does not state as a line.** The question model names which labels a turn asks
+about, and any amount asked for under a name the live quote does not carry is money beyond a quote
+line, so it goes to Ben: the labour or materials half of a line, a deposit on a quote priced without
+one, or a label two lines share. The quote is asked about the label the model returned, not the copy
+the brief shortens, so a line whose label runs past that clamp is still a line of the quote and its
+price is answered (5.3). A total and a deposit are named by their kind rather than their label, so
+"the total price" is the quote's one total, and that name is then checked against the quote like any
+other.
+
+**Two lines the quote titles the same.** Ordinary work: two fence panels, two taps. Each figure is
+recorded and cited under a name unique on the quote - the label, or the label with its line position
+when another line shares it - so one line's price can never be recorded or read back as another's.
+The specialist names the quote's own labels to its question model, each once and never those
+positions, which it has no way to map onto the customer's words: asked for under the title they
+share, no figure is read at all, because which line is meant is not the desk's to guess, so it goes
+to Ben. Answering it from the line's own
+figure under that name would state an amount the customer's quote does not, and every check would
+pass it, which is worse than a hold.
+
+**The money belt and the reading that replaces it.** The router's deterministic belt raises `money`
+on the wording alone, so 2.7 never depends on one model reading. A money exception is cleared only
+while the file's quote is live for figures, because the Quoting question model then reads whether the
+ask is beyond a line (5.3), and the route says so (`moneyToQuoting`) whichever raised it, the belt or
+the router's own model. When that reading does not happen - the turn was read as a pause, an
+acknowledgement or a promise of more, the body was empty, or the call failed - the exception stands
+again and Quoting sets the money hold itself. The same applies when the specialist's own read of the quote fails: the belt was cleared
+on the read that worked at the top of the turn, and the brief then forbids a figure outright, because
+the amounts an earlier turn recorded are still on the file and the reply is still written.
+
+**What Ben's send releases.** Exactly one hold, and only while no other voice has been added to it.
+A step saying its own card again with a later reason - a second shut window, a second guard failure
+- restates that card rather than adding a near-duplicate to it, and a note the desk writes about its
+own run joins the card without marking it, because it is the same automatic step speaking (`own_card`
+on `note_on_hold`). Only a reason carrying someone else's words, a customer's question routed onto
+the card, marks it: from then on the card is nobody's to clear automatically. So a card one step
+owns end to end stays that step's to clear: the one the price route itself put on the thread when an earlier attempt did not send,
+which this attempt has now done. It clears in the desk's own words naming that send, never the
+delivery that went, because nobody read those words before they went and a release recorded in them
+would read as Ben's own answer to whatever the card asked. A hold is one card carrying every reason
+it has been raised for (`note_on_hold`), so a card that has been added to since is nobody's to clear
+automatically: a question Ben owed an answer to ("do you charge a call-out fee?") would go with it,
+and the delivery carries the link and nothing else. The card records that it has been added to
+(`noted_on`), which is the one place any automatic release asks. The same rule governs the desk's
+own release of the draft-failed card once a later turn drafts the quote. Every other card stands
+outright: the first-contact acknowledgement's hold, a complaint, refund, trust or regulated hold,
+and acceptance, which stays human. A delivery that held reaches nobody and releases nothing, and
+what stopped it is added to whatever card is already open rather than lost.
+
+**A quote that is no longer live for figures.** Expired, revoked and superseded are one path on
+purpose: no figure may be read from any of them, no fresh link is recorded, the reply says Ben will
+come back to them on the quote, and the hold is what asks him, so the promise is one that is kept
+(6.3). A money question on such a thread is beyond a line of the quote, because no line is live, so
+the money fixed line and its hold stand.
+
+Expired deliberately gets no softer treatment than revoked, though the quote page can refresh a
+lapsed price itself: telling the customer to do that is its own item, to settle once Ben has used the
+board and can say how many cards a two-day-old thread is worth. On superseded, answering from the
+newer quote is the better answer and is its own item too.
 
 ## The Scheduling tool server (Goal 5)
 
@@ -228,7 +372,7 @@ customer's words from the thread. A proposal: the fixed lines to include (`dates
 `date_change_to_ben`) and a hold for Ben on a date change while the file is still
 answered on everything else. Never a sentence for the customer.
 
-## Contract 7 - The Service tool server
+## Contract 8 - The Service tool server
 
 The specialist for facts and aftercare (Goal 6). Every call is read-only against the world and
 writes only to the case file through its calls. The specialist itself, on Sonnet 5, returns

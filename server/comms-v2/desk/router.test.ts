@@ -56,6 +56,23 @@ describe('route', () => {
         const r2 = await route(unhappy, unhappy.turns[0], new FakeModelClient({ router: () => ({ subjects: ['service'], proposedStage: 'scoping', party: 'customer', exception: 'complaint', turnKind: 'other' }) }));
         expect(r2.exceptions).toEqual(['complaint', 'money']);
     });
+    it('a money question on a quote live for figures goes to Quoting (5.3) and the rest the turn raised still stands; a portal action raises nothing', async () => {
+        const live = fixture('How much is the tap line on my quote, and can you ring me?');
+        live.job.quoteRef = 'q-live';
+        const reading = () => ({ subjects: ['quoting'], proposedStage: 'scoping', party: 'customer', exception: 'callback', turnKind: 'question' });
+        const handed = await route(live, live.turns[0], new FakeModelClient({ router: reading }), new Set(['q-live']));
+        expect(handed.moneyToQuoting).toBe(true);
+        expect(handed.exceptions).toEqual(['callback']);
+        expect(handed.subjects[0]).toBe('quoting');
+        // No quote live for figures: money is Ben's again, beside the call request.
+        const notLive = await route(live, live.turns[0], new FakeModelClient({ router: reading }), new Set());
+        expect(notLive.moneyToQuoting).toBe(false);
+        expect(notLive.exceptions).toEqual(['money', 'callback']);
+        const portal = fixture('Quote accepted');
+        portal.turns[0].kind = 'portal_action';
+        const accepted = await route(portal, portal.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question' }) }));
+        expect(accepted).toMatchObject({ subjects: ['quoting'], exceptions: [], turnKind: 'acknowledgement', moneyToQuoting: false });
+    });
     it('reads a request for a call from the router itself: there is no callback belt', async () => {
         const call = fixture('Can you ring me about it?');
         const r = await route(call, call.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: 'callback', turnKind: 'question' }) }));
@@ -76,7 +93,7 @@ describe('the composer\'s brief', () => {
         file.ledger.push({ subject: 'media', askedAt: 'x', answeredAt: null, thankedAt: null, askCount: 1 });
         const user = buildComposerUser({
             file, party: file.parties[0], turn: file.turns[0],
-            route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exceptions: ['money'], turnKind: 'question', belts: { regulated: null, money: 'how much' }, call: {} as any, error: null },
+            route: { subjects: ['scoping', 'scheduling'], proposedStage: 'scoping', party: 'customer', exceptions: ['money'], turnKind: 'question', belts: { regulated: null, money: 'how much' }, moneyToQuoting: false, call: {} as any, error: null },
             specialists: [
                 { specialist: 'scoping', factIds: ['fact_1'], proposal: { nextQuestion: { subject: 'postcode', unknowns: [] }, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, calls: [], error: null },
                 { specialist: 'scheduling', factIds: ['fact_now'], proposal: { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null }, brief: ['The diary has no typical lead time to give: include the fixed line that dates come with the quote.'], calls: [], error: null },

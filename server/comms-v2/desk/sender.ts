@@ -13,9 +13,9 @@
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
  * a customer without passing the guards, while a person's own words from Ben's board carry their
- * own authority and no verdicts (behaviour.md answer 43); a shut window never produces freeform
- * text on any channel; one of the four fixed lines that are Ben's to review sends in dry run only
- * until he has.
+ * own authority and no verdicts (behaviour.md answer 43); verdicts once supplied decide, whoever
+ * the approver is; a shut window never produces freeform text on any channel; one of the four
+ * fixed lines that are Ben's to review sends in dry run only until he has.
  *
  * A template is named by the registry (server/window-templates.ts) and approved by the live sync
  * (server/whatsapp-template-sync.ts), which also holds Twilio's content SID for it. The wire shape
@@ -50,16 +50,46 @@ export type InitiatePurpose = 'approver_chase' | 'owner_escalation';
 export type ChannelChoice = { ok: true; channel: ReplyChannel; address: string } | { ok: false; reason: string };
 
 /**
- * The channel the party wrote on; for a form or a call, WhatsApp if the number is on it, then SMS,
- * then email. An SMS from a party whose WhatsApp window is open is answered on WhatsApp (the
- * design's "if a known customer also has WhatsApp, prefer it"), never on a shut one.
+ * The channel the party wrote on; for a form or a call, one they have written on before that can
+ * carry the reply, and failing that WhatsApp if the number is on it, then SMS, then email. An SMS
+ * from a party whose WhatsApp window is open is answered on WhatsApp (the design's "if a known
+ * customer also has WhatsApp, prefer it"), never on a shut one.
+ *
+ * `noTemplate` is for a send no approved template can carry, which today is the quote delivery: its
+ * link is on no template of ours. Where the channel the order lands on is one the customer has
+ * never written on and whose window is shut - the WhatsApp record a form or a call lead is given
+ * for a number known to be on WhatsApp - that window would take a template and none carries the
+ * link, so the send takes the next channel that needs no template rather than never reaching them.
+ * A channel the customer chose keeps its normal treatment: a genuine WhatsApp thread gone quiet for
+ * a day still comes back shut, and the caller holds it for Ben.
  */
-export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date = new Date()): ChannelChoice {
+export function chooseChannel(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date = new Date(), opts: { noTemplate?: boolean } = {}): ChannelChoice {
+    const choice = channelFor(party, wroteOn, now);
+    if (!choice.ok || !opts.noTemplate) return choice;
+    const chosen = party.channels.find((c) => c.kind === choice.channel);
+    if (chosen?.lastInboundAt || windowOf(party, choice.channel, now).state === 'open') return choice;
+    for (const kind of ['sms', 'email'] as const) {
+        const next = party.channels.find((c) => c.kind === kind);
+        if (next) return { ok: true, channel: kind, address: next.address };
+    }
+    return choice;
+}
+
+function channelFor(party: Party, wroteOn: Party['channels'][number]['kind'] | null, now: Date): ChannelChoice {
     const carry = (kind: ReplyChannel) => party.channels.find((c) => c.kind === kind);
     if (wroteOn === 'sms' && carry('whatsapp') && windowOf(party, 'whatsapp', now).state === 'open') return { ok: true, channel: 'whatsapp', address: carry('whatsapp')!.address };
     if (wroteOn === 'whatsapp' || wroteOn === 'sms' || wroteOn === 'email') {
         const c = carry(wroteOn);
         if (c) return { ok: true, channel: wroteOn, address: c.address };
+    }
+    // A form and a call are not channels a reply goes out on. Before the order below, the reply
+    // follows a channel this customer has actually written on and whose window can carry it: someone
+    // who scoped the job by text and then accepts on the quote page is answered by text, not nudged
+    // on a WhatsApp record that has never opened. A first contact who has written on nothing, the
+    // web form the order was written for, still takes the order and its approved template.
+    for (const kind of ['whatsapp', 'sms', 'email'] as const) {
+        const c = carry(kind);
+        if (c?.lastInboundAt && windowOf(party, kind, now).state === 'open') return { ok: true, channel: kind, address: c.address };
     }
     for (const kind of ['whatsapp', 'sms', 'email'] as const) {
         const c = carry(kind);
@@ -322,7 +352,7 @@ export interface SendInput {
     template: TemplateSend | null;
     runId: string;
     approver: Approver;
-    /** The verdicts on a composed reply. Null for a person's own words, which the guards never gate. */
+    /** The verdicts on a composed reply. Null only for a person's own words, which the guards never gate. */
     guards: GuardOutcome | null;
     factIds: string[];
     kbIds: string[];
@@ -340,17 +370,23 @@ export interface SenderDeps extends CaseFileDeps {
 
 /**
  * Delivers the rendered reply with an approver and a run id, then records the send on the file
- * with the facts it was written from. Refuses: no approver or run id; guards not passed on
- * anything but a person's own `human:` words; window shut and no template; the party not on the
- * file; a run id already sent; live, one of the four fixed lines Ben has not yet reviewed. A live
- * delivery that fails part way records the bubbles that went, marked partial, before the failure
- * is returned.
+ * with the facts it was written from. Refuses: verdicts that did not pass, whoever the approver
+ * is, and a send with no verdicts at all unless a person wrote the words; no approver or run id;
+ * window shut and no template; the party not on the file; a run id already sent; live, one of the
+ * four fixed lines Ben has not yet reviewed. A live delivery that fails part way records the
+ * bubbles that went, marked partial, before the failure is returned.
  */
 export async function send(input: SendInput, deps: SenderDeps = {}): Promise<SendOutcome> {
     const now = deps.now ?? (() => new Date());
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
     if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
-    if (!isHumanApprover(input.approver) && !input.guards?.ok) return { ok: false, reason: 'guards not passed' };
+    // Verdicts, once supplied, decide: a reply the desk composed is refused on a failure whoever
+    // licensed it, Ben included, because the question answer 43 asks is who WROTE the words and
+    // not who licensed the send. Only a send carrying no verdicts at all rests on the approver,
+    // and only an explicit `human:` prefix is a person there. Everything else is refused: the
+    // automated enum, a legacy string, a contractor relay the desk has no path for, and any
+    // approver this build does not recognise.
+    if (input.guards ? !input.guards.ok : !isHumanApprover(input.approver)) return { ok: false, reason: 'guards not passed' };
     if (input.window.state === 'shut' && !input.template) return { ok: false, reason: 'window shut and no template' };
     const party = partyOf(input.file, input.partyId);
     if (!party) return { ok: false, reason: 'the party is not on the file' };

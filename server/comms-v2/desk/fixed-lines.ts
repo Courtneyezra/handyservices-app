@@ -9,14 +9,17 @@
  * customer. The Goal 1 lines below them are the checklist's own wording and send live.
  * The rest are Goal 1's: money goes to Ben (checklist 2.7), a booked date change goes to Ben too
  * (`date_change_to_ben`, the Scheduling specialist's line), dates come with the quote (2.6), and
- * the acknowledgement a guard hold sends (Contract 4, second failure).
+ * the acknowledgement a guard hold sends (Contract 4, second failure). `first_contact_ack` is
+ * Goal 4's: the quote delivery carries it where the acknowledgement a web-form enquiry was owed
+ * held for Ben and never went, so the first message that ever reaches them names us and the
+ * enquiry it follows rather than being a bare link (`quoting/quoting-door.ts`).
  *
  * Goal 6 (server/comms-v2/service) adds the Service specialist's hold vocabulary: a question we
  * have no source for, scoping that is not converging, a requested change of details, and a
  * customer asking for a call (checklist 7.1, 7.2). Those are the checklist's own wording and send
  * live; the knowledge base is not read for them.
  */
-export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben';
+export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     gas: "Thanks for getting in touch. Gas work isn't something we take on ourselves, so I've passed this to Ben and he'll come back to you.",
@@ -28,6 +31,7 @@ export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     date_change_to_ben: 'Ben will come back to you on the date.',
     held_ack: "Thanks, I've passed this to Ben and he'll come back to you.",
     move_to_whatsapp: "If it's easier, you can message us on WhatsApp on this same number.",
+    first_contact_ack: 'Thanks for your enquiry - Ben here from Handy Services.',
     no_source: "I've passed that one to Ben and he'll come back to you on it.",
     not_converging: "I've passed this over to Ben so he can pick it up with you directly.",
     change_of_details: "I've noted that and passed it to Ben to update your details.",
@@ -44,7 +48,12 @@ export interface FixedLineSource {
     reviewed(kind: KbFixedLineKind): Promise<{ id: string; words: string } | null>;
 }
 
-/** The knowledge base, read through its reviewed-only helpers. Loaded on first use: it opens the database. */
+/**
+ * The knowledge base, read through its reviewed-only helpers. Loaded on first use: it opens the
+ * database. A reader, so it does not ask live-database.ts whose subject is writing: on a database
+ * the desk may not write to it simply finds nothing and the caller falls back to Goal 1's wording,
+ * which is what keeps a gas, complaint or refund turn answerable at all.
+ */
 export const knowledgeBaseFixedLines: FixedLineSource = {
     async reviewed(kind) {
         try {

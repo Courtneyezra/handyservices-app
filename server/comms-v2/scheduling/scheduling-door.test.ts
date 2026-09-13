@@ -12,13 +12,17 @@ import { plannedSendOfResponse, sendLanded } from '../desk/planned-send';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
+import { recordingNotifier } from '../quoting/ben-notifier';
+import { FakeDrafter } from '../quoting/draft-quote';
+import { MemoryQuoteStore } from '../quoting/quote-store';
 import { memoryScheduling, schedulingDoor, withScheduling } from './scheduling-door';
 import { MemoryDiary } from './diary';
 import { typicalLeadTime } from './scheduling-tools';
 
 let server: import('node:http').Server;
 let base: string;
-const scheduling = memoryScheduling();
+const quoteStore = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+const scheduling = memoryScheduling(undefined, quoteStore);
 
 beforeAll(async () => {
     const client = new FakeModelClient({
@@ -27,9 +31,15 @@ beforeAll(async () => {
             const dates = /when|dates|move it/i.test(last);
             return { subjects: dates ? ['scheduling'] : ['scoping'], proposedStage: 'scoping', party: 'customer', exception: /move it/i.test(last) ? 'date_change' : null, turnKind: dates ? 'question' : 'enquiry' };
         },
+        // Quoting's two calls are scripted beside Scheduling's: the job and the postcode together
+        // make a draft due on the first turn whatever the turn asks about dates.
         specialist: ({ system, user }) => system.includes('Scheduling specialist')
             ? { asks: [/move it/i.test(user) ? 'date_change' : /dates/i.test(user) ? 'availability' : 'lead_time'], requestedChange: /move it/i.test(user) ? 'the week after' : null }
-            : { facts: [{ key: 'job_type', value: 'leaking tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] },
+            : /lines of a quote/.test(system)
+                ? { lines: [{ title: 'Repair leaking tap', category: 'plumbing', qty: 1, detail: 'leaking at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : /what it concerns/.test(system)
+                    ? { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }
+                    : { facts: [{ key: 'job_type', value: 'leaking tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] },
         composer: ({ user }) => {
             const lead = /say exactly "(about [^"]+)" and cite fact (fact_[\w-]+)/.exec(user);
             const booked = /Booked date from the diary: say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user);
@@ -42,7 +52,8 @@ beforeAll(async () => {
             return { reply: 'Hi Sam, a leaking tap in NG9, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
         },
     });
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'no vision' }) }, scheduling: { ...scheduling, baseUrl: 'https://example.test' } });
+    const store = quoteStore;
+    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'no vision' }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' }, scheduling: { ...scheduling, baseUrl: 'https://example.test' } });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);
@@ -127,7 +138,9 @@ describe('the scheduling fixture on the door', () => {
         const seeded = await post('/scheduling/fixture', { quote: true });
         expect(seeded.status).toBe(200);
         expect(seeded.json.linked).toMatchObject({ stage: 'quoted', bookingRef: null });
-        expect(seeded.json.linked.quoteRef).toBe(seeded.json.seeded.quoteRef);
+        // One spelling of job.quoteRef across both specialists: the diary resolves either, the
+        // quote store reads only the slug, so the file names the slug.
+        expect(seeded.json.linked.quoteRef).toBe(seeded.json.seeded.quoteSlug);
         const r = await post('/message', { text: 'What dates do you have?', channel: 'whatsapp' });
         const ps = plannedSendOfResponse(r.json);
         expect(ps.delivered).toBe(true);
@@ -136,6 +149,18 @@ describe('the scheduling fixture on the door', () => {
         expect(r.json.state.conversation.stage).toBe('quoted');
         expect(ps.evidence.summary).toMatch(/Dates are picked on the quote page/);
     });
+    it('names the fixture quote the way the quote store reads one, so Quoting finds the row the file points at', async () => {
+        await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
+        const seeded = await post('/scheduling/fixture', { quote: true });
+        const { quoteRef, quoteSlug } = seeded.json.seeded;
+        // Live there is one quotes table, so the row the fixture wrote is one the quote store reads.
+        quoteStore.rows.set(quoteSlug, { id: quoteRef, shortSlug: quoteSlug, isDraft: false, basePrice: 12000, depositAmountPence: 4000, pricingLineItems: [{ lineId: 'card_1', label: 'Repair leaking tap', qty: 1, pricePence: 12000 }] });
+        const read = await fetch(`${base}/quote`);
+        const body = await read.json() as any;
+        expect(body.record).toMatchObject({ slug: quoteSlug, status: 'sent' });
+        expect(body.record.lines[0]).toMatchObject({ label: 'Repair leaking tap', pricePence: 12000 });
+    });
+
     it('5.5: changing a booked date holds for Ben, the reply confirms the booked date from the diary and carries the fixed line', async () => {
         await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
         const seeded = await post('/scheduling/fixture', { booked: true });
