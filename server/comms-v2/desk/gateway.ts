@@ -82,15 +82,33 @@ export class Gateway {
             const ch = partyOf(file, resolved.personId)!.channels.find((c) => c.kind === 'whatsapp');
             if (ch) ch.transport = turn.via;
         }
-        const result = await this.desk.handleTurn(file, landed);
+        const result = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result };
+    }
+
+    /**
+     * The landed turn to the desk. The file is put once the turn has landed and again once the desk
+     * has done with it, even when the desk throws, so a durable store holds the customer's words
+     * whatever the run does.
+     */
+    protected async handTurn(file: CaseFile, landed: Turn): Promise<DeskResult> {
+        this.store.put(file);
+        try {
+            return await this.desk.handleTurn(file, landed);
+        } finally {
+            this.store.put(file);
+        }
     }
 
     /** A clock pass with no new message. The desk never chases, so this is where "then quiet" is proven. */
     async clock(fileId: string): Promise<DeskResult | null> {
         const file = this.store.get(fileId);
         if (!file) return null;
-        return this.desk.clockPass(file);
+        try {
+            return await this.desk.clockPass(file);
+        } finally {
+            this.store.put(file);
+        }
     }
 
     /** Time passes: every timestamp on the file moves back by N hours, which shuts the window past 24. */
@@ -106,6 +124,7 @@ export class Gateway {
         for (const s of file.sends) s.at = shift(s.at)!;
         for (const h of file.stageHistory) h.at = shift(h.at)!;
         if (file.hold) file.hold.since = shift(file.hold.since)!;
+        this.store.put(file);
         return file;
     }
 

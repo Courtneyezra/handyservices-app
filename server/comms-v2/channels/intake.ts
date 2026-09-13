@@ -12,8 +12,9 @@
  * The switch alone does not start the intake: `INTAKE_REQUIREMENTS` below is what the intake must
  * have before it reads one live turn, and until every one of them is met the gateway refuses to be
  * built and every forward says so. Fail closed on purpose: with the switch flipped early the intake
- * would otherwise run live traffic through a store that only lasts as long as the process, in a
- * server that runs for weeks, against an identity that has never been told which numbers are ours.
+ * would otherwise run live traffic against an identity that has never been told which numbers are
+ * ours. The case files it opens are kept in the durable store (desk/database-store.ts), read in
+ * full when the gateway is built, so a restart or a redeploy loses no thread.
  *
  * `forwardToCommsV2` never throws and never blocks: an old handler's response does not wait on
  * the new desk, and a failure here is one log line. No value from an event is logged, only the
@@ -32,7 +33,6 @@ export function intakeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * here by the task that satisfies it, and the intake starts when the list is empty.
  */
 export const INTAKE_REQUIREMENTS: readonly string[] = [
-    'a persistent case file store: the desk\'s store holds every file, turn, media path and model call for the length of the process, which is right for the sandbox door host and wrong for a server that runs for weeks (the persistence task lifts this)',
     'a populated internal-number directory: the identity here has never been told which numbers are the business\'s own or its staff, so Ben\'s own handset would resolve as a customer and open a case file (server/internal-numbers.ts holds the numbers; registerInternal takes them)',
 ];
 
@@ -49,17 +49,25 @@ let live: Promise<import('./channel-gateway').ChannelGateway> | null = null;
 /**
  * The one live gateway, built on first use. Refuses while any of `INTAKE_REQUIREMENTS` is
  * outstanding, so a switch flipped before they land forwards nothing and says what is missing.
+ * Its case files are the durable store's, read in full before the first turn, and its identity is
+ * rebuilt from the parties on them; the store refuses unless the database in use is the branch
+ * COMMS_V2_DATABASE_URL names. A build that fails is forgotten, so the next forward tries again
+ * rather than repeating a passing failure for the life of the process.
  */
 export function liveChannelGateway(): Promise<import('./channel-gateway').ChannelGateway> {
     if (!live) {
-        live = (async () => {
+        const building = (async () => {
             if (INTAKE_REQUIREMENTS.length) throw new Error(`${INTAKE_ENV} is on but the intake refuses to start until it has: ${INTAKE_REQUIREMENTS.join('; ')}`);
             const { ChannelGateway } = await import('./channel-gateway');
             const { ChannelDesk } = await import('./channel-desk');
             const { Desk } = await import('../desk/desk');
+            const { identityFromCaseFiles, openCaseFileStore } = await import('../desk/database-store');
             const log = (line: string) => console.log(`[comms-v2 intake] ${line}`);
-            return new ChannelGateway({ desk: new ChannelDesk(new Desk({ mode: 'dry_run', log }), { mode: 'dry_run', log }), presence: messagesPresence, log });
+            const store = await openCaseFileStore({ log });
+            return new ChannelGateway({ desk: new ChannelDesk(new Desk({ mode: 'dry_run', log }), { mode: 'dry_run', log }), identity: identityFromCaseFiles(store.all()), store, presence: messagesPresence, log });
         })();
+        live = building;
+        building.catch(() => { if (live === building) live = null; });
     }
     return live;
 }

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from './channel-gateway';
-import { INTAKE_ENV, INTAKE_REQUIREMENTS, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, resetLiveChannelGateway } from './intake';
+import { INTAKE_ENV, INTAKE_REQUIREMENTS, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, liveChannelGateway, resetLiveChannelGateway } from './intake';
 
 const turns: Turn[] = [];
 const fakeDesk: DeskLike = {
@@ -28,7 +28,6 @@ describe('the intake switch', () => {
         resetLiveChannelGateway();
         const before = turns.length;
         await expect(forwardNow({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } })).rejects.toThrow(new RegExp(`${INTAKE_ENV} is on but the intake refuses to start`));
-        await expect(forwardNow({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } })).rejects.toThrow(/persistent case file store/);
         await expect(forwardNow({ kind: 'call_finished', callRecordId: 'c1' })).rejects.toThrow(/internal-number directory/);
         expect(turns.length).toBe(before);
         resetLiveChannelGateway();
@@ -42,6 +41,19 @@ describe('the intake switch', () => {
         expect(meta.envelopes[0]).toMatchObject({ channel: 'whatsapp', via: 'meta', text: 'yo' });
         const form = await envelopesOf({ kind: 'web_form', lead: { customerName: 'P', phone: '07700900942', email: 'p@x.co', jobDescription: 'fan', postcode: 'NG9 2AB', source: 'web_quote', leadId: 'lead_1' } });
         expect(form.envelopes[0]).toMatchObject({ channel: 'form', kind: 'form', providerMessageId: 'lead_1' });
+    });
+    it('no longer waits on a persistent case file store: that requirement has landed, and the internal-number directory is what is left', () => {
+        expect(INTAKE_REQUIREMENTS.some((r) => /persistent case file store/.test(r))).toBe(false);
+        expect(INTAKE_REQUIREMENTS.some((r) => /internal-number directory/.test(r))).toBe(true);
+    });
+    it('forgets a build that failed, so the next forward builds again rather than repeating the failure for the life of the process', async () => {
+        resetLiveChannelGateway();
+        const first = liveChannelGateway();
+        await expect(first).rejects.toThrow();
+        const second = liveChannelGateway();
+        expect(second).not.toBe(first);
+        await expect(second).rejects.toThrow();
+        resetLiveChannelGateway();
     });
     it('forwards into the gateway when on', async () => {
         resetLiveChannelGateway(new ChannelGateway({ desk: fakeDesk }));

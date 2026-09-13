@@ -4870,3 +4870,22 @@ export const kbEntries = pgTable("kb_entries", {
     check("kb_entries_question_check", sql`${table.kind} <> 'question' OR (btrim(${table.approvedWords}) = '' AND btrim(coalesce(${table.benNote}, '')) <> '')`),
 ]);
 export type KbEntryRow = typeof kbEntries.$inferSelect;
+
+/**
+ * The new comms desk's case files (server/comms-v2/desk/database-store.ts). One row per file:
+ * `file` is the whole CaseFile record as last put, and `stage`, `openedAt` and `personIds` are
+ * copied out of it on the same write so a row is findable by stage and party in SQL.
+ * Migration `migrations/20260913_comms_v2_case_files.sql`.
+ */
+export const commsV2CaseFiles = pgTable("comms_v2_case_files", {
+    id: text("id").primaryKey().notNull(),
+    stage: text("stage").notNull(),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+    personIds: text("person_ids").array().notNull().default([]),
+    file: jsonb("file").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_comms_v2_case_files_person_ids").using("gin", table.personIds),
+]);
+export type CommsV2CaseFileRow = typeof commsV2CaseFiles.$inferSelect;
