@@ -99,6 +99,10 @@ describe('guards', () => {
         expect(runGuards(input('That was our fault, sorry.')).guards.commitment_fault.result).toBe('fail');
         expect(runGuards(input('We guarantee the work.')).guards.commitment_fault.result).toBe('fail');
         expect(runGuards(input('Ben will put your quote together.')).guards.commitment_fault.result).toBe('pass');
+        // A change of details is Ben's to make: the reply may pass it on, never say it is done.
+        expect(runGuards(input("Thanks, I've updated your address for you.")).guards.commitment_fault.result).toBe('fail');
+        expect(runGuards(input('Your details have been updated.')).guards.commitment_fault.result).toBe('fail');
+        expect(runGuards(input("I've noted that and passed it to Ben to update your details.")).guards.commitment_fault.result).toBe('pass');
     });
     it('business claim: fails without a reviewed knowledge-base citation whose body supports it', () => {
         expect(runGuards(input("We're fully insured.")).guards.business_claim.result).toBe('fail');

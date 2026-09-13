@@ -121,7 +121,7 @@ async function composeQuoteSent(file: CaseFile, party: Party, quoteUrl: string, 
     const input = {
         file, party, turn, channel,
         reserved: ack ? ack.length + 2 : 0,
-        route: { turnKind: 'other' as const, subjects: ['quoting' as const], exception: null },
+        route: { turnKind: 'other' as const, subjects: ['quoting' as const], exceptions: [] },
         specialists: [{ specialist: 'quoting' as const, factIds: [], proposal: { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: true, hold: null }, brief, calls: [], error: null }],
         fixedLines: [],
         now,

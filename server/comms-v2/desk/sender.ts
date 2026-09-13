@@ -42,6 +42,8 @@ export const GAP_MAX_MS = 3000;
 export const DESK_APPROVER: Approver = 'agent.comms_v2';
 
 export type ReplyPurpose = 'service_reply' | ChannelReplyPurpose;
+/** A desk-started send has one of these purposes; neither is a reply to a customer. */
+export type InitiatePurpose = 'approver_chase' | 'owner_escalation';
 
 // ---------------------------------------------------------------- choose_channel
 
@@ -421,7 +423,61 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     return land(input.bubbles, false);
 }
 
-/** A desk-started send, template only, for chasing an approver or a maintenance reminder. Unused in Goal 1; exists so the landlord service can attach without a new exit. */
-export async function initiate(_input: { file: CaseFile; partyId: string; purpose: ReplyPurpose; runId: string; approver: Approver }): Promise<SendOutcome> {
-    return { ok: false, reason: 'initiate is not used in Goal 1: the homeowner desk never starts a thread' };
+// ---------------------------------------------------------------- initiate
+
+/** A template the desk itself defines for a desk-started send; approval still comes only from the live sync, by name. */
+export interface TemplateDefinition { name: string; language: string; body: string; variables: Record<string, string> }
+
+export interface InitiateInput {
+    file: CaseFile;
+    /** The recipient: an approver's own address (Ben, the owner), never a party's reply channel. */
+    to: { address: string; name: string | null };
+    purpose: InitiatePurpose;
+    template: TemplateDefinition;
+    runId: string;
+    approver: Approver;
+    mode: 'dry_run' | 'live';
+}
+
+export interface InitiatedSend {
+    runId: string;
+    approver: Approver;
+    purpose: InitiatePurpose;
+    to: { address: string; name: string | null };
+    templateId: string;
+    contentSid: string;
+    body: string;
+    at: string;
+    mode: 'dry_run' | 'live';
+}
+
+export type InitiateOutcome = { ok: true; send: InitiatedSend } | { ok: false; reason: string };
+
+export interface InitiateDeps extends SenderDeps {
+    templates?: TemplateStatusSource;
+}
+
+/**
+ * A desk-started send, template only, for chasing an approver (Goal 6, checklist 7.5) or, later,
+ * a maintenance reminder. Dry run only: it refuses `live` outright, because the only deliverer
+ * labels every send a customer `service_reply` and a chase to an approver is not one; the purpose
+ * has to reach the deliverer before a chase can go out for real, which is cutover's work.
+ * Refuses besides: no approver or run id; no address; a template the live sync has not approved
+ * (never freeform); a run id already used on the file. Nothing lands on the thread, because the
+ * recipient is not a party on the file; the caller keeps the record
+ * (server/comms-v2/service/chase.ts). The run id is still spent on the file so one run id sends once.
+ */
+export async function initiate(input: InitiateInput, deps: InitiateDeps = {}): Promise<InitiateOutcome> {
+    const now = deps.now ?? (() => new Date());
+    if (input.mode === 'live') return { ok: false, reason: 'a desk-started send has no live path: the deliverer labels every send a customer service_reply, so an approver chase must carry its own purpose before it can go out live' };
+    if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
+    if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
+    if (!input.to.address?.trim()) return { ok: false, reason: `no address for the ${input.purpose === 'approver_chase' ? 'approver' : 'owner'}: the chase has nowhere to go` };
+    if (input.file.sentRunIds.includes(input.runId)) return { ok: false, reason: `run ${input.runId} has already sent` };
+    const live = await (deps.templates ?? liveTemplateStatus).approved(input.template.name);
+    if (!live) return { ok: false, reason: `template ${input.template.name} is not approved; a desk-started send is template only, never freeform` };
+    const body = input.template.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => input.template.variables[n] ?? '');
+    const template: TemplateSend = { name: input.template.name, language: input.template.language, contentSid: live.contentSid, variables: input.template.variables };
+    input.file.sentRunIds.push(input.runId);
+    return { ok: true, send: { runId: input.runId, approver: input.approver, purpose: input.purpose, to: { address: input.to.address, name: input.to.name }, templateId: template.name, contentSid: template.contentSid, body, at: now().toISOString(), mode: input.mode } };
 }

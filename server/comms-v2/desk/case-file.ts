@@ -13,7 +13,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { CanonicalKey, ChannelKind, ResolveResult, Role } from './identity';
-import type { Exception } from './router';
+import type { HoldException } from './router';
 
 // ---------------------------------------------------------------- the record
 
@@ -143,7 +143,7 @@ export interface Hold {
     approver: ApproverSlot;
     reason: string;
     /** The router exception that raised it, when one did: a fixed-line exception keeps the specialists off the thread until release. */
-    exception: Exception | null;
+    exception: HoldException | null;
     since: string;
     /**
      * Whether a second reason has been added to the card since it was raised. A card one automatic
@@ -155,6 +155,14 @@ export interface Hold {
     /** The draft and the failures when a guard hold raised it. */
     draft: string | null;
     failures: string[];
+    /** Each time a graver reason took the hold over, oldest first: what it was held on, what it is held on now, and when it changed. */
+    superseded: HoldSupersede[];
+}
+
+export interface HoldSupersede {
+    from: { reason: string; exception: HoldException | null };
+    to: { reason: string; exception: HoldException | null };
+    at: string;
 }
 
 export interface HoldRelease {
@@ -162,6 +170,10 @@ export interface HoldRelease {
     words: string;
     at: string;
     reason: string;
+    /** How many turns stood on the thread when the hold was released, so a rule can count what has happened since. Not a timestamp: the sandbox ages those. */
+    turnsBefore: number;
+    /** Each subject's ask count at the release, so a rule can count the asks since it without clearing the ledger. */
+    asksBefore: Record<AskSubject, number>;
 }
 
 export interface Job {
@@ -223,6 +235,8 @@ export interface CaseFile {
     ledger: LedgerEntry[];
     hold: Hold | null;
     releases: HoldRelease[];
+    /** How many turns stood on the thread when it was first found being scoped, so convergence counts only the replies since. Null until then. */
+    scopingFrom: number | null;
     job: Job;
     sends: SendRecord[];
     /** Run ids that have been sent, so one run id sends once. */
@@ -272,7 +286,7 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
     const file: CaseFile = {
         id: newId('case'), openedAt: at, parties: [party], turns: [], stage: 'first_contact',
         stageHistory: [{ from: null, to: 'first_contact', at, why: 'opened' }],
-        facts: [], ledger: [], hold: null, releases: [], job: { type: null, location: null, quoteRef: null, bookingRef: null }, sends: [], sentRunIds: [],
+        facts: [], ledger: [], hold: null, releases: [], scopingFrom: null, job: { type: null, location: null, quoteRef: null, bookingRef: null }, sends: [], sentRunIds: [],
     };
     const turn = appendTurn(file, { ...input.firstTurn, partyId: party.personId, direction: 'inbound', runId: null, approver: null }, deps);
     if (!turn.ok) return turn;
@@ -450,11 +464,26 @@ export function sameApprover(a: ApproverSlot, b: ApproverSlot): boolean {
 }
 
 /** Sets the hold with the approver. Refuses a second hold; the first stands until released. */
-export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: string; exception?: Exception | null; draft?: string | null; failures?: string[] }, deps: CaseFileDeps = {}): Outcome<Hold> {
+export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: string; exception?: HoldException | null; draft?: string | null; failures?: string[] }, deps: CaseFileDeps = {}): Outcome<Hold> {
     const now = deps.now ?? (() => new Date());
     if (file.hold) return refuse(`the file is already held for ${approverLabel(file.hold.approver)}: ${file.hold.reason}`);
     if (!input.reason.trim()) return refuse('a hold needs a reason');
-    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), notedOn: false, draft: input.draft ?? null, failures: input.failures ?? [] };
+    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), notedOn: false, draft: input.draft ?? null, failures: input.failures ?? [], superseded: [] };
+    return accept(file.hold);
+}
+
+/**
+ * Takes a standing hold over with a graver reason, so one thread has one record of what it is
+ * held on. The hold itself is not raised again: `since` stands, so the chase clock is not reset,
+ * and the change is recorded on the hold for Ben's card. Refuses a file that is not held.
+ */
+export function supersede(file: CaseFile, input: { approver: ApproverSlot; reason: string; exception?: HoldException | null }, deps: CaseFileDeps = {}): Outcome<Hold> {
+    const now = deps.now ?? (() => new Date());
+    if (!file.hold) return refuse('the file is not held');
+    if (!input.reason.trim()) return refuse('a hold needs a reason');
+    const from = { reason: file.hold.reason, exception: file.hold.exception };
+    const to = { reason: input.reason, exception: input.exception ?? null };
+    file.hold = { ...file.hold, approver: input.approver, reason: to.reason, exception: to.exception, superseded: [...file.hold.superseded, { from, to, at: now().toISOString() }] };
     return accept(file.hold);
 }
 
@@ -493,7 +522,7 @@ export function release(file: CaseFile, approver: ApproverSlot, words: string, d
     if (!file.hold) return refuse('the file is not held');
     if (!words.trim()) return refuse('release needs the approver\'s words');
     if (!sameApprover(file.hold.approver, approver)) return refuse(`only ${approverLabel(file.hold.approver)} may release this hold`);
-    const rel: HoldRelease = { approver, words: words.trim(), at: now().toISOString(), reason: file.hold.reason };
+    const rel: HoldRelease = { approver, words: words.trim(), at: now().toISOString(), reason: file.hold.reason, turnsBefore: file.turns.length, asksBefore: Object.fromEntries(file.ledger.map((l) => [l.subject, l.askCount])) };
     file.releases.push(rel);
     file.hold = null;
     return accept(rel);

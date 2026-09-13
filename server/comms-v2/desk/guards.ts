@@ -7,7 +7,9 @@
  * composed here and checked here like any other (quoting/quoting-door.ts).
  *
  * Eight guards, each checked against the file: figure, date/time/duration, commitment and fault,
- * business claim, disclosure, one reply, ask ledger, regulated. Pass goes to the sender with the
+ * business claim, disclosure, one reply, ask ledger, regulated. The business-claim guard carries
+ * two rules: the verbatim rail, which every cited knowledge-base row passes through whatever it is
+ * about, and the claim lexicon under it. Pass goes to the sender with the
  * fact ids attached; a first failure goes back to the composer once with the failures named; a
  * second failure holds for the approver with the draft and the failures, and the customer still
  * gets the fixed acknowledgement (the desk does that, desk.ts).
@@ -118,7 +120,46 @@ export function checkCommitment(input: GuardInput): GuardVerdict {
     return m ? fail(`a commitment or an admission of fault appears: "${m[0]}"`) : pass();
 }
 
+/**
+ * Whitespace and the quote marks a composer substitutes, normalised, so a row's words match
+ * however they were typed. The words themselves are still the row's: nothing else is relaxed.
+ */
+function verbatimKey(s: string): string {
+    return s.toLowerCase().replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The verbatim rail. Every knowledge-base row the reply cites, by id or through a fact, must be a
+ * reviewed row whose body the reply actually carries, word for word.
+ *
+ * This is the rail that replaced the old desk's prohibition on any reply path importing the
+ * knowledge base, and it holds on its own: no word list decides whether it runs. Without it the
+ * desk could tell a customer something the cited row says nothing of, pass every guard because the
+ * business-claim lexicon does not reach payment terms, invoicing or aftercare, and record the row
+ * id and its body on the send as though those words went out. A record that is not true is worse
+ * than a refusal (checklist cross-cutting 4).
+ */
+function checkVerbatim(input: GuardInput): GuardVerdict {
+    const reply = verbatimKey(input.reply);
+    const cited = new Map<string, string>();
+    for (const id of input.kbIds) {
+        const row = input.kbRows.find((r) => r.id === id);
+        if (!row || !row.reviewed) return fail(`the reply cites knowledge-base id ${id}, which is not a reviewed row`);
+        cited.set(id, row.approvedWords);
+    }
+    // A fact whose source is the knowledge base carries the row's body as its value: the send records
+    // it as the words that went, so the reply must carry them whether or not the id was also cited.
+    for (const f of citedFacts(input)) if (f.source.kind === 'knowledge_base') cited.set(f.source.entryId, f.value);
+    for (const [id, body] of Array.from(cited)) {
+        if (!body.trim()) return fail(`the reply cites knowledge-base id ${id}, which has no reviewed words`);
+        if (!reply.includes(verbatimKey(body))) return fail(`the reply cites knowledge-base id ${id} without carrying its words verbatim; send them as they are: "${body}"`);
+    }
+    return pass();
+}
+
 export function checkBusinessClaim(input: GuardInput): GuardVerdict {
+    const verbatim = checkVerbatim(input);
+    if (verbatim.result === 'fail') return verbatim;
     const fixed = input.fixedLines.map((f) => f.text.toLowerCase());
     for (const s of sentencesOf(input.reply)) {
         const m = RE_BUSINESS_CLAIM.exec(s);

@@ -31,12 +31,14 @@ const scheduling = (over: Record<string, unknown> = {}) => ({ subjects: ['schedu
 
 /**
  * The scripted specialists: Scoping on the first call of a turn, Scheduling when the router sent
- * the turn there, and Quoting's own two calls, which the job and the postcode together make due on
- * the first turn (Goal 4) whatever the turn asks about dates.
+ * the turn there, Service when it sent it there (Goal 6: it answers nothing here), and Quoting's
+ * own two calls, which the job and the postcode together make due on the first turn (Goal 4)
+ * whatever the turn asks about dates.
  */
 function specialists(schedulingAsks: string[], requestedChange: string | null = null) {
     return ({ system }: { system: string }) => {
         if (system.includes('Scheduling specialist')) return { asks: schedulingAsks, requestedChange };
+        if (/Service specialist/.test(system)) return { answers: [], changeOfDetails: null, holdReason: null };
         if (/lines of a quote/.test(system)) return { lines: [{ title: 'Repair leaking kitchen tap', category: 'plumbing', qty: 1, detail: 'leaking at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] };
         if (/what it concerns/.test(system)) return { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false };
         return { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] };
@@ -388,7 +390,8 @@ describe('the desk with Scheduling (Goal 5)', () => {
     it('5.5: a date change the router missed still holds for Ben, through the belt at the gate', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({
-            router: () => scoping({ turnKind: 'question', subjects: ['service'] }),
+            // The opening enquiry is scoped; only the turn under test is the one the router sent to service (Goal 6 leaves a service-only turn unscoped).
+            router: ({ n }: { n: number }) => n === 1 ? scoping() : scoping({ turnKind: 'question', subjects: ['service'] }),
             specialist: specialists([]),
             composer: ({ n }) => n === 1 ? { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] } : { reply: 'Ben will come back to you on the date.', factIds: [], kbIds: [] },
         }, diary);
@@ -404,7 +407,8 @@ describe('the desk with Scheduling (Goal 5)', () => {
     it('on a booked thread an ordinary question about the job is not a date change: no hold, and Ben is not told the date is moving', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { client, gateway } = desk({
-            router: () => scoping({ turnKind: 'question', subjects: ['service'] }),
+            // The opening enquiry is scoped; only the turn under test is the one the router sent to service (Goal 6 leaves a service-only turn unscoped).
+            router: ({ n }: { n: number }) => n === 1 ? scoping() : scoping({ turnKind: 'question', subjects: ['service'] }),
             specialist: specialists([]),
             composer: ({ n }) => n === 1 ? { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] } : { reply: 'Yes, Ben brings the parts with him.', factIds: [], kbIds: [] },
         }, diary);

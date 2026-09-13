@@ -40,6 +40,15 @@ export function slotOf(user: { id?: string | null } | null | undefined, assignme
     return null;
 }
 
+/**
+ * The approver a request on an app-mounted router carries: the slot the signed-in session
+ * occupies, or null when no slot lists them. Every route that releases a hold reads the approver
+ * through this, never from the request body.
+ */
+export function sessionApprover(read: ReadApproverAssignments = readApproverAssignments): (req: unknown) => Promise<ApproverSlot | null> {
+    return async (req) => slotOf((req as { user?: { id?: string | null } | null } | null)?.user, await read());
+}
+
 export function slotAssigned(slot: ApproverSlot, assignments: ApproverAssignments): boolean {
     return slot.kind === 'human' ? (assignments[slot.id]?.length ?? 0) > 0 : true;
 }

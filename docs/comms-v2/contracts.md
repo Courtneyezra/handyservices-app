@@ -1,7 +1,9 @@
 # The comms desk contracts
 
 The contracts for the clean-sheet comms desk rebuild: a record shape, its named calls, what
-each call refuses, and an invariants paragraph, for each. Then how a goal is validated.
+each call refuses, and an invariants paragraph, for each. Then how a goal is validated. Contracts
+1 to 6 are Goal 1's; Contract 7, the Quoting tool server, is Goal 4's; Contract 8, the Service tool
+server, is Goal 6's. The Scheduling tool server (Goal 5) is unnumbered.
 
 A goal loop builds against these calls; a test checks the invariants. Written from the code
 inventory, not from scratch.
@@ -50,7 +52,7 @@ specialists share; nothing passes between them any other way.
 | `set_stage` | moves the stage and records why | The move is not one the seven allow. Ready without type and location. |
 | `record_fact` | adds an established fact with its source | No source. A figure whose source is not a live quote line or a customer record. |
 | `ask` / `answered` / `thanked` | writes the ledger | Ask on a subject already asked and unanswered. Thank on a subject already thanked. |
-| `hold` / `release` | sets or clears the hold with the approver and words | Release without words. Release by anyone other than the named approver. |
+| `hold` / `release` / `supersede` | sets or clears the hold with the approver and words; `supersede` hands a standing hold to a graver reason, recording what it was held on, what it is held on now and when it changed | A second hold while one stands. Release without words. Release by anyone other than the named approver. Supersede on a file that is not held. |
 | `record_send` | records an outbound reply after the sender confirms it | No run id or approver. Facts named that are not on the file. |
 
 **Invariants a test can check.** Every send on the file cites facts that are on the file. Every
@@ -122,8 +124,8 @@ them like any other reply (`quoting/quoting-door.ts`).
 |---|---|---|
 | figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file, and the cited line's quote resolved for liveness (`live_figure_quotes`): a revoked, superseded or expired quote's figure is refused though the fact stays on the file |
 | date, time, duration | any date, time, lead time or duration appears, anywhere in the reply, that is not a diary fact this turn looked up | facts with a diary source a specialist read on this run; one written on an earlier turn is not citable, since the diary may have moved since |
-| commitment and fault | a promise to do, fix or guarantee something, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
-| business claim | a statement about the business, its services, hours, coverage or policies, with no knowledge-base citation, or a citation whose row is not reviewed or whose body does not support the sentence | reviewed knowledge-base rows by id, verbatim |
+| commitment and fault | a promise to do, fix or guarantee something, a claim that a change to the customer's details is already made, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
+| business claim | two rules. The verbatim rail: the reply cites a knowledge-base row, by id or through a fact, that is not a reviewed row the desk resolved, or whose body the reply does not carry word for word. Under it, the claim lexicon: a statement about the business, its services, hours, coverage or policies with no citation supporting it. The rail runs whatever the reply is about, so payment terms, invoicing and aftercare are covered where no word list reaches | reviewed knowledge-base rows by id, verbatim |
 | disclosure | any line describing the sender as automated or an assistant | a fixed phrase list |
 | one reply | a second reply to the same party with no customer turn in between | the file's turns |
 | ask ledger | the reply asks a subject already asked and unanswered, or thanks for something already thanked for | the file's ledger |
@@ -173,7 +175,6 @@ case file through its calls. The specialist itself, on Sonnet 5, returns facts a
 | `next_question` | the case file | the one subject to ask next, in a fixed order: job, location, access, photos | a subject already asked and unanswered; photos already asked once |
 | `offer_call` | the case file | whether a call is worth offering | the party prefers text, has already rung, or has been offered one |
 | `regulated` | the turn | whether the work is gas or asbestos | only those two; plumbing, roofing, structural and electrical are ours |
-| `kb_lookup` | a question | reviewed knowledge-base rows by id, verbatim | read-only; may return nothing in Goal 1 |
 
 **What the specialist returns.** Facts: job type, location, media descriptions, each with its
 source. A proposal: the next question, whether to offer a call, whether to thank for media,
@@ -370,6 +371,51 @@ source the date guard recognises; the picker link cited as the quote; a change r
 customer's words from the thread. A proposal: the fixed lines to include (`dates_with_quote`,
 `date_change_to_ben`) and a hold for Ben on a date change while the file is still
 answered on everything else. Never a sentence for the customer.
+
+## Contract 8 - The Service tool server
+
+The specialist for facts and aftercare (Goal 6). Every call is read-only against the world and
+writes only to the case file through its calls. The specialist itself, on Sonnet 5, returns
+selections and facts with sources, never prose; it runs its deterministic tools every turn and its
+model when the router sends the turn to `service`, or when the customer's own words ask to change a
+detail on their record, whatever the router read.
+
+| Tool | Input | Returns | Refuses when |
+|---|---|---|---|
+| `kb_lookup` | the customer's question | reviewed knowledge-base rows selected by question, best first, by id with the body verbatim | read-only; an unreviewed, retired or blank row is invisible; may return nothing |
+| `customer_record` | the case file and the party | the party's own details: name, the phone and email addresses on the file, and facts whose source is the customer record; the specialist's model sees the email and address only as held, never their values | another party's record is never read |
+| `change_of_details` | a field, the new value, the turn | a fact `change_of_details` with the turn as its source, and a hold for Ben; for the email or address the fact names only the field and the value rides on the hold alone | a field not on the record; an empty value; a figure; a value the record already holds. The record itself is never written here. |
+| `convergence` | the case file | converging, or not with why | not converging when the job has been asked JOB_ASKS_MAX times with no job type, or SCOPING_REPLIES_MAX replies have gone since the last release and since the job began being scoped (the turn routed to the Scoper, the job asked, or a job detail on the file; the file's `scopingFrom` records when) and the file is not ready; a ready file, or one past scoping, always converges |
+
+**What the specialist returns.** Facts: each answer as a fact whose value is the reviewed row's
+body verbatim (source `knowledge_base` by id) or the record's own name or phone (source `customer_record`),
+and a requested change as a fact when the new value can be read from the customer's own words (never
+the model's, which never saw a masked field's value); when it cannot, no fact is written and the hold
+alone tells Ben the new value could not be read. A question about the email or address we hold is never read back:
+it holds for Ben as `no_source`, naming the masked field. A proposal: a hold with its reason from the vocabulary
+(`complaint`, `refund`, `trust_doubt`, `no_source`, `not_converging`, `change_of_details`), or none.
+A brief for the composer naming the exact words and the id to cite. An id the lookup did not return
+is no source. Never a sentence for the customer.
+
+**Holds and what the customer hears.** Fixed line only, no composer, no specialist until Ben
+releases: complaint, refund, trust doubt, gas, not converging. Answer the rest, with the fixed line
+in the reply: money, a date change, a customer asking for a call (`callback`, the router's own
+reading: "call round", "call in" and "call out" ask for a visit in this trade, which no matcher
+separated reliably from a phone call), no source, a change of details. A turn can raise more than
+one exception: each carries its own fixed line into the reply, and the hold records the gravest. Every later turn on a held thread is
+acknowledged (checklist 7.3).
+
+**Return to automation (7.4).** Any human's reply, from Ben's board or the door's "Ben replies",
+goes through the one human-reply path (`desk/human-reply.ts`, Contract 5): it is sent on the
+thread's own channel under a `human:<person>` approver and a run id, lands on the thread as an
+outbound turn, records what it asked on the ask ledger, and releases the hold with those words (only
+from the named approver). The next customer turn is routed as any other: the release records where the
+thread stood, so a rule counting replies counts them from there and not for all time.
+
+**Ben's chase (7.5).** On the desk's clock pass, a held thread chases Ben after one interval and
+the owner after a second, through the sender's `initiate`: template only, an approver and a run id
+on each, never freeform, never on the customer's thread. Intervals and addresses are configuration;
+a missing address or an unapproved template is a refusal on the chase record, never a silent skip.
 
 ## Validation
 

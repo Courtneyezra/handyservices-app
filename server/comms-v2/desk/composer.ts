@@ -39,7 +39,7 @@ export interface ComposeInput {
      * router call behind it - Ben's priced quote leaving the price screen - can name what it is
      * without a fabricated call record.
      */
-    route: Pick<Route, 'turnKind' | 'subjects' | 'exception'>;
+    route: Pick<Route, 'turnKind' | 'subjects' | 'exceptions'>;
     specialists: SpecialistReturn[];
     /** Fixed lines the reply must carry, in Ben's words. */
     fixedLines: FixedLine[];
@@ -64,8 +64,8 @@ export const COMPOSER_SYSTEM = [
     '',
     'What you may say:',
     '- Only what the customer wrote, the facts listed on the file, and the fixed lines you are given. Nothing else about the business.',
-    '- Never a price, a figure or a cost of your own. A figure may appear only when a fact on the file whose key starts with quote_line carries it: copy it exactly as written on that fact, to the penny (£120.00, never £120 or "about £120"), cite the fact id, and never add figures up or work one out. Never a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees.',
-    '- The one exception: a date or a lead time that is a diary fact on the file which the notes from Scheduling tell you to copy verbatim; copy it exactly and cite its fact id. Never offer, suggest or agree a day, a time of day, a slot or a change of date yourself.',
+    '- Never a price, a figure or a cost of your own. A figure may appear only when a fact on the file whose key starts with quote_line carries it: copy it exactly as written on that fact, to the penny (£120.00, never £120 or "about £120"), cite the fact id, and never add figures up or work one out. Never a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees, unless it is a knowledge-base fact on the file: then use its words exactly as given, verbatim and unparaphrased, and list that knowledge-base id in kbIds.',
+    '- The one exception on dates: a date or a lead time that is a diary fact on the file which the notes from Scheduling tell you to copy verbatim; copy it exactly and cite its fact id. Never offer, suggest or agree a day, a time of day, a slot or a change of date yourself.',
     '- Never say or hint that you are an assistant, a bot, AI or automated. No disclosure line. Never sign off with a name.',
     '',
     'How to sound:',
@@ -117,7 +117,7 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push('Facts on the file (id: key = value):');
     lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
     lines.push('');
-    lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exception: ${route.exception ?? 'none'}.`);
+    lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exceptions: ${route.exceptions.join(', ') || 'none'}.`);
     if (proposal) {
         lines.push('Proposal from Scoping:');
         const q = proposal.nextQuestion;
@@ -131,7 +131,7 @@ export function buildComposerUser(input: ComposeInput): string {
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
-    for (const s of specialists) if (s.specialist !== 'scoping' && s.brief?.length) { lines.push(`Notes from ${s.specialist} (facts to copy verbatim, what not to say):`); for (const b of s.brief) lines.push(`- ${b}`); }
+    for (const s of specialists) if (s.specialist !== 'scoping' && s.brief?.length) { lines.push(s.specialist === 'service' ? 'Proposal from Service:' : `Notes from ${s.specialist} (facts to copy verbatim, what not to say):`); for (const b of s.brief) lines.push(`- ${b}`); }
     if (fixedLines.length) {
         lines.push('Fixed lines to include, in Ben\'s words:');
         for (const f of fixedLines) lines.push(`- ${f.text}`);

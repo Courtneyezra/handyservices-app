@@ -10,7 +10,8 @@
  * file's thread as an outbound turn, so the next turn sees it. Every response carries the
  * planned send (planned-send.ts) the desk emits itself, and the thread's state. The SMS, form,
  * email and call doors are mounted in front (channels/channel-doors.ts) on the same gateway, and
- * the scheduling fixture sits under /scheduling (scheduling/scheduling-door.ts).
+ * the scheduling fixture sits under /scheduling (scheduling/scheduling-door.ts). Goal 6's door
+ * actions (the fixture, Ben's reply, the chase) are mounted from service/service-door.ts.
  *
  * Case files live in memory for the length of the process; /start clears them. The door is
  * mounted only by the door host (door-host.ts, in-process on COMMS_V2_DATABASE_URL) and by
@@ -32,15 +33,24 @@ import { ChannelGateway } from '../channels/channel-gateway';
 import { schedulingDoor, withScheduling } from '../scheduling/scheduling-door';
 import { createQuotingDoor } from '../quoting/quoting-door';
 import { quoteStateOf } from '../quoting/quoting-specialist';
+import { createChaseState } from '../service/chase';
+import { automationState } from '../service/return-to-automation';
+import { serviceDoorRouter, type ApproverForRequest } from '../service/service-door';
+import { sessionApprover } from '../api/approvers';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
 export const SANDBOX_PHONE_E164 = '+447700900942';
 export const SANDBOX_PHONE_WA = '447700900942@c.us';
 export const SANDBOX_MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const SANDBOX_MAX_FILES = 8;
+/** Drama numbers for Ben's chase and the owner's escalation in the sandbox (Goal 6); registered internal so neither can be a customer. */
+export const SANDBOX_BEN_E164 = '+447700900901';
+export const SANDBOX_OWNER_E164 = '+447700900902';
 
 export interface DoorDeps extends DeskDeps {
     mediaDir?: string;
+    /** Who may release a hold here. Left unset, it is the signed-in session's slot, the rule every app-mounted router follows. */
+    approver?: ApproverForRequest;
 }
 
 // ---------------------------------------------------------------- the planned send the desk emits
@@ -80,11 +90,18 @@ export interface SandboxDoor {
 export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
     const deps = withScheduling(rawDeps);
     const now = deps.now ?? (() => new Date());
-    const desk = () => new ChannelDesk(new Desk({ ...deps, mode: 'dry_run' }), { client: deps.client, templates: deps.templates, sender: deps.sender, now, newId: deps.newId, mode: 'dry_run', log: deps.log });
+    // Goal 6: the chase with sandbox test values, kept across resets so the ledger is one object; reset clears it.
+    const chase = deps.service?.chase ?? createChaseState({ chaseAfterMs: 60 * 60_000, escalateAfterMs: 120 * 60_000, ben: { address: SANDBOX_BEN_E164, name: 'Ben' }, owner: { address: SANDBOX_OWNER_E164, name: null } });
+    const deskDeps: DeskDeps = { ...deps, service: { ...deps.service, chase }, mode: 'dry_run' };
+    const desk = () => new ChannelDesk(new Desk(deskDeps), { client: deps.client, templates: deps.templates, sender: deps.sender, now, newId: deps.newId, mode: 'dry_run', log: deps.log });
+    const registerInternal = (g: Gateway) => { g.identity.registerInternal('phone:07700900901', 'Ben'); g.identity.registerInternal('phone:07700900902', 'the owner'); };
     let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
+    registerInternal(gateway);
     const reset = () => {
         deps.scheduling.diaryMode.completed = 'diary';
         gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
+        registerInternal(gateway);
+        chase.ledger.clear();
     };
     const router = Router();
     router.use((req, _res, next) => { (req as any).v2Gateway = gateway; next(); });
@@ -111,12 +128,14 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
             quote: file ? quoteStateOf(file) : null,
             lastCall: null,
             caseFile: file ? snapshot(file) : null,
+            automation: file ? automationState(file) : null,
+            chase: file ? chase.ledger.get(file.id) : null,
         };
     };
 
     const respond = (res: Response, file: CaseFile, result: DeskResult, extra: Record<string, unknown> = {}) => {
         const plannedSend = plannedSendOf(file, result);
-        res.json({ ok: true, ...extra, run: { runId: result.runId, agent: 'comms_v2', decision: { kind: result.decision, approver: result.approver, reason: result.note ?? undefined }, guards: null, proposal: null, error: result.error, caseFile: { stage: file.stage } }, plannedSend, mirrored: null, state: stateOf() });
+        res.json({ ok: true, ...extra, run: { runId: result.runId, agent: 'comms_v2', decision: { kind: result.decision, approver: result.approver, reason: result.note ?? undefined }, guards: null, proposal: null, error: result.error, caseFile: { stage: file.stage } }, plannedSend, chase: result.chase ?? null, mirrored: null, state: stateOf() });
     };
 
     // The other four channels' doors answer first; a WhatsApp turn falls through to the routes below.
@@ -192,6 +211,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, hours, window: st.window, state: st });
     });
 
+    router.use(serviceDoorRouter({ currentFile, chase, stateOf, now, newId: deps.newId, approver: deps.approver ?? sessionApprover() }));
     router.use(quoting.router);
 
     return { router, get gateway() { return gateway; }, reset };
@@ -210,7 +230,7 @@ function seedOf(raw: unknown): SeedInput {
 
 /** The router the door host mounts in-process. Built on first use so importing this module opens nothing. */
 let shared: SandboxDoor | null = null;
-export function commsV2SandboxRouter(): Router {
-    if (!shared) shared = createSandboxDoor();
+export function commsV2SandboxRouter(deps: DoorDeps = {}): Router {
+    if (!shared) shared = createSandboxDoor(deps);
     return shared.router;
 }

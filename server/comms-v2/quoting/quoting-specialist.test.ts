@@ -30,7 +30,7 @@ function fixture(text = 'Hi, my kitchen tap is leaking, NG9 2AB'): CaseFile {
     return file;
 }
 
-const routeOf = (over: Partial<Route> = {}): Route => ({ subjects: ['quoting'], proposedStage: 'ready', party: 'customer', exception: null, turnKind: 'question', belts: { regulated: null, money: null }, moneyToQuoting: false, call: {} as any, error: null, ...over });
+const routeOf = (over: Partial<Route> = {}): Route => ({ subjects: ['quoting'], proposedStage: 'ready', party: 'customer', exceptions: [], turnKind: 'question', belts: { regulated: null, money: null }, moneyToQuoting: false, call: {} as any, error: null, ...over });
 
 function later(file: CaseFile, body: string, kind: Turn['kind'] = 'text', channel: Turn['channel'] = 'whatsapp'): Turn {
     const last = file.turns[file.turns.length - 1];

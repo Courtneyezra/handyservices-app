@@ -47,7 +47,7 @@ async function fileWithBensFacts(): Promise<{ file: CaseFile; slug: string }> {
 function composeInput(file: CaseFile): ComposeInput {
     return {
         file, party: file.parties[0], turn: file.turns[0],
-        route: { turnKind: 'enquiry', subjects: ['scoping'], exception: null },
+        route: { turnKind: 'enquiry', subjects: ['scoping'], exceptions: [] },
         specialists: [], fixedLines: [],
     };
 }

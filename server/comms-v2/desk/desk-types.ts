@@ -3,6 +3,7 @@
  * gateway and its tests do not import the models.
  */
 import type { CaseFile, Turn, ModelCallRecord, RenderedBubble, Hold } from './case-file';
+import type { HoldException } from './router';
 
 export type GuardName = 'figure' | 'date_time_duration' | 'commitment_fault' | 'business_claim' | 'disclosure' | 'one_reply' | 'ask_ledger' | 'regulated';
 
@@ -37,6 +38,8 @@ export interface DeskResult {
     /** The outbound turn id the reply landed as, when it did. */
     landedTurnId: string | null;
     composerCalls: number;
+    /** A clock pass only: what the desk did about an approver who has not acted (server/comms-v2/service/chase.ts). */
+    chase?: import('../service/chase').ChaseOutcome | null;
 }
 
 export interface DeskLike {
@@ -56,17 +59,23 @@ export interface Proposal {
     /** A photo has arrived on the thread and has not been thanked for yet, whichever turn brought it: the ledger's one thanks is still owed (checklist 1.7). */
     thankForMedia: boolean;
     ready: boolean;
-    /** regulated from Scoping; money beyond a quote line and acceptance in chat from Quoting; a date change or an unconfirmed date from Scheduling. `acceptedInChat`: the same turn also said yes to the quote, whatever the reason. */
-    hold: { reason: 'regulated' | 'money' | 'acceptance' | 'draft_failed' | 'stale_quote' | 'date_change' | 'date_unconfirmed'; match: string; acceptedInChat?: boolean } | null;
+    /**
+     * regulated from Scoping; Service's reasons (service/hold-reasons.ts); money beyond a quote line, acceptance in chat,
+     * a failed draft and a stale quote from Quoting; a date change or an unconfirmed date from Scheduling.
+     * `acceptedInChat`: the same turn also said yes to the quote, whatever the reason.
+     */
+    hold: { reason: HoldException | 'acceptance' | 'draft_failed' | 'stale_quote'; match: string; acceptedInChat?: boolean } | null;
 }
 
 export interface SpecialistReturn {
-    specialist: 'scoping' | 'quoting' | 'scheduling';
+    specialist: 'scoping' | 'quoting' | 'scheduling' | 'service';
     /** Ids of the facts this pass recorded on the file. */
     factIds: string[];
     proposal: Proposal;
-    /** A specialist other than Scoping briefs the composer here: which fact to copy verbatim, what to do this turn, what not to say. Never a sentence for the customer. */
-    brief?: string[];
     calls: ModelCallRecord[];
     error: string | null;
+    /** A specialist other than Scoping briefs the composer here: which fact to copy verbatim, what to do this turn, what not to say. Never a sentence for the customer. */
+    brief?: string[];
+    /** One line of evidence for the run summary. */
+    note?: string | null;
 }
