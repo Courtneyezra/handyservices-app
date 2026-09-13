@@ -32,9 +32,7 @@ import { READINESS_WORDINGS, quoteReadiness } from './quoting-tools';
  * entries about one subject resolve to the one current wording, which is shown once. Nothing is
  * rewritten: the fact records what the draft was built without.
  */
-export function benToRequestOn(files: readonly CaseFile[], slug: string): string[] {
-    const file = files.find((f) => f.job.quoteRef === slug);
-    if (!file) return [];
+export function benToRequest(file: CaseFile): string[] {
     const fact = [...file.facts].reverse().find((f) => f.key === QUOTE_FACT.benToRequest);
     if (!fact) return [];
     const stored = fact.value.split(';').map((s) => s.trim()).filter(Boolean);
@@ -46,6 +44,11 @@ export function benToRequestOn(files: readonly CaseFile[], slug: string): string
         if (current && !out.includes(current)) out.push(current);
     }
     return out;
+}
+
+export function benToRequestOn(files: readonly CaseFile[], slug: string): string[] {
+    const file = files.find((f) => f.job.quoteRef === slug);
+    return file ? benToRequest(file) : [];
 }
 
 export async function benToRequestFor(slug: string): Promise<string[]> {

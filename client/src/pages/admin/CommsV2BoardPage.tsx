@@ -65,6 +65,7 @@ export interface BoardCard {
     lastCustomerMessageAt: string | null;
     replyChannel: 'whatsapp' | 'sms' | 'email' | null;
     openedAt: string;
+    benToRequest: string[];
 }
 
 export interface Board {
@@ -165,6 +166,11 @@ export function BoardCardView({ card, onOpen }: { card: BoardCard; onOpen: () =>
             )}
             {card.lastCustomerMessage && (
                 <p className="mt-2 line-clamp-2 text-xs italic text-muted-foreground">&ldquo;{card.lastCustomerMessage}&rdquo;</p>
+            )}
+            {card.benToRequest.length > 0 && (
+                <div data-testid={`board-card-ben-to-request-${card.id}`} className="mt-2 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700">
+                    <span className="font-semibold">Ask for:</span> {card.benToRequest.join(', ')}
+                </div>
             )}
             <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
                 <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {relativeTime(card.lastCustomerMessageAt ?? card.openedAt)}</span>

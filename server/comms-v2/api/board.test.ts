@@ -5,8 +5,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { boardOf, cardOf, detailOf } from './board';
-import { appendTurn, hold, open, recordFact, type CaseFile } from '../desk/case-file';
+import { appendTurn, ask, hold, open, recordFact, type CaseFile } from '../desk/case-file';
 import type { ResolveResult } from '../desk/identity';
+import { QUOTE_FACT } from '../quoting/quote-record';
 
 let seq = 0;
 const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
@@ -62,6 +63,23 @@ describe('cardOf', () => {
         appendTurn(file, { at: now().toISOString(), channel: 'whatsapp', direction: 'outbound', partyId: file.parties[0].personId, kind: 'text', body: 'reply', media: [], runId: 'run_1', approver: 'agent.comms_v2' }, { now, newId });
         appendTurn(file, { at: now().toISOString(), channel: 'whatsapp', direction: 'inbound', partyId: file.parties[0].personId, kind: 'text', body: 'second message', media: [], runId: null, approver: null }, { now, newId });
         expect(cardOf(file).lastCustomerMessage).toBe('second message');
+    });
+});
+
+describe('cardOf benToRequest', () => {
+    it('shows a stored ben_to_request entry still missing from the file today', () => {
+        const file = openFile();
+        ask(file, 'media', { now, newId });
+        recordFact(file, { key: QUOTE_FACT.benToRequest, value: 'photo (asked once, none sent)', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'quoting' }, { now, newId });
+        expect(cardOf(file).benToRequest).toEqual(['photo (asked once, none sent)']);
+    });
+
+    it('drops a stored entry once the customer has since supplied it', () => {
+        const file = openFile();
+        ask(file, 'media', { now, newId });
+        recordFact(file, { key: QUOTE_FACT.benToRequest, value: 'photo (asked once, none sent)', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'quoting' }, { now, newId });
+        appendTurn(file, { at: now().toISOString(), channel: 'whatsapp', direction: 'inbound', partyId: file.parties[0].personId, kind: 'image', body: 'here it is', media: [{ id: 'media_1', kind: 'image', mime: 'image/jpeg', path: '/tmp/a.jpg', url: null, description: null }], runId: null, approver: null }, { now, newId });
+        expect(cardOf(file).benToRequest).toEqual([]);
     });
 });
 

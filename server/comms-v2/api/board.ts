@@ -10,6 +10,7 @@ import {
     type ReplyChannel, type Stage, type Turn,
 } from '../desk/case-file';
 import { slotAssigned, type ApproverAssignments } from './approvers';
+import { benToRequest } from '../quoting/ben-to-request';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -31,6 +32,7 @@ export interface BoardCard {
     lastCustomerMessageAt: string | null;
     replyChannel: ReplyChannel | null;
     openedAt: string;
+    benToRequest: string[];
 }
 
 export interface CaseFileDetail {
@@ -86,6 +88,7 @@ export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}): B
         lastCustomerMessageAt: last?.at ?? null,
         replyChannel: replyChannelOf(file),
         openedAt: file.openedAt,
+        benToRequest: benToRequest(file),
     };
 }
 
