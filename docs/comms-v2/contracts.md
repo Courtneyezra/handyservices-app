@@ -124,7 +124,7 @@ them like any other reply (`quoting/quoting-door.ts`).
 |---|---|---|
 | figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file, and the cited line's quote resolved for liveness (`live_figure_quotes`): a revoked, superseded or expired quote's figure is refused though the fact stays on the file |
 | date, time, duration | any date, time, lead time or duration appears, anywhere in the reply, that is not a diary fact this turn looked up | facts with a diary source a specialist read on this run; one written on an earlier turn is not citable, since the diary may have moved since |
-| commitment and fault | a promise to do, fix or guarantee something, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
+| commitment and fault | a promise to do, fix or guarantee something, a claim that a change to the customer's details is already made, or an admission of fault, that is not a sourced fact | a fixed phrase list plus a cheap classifier, both fail closed |
 | business claim | two rules. The verbatim rail: the reply cites a knowledge-base row, by id or through a fact, that is not a reviewed row the desk resolved, or whose body the reply does not carry word for word. Under it, the claim lexicon: a statement about the business, its services, hours, coverage or policies with no citation supporting it. The rail runs whatever the reply is about, so payment terms, invoicing and aftercare are covered where no word list reaches | reviewed knowledge-base rows by id, verbatim |
 | disclosure | any line describing the sender as automated or an assistant | a fixed phrase list |
 | one reply | a second reply to the same party with no customer turn in between | the file's turns |
@@ -377,7 +377,8 @@ answered on everything else. Never a sentence for the customer.
 The specialist for facts and aftercare (Goal 6). Every call is read-only against the world and
 writes only to the case file through its calls. The specialist itself, on Sonnet 5, returns
 selections and facts with sources, never prose; it runs its deterministic tools every turn and its
-model when the router sends the turn to `service`.
+model when the router sends the turn to `service`, or when the customer's own words ask to change a
+detail on their record, whatever the router read.
 
 | Tool | Input | Returns | Refuses when |
 |---|---|---|---|

@@ -223,7 +223,8 @@ the desk can resolve a booking from the party itself, the gate tightens back to 
 The specialist for facts and aftercare (docs/comms-v2/design.md, "Who handles what"; the tool server
 is in docs/comms-v2/contracts.md). It answers only from a reviewed knowledge-base row, cited by id and
 verbatim, or the customer's own record, and holds on everything else. The desk runs it beside Scoping:
-its deterministic tools every turn, its model when the router sends the turn to `service`.
+its deterministic tools every turn, its model when the router sends the turn to `service`, or when
+the customer's own words ask to change a detail on their record, whatever the router read.
 
 | Piece | File | What it is |
 |---|---|---|
