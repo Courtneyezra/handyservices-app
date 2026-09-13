@@ -92,14 +92,28 @@ describe('the Service specialist', () => {
         expect(out.proposal.hold).toEqual({ reason: 'no_source', match: 'their email on file is masked from the desk; Ben to read it back' });
         expect(out.brief.join(' ')).toMatch(/only Ben can read it back/);
     });
-    it('a change of details is a fact and a hold; the record is not written', async () => {
-        const file = fixture('My new email is sam@example.org');
-        const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: { field: 'email', value: 'sam@example.org' }, holdReason: null }) });
+    it('a change of email or address is a fact naming the field alone and a hold carrying the value for Ben; the brief never carries the value; the record is not written', async () => {
+        for (const [field, value] of [['email', 'sam@example.org'], ['address', '12 Mill Lane, NG9 2AB']] as const) {
+            const file = fixture(`My new ${field} is ${value}`);
+            const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: { field, value }, holdReason: null }) });
+            const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+            expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: `${field} -> ${value}` });
+            const fact = file.facts.find((f) => f.key === 'change_of_details')!;
+            expect(fact.value).toBe(field);
+            expect(out.factIds).toEqual([fact.id]);
+            expect(out.brief.join('\n')).not.toContain(value);
+            expect(out.brief.join(' ')).toMatch(new RegExp(`change their ${field} \\(fact ${fact.id}\\)`));
+            expect(out.brief.join(' ')).toMatch(/do not say it is done/);
+            expect(out.note).not.toContain(value);
+            expect(file.parties[0].channels.some((c) => c.kind === 'email')).toBe(false);
+        }
+    });
+    it('a change of name keeps its value on the fact and in the brief', async () => {
+        const file = fixture('I go by Samantha now');
+        const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: { field: 'name', value: 'Samantha' }, holdReason: null }) });
         const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
-        expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: 'email -> sam@example.org' });
-        expect(file.facts.find((f) => f.key === 'change_of_details')?.value).toBe('email: sam@example.org');
-        expect(file.parties[0].channels.some((c) => c.kind === 'email')).toBe(false);
-        expect(out.brief.join(' ')).toMatch(/do not say it is done/);
+        expect(file.facts.find((f) => f.key === 'change_of_details')?.value).toBe('name: Samantha');
+        expect(out.brief.join(' ')).toContain('to "Samantha"');
     });
     it('a complaint, a refund or a trust doubt the model reads is a hold with that reason', async () => {
         const file = fixture('I want my money back');

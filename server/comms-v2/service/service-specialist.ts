@@ -6,7 +6,8 @@
  * question it has no source for, on a change of details, and on scoping that is not converging
  * (which a thread with no job on it that nobody is scoping never is). The model sees the customer's
  * name and phone; an email or address on the record is shown only as held, never its value, so a
- * customer asking what we hold for either is Ben's to answer.
+ * customer asking what we hold for either is Ben's to answer. A requested change to either reaches
+ * the file and the composer as the field alone; the new value goes only to Ben's card.
  * Returns facts with their source and a proposal; never a sentence for the customer.
  *
  * Two halves, the Scoping pattern. The tool server first: convergence (deterministic, every turn),
@@ -146,9 +147,12 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
     if (res.output.changeOfDetails) {
         const change = changeOfDetails(file, party, { field: res.output.changeOfDetails.field, value: res.output.changeOfDetails.value, turnId: turn.id }, fileDeps);
         if (change.ok) {
+            const field = res.output.changeOfDetails.field;
             factIds.push(change.fact.id);
-            brief.push(`They asked to change their ${res.output.changeOfDetails.field} to "${res.output.changeOfDetails.value}" (fact ${change.fact.id}): say it has been passed to Ben to update; do not say it is done.`);
-            notes.push(`change of details ${change.hold.match}`);
+            brief.push(MASKED_FIELDS.has(field)
+                ? `They asked to change their ${field} (fact ${change.fact.id}): say it has been passed to Ben to update; do not state or repeat the new ${field}, and do not say it is done.`
+                : `They asked to change their ${field} to "${res.output.changeOfDetails.value}" (fact ${change.fact.id}): say it has been passed to Ben to update; do not say it is done.`);
+            notes.push(`change of details ${MASKED_FIELDS.has(field) ? field : change.hold.match}`);
             if (!hold) hold = change.hold;
         } else notes.push(`change of details refused: ${change.reason}`);
     }

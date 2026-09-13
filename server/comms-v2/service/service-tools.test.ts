@@ -73,6 +73,15 @@ describe('change_of_details', () => {
         expect(file.parties[0].channels[0].address).toBe('+447700900942');
         expect(customerRecord(file, file.parties[0]).find((e) => e.field === 'phone')?.value).toBe('+447700900942');
     });
+    it('a change to a masked field records only the field on the file; the value rides on the hold alone', () => {
+        const file = fixture();
+        const out = changeOfDetails(file, file.parties[0], { field: 'address', value: '12 Mill Lane, NG9 2AB', turnId: file.turns[0].id });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.fact).toMatchObject({ key: 'change_of_details', value: 'address' });
+        expect(out.hold).toEqual({ reason: 'change_of_details', match: 'address -> 12 Mill Lane, NG9 2AB' });
+        expect(file.facts.some((f) => f.value.includes('Mill Lane'))).toBe(false);
+    });
     it('refuses a field not on the record, an empty value, a figure, and a value the record already holds', () => {
         const file = fixture();
         const p = file.parties[0];
@@ -104,6 +113,7 @@ describe('convergence', () => {
     it('a released thread converges again: the replies before the release no longer count (7.4)', () => {
         const file = fixture();
         recordFact(file, { key: 'job_type', value: 'tap', source: thread(file), by: 'scoping' });
+        expect(convergence(file).converging).toBe(true);
         for (let i = 0; i < SCOPING_REPLIES_MAX; i++) appendTurn(file, { at: `2026-09-11T10:0${i}:01.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `r${i}`, approver: 'agent.comms_v2' });
         expect(convergence(file).converging).toBe(false);
         const held = hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'not converging', exception: 'not_converging' });
@@ -140,16 +150,31 @@ describe('convergence', () => {
             appendTurn(file, { at: `2026-09-11T10:${String(i).padStart(2, '0')}:30.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `r${i}`, approver: 'agent.comms_v2' });
         }
         const c = convergence(file);
-        expect(c.replies).toBe(SCOPING_REPLIES_MAX + 1);
+        expect(c.replies).toBe(0);
         expect(c.converging).toBe(true);
         expect(c.why).toBeNull();
-        expect(convergence(file, true).converging).toBe(false);
-        ask(file, 'job');
-        expect(convergence(file).converging).toBe(false);
+        expect(file.scopingFrom).toBeNull();
+    });
+    it('a facts-and-aftercare thread that turns to a job counts only the replies since scoping began', () => {
+        const file = fixture('Are you insured?');
+        for (let i = 0; i < SCOPING_REPLIES_MAX; i++) {
+            appendTurn(file, { at: `2026-09-11T10:${String(i).padStart(2, '0')}:30.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `r${i}`, approver: 'agent.comms_v2' });
+            appendTurn(file, { at: `2026-09-11T10:${String(i + 1).padStart(2, '0')}:00.000Z`, channel: 'whatsapp', direction: 'inbound', partyId: 'p1', kind: 'text', body: 'and do you take cards?', media: [] });
+        }
+        expect(convergence(file).converging).toBe(true);
+        recordFact(file, { key: 'job_type', value: 'leaking gutter', source: { kind: 'thread', turnId: file.turns[file.turns.length - 1].id }, by: 'scoping' });
+        const began = convergence(file, true);
+        expect(began).toMatchObject({ converging: true, replies: 0 });
+        expect(file.scopingFrom).toBe(file.turns.length);
+        for (let i = 0; i < SCOPING_REPLIES_MAX - 1; i++) appendTurn(file, { at: `2026-09-11T11:0${i}:01.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `s${i}`, approver: 'agent.comms_v2' });
+        expect(convergence(file).converging).toBe(true);
+        appendTurn(file, { at: '2026-09-11T11:09:01.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: 'sN', approver: 'agent.comms_v2' });
+        expect(convergence(file)).toMatchObject({ converging: false, replies: SCOPING_REPLIES_MAX });
     });
     it('SCOPING_REPLIES_MAX replies with the file still not ready is not converging; one fewer converges', () => {
         const file = fixture();
         recordFact(file, { key: 'job_type', value: 'tap', source: thread(file), by: 'scoping' });
+        expect(convergence(file).converging).toBe(true);
         for (let i = 0; i < SCOPING_REPLIES_MAX - 1; i++) appendTurn(file, { at: `2026-09-11T10:0${i}:01.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `r${i}`, approver: 'agent.comms_v2' });
         expect(convergence(file).converging).toBe(true);
         appendTurn(file, { at: '2026-09-11T10:09:01.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: 'rN', approver: 'agent.comms_v2' });

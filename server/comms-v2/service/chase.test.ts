@@ -54,6 +54,8 @@ describe('chaseIfDue', () => {
         expect(r1).toMatchObject({ action: 'refused', purpose: 'approver_chase' });
         expect((r1 as any).reason).toMatch(/no address/);
         expect(noBen.ledger.get(file.id)?.attempts[0]).toMatchObject({ ok: false, purpose: 'approver_chase' });
+        for (const t of ['2026-09-11T10:32:00.000Z', '2026-09-11T10:33:00.000Z']) expect((await chaseIfDue(file, noBen, { templates: approved, now: at(t) })).action).toBe('refused');
+        expect(noBen.ledger.get(file.id)?.attempts).toHaveLength(1);
         const r2 = await chaseIfDue(held(), state(), { templates: noTemplateApproved, now: at('2026-09-11T10:31:00.000Z') });
         expect((r2 as any).reason).toMatch(/not approved/);
         expect(file.hold).not.toBeNull();
