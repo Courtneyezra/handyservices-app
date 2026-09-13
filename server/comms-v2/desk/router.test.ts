@@ -81,6 +81,19 @@ describe('route', () => {
         const r2 = await route(visit, visit.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question' }) }));
         expect(r2.exceptions).toEqual([]);
     });
+    it('a money-and-callback turn is not held as router_failed just because the model also listed the exception as a subject (7.2b)', async () => {
+        const both = fixture('How much would that be, and can you call me about it?');
+        const r = await route(both, both.turns[0], new FakeModelClient({ router: () => ({ subjects: ['quoting', 'callback'], proposedStage: 'scoping', party: 'customer', exception: 'callback', turnKind: 'question' }) }));
+        expect(r.error).toBeNull();
+        expect(r.subjects).toEqual(['quoting']);
+        expect(r.exceptions).toEqual(['money', 'callback']);
+    });
+    it('still fails closed on a subject value that names nothing recognized', async () => {
+        const file = fixture('hello');
+        const r = await route(file, file.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping', 'not_a_real_subject'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'other' }) }));
+        expect(r.error).toBeTruthy();
+        expect(r.subjects).toEqual(['scoping']);
+    });
 });
 
 describe('the composer\'s brief', () => {

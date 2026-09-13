@@ -26,8 +26,26 @@ export type HoldException = (typeof HOLD_EXCEPTIONS)[number];
 export const TURN_KINDS = ['enquiry', 'answer', 'question', 'short_pause', 'promise_of_more', 'acknowledgement', 'decline', 'not_ready', 'other'] as const;
 export type TurnKind = (typeof TURN_KINDS)[number];
 
+/**
+ * The model sometimes lists an exception (most often "callback") as if it were a subject too,
+ * since the prompt names both in similar terms. That is a known, harmless mix-up, not evidence
+ * the whole reading is unreliable, so it is dropped rather than failing the call closed. Any
+ * other unrecognized value still fails the call (desk.ts holds for Ben), since that could be
+ * masking a real misreading of a complaint or a refund.
+ */
+const subjectsField = z.array(z.string()).max(SUBJECTS.length + EXCEPTIONS.length).transform((arr, ctx): Subject[] => {
+    const kept: Subject[] = [];
+    for (const s of arr) {
+        if ((SUBJECTS as readonly string[]).includes(s)) { kept.push(s as Subject); continue; }
+        if ((EXCEPTIONS as readonly string[]).includes(s)) continue;
+        ctx.addIssue({ code: 'custom', message: `not a recognized subject: ${s}` });
+        return [];
+    }
+    return kept;
+});
+
 export const routerOutputSchema = z.object({
-    subjects: z.array(z.enum(SUBJECTS)).max(4),
+    subjects: subjectsField,
     proposedStage: z.enum(STAGES),
     party: z.literal('customer'),
     exception: z.enum(EXCEPTIONS).nullable(),
