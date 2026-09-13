@@ -164,7 +164,12 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     // The belt: a date change is a hold whatever the model read.
     const belt = changePossible ? textBelt : null;
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
-    if (!changePossible) asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('date_change') && !asks.includes('availability') ? ['availability'] : []);
+    if (!changePossible && asks.includes('date_change')) {
+        // Nothing is booked for them to move, so nothing holds for Ben: a promise that he will come back on
+        // it would be one nobody keeps (the commitment guard refuses it). It is answered as when we could come.
+        brief.push('They asked to move a date, but nothing is booked for them to move: answer it as a question about when we could come. Never say Ben will come back to them on moving it or on the date, and never talk about moving or changing a booking.');
+        asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('availability') ? [] : ['availability']);
+    }
     // A classification that never came back is not a turn that asked nothing: a date question the belt matched is still answered, because an unanswered date question is the one thing the desk may not do. A model that read no ask is taken at its word. The guess is the safer one rather than `theirs`: anything the diary did not plainly call `none`, a visit cancelled off them included, holds for Ben, because sending them to the picker with nothing reaching him is the worse way to be wrong.
     if (!asks.length && error && (dateQuestionMatch(turn.body) || routed.scheduling)) asks = [couldStand && !nothingKnown ? 'booked_date' : 'availability'];
 

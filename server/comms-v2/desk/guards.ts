@@ -21,7 +21,8 @@
 import { askedUnanswered, customerWroteSinceLastReply, everAsked, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
-import { RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DAY_AND_MONTH, RE_DISCLOSURE, RE_FIGURE, RE_ORDINAL_DAY, RE_THANKS_MEDIA, regulatedMatch, sentencesOf, textAsks } from './lexicon';
+import { RE_BEN_COMES_BACK, RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DAY_AND_MONTH, RE_DISCLOSURE, RE_FIGURE, RE_ORDINAL_DAY, RE_THANKS_MEDIA, regulatedMatch, sentencesOf, textAsks } from './lexicon';
+import { dateChangeMatch } from '../scheduling/scheduling-tools';
 
 export const GUARD_NAMES: readonly GuardName[] = ['figure', 'date_time_duration', 'commitment_fault', 'business_claim', 'disclosure', 'one_reply', 'ask_ledger', 'regulated'];
 
@@ -117,7 +118,12 @@ export function checkDate(input: GuardInput): GuardVerdict {
 
 export function checkCommitment(input: GuardInput): GuardVerdict {
     const m = RE_COMMITMENT_OR_FAULT.exec(input.reply);
-    return m ? fail(`a commitment or an admission of fault appears: "${m[0]}"`) : pass();
+    if (m) return fail(`a commitment or an admission of fault appears: "${m[0]}"`);
+    // A request to move a date that nothing holds for Ben is not his to come back on: the gate only holds
+    // a change to a booked job (checklist 5.5), so a promise that he will is one nobody keeps. The desk
+    // raises every hold before the guards run, so the file's hold is this turn's, or a standing one.
+    const promise = !input.file.hold && dateChangeMatch(input.turn.body) ? RE_BEN_COMES_BACK.exec(input.reply) : null;
+    return promise ? fail(`a promise that Ben will come back on a date change, with no hold reaching Ben: "${promise[0]}"`) : pass();
 }
 
 /**

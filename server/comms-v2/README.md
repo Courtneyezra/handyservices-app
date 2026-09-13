@@ -240,7 +240,9 @@ request to move a date then holds for Ben when the file's booking could stand, w
 any booking still expected under their contact, and when the router raised its `date_change`
 exception but the diary could not say (no diary, no contact on the file, a read that failed), which
 fails closed. The router's exception on a thread the diary plainly says holds nothing of theirs is
-answered as the availability question it is. On a hold nothing else
+answered as the availability question it is, and since nothing then reaches Ben, the brief forbids
+promising he will come back on moving it and the commitment guard refuses a reply that does (a
+promise and its hold never diverge). On a hold nothing else
 is looked up: no typical lead time, no picker link, only the booked date if the file's booking gives
 one, the fixed line that Ben will come back on the date, and the rest of what they asked. The desk's
 gate runs the same read for a move the router missed on a file naming neither a booking nor a quote.

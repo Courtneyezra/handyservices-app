@@ -104,6 +104,17 @@ describe('guards', () => {
         expect(runGuards(input('Your details have been updated.')).guards.commitment_fault.result).toBe('fail');
         expect(runGuards(input("I've noted that and passed it to Ben to update your details.")).guards.commitment_fault.result).toBe('pass');
     });
+    it('commitment: a promise that Ben will come back on a move nothing holds for him fails; with the hold on the file it passes', () => {
+        const unheld = runGuards(input('No problem - Ben will come back to you on moving it to the week after.', {}, 'Can we move it to the week after?'));
+        expect(unheld.guards.commitment_fault.result).toBe('fail');
+        expect(unheld.guards.commitment_fault.note).toMatch(/no hold reaching Ben/);
+        expect(runGuards(input('Ben’ll get back to you on the date.', {}, 'Could we move my booking?')).guards.commitment_fault.result).toBe('fail');
+        // Not a move request: the promise is the composer's ordinary answer to a question it has no fact for.
+        expect(runGuards(input('Ben will come back to you on that.', {}, 'Do you do guttering?')).guards.commitment_fault.result).toBe('pass');
+        const f = fixture('Can we move it to the week after?');
+        expect(hold(f.file, { approver: { kind: 'human', id: 'ben' }, reason: 'date_change: move it', exception: 'date_change' }).ok).toBe(true);
+        expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'Ben will come back to you on the date.', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: new Set() }).guards.commitment_fault.result).toBe('pass');
+    });
     it('business claim: fails without a reviewed knowledge-base citation whose body supports it', () => {
         expect(runGuards(input("We're fully insured.")).guards.business_claim.result).toBe('fail');
         expect(runGuards(input('We cover the whole of Nottingham.')).guards.business_claim.result).toBe('fail');

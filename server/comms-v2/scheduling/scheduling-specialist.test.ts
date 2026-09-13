@@ -318,6 +318,8 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.picker?.ok).toBe(true);
         expect(file.facts.find((f) => f.key === 'date_change_requested')).toBeUndefined();
         expect(file.job.bookingRef).toBeNull();
+        // Nothing holds for Ben, so the composer is told not to promise he will come back on the move.
+        expect(r.brief.join(' ')).toMatch(/nothing is booked for them to move: answer it as a question about when we could come\. Never say Ben will come back/);
     });
 
     it('a date change the router flagged where the diary could not say whether the customer has a booking still holds for Ben, and only the run hears why', async () => {
