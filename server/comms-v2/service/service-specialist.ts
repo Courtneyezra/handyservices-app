@@ -54,7 +54,14 @@ const SYSTEM = [
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const UK_POSTCODE = '[A-Za-z]{1,2}\\d[A-Za-z\\d]?\\s?\\d[A-Za-z]{2}';
 const STREET_SUFFIXES = ['road', 'street', 'avenue', 'lane', 'close', 'drive', 'way', 'court', 'place', 'crescent', 'gardens', 'grove', 'terrace'];
-const ADDRESS_WITH_POSTCODE_RE = new RegExp(`\\d+[^\\n]{0,60}?${UK_POSTCODE}`, 'gi');
+// A house number is followed directly by a capitalised word (the street name) so an incidental
+// number earlier in the message (a time, a count) never drags unrelated text into the postcode
+// match: "9-5 near NG9 1AB" and "2 dogs ... postcode is NG9 1AB" keep their own words; only the
+// bare postcode there falls to POSTCODE_RE below. Known limit, left as a best-effort text match
+// rather than an address parser: an address with neither a recognised street suffix nor a postcode
+// (e.g. "44 Foxglove Rise, Beeston" with an unlisted street word and no postcode) is not caught and
+// reaches the model unmasked.
+const ADDRESS_WITH_POSTCODE_RE = new RegExp(`\\d+[A-Za-z]?\\s+[A-Z][^\\n]{0,50}?${UK_POSTCODE}`, 'g');
 const ADDRESS_STREET_RE = new RegExp(`\\d+[^,\\n]{0,40}?\\b(?:${STREET_SUFFIXES.join('|')})\\b`, 'gi');
 const POSTCODE_RE = new RegExp(`\\b${UK_POSTCODE}\\b`, 'gi');
 
@@ -76,7 +83,7 @@ function rawValueFor(field: string, turn: Turn): string | null {
         return matches?.length ? matches[matches.length - 1] : null;
     }
     if (field === 'address') {
-        return turn.body.match(new RegExp(ADDRESS_WITH_POSTCODE_RE.source, 'i'))?.[0]
+        return turn.body.match(ADDRESS_WITH_POSTCODE_RE)?.[0]
             ?? turn.body.match(new RegExp(ADDRESS_STREET_RE.source, 'i'))?.[0]
             ?? turn.body.match(new RegExp(POSTCODE_RE.source, 'i'))?.[0]
             ?? null;

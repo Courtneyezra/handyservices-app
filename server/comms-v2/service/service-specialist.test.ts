@@ -162,6 +162,29 @@ describe('the Service specialist', () => {
         expect(out.brief.join(' ')).toMatch(/could not be read from their message/);
         expect(file.facts.find((f) => f.key === 'change_of_details')).toBeUndefined();
     });
+    it('an unrelated number ahead of a postcode does not swallow the rest of the message: only the postcode is withheld', async () => {
+        const file = fixture("I'm free 9-5 near NG9 1AB for the visit");
+        const client = new FakeModelClient({ specialist: ({ user }) => {
+            expect(user).toContain("I'm free 9-5 near");
+            expect(user).toContain('for the visit');
+            expect(user).not.toContain('NG9 1AB');
+            expect(user).toContain('[address withheld]');
+            return { answers: [], changeOfDetails: null, holdReason: null };
+        } });
+        await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(client.calls).toHaveLength(1);
+    });
+    it('an unrelated count ahead of a postcode later in the message does not swallow the rest of the message: only the postcode is withheld', async () => {
+        const file = fixture("I've got 2 dogs at home so please ring the bell twice, my postcode is NG9 1AB");
+        const client = new FakeModelClient({ specialist: ({ user }) => {
+            expect(user).toContain("I've got 2 dogs at home so please ring the bell twice");
+            expect(user).not.toContain('NG9 1AB');
+            expect(user).toContain('[address withheld]');
+            return { answers: [], changeOfDetails: null, holdReason: null };
+        } });
+        await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(client.calls).toHaveLength(1);
+    });
     it('a change of name keeps its value on the fact and in the brief', async () => {
         const file = fixture('I go by Samantha now');
         const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: { field: 'name', value: 'Samantha' }, holdReason: null }) });
