@@ -234,6 +234,18 @@ describe('after the quote', () => {
         expect(answered?.proposal.hold).toBeNull();
     });
 
+    it('one turn that accepts and asks for money carries both: Ben gets the card, the customer is still pointed at the quote page', async () => {
+        // "Yes let's go ahead - any chance of a discount for cash?" is both. The money question is
+        // the card's reason, and the yes must not be lost to it: acceptance stays on the quote page.
+        const { file, d } = await sentQuote();
+        const both = new FakeModelClient({ specialist: () => ({ concerns: [], beyondQuoteLine: true, acceptanceInChat: true, notReady: false }) });
+        const ret = await quote(file, later(file, "Yes let's go ahead - any chance of a discount for cash?"), file.parties[0], routeOf(), both, d);
+        expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
+        const brief = ret?.brief?.join('\n') ?? '';
+        expect(brief).toMatch(/acceptance happens on the quote page/);
+        expect(brief).toMatch(/beyond a line of the quote/);
+    });
+
     it('a price asked for under a label the quote does not carry goes to Ben, never answered with the line figure', async () => {
         const { file, d } = await sentQuote();
         // The quote carries one line at £120.00, £100.00 of it labour. "How much of that is labour?"

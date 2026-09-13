@@ -17,7 +17,7 @@ import { recordingNotifier } from './ben-notifier';
 import { FakeDrafter, type DraftIntake } from './draft-quote';
 import { QUOTE_FACT, pounds, quoteRecordOf, readQuoteLine, readQuoteScope, type QuoteRowLike, type QuoteStatus } from './quote-record';
 import { MemoryQuoteStore, QUOTE_READ_COLUMNS } from './quote-store';
-import { CHASE_MAX, READINESS_SUBJECTS, chase, draftQuote, liveFigureQuotes, loadQuote, notifyBen, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
+import { CHASE_MAX, READINESS_WORDINGS, chase, draftQuote, liveFigureQuotes, loadQuote, notifyBen, priceQuote, quoteReadiness, recordAcceptance, markQuoteSent, recordQuoteFacts, type QuotingDeps } from './quoting-tools';
 
 /** The one registry of Ben's fixed sentences is where the delivery's first contact comes from. */
 const FIRST_CONTACT_ACK_WORDS = DEFAULT_FIXED_LINES.first_contact_ack;
@@ -58,17 +58,19 @@ describe('quote_readiness', () => {
         expect(quoteReadiness(file).missing).toEqual(['photo (declined)']);
     });
 
-    it('names every entry it can report after one of the subjects the price screen recomputes', () => {
-        // The price screen answers a stored entry again by its subject, so an entry this reports
-        // under a subject that list does not carry would be trusted forever (`ben-to-request.ts`).
+    it('reports nothing the price screen cannot recognise word for word, and every wording it declares', () => {
+        // The screen matches a stored entry against these exact wordings to tell one of its own
+        // from an intake label the model wrote, so a wording missing here would be trusted forever
+        // and one declared but never produced would match a label by accident (`ben-to-request.ts`).
         const seen = new Set<string>();
+        const see = (f: CaseFile) => quoteReadiness(f).missing.forEach((m) => seen.add(m));
         const asked = fixture();
-        quoteReadiness(asked).missing.forEach((m) => seen.add(m.split(' ')[0]));
+        see(asked);
         ask(asked, 'media');
-        quoteReadiness(asked).missing.forEach((m) => seen.add(m.split(' ')[0]));
+        see(asked);
         recordFact(asked, { key: 'media_declined', value: 'true', source: { kind: 'thread', turnId: asked.turns[0].id }, by: 'scoping' });
-        quoteReadiness(asked).missing.forEach((m) => seen.add(m.split(' ')[0]));
-        expect(Array.from(seen).sort()).toEqual([...READINESS_SUBJECTS].sort());
+        see(asked);
+        expect(Array.from(seen).sort()).toEqual(Array.from(READINESS_WORDINGS.keys()).sort());
     });
 });
 
@@ -154,6 +156,28 @@ describe('draft_quote and notify_ben', () => {
         // The fact still records what the draft was built without; the screen shows what is missing now.
         expect(file.facts.find((f) => f.key === QUOTE_FACT.benToRequest)!.value).toContain('photo (asked once, none sent)');
         expect(benToRequestOn([file], out.slug)).toEqual(['which tap it is']);
+    });
+
+    it('keeps an intake label that merely opens with "photo", and shows one chip when two stored entries mean one subject', async () => {
+        // The intake prompt offers "photo of the panel" as an example label, and the file cannot
+        // recompute it: only the readiness wordings themselves are answered again.
+        const d = deps();
+        const file = fixture();
+        const stored = ['photo (not asked)', 'access (parking, someone in)', 'photo of the panel'];
+        const out = await draftQuote(file, file.parties[0], { ...intake, missing: stored }, d);
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(benToRequestOn([file], out.slug)).toEqual(stored);
+
+        // The desk asks for a photo and none arrives, so the readiness wording changes. The label
+        // for the panel is untouched, and the one photo Ben is owed is named once, not twice.
+        ask(file, 'media');
+        expect(benToRequestOn([file], out.slug)).toEqual(['photo (asked once, none sent)', 'access (parking, someone in)', 'photo of the panel']);
+
+        // A photo of the sink arrives: the readiness entry goes, the panel Ben still needs stays.
+        const sent = appendTurn(file, { at: '2026-09-11T10:20:00.000Z', channel: 'whatsapp', direction: 'inbound', partyId: file.parties[0].personId, kind: 'image', body: 'here it is', media: [{ id: 'media_1', kind: 'image', mime: 'image/jpeg', path: '/tmp/a.jpg', url: null, description: null }], runId: null, approver: null });
+        expect(sent.ok).toBe(true);
+        expect(benToRequestOn([file], out.slug)).toEqual(['access (parking, someone in)', 'photo of the panel']);
     });
 
     it('records the drafter\'s failure as a refusal, with nothing on the file and no notification', async () => {

@@ -174,7 +174,7 @@ reply in a human voice.
 
 **Quoting** - *job + location known*
 - Subject: Drafts the quote the moment the job and location are known, photos optional. After it is sent, answers what is included, what is excluded, and what happens on the day, from the quote itself.
-- Tools it may read: read a quote line - read the quote's scope - draft quote. The catalogue is reached only from inside the draft chain, never as a shelf of its own, so it can never be a source for a figure in chat (as built: `contracts.md`, Contract 7)
+- Tools it may read: read a quote line - read the quote's scope - price book (read only, never a chat figure) - draft quote. The price book is read only from inside the draft chain, where it prices a line for Ben, and is reachable from nowhere else, which is how "never a chat figure" is kept (as built: `contracts.md`, Contract 7)
 - Returns / holds: Returns a figure only as one line of the live quote, to the penny, cited as that line. Holds on any money question beyond that, and on acceptance.
 
 **Scheduling** - *dates and lead time*

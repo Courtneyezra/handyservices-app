@@ -15,20 +15,22 @@
  */
 import type { CaseFile } from '../desk/case-file';
 import { QUOTE_FACT } from './quote-record';
-import { READINESS_SUBJECTS, quoteReadiness } from './quoting-tools';
-
-const subjectOf = (entry: string): string => entry.split(' ')[0].toLowerCase();
-const RECOMPUTABLE: ReadonlySet<string> = new Set(READINESS_SUBJECTS);
+import { READINESS_WORDINGS, quoteReadiness } from './quoting-tools';
 
 /**
  * What the draft is still missing, asked at the moment Ben looks. The stored fact is what was
  * missing when the draft was built, and a thread moves on: the customer sends the photo two turns
  * later, or gives access, and a card still asking for it sends Ben to request something he already
- * has. So every entry `quote_readiness` owns - the photo and access, the two it computes from the
- * file - is answered again here and dropped once it is no longer missing, in its current wording
- * rather than the wording of the day the draft was built. The intake model's own labels ("which
- * tap", "wall material") cannot be recomputed from the file, so they stand as written until Ben
- * clears them himself. Nothing is rewritten: the fact records what the draft was built without.
+ * has. So a stored entry `quote_readiness` wrote is answered again here and dropped once it is no
+ * longer missing, in its current wording rather than the wording of the day the draft was built.
+ *
+ * One of its wordings is recognised word for word, never by the word it opens with: the intake
+ * model is asked for short labels and "photo of the panel" is one of the examples it is given, so a
+ * first-word match would take that for the readiness photo and drop a photo Ben still needs the
+ * moment any other photo arrives. The model's own labels ("which tap", "wall material") cannot be
+ * recomputed from the file, so they stand as written until Ben clears them himself. Two stored
+ * entries about one subject resolve to the one current wording, which is shown once. Nothing is
+ * rewritten: the fact records what the draft was built without.
  */
 export function benToRequestOn(files: readonly CaseFile[], slug: string): string[] {
     const file = files.find((f) => f.job.quoteRef === slug);
@@ -36,13 +38,14 @@ export function benToRequestOn(files: readonly CaseFile[], slug: string): string
     const fact = [...file.facts].reverse().find((f) => f.key === QUOTE_FACT.benToRequest);
     if (!fact) return [];
     const stored = fact.value.split(';').map((s) => s.trim()).filter(Boolean);
-    const still = new Map(quoteReadiness(file).missing.map((m) => [subjectOf(m), m]));
-    return stored.flatMap((entry) => {
-        const subject = subjectOf(entry);
-        if (!RECOMPUTABLE.has(subject)) return [entry];
-        const current = still.get(subject);
-        return current ? [current] : [];
-    });
+    const still = new Map(quoteReadiness(file).missing.map((m) => [READINESS_WORDINGS.get(m)!, m]));
+    const out: string[] = [];
+    for (const entry of stored) {
+        const subject = READINESS_WORDINGS.get(entry);
+        const current = subject === undefined ? entry : still.get(subject);
+        if (current && !out.includes(current)) out.push(current);
+    }
+    return out;
 }
 
 export async function benToRequestFor(slug: string): Promise<string[]> {

@@ -128,9 +128,10 @@ ready-to-price notice: `quoting/ben-to-request.ts` reads the internal `ben_to_re
 case file and `server/spine/price-screen.ts` asks for it through a lazy import, so nothing in the
 spine depends on the new desk at load time. It is the one surface outside this directory the list
 reaches, and it never touches the quote row. The list is answered again at the moment Ben looks,
-not served as the draft left it: every entry `quote_readiness` owns (`READINESS_SUBJECTS`, the photo
-and access) is recomputed from the file, so a photo sent two turns after the draft stops being asked
-for, while the intake model's own labels stand as written. The stored fact is never rewritten - it
+not served as the draft left it: an entry `quote_readiness` wrote, recognised word for word against
+`READINESS_WORDINGS`, is recomputed from the file, so a photo sent two turns after the draft stops
+being asked for, while the intake model's own labels stand as written - including one that merely
+opens with "photo", which the file cannot recompute. The stored fact is never rewritten - it
 records what the draft was built without.
 
 The quote delivery carries a first contact of its own on purpose. Where a form lead's

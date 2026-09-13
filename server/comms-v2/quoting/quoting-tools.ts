@@ -61,22 +61,31 @@ const BY = 'quoting';
 // ---------------------------------------------------------------- quote_readiness
 
 /**
- * The subjects `quoteReadiness` reports on, which is every entry it can put in `missing`: each one
- * opens with its subject. A stored entry named after one of these is recomputable from the file, so
- * the price screen asks again rather than trusting what was true at draft time (`ben-to-request.ts`);
- * anything else came from the intake model and cannot be recomputed. One definition, and
- * `quoting-tools.test.ts` holds it to what `quoteReadiness` actually produces.
+ * Every wording `quoteReadiness` can put in `missing`, word for word, keyed by the subject it is
+ * about. It is a closed set because each of these is computed from the file: the price screen asks
+ * again at the moment Ben looks rather than trusting what was true at draft time, and it tells one
+ * of these from an intake label the model wrote ("which tap", "photo of the panel") by matching the
+ * wording exactly, never by the word it starts with (`ben-to-request.ts`). `quoteReadiness` below
+ * is the only writer, so there is one definition of both the wordings and their subjects.
  */
-export const READINESS_SUBJECTS: readonly string[] = ['photo', 'access'];
+export const READINESS_MISSING = {
+    photo: { declined: 'photo (declined)', asked: 'photo (asked once, none sent)', notAsked: 'photo (not asked)' },
+    access: { unknown: 'access (parking, someone in)' },
+} as const;
+
+/** The subject each wording is about, which is how a stored one is matched to the current one for the same subject. */
+export const READINESS_WORDINGS: ReadonlyMap<string, string> = new Map(
+    Object.entries(READINESS_MISSING).flatMap(([subject, wordings]) => Object.values(wordings).map((w) => [w as string, subject])),
+);
 
 /** Ready is job type and location (photos optional, answer 3); `missing` is what Ben may want to request before pricing, which reaches him on his notification and as the internal `ben_to_request` fact, never on the quote row. */
 export function quoteReadiness(file: CaseFile): { ready: boolean; missing: string[] } {
     const missing: string[] = [];
     if (!mediaReceived(file)) {
         const asked = ledgerEntry(file, 'media')?.askedAt;
-        missing.push(mediaDeclined(file) ? 'photo (declined)' : asked ? 'photo (asked once, none sent)' : 'photo (not asked)');
+        missing.push(mediaDeclined(file) ? READINESS_MISSING.photo.declined : asked ? READINESS_MISSING.photo.asked : READINESS_MISSING.photo.notAsked);
     }
-    if (!factFor(file, 'access')) missing.push('access (parking, someone in)');
+    if (!factFor(file, 'access')) missing.push(READINESS_MISSING.access.unknown);
     return { ready: isReady(file), missing };
 }
 

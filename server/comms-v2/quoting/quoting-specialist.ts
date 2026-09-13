@@ -157,10 +157,12 @@ export function briefLines(p: QuotingProposal): string[] {
         out.push(`quoting: ${p.quoteRef} ${p.status}; ${Object.keys(ids.figures).length} figures on the file`);
         if (p.acceptedNow) {
             out.push(`they accepted the quote on the quote page (fact ${ids.status ?? 'none'}) and Ben has been told: thank them, say Ben has been told and will be in touch about the day; no date, no time, no other promise, no question`);
-        } else if (p.acceptanceInChat) {
-            out.push(`they said yes in chat: acceptance happens on the quote page, so point them to the quote link (fact ${ids.link ?? 'none'}) to accept and pick a date; Ben has been told; no date, no time`);
-        } else if (p.beyondQuoteLine) {
-            out.push(`their money question is beyond a line of the quote: give no figure and do not answer it, Ben's fixed line in this reply covers it; answer anything else they asked from the quote's scope facts (${ids.scope.join(', ') || 'none'})`);
+        } else if (p.acceptanceInChat || p.beyondQuoteLine) {
+            // One turn can do both - "yes, go ahead, any chance of a discount for cash?" - and each
+            // is owed its own instruction: the card carries the money question to Ben, and the yes
+            // is still answered by pointing them at the quote page, where acceptance happens.
+            if (p.acceptanceInChat) out.push(`they said yes in chat: acceptance happens on the quote page, so point them to the quote link (fact ${ids.link ?? 'none'}) to accept and pick a date; Ben has been told; no date, no time`);
+            if (p.beyondQuoteLine) out.push(`their money question is beyond a line of the quote: give no figure and do not answer it, Ben's fixed line in this reply covers it; answer anything else they asked from the quote's scope facts (${ids.scope.join(', ') || 'none'})`);
         } else {
             const asked = p.concerns.filter((c) => c.kind === 'line_amount' || c.kind === 'total' || c.kind === 'deposit').map((c) => c.label ?? c.kind);
             out.push(`answer from the quote only. Figures on it, each copied exactly as written on its fact and its fact id cited: ${figureList || 'none'}${asked.length ? `; they asked about: ${asked.join(', ')}` : ''}`);
