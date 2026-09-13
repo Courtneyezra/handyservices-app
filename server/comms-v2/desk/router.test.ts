@@ -5,7 +5,7 @@ import { buildComposerUser } from './composer';
 import { FakeModelClient } from './models';
 import { renderWhatsApp, shortenBriefFor } from './sender';
 import { renderSms } from '../channels/sms-adapter';
-import { route } from './router';
+import { route, routerOutputSchema } from './router';
 
 function fixture(text: string): CaseFile {
     const r = open({
@@ -93,6 +93,10 @@ describe('route', () => {
         const r = await route(file, file.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping', 'not_a_real_subject'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'other' }) }));
         expect(r.error).toBeTruthy();
         expect(r.subjects).toEqual(['scoping']);
+    });
+    it('the router\'s schema converts to a JSON Schema for the live structured-output call (a zod transform cannot, and breaks every call)', async () => {
+        const { zodOutputFormat } = await import('@anthropic-ai/sdk/helpers/zod');
+        expect(() => zodOutputFormat(routerOutputSchema as any)).not.toThrow();
     });
 });
 

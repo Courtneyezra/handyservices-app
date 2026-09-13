@@ -26,32 +26,36 @@ export type HoldException = (typeof HOLD_EXCEPTIONS)[number];
 export const TURN_KINDS = ['enquiry', 'answer', 'question', 'short_pause', 'promise_of_more', 'acknowledgement', 'decline', 'not_ready', 'other'] as const;
 export type TurnKind = (typeof TURN_KINDS)[number];
 
-/**
- * The model sometimes lists an exception (most often "callback") as if it were a subject too,
- * since the prompt names both in similar terms. That is a known, harmless mix-up, not evidence
- * the whole reading is unreliable, so it is dropped rather than failing the call closed. Any
- * other unrecognized value still fails the call (desk.ts holds for Ben), since that could be
- * masking a real misreading of a complaint or a refund.
- */
-const subjectsField = z.array(z.string()).max(SUBJECTS.length + EXCEPTIONS.length).transform((arr, ctx): Subject[] => {
-    const kept: Subject[] = [];
-    for (const s of arr) {
-        if ((SUBJECTS as readonly string[]).includes(s)) { kept.push(s as Subject); continue; }
-        if ((EXCEPTIONS as readonly string[]).includes(s)) continue;
-        ctx.addIssue({ code: 'custom', message: `not a recognized subject: ${s}` });
-        return [];
-    }
-    return kept;
-});
-
 export const routerOutputSchema = z.object({
-    subjects: subjectsField,
+    subjects: z.array(z.string()).max(SUBJECTS.length + EXCEPTIONS.length),
     proposedStage: z.enum(STAGES),
     party: z.literal('customer'),
     exception: z.enum(EXCEPTIONS).nullable(),
     turnKind: z.enum(TURN_KINDS),
 });
-export type RouterOutput = z.infer<typeof routerOutputSchema>;
+type RawRouterOutput = z.infer<typeof routerOutputSchema>;
+export interface RouterOutput extends Omit<RawRouterOutput, 'subjects'> {
+    subjects: Subject[];
+}
+
+/**
+ * The model sometimes lists an exception (most often "callback") as if it were a subject too,
+ * since the prompt names both in similar terms. That is a known, harmless mix-up, not evidence
+ * the whole reading is unreliable, so it is dropped rather than failing the call closed. Any
+ * other unrecognized value still fails the call (desk.ts holds for Ben), since that could be
+ * masking a real misreading of a complaint or a refund. Kept outside the zod schema (rather than
+ * a `.transform()`) because the schema is also turned into a JSON Schema for the live structured-
+ * output call, and a transform cannot be represented there.
+ */
+function cleanSubjects(raw: string[]): Subject[] | null {
+    const kept: Subject[] = [];
+    for (const s of raw) {
+        if ((SUBJECTS as readonly string[]).includes(s)) { kept.push(s as Subject); continue; }
+        if ((EXCEPTIONS as readonly string[]).includes(s)) continue;
+        return null;
+    }
+    return kept;
+}
 
 /** Gravest first: the order the desk takes an exception in, so one fixed-line-only reason outranks the rest. Keyed by every exception, so a new one cannot go unranked. */
 const EXCEPTION_GRAVITY: Record<Exception, number> = { regulated: 0, complaint: 1, refund: 2, trust_doubt: 3, money: 4, date_change: 5, callback: 6 };
@@ -106,7 +110,9 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient, liv
     ].filter(Boolean).join('\n');
     const res = await client.structured({ role: 'router', model: ROUTER_MODEL, effort: 'low', system: SYSTEM, user, schema: routerOutputSchema, maxTokens: 400 });
     const fallback: RouterOutput = { subjects: [isReady(file) && file.stage !== 'scoping' && file.stage !== 'first_contact' ? 'service' : 'scoping'], proposedStage: file.stage === 'first_contact' ? 'scoping' : file.stage, party: 'customer', exception: null, turnKind: 'other' };
-    const out = res.output ?? fallback;
+    const cleanedSubjects = res.output ? cleanSubjects(res.output.subjects) : null;
+    const out: RouterOutput = res.output && cleanedSubjects ? { ...res.output, subjects: cleanedSubjects } : fallback;
+    const error = res.output && !cleanedSubjects ? `not a recognized subject: ${JSON.stringify(res.output.subjects)}` : res.error;
     // Never invents a subject: an empty list is unclassifiable.
     if (!out.subjects.length) out.subjects = [...fallback.subjects];
     // Goal 4: a quote that is live for figures answers its own (checklist 5.3 replaces 2.7), and an
@@ -129,5 +135,5 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient, liv
     const exceptions = Array.from(raised).sort((a, b) => EXCEPTION_GRAVITY[a] - EXCEPTION_GRAVITY[b]);
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
     const { exception: _modelException, ...rest } = out;
-    return { ...rest, exceptions, belts, moneyToQuoting: quoting.moneyToQuoting, call: res.record, error: res.error };
+    return { ...rest, exceptions, belts, moneyToQuoting: quoting.moneyToQuoting, call: res.record, error };
 }
