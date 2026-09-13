@@ -51,9 +51,8 @@ let live: Promise<import('./channel-gateway').ChannelGateway> | null = null;
  * outstanding, so a switch flipped before they land forwards nothing and says what is missing.
  * Its case files are the durable store's, read in full before the first turn, and its identity is
  * rebuilt from the parties on them; the store refuses unless the database in use is the branch
- * COMMS_V2_DATABASE_URL names. A build that fails is
- * forgotten, so the next forward tries again rather than repeating a passing failure for the life
- * of the process.
+ * COMMS_V2_DATABASE_URL names. A build that fails is forgotten, so the next forward tries again
+ * rather than repeating a passing failure for the life of the process.
  */
 export function liveChannelGateway(): Promise<import('./channel-gateway').ChannelGateway> {
     if (!live) {
