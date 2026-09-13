@@ -12,7 +12,8 @@
  * Complaints, refunds, trust doubts, gas and scoping that is not converging: one fixed line in
  * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
  * the short acknowledgement that Ben will come back. The vocabulary is server/comms-v2/service/
- * hold-reasons.ts. A guard failure goes back to the composer once, then holds with the fixed
+ * hold-reasons.ts. A router that fails to read the turn holds for Ben with the fixed acknowledgement,
+ * since nothing then rules out a complaint or a refund. A guard failure goes back to the composer once, then holds with the fixed
  * acknowledgement. A composer refusal or failure takes the fixed acknowledgement, never a silent
  * empty reply; so does a reply the sender refuses, which live includes one of Ben's four fixed
  * lines he has not yet reviewed. Never silent otherwise; a clock pass never messages a customer
@@ -106,8 +107,12 @@ export class Desk implements DeskLike {
         // 1. Route.
         const route: Route = await routeTurn(file, turn, this.client);
         calls.push(route.call);
-        if (route.error) log(`router: ${route.error} (fallback route used)`);
         if (file.stage === 'first_contact') setStage(file, 'scoping', 'first customer turn routed', this.fileDeps());
+        // A reading that failed (out of schema, refused, unreachable) cannot rule out a complaint or a refund: fail closed to Ben.
+        if (route.error) {
+            log(`router: ${route.error} (held for Ben)`);
+            return this.heldAck(file, party.personId, turn, runId, calls, 'router_failed: the router could not read this turn, so a complaint or refund cannot be ruled out', null, 0, []);
+        }
 
         // 2. Exceptions that the Scoper does not scope: one fixed line, a hold, no composer.
         const fixedLines: FixedLine[] = [];

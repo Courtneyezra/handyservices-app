@@ -45,6 +45,18 @@ function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], extra:
 }
 
 describe('the Service specialist on the desk', () => {
+    it('a router reading that fails validation holds for Ben with the acknowledgement, never scoping on: a refund is not dropped', async () => {
+        const noModel = () => { throw new Error('no specialist or composer may run on an unread turn'); };
+        const { client, gateway } = desk({ router: () => route({ turnKind: 'refund_request' }), specialist: noModel, composer: noModel });
+        const out = await gateway.inbound(turn('I want a refund for the work you did, I am not happy paying for that.', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.result.decision).toBe('hold');
+        expect(out.result.delivered).toBe(true);
+        expect(out.result.bubbles.length).toBeGreaterThan(0);
+        expect(out.file.hold?.reason).toMatch(/^router_failed: /);
+        expect(out.file.hold?.approver).toEqual(BEN);
+        expect(client.calls.map((c) => c.role)).toEqual(['router']);
+    });
     it('answers a business question from a reviewed row verbatim, cited by id, and the business-claim guard passes on the citation', async () => {
         const { client, gateway } = desk({
             router: () => route({ subjects: ['service'], turnKind: 'question' }),
