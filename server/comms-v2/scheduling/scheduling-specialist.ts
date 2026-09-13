@@ -23,7 +23,7 @@ import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn 
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import type { FixedLineKind } from '../desk/fixed-lines';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
-import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, isTheirBooking, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
+import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, isTheirBooking, linkPartyBooking, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
 
 /**
  * What the turn asks, and every value is load-bearing: `date_change` holds for Ben, `booked_date`
@@ -76,7 +76,7 @@ export interface SchedulingReturn extends SpecialistReturn {
 
 /** What the desk already decided about this turn before the specialist ran. */
 export interface SchedulingContext {
-    /** The router's date_change exception: the desk reads this turn as a request to move a job the customer already has. */
+    /** The router's date_change exception: it read this turn as a request to move a job. It holds only where the diary shows a booking of theirs, or could not say whether there is one. */
     dateChange: boolean;
     /** The router's scheduling subject: it read the turn as about dates, whatever wording it used to ask. */
     scheduling?: boolean;
@@ -94,8 +94,12 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     const fileDeps = { now: deps.now };
     // What went wrong reads the same to Ben and the logs as it does to the composer, except that the
     // machine text of a failed read stays here: a prompt only ever sees the category.
-    const erroring = () => [error, ...details].filter(Boolean).join('; ') || null;
+    const erroring = () => Array.from(new Set([error, ...details].filter(Boolean))).join('; ') || null;
 
+    // The customer's own booking, found by the phone and email the file records for them, is written onto
+    // the job before anything reads it, so the confirmation below reads it on its own path.
+    const { found: partyBooked } = await linkPartyBooking(file, deps);
+    if (partyBooked.state === 'unknown' && partyBooked.detail) details.push(`${partyBooked.reason}: ${partyBooked.detail}`);
     const standing = await confirmBookedDate(file, deps);
     // The same filing as the picker's: a state the diary gave plainly is the right answer, and every
     // other refusal reaches the log and the run summary, because a file pointing at a booking the
@@ -128,10 +132,11 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         else error = res.error;
     }
 
-    // A date change is live when the diary shows a booking, and when the router called the turn one:
-    // nothing outside the door's fixture writes a booking onto a case file yet, so the exception stands in
-    // for a booking the desk cannot see. Only then is a change request not an availability question.
-    const changePossible = couldStand || routed.dateChange;
+    // A date change is a change to a booked job (checklist 5.5), so it is live when the diary shows a
+    // booking the file names, when the customer has one under their own phone or email, and when the
+    // router called the turn one and the diary could not say whether they have one: that read fails
+    // closed, so Ben still hears it. Anywhere else a change request is an availability question.
+    const changePossible = couldStand || partyBooked.state === 'found' || (routed.dateChange && partyBooked.state === 'unknown');
     // The belt: a date change is a hold whatever the model read.
     const belt = changePossible ? dateChangeMatch(turn.body) : null;
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');

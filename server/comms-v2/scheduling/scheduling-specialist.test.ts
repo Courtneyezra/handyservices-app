@@ -281,14 +281,19 @@ describe('the Scheduling specialist', () => {
         expect(r.error).toContain('SSL handshake to db.internal failed');
     });
 
-    it('a date change the router flagged holds even with nothing booked, and looks up no lead time and no picker', async () => {
+    it('a date change the router flagged, with a booking under the customer\'s own phone and nothing on the file: the booking is written onto the job, its date confirmed, and the change held for Ben', async () => {
         const file = fixture('Can we move the appointment to the week after?');
-        file.job.quoteRef = 'q1';
-        const r = await schedule(file, file.turns[0], party(file), client(['date_change'], 'the week after'), { diary: diaryWith(6), now, baseUrl: 'https://example.test' }, { dateChange: true });
+        const diary = diaryWith(6);
+        diary.bookings.push({ id: 'bk9', quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null });
+        // Stored however it was typed: the file's +447700900942 is the same number.
+        diary.contacts.push({ ref: 'bk9', phone: '07700 900942', email: null });
+        const r = await schedule(file, file.turns[0], party(file), client(['date_change'], 'the week after'), { diary, now, baseUrl: 'https://example.test' }, { dateChange: true });
         assertNoProse(r, file);
+        expect(file.job.bookingRef).toBe('bk9');
         expect(r.scheduling.asks).toEqual(['date_change']);
         expect(r.proposal.hold).toEqual({ reason: 'date_change', match: 'move the appointment' });
         expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(r.scheduling.bookedDate).toMatchObject({ ok: true, bookingRef: 'bk9', words: '25 September 2026' });
         expect(r.scheduling.leadTime).toBeNull();
         expect(r.scheduling.picker).toBeNull();
         expect(file.facts.find((f) => f.key === 'lead_time')).toBeUndefined();
@@ -296,6 +301,48 @@ describe('the Scheduling specialist', () => {
         expect(file.facts.find((f) => f.key === 'date_change_requested')?.value).toBe('the week after');
         expect(r.brief.join(' ')).not.toMatch(/3 days|quote page|usually booking/);
         expect(r.brief.join(' ')).toMatch(/no typical lead time, and give no link for picking a date/);
+    });
+
+    it('a date change the router flagged on a thread the diary plainly says holds nothing of theirs is an availability question: no hold', async () => {
+        const file = fixture('Can we move the appointment to the week after?');
+        file.job.quoteRef = 'q1';
+        const diary = diaryWith(6);
+        // Somebody else's booking, and a job of theirs already done, are not a booking of theirs to move.
+        diary.bookings.push({ id: 'other', quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null });
+        diary.contacts.push({ ref: 'other', phone: '+447700900111', email: null }, { ref: 'c0', phone: '+447700900942', email: null });
+        const r = await schedule(file, file.turns[0], party(file), client(['date_change'], 'the week after'), { diary, now, baseUrl: 'https://example.test' }, { dateChange: true });
+        expect(r.proposal.hold).toBeNull();
+        expect(r.scheduling.asks).toEqual(['availability']);
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.scheduling.leadTime).toMatchObject({ ok: true });
+        expect(r.scheduling.picker?.ok).toBe(true);
+        expect(file.facts.find((f) => f.key === 'date_change_requested')).toBeUndefined();
+        expect(file.job.bookingRef).toBeNull();
+    });
+
+    it('a date change the router flagged where the diary could not say whether the customer has a booking still holds for Ben, and only the run hears why', async () => {
+        const file = fixture('Can we move the appointment to the week after?');
+        const diary = diaryWith(6);
+        diary.bookingsForContact = async () => { throw new Error('connection lost'); };
+        const r = await schedule(file, file.turns[0], party(file), client(['date_change'], 'the week after'), { diary, now }, { dateChange: true });
+        expect(r.proposal.hold).toEqual({ reason: 'date_change', match: 'move the appointment' });
+        expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
+        expect(r.error).toBe('the diary could not be read: connection lost');
+        expect(r.brief.join(' ')).not.toMatch(/connection lost|could not be read/);
+        const bare = fixture('Can we move the appointment to the week after?');
+        const noDiary = await schedule(bare, bare.turns[0], party(bare), client(['date_change'], 'the week after'), { now }, { dateChange: true });
+        expect(noDiary.proposal.hold).toMatchObject({ reason: 'date_change' });
+    });
+
+    it('a move the router missed still holds when the customer has a booking under their own phone: the belt reads it', async () => {
+        const file = fixture('Can we move my booking to Friday?');
+        const diary = diaryWith(6);
+        diary.bookings.push({ id: 'bk9', quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null });
+        diary.contacts.push({ ref: 'bk9', phone: '+447700900942', email: null });
+        const r = await schedule(file, file.turns[0], party(file), client([]), { diary, now });
+        expect(r.scheduling.asks).toEqual(['date_change']);
+        expect(r.proposal.hold).toEqual({ reason: 'date_change', match: 'move my booking' });
+        expect(file.job.bookingRef).toBe('bk9');
     });
 
     it('a date change with nothing booked is an availability question: no hold', async () => {

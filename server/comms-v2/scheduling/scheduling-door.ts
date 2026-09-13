@@ -2,11 +2,12 @@
  * The scheduling side of the desk's sandbox door (Goal 5), mounted under /scheduling by
  * desk/sandbox-door.ts. Two calls, both about the fixture (fixture.ts):
  *
- *   POST /scheduling/fixture        { completed: N, quote: true, booked: true, diary: 'diary' | 'none' }
+ *   POST /scheduling/fixture        { completed: N, quote: true, booked: true, diary: 'diary' | 'none', link: false }
  *                                   seeds N completed bookings, a sent quote and one booked job on the
  *                                   sandbox number; links the current sandbox thread to them (quote
  *                                   reference, booking reference) and walks its stage to quoted or
- *                                   booked. `diary: 'none'` tells the lead-time read that the diary
+ *                                   booked, unless `link: false`, which seeds the rows alone so the
+ *                                   booking is found by the customer's phone. `diary: 'none'` tells the lead-time read that the diary
  *                                   holds no completed bookings, so the "dates come with your quote"
  *                                   path is drivable live; `diary: 'diary'` (the default) reads it.
  *   POST /scheduling/fixture/reset  deletes every row the fixture wrote and puts the diary back.
@@ -102,8 +103,12 @@ export function schedulingDoor(deps: SchedulingDoorDeps): Router {
             if (!v.ok) { res.status(400).json({ error: v.error }); return; }
             const diaryMode = req.body?.diary;
             if (diaryMode !== undefined && diaryMode !== 'diary' && diaryMode !== 'none') { res.status(400).json({ error: 'diary must be "diary" (read it) or "none" (the diary holds no completed bookings)' }); return; }
-            const file = currentFile(req);
-            const ready = linkReady(file, v.input.quote);
+            const link = req.body?.link;
+            if (link !== undefined && typeof link !== 'boolean') { res.status(400).json({ error: 'link must be true (link the current thread) or false (seed only)' }); return; }
+            // `link: false` seeds the rows on the drama number and leaves the thread naming nothing, so the
+            // specialist has to find the booking by the customer's own phone, as it would on a real thread.
+            const file = link === false ? null : currentFile(req);
+            const ready = link === false ? { ok: true as const } : linkReady(file, v.input.quote);
             if (!ready.ok) { res.status(409).json({ error: ready.reason, ...stateOf() }); return; }
             const seeded = await deps.fixture.seed(v.input, now());
             deps.diaryMode.completed = diaryMode === 'none' ? 'none' : 'diary';
