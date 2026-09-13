@@ -9,7 +9,7 @@ loop has it to read from the repo instead of from outside sources.
   either passes or fails against.
 - `design.md` is the shape: the agent-map architecture, the box-for-box mapping, the channels, the
   specialist roster, the landlord seams, the settled decisions, and the build plan.
-- `contracts.md` is what a goal loop builds against: the six contracts, each a record shape, its
+- `contracts.md` is what a goal loop builds against: the contracts, each a record shape, its
   named calls, what each call refuses, and the invariants a test can check; then how a goal is
   validated.
 
@@ -21,10 +21,11 @@ run in parallel.
 The build lands in `server/comms-v2/` beside `server/spine/`; it never goes inside `server/spine/`.
 Goal 1's desk (sandbox-only until cutover), Goal 2's board over it (`/admin/comms-v2`), Goal 3's
 other four channels (SMS, email, the web form and calls, each with its own sandbox door, and the
-old inputs forwarding into the new gateway behind one switch that is off by default) and Goal 5's
-Scheduling specialist with its diary read under `server/comms-v2/scheduling/` are there
+old inputs forwarding into the new gateway behind one switch that is off by default), Goal 5's
+Scheduling specialist with its diary read under `server/comms-v2/scheduling/`, and Goal 6's
+Service specialist and tool server under `server/comms-v2/service/` are there
 already, with the board's answer action beside its release (Ben's own words out through the one
 sender, no guards over them, recorded as his); `server/comms-v2/README.md` covers them, the desk contract
-by contract with its sandbox door and that door's scheduling fixture, the door host and the
+by contract with its sandbox door and that door's scheduling and service fixtures, the door host and the
 environment they read, the channels channel by channel, and the board piece by piece. The old desk
 stays live as rollback until the new one is proven and cut over.
