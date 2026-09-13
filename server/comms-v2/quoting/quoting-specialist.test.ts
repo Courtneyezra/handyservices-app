@@ -295,8 +295,22 @@ describe('after the quote', () => {
         expect(ret?.proposal.hold).toMatchObject({ reason: 'money' });
         expect(ret?.brief?.join('\n')).toMatch(/beyond a line of the quote/);
         // Both figures are still on the file, each under its own name: neither collapsed into the other.
-        expect(file.facts.find((f) => f.key === 'quote_line:Replace a fence panel (line 1)')?.value).toBe('£120.00');
-        expect(file.facts.find((f) => f.key === 'quote_line:Replace a fence panel (line 2)')?.value).toBe('£80.00');
+        const front = file.facts.find((f) => f.key === 'quote_line:Replace a fence panel (line 1)')!;
+        const rear = file.facts.find((f) => f.key === 'quote_line:Replace a fence panel (line 2)')!;
+        expect(front.value).toBe('£120.00');
+        expect(rear.value).toBe('£80.00');
+
+        // Asked about the total, the figures reach the composer under the quote's own labels: never a
+        // "(line N)" the customer's quote does not carry, and the shared title is named as one no
+        // figure may be read for.
+        const asksTotal = new FakeModelClient({ specialist: () => ({ concerns: [{ kind: 'total', label: 'Total' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+        const total = await quote(file, later(file, 'and what is the total?'), file.parties[0], routeOf(), asksTotal, d);
+        expect(total?.proposal.hold).toBeNull();
+        const brief = total?.brief?.join('\n') ?? '';
+        expect(brief).not.toMatch(/\(line \d+\)/);
+        expect(brief).toMatch(/Figures on it, [^\n]*: Total = fact \S+; Deposit = fact \S+; they asked about: Total/);
+        expect(brief).not.toContain('Replace a fence panel = fact');
+        expect(brief).toContain(`"Replace a fence panel" is the title of 2 lines on the quote: the title is shared, so no figure may be read for it; give none of fact ${front.id}, fact ${rear.id}`);
     });
 
     it('a deposit the quote does not carry goes to Ben, while a deposit it does carry is answered', async () => {

@@ -123,8 +123,11 @@ export interface QuotingProposal {
     status: QuoteStatus | null;
     drafted: boolean;
     draftError: string | null;
-    /** Fact ids the composer should answer from, by what they are. */
-    answerFrom: { figures: Record<string, string>; scope: string[]; notIncluded: string[]; assumptions: string[]; link: string | null; status: string | null };
+    /**
+     * Fact ids the composer should answer from, by what they are. A figure is named by the quote's
+     * own label, never the citation its fact is keyed by, and marked when another line shares it.
+     */
+    answerFrom: { figures: Array<{ label: string; factId: string; shared: boolean }>; scope: string[]; notIncluded: string[]; assumptions: string[]; link: string | null; status: string | null };
     concerns: QuestionOutput['concerns'];
     beyondQuoteLine: boolean;
     acceptanceInChat: boolean;
@@ -136,7 +139,10 @@ export interface QuotingProposal {
 export function briefLines(p: QuotingProposal): string[] {
     const out: string[] = [];
     const ids = p.answerFrom;
-    const figureList = Object.entries(ids.figures).map(([label, id]) => `${label} = fact ${id}`).join('; ');
+    // Each figure under the quote's own label: a citation's "(line 1)" is the desk's key, not words the
+    // customer's quote carries. A title two lines share names no one line, so it lists no figure.
+    const figureList = ids.figures.filter((f) => !f.shared).map((f) => `${f.label} = fact ${f.factId}`).join('; ');
+    const sharedTitles = Array.from(new Set(ids.figures.filter((f) => f.shared).map((f) => f.label)));
     if (p.phase === 'draft') {
         if (p.drafted) {
             out.push(`quoting: drafted ${p.quoteRef} for Ben to price`);
@@ -154,7 +160,7 @@ export function briefLines(p: QuotingProposal): string[] {
         out.push(`quoting: ${p.quoteRef} is ${p.status}`);
         out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; say Ben will come back to them on the quote`);
     } else {
-        out.push(`quoting: ${p.quoteRef} ${p.status}; ${Object.keys(ids.figures).length} figures on the file`);
+        out.push(`quoting: ${p.quoteRef} ${p.status}; ${ids.figures.length} figures on the file`);
         if (p.acceptedNow) {
             out.push(`they accepted the quote on the quote page (fact ${ids.status ?? 'none'}) and Ben has been told: thank them, say Ben has been told and will be in touch about the day; no date, no time, no other promise, no question`);
         } else if (p.acceptanceInChat || p.beyondQuoteLine) {
@@ -166,6 +172,10 @@ export function briefLines(p: QuotingProposal): string[] {
         } else {
             const asked = p.concerns.filter((c) => c.kind === 'line_amount' || c.kind === 'total' || c.kind === 'deposit').map((c) => c.label ?? c.kind);
             out.push(`answer from the quote only. Figures on it, each copied exactly as written on its fact and its fact id cited: ${figureList || 'none'}${asked.length ? `; they asked about: ${asked.join(', ')}` : ''}`);
+            for (const title of sharedTitles) {
+                const facts = ids.figures.filter((f) => f.shared && f.label === title).map((f) => `fact ${f.factId}`);
+                out.push(`"${title}" is the title of ${facts.length} lines on the quote: the title is shared, so no figure may be read for it; give none of ${facts.join(', ')} and say Ben will come back to them on it`);
+            }
             if (ids.scope.length) out.push(`what each line covers: facts ${ids.scope.join(', ')}${ids.notIncluded.length ? `; not included: ${ids.notIncluded.join(', ')}` : ''}${ids.assumptions.length ? `; what happens on the day (the quote's assumptions): ${ids.assumptions.join(', ')}` : ''}`);
             if (ids.link) out.push(`the quote link is fact ${ids.link}; dates are picked on it`);
             out.push('anything about money beyond these figures: say Ben will come back to them on it');
@@ -243,7 +253,7 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
 
     const proposal: QuotingProposal = {
         phase: 'draft', quoteRef: q?.slug ?? file.job.quoteRef ?? null, status: q?.status ?? null, drafted: false, draftError: null,
-        answerFrom: { figures: {}, scope: [], notIncluded: [], assumptions: [], link: null, status: null },
+        answerFrom: { figures: [], scope: [], notIncluded: [], assumptions: [], link: null, status: null },
         concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: route.turnKind === 'not_ready', acceptedNow: turn.kind === 'portal_action',
     };
 
@@ -296,7 +306,8 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
 
     // 2. A quote stands. Its facts onto the file, once; then what this turn concerns.
     const ids = recordQuoteFacts(file, q, deps);
-    proposal.answerFrom = { figures: ids.lines, scope: ids.scope, notIncluded: ids.notIncluded, assumptions: ids.assumptions, link: ids.link, status: ids.status };
+    const figures = figureLabels(q).flatMap((f) => (ids.lines[f.citation] ? [{ label: f.label, factId: ids.lines[f.citation], shared: f.shared }] : []));
+    proposal.answerFrom = { figures, scope: ids.scope, notIncluded: ids.notIncluded, assumptions: ids.assumptions, link: ids.link, status: ids.status };
     factIds.push(...[ids.status, ids.link, ...Object.values(ids.lines), ...ids.scope, ...ids.notIncluded, ...ids.assumptions].filter((x): x is string => !!x));
     proposal.phase = q.status === 'draft' ? 'with_ben' : q.status === 'accepted' ? 'accepted' : 'sent';
     if (q.status === 'draft' && turn.media.length) {
