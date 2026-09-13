@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { open, type CaseFile, type Party } from './case-file';
 import { DEFAULT_FIXED_LINES, type FixedLine } from './fixed-lines';
-import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, chooseChannel, initiate, liveDeliverer, noTemplateApproved, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type Deliverer, type SendInput, type TemplateSend } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, chooseChannel, initiate, liveDeliverer, noTemplateApproved, outboundLabelFor, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type Deliverer, type SendInput, type TemplateSend } from './sender';
 import { renderSms, UCS2_MULTI, GSM7_MULTI, SMS_MAX_SEGMENTS } from '../channels/sms-adapter';
 
 function fixture(): { file: CaseFile; party: Party } {
@@ -234,6 +234,7 @@ describe('send', () => {
         expect(seen[0].template).toEqual(template);
         expect(seen[0].transport).toBe('twilio');
         expect(seen[0].approver).toBe('agent.comms_v2');
+        expect(seen[0].purpose).toBe('service_reply');
         party.channels[0].transport = 'meta';
         expect((await send(input(file, party, { mode: 'live', runId: 'r_meta' }), { now: at('2026-09-11T11:00:02.000Z'), deliverer })).ok).toBe(true);
         expect(seen[1].transport).toBe('meta');
@@ -291,17 +292,26 @@ describe('send', () => {
         expect(file.sentRunIds).toContain('c1');
         expect((await initiate(base, { templates: approved }) as any).reason).toMatch(/already sent/);
     });
-    it('initiate refuses live outright: a chase is not a customer service reply and nothing is delivered or spent', async () => {
+    it('initiate live carries its own purpose to the deliverer as a WhatsApp template, and spends the run id only once it has gone', async () => {
         const { file } = fixture();
-        const template = { name: 'desk_approver_chase_v1', language: 'en_GB', body: 'Hi {{1}}, a thread is waiting: {{2}}.', variables: { '1': 'Ben', '2': 'a complaint' } };
+        const template = { name: 'desk_owner_escalation_v1', language: 'en_GB', body: 'Hi {{1}}, a thread is waiting: {{2}}.', variables: { '1': 'there', '2': 'a complaint' } };
         const approved = { async approved(name: string) { return name === template.name ? { contentSid: 'HX1' } : null; } };
-        let delivered = 0;
-        const deliverer: Deliverer = { async deliver() { delivered++; return { ok: true, sid: 'SM1' }; } };
-        const out = await initiate({ file, to: { address: '+447700900901', name: 'Ben' }, purpose: 'approver_chase', template, runId: 'c9', approver: 'agent.comms_v2', mode: 'live' }, { templates: approved, deliverer });
-        expect(out.ok).toBe(false);
-        if (!out.ok) expect(out.reason).toMatch(/no live path/);
-        expect(delivered).toBe(0);
+        const seen: Parameters<Deliverer['deliver']>[0][] = [];
+        const deliverer: Deliverer = { async deliver(i) { seen.push(i); return { ok: true, sid: 'SM1' }; } };
+        const base = { file, to: { address: '+447700900902', name: null }, purpose: 'owner_escalation' as const, template, runId: 'c9', approver: 'agent.comms_v2' as const, mode: 'live' as const };
+        const refused = await initiate(base, { templates: approved, deliverer: { async deliver() { return { ok: false, reason: 'SENDER_SWITCHED_OFF', delivered: [] }; } } });
+        expect(refused).toMatchObject({ ok: false, reason: 'SENDER_SWITCHED_OFF' });
         expect(file.sentRunIds).not.toContain('c9');
+        const out = await initiate(base, { templates: approved, deliverer, now: at('2026-09-11T11:00:00.000Z') });
+        expect(out.ok).toBe(true);
+        if (out.ok) expect(out.send).toMatchObject({ purpose: 'owner_escalation', mode: 'live', sid: 'SM1', body: 'Hi there, a thread is waiting: a complaint.' });
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({ to: '+447700900902', channel: 'whatsapp', transport: 'twilio', purpose: 'owner_escalation', runId: 'c9', approver: 'agent.comms_v2', bubbles: [{ text: 'Hi there, a thread is waiting: a complaint.', gapMs: 0 }] });
+        expect(seen[0].template).toEqual({ name: template.name, language: 'en_GB', contentSid: 'HX1', variables: template.variables });
+        expect(file.sentRunIds).toContain('c9');
+        expect(file.sends).toHaveLength(0);
+        expect((await initiate(base, { templates: approved, deliverer }) as any).reason).toMatch(/already sent/);
+        expect(seen).toHaveLength(1);
     });
 });
 
@@ -310,7 +320,7 @@ describe('liveDeliverer', () => {
         vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
         const r = await liveDeliverer.deliver({
             to: 'sam@example.com', channel: 'email', transport: 'twilio', bubbles: [{ text: 'Hi Sam,\n\nabout the tap.', gapMs: 0 }],
-            template: null, runId: 'r_email', approver: DESK_APPROVER,
+            template: null, runId: 'r_email', approver: DESK_APPROVER, purpose: 'service_reply',
         });
         expect(r.ok).toBe(false);
         if (!r.ok) {
@@ -318,6 +328,25 @@ describe('liveDeliverer', () => {
             expect(r.reason).toMatch(/opt-out ledger/);
             expect(r.delivered).toEqual([]);
         }
+        vi.doUnmock('../../spine/config');
+    });
+    it('labels, gates and records each send under its own purpose: a reply as a service reply, a chase or an escalation never as one', async () => {
+        const calls: Array<{ purpose?: string; context?: string; contentSid?: string }> = [];
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        vi.doMock('../../outbound', () => ({ sendCustomerMessage: async (i: { purpose?: string; context?: string; contentSid?: string }) => { calls.push(i); return { ok: true, sid: `SM${calls.length}`, attempts: [], fellBack: false }; } }));
+        const template: TemplateSend = { name: 'desk_approver_chase_v1', language: 'en_GB', contentSid: 'HX1', variables: { '1': 'Ben', '2': 'a complaint' } };
+        const common = { to: '+447700900901', channel: 'whatsapp' as const, transport: 'twilio' as const, bubbles: [{ text: 'Hi Ben, a thread is waiting.', gapMs: 0 }], approver: DESK_APPROVER };
+        expect((await liveDeliverer.deliver({ ...common, template: null, runId: 'r1', purpose: 'service_reply' })).ok).toBe(true);
+        expect((await liveDeliverer.deliver({ ...common, template: null, runId: 'r2', purpose: 'web_form_ack' })).ok).toBe(true);
+        expect((await liveDeliverer.deliver({ ...common, template, runId: 'c1', purpose: 'approver_chase' })).ok).toBe(true);
+        expect((await liveDeliverer.deliver({ ...common, template, runId: 'c2', purpose: 'owner_escalation' })).ok).toBe(true);
+        expect(calls.map((c) => [c.purpose, c.context])).toEqual([
+            ['service_reply', 'comms_v2'], ['service_reply', 'comms_v2'],
+            ['marketing', 'comms_v2:approver_chase'], ['marketing', 'comms_v2:owner_escalation'],
+        ]);
+        expect(calls[2].contentSid).toBe('HX1');
+        expect(outboundLabelFor('approver_chase').purpose).not.toBe('service_reply');
+        vi.doUnmock('../../outbound');
         vi.doUnmock('../../spine/config');
     });
 });
