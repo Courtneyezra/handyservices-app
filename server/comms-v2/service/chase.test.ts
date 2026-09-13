@@ -1,9 +1,9 @@
 /**
  * Ben's chase (7.5): nothing while the hold is younger than the first interval; one template send
  * to Ben once it is older; one to the owner after the second interval; a missing address or an
- * unapproved template is a refusal on the record, never a silent skip; so is a live chase, which
- * has no path until cutover; a released hold clears the ledger and a new hold starts a fresh
- * record; the run ids are spent on the file.
+ * unapproved template is a refusal on the record, never a silent skip; so is a live chase whose
+ * delivery is refused; a live chase goes out under its own purpose; a released hold clears the
+ * ledger and a new hold starts a fresh record; the run ids are spent on the file.
  */
 import { describe, expect, it } from 'vitest';
 import { hold, noteOnHold, open, release, type CaseFile } from '../desk/case-file';
@@ -82,16 +82,21 @@ describe('chaseIfDue', () => {
         expect((await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T12:10:00.000Z') })).action).toBe('none');
         expect((await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T12:31:00.000Z') })).action).toBe('chased');
     });
-    it('a live chase is refused on the record and nothing is delivered: a chase is not a customer reply', async () => {
-        let delivered = 0;
-        const deliverer = { async deliver() { delivered++; return { ok: true as const, sid: 'SM1' }; } };
+    it('a live chase goes to the deliverer under its own purpose, never as a customer reply; a refused delivery is on the record and spends nothing', async () => {
+        const purposes: string[] = [];
         const file = held();
-        const out = await chaseIfDue(file, state(), { templates: approved, now: at('2026-09-11T10:31:00.000Z'), mode: 'live', sender: { deliverer } });
-        expect(out.action).toBe('refused');
-        if (out.action === 'refused') expect(out.reason).toMatch(/no live path/);
-        expect(delivered).toBe(0);
+        const s = state();
+        const off = await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T10:31:00.000Z'), mode: 'live', sender: { deliverer: { async deliver() { return { ok: false, reason: 'spine.senders.comms_v2.enabled is not true', delivered: [] }; } } } });
+        expect(off).toMatchObject({ action: 'refused', purpose: 'approver_chase', reason: 'spine.senders.comms_v2.enabled is not true' });
         expect(file.sentRunIds).toHaveLength(0);
-        expect(out.record?.attempts[0]).toMatchObject({ purpose: 'approver_chase', ok: false });
+        expect(s.ledger.get(file.id)?.attempts[0]).toMatchObject({ purpose: 'approver_chase', ok: false });
+        const deliverer = { async deliver(i: { purpose: string }) { purposes.push(i.purpose); return { ok: true as const, sid: 'SM1' }; } };
+        const out = await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T10:32:00.000Z'), mode: 'live', sender: { deliverer } });
+        expect(out.action).toBe('chased');
+        if (out.action === 'chased') expect(out.send).toMatchObject({ purpose: 'approver_chase', mode: 'live', sid: 'SM1' });
+        expect(purposes).toEqual(['approver_chase']);
+        expect(file.sentRunIds).toHaveLength(1);
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
     });
     it('a hold with no exception is chased without its free-text reason, so a noted change of details never reaches the template', async () => {
         const file = held();

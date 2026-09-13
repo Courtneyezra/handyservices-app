@@ -30,6 +30,7 @@ import { renderEmail } from '../channels/email-adapter';
 import { firstNameOf } from '../channels/envelope';
 import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
 import type { ChannelReplyPurpose } from '../channels/templates';
+import type { OutboundPurpose } from '../../opt-out';
 import { isOutOfHours, ukHour } from '../../working-hours';
 
 export const WINDOW_HOURS = 24;
@@ -44,6 +45,22 @@ export const DESK_APPROVER: Approver = 'agent.comms_v2';
 export type ReplyPurpose = 'service_reply' | ChannelReplyPurpose;
 /** A desk-started send has one of these purposes; neither is a reply to a customer. */
 export type InitiatePurpose = 'approver_chase' | 'owner_escalation';
+/** What a delivery is for: a reply to a customer, or a send the desk started itself. */
+export type DeliveryPurpose = ReplyPurpose | InitiatePurpose;
+
+const INITIATE_PURPOSES: readonly DeliveryPurpose[] = ['approver_chase', 'owner_escalation'] satisfies InitiatePurpose[];
+
+/**
+ * How the one outbound send labels, gates and records a delivery of this purpose. A reply to a
+ * customer is a `service_reply` under the desk's context, as it always has been. A desk-started send
+ * is not one: server/outbound.ts keeps `service_reply` for a reply or a message the job requires and
+ * never for something the system started on its own, so a chase or an escalation takes the
+ * fail-closed `marketing` class at the opt-out ledger, where a plain STOP blocks it, and carries its
+ * own purpose in the context the ledger and the logs record.
+ */
+export function outboundLabelFor(purpose: DeliveryPurpose): { purpose: OutboundPurpose; context: string } {
+    return INITIATE_PURPOSES.includes(purpose) ? { purpose: 'marketing', context: `comms_v2:${purpose}` } : { purpose: 'service_reply', context: 'comms_v2' };
+}
 
 // ---------------------------------------------------------------- choose_channel
 
@@ -304,7 +321,7 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, st
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver }): Promise<DeliveryOutcome>;
+    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; purpose: DeliveryPurpose }): Promise<DeliveryOutcome>;
 }
 
 /** A failure names the bubbles that had already reached the customer, so the file can record them. */
@@ -314,7 +331,8 @@ export type DeliveryOutcome = { ok: true; sid: string | null } | { ok: false; re
  * The surviving outbound send. The registry gate inside it refuses an unknown or switched-off
  * approver; the desk adds one rule of its own on top: its switch is off until someone writes
  * `spine.senders.comms_v2.enabled = true`, because an absent switch is on for every other sender
- * and the new desk must not go live by default.
+ * and the new desk must not go live by default. Every send is labelled, gated at the opt-out ledger
+ * and recorded under its own purpose (`outboundLabelFor`), never as a customer reply by default.
  */
 export const liveDeliverer: Deliverer = {
     async deliver(input) {
@@ -327,11 +345,12 @@ export const liveDeliverer: Deliverer = {
         if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
         if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered };
         const { sendCustomerMessage } = await import('../../outbound');
+        const label = outboundLabelFor(input.purpose);
         let sid: string | null = null;
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
             const res = await sendCustomerMessage({
-                approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, allowSmsFallback: false, purpose: 'service_reply', context: 'comms_v2',
+                approver: input.approver, runId: input.runId, to: input.to, body: b.text, channel: input.channel, allowSmsFallback: false, purpose: label.purpose, context: label.context,
                 ...(input.template && input.channel === 'whatsapp' ? templateWire(input.transport, input.template) : {}),
                 ...(input.channel === 'whatsapp' ? { via: input.transport } : {}),
             });
@@ -414,7 +433,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: 'service_reply' });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };
@@ -447,6 +466,8 @@ export interface InitiatedSend {
     templateId: string;
     contentSid: string;
     body: string;
+    /** The provider's message id for a live send; null in dry run. */
+    sid: string | null;
     at: string;
     mode: 'dry_run' | 'live';
 }
@@ -459,17 +480,19 @@ export interface InitiateDeps extends SenderDeps {
 
 /**
  * A desk-started send, template only, for chasing an approver (Goal 6, checklist 7.5) or, later,
- * a maintenance reminder. Dry run only: it refuses `live` outright, because the only deliverer
- * labels every send a customer `service_reply` and a chase to an approver is not one; the purpose
- * has to reach the deliverer before a chase can go out for real, which is cutover's work.
- * Refuses besides: no approver or run id; no address; a template the live sync has not approved
- * (never freeform); a run id already used on the file. Nothing lands on the thread, because the
- * recipient is not a party on the file; the caller keeps the record
- * (server/comms-v2/service/chase.ts). The run id is still spent on the file so one run id sends once.
+ * a maintenance reminder. Live, it goes through the same deliverer as a reply, gated the same way
+ * (the registry, the desk's own switch, the opt-out ledger in server/outbound.ts), but carrying its
+ * own purpose, so it is labelled and recorded as a chase or an escalation and never as a customer
+ * `service_reply` (`outboundLabelFor`). It goes on WhatsApp as the approved template through Twilio,
+ * the transport whose content SID the live sync holds; nothing else can carry a template.
+ * Refuses: no approver or run id; no address; a template the live sync has not approved (never
+ * freeform); a run id already used on the file; a live delivery that fails, which spends nothing.
+ * Nothing lands on the thread, because the recipient is not a party on the file; the caller keeps
+ * the record (server/comms-v2/service/chase.ts). The run id is still spent on the file so one run id
+ * sends once.
  */
 export async function initiate(input: InitiateInput, deps: InitiateDeps = {}): Promise<InitiateOutcome> {
     const now = deps.now ?? (() => new Date());
-    if (input.mode === 'live') return { ok: false, reason: 'a desk-started send has no live path: the deliverer labels every send a customer service_reply, so an approver chase must carry its own purpose before it can go out live' };
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
     if (!input.runId?.trim()) return { ok: false, reason: 'no run id' };
     if (!input.to.address?.trim()) return { ok: false, reason: `no address for the ${input.purpose === 'approver_chase' ? 'approver' : 'owner'}: the chase has nowhere to go` };
@@ -478,6 +501,15 @@ export async function initiate(input: InitiateInput, deps: InitiateDeps = {}): P
     if (!live) return { ok: false, reason: `template ${input.template.name} is not approved; a desk-started send is template only, never freeform` };
     const body = input.template.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => input.template.variables[n] ?? '');
     const template: TemplateSend = { name: input.template.name, language: input.template.language, contentSid: live.contentSid, variables: input.template.variables };
+    let sid: string | null = null;
+    if (input.mode === 'live') {
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: input.to.address, channel: 'whatsapp', transport: 'twilio', bubbles: [{ text: body, gapMs: 0 }], template, runId: input.runId, approver: input.approver, purpose: input.purpose });
+        if (!delivered.ok) {
+            if (delivered.delivered.length) input.file.sentRunIds.push(input.runId);
+            return { ok: false, reason: delivered.reason };
+        }
+        sid = delivered.sid;
+    }
     input.file.sentRunIds.push(input.runId);
-    return { ok: true, send: { runId: input.runId, approver: input.approver, purpose: input.purpose, to: { address: input.to.address, name: input.to.name }, templateId: template.name, contentSid: template.contentSid, body, at: now().toISOString(), mode: input.mode } };
+    return { ok: true, send: { runId: input.runId, approver: input.approver, purpose: input.purpose, to: { address: input.to.address, name: input.to.name }, templateId: template.name, contentSid: template.contentSid, body, sid, at: now().toISOString(), mode: input.mode } };
 }
