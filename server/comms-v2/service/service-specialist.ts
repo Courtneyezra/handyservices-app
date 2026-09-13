@@ -54,18 +54,33 @@ const SYSTEM = [
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const UK_POSTCODE = '[A-Za-z]{1,2}\\d[A-Za-z\\d]?\\s?\\d[A-Za-z]{2}';
 const STREET_SUFFIXES = ['road', 'street', 'avenue', 'lane', 'close', 'drive', 'way', 'court', 'place', 'crescent', 'gardens', 'grove', 'terrace'];
-const ADDRESS_RE = new RegExp(`\\d+[^,\\n]{0,40}?\\b(?:${STREET_SUFFIXES.join('|')})\\b(?:,?\\s*${UK_POSTCODE})?`, 'gi');
+const ADDRESS_WITH_POSTCODE_RE = new RegExp(`\\d+[^\\n]{0,60}?${UK_POSTCODE}`, 'gi');
+const ADDRESS_STREET_RE = new RegExp(`\\d+[^,\\n]{0,40}?\\b(?:${STREET_SUFFIXES.join('|')})\\b`, 'gi');
 const POSTCODE_RE = new RegExp(`\\b${UK_POSTCODE}\\b`, 'gi');
 
 /** The captain's masked-record ruling: an email address or a postal address never reaches the model, even freshly typed in a change-of-details ask. */
 function withheldFromModel(text: string): string {
-    return text.replace(EMAIL_RE, '[email withheld]').replace(ADDRESS_RE, '[address withheld]').replace(POSTCODE_RE, '[address withheld]');
+    return text.replace(EMAIL_RE, '[email withheld]').replace(ADDRESS_WITH_POSTCODE_RE, '[address withheld]').replace(ADDRESS_STREET_RE, '[address withheld]').replace(POSTCODE_RE, '[address withheld]');
 }
 
-/** The real value for a masked-field change of details: read from the customer's own words, never from what the model (which never saw it) echoes back. */
+/**
+ * The real value for a masked-field change of details: read from the customer's own words, never
+ * from what the model (which never saw it) echoes back. When they gave more than one email, the
+ * last one is the new one, since the old value is stated first ("used to be X ... now Y"). An
+ * address is read as the full clause: house number, street and town up to and including the
+ * postcode, not just the postcode, whatever the street word; null when nothing readable is there.
+ */
 function rawValueFor(field: string, turn: Turn): string | null {
-    if (field === 'email') return turn.body.match(EMAIL_RE)?.[0] ?? null;
-    if (field === 'address') return turn.body.match(new RegExp(ADDRESS_RE.source, 'i'))?.[0] ?? turn.body.match(new RegExp(POSTCODE_RE.source, 'i'))?.[0] ?? null;
+    if (field === 'email') {
+        const matches = turn.body.match(EMAIL_RE);
+        return matches?.length ? matches[matches.length - 1] : null;
+    }
+    if (field === 'address') {
+        return turn.body.match(new RegExp(ADDRESS_WITH_POSTCODE_RE.source, 'i'))?.[0]
+            ?? turn.body.match(new RegExp(ADDRESS_STREET_RE.source, 'i'))?.[0]
+            ?? turn.body.match(new RegExp(POSTCODE_RE.source, 'i'))?.[0]
+            ?? null;
+    }
     return null;
 }
 
@@ -166,7 +181,9 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
         const field = res.output.changeOfDetails.field;
         const value = MASKED_FIELDS.has(field) ? rawValueFor(field, turn) : res.output.changeOfDetails.value;
         if (!value) {
-            notes.push(`change of details refused: no ${field} found in the customer's own words`);
+            brief.push(`They asked to change their ${field}, but the new ${field} could not be read from their message: say it has been passed to Ben to confirm; do not say it is done.`);
+            notes.push(`change of details ${field}: could not be read from the message`);
+            if (!hold) hold = { reason: 'change_of_details', match: `the new ${field} could not be read from the message` };
         } else {
             const change = changeOfDetails(file, party, { field, value, turnId: turn.id }, fileDeps);
             if (change.ok) {

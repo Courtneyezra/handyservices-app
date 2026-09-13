@@ -134,6 +134,34 @@ describe('the Service specialist', () => {
         const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
         expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: `address -> ${value}` });
     });
+    it('when the customer states an old email before the new one, the hold carries the new value, never the old', async () => {
+        const file = fixture('My email used to be old@example.org, please update it to new@example.org');
+        const client = new FakeModelClient({ specialist: ({ user }) => {
+            expect(user).not.toContain('old@example.org');
+            expect(user).not.toContain('new@example.org');
+            return { answers: [], changeOfDetails: { field: 'email', value: '[email withheld]' }, holdReason: null };
+        } });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: 'email -> new@example.org' });
+    });
+    it('an address with a street word outside the known list still carries the full clause up to the postcode, not just the postcode', async () => {
+        const value = '44 Foxglove Rise, Beeston NG9 1AB';
+        const file = fixture(`New address: ${value}`);
+        const client = new FakeModelClient({ specialist: ({ user }) => {
+            expect(user).not.toContain('NG9 1AB');
+            return { answers: [], changeOfDetails: { field: 'address', value: '[address withheld]' }, holdReason: null };
+        } });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: `address -> ${value}` });
+    });
+    it('an address with no postcode and no readable value still holds for Ben and tells the customer, instead of dropping the request silently', async () => {
+        const file = fixture('New address: 44 Foxglove Rise, Beeston');
+        const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: { field: 'address', value: '[address withheld]' }, holdReason: null }) });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: 'the new address could not be read from the message' });
+        expect(out.brief.join(' ')).toMatch(/could not be read from their message/);
+        expect(file.facts.find((f) => f.key === 'change_of_details')).toBeUndefined();
+    });
     it('a change of name keeps its value on the fact and in the brief', async () => {
         const file = fixture('I go by Samantha now');
         const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: { field: 'name', value: 'Samantha' }, holdReason: null }) });
