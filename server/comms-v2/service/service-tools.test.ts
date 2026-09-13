@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { appendTurn, ask, hold, open, recordFact, release, type CaseFile } from '../desk/case-file';
 import { emptyKb, JOB_ASKS_MAX } from '../desk/scoping-tools';
-import { changeOfDetails, convergence, customerRecord, kbLookup, SCOPING_REPLIES_MAX, stemsOf } from './service-tools';
+import { asksToChangeDetails, changeOfDetails, convergence, customerRecord, kbLookup, SCOPING_REPLIES_MAX, stemsOf } from './service-tools';
 
 function fixture(text = 'hi', name: string | null = 'Sam'): CaseFile {
     const r = open({
@@ -91,6 +91,19 @@ describe('change_of_details', () => {
         expect((changeOfDetails(file, p, { field: 'address', value: '£40', turnId: t }) as any).reason).toMatch(/figure/);
         expect((changeOfDetails(file, p, { field: 'name', value: 'sam', turnId: t }) as any).reason).toMatch(/already/);
         expect(file.facts).toHaveLength(0);
+    });
+});
+
+describe('asksToChangeDetails', () => {
+    it('matches a request to change a detail, or an address, email or house move', () => {
+        expect(asksToChangeDetails('Please update my address')).toBe(true);
+        expect(asksToChangeDetails('my new email is x@example.org')).toBe(true);
+        expect(asksToChangeDetails("we've moved house")).toBe(true);
+        expect(asksToChangeDetails("I've moved to Beeston")).toBe(true);
+    });
+    it('does not match ordinary use of "moved" that is not a change of home', () => {
+        expect(asksToChangeDetails("we've moved the sofa out of the hallway for you")).toBe(false);
+        expect(asksToChangeDetails("I've moved my car onto the drive")).toBe(false);
     });
 });
 
