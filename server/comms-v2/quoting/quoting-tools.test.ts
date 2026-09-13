@@ -363,8 +363,13 @@ describe('read_quote_line and read_quote_scope', () => {
         expect(visible).toContain(rear.id);
 
         // Asked for under the title they share, neither line is meant, so no figure is read at all.
-        expect(readQuoteLine(live, 'Replace a fence panel')).toMatchObject({ ok: false });
-        expect(readQuoteLine(live, 'Replace a fence panel (line 2)')).toMatchObject({ ok: true, value: { amount: '£80.00', citation: { quoteRef: live.slug, line: 'Replace a fence panel (line 2)' } } });
+        expect(readQuoteLine(live, 'Replace a fence panel')).toMatchObject({ ok: false, reason: expect.stringContaining('carries 2 lines labelled "Replace a fence panel"') });
+        // The citation, with its line position, is the desk's key for the fact and never a name a line
+        // is read by: it is refused as well, where it once read that line's figure back.
+        expect(readQuoteLine(live, 'Replace a fence panel (line 2)')).toMatchObject({ ok: false, reason: expect.stringContaining('no line labelled "Replace a fence panel (line 2)"') });
+        expect(readQuoteLine(live, 'Replace a fence panel (line 1)')).toMatchObject({ ok: false });
+        // What does read comes back under the quote's own label, its citation unchanged.
+        expect(readQuoteLine(live, 'Total')).toMatchObject({ ok: true, value: { label: 'Total', amount: '£200.00', citation: { quoteRef: live.slug, line: 'Total' } } });
     });
 
     it('refuses a cited figure once the quote is no longer live, status by status, though the fact stays on the file', async () => {

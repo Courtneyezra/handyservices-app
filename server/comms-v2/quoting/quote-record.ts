@@ -134,7 +134,7 @@ export const TOTAL_LABEL = 'Total';
 export const DEPOSIT_LABEL = 'Deposit';
 
 export interface QuoteLineRead {
-    /** The label as it appears on the quote, the citation the figure guard verifies against. */
+    /** The label as the quote prints it, never the citation below, which is the desk's own key. */
     label: string;
     amountPence: number;
     amount: string;
@@ -153,6 +153,8 @@ export interface QuoteFigure {
      * work (two fence panels, two taps), and one line's price may never be given as another's.
      */
     citation: string;
+    /** Another line carries the same label: no figure may be read under it. */
+    shared: boolean;
     amountPence: number;
 }
 
@@ -169,10 +171,11 @@ export function figureLabels(q: QuoteRecord): QuoteFigure[] {
     const out: QuoteFigure[] = priced.map((l, i) => ({
         label: l.label,
         citation: shared(l.label) ? `${l.label} (line ${i + 1})` : l.label,
+        shared: shared(l.label),
         amountPence: l.pricePence!,
     }));
-    if (q.totalPence != null) out.push({ label: TOTAL_LABEL, citation: TOTAL_LABEL, amountPence: q.totalPence });
-    if (q.depositPence != null && q.depositPence > 0) out.push({ label: DEPOSIT_LABEL, citation: DEPOSIT_LABEL, amountPence: q.depositPence });
+    if (q.totalPence != null) out.push({ label: TOTAL_LABEL, citation: TOTAL_LABEL, shared: false, amountPence: q.totalPence });
+    if (q.depositPence != null && q.depositPence > 0) out.push({ label: DEPOSIT_LABEL, citation: DEPOSIT_LABEL, shared: false, amountPence: q.depositPence });
     return out;
 }
 
@@ -189,21 +192,19 @@ export function quoteLiveForFigures(q: QuoteRecord): boolean {
 
 /**
  * read_quote_line: the amount of one line of the live quote, to the penny, with the citation the
- * figure guard verifies. Refuses a draft, a revoked, a superseded and an expired quote, and a label
- * that is not on it.
+ * figure guard verifies. Refuses a draft, a revoked, a superseded and an expired quote, a label that
+ * is not on it, and a label two lines share.
  */
 export function readQuoteLine(q: QuoteRecord, label: string): QuoteLineReadOutcome {
     if (!quoteLiveForFigures(q)) return { ok: false, reason: `the quote is ${q.status}; a figure is read only from the live quote the customer holds`, status: q.status };
     const want = norm(label);
-    const figures = figureLabels(q);
-    // The citation is unique, the label may not be: named by its citation one line is meant, named by
-    // a label two lines share none is, and a figure is given only as the one line it is cited as.
-    const cited = figures.find((f) => norm(f.citation) === want);
-    const hits = cited ? [cited] : figures.filter((f) => norm(f.label) === want);
+    // Asked by the quote's own label only. The citation, with its line position, is the desk's key
+    // for a figure and never a name to ask by: named by a label two lines share, none is meant.
+    const hits = figureLabels(q).filter((f) => norm(f.label) === want);
     if (!hits.length) return { ok: false, reason: `no line labelled "${label}" on quote ${q.slug}`, status: q.status };
     if (hits.length > 1) return { ok: false, reason: `quote ${q.slug} carries ${hits.length} lines labelled "${label}"; which one is meant is not the desk's to guess`, status: q.status };
     const hit = hits[0];
-    return { ok: true, value: { label: hit.citation, amountPence: hit.amountPence, amount: pounds(hit.amountPence), citation: { quoteRef: q.slug, line: hit.citation } } };
+    return { ok: true, value: { label: hit.label, amountPence: hit.amountPence, amount: pounds(hit.amountPence), citation: { quoteRef: q.slug, line: hit.citation } } };
 }
 
 // ---------------------------------------------------------------- scope
