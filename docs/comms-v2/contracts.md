@@ -267,7 +267,8 @@ recorded and cited under a name unique on the quote - the label, or the label wi
 when another line shares it - so one line's price can never be recorded or read back as another's.
 That name is the desk's own key and never a name a line is read by: `read_quote_line` matches the
 quote's own label only, and the composer's brief names every figure by that label, saying of a title
-two lines share that the title is shared and no figure may be read for it. The specialist names the quote's own labels to its question model, each once and never those
+two lines share that the title is shared and no figure may be read for it. The specialist names the
+quote's own labels to its question model, each once and never those
 positions, which it has no way to map onto the customer's words: asked for under the title they
 share, no figure is read at all, because which line is meant is not the desk's to guess, so it goes
 to Ben. Answering it from the line's own
