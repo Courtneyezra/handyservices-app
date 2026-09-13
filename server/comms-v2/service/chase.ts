@@ -82,9 +82,14 @@ export interface ChaseDeps {
     now?: () => Date;
 }
 
+/**
+ * The chase names the hold by its exception only, never its free-text reason: a reason carries the
+ * matched text, and a change of details noted onto a standing hold carries the new email or address,
+ * which must never reach Ben's or the owner's template (the masked record). Ben's card has the reason.
+ */
 function topicOf(file: CaseFile): string {
     const name = file.parties[0]?.name ?? 'a customer';
-    const why = file.hold?.exception ? file.hold.exception.replace(/_/g, ' ') : (file.hold?.reason ?? 'held');
+    const why = file.hold?.exception ? file.hold.exception.replace(/_/g, ' ') : 'a held thread';
     return `${why} from ${name}${file.job.type ? ` (${file.job.type})` : ''}`.slice(0, 120);
 }
 

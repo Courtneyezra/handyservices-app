@@ -6,7 +6,7 @@
  * record; the run ids are spent on the file.
  */
 import { describe, expect, it } from 'vitest';
-import { hold, open, release, type CaseFile } from '../desk/case-file';
+import { hold, noteOnHold, open, release, type CaseFile } from '../desk/case-file';
 import { BEN } from '../desk/guards';
 import { noTemplateApproved } from '../desk/sender';
 import { CHASE_TEMPLATES, chaseIfDue, createChaseState } from './chase';
@@ -92,6 +92,18 @@ describe('chaseIfDue', () => {
         expect(delivered).toBe(0);
         expect(file.sentRunIds).toHaveLength(0);
         expect(out.record?.attempts[0]).toMatchObject({ purpose: 'approver_chase', ok: false });
+    });
+    it('a hold with no exception is chased without its free-text reason, so a noted change of details never reaches the template', async () => {
+        const file = held();
+        release(file, BEN, 'Sorry Sam, ringing you now.', { now: at('2026-09-11T10:05:00.000Z') });
+        hold(file, { approver: BEN, reason: 'the draft failed a guard twice' }, { now: at('2026-09-11T10:06:00.000Z') });
+        noteOnHold(file, { reason: 'change_of_details: email -> sam.new@example.com' });
+        noteOnHold(file, { reason: 'change_of_details: address -> 12 High Street, NG1 1AA' });
+        const out = await chaseIfDue(file, state(), { templates: approved, now: at('2026-09-11T10:40:00.000Z') });
+        expect(out.action).toBe('chased');
+        if (out.action !== 'chased') return;
+        expect(out.send.body).toBe('Hi Ben, a customer thread is waiting on you: a held thread from Sam. Open the desk to pick it up.');
+        expect(out.send.body).not.toMatch(/@|example|High Street|NG1|guard/);
     });
     it('the chase templates carry no date, time, duration, figure or commitment', async () => {
         const { RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_FIGURE } = await import('../desk/lexicon');
