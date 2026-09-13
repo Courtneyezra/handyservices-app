@@ -51,8 +51,26 @@ const SYSTEM = [
     'Reply with the JSON object only.',
 ].join('\n');
 
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const UK_POSTCODE = '[A-Za-z]{1,2}\\d[A-Za-z\\d]?\\s?\\d[A-Za-z]{2}';
+const STREET_SUFFIXES = ['road', 'street', 'avenue', 'lane', 'close', 'drive', 'way', 'court', 'place', 'crescent', 'gardens', 'grove', 'terrace'];
+const ADDRESS_RE = new RegExp(`\\d+[^,\\n]{0,40}?\\b(?:${STREET_SUFFIXES.join('|')})\\b(?:,?\\s*${UK_POSTCODE})?`, 'gi');
+const POSTCODE_RE = new RegExp(`\\b${UK_POSTCODE}\\b`, 'gi');
+
+/** The captain's masked-record ruling: an email address or a postal address never reaches the model, even freshly typed in a change-of-details ask. */
+function withheldFromModel(text: string): string {
+    return text.replace(EMAIL_RE, '[email withheld]').replace(ADDRESS_RE, '[address withheld]').replace(POSTCODE_RE, '[address withheld]');
+}
+
+/** The real value for a masked-field change of details: read from the customer's own words, never from what the model (which never saw it) echoes back. */
+function rawValueFor(field: string, turn: Turn): string | null {
+    if (field === 'email') return turn.body.match(EMAIL_RE)?.[0] ?? null;
+    if (field === 'address') return turn.body.match(new RegExp(ADDRESS_RE.source, 'i'))?.[0] ?? turn.body.match(new RegExp(POSTCODE_RE.source, 'i'))?.[0] ?? null;
+    return null;
+}
+
 function threadFor(file: CaseFile, turn: Turn): string {
-    return file.turns.slice(-12).map((t) => `${t.id === turn.id ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body}`).join('\n');
+    return file.turns.slice(-12).map((t) => `${t.id === turn.id ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${withheldFromModel(t.body)}`).join('\n');
 }
 
 export interface ServiceSpecialistDeps {
@@ -145,16 +163,21 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
         if (!hold) hold = { reason: 'no_source', match: a.asked };
     }
     if (res.output.changeOfDetails) {
-        const change = changeOfDetails(file, party, { field: res.output.changeOfDetails.field, value: res.output.changeOfDetails.value, turnId: turn.id }, fileDeps);
-        if (change.ok) {
-            const field = res.output.changeOfDetails.field;
-            factIds.push(change.fact.id);
-            brief.push(MASKED_FIELDS.has(field)
-                ? `They asked to change their ${field} (fact ${change.fact.id}): say it has been passed to Ben to update; do not state or repeat the new ${field}, and do not say it is done.`
-                : `They asked to change their ${field} to "${res.output.changeOfDetails.value}" (fact ${change.fact.id}): say it has been passed to Ben to update; do not say it is done.`);
-            notes.push(`change of details ${MASKED_FIELDS.has(field) ? field : change.hold.match}`);
-            if (!hold) hold = change.hold;
-        } else notes.push(`change of details refused: ${change.reason}`);
+        const field = res.output.changeOfDetails.field;
+        const value = MASKED_FIELDS.has(field) ? rawValueFor(field, turn) : res.output.changeOfDetails.value;
+        if (!value) {
+            notes.push(`change of details refused: no ${field} found in the customer's own words`);
+        } else {
+            const change = changeOfDetails(file, party, { field, value, turnId: turn.id }, fileDeps);
+            if (change.ok) {
+                factIds.push(change.fact.id);
+                brief.push(MASKED_FIELDS.has(field)
+                    ? `They asked to change their ${field} (fact ${change.fact.id}): say it has been passed to Ben to update; do not state or repeat the new ${field}, and do not say it is done.`
+                    : `They asked to change their ${field} to "${value}" (fact ${change.fact.id}): say it has been passed to Ben to update; do not say it is done.`);
+                notes.push(`change of details ${MASKED_FIELDS.has(field) ? field : change.hold.match}`);
+                if (!hold) hold = change.hold;
+            } else notes.push(`change of details refused: ${change.reason}`);
+        }
     }
     return { specialist: 'service', factIds, proposal: emptyProposal(file, hold), calls, error: null, brief, note: notes.length ? `service: ${notes.join('; ')}` : 'service: nothing to answer' };
 }

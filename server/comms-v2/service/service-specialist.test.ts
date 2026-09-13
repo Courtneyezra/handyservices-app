@@ -92,10 +92,13 @@ describe('the Service specialist', () => {
         expect(out.proposal.hold).toEqual({ reason: 'no_source', match: 'their email on file is masked from the desk; Ben to read it back' });
         expect(out.brief.join(' ')).toMatch(/only Ben can read it back/);
     });
-    it('a change of email or address is a fact naming the field alone and a hold carrying the value for Ben; the brief never carries the value; the record is not written', async () => {
+    it('a change of email or address is a fact naming the field alone and a hold carrying the value for Ben; the brief never carries the value; the record is not written; the raw value never reaches the model', async () => {
         for (const [field, value] of [['email', 'sam@example.org'], ['address', '12 Mill Lane, NG9 2AB']] as const) {
             const file = fixture(`My new ${field} is ${value}`);
-            const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: { field, value }, holdReason: null }) });
+            const client = new FakeModelClient({ specialist: ({ user }) => {
+                expect(user).not.toContain(value);
+                return { answers: [], changeOfDetails: { field, value: `[${field} withheld]` }, holdReason: null };
+            } });
             const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
             expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: `${field} -> ${value}` });
             const fact = file.facts.find((f) => f.key === 'change_of_details')!;
@@ -107,6 +110,29 @@ describe('the Service specialist', () => {
             expect(out.note).not.toContain(value);
             expect(file.parties[0].channels.some((c) => c.kind === 'email')).toBe(false);
         }
+    });
+    it('a newly-typed email in a change-of-details ask reaches the model prompt only as a placeholder, never the real address', async () => {
+        const value = 'sam.new@example.org';
+        const file = fixture(`My new email is ${value}`);
+        const client = new FakeModelClient({ specialist: ({ user }) => {
+            expect(user).not.toContain(value);
+            expect(user).toContain('[email withheld]');
+            return { answers: [], changeOfDetails: { field: 'email', value: '[email withheld]' }, holdReason: null };
+        } });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: `email -> ${value}` });
+    });
+    it('a newly-typed postal address in a change-of-details ask reaches the model prompt only as a placeholder, never the real address', async () => {
+        const value = '221B Baker Street, NW1 6XE';
+        const file = fixture(`Please update my address to ${value}`);
+        const client = new FakeModelClient({ specialist: ({ user }) => {
+            expect(user).not.toContain(value);
+            expect(user).not.toContain('NW1 6XE');
+            expect(user).toContain('[address withheld]');
+            return { answers: [], changeOfDetails: { field: 'address', value: '[address withheld]' }, holdReason: null };
+        } });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(out.proposal.hold).toEqual({ reason: 'change_of_details', match: `address -> ${value}` });
     });
     it('a change of name keeps its value on the fact and in the brief', async () => {
         const file = fixture('I go by Samantha now');
