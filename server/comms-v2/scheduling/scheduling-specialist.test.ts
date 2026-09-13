@@ -362,6 +362,29 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.bookedDate).toBeNull();
     });
 
+    it('a booking resolved by contact with no quote on the file confirms beside the lead time, never "dates come with your quote"', async () => {
+        const file = fixture('How soon could you fit us in?');
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6, true), now });
+        expect(r.scheduling.bookedDate).toMatchObject({ ok: true, state: 'standing', bookingRef: 'bk1' });
+        expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
+        expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.proposal.hold).toBeNull();
+    });
+
+    it('the same booking resolved by contact, with too few completed bookings for a lead time, still confirms the date and never says dates come with the quote', async () => {
+        const file = fixture('How soon could you fit us in?');
+        file.job.bookingRef = 'bk1';
+        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(2, true), now });
+        expect(r.scheduling.bookedDate).toMatchObject({ ok: true, state: 'standing', bookingRef: 'bk1' });
+        expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
+        expect(file.facts.filter((f) => f.key === 'lead_time')).toHaveLength(0);
+        expect(r.scheduling.fixedLines).toEqual([]);
+        expect(r.proposal.hold).toBeNull();
+        expect(r.brief.join(' ')).toMatch(/no typical lead time to give: say nothing about how soon/);
+    });
+
     it('a date change with nothing booked is an availability question: no hold', async () => {
         const file = fixture('Can we move it to Friday?');
         file.job.quoteRef = 'q1';

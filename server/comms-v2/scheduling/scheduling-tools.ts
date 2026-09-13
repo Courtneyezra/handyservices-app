@@ -103,7 +103,7 @@ function isTheirs(booked: BookedDate | null): boolean {
 export function isTheirBooking(file: CaseFile, booked: BookedDate | null): boolean {
     if (!booked) return false;
     if (booked.state === 'unknown') return !!file.job.bookingRef || file.stage === 'booked' || (!!file.job.quoteRef && booked.quoteRef === file.job.quoteRef);
-    return isTheirs(booked) && !!file.job.quoteRef && booked.quoteRef === file.job.quoteRef;
+    return isTheirs(booked) && (file.job.quoteRef ? booked.quoteRef === file.job.quoteRef : !!file.job.bookingRef && booked.bookingRef === file.job.bookingRef);
 }
 
 /**

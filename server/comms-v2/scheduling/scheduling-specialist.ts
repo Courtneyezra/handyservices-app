@@ -245,11 +245,12 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             const lt = findings.leadTime;
             const f = recordFact(file, { key: 'lead_time', value: lt.phrase, source: { kind: 'diary', rowId: lt.rowId }, by }, fileDeps);
             if (f.ok) { factIds.push(f.value.id); brief.push(`Typical lead time from the diary: say exactly "${lt.phrase}" and cite fact ${f.value.id} (for example "we're usually booking in ${lt.phrase}"). Do not write the words "lead time". Not a promise of a day: never a specific day, date or time.`); }
-        } else if (!file.job.quoteRef || (!!findings.picker && !findings.picker.ok && !!findings.picker.unsent)) {
+        } else if (!dateSaid && !theirs && (!file.job.quoteRef || (!!findings.picker && !findings.picker.ok && !!findings.picker.unsent))) {
             // The one cell that line belongs to: no quote the customer has been sent, whether none is on
             // the file at all or the one on it is still a draft, which the picker refuses as `unsent` for
             // this reason. Somebody holding a quote, and a booking made from it, reads "dates come with
-            // your quote" as the desk not knowing who they are.
+            // your quote" as the desk not knowing who they are; so does somebody whose booking was
+            // confirmed on this turn or is otherwise theirs.
             findings.fixedLines.push('dates_with_quote');
             brief.push('The diary has no typical lead time to give and the customer has no quote yet: include the fixed line that dates come with the quote, and never guess a day, a time or a lead time.');
         } else if (dateSaid || findings.picker?.ok || proposal.hold) {
