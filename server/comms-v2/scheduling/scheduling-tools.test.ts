@@ -7,9 +7,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
-import { bookingRowToDiary, formatDiaryDate, leadDaysOf, leadTimePhrase, liveDiary, MemoryDiary, medianOf, MIN_COMPLETED_BOOKINGS, typicalLeadTimeOf, type DiaryBooking } from './diary';
+import { bookingRowToDiary, contactMatchValues, formatDiaryDate, leadDaysOf, leadTimePhrase, liveDiary, MemoryDiary, medianOf, MIN_COMPLETED_BOOKINGS, typicalLeadTimeOf, type DiaryBooking } from './diary';
 import { liveFixture } from './fixture';
-import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, pickerLink, typicalLeadTime } from './scheduling-tools';
+import { confirmBookedDate, contactKeysOf, dateChangeMatch, dateQuestionMatch, linkPartyBooking, partyBookings, pickerLink, typicalLeadTime } from './scheduling-tools';
 
 const NOW = new Date('2026-09-11T10:00:00.000Z');
 const now = () => NOW;
@@ -102,6 +102,7 @@ describe('the live diary', () => {
             await expect(liveDiary.booking('bk1')).rejects.toThrow(/not the database in use/);
             await expect(liveDiary.bookingForQuote('q1')).rejects.toThrow(/not the database in use/);
             await expect(liveDiary.quote('q1')).rejects.toThrow(/not the database in use/);
+            await expect(liveDiary.bookingsForContact(['phone:07700900942'], '2026-09-11')).rejects.toThrow(/not the database in use/);
         } finally {
             if (before.branch === undefined) delete process.env.COMMS_V2_DATABASE_URL; else process.env.COMMS_V2_DATABASE_URL = before.branch;
             if (before.db === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = before.db;
@@ -243,6 +244,97 @@ describe('confirm_booked_date', () => {
         expect(legacy.scheduledDays).toEqual(['2026-09-25', '2026-09-26']);
         expect(formatDiaryDate('2026-01-03')).toBe('3 January 2026');
         expect(formatDiaryDate('nonsense')).toBe('nonsense');
+    });
+});
+
+describe('the customer\'s own booking', () => {
+    const standing = (id: string, over: Partial<DiaryBooking> = {}): DiaryBooking => ({ id, quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: '2026-09-10T10:00:00.000Z', completedAt: null, ...over });
+    const onPhone = (diary: MemoryDiary, ...refs: string[]) => { for (const ref of refs) diary.contacts.push({ ref, phone: '+447700900942', email: null }); };
+
+    it('is looked up by the phones and emails the file records for its customers, never its own people and never a number typed in a turn', () => {
+        const file = fixture();
+        file.parties.push({ personId: 'p2', role: 'tenant', name: null, canonical: 'email:tenant@example.test', channels: [{ kind: 'email', address: 'Tenant@Example.test', lastInboundAt: null }], prefersText: false, alreadyRung: false, callOffered: false });
+        file.parties.push({ personId: 'ben', role: 'internal', name: 'Ben', canonical: 'phone:07700900001', channels: [{ kind: 'whatsapp', address: '+447700900001', lastInboundAt: null }], prefersText: false, alreadyRung: false, callOffered: false });
+        file.turns[0].body = 'my number is 07700 900555';
+        expect(contactKeysOf(file).sort()).toEqual(['email:tenant@example.test', 'phone:07700900942']);
+    });
+
+    it('the diary matches a booking on its own contact or its quote\'s, however it was typed, and only one the customer may still be expecting', async () => {
+        const diary = new MemoryDiary();
+        diary.bookings.push(
+            standing('mine', { createdAt: '2026-09-01T00:00:00.000Z' }),
+            standing('viaquote', { quoteRef: 'q7', createdAt: '2026-09-05T00:00:00.000Z' }),
+            standing('cancelledahead', { status: 'cancelled', createdAt: '2026-09-02T00:00:00.000Z' }),
+            standing('cancelledgone', { status: 'cancelled', scheduledDate: '2026-09-01', scheduledDays: ['2026-09-01'] }),
+            standing('done', { status: 'completed', dayOfStatus: 'completed', completedAt: '2026-09-03T16:00:00.000Z', scheduledDate: '2026-09-03', scheduledDays: ['2026-09-03'] }),
+            standing('past', { scheduledDate: '2026-09-03', scheduledDays: ['2026-09-03'] }),
+            standing('someoneelse'),
+        );
+        diary.contacts.push(
+            { ref: 'mine', phone: '07700 900942', email: null },
+            { ref: 'q7', phone: null, email: 'Sam@Example.test ' },
+            { ref: 'cancelledahead', phone: '447700900942', email: null },
+            { ref: 'someoneelse', phone: '+447700900111', email: null },
+        );
+        onPhone(diary, 'cancelledgone', 'done', 'past');
+        const found = await diary.bookingsForContact(['phone:07700900942', 'email:sam@example.test'], '2026-09-11');
+        expect(found.map((b) => b.id)).toEqual(['viaquote', 'cancelledahead', 'mine']);
+    });
+
+    it('spells a stored number every way it is written, for the live match', () => {
+        expect(contactMatchValues(['phone:07700900942', 'email:sam@example.test'])).toEqual({ phones: ['07700900942', '447700900942', '00447700900942', '7700900942'], emails: ['sam@example.test'] });
+        expect(contactMatchValues(['phone:2012345678']).phones).toEqual(['2012345678', '02012345678', '442012345678', '00442012345678']);
+    });
+
+    it('writes the one standing booking onto a file that names nothing, and the confirmation then reads it on its own path', async () => {
+        const diary = new MemoryDiary();
+        diary.bookings.push(standing('bk9'), standing('gone', { status: 'cancelled', createdAt: '2026-09-11T00:00:00.000Z' }));
+        onPhone(diary, 'bk9', 'gone');
+        const file = fixture();
+        const r = await linkPartyBooking(file, { diary, now });
+        expect(r).toMatchObject({ found: { state: 'found' }, linked: 'bk9' });
+        expect(file.job.bookingRef).toBe('bk9');
+        expect(await confirmBookedDate(file, { diary, now })).toMatchObject({ ok: true, state: 'standing', bookingRef: 'bk9', words: '25 September 2026' });
+    });
+
+    it('writes nothing where the answer is not plain: two standing bookings, a file carrying a quote or naming a booking, and only a cancelled one', async () => {
+        const two = new MemoryDiary();
+        two.bookings.push(standing('a'), standing('b', { status: 'pending', assignmentStatus: 'unassigned' }));
+        onPhone(two, 'a', 'b');
+        const both = fixture();
+        expect(await linkPartyBooking(both, { diary: two, now })).toMatchObject({ found: { state: 'found' }, linked: null });
+        expect(both.job.bookingRef).toBeNull();
+
+        const one = new MemoryDiary();
+        one.bookings.push(standing('a'));
+        onPhone(one, 'a');
+        const quoted = fixture();
+        quoted.job.quoteRef = 'q1';
+        expect(await linkPartyBooking(quoted, { diary: one, now })).toMatchObject({ found: { state: 'found' }, linked: null });
+        expect(quoted.job.bookingRef).toBeNull();
+        const named = fixture();
+        named.job.bookingRef = 'elsewhere';
+        expect((await linkPartyBooking(named, { diary: one, now })).linked).toBeNull();
+        expect(named.job.bookingRef).toBe('elsewhere');
+
+        const cancelled = new MemoryDiary();
+        cancelled.bookings.push(standing('c', { status: 'cancelled' }));
+        onPhone(cancelled, 'c');
+        const offThem = fixture();
+        expect(await linkPartyBooking(offThem, { diary: cancelled, now })).toMatchObject({ found: { state: 'found' }, linked: null });
+        expect(offThem.job.bookingRef).toBeNull();
+    });
+
+    it('says plainly when the customer has nothing, and that it could not say with no diary, no contact or a read that fails', async () => {
+        const file = fixture();
+        expect(await partyBookings(file, { diary: new MemoryDiary(), now })).toEqual({ state: 'none' });
+        expect(await partyBookings(file, { now })).toEqual({ state: 'unknown', reason: 'no diary to read' });
+        const threw = new MemoryDiary();
+        threw.bookingsForContact = async () => { throw new Error('connection lost'); };
+        expect(await partyBookings(file, { diary: threw, now })).toEqual({ state: 'unknown', reason: 'the diary could not be read', detail: 'connection lost' });
+        const faceless = fixture();
+        faceless.parties.length = 0;
+        expect(await partyBookings(faceless, { diary: new MemoryDiary(), now })).toEqual({ state: 'unknown', reason: 'no phone or email on the file to find a booking by' });
     });
 });
 

@@ -209,8 +209,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(third.result.decision).toBe('send');
     });
 
-    it('5.5: the router\'s date_change exception holds for Ben even when the desk can see no booking, and the reply still answers the rest', async () => {
-        const { diary } = await seededDiary(6);
+    it('5.5: a move holds for Ben when the only sign of the booking is the customer\'s own phone, and the reply still answers the rest', async () => {
+        // The booking and its quote sit on the customer's number, and nothing links them to this thread.
+        const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({
             router: ({ n }) => n === 1 ? scoping() : scheduling({ exception: 'date_change' }),
             specialist: specialists(['date_change'], 'the week after'),
@@ -240,6 +241,36 @@ describe('the desk with Scheduling (Goal 5)', () => {
         // The diary holds a lead time, and a job the customer is asking to move is not a job to quote a lead time about.
         expect(second.file.facts.filter((f) => f.key === 'lead_time' || f.key === 'picker_link')).toEqual([]);
         expect(r.summary).not.toMatch(/Typical lead time from the diary/);
+        // The thread carries the quote Quoting drafted on the first turn, so a booking made from another quote is held on, never written onto it as this job's.
+        expect(second.file.job.quoteRef).toBeTruthy();
+        expect(second.file.job.bookingRef).toBeNull();
+        expect(seeded.bookingRef).toBeTruthy();
+    });
+
+    it('5.5 tightened: the router\'s date_change on a thread the diary says was never booked does not reach Ben; the reply answers it as availability', async () => {
+        const { diary } = await seededDiary(6);
+        const { gateway } = desk({
+            router: ({ n }) => n === 1 ? scoping() : scheduling({ exception: 'date_change' }),
+            specialist: specialists(['date_change'], 'the week after'),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
+                expect(user).not.toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                const lead = /say exactly "(about [^"]+)" and cite fact (fact_[\w-]+)/.exec(user)!;
+                return { reply: `We're usually booking in ${lead[1]}.\n\nAnd yes, bring the old tap out if you can.`, factIds: [lead[2]], kbIds: [] };
+            },
+        }, diary);
+        const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        const second = await gateway.inbound(turn('Can we move the appointment to the week after? Also should I take the old tap out?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        const r = second.result;
+        expect(r.decision).toBe('send');
+        expect(r.delivered).toBe(true);
+        expect(r.hold).toBeNull();
+        expect(r.guards.date_time_duration.result).toBe('pass');
+        expect(r.bubbles.map((b) => b.text).join(' ')).not.toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(second.file.facts.find((f) => f.key === 'date_change_requested')).toBeUndefined();
+        expect(second.file.job.bookingRef).toBeNull();
     });
 
     it('a reply that fails the guards twice on a thread already held for Ben still puts the draft and the failures on his card', async () => {

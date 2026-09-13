@@ -195,6 +195,32 @@ describe('the scheduling fixture on the door', () => {
         expect(r.json.diaryMode).toBe('diary');
         expect(scheduling.diary.bookings).toHaveLength(0);
     });
+    it('link: false seeds the rows and links nothing; a thread holding the quote Quoting drafted still holds a move for Ben, found by the customer\'s phone', async () => {
+        expect((await post('/scheduling/fixture', { booked: true, link: 'no' })).status).toBe(400);
+        await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
+        const seeded = await post('/scheduling/fixture', { booked: true, link: false });
+        expect(seeded.status).toBe(200);
+        expect(seeded.json.linked).toBeNull();
+        expect(seeded.json.seeded.bookingRef).toBeTruthy();
+        const r = await post('/message', { text: 'Can we move it to the week after?', channel: 'whatsapp' });
+        const ps = plannedSendOfResponse(r.json);
+        expect(ps.delivered).toBe(true);
+        expect(ps.hold).toMatchObject({ approver: 'ben' });
+        expect(ps.hold?.reason).toMatch(/^date_change/);
+        expect(ps.bubbles.join(' ')).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        // The file carries the quote Quoting drafted, so a booking made from some other quote is not written onto it as this job's.
+        expect(r.json.state.caseFile.job.bookingRef).toBeNull();
+        await post('/scheduling/fixture/reset');
+    });
+    it('a request to move something never booked is not held: with nothing under the customer\'s phone the router\'s date change is answered as availability', async () => {
+        await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
+        const r = await post('/message', { text: 'Can we move it to the week after?', channel: 'whatsapp' });
+        const ps = plannedSendOfResponse(r.json);
+        expect(ps.delivered).toBe(true);
+        expect(ps.hold).toBeNull();
+        expect(ps.bubbles.join(' ')).not.toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(r.json.state.caseFile.job.bookingRef).toBeNull();
+    });
 });
 
 describe('the door\'s scheduling deps', () => {

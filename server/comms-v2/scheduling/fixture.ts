@@ -93,6 +93,8 @@ export class MemoryFixture implements FixtureWriter {
         const plan = planFixture(input, now);
         this.diary.bookings.push(...plan.bookings);
         if (plan.quote) this.diary.quotes.push(plan.quote);
+        // Every row the live writer puts on the drama number, so the diary finds them by the customer's phone as it does live.
+        for (const ref of [...plan.bookings.map((b) => b.id), ...(plan.quote ? [plan.quote.id] : [])]) this.diary.contacts.push({ ref, phone: FIXTURE_PHONE_E164, email: null });
         return resultOf(plan, input);
     }
     async reset(): Promise<{ bookings: number; quotes: number }> {
@@ -100,6 +102,7 @@ export class MemoryFixture implements FixtureWriter {
         const quotes = this.diary.quotes.length;
         this.diary.bookings.length = 0;
         this.diary.quotes.length = 0;
+        this.diary.contacts.length = 0;
         return { bookings, quotes };
     }
 }

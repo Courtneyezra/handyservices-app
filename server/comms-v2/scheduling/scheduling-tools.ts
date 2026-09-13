@@ -21,12 +21,18 @@
  *                       about on a file that names a booking, since it may be that same one.
  *   date_change         the deterministic belt under the model: a request to move a booked job
  *                       is a hold for Ben whatever the router or the specialist read.
+ *   party booking       on a date-change-shaped turn only, the customer's bookings, found by the phone
+ *                       and email the case file records for them, and the one that plainly is the
+ *                       file's job written onto it, so a real thread with no reference on it is still
+ *                       known to be booked when asked to move it. A plain lead-time, availability or
+ *                       booked-date turn never looks this up.
  *
  * Every date fact these return carries a diary source (`{ kind: 'diary', rowId }`), which the
  * date guard (desk/guards.ts checkDate) already recognises; nothing in the guard changes.
  */
 import { getBaseUrlFromEnv } from '../../url-utils';
 import type { CaseFile } from '../desk/case-file';
+import { canonical, type CanonicalKey, type Role } from '../desk/identity';
 import { formatDiaryDate, isoDayOf, LEAD_TIME_SAMPLE_LIMIT, LEAD_TIME_WINDOW_DAYS, notStandingReason, typicalLeadTimeOf, unacceptedReason, type DiaryBooking, type DiaryReader, type LeadTime } from './diary';
 
 // ---------------------------------------------------------------- the deps every tool reads
@@ -97,7 +103,7 @@ function isTheirs(booked: BookedDate | null): boolean {
 export function isTheirBooking(file: CaseFile, booked: BookedDate | null): boolean {
     if (!booked) return false;
     if (booked.state === 'unknown') return !!file.job.bookingRef || file.stage === 'booked' || (!!file.job.quoteRef && booked.quoteRef === file.job.quoteRef);
-    return isTheirs(booked) && !!file.job.quoteRef && booked.quoteRef === file.job.quoteRef;
+    return isTheirs(booked) && (file.job.quoteRef ? booked.quoteRef === file.job.quoteRef : !!file.job.bookingRef && booked.bookingRef === file.job.bookingRef);
 }
 
 /**
@@ -131,6 +137,71 @@ export async function confirmBookedDate(file: CaseFile, deps: SchedulingDeps = {
     if (unaccepted) return { ok: false, state: 'unaccepted', reason: unaccepted, expected: true, bookingRef: booking.id, quoteRef: booking.quoteRef };
     if (!booking.scheduledDate) return { ok: false, state: 'unknown', reason: 'the booking carries no date yet', bookingRef: booking.id, quoteRef: booking.quoteRef };
     return { ok: true, state: 'standing', bookingRef: booking.id, quoteRef: booking.quoteRef, date: booking.scheduledDate, words: formatDiaryDate(booking.scheduledDate), rowId: `booking:${booking.id}` };
+}
+
+// ---------------------------------------------------------------- the party's own booking
+
+/** A booking row's contact is its customer's, so the desk's own people and contractors are never looked up by. */
+const NOT_A_CUSTOMER: ReadonlySet<Role> = new Set<Role>(['internal', 'contractor']);
+
+/**
+ * The phones and emails the case file records for its customers: each party's canonical key and every
+ * channel address on it. Never anything typed in a turn, so nobody can claim a booking by giving a
+ * number in chat.
+ */
+export function contactKeysOf(file: CaseFile): CanonicalKey[] {
+    const keys = new Set<CanonicalKey>();
+    for (const p of file.parties) {
+        if (NOT_A_CUSTOMER.has(p.role)) continue;
+        if (p.canonical) keys.add(p.canonical);
+        for (const c of p.channels) { const k = canonical(c.address); if (k) keys.add(k); }
+    }
+    return Array.from(keys);
+}
+
+export type PartyBookings =
+    /** Bookings made under their contact that they may still be expecting, newest first (diary.ts `stillExpected`). */
+    | { state: 'found'; bookings: DiaryBooking[] }
+    /** The diary read plainly and holds nothing of theirs still expected. */
+    | { state: 'none' }
+    /** The diary could not say: none to read, no contact on the file, or a read that failed. `reason` is a stable category; `detail` is for the log. */
+    | { state: 'unknown'; reason: string; detail?: string | null };
+
+/** The customer's bookings, looked up by their own phone and email. Read-only. */
+export async function partyBookings(file: CaseFile, deps: SchedulingDeps = {}): Promise<PartyBookings> {
+    if (!deps.diary) return { state: 'unknown', reason: 'no diary to read' };
+    const keys = contactKeysOf(file);
+    if (!keys.length) return { state: 'unknown', reason: 'no phone or email on the file to find a booking by' };
+    const today = isoDayOf((deps.now ?? (() => new Date()))());
+    try {
+        const bookings = await deps.diary.bookingsForContact(keys, today);
+        return bookings.length ? { state: 'found', bookings } : { state: 'none' };
+    } catch (err: any) {
+        return { state: 'unknown', reason: 'the diary could not be read', detail: String(err?.message ?? err) };
+    }
+}
+
+/**
+ * The customer's booking, found by their own phone and email and written onto the file's job, so
+ * `confirmBookedDate` reads it on its own path. Written only where the answer is plain: a file naming
+ * no booking and no quote, and exactly one booking of theirs that stands. A file carrying a quote is a
+ * job whose booking is the one made from that quote; two standing bookings may be two jobs, and
+ * confirming the wrong one's date is worse than confirming none; a booking cancelled off them is found,
+ * so a change to it still reaches Ben, but is never written as the file's job.
+ *
+ * Called only for a date-change-shaped turn (scheduling-specialist.ts `schedule`): a lone standing
+ * booking under a contact is not this thread's job on every turn, only on one that reads as a request
+ * to move a booked job. `precomputed` skips the lookup where the caller already read the diary for the
+ * same file, so the desk's own gate and the specialist never make the same diary round trip twice.
+ */
+export async function linkPartyBooking(file: CaseFile, deps: SchedulingDeps = {}, precomputed?: PartyBookings): Promise<{ found: PartyBookings; linked: string | null }> {
+    const found = precomputed ?? await partyBookings(file, deps);
+    if (found.state !== 'found' || file.job.bookingRef || file.job.quoteRef) return { found, linked: null };
+    const today = isoDayOf((deps.now ?? (() => new Date()))());
+    const standing = found.bookings.filter((b) => !notStandingReason(b, today));
+    if (standing.length !== 1) return { found, linked: null };
+    file.job.bookingRef = standing[0].id;
+    return { found, linked: standing[0].id };
 }
 
 // ---------------------------------------------------------------- picker_link

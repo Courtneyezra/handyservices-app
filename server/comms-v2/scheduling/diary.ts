@@ -19,6 +19,7 @@
  * real diary. A memory reader stands in for tests; nothing here prints a value.
  */
 import { COMMS_V2_DATABASE_ENV, resolveCommsV2Database } from '../desk/door-host';
+import { canonical, type CanonicalKey } from '../desk/identity';
 import { expandSpanDates } from '../../../shared/schedule-composition';
 
 export interface DiaryBooking {
@@ -62,6 +63,12 @@ export interface DiaryReader {
     bookingForQuote(quoteRef: string, today: string): Promise<DiaryBooking | null>;
     /** The quote row by its reference, or nothing. */
     quote(quoteRef: string): Promise<DiaryQuote | null>;
+    /**
+     * The bookings made under a customer's own phone numbers and email addresses, as canonical keys
+     * (desk/identity.ts), that the customer may still be expecting on `today` (`stillExpected`), newest
+     * first. A booking matches on its own contact, or on the contact of the quote it was made from.
+     */
+    bookingsForContact(keys: CanonicalKey[], today: string): Promise<DiaryBooking[]>;
 }
 
 // ---------------------------------------------------------------- lead time, the computation
@@ -171,6 +178,42 @@ export function newestFromQuote(newestFirst: DiaryBooking[], today: string): Dia
     return newestFirst.find((b) => !notStandingReason(b, today)) ?? newestFirst[0] ?? null;
 }
 
+/**
+ * Whether a booking is one its customer may still be expecting on `today`: one that stands, whether or
+ * not a contractor has taken it on, or one cancelled off them whose day has not come yet. A job done or
+ * past is a new job's business rather than a change, and a cancelled booking with no day, or a day gone,
+ * is not a visit anybody is waiting in for.
+ */
+export function stillExpected(b: DiaryBooking, today: string): boolean {
+    const gone = notStandingReason(b, today);
+    if (!gone) return true;
+    if (gone.kind === 'done') return false;
+    const last = lastBookedDay(b);
+    return !!last && last >= today;
+}
+
+/** At most this many bookings are read for one customer's contact. */
+export const CONTACT_BOOKINGS_LIMIT = 50;
+/** A booking whose first day is further back than this cannot still be running, whatever its span. */
+export const CONTACT_SPAN_MARGIN_DAYS = 60;
+
+/**
+ * The spellings a contact's phone and email are stored under, for a database match: every digit form a
+ * UK number is written in (national, with 44, with 0044, without the leading 0), and the lowercase email.
+ */
+export function contactMatchValues(keys: CanonicalKey[]): { phones: string[]; emails: string[] } {
+    const phones = new Set<string>();
+    const emails = new Set<string>();
+    for (const key of keys) {
+        if (key.startsWith('email:')) { emails.add(key.slice('email:'.length)); continue; }
+        const digits = key.slice('phone:'.length);
+        phones.add(digits);
+        const national = digits.startsWith('0') ? digits.slice(1) : digits.length === 10 ? digits : null;
+        if (national) for (const v of [`0${national}`, `44${national}`, `0044${national}`, national]) phones.add(v);
+    }
+    return { phones: Array.from(phones), emails: Array.from(emails) };
+}
+
 /** A row from the database into the diary's shape. */
 export function bookingRowToDiary(row: { id: string; quoteId: string | null; scheduledDate: Date | string | null; scheduledDates: unknown; durationDays: number | null; status: string; assignmentStatus: string | null; dayOfStatus: string | null; createdAt: Date | string | null; completedAt: Date | string | null }): DiaryBooking {
     const iso = (v: Date | string | null): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -201,6 +244,16 @@ export class MemoryDiary implements DiaryReader {
     quoteFallback: ((quoteRef: string) => Promise<DiaryQuote | null>) | null = null;
     async quote(quoteRef: string): Promise<DiaryQuote | null> {
         return this.quotes.find((q) => q.id === quoteRef || q.slug === quoteRef) ?? (this.quoteFallback ? await this.quoteFallback(quoteRef) : null);
+    }
+    /** The phone and email a booking or a quote row carries, by its id: live they are columns on the row, which DiaryBooking does not carry. */
+    readonly contacts: { ref: string; phone: string | null; email: string | null }[] = [];
+    async bookingsForContact(keys: CanonicalKey[], today: string): Promise<DiaryBooking[]> {
+        const wanted = new Set(keys);
+        const matches = (ref: string | null) => !!ref && this.contacts.some((c) => c.ref === ref && [c.phone, c.email].some((v) => { const k = canonical(v); return !!k && wanted.has(k); }));
+        return this.bookings
+            .filter((b) => (matches(b.id) || matches(b.quoteRef)) && stillExpected(b, today))
+            .sort((a, b) => Date.parse(b.createdAt ?? '0') - Date.parse(a.createdAt ?? '0'))
+            .slice(0, CONTACT_BOOKINGS_LIMIT);
     }
 }
 
@@ -256,5 +309,29 @@ export const liveDiary: DiaryReader = {
         if (!r) return null;
         const iso = (v: Date | string | null | undefined): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
         return { id: r.id, slug: r.slug, isDraft: r.isDraft !== false, supersededAt: iso(r.supersededAt), revokedAt: iso(r.revokedAt), expiresAt: iso(r.expiresAt) };
+    },
+    async bookingsForContact(keys, today) {
+        branchInUse();
+        const { phones, emails } = contactMatchValues(keys);
+        if (!phones.length && !emails.length) return [];
+        const { db } = await import('../../db');
+        const { contractorBookingRequests: t, personalizedQuotes: q } = await import('../../../shared/schema');
+        const { and, desc, eq, gte, inArray, isNull, ne, or, sql } = await import('drizzle-orm');
+        // A phone is stored however it was typed, so both sides are compared as bare digits; an email in lowercase.
+        const matches = (phone: typeof t.customerPhone | typeof q.phone, email: typeof t.customerEmail | typeof q.email) => or(
+            ...(phones.length ? [inArray(sql`regexp_replace(coalesce(${phone}, ''), '[^0-9]', '', 'g')`, phones)] : []),
+            ...(emails.length ? [inArray(sql`lower(trim(coalesce(${email}, '')))`, emails)] : []),
+        );
+        const since = new Date(Date.parse(`${today}T00:00:00.000Z`) - CONTACT_SPAN_MARGIN_DAYS * DAY_MS);
+        const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, assignmentStatus: t.assignmentStatus, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
+            .from(t).leftJoin(q, eq(q.id, t.quoteId))
+            .where(and(
+                or(matches(t.customerPhone, t.customerEmail), matches(q.phone, q.email)),
+                ne(t.status, 'completed'),
+                or(isNull(t.dayOfStatus), ne(t.dayOfStatus, 'completed')),
+                or(isNull(t.scheduledDate), gte(t.scheduledDate, since)),
+            ))
+            .orderBy(desc(t.createdAt)).limit(CONTACT_BOOKINGS_LIMIT);
+        return rows.map(bookingRowToDiary).filter((b) => stillExpected(b, today));
     },
 };

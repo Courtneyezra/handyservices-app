@@ -61,6 +61,12 @@ export const RE_DATE_TIME_DURATION = new RegExp([
 export const RE_ORDINAL_DAY = /\b\d{1,2}(?:st|nd|rd|th)\b/i;
 
 /**
+ * A promise that Ben will come back to the customer. Allowed wherever a hold reaches Ben to keep it;
+ * the commitment guard refuses it on a request to move a date when no hold does (guards.ts).
+ */
+export const RE_BEN_COMES_BACK = /\b(?:ben|he|she|someone|one of (?:us|the team)|the team|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|can|is going to)\b[^.?!\n]{0,40}\b(?:be in touch|come back|get back|let you know|confirm|call|ring|phone)\b/i;
+
+/**
  * A promise to do, fix or guarantee something, a claim that a change to the customer's details is
  * already made (a change of details is Ben's to make; the desk only passes it on), or an admission
  * of fault. Fails closed: broad on purpose.

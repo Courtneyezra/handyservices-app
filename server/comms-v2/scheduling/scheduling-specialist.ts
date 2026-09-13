@@ -23,7 +23,7 @@ import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn 
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import type { FixedLineKind } from '../desk/fixed-lines';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
-import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, isTheirBooking, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PickerLink, type SchedulingDeps } from './scheduling-tools';
+import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, isTheirBooking, linkPartyBooking, pickerLink, typicalLeadTime, type BookedDate, type LeadTimeResult, type PartyBookings, type PickerLink, type SchedulingDeps } from './scheduling-tools';
 
 /**
  * What the turn asks, and every value is load-bearing: `date_change` holds for Ben, `booked_date`
@@ -76,7 +76,7 @@ export interface SchedulingReturn extends SpecialistReturn {
 
 /** What the desk already decided about this turn before the specialist ran. */
 export interface SchedulingContext {
-    /** The router's date_change exception: the desk reads this turn as a request to move a job the customer already has. */
+    /** The router's date_change exception: it read this turn as a request to move a job. It holds only where the diary shows a booking of theirs, or could not say whether there is one. */
     dateChange: boolean;
     /** The router's scheduling subject: it read the turn as about dates, whatever wording it used to ask. */
     scheduling?: boolean;
@@ -84,7 +84,7 @@ export interface SchedulingContext {
 
 const NO_QUESTION: Proposal = { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null };
 
-export async function schedule(file: CaseFile, turn: Turn, _party: Party, client: ModelClient, deps: SchedulingDeps = {}, routed: SchedulingContext = { dateChange: false }): Promise<SchedulingReturn> {
+export async function schedule(file: CaseFile, turn: Turn, _party: Party, client: ModelClient, deps: SchedulingDeps = {}, routed: SchedulingContext = { dateChange: false }, partyLookup?: PartyBookings): Promise<SchedulingReturn> {
     const calls: ModelCallRecord[] = [];
     const factIds: string[] = [];
     const brief: string[] = [];
@@ -94,24 +94,38 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     const fileDeps = { now: deps.now };
     // What went wrong reads the same to Ben and the logs as it does to the composer, except that the
     // machine text of a failed read stays here: a prompt only ever sees the category.
-    const erroring = () => [error, ...details].filter(Boolean).join('; ') || null;
+    const erroring = () => Array.from(new Set([error, ...details].filter(Boolean))).join('; ') || null;
 
-    const standing = await confirmBookedDate(file, deps);
+    // Whether the newest turn reads, before the model runs, as a request to move a booked job: the
+    // router's own exception, or the deterministic belt on the words themselves. A turn shaped only by
+    // the model's own classification is resolved further down, once that answer is in.
+    const textBelt = dateChangeMatch(turn.body);
+    const shapedBeforeModel = routed.dateChange || !!textBelt;
+
+    // The customer's own booking, found by the phone and email the file records for them, is written onto
+    // the job before anything reads it, so the confirmation below reads it on its own path. Looked up only
+    // for a date-change-shaped turn: a plain lead-time, availability or booked-date question never looks
+    // up, and never writes, a booking by contact, so it can never be confused for a different job's.
+    let partyBooked: PartyBookings = partyLookup ?? { state: 'unknown', reason: 'not looked up: not yet read as a date change' };
+    if (shapedBeforeModel) ({ found: partyBooked } = await linkPartyBooking(file, deps, partyLookup));
+    if (partyBooked.state === 'unknown' && partyBooked.detail) details.push(`${partyBooked.reason}: ${partyBooked.detail}`);
+
+    let standing = await confirmBookedDate(file, deps);
     // The same filing as the picker's: a state the diary gave plainly is the right answer, and every
     // other refusal reaches the log and the run summary, because a file pointing at a booking the
     // diary does not hold is a defect nobody else will find.
     if (!standing.ok && !standing.expected) details.push(standing.detail ? `${standing.reason}: ${standing.detail}` : standing.reason);
     // Something may stand: the fail-closed reading, which a request to move a date is answered on.
-    const couldStand = standing.state !== 'none';
+    let couldStand = standing.state !== 'none';
     // The one reading of the booking this file says the customer has (scheduling-tools.ts): theirs from
     // the quote the file carries, or a read that could not say on a file that names a booking. The picker
     // refuses on it and the confirmation runs on it, so those two can never disagree about one file.
-    const theirs = isTheirBooking(file, standing);
+    let theirs = isTheirBooking(file, standing);
     // The other half of that reading: a read that could not say where nothing on the file says there is a
     // booking is nothing known rather than a booking, and the picker answers what dates we have. This half
     // alone is what a classification that never came back reads; the fallback below is otherwise wider
     // than `theirs`, guessing `booked_date` on any state but `none`.
-    const nothingKnown = standing.state === 'unknown' && !theirs;
+    let nothingKnown = standing.state === 'unknown' && !theirs;
 
     // The model classifies the ask.
     let asks: SchedulingAsk[] = [];
@@ -128,14 +142,34 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         else error = res.error;
     }
 
-    // A date change is live when the diary shows a booking, and when the router called the turn one:
-    // nothing outside the door's fixture writes a booking onto a case file yet, so the exception stands in
-    // for a booking the desk cannot see. Only then is a change request not an availability question.
-    const changePossible = couldStand || routed.dateChange;
+    // A turn the model alone read as a date change, that neither the router nor the belt caught
+    // beforehand, is still date-change-shaped: resolve the party's booking now, before it is confirmed,
+    // the one place this reads later than the rest of the file's decisions.
+    if (!shapedBeforeModel && asks.includes('date_change')) {
+        const linked = await linkPartyBooking(file, deps);
+        partyBooked = linked.found;
+        if (partyBooked.state === 'unknown' && partyBooked.detail) details.push(`${partyBooked.reason}: ${partyBooked.detail}`);
+        standing = await confirmBookedDate(file, deps);
+        if (!standing.ok && !standing.expected) details.push(standing.detail ? `${standing.reason}: ${standing.detail}` : standing.reason);
+        couldStand = standing.state !== 'none';
+        theirs = isTheirBooking(file, standing);
+        nothingKnown = standing.state === 'unknown' && !theirs;
+    }
+
+    // A date change is a change to a booked job (checklist 5.5), so it is live when the diary shows a
+    // booking the file names, when the customer has one under their own phone or email, and when the
+    // router called the turn one and the diary could not say whether they have one: that read fails
+    // closed, so Ben still hears it. Anywhere else a change request is an availability question.
+    const changePossible = couldStand || partyBooked.state === 'found' || (routed.dateChange && partyBooked.state === 'unknown');
     // The belt: a date change is a hold whatever the model read.
-    const belt = changePossible ? dateChangeMatch(turn.body) : null;
+    const belt = changePossible ? textBelt : null;
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
-    if (!changePossible) asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('date_change') && !asks.includes('availability') ? ['availability'] : []);
+    if (!changePossible && asks.includes('date_change')) {
+        // Nothing is booked for them to move, so nothing holds for Ben: a promise that he will come back on
+        // it would be one nobody keeps (the commitment guard refuses it). It is answered as when we could come.
+        brief.push('They asked to move a date, but nothing is booked for them to move: answer it as a question about when we could come. Never say Ben will come back to them on moving it or on the date, and never talk about moving or changing a booking.');
+        asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('availability') ? [] : ['availability']);
+    }
     // A classification that never came back is not a turn that asked nothing: a date question the belt matched is still answered, because an unanswered date question is the one thing the desk may not do. A model that read no ask is taken at its word. The guess is the safer one rather than `theirs`: anything the diary did not plainly call `none`, a visit cancelled off them included, holds for Ben, because sending them to the picker with nothing reaching him is the worse way to be wrong.
     if (!asks.length && error && (dateQuestionMatch(turn.body) || routed.scheduling)) asks = [couldStand && !nothingKnown ? 'booked_date' : 'availability'];
 
@@ -211,11 +245,12 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             const lt = findings.leadTime;
             const f = recordFact(file, { key: 'lead_time', value: lt.phrase, source: { kind: 'diary', rowId: lt.rowId }, by }, fileDeps);
             if (f.ok) { factIds.push(f.value.id); brief.push(`Typical lead time from the diary: say exactly "${lt.phrase}" and cite fact ${f.value.id} (for example "we're usually booking in ${lt.phrase}"). Do not write the words "lead time". Not a promise of a day: never a specific day, date or time.`); }
-        } else if (!file.job.quoteRef || (!!findings.picker && !findings.picker.ok && !!findings.picker.unsent)) {
+        } else if (!dateSaid && !theirs && (!file.job.quoteRef || (!!findings.picker && !findings.picker.ok && !!findings.picker.unsent))) {
             // The one cell that line belongs to: no quote the customer has been sent, whether none is on
             // the file at all or the one on it is still a draft, which the picker refuses as `unsent` for
             // this reason. Somebody holding a quote, and a booking made from it, reads "dates come with
-            // your quote" as the desk not knowing who they are.
+            // your quote" as the desk not knowing who they are; so does somebody whose booking was
+            // confirmed on this turn or is otherwise theirs.
             findings.fixedLines.push('dates_with_quote');
             brief.push('The diary has no typical lead time to give and the customer has no quote yet: include the fixed line that dates come with the quote, and never guess a day, a time or a lead time.');
         } else if (dateSaid || findings.picker?.ok || proposal.hold) {
