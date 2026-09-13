@@ -121,6 +121,17 @@ export function changeOfDetails(file: CaseFile, party: Party, req: ChangeRequest
     return { ok: true, fact: fact.value, hold: { reason: 'change_of_details', match: `${field} -> ${value}` } };
 }
 
+/**
+ * A plain match for a customer asking to change a detail on their record: name, phone, email or
+ * address. The desk runs the Service specialist on such a turn even when the router did not list
+ * service, so a change of details is never answered by a path that cannot record it or hold it for Ben.
+ */
+export const RE_CHANGE_OF_DETAILS = /\b(?:change|update|amend|correct)\s+(?:my|our)\s+(?:(?:e-?mail|home|postal)\s+)?(?:address|e-?mail|(?:phone |mobile |contact )?number|name|details)\b|\bmy\s+new\s+(?:(?:e-?mail|home|postal)\s+)?(?:address|e-?mail|(?:phone |mobile )?number)\b|\b(?:i|we)(?:'ve| have)\s+moved\b/i;
+
+export function asksToChangeDetails(text: string): boolean {
+    return RE_CHANGE_OF_DETAILS.test(text);
+}
+
 // ---------------------------------------------------------------- convergence
 
 /** Replies the desk may send while scoping before the thread is handed to Ben as not converging. */

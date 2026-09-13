@@ -88,6 +88,16 @@ describe('route', () => {
         expect(r.subjects).toEqual(['quoting']);
         expect(r.exceptions).toEqual(['money', 'callback']);
     });
+    it('an exception the model writes only among the subjects is raised, not dropped: a complaint there still holds for Ben', async () => {
+        const unhappy = fixture('The shelf you put up has fallen off, not happy');
+        const r = await route(unhappy, unhappy.turns[0], new FakeModelClient({ router: () => ({ subjects: ['service', 'complaint'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'other' }) }));
+        expect(r.error).toBeNull();
+        expect(r.subjects).toEqual(['service']);
+        expect(r.exceptions).toEqual(['complaint']);
+        const discount = fixture('Any chance you could knock a bit off?');
+        const r2 = await route(discount, discount.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping', 'money'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question' }) }));
+        expect(r2.exceptions).toEqual(['money']);
+    });
     it('still fails closed on a subject value that names nothing recognized', async () => {
         const file = fixture('hello');
         const r = await route(file, file.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping', 'not_a_real_subject'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'other' }) }));

@@ -35,6 +35,7 @@ import { scope, type ScopingDeps } from './scoping-specialist';
 import { chaseIfDue, type ChaseState } from '../service/chase';
 import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
+import { asksToChangeDetails } from '../service/service-tools';
 import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
@@ -158,11 +159,13 @@ export class Desk implements DeskLike {
         } else {
             // 3. Gather: every routed specialist that exists. Scoping runs until the quote is sent (Goal 4)
             // and unless the turn is service only; Service runs its deterministic tools every turn and its
-            // model when routed here; Quoting gathers below once the job and the location are known.
+            // model when routed here, or when the customer asks to change a detail on their record, whatever
+            // the router read, so that change is recorded and held for Ben; Quoting gathers below once the
+            // job and the location are known.
             const scopingRan = !quotingOwnsThread(file) && !(route.subjects.length === 1 && route.subjects[0] === 'service');
             scoping = scopingRan ? await scope(file, turn, party, this.client, { ...this.deps.scoping, now: this.now }) : null;
             if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
-            const service = await serve(file, turn, party, this.client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service'), scopingRan });
+            const service = await serve(file, turn, party, this.client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body), scopingRan });
             calls.push(...service.calls);
             specialists.push(service);
             if (service.error) log(`service: ${service.error}`);

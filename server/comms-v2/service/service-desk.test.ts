@@ -57,6 +57,18 @@ describe('the Service specialist on the desk', () => {
         expect(out.file.hold?.approver).toEqual(BEN);
         expect(client.calls.map((c) => c.role)).toEqual(['router']);
     });
+    it('a change of details the router sent to Scoping still reaches Service: it is recorded and held for Ben', async () => {
+        const { client, gateway } = desk({
+            router: () => route({ subjects: ['scoping'], turnKind: 'answer' }),
+            specialist: ({ system }) => isService(system) ? serviceOut({ changeOfDetails: { field: 'address', value: '[address withheld]' } }) : scopingOut(),
+            composer: () => ({ reply: "Thanks for letting me know. I've noted that and passed it to Ben to update your details.", factIds: [], kbIds: [] }),
+        });
+        const out = await gateway.inbound(turn('Please can you update my address to 44 Foxglove Rise, Beeston NG9 1AB', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(2);
+        expect(out.file.hold?.reason).toMatch(/^change_of_details: address/);
+        expect(out.file.facts.find((f) => f.key === 'change_of_details')?.value).toBe('address');
+    });
     it('answers a business question from a reviewed row verbatim, cited by id, and the business-claim guard passes on the citation', async () => {
         const { client, gateway } = desk({
             router: () => route({ subjects: ['service'], turnKind: 'question' }),

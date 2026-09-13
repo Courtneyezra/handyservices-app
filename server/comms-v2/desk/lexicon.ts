@@ -60,8 +60,14 @@ export const RE_DATE_TIME_DURATION = new RegExp([
  */
 export const RE_ORDINAL_DAY = /\b\d{1,2}(?:st|nd|rd|th)\b/i;
 
-/** A promise to do, fix or guarantee something, or an admission of fault. Fails closed: broad on purpose. */
+/**
+ * A promise to do, fix or guarantee something, a claim that a change to the customer's details is
+ * already made (a change of details is Ben's to make; the desk only passes it on), or an admission
+ * of fault. Fails closed: broad on purpose.
+ */
 export const RE_COMMITMENT_OR_FAULT = new RegExp([
+    `\\b(?:i|we|ben)(?:'ve| have)\\s+(?:now\\s+|just\\s+|already\\s+)?(?:updated|changed|amended|corrected)\\s+(?:your|the)\\s+(?:address|e-?mail(?: address)?|(?:phone |mobile )?number|name|details|record)\\b`,
+    `\\byour\\s+(?:address|e-?mail(?: address)?|(?:phone |mobile )?number|name|details|record)\\s+(?:has|have|is|are)\\s+(?:now\\s+)?(?:been\\s+)?(?:updated|changed|amended|corrected)\\b`,
     `\\b(?:we|i|ben)(?:'ll| will| can| shall)\\s+(?:definitely\\s+|certainly\\s+|easily\\s+)?(?:fix|sort|repair|replace|do|finish|complete|have (?:it|this|that) (?:done|sorted|fixed)|be (?:there|round|out)|come (?:out|round)|get (?:it|this|that) (?:done|sorted|fixed)|take care of (?:it|this|that))\\b`,
     `\\b(?:guarantee[ds]?|promise[ds]?|warranty|consider it done|no problem at all, consider it done)\\b`,
     `\\b(?:our (?:fault|mistake|error)|my (?:fault|mistake)|we (?:messed|screwed) up|we (?:got|had) (?:it|that|this) wrong|we let you down|we apologise for (?:the|our) (?:mistake|error))\\b`,

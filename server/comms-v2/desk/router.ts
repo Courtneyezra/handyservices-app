@@ -40,21 +40,22 @@ export interface RouterOutput extends Omit<RawRouterOutput, 'subjects'> {
 
 /**
  * The model sometimes lists an exception (most often "callback") as if it were a subject too,
- * since the prompt names both in similar terms. That is a known, harmless mix-up, not evidence
- * the whole reading is unreliable, so it is dropped rather than failing the call closed. Any
- * other unrecognized value still fails the call (desk.ts holds for Ben), since that could be
- * masking a real misreading of a complaint or a refund. Kept outside the zod schema (rather than
- * a `.transform()`) because the schema is also turned into a JSON Schema for the live structured-
- * output call, and a transform cannot be represented there.
+ * since the prompt names both in similar terms. That is a known mix-up, not evidence the whole
+ * reading is unreliable, so the call does not fail closed on it; the exception is read as raised
+ * rather than dropped, so a complaint or a refund written there still holds for Ben. Any other
+ * unrecognized value still fails the call (desk.ts holds for Ben). Kept outside the zod schema
+ * (rather than a `.transform()`) because the schema is also turned into a JSON Schema for the live
+ * structured-output call, and a transform cannot be represented there.
  */
-function cleanSubjects(raw: string[]): Subject[] | null {
-    const kept: Subject[] = [];
+function cleanSubjects(raw: string[]): { subjects: Subject[]; exceptions: Exception[] } | null {
+    const subjects: Subject[] = [];
+    const exceptions: Exception[] = [];
     for (const s of raw) {
-        if ((SUBJECTS as readonly string[]).includes(s)) { kept.push(s as Subject); continue; }
-        if ((EXCEPTIONS as readonly string[]).includes(s)) continue;
+        if ((SUBJECTS as readonly string[]).includes(s)) { subjects.push(s as Subject); continue; }
+        if ((EXCEPTIONS as readonly string[]).includes(s)) { exceptions.push(s as Exception); continue; }
         return null;
     }
-    return kept;
+    return { subjects, exceptions };
 }
 
 /** Gravest first: the order the desk takes an exception in, so one fixed-line-only reason outranks the rest. Keyed by every exception, so a new one cannot go unranked. */
@@ -110,15 +111,17 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient, liv
     ].filter(Boolean).join('\n');
     const res = await client.structured({ role: 'router', model: ROUTER_MODEL, effort: 'low', system: SYSTEM, user, schema: routerOutputSchema, maxTokens: 400 });
     const fallback: RouterOutput = { subjects: [isReady(file) && file.stage !== 'scoping' && file.stage !== 'first_contact' ? 'service' : 'scoping'], proposedStage: file.stage === 'first_contact' ? 'scoping' : file.stage, party: 'customer', exception: null, turnKind: 'other' };
-    const cleanedSubjects = res.output ? cleanSubjects(res.output.subjects) : null;
-    const out: RouterOutput = res.output && cleanedSubjects ? { ...res.output, subjects: cleanedSubjects } : fallback;
-    const error = res.output && !cleanedSubjects ? `not a recognized subject: ${JSON.stringify(res.output.subjects)}` : res.error;
+    const cleaned = res.output ? cleanSubjects(res.output.subjects) : null;
+    const out: RouterOutput = res.output && cleaned ? { ...res.output, subjects: cleaned.subjects } : fallback;
+    const error = res.output && !cleaned ? `not a recognized subject: ${JSON.stringify(res.output.subjects)}` : res.error;
+    // Exceptions the model wrote among the subjects are raised like the one it named.
+    const listedExceptions: Exception[] = cleaned?.exceptions ?? [];
     // Never invents a subject: an empty list is unclassifiable.
     if (!out.subjects.length) out.subjects = [...fallback.subjects];
     // Goal 4: a quote that is live for figures answers its own (checklist 5.3 replaces 2.7), and an
     // acceptance is Quoting's turn. Its hook reads one money exception, so it is handed money whichever
     // raised it, the belt or the model, beside anything else the model read.
-    const moneyRaised = !!belts.money || out.exception === 'money';
+    const moneyRaised = !!belts.money || out.exception === 'money' || listedExceptions.includes('money');
     const handed: RouterOutput = { ...out, exception: moneyRaised ? 'money' : out.exception };
     const quoting = applyQuotingRoute(file, turn, handed, liveFigureRefs);
     out.subjects = handed.subjects;
@@ -131,6 +134,7 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient, liv
         if (belts.regulated) raised.add('regulated');
         if (moneyRaised && !quoting.moneyToQuoting) raised.add('money');
         if (out.exception && out.exception !== 'money') raised.add(out.exception);
+        for (const e of listedExceptions) if (e !== 'money') raised.add(e);
     }
     const exceptions = Array.from(raised).sort((a, b) => EXCEPTION_GRAVITY[a] - EXCEPTION_GRAVITY[b]);
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
