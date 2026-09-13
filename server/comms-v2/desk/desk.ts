@@ -155,14 +155,15 @@ export class Desk implements DeskLike {
                 } else if (quoting?.proposal.hold?.reason === 'money') {
                     fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                     this.holdFor(file, 'money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
-                } else if (quoting?.proposal.hold?.reason === 'acceptance') {
-                    this.holdFor(file, null, `acceptance in chat: ${quoting.proposal.hold.match}; acceptance stays on the quote page and with Ben`);
                 } else if (quoting?.proposal.hold?.reason === 'stale_quote') {
                     this.holdFor(file, null, `the quote is no longer live (${quoting.proposal.hold.match}): no figure may be read from it and the customer has been told Ben will come back to them on it`);
                 } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
                     fixedLines.push(await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                     this.holdFor(file, null, `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, null, DRAFT_FAILED_HOLD);
                     if (scoping) { scoping.proposal.nextQuestion = null; scoping.proposal.mentionPhotos = false; scoping.proposal.ready = false; }
+                }
+                if (quoting?.proposal.hold?.acceptedInChat) {
+                    this.holdFor(file, null, `acceptance in chat: the customer said yes to the quote (${quoting.proposal.hold.match}); acceptance stays on the quote page and with Ben`);
                 }
                 // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change holds for Ben and the reply still answers the rest.
                 // The router's date_change exception is passed in and stands in for a booking the desk cannot see: until a real booking reaches the case file, a request to move one must still reach Ben (checklist 5.5).

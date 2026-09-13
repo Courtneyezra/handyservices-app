@@ -354,8 +354,8 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     // Holds: money beyond a line, whatever the quote's status, and acceptance in chat (acceptance
     // stays human). 5.3's exemption is a figure already on the sent quote; a quote still with Ben has
     // no figure to answer from at all, so that is the one state money must certainly reach him in.
-    if (proposal.beyondQuoteLine) p.hold = { reason: 'money', match: turn.body.slice(0, 80) };
-    else if (proposal.acceptanceInChat) p.hold = { reason: 'acceptance', match: turn.body.slice(0, 80) };
+    if (proposal.beyondQuoteLine) p.hold = { reason: 'money', match: turn.body.slice(0, 80), acceptedInChat: proposal.acceptanceInChat };
+    else if (proposal.acceptanceInChat) p.hold = { reason: 'acceptance', match: turn.body.slice(0, 80), acceptedInChat: true };
     return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(proposal), calls, error };
 }
 

@@ -372,6 +372,38 @@ describe('the desk', () => {
         expect(third.file.releases).toHaveLength(0);
     });
 
+    it('a turn that asks about money and then says yes leaves Ben a money card that also records the yes, however far into the turn it comes', async () => {
+        const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
+        const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+        const { gateway } = desk({
+            router: () => routeScoping({ turnKind: 'question' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : /what it concerns/.test(system)
+                    ? { concerns: [], beyondQuoteLine: true, acceptanceInChat: true, notReady: false }
+                    : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
+            composer: () => ({ reply: DEFAULT_FIXED_LINES.money_to_ben, factIds: [], kbIds: [] }),
+        }, clock, { quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+        const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', new Date(clock.t).toISOString()));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        const d = { store, notifier: recordingNotifier, baseUrl: 'https://test.local', now: () => new Date(clock.t) };
+        const priced = await priceQuote(first.file, {}, d);
+        if (!priced.ok) throw new Error(priced.reason);
+        const sent = await markQuoteSent(first.file, d);
+        if (!sent.ok) throw new Error(sent.reason);
+        clock.t += 3_600_000;
+
+        const words = "Could you knock anything off for paying cash on the day, since it's only a small job? Otherwise yes, happy to go ahead";
+        expect(words.slice(0, 80)).not.toMatch(/yes|go ahead/);
+        const out = await gateway.inbound(turn(words, new Date(clock.t).toISOString()));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.file.hold?.exception).toBe('money');
+        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(out.file.hold?.reason).toMatch(/^money beyond a quote line: /);
+        expect(out.file.hold?.reason).toContain('acceptance in chat: the customer said yes to the quote');
+        expect(out.file.stage).toBe('quoted');
+    });
+
     /** A thread whose quote Ben priced and sent, then left to expire: the stage stays quoted, the row does not. */
     async function expiredQuote(composerReply: string) {
         const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
