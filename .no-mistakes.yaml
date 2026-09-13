@@ -186,11 +186,16 @@ test:
     once (reviewed and unreviewed knowledge-base rows and the chase template approvals, on the
     branch only), then drive each line as its own thread: 7.1 start "are you insured?" and expect
     the reviewed row's words verbatim with its id in plannedSend.kbIds and every guard passing;
-    then start "are you VAT registered?" and expect a hold for ben with reason no_source and the
+    the same verbatim rail on the payment and invoice rows: start "how do I pay, do you take card?"
+    and expect sandbox-kb-payment's approved words verbatim with that id in plannedSend.kbIds and
+    every guard passing, then start "can I get an invoice for the job?" and expect the same for
+    sandbox-kb-receipt; then start "are you VAT registered?" and expect a hold for ben with reason no_source and the
     reply still delivered; then start "hi" and send six vague turns ("not sure really", "just a
     thing at the house") and expect a hold with reason not_converging and its fixed line. 7.2
     start "my fence panel blew down, can you ring me about it?" and expect a hold for ben with
-    reason callback and the reply delivered. 7.3 start a complaint ("the shelf you put up has
+    reason callback and the reply delivered; then start "how much to fix a fence panel, and can
+    you ring me?" and expect a hold for ben, the money and the callback fixed lines both in the
+    delivered reply, and no call offer. 7.3 start a complaint ("the shelf you put up has
     fallen off, not happy"), expect the complaint fixed line and a hold, send "hello?? anyone
     there?" and expect an acknowledgement delivered with the hold still standing. 7.5 on that
     held thread POST /chase-intervals {chaseAfterMinutes: 60, escalateAfterMinutes: 120}, POST
