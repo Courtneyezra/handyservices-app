@@ -388,7 +388,9 @@ model when the router sends the turn to `service`.
 
 **What the specialist returns.** Facts: each answer as a fact whose value is the reviewed row's
 body verbatim (source `knowledge_base` by id) or the record's own name or phone (source `customer_record`),
-and a requested change as a fact. A question about the email or address we hold is never read back:
+and a requested change as a fact when the new value can be read from the customer's own words (never
+the model's, which never saw a masked field's value); when it cannot, no fact is written and the hold
+alone tells Ben the new value could not be read. A question about the email or address we hold is never read back:
 it holds for Ben as `no_source`, naming the masked field. A proposal: a hold with its reason from the vocabulary
 (`complaint`, `refund`, `trust_doubt`, `no_source`, `not_converging`, `change_of_details`), or none.
 A brief for the composer naming the exact words and the id to cite. An id the lookup did not return

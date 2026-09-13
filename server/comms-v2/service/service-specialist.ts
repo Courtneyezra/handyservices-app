@@ -7,7 +7,9 @@
  * (which a thread with no job on it that nobody is scoping never is). The model sees the customer's
  * name and phone; an email or address on the record is shown only as held, never its value, so a
  * customer asking what we hold for either is Ben's to answer. A requested change to either reaches
- * the file and the composer as the field alone; the new value goes only to Ben's card.
+ * the file and the composer as the field alone, when the new value can be read from the customer's
+ * own words; when it cannot, no fact is written and the hold alone tells Ben so. The new value, when
+ * there is one, goes only to Ben's card.
  * Returns facts with their source and a proposal; never a sentence for the customer.
  *
  * Two halves, the Scoping pattern. The tool server first: convergence (deterministic, every turn),
