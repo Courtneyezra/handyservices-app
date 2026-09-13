@@ -208,7 +208,12 @@ deleted. Nothing is re-registered with a provider.
 case files: one column per stage, held items surfaced at the top, one tap to release or answer. Not
 polished, just visible and operable.
 
-## Batch 8, answered 11 Sep (the review of Ben answering a customer from the board)
+## Batch 8, answered 11 Sep (the quoting build, and the review of Ben answering a customer)
+
+**42. Payment paths.** Payment paths are not validated live. The deposit and the Stripe webhook are
+not driven in the sandbox; the door records the acceptance event itself, exactly what the webhook
+writes on the quote row, so the desk's own behaviour after an acceptance can be checked without
+taking a payment.
 
 **43. The guards over Ben's own words.** "humanReply does not run the desks guards over a reply Ben
 typed. None of the eight, not figure, date, commitment and fault, business claim, disclosure,
@@ -227,3 +232,19 @@ user id, which no automated path can produce:
 that is what says a person wrote the words. The send record was deliberately not widened to say more,
 because no send stores a guard result at all, so none of them claims a pass, and that shape is the
 shared case-file contract every goal is building against.
+
+The answer is about who WROTE the words, not who licensed the send. Ben pressing send on the price
+screen licenses a message the desk wrote for him: the route carries no message body, so nobody reads
+it before it goes, and it is a composed reply Contract 4 checks like any other
+(`server/comms-v2/quoting/quoting-door.ts`). The one-reply guard is told a person licensed that
+send, because his pressing send is a fresh licence to speak and not the desk replying twice to one
+customer turn; the other seven run over the words unchanged.
+
+**A quote is never marked sent when the text that went is not the quote.** The window rule the
+answer keeps means a shut window takes an approved template, and none of the desk's carries a quote
+link. So Ben pricing on a shut window holds for him and leaves the quote a draft he can price again,
+rather than delivering a generic re-open nudge while the file records every figure as live. The same
+holds for a guard failure and a refused send. Wiring the approved `quote_ready_link` template, which
+does carry the URL, into the desk's sender is its own cutover item
+(`docs/comms-build/TEMPLATES-WINDOW-SHUT.md`): approving a template with Meta is not the desk's to
+do.

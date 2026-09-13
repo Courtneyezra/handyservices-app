@@ -53,17 +53,19 @@ export interface Proposal {
     offerCall: boolean;
     /** Say once, on the first reply of a job that arrived without a photo, that one would help if easy. Not a question. */
     mentionPhotos: boolean;
+    /** A photo has arrived on the thread and has not been thanked for yet, whichever turn brought it: the ledger's one thanks is still owed (checklist 1.7). */
     thankForMedia: boolean;
     ready: boolean;
-    hold: { reason: 'regulated' | 'date_change' | 'date_unconfirmed'; match: string } | null;
+    /** regulated from Scoping; money beyond a quote line and acceptance in chat from Quoting; a date change or an unconfirmed date from Scheduling. `acceptedInChat`: the same turn also said yes to the quote, whatever the reason. */
+    hold: { reason: 'regulated' | 'money' | 'acceptance' | 'draft_failed' | 'stale_quote' | 'date_change' | 'date_unconfirmed'; match: string; acceptedInChat?: boolean } | null;
 }
 
 export interface SpecialistReturn {
-    specialist: 'scoping' | 'scheduling';
+    specialist: 'scoping' | 'quoting' | 'scheduling';
     /** Ids of the facts this pass recorded on the file. */
     factIds: string[];
     proposal: Proposal;
-    /** Notes for the composer from a specialist other than Scoping: which fact to copy verbatim, what not to say. Never a sentence for the customer. */
+    /** A specialist other than Scoping briefs the composer here: which fact to copy verbatim, what to do this turn, what not to say. Never a sentence for the customer. */
     brief?: string[];
     calls: ModelCallRecord[];
     error: string | null;

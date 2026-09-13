@@ -270,4 +270,25 @@ describe('a person answers from the board', () => {
         expect(file.hold).toBeNull();
         expect(file.turns[file.turns.length - 1].approver).toBe(BEN_APPROVER);
     });
+
+    it('chooses the channel by the desk\'s own clock, so a window open to it is not read as shut', async () => {
+        const { file } = fixture();
+        // The customer wrote on WhatsApp at 10:00 and by text before that; the newest turn is the
+        // acceptance on the quote page, which carries no reply of its own.
+        file.parties[0].channels = [
+            { kind: 'sms', address: '+447700900942', lastInboundAt: '2026-09-11T09:00:00.000Z' },
+            { kind: 'whatsapp', address: '+447700900942', lastInboundAt: AT },
+        ];
+        const portal = appendTurn(file, { at: '2026-09-11T10:04:00.000Z', channel: 'form', direction: 'inbound', partyId: 'p1', kind: 'portal_action', body: 'Accepted quote abc12345 on the quote page.', media: [], runId: null, approver: null }, { now: now('2026-09-11T10:04:00.000Z') });
+        if (!portal.ok) throw new Error(portal.reason);
+        setHold(file, { approver: BEN, reason: 'acceptance in chat', exception: null }, { now: now() });
+
+        // The desk's clock reads five minutes after the customer wrote, so that window is open; the
+        // wall clock is long past it, and only one of the two is the file's.
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'Thanks Sam, booked in.' }, { now: now() });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.channel).toBe('whatsapp');
+        expect(file.turns[file.turns.length - 1].channel).toBe('whatsapp');
+    });
 });

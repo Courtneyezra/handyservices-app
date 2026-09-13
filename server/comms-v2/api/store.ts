@@ -23,3 +23,8 @@ export function commsV2BoardDoor(deps: DoorDeps = {}): SandboxDoor {
     if (!door) door = createSandboxDoor(deps);
     return door;
 }
+
+/** The door only where one is already open, for a reader with nothing to find otherwise (`quoting/ben-to-request.ts`). */
+export function commsV2BoardDoorIfOpen(): SandboxDoor | null {
+    return door;
+}

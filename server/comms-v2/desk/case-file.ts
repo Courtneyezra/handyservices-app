@@ -35,11 +35,17 @@ export type ReplyChannel = 'whatsapp' | 'sms' | 'email';
 /** Which WhatsApp sender carries the thread: the Twilio number, or the coexistence number Meta serves directly. */
 export type WhatsAppTransport = 'twilio' | 'meta';
 
+/** The channels a customer writes on, so writing on one records it: a form and a call are neither written on nor replied to. */
+const WRITTEN_ON_CHANNELS: ReadonlySet<ChannelKind> = new Set<ChannelKind>(['whatsapp', 'sms', 'email']);
+
 export interface PartyChannel {
     kind: ChannelKind;
     /** The canonical address on the wire: E.164 for a phone channel, the lowercase email for email. */
     address: string;
-    /** WhatsApp only: when the customer last wrote, which opens the 24-hour window. Null: never. */
+    /**
+     * When the customer last wrote on this channel, which is what makes it a channel they use rather
+     * than one we can reach them on. Null: never. On WhatsApp it is also the 24-hour window clock.
+     */
     lastInboundAt: string | null;
     /** WhatsApp only: the sender the customer last wrote to, so the reply goes back the same way. Null: not yet known, Twilio is assumed. */
     transport?: WhatsAppTransport | null;
@@ -139,6 +145,13 @@ export interface Hold {
     /** The router exception that raised it, when one did: a fixed-line exception keeps the specialists off the thread until release. */
     exception: Exception | null;
     since: string;
+    /**
+     * Whether a second reason has been added to the card since it was raised. A card one automatic
+     * step raised is that step's to clear, but only while it still says what that step wrote: once
+     * a customer's question has been added to it, clearing it would take the question with it, so
+     * the card stands until the person it is for answers it.
+     */
+    notedOn: boolean;
     /** The draft and the failures when a guard hold raised it. */
     draft: string | null;
     failures: string[];
@@ -253,7 +266,7 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
     const at = now().toISOString();
     const party: Party = {
         personId: id.personId, role: id.role, name: id.name, canonical: id.canonical,
-        channels: [{ kind: input.channel, address: input.address, lastInboundAt: input.channel === 'whatsapp' ? input.firstTurn.at : null }],
+        channels: [{ kind: input.channel, address: input.address, lastInboundAt: WRITTEN_ON_CHANNELS.has(input.channel) ? input.firstTurn.at : null }],
         prefersText: false, alreadyRung: input.channel === 'call', callOffered: false,
     };
     const file: CaseFile = {
@@ -298,8 +311,8 @@ export function appendTurn(file: CaseFile, turn: Omit<Turn, 'id'> & { id?: strin
     if (turn.direction === 'outbound' && (!turn.runId || !turn.approver)) return refuse('an outbound turn carries a run id and an approver');
     const t: Turn = { ...turn, id: turn.id ?? newId('turn') };
     file.turns.push(t);
-    if (t.direction === 'inbound' && t.channel === 'whatsapp') {
-        const ch = party.channels.find((c) => c.kind === 'whatsapp');
+    if (t.direction === 'inbound' && WRITTEN_ON_CHANNELS.has(t.channel)) {
+        const ch = party.channels.find((c) => c.kind === t.channel);
         if (ch) ch.lastInboundAt = t.at;
     }
     return accept(t);
@@ -354,6 +367,25 @@ export function recordFact(file: CaseFile, input: { key: string; value: string; 
     if (party && fact.key === 'prefers_text' && /^(true|yes)$/i.test(fact.value)) party.prefersText = true;
     if (party && fact.key === 'already_rung' && /^(true|yes)$/i.test(fact.value)) party.alreadyRung = true;
     return accept(fact);
+}
+
+/**
+ * Facts the desk writes for Ben, never for a customer: each carries an admin link, an internal note
+ * or what he may want to request before pricing. They sit on the file like any other fact, so the
+ * one place they are kept out of a customer reply is the composer boundary
+ * (`customerVisibleFacts`). Any new fact written for Ben's eyes belongs in this list on the day it
+ * is written.
+ */
+export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted'];
+
+/** True when the fact was written for Ben, not for the customer. Matches the key and any `key:label` form. */
+export function isInternalFact(fact: Pick<Fact, 'key'>): boolean {
+    return INTERNAL_FACT_KEYS.some((k) => fact.key === k || fact.key.startsWith(`${k}:`));
+}
+
+/** The facts a customer reply may be written from: everything on the file except Ben's own. */
+export function customerVisibleFacts(file: CaseFile): Fact[] {
+    return file.facts.filter((f) => !isInternalFact(f));
 }
 
 /** The newest fact for a key. */
@@ -422,7 +454,7 @@ export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: st
     const now = deps.now ?? (() => new Date());
     if (file.hold) return refuse(`the file is already held for ${approverLabel(file.hold.approver)}: ${file.hold.reason}`);
     if (!input.reason.trim()) return refuse('a hold needs a reason');
-    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), draft: input.draft ?? null, failures: input.failures ?? [] };
+    file.hold = { approver: input.approver, reason: input.reason, exception: input.exception ?? null, since: now().toISOString(), notedOn: false, draft: input.draft ?? null, failures: input.failures ?? [] };
     return accept(file.hold);
 }
 
@@ -430,12 +462,26 @@ export function hold(file: CaseFile, input: { approver: ApproverSlot; reason: st
  * What the desk nearly sent and what stopped it, written onto a hold that already stands. A hold
  * raised before the composer ran (an exception, a specialist) carries no draft, so the reply that
  * then failed the guards would otherwise be lost to the card Ben reads. The reason it was raised
- * for is never overwritten: a later one is added after it.
+ * for is never overwritten by another's: a later one is added after it.
+ *
+ * `ownCard` says the note is the desk's own automatic step speaking rather than another voice on
+ * the card, and names the opening that step writes on every card it raises. Two things follow.
+ * Where the standing card opens with it and nobody else has written on it since, the step is saying
+ * the same card again with what stopped it this time, so its reason is replaced rather than a
+ * near-duplicate added. Where it is not, the note is still that step's own - a shut window, no
+ * approved template, a reply the guards refused - so it joins the card without marking it.
+ *
+ * Only a note with no `ownCard` marks the card as noted on, because that is a reason carrying
+ * someone else's words: a customer's question routed onto the card. Clearing the card would take
+ * that question with it, so from then on the card is nobody's to clear automatically and only the
+ * person it is for may answer it.
  */
-export function noteOnHold(file: CaseFile, input: { reason: string; draft?: string | null; failures?: string[] }): Outcome<Hold> {
+export function noteOnHold(file: CaseFile, input: { reason: string; draft?: string | null; failures?: string[]; ownCard?: string }): Outcome<Hold> {
     if (!file.hold) return refuse('the file is not held');
     const reason = input.reason.trim();
-    if (reason && !file.hold.reason.includes(reason)) file.hold.reason = `${file.hold.reason}; ${reason}`;
+    const restating = !!input.ownCard && !file.hold.notedOn && file.hold.reason.startsWith(input.ownCard);
+    if (reason && restating) file.hold.reason = reason;
+    else if (reason && !file.hold.reason.includes(reason)) { file.hold.reason = `${file.hold.reason}; ${reason}`; if (!input.ownCard) file.hold.notedOn = true; }
     if (input.draft && !file.hold.draft) file.hold.draft = input.draft;
     if (input.failures?.length) file.hold.failures = Array.from(new Set([...file.hold.failures, ...input.failures]));
     return accept(file.hold);

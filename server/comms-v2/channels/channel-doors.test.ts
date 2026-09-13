@@ -13,6 +13,9 @@ import { FakeModelClient } from '../desk/models';
 import { plannedSendOfResponse, sendLanded } from '../desk/planned-send';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
+import { recordingNotifier } from '../quoting/ben-notifier';
+import { FakeDrafter } from '../quoting/draft-quote';
+import { MemoryQuoteStore } from '../quoting/quote-store';
 import { SANDBOX_EMAIL } from './channel-doors';
 import { EMAIL_DEFAULT_SUBJECT } from './email-adapter';
 
@@ -39,7 +42,10 @@ beforeAll(async () => {
     // A fixed clock inside Ben's hours: the acknowledgement's third variable is 'shortly' or 'in the morning' by the UK hour at send time, so wall-clock time must not decide it.
     const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
     const now = () => new Date(clock.t += 1000);
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, mediaDir: dir, now, scoping: { describe: async () => ({ ok: true, description: 'a ceiling fan', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) } });
+    // A call or a form that establishes the job and the location makes the file ready, and Quoting
+    // drafts on a ready file: the store and the drafter here keep that off the live chain.
+    const store = new MemoryQuoteStore();
+    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, mediaDir: dir, now, scoping: { describe: async () => ({ ok: true, description: 'a ceiling fan', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier } });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);

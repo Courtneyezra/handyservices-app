@@ -101,7 +101,7 @@ export async function scope(file: CaseFile, turn: Turn, party: Party, client: Mo
         nextQuestion: reg.regulated ? null : nextQuestion(file, jobUnknowns),
         offerCall: !reg.regulated && offerCall(party),
         mentionPhotos: false,
-        thankForMedia: turn.media.length > 0 && !file.ledger.find((l) => l.subject === 'media')?.thankedAt,
+        thankForMedia: mediaReceived(file) && !file.ledger.find((l) => l.subject === 'media')?.thankedAt,
         ready,
         hold: reg.regulated ? { reason: 'regulated', match: reg.match! } : null,
     };

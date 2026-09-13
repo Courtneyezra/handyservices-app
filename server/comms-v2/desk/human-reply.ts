@@ -94,7 +94,7 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     const approverName = humanApprover(input.person);
 
     // Channel, render, window: as the sender renders a composed reply, with nothing reflowed or rewritten.
-    const choice = chooseChannel(party, turn.channel);
+    const choice = chooseChannel(party, turn.channel, now());
     if (!choice.ok) return refuse(choice.reason);
     const rendered = render(choice.channel, words, { asTyped: true });
     if (!rendered.ok) {
