@@ -345,6 +345,21 @@ describe('the Scheduling specialist', () => {
         expect(file.job.bookingRef).toBe('bk9');
     });
 
+    it('a lead_time or availability turn never looks up, and never writes, the customer\'s booking by contact', async () => {
+        const file = fixture('How soon could you fit us in?');
+        const diary = diaryWith(6);
+        diary.bookings.push({ id: 'bk9', quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null });
+        diary.contacts.push({ ref: 'bk9', phone: '+447700900942', email: null });
+        let lookedUp = 0;
+        const realBookingsForContact = diary.bookingsForContact.bind(diary);
+        diary.bookingsForContact = async (keys, today) => { lookedUp++; return realBookingsForContact(keys, today); };
+        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary, now });
+        expect(r.scheduling.asks).toEqual(['lead_time']);
+        expect(lookedUp).toBe(0);
+        expect(file.job.bookingRef).toBeNull();
+        expect(r.scheduling.bookedDate).toBeNull();
+    });
+
     it('a date change with nothing booked is an availability question: no hold', async () => {
         const file = fixture('Can we move it to Friday?');
         file.job.quoteRef = 'q1';

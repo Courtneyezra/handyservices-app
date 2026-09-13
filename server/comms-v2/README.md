@@ -220,22 +220,27 @@ on is confirmed beside the answer, so the reply reads as knowing they booked. A 
 later turns still get the desk.
 
 The date-change gate is a change to a booked job (checklist 5.5), and the booking is resolved from
-the customer, not only from the references on the file. Before anything reads the booking, the
-specialist looks the customer up in the diary by the phones and emails the case file records for
-them (`contactKeysOf`: every customer party's canonical key and channel addresses; never the desk's
-own people or contractors, and never a number typed in a turn, so nobody can claim a booking from
-chat). `bookingsForContact` matches a booking row on its own contact or on its quote's, however the
-number was typed, and keeps only bookings the customer may still be expecting (`stillExpected`: one
-that stands, whether or not a contractor has taken it, or one cancelled off them whose day has not
-come). Where the answer is plain, a file naming no booking and no quote with exactly one standing
-booking of theirs, the booking reference is written onto the job (`linkPartyBooking`), so
-`confirm_booked_date` reads it on its own path and later turns see it. Two standing bookings, a file
-carrying a quote, or only a cancelled booking write nothing, because confirming the wrong job's date
-is worse than confirming none. A request to move a date then holds for Ben when the file's booking
-could stand, when the customer has any booking still expected under their contact, and when the
-router raised its `date_change` exception but the diary could not say (no diary, no contact on the
-file, a read that failed), which fails closed. The router's exception on a thread the diary plainly
-says holds nothing of theirs is answered as the availability question it is. On a hold nothing else
+the customer, not only from the references on the file — but only on a date-change-shaped turn: one
+the router flagged with its `date_change` exception, one the deterministic belt on the words
+(`dateChangeMatch`) matches, or one the classifier itself reads as `date_change`. A plain lead-time,
+availability or booked-date turn never looks the customer up by contact and never writes a booking
+onto the job, so a repeat customer's unrelated standing booking can never be mistaken for the job in
+a brand-new thread. Where the turn is shaped this way, the specialist looks the customer up in the
+diary by the phones and emails the case file records for them (`contactKeysOf`: every customer
+party's canonical key and channel addresses; never the desk's own people or contractors, and never a
+number typed in a turn, so nobody can claim a booking from chat). `bookingsForContact` matches a
+booking row on its own contact or on its quote's, however the number was typed, and keeps only
+bookings the customer may still be expecting (`stillExpected`: one that stands, whether or not a
+contractor has taken it, or one cancelled off them whose day has not come). Where the answer is
+plain, a file naming no booking and no quote with exactly one standing booking of theirs, the booking
+reference is written onto the job (`linkPartyBooking`), so `confirm_booked_date` reads it on its own
+path and later turns see it. Two standing bookings, a file carrying a quote, or only a cancelled
+booking write nothing, because confirming the wrong job's date is worse than confirming none. A
+request to move a date then holds for Ben when the file's booking could stand, when the customer has
+any booking still expected under their contact, and when the router raised its `date_change`
+exception but the diary could not say (no diary, no contact on the file, a read that failed), which
+fails closed. The router's exception on a thread the diary plainly says holds nothing of theirs is
+answered as the availability question it is. On a hold nothing else
 is looked up: no typical lead time, no picker link, only the booked date if the file's booking gives
 one, the fixed line that Ben will come back on the date, and the rest of what they asked. The desk's
 gate runs the same read for a move the router missed on a file naming neither a booking nor a quote.

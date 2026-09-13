@@ -22,7 +22,7 @@
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { schedule } from '../scheduling/scheduling-specialist';
-import { dateChangeMatch, dateQuestionMatch, partyBookings, type SchedulingDeps } from '../scheduling/scheduling-tools';
+import { dateChangeMatch, dateQuestionMatch, partyBookings, type PartyBookings, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineSource } from './fixed-lines';
@@ -216,10 +216,21 @@ export class Desk implements DeskLike {
                 // missed reaches the specialist when the file names a booking or a quote, or the diary holds a booking under the customer's own phone or email.
                 const schedulingDeps = { ...this.deps.scheduling, now: this.now };
                 const routedToScheduling = route.subjects.includes('scheduling') || exceptions.includes('date_change') || !!dateQuestionMatch(turn.body);
-                const moveOfABooking = !routedToScheduling && !!dateChangeMatch(turn.body)
-                    && (!!(file.job.bookingRef || file.job.quoteRef || file.stage === 'booked') || (await partyBookings(file, schedulingDeps)).state === 'found');
+                // The party-booking lookup itself only ever runs for a date-change-shaped turn (scheduling-specialist.ts),
+                // so this gate's own belt match is the one place worth checking it early: a plain scheduling or date
+                // question never needs it, since routedToScheduling already answers those. Its result is carried into
+                // schedule() so the one lookup is never repeated.
+                let partyLookup: PartyBookings | undefined;
+                let moveOfABooking = false;
+                if (!routedToScheduling && dateChangeMatch(turn.body)) {
+                    if (file.job.bookingRef || file.job.quoteRef || file.stage === 'booked') moveOfABooking = true;
+                    else {
+                        partyLookup = await partyBookings(file, schedulingDeps);
+                        moveOfABooking = partyLookup.state === 'found';
+                    }
+                }
                 if (routedToScheduling || moveOfABooking) {
-                    const sched = await schedule(file, turn, party, this.client, schedulingDeps, { dateChange: exceptions.includes('date_change'), scheduling: route.subjects.includes('scheduling') });
+                    const sched = await schedule(file, turn, party, this.client, schedulingDeps, { dateChange: exceptions.includes('date_change'), scheduling: route.subjects.includes('scheduling') }, partyLookup);
                     calls.push(...sched.calls);
                     specialists.push(sched);
                     if (sched.error) log(`scheduling: ${sched.error}`);

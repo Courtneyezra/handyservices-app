@@ -21,9 +21,11 @@
  *                       about on a file that names a booking, since it may be that same one.
  *   date_change         the deterministic belt under the model: a request to move a booked job
  *                       is a hold for Ben whatever the router or the specialist read.
- *   party booking       the customer's bookings, found by the phone and email the case file records
- *                       for them, and the one that plainly is the file's job written onto it, so a
- *                       real thread with no reference on it is still known to be booked.
+ *   party booking       on a date-change-shaped turn only, the customer's bookings, found by the phone
+ *                       and email the case file records for them, and the one that plainly is the
+ *                       file's job written onto it, so a real thread with no reference on it is still
+ *                       known to be booked when asked to move it. A plain lead-time, availability or
+ *                       booked-date turn never looks this up.
  *
  * Every date fact these return carries a diary source (`{ kind: 'diary', rowId }`), which the
  * date guard (desk/guards.ts checkDate) already recognises; nothing in the guard changes.
@@ -186,9 +188,14 @@ export async function partyBookings(file: CaseFile, deps: SchedulingDeps = {}): 
  * job whose booking is the one made from that quote; two standing bookings may be two jobs, and
  * confirming the wrong one's date is worse than confirming none; a booking cancelled off them is found,
  * so a change to it still reaches Ben, but is never written as the file's job.
+ *
+ * Called only for a date-change-shaped turn (scheduling-specialist.ts `schedule`): a lone standing
+ * booking under a contact is not this thread's job on every turn, only on one that reads as a request
+ * to move a booked job. `precomputed` skips the lookup where the caller already read the diary for the
+ * same file, so the desk's own gate and the specialist never make the same diary round trip twice.
  */
-export async function linkPartyBooking(file: CaseFile, deps: SchedulingDeps = {}): Promise<{ found: PartyBookings; linked: string | null }> {
-    const found = await partyBookings(file, deps);
+export async function linkPartyBooking(file: CaseFile, deps: SchedulingDeps = {}, precomputed?: PartyBookings): Promise<{ found: PartyBookings; linked: string | null }> {
+    const found = precomputed ?? await partyBookings(file, deps);
     if (found.state !== 'found' || file.job.bookingRef || file.job.quoteRef) return { found, linked: null };
     const today = isoDayOf((deps.now ?? (() => new Date()))());
     const standing = found.bookings.filter((b) => !notStandingReason(b, today));
