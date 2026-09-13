@@ -5,9 +5,10 @@ the old desk stays live as rollback until the new one is proven and cut over.
 
 ## Goal 1: the desk, skeleton plus Scoping, WhatsApp only (`desk/`)
 
-Contracts 1 to 6 (docs/comms-v2/contracts.md), one file per contract. Case files live in memory
-for the length of the process (the sandbox door runs in process); a durable store implements
-`store.ts`'s interface later. Ben's kanban (Goal 2, below) reads the in-process one for now.
+Contracts 1 to 6 (docs/comms-v2/contracts.md), one file per contract. The sandbox door's case
+files live in memory for the length of the process; the live intake's are in the durable store
+behind the same `store.ts` interface (`desk/database-store.ts`, Goal 3 below). Ben's kanban (Goal 2,
+below) reads the sandbox door's in-process one for now.
 
 | Contract | File | What it is |
 |---|---|---|
@@ -77,13 +78,24 @@ runs in dry run: everything up to delivery, nothing leaves. The cutover that tur
 off and this desk's delivery on is a later task.
 
 **The switch alone does not start it.** `INTAKE_REQUIREMENTS` (`channels/intake.ts`) is what the
-intake must have before it reads one live turn, and both entries are outstanding: a persistent case
-file store, because the desk's store holds every file, turn, media path and model call for the
-length of the process, which is right for the sandbox door host and wrong for a server that runs for
-weeks; and a populated internal-number directory, because the identity here has never been told
-which numbers are ours, so Ben's own handset would resolve as a customer. Until both land the
-gateway refuses to be built and every forward logs what is missing. The persistence task is the one
-that lifts the first; server/internal-numbers.ts already holds the numbers for the second.
+intake must have before it reads one live turn. One entry is outstanding: a populated
+internal-number directory, because the identity here has never been told which numbers are ours, so
+Ben's own handset would resolve as a customer (server/internal-numbers.ts already holds the
+numbers). Until it lands the gateway refuses to be built and every forward logs what is missing; a
+build that fails is forgotten, so the next forward tries again.
+
+**Persistence has landed.** The intake's case files live in the `comms_v2_case_files` table
+(`desk/database-store.ts`, migration `migrations/20260913_comms_v2_case_files.sql`), so a restart or
+a redeploy loses no thread. The store keeps the synchronous interface in `desk/store.ts` by writing
+through: the gateway reads every row when it is built and answers `get`, `findOpenFor` and `all`
+from those files, and each `put` writes the whole file in the background, one write at a time. A
+failed write is logged and retried without holding up another file's, and `flush` waits for them.
+Because the desk changes a file in place, the gateway puts it once a turn lands and again after the
+desk, a clock pass or an age. The identity directory is still in memory, so `identityFromCaseFiles`
+rebuilds it from the parties on the loaded files, and a returning customer lands on their open file
+rather than a second one. The store opens nothing unless the database in use is the branch
+`COMMS_V2_DATABASE_URL` names (`live-database.ts`); apply the migration to that branch before the
+switch goes on. The sandbox door keeps the memory store.
 
 ### Inbound email
 

@@ -69,7 +69,6 @@ export class ChannelGateway extends Gateway {
             landed = file.turns[0];
             this.applySeed(file, seed);
             await this.reach(file, resolved, env, address, seed);
-            this.store.put(file);
         } else {
             const party = partyOf(file, resolved.personId)!;
             if (!party.name && resolved.name) party.name = resolved.name;
@@ -85,7 +84,7 @@ export class ChannelGateway extends Gateway {
             if (!rec.ok) this.log(`intake fact ${f.key} refused: ${rec.reason}`);
         }
 
-        const result = await this.desk.handleTurn(file, landed);
+        const result = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result };
     }
 

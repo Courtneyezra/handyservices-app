@@ -1,8 +1,7 @@
 /**
- * Where the board reads its case files from, for as long as the desk itself has no durable store
- * (server/comms-v2/desk/store.ts is an in-process Map behind the interface a durable store
- * implements later). Building that durable store is bigger than this goal's brief, so the board
- * reads a process-local instance of the same sandbox door Goal 1 already built and the pipeline's
+ * Where the board reads its case files from. The durable store (server/comms-v2/desk/
+ * database-store.ts) holds the live intake's files; moving the board onto it is not this goal's
+ * brief, so the board reads a process-local instance of the same sandbox door Goal 1 already built and the pipeline's
  * test step drives - one Desk, one Gateway, one in-memory CaseFileStore, all imported unmodified
  * from server/comms-v2/desk.
  *
