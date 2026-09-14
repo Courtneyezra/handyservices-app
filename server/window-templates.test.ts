@@ -1,5 +1,6 @@
 /**
- * Build plan v2, 4.1: the five window-shut Meta templates. Pure — no DB, no network, nothing sent.
+ * Build plan v2, 4.1's five window-shut Meta templates, the clean-sheet desk's two, and its
+ * quote-accepted acknowledgement. Pure — no DB, no network, nothing sent.
  *
  * What this proves is what a submission would otherwise only discover from Meta days later, or a
  * customer would discover on receipt: every definition is the shape Twilio's Content API and the

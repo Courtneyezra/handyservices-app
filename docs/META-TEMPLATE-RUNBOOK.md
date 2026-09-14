@@ -70,6 +70,11 @@ approval it is Meta's, and the only lever left is to decline to send it.
 
 ## 3. Submit
 
+**Do not run this bare while `quote_accepted_ack_v1` is unread.** A bare `--submit` takes every row
+in `server/window-templates.ts`, including that one, and it must not reach Meta until the captain
+has read its wording (`docs/comms-build/TEMPLATES-WINDOW-SHUT.md` item 6). Use `--only` per name, as
+shown below under "To submit one at a time", until he gives the word.
+
 ```bash
 npx tsx scripts/_submit-window-templates.ts --submit
 ```

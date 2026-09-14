@@ -1,8 +1,9 @@
 /**
- * The Meta templates for a SHUT WhatsApp window: build plan v2 item 4.1's five, and the two the
- * clean-sheet desk's other channels need (server/comms-v2/channels/templates.ts). There is one
- * registry, so a template that sends unattended is visible on the go-live surface; a second list
- * somewhere else would hide a live send from it.
+ * The Meta templates for a SHUT WhatsApp window: build plan v2 item 4.1's five, the two the
+ * clean-sheet desk's other channels need (server/comms-v2/channels/templates.ts), and the
+ * clean-sheet desk's quote-accepted acknowledgement. There is one registry, so a template that
+ * sends unattended is visible on the go-live surface; a second list somewhere else would hide a
+ * live send from it.
  *
  * WhatsApp only carries free text for 24 hours after the customer's own last message. Outside that
  * window nothing but a template Meta approved in advance may leave, and approval takes days to

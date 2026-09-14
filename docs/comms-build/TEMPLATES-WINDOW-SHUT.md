@@ -1,4 +1,4 @@
-# The five window-shut WhatsApp templates (build plan v2, item 4.1)
+# The window-shut WhatsApp templates (build plan v2, item 4.1, plus the clean-sheet desk's quote-accepted acknowledgement)
 
 WhatsApp carries free text for 24 hours after the customer's own last message. Outside that window
 only a template Meta approved in advance may go out at all. That is a platform limit, not a policy
@@ -191,8 +191,9 @@ after that is to decline to send it.
 
 Nothing to deploy. The hourly sync (`server/whatsapp-template-sync.ts`, polled from
 `server/cron.ts`) flips the cached status, fires a Pushover alert, and the name lookups start
-finding it. The staff page's template table shows each of the five as `approved`, `pending`,
+finding it. The staff page's template table shows each submitted row as `approved`, `pending`,
 `rejected` or missing — they are listed there because `EXPECTED_TEMPLATES` in
-`server/template-status.ts` derives its window-shut rows from `WINDOW_TEMPLATES`. All five are
+`server/template-status.ts` derives its window-shut rows from `WINDOW_TEMPLATES`. All of them are
 `required: false`: nothing reads them until 4.2, so one still sitting in Meta's queue must not turn
-the go-live check to NO-GO.
+the go-live check to NO-GO. `quote_accepted_ack_v1` stays out of Meta's queue entirely until the
+captain gives the word (item 6).
