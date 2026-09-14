@@ -82,8 +82,25 @@ describe('guards', () => {
         const ordinalDate = dated('We could do 26th September 2026.');
         expect(ordinalDate.result).toBe('fail');
         expect(ordinalDate.note).toContain('26th September 2026');
-        // An ordinal with no looked-up date beside it is left alone: in this trade "the 1st floor", "the 3rd bedroom"
-        // and "1st fix carpentry" are everyday wording, and a reply that cites no date is not paraphrasing one.
+        // An ordinal is read on its own words, not on the rest of the reply: what it counts straight after it makes it
+        // not a date, so "the 1st floor bathroom" and "2nd fix" beside the looked-up date pass first time, even in the
+        // same sentence as the date, while "the 2nd" beside them is still a day the diary did not give.
+        expect(dated('Thanks Sam, the 1st floor bathroom leak is on the list. Ben can come on 25 September 2026.').result).toBe('pass');
+        expect(dated('Ben can look at the 1st floor bathroom on 25 September 2026, and the 2nd fix carpentry after it.').result).toBe('pass');
+        expect(dated('The 2nd-fix and the 3rd bedroom can both be done on 25 September 2026.').result).toBe('pass');
+        const beside = dated('Ben can look at the 1st floor bathroom on the 2nd.');
+        expect(beside.result).toBe('fail');
+        expect(beside.note).toContain('"2nd"');
+        expect(beside.note).not.toContain('1st');
+        // Any other word after an ordinal leaves it a day: a word is only a thing counted if it is listed as one.
+        expect(dated('The 2nd works for Ben, or 25 September 2026.').result).toBe('fail');
+        expect(dated('Ben can do Tuesday the 2nd.').result).toBe('fail');
+        expect(dated('Ben can do the 2nd week of the month.').result).toBe('fail');
+        // With no date looked up at all, a bare ordinal is still a day nobody looked up, not a floor.
+        const unlooked = runGuards(input('Ben can come on the 2nd.')).guards.date_time_duration;
+        expect(unlooked.result).toBe('fail');
+        expect(unlooked.note).toContain('2nd');
+        // And with no date anywhere, what the trade counts stays out of the guard's way.
         expect(runGuards(input('There is no charge for the 1st visit.')).guards.date_time_duration.result).toBe('pass');
         expect(runGuards(input('Is that the 1st floor bathroom, or the 3rd bedroom?')).guards.date_time_duration.result).toBe('pass');
         // A lead time is a diary fact but not a date, so it does not turn the ordinal reading on either: the customer's
