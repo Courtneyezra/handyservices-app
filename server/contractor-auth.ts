@@ -398,9 +398,14 @@ const LOGIN_WINDOW_MS = 60_000;      // count fails within a rolling minute
 const LOGIN_LOCK_MS = 10 * 60_000;   // then lock the IP for 10 minutes
 const loginAttempts = new Map<string, { fails: number; windowStart: number; lockUntil: number }>();
 
+// Same sender rule as the leads rate limit (server/leads.ts): Cloudflare's
+// CF-Connecting-IP, then the last X-Forwarded-For hop (the first is whatever the
+// sender wrote), then req.ip.
 function clientIp(req: Request): string {
-    const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
-    return fwd || req.ip || 'unknown';
+    const cfIp = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
+    if (cfIp) return cfIp;
+    const hops = (req.headers['x-forwarded-for'] as string | undefined)?.split(',').map(h => h.trim()).filter(Boolean);
+    return hops?.[hops.length - 1] || req.ip || 'unknown';
 }
 function loginBlockedFor(ip: string): number {
     const rec = loginAttempts.get(ip);
