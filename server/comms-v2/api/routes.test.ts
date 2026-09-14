@@ -138,6 +138,7 @@ describe('the board over the sandbox door', () => {
     });
 
     it('the door\'s "Ben replies" releases as the session\'s slot only, never as a name in the body', async () => {
+        assignments = { ben: ['user_Ben.Real@handyservices.app'] };
         await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
         await call('POST', '/sandbox/message', { text: 'How much roughly?', channel: 'whatsapp' });
         const board = await call('GET', '/board?held=true');
@@ -152,7 +153,8 @@ describe('the board over the sandbox door', () => {
 
         const listed = await call('POST', '/sandbox/ben-replies', { text: 'Leave it with me, Sam', surface: 'kanban' }, 'Ben.Real@handyservices.app');
         expect(listed.status).toBe(200);
-        expect(listed.json).toMatchObject({ event: 'return_to_automation', approver: 'human:ben', automation: { state: 'automated' } });
+        // The send carries the person who wrote it; the hold is released by the slot that session occupies.
+        expect(listed.json).toMatchObject({ event: 'return_to_automation', approver: 'human:Ben.Real@handyservices.app', released: { approver: { kind: 'human', id: 'ben' } }, automation: { state: 'automated' } });
         expect((await call('GET', `/case-files/${id}`)).json.hold).toBeNull();
     });
 });
