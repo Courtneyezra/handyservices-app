@@ -34,9 +34,6 @@ const DAY_AND_MONTH = [
     `\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4}\\b)?`,
 ];
 
-/** A day with its month, the shape a date the diary gave takes: "25 September 2026". */
-export const RE_DAY_AND_MONTH = new RegExp(DAY_AND_MONTH.join('|'), 'i');
-
 /** A date, a time, a lead time or a duration, in a reply. */
 export const RE_DATE_TIME_DURATION = new RegExp([
     `\\b${WEEKDAY}\\b`,
@@ -53,12 +50,29 @@ export const RE_DATE_TIME_DURATION = new RegExp([
     `\\b(?:same[- ]day|next[- ]day)\\b`,
 ].join('|'), 'i');
 
+/** An ordinal written in figures: "2nd". */
+const RE_ORDINAL = /\b\d{1,2}(?:st|nd|rd|th)\b/gi;
+
 /**
- * A bare ordinal day: "the 2nd". Read as a date only beside a date the reply looked up, since that
- * is how one is said out loud here; on its own, or beside a lead time, it is the 1st floor, the
- * 3rd bedroom or first fix.
+ * What an ordinal counts in this trade, when it is the very next word: "1st floor", "2nd-fix",
+ * "3rd bedroom", "2nd coat", "1st visit". Only these nouns, and only directly after the ordinal
+ * (a space or a hyphen between, nothing else), since a date is said the same way with any word
+ * that is not one of them after it: "the 2nd works", "the 2nd if that suits". A word missing
+ * from here costs a retry and at worst the acknowledgement, never a date.
  */
-export const RE_ORDINAL_DAY = /\b\d{1,2}(?:st|nd|rd|th)\b/i;
+const COUNTED = '(?:floors?|stor(?:ey|ie|y)s?|fix(?:es|ing)?|coats?|layers?|bedrooms?|bathrooms?|rooms?|toilets?|landings?|steps?|stairs?|treads?|shelf|shelves|drawers?|doors?|windows?|panels?|sockets?|radiators?|cupboards?|units?|tiles?|rows?|courses?|visits?)';
+const RE_COUNTED_AFTER = new RegExp(`^(?:\\s+|\\s*-\\s*)${COUNTED}\\b`, 'i');
+
+/**
+ * The bare ordinals in a reply read as days of the month: "the 2nd", "Tuesday the 2nd", "2nd of
+ * the month". Each ordinal is read on its own words, never on what else the reply says: an ordinal
+ * is a day unless what it counts comes straight after it, so "the 1st floor bathroom" is not a
+ * date in a reply that also gives one, and "the 2nd" is one in a reply that gives none. Fails
+ * closed: an ordinal this cannot place is a day.
+ */
+export function ordinalDays(text: string): string[] {
+    return Array.from(text.matchAll(RE_ORDINAL)).filter((m) => !RE_COUNTED_AFTER.test(text.slice(m.index! + m[0].length))).map((m) => m[0]);
+}
 
 /**
  * A promise that Ben will come back to the customer. Allowed wherever a hold reaches Ben to keep it;
