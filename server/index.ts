@@ -38,7 +38,7 @@ import { quotesRouter } from "./quotes";
 import v2BookingsRouter from "./v2-bookings";
 import routeAnalysisRouter from "./route-analysis";
 import extractCallDataRouter from "./extract-call-data";
-import { leadsRouter } from "./leads";
+import { leadsRouter, leadSubmitRateLimit } from "./leads";
 import voiceRouter from "./voice";
 import { testRouter } from "./test-routes";
 import { dashboardRouter } from "./dashboard";
@@ -169,6 +169,8 @@ app.use('/api/whatsapp/webhook', express.json({
 app.use('/api/admin/dispatch/:id/media', express.json({ limit: '200mb' }));
 app.use('/api/contractor-job/:token/complete', express.json({ limit: '200mb' }));
 app.use('/api/contractor-job/:token/variation', express.json({ limit: '200mb' }));
+// The public web form's per-sender rate limit runs before its 40mb parser, so a refused post is never parsed.
+app.post('/api/leads', leadSubmitRateLimit);
 app.use('/api/leads', express.json({ limit: '40mb' }));
 
 app.use(express.json({ limit: '10mb' })); // Increased limit for large transcriptions
