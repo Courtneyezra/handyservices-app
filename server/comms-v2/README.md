@@ -74,8 +74,9 @@ turn to the channel gateway; the old handler still runs. The forwarding call is 
 code: server/whatsapp-api.ts `/incoming` (Twilio, WhatsApp and SMS), server/meta-whatsapp.ts
 `/webhook`, server/leads.ts `POST /api/leads` (the web form), and server/call-logger.ts
 `finalizeCall` (a finished call; the call row is read for its outcome). The desk behind the intake
-runs in dry run: everything up to delivery, nothing leaves. The cutover that turns the old handler
-off and this desk's delivery on is a later task.
+runs in dry run: everything up to delivery, nothing leaves. The switch-over re-points its store and
+tools at the live database behind the desk switch ("Which database the intake opens", below); turning
+the old handler's replies off and this desk's delivery on is its delivery change.
 
 **The switch alone does not start it.** `INTAKE_REQUIREMENTS` (`channels/intake.ts`) is what the
 intake must have before it reads one live turn. None is outstanding; while one is, the gateway
@@ -100,9 +101,28 @@ failed write is logged and retried without holding up another file's, and `flush
 Because the desk changes a file in place, the gateway puts it once a turn lands and again after the
 desk, a clock pass or an age. The identity directory is still in memory, so `identityFromCaseFiles`
 rebuilds it from the parties on the loaded files, and a returning customer lands on their open file
-rather than a second one. The store opens nothing unless the database in use is the branch
-`COMMS_V2_DATABASE_URL` names (`live-database.ts`); apply the migration to that branch before the
-switch goes on. The sandbox door keeps the memory store.
+rather than a second one. The sandbox door keeps the memory store.
+
+**Which database the intake opens: the switch-over.** The gateway is built for a purpose, read from
+the switches on every forward (`liveChannelGateway`): `live` while the new desk is the live desk,
+`sandbox` otherwise. Live is `commsV2Live()` in `switch.ts`, and it is yes only with all of these on:
+
+| Switch | Where | Off by default |
+|---|---|---|
+| intake | `COMMS_V2_INTAKE=1`, the environment | yes |
+| desk | `spine.commsDesk = 'comms_v2'`, the `spine` app_settings row, read only through `isCommsV2Desk` (server/spine/config.ts); owner-only on `POST /api/spine/config`, where choosing `comms_v2` needs `confirm: 'LIVE'` | yes (`spine`) |
+| delivery | `spine.senders.comms_v2.enabled = true`, the same row (`desk/sender.ts`) | yes |
+| the process | `COMMS_WORKER=1`: production is one service that is the web process and the worker (docs/RUNBOOK.md), and the desk's clock runs only in the worker, so another process is never the live desk | — |
+
+For `sandbox` the store, the quote store, the draft chain and the diary open only the branch
+`COMMS_V2_DATABASE_URL` names, as before; apply the migration to that branch first. For `live` they
+open the database in use, production included, and every call asks the switches again, so flipping
+one back refuses the very next write and the next forward builds a sandbox gateway instead (the set
+aside store keeps retrying its unwritten files, and lands them if the switches come back on). The
+sandbox door always asks the branch question, whatever the switches say, so it never writes
+production. The live intake's desk still runs in dry run (`INTAKE_DESK_MODE`): its delivery, the
+old desk's replies going off at the same moment and the roll-back are the switch-over's delivery
+change, and until it lands no switch here is to be flipped in production.
 
 ### Inbound email
 
@@ -353,10 +373,10 @@ doubles as the window onto the sandbox while the rest of the desk is built.
 | the board | `api/board.ts` | `GET /board`: one column per Contract 2 stage, exactly the seven; each card is one file (customer, job type and location once known, last customer message and when, reply channel, mode, and `benToRequest` - what the draft is missing, read off the file's internal `ben_to_request` fact through `quoting/ben-to-request.ts`, empty once nothing is outstanding). Held cards float to the top of their column with the hold reason and approver. Filters `?held=true` and `?mode=sandbox\|live`; a file is `live` once any send on it delivered, `sandbox` otherwise. `GET /case-files/:id` is the file's turns and facts, read-only. |
 | release | `api/routes.ts`, `api/approvers.ts` | `POST /case-files/:id/release { words }` calls the case file's own `release`, which enforces the approver-and-words invariant; the route only carries the words and names who is asking. The approver is the slot the signed-in session occupies, never the request body: the app_settings row keyed `comms_v2_approvers` maps slot to user ids (`{ "ben": ["<user id>"] }`, the insert SQL is in `approvers.ts`). A session no slot lists gets 403; with no row nobody can release. Fail closed: an unreadable row assigns nobody. |
 | answer | `api/routes.ts`, `desk/human-reply.ts` | `POST /case-files/:id/answer { words }` sends Ben's own reply through the one sender (`desk/human-reply.ts`), on any card, held or not. Same session rules as release: 401 with no session, 403 with no slot, 400 with no words, 404 on an unknown file; this is the only answer path, so no unlisted session can answer as him. A session whose slot is not the file's own approver is refused 409, held or not, so a slot minted for one thread cannot answer another. The guards do not run over his words (answer 43); a refusal from the sender, a shut window, a reply over the bubble ceiling or an SMS over two segments, is 409 with its reason and nothing is sent, and a send returns the card, the approver the send carried, the bubbles that went, and the release the words cleared. |
-| the store | `api/store.ts` | The desk has no durable case-file store yet, so the board reads a process-local instance of the Goal 1 sandbox door (one Desk, one Gateway, one in-memory store), separate from the door host's own singleton. Its router is mounted under `/sandbox`; the page's header control posts start and message to it. The door replaces its gateway on every start and reset, so the store is read through the door each time and a new start replaces the thread on the board. |
+| the store | `api/store.ts` | Chosen per request (`boardSourceFor`). While the new desk is the live desk (`switch.ts`, "Which database the intake opens" above) the board reads and acts on the live intake's durable store, and an answer goes out in that intake's delivery mode; a live desk whose gateway cannot be built answers 503 with the reason. Otherwise the board reads a process-local instance of the Goal 1 sandbox door (one Desk, one Gateway, one in-memory store), separate from the door host's own singleton, and answers in dry run. The door's router is mounted under `/sandbox` either way; the page's header control posts start and message to it. A release or an answer is put back to the store it came from, so a durable store writes it. The door replaces its gateway on every start and reset, so the store is looked up each time and a new start replaces the thread on the board. |
 
-Sandbox threads only until cutover: the board reads the dry-run door, so nothing on it is a live
-customer. The page polls every fifteen seconds; no websockets.
+With the switches off, which is every pipeline run, the board reads the dry-run door, so nothing on
+it is a live customer. The page polls every fifteen seconds; no websockets.
 
 ### Ben answers from a card: the live scenarios
 
@@ -382,16 +402,17 @@ the board's own sandbox door under `/api/comms-v2/sandbox` seeding the thread:
 
 The door needs the branch database string and the model keys from the ordinary environment. The
 desk's one database variable is `COMMS_V2_DATABASE_URL` (a Neon branch, never production); the
-door host refuses a missing value and a production one and never reads `DATABASE_URL`. Every live
-store and every writing path in the desk asks the same question again at the moment it would open
-the database, in `live-database.ts`: the database in use must be the branch that variable names,
-and a refusal names that requirement and falls back to nothing. That is what the door host gives
-for free and the deployed server does not: `/api/comms-v2/sandbox` is mounted there for Ben's
-board, on the production database, where the quote machinery would otherwise write a real quote row
-and publish a quote page with real prices. Writing is the whole subject, so the reviewed
-knowledge-base readers and Ben's board reading its own `comms_v2_approvers` row do not ask
-(contracts.md, Contract 7, "Which database the tools open", has why). Cutover replaces this with
-the desk switch. The pipeline's run copies inherit a non-production environment through direnv from
+door host refuses a missing value and a production one and never reads `DATABASE_URL`. Every
+store and every writing path in the desk asks again at the moment it would open the database, in
+`live-database.ts`, for its purpose. For the sandbox the database in use must be the branch that
+variable names, and a refusal names that requirement and falls back to nothing. That is what the
+door host gives for free and the deployed server does not: `/api/comms-v2/sandbox` is mounted there
+for Ben's board, on the production database, where the quote machinery would otherwise write a real
+quote row and publish a quote page with real prices. For the live intake the answer is the desk
+switch instead: the database in use, only while the new desk is the live desk ("Which database the
+intake opens", above). Writing is the whole subject, so the reviewed knowledge-base readers and
+Ben's board reading its own `comms_v2_approvers` row do not ask (contracts.md, Contract 7, "Which
+database the tools open", has why). The pipeline's run copies inherit a non-production environment through direnv from
 their run root (see `.no-mistakes.yaml`, `test.instructions`); a developer's shell carries its own.
 Nothing in the desk loads a file of its own or prints a value.
 
@@ -408,7 +429,9 @@ a change on its next restart.
 `npx vitest run server/comms-v2`: every invariant in the contracts with a scripted model client,
 the door driven over HTTP the way the test step drives it, the door host's refusal rules, the
 database refusal every live writer makes (`live-database.test.ts`, including each method of the
-live quote store on a production-shaped connection), a person's reply through the one sender with
+live quote store on a production-shaped connection, and every live dependency refusing production
+while the switches are at their defaults), the switches and the one live question (`switch.test.ts`),
+a person's reply through the one sender with
 no guards over it, and the board's queries, approver mapping and routes. The page's own test is
 `npx vitest run --project client client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx`.
 None of them needs a key or a database; a live desk test reads its keys from the environment.

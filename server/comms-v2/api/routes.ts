@@ -16,32 +16,49 @@
  * /sandbox/* mounts the Goal 1 sandbox door unmodified (server/comms-v2/desk/sandbox-door.ts),
  * so the board has sandbox threads to show without duplicating that door's logic here.
  *
+ * Which case files the other routes read and act on is decided per request (api/store.ts): the live
+ * intake's durable store while the new desk is the live desk (server/comms-v2/switch.ts), the
+ * sandbox door's otherwise. A release or an answer is put back to that store, so a durable one
+ * writes it.
+ *
  * Mounted behind requireAdmin (server/index.ts), which sets req.user; the approver is the slot the
  * `comms_v2_approvers` row assigns that session (approvers.ts), never the request body. A session
  * no slot lists cannot release.
  */
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { readApproverAssignments, slotOf, type ReadApproverAssignments } from './approvers';
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
-import { commsV2BoardDoor } from './store';
+import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor } from './store';
 import { release } from '../desk/case-file';
 import { humanReply } from '../desk/human-reply';
 import type { SandboxDoor } from '../desk/sandbox-door';
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor): Router {
     const router = Router();
-    const store = () => door.gateway.store;
+    /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
+    const source = async (res: Response): Promise<BoardSource | null> => {
+        try {
+            return await sourceFor(door);
+        } catch (error: any) {
+            res.status(503).json({ error: `the new desk is the live desk but its store could not be opened: ${error?.message ?? error}` });
+            return null;
+        }
+    };
 
     router.use('/sandbox', door.router);
 
     router.get('/board', async (req, res) => {
         const held = req.query.held === 'true' ? true : undefined;
         const mode = req.query.mode === 'sandbox' || req.query.mode === 'live' ? (req.query.mode as BoardMode) : undefined;
-        res.json(boardOf(store().all(), { held, mode }, await approvers()));
+        const src = await source(res);
+        if (!src) return;
+        res.json(boardOf(src.store.all(), { held, mode }, await approvers()));
     });
 
     router.get('/case-files/:id', async (req, res) => {
-        const file = store().get(req.params.id);
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
         res.json(detailOf(file, await approvers()));
     });
@@ -52,11 +69,15 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const assignments = await approvers();
         const approver = slotOf(user, assignments);
         if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
-        const file = store().get(req.params.id);
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
         const words = String(req.body?.words ?? '').trim();
         const outcome = release(file, approver, words);
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
+        // The case file changes in place; a durable store writes it once it is put.
+        src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), release: outcome.value });
     });
 
@@ -71,12 +92,15 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const assignments = await approvers();
         const approver = slotOf(user, assignments);
         if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
-        const file = store().get(req.params.id);
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
         const words = String(req.body?.words ?? '').trim();
         if (!words) { res.status(400).json({ error: 'an answer needs words' }); return; }
-        const outcome = await humanReply({ file, approver, person: user.email ?? user.id, words });
+        const outcome = await humanReply({ file, approver, person: user.email ?? user.id, words, mode: src.mode });
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
+        src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });
     });
 

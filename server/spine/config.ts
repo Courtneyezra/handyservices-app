@@ -105,6 +105,31 @@ export interface SpineConfig {
      * and a transactional sender never appears here at all. Only `{ enabled: false }` stops a send.
      */
     senders: Partial<Record<string, { enabled: boolean }>>;
+    /**
+     * The desk switch of the comms switch-over (docs/comms-v2/design.md, behaviour.md answer 37):
+     * WHICH DESK answers a customer. `spine` is today: the old desk answers and the new desk under
+     * server/comms-v2 runs in the sandbox only. `comms_v2` is the new desk as the live desk.
+     *
+     * Alone it moves nothing: the new desk is live only while the intake switch
+     * (`COMMS_V2_INTAKE=1`) and its own sender switch (`senders.comms_v2.enabled`) are on as well,
+     * and that one question is asked through server/comms-v2/switch.ts `commsV2Live()`. Read the
+     * key ONLY through `isCommsV2Desk()`. Default `spine`: a row without the key, or with anything
+     * else in it, is today's desk.
+     */
+    commsDesk: CommsDesk;
+}
+
+/** The two desks a customer turn can reach. Anything else is refused on write and read as `spine`. */
+export const COMMS_DESKS = ['spine', 'comms_v2'] as const;
+export type CommsDesk = (typeof COMMS_DESKS)[number];
+
+export function isCommsDesk(value: unknown): value is CommsDesk {
+    return typeof value === 'string' && (COMMS_DESKS as readonly string[]).includes(value);
+}
+
+/** THE ONLY SANCTIONED WAY TO READ the desk switch. Fail closed: absent, unreadable or unknown is the old desk. */
+export function isCommsV2Desk(cfg: Pick<SpineConfig, 'commsDesk'> | null | undefined): boolean {
+    return cfg?.commsDesk === 'comms_v2';
 }
 
 /**
@@ -195,6 +220,8 @@ export const DEFAULT_SPINE_CONFIG: SpineConfig = {
     desk: 'v3',
     // 0.2: no row = every registered sender is on, which is today's behaviour for all of them.
     senders: {},
+    // The switch-over: the old desk answers until someone writes 'comms_v2' into the row.
+    commsDesk: 'spine',
 };
 
 function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): SpineConfig {
@@ -217,6 +244,8 @@ function mergeOverDefaults(patch: Partial<SpineConfig> | null | undefined): Spin
         // `desk`, or one a script put a typo in, is today's desk — never an unknown behaviour.
         desk: isDeskBehaviour(patch?.desk) ? patch.desk : DEFAULT_SPINE_CONFIG.desk,
         senders: { ...(patch?.senders ?? {}) },
+        // Enforced on read like `desk`: a missing or mistyped value is the old desk, never an unknown one.
+        commsDesk: isCommsDesk(patch?.commsDesk) ? patch.commsDesk : DEFAULT_SPINE_CONFIG.commsDesk,
     };
 }
 

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from './channel-gateway';
-import { INTAKE_ENV, INTAKE_REQUIREMENTS, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, liveChannelGateway, resetLiveChannelGateway } from './intake';
+import { INTAKE_DESK_MODE, INTAKE_ENV, INTAKE_REQUIREMENTS, builtIntakeGateway, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, liveChannelGateway, resetLiveChannelGateway } from './intake';
 
 const turns: Turn[] = [];
 const fakeDesk: DeskLike = {
@@ -52,6 +52,31 @@ describe('the intake switch', () => {
         expect(second).not.toBe(first);
         await expect(second).rejects.toThrow();
         resetLiveChannelGateway();
+    });
+    it('builds for the purpose the switches give now, shares one build, and builds again for the other purpose when a switch moves', async () => {
+        resetLiveChannelGateway();
+        let liveNow = false;
+        const built: string[] = [];
+        const deps = {
+            requirements: [] as string[],
+            liveState: async () => ({ live: liveNow, off: liveNow ? [] : ['spine.commsDesk = \'comms_v2\''] }),
+            build: async (purpose: 'sandbox' | 'live') => { built.push(purpose); return new ChannelGateway({ desk: fakeDesk }); },
+        };
+        const [a, b] = await Promise.all([liveChannelGateway(deps), liveChannelGateway(deps)]);
+        expect(a).toBe(b);
+        expect(built).toEqual(['sandbox']);
+        liveNow = true;
+        const c = await liveChannelGateway(deps);
+        expect(c).not.toBe(a);
+        expect(built).toEqual(['sandbox', 'live']);
+        expect(builtIntakeGateway()).toMatchObject({ purpose: 'live', gateway: c });
+        liveNow = false;
+        await liveChannelGateway(deps);
+        expect(built).toEqual(['sandbox', 'live', 'sandbox']);
+        resetLiveChannelGateway();
+    });
+    it('keeps the intake desk in dry run for both purposes until live delivery lands', () => {
+        expect(INTAKE_DESK_MODE).toEqual({ sandbox: 'dry_run', live: 'dry_run' });
     });
     it('forwards into the gateway when on', async () => {
         resetLiveChannelGateway(new ChannelGateway({ desk: fakeDesk }));

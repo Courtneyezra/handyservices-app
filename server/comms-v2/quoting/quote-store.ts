@@ -17,7 +17,7 @@
  * and it opens nothing at all unless the database in use is the branch COMMS_V2_DATABASE_URL names
  * (live-database.ts), so the sandbox door mounted on the deployed server cannot write a real quote.
  */
-import { assertCommsV2Database, commsV2Db } from '../live-database';
+import { assertCommsV2DatabaseFor, commsV2Db, type DatabasePurpose } from '../live-database';
 import { statusOfRow, type QuoteRowLike } from './quote-record';
 
 export interface DraftInsert {
@@ -74,9 +74,14 @@ export const SOURCE_CHANNEL = 'comms_v2';
 const isAddress = (contact: string): boolean => contact.includes('@');
 const contactKey = (contact: string): string => (isAddress(contact) ? contact.trim().toLowerCase() : contact.replace(/\D/g, ''));
 
-export const liveQuoteStore: QuoteStore = {
+/**
+ * The personalized_quotes row through the database, for a purpose (live-database.ts): the sandbox
+ * door's store opens only the branch, the live intake's opens the database in use while the new
+ * desk is the live desk. Every call asks again.
+ */
+export const databaseQuoteStore = (purpose: DatabasePurpose): QuoteStore => ({
     async read(slug) {
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { personalizedQuotes } = await import('@shared/schema');
         const { eq } = await import('drizzle-orm');
         const cols = Object.fromEntries(Object.keys(QUOTE_READ_COLUMNS).map((k) => [k, (personalizedQuotes as any)[k]]));
@@ -85,14 +90,14 @@ export const liveQuoteStore: QuoteStore = {
     },
 
     async insertDraft(row) {
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { personalizedQuotes } = await import('@shared/schema');
         await db.insert(personalizedQuotes).values({ ...row, createdAt: new Date() } as any);
         return { id: row.id, slug: row.shortSlug };
     },
 
     async price(slug, input) {
-        assertCommsV2Database(READER);
+        await assertCommsV2DatabaseFor(READER, purpose);
         const { loadPriceScreen, confirmPrices } = await import('../../spine/price-screen');
         const loaded = await loadPriceScreen(slug);
         if (!loaded.available) return { ok: false, status: loaded.status, reason: loaded.reason };
@@ -121,7 +126,7 @@ export const liveQuoteStore: QuoteStore = {
         const row = await this.read(slug);
         if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
         if (row.isDraft === false) return { ok: false, status: 409, reason: `quote ${slug} is already with the customer` };
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { personalizedQuotes } = await import('@shared/schema');
         const { and, eq } = await import('drizzle-orm');
         const updated = await db.update(personalizedQuotes).set({ isDraft: false } as any)
@@ -143,7 +148,7 @@ export const liveQuoteStore: QuoteStore = {
         try { const { getPricingSettings } = await import('../../pricing-settings'); depositPercent = Number((await getPricingSettings() as any).depositPercent ?? depositPercent); } catch { /* the shared default */ }
         const { depositFor } = await import('@shared/pricing-settings');
         const depositPence = row.depositAmountPence && row.depositAmountPence > 0 ? row.depositAmountPence : depositFor(total, 0, depositPercent);
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { personalizedQuotes } = await import('@shared/schema');
         const { eq } = await import('drizzle-orm');
         await db.update(personalizedQuotes).set({ depositPaidAt: now, depositAmountPence: depositPence, paymentType: 'deposit', selectedAt: now } as any).where(eq(personalizedQuotes.id, row.id));
@@ -156,14 +161,14 @@ export const liveQuoteStore: QuoteStore = {
         if (!row || row.isDraft === false) return;
         const existing = Array.isArray(row.customerPhotoUrls) ? (row.customerPhotoUrls as string[]) : [];
         const next = Array.from(new Set([...existing, ...urls]));
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { personalizedQuotes } = await import('@shared/schema');
         const { eq } = await import('drizzle-orm');
         await db.update(personalizedQuotes).set({ customerPhotoUrls: next } as any).where(eq(personalizedQuotes.id, row.id));
     },
 
     async deleteSandbox(contacts) {
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { sql } = await import('drizzle-orm');
         // A list in a template is bound as one placeholder per value, so `any($1, $2)` is rejected
         // by the driver ("requires array on right side"). An `in` list is what those placeholders are.
@@ -194,7 +199,10 @@ export const liveQuoteStore: QuoteStore = {
         const quotes = count(await db.execute(sql`delete from personalized_quotes where id in (${list(ids)})`));
         return { quotes, estimates, verdicts, runs };
     },
-};
+});
+
+/** The sandbox door's quote store: every method refuses anything but the branch COMMS_V2_DATABASE_URL names. */
+export const liveQuoteStore: QuoteStore = databaseQuoteStore('sandbox');
 
 // ---------------------------------------------------------------- a memory store for tests
 

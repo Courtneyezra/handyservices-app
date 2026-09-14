@@ -203,16 +203,19 @@ brief for the composer, and never sees a figure.
 | `mark_quote_sent` | the case file, after the delivery landed | the quote leaves draft, its figures reach the file, the stage walks to quoted | no quote on the file; a row the store will not mark sent |
 | `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |
 
-**Which database the tools open.** Every live WRITER in the desk refuses unless the database in use
-is the Neon branch `COMMS_V2_DATABASE_URL` names, in one place the quote store, the draft chain and
-any future writer call (`server/comms-v2/live-database.ts`). The refusal names that requirement and
+**Which database the tools open.** Every WRITER in the desk asks one place before it opens the
+database, for its purpose (`server/comms-v2/live-database.ts`): the quote store, the draft chain, the
+case file store, the diary and any future writer. For the sandbox it refuses unless the database in
+use is the Neon branch `COMMS_V2_DATABASE_URL` names. The refusal names that requirement and
 falls back to nothing. It exists because the sandbox door is mounted on the ordinary server for
 Ben's board, and on the deployed server that is the production database: the quote machinery would
 otherwise draft a real quote row and publish a quote page with real prices on it. Writing is the
 whole subject, so the reviewed knowledge-base readers do not ask: a read publishes nothing, and
 made to refuse they would throw on exactly the gas, complaint and money turns the fixed line exists
-for. Ben's board reading its own approver row is a read too. Cutover replaces this with the desk
-switch.
+for. Ben's board reading its own approver row is a read too. For the live intake the desk switch
+answers instead: it opens the database in use only while the new desk is the live desk
+(`server/comms-v2/switch.ts` `commsV2Live`, server/comms-v2/README.md "Which database the intake
+opens"), and the sandbox purpose never opens production whatever the switches say.
 
 **Delivering the quote.** Ben prices on the price screen and presses send. The price route carries
 no message body, so the delivery is written by the desk's own composer from the file, with the

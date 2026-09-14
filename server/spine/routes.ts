@@ -113,7 +113,7 @@ spineRouter.get('/controls', async (req, res) => {
         res.json({
             spine: {
                 mode: spineModeFrom(cfg), enabled: cfg.enabled, shadow: cfg.shadow, explicitMode: cfg.mode ?? null,
-                desk: cfg.desk,
+                desk: cfg.desk, commsDesk: cfg.commsDesk,
                 agents: cfg.agents, senders: cfg.senders, asks: cfg.asks, autonomy: cfg.autonomy, sampler: cfg.sampler, video: cfg.video,
                 sweepLimit: cfg.sweepLimit, debounceSeconds: cfg.debounceSeconds, triageModel: cfg.triageModel, city: cfg.city,
             },
@@ -157,7 +157,7 @@ spineRouter.post('/config', async (req, res) => {
         const { humanApprover } = await import('../approver');
         const next = await setSpineConfig(v.patch, humanApprover(u.email ?? u.id ?? 'admin'));
         console.log(`[Spine] config: ${v.changes.join(', ')} by ${u.email ?? u.id ?? 'admin'}`);
-        res.json({ ok: true, changes: v.changes, mode: spineModeFrom(next), spine: { enabled: next.enabled, shadow: next.shadow, mode: next.mode ?? null, desk: next.desk, agents: next.agents, asks: next.asks, autonomy: next.autonomy, sampler: next.sampler, video: next.video }, golive });
+        res.json({ ok: true, changes: v.changes, mode: spineModeFrom(next), spine: { enabled: next.enabled, shadow: next.shadow, mode: next.mode ?? null, desk: next.desk, commsDesk: next.commsDesk, agents: next.agents, asks: next.asks, autonomy: next.autonomy, sampler: next.sampler, video: next.video }, golive });
     } catch (error: any) {
         console.error('[Spine] config write failed:', error?.message ?? error);
         res.status(500).json({ ok: false, errors: [error?.message ?? 'Could not save the config'] });

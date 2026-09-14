@@ -36,7 +36,7 @@
 import { newestOpenFor, type CaseFileStore } from './store';
 import type { CaseFile } from './case-file';
 import { Identity, canonical, type CanonicalKey, type IdentityOptions, type Person } from './identity';
-import { commsV2Db } from '../live-database';
+import { commsV2Db, type DatabasePurpose } from '../live-database';
 
 /** The table under the store: every row read, one file written whole, every row deleted. */
 export interface CaseFileRows {
@@ -207,10 +207,14 @@ export function identityFromCaseFiles(files: CaseFile[], opts: IdentityOptions =
 /** Who the database refusal names when this store is the one that asked (live-database.ts). */
 const READER = 'the case file store';
 
-/** The `comms_v2_case_files` table on the branch database. Every call refuses anything but the branch before it opens a connection. */
-export const liveCaseFileRows: CaseFileRows = {
+/**
+ * The `comms_v2_case_files` table, for a purpose (live-database.ts): the sandbox opens only the
+ * branch, the live intake opens the database in use while the new desk is the live desk. Every call
+ * asks again before it opens a connection.
+ */
+export const caseFileRowsFor = (purpose: DatabasePurpose): CaseFileRows => ({
     async loadAll() {
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { commsV2CaseFiles: t } = await import('@shared/schema');
         const { asc } = await import('drizzle-orm');
         const rows = await db.select({ file: t.file }).from(t).orderBy(asc(t.openedAt), asc(t.id));
@@ -218,7 +222,7 @@ export const liveCaseFileRows: CaseFileRows = {
     },
 
     async upsert(file) {
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { commsV2CaseFiles: t } = await import('@shared/schema');
         const columns = {
             stage: file.stage,
@@ -231,13 +235,16 @@ export const liveCaseFileRows: CaseFileRows = {
     },
 
     async deleteAll() {
-        const db = await commsV2Db(READER);
+        const db = await commsV2Db(READER, purpose);
         const { commsV2CaseFiles: t } = await import('@shared/schema');
         await db.delete(t);
     },
-};
+});
 
-/** The live intake's store: the branch table, read in full before it is handed back. Refuses before opening anything unless the branch is the database in use. */
+/** The table on the branch database: every call refuses anything but the branch. */
+export const liveCaseFileRows: CaseFileRows = caseFileRowsFor('sandbox');
+
+/** The intake's store: the table, read in full before it is handed back. Refuses before opening anything unless its rows may open the database in use. */
 export async function openCaseFileStore(opts: DatabaseStoreOptions = {}, rows: CaseFileRows = liveCaseFileRows): Promise<DatabaseCaseFileStore> {
     return new DatabaseCaseFileStore(rows, opts).load();
 }

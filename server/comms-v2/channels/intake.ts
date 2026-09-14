@@ -45,36 +45,85 @@ export type IntakeEvent =
 
 export interface IntakeReport { forwarded: number; skipped: string[] }
 
-let live: Promise<import('./channel-gateway').ChannelGateway> | null = null;
+type Purpose = import('../live-database').DatabasePurpose;
+type GatewayT = import('./channel-gateway').ChannelGateway;
 
 /**
- * The one live gateway, built on first use. Refuses while any of `INTAKE_REQUIREMENTS` is
- * outstanding, so a switch flipped before they land forwards nothing and says what is missing.
- * Its case files are the durable store's, read in full before the first turn, and its identity is
- * rebuilt from the parties on them and then told which numbers are ours; the store refuses unless
- * the database in use is the branch COMMS_V2_DATABASE_URL names, and the build refuses when the
- * staff directory cannot be read. A build that fails is forgotten, so the next forward tries again
- * rather than repeating a passing failure for the life of the process.
+ * How the intake's desk delivers, by the purpose its store and tools were built for. The live
+ * intake still runs dry: turning its delivery on, with the old desk's replies off at the same
+ * moment, is the switch-over's delivery change, and until it lands nothing the intake decides leaves.
  */
-export function liveChannelGateway(): Promise<import('./channel-gateway').ChannelGateway> {
-    if (!live) {
-        const building = (async () => {
-            if (INTAKE_REQUIREMENTS.length) throw new Error(`${INTAKE_ENV} is on but the intake refuses to start until it has: ${INTAKE_REQUIREMENTS.join('; ')}`);
-            const { ChannelGateway } = await import('./channel-gateway');
-            const { ChannelDesk } = await import('./channel-desk');
-            const { Desk } = await import('../desk/desk');
-            const { identityFromCaseFiles, openCaseFileStore } = await import('../desk/database-store');
-            const log = (line: string) => console.log(`[comms-v2 intake] ${line}`);
-            const store = await openCaseFileStore({ log });
-            const identity = identityFromCaseFiles(store.all());
-            const seeded = await seedInternalNumbers(identity);
-            log(`identity: ${seeded.registered} internal keys registered${seeded.refused ? `; ${seeded.refused} refused because a case file already holds them as a customer` : ''}`);
-            return new ChannelGateway({ desk: new ChannelDesk(new Desk({ mode: 'dry_run', log }), { mode: 'dry_run', log }), identity, store, presence: messagesPresence, log });
-        })();
-        live = building;
-        building.catch(() => { if (live === building) live = null; });
-    }
-    return live;
+export const INTAKE_DESK_MODE: Record<Purpose, 'dry_run' | 'live'> = { sandbox: 'dry_run', live: 'dry_run' };
+
+/** The gateway in use: the purpose it was built for (`any` is a scripted one from a test), and the gateway once built. */
+let live: { purpose: Purpose | 'any'; gateway: Promise<GatewayT>; ready: GatewayT | null } | null = null;
+
+export interface IntakeGatewayDeps {
+    /** The switches, read now (switch.ts). */
+    liveState?: () => Promise<{ live: boolean; off: string[] }>;
+    /** Builds a gateway for a purpose; the default is the durable one below. */
+    build?: (purpose: Purpose) => Promise<GatewayT>;
+    /** What must land before the intake reads a live turn; `INTAKE_REQUIREMENTS` unless a test says otherwise. */
+    requirements?: readonly string[];
+}
+
+/**
+ * The one intake gateway, built on first use for the purpose the switches give now: `live` while the
+ * new desk is the live desk (switch.ts `commsV2Live`), its store and tools on the database in use,
+ * and `sandbox` otherwise, on the branch COMMS_V2_DATABASE_URL names as before (live-database.ts).
+ * The switches are read on every call, and a gateway built for the other purpose is set aside for a
+ * new one, so flipping a switch back is felt on the next forward; the store it had keeps retrying
+ * its unwritten files and lands them if the switches come back.
+ *
+ * Refuses while any of `INTAKE_REQUIREMENTS` is outstanding, so a switch flipped before they land
+ * forwards nothing and says what is missing. Its case files are the durable store's, read in full
+ * before the first turn, and its identity is rebuilt from the parties on them. A build that fails is
+ * forgotten, so the next forward tries again rather than repeating a passing failure for the life
+ * of the process.
+ */
+export async function liveChannelGateway(deps: IntakeGatewayDeps = {}): Promise<GatewayT> {
+    const readState = deps.liveState ?? (async () => (await import('../switch')).commsV2LiveState());
+    const state = await readState();
+    const purpose: Purpose = state.live ? 'live' : 'sandbox';
+    // Checked and set with no await between them, so two forwards arriving together share one build.
+    if (live && (live.purpose === 'any' || live.purpose === purpose)) return live.gateway;
+    if (live) console.log(`[comms-v2 intake] the switches changed: the ${live.purpose} gateway is set aside and a ${purpose} one is built${state.live ? '' : ` (off: ${state.off.join('; ')})`}`);
+    const build = deps.build ?? buildIntakeGateway;
+    const requirements = deps.requirements ?? INTAKE_REQUIREMENTS;
+    const building = (async () => {
+        if (requirements.length) throw new Error(`${INTAKE_ENV} is on but the intake refuses to start until it has: ${requirements.join('; ')}`);
+        return build(purpose);
+    })();
+    const entry: NonNullable<typeof live> = { purpose, gateway: building, ready: null };
+    live = entry;
+    building.then((g) => { entry.ready = g; }, () => { if (live === entry) live = null; });
+    return building;
+}
+
+/** The durable gateway for a purpose: the case file store, the quote store, the draft chain and the diary all open the database that purpose allows. */
+async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
+    const { ChannelGateway } = await import('./channel-gateway');
+    const { ChannelDesk } = await import('./channel-desk');
+    const { Desk } = await import('../desk/desk');
+    const { caseFileRowsFor, identityFromCaseFiles, openCaseFileStore } = await import('../desk/database-store');
+    const { databaseQuoteStore } = await import('../quoting/quote-store');
+    const { chainDrafter } = await import('../quoting/draft-quote');
+    const { databaseDiary } = await import('../scheduling/diary');
+    const log = (line: string) => console.log(`[comms-v2 intake] ${line}`);
+    const store = await openCaseFileStore({ log }, caseFileRowsFor(purpose));
+    const identity = identityFromCaseFiles(store.all());
+    const seeded = await seedInternalNumbers(identity);
+    log(`identity: ${seeded.registered} internal keys registered${seeded.refused ? `; ${seeded.refused} refused because a case file already holds them as a customer` : ''}`);
+    const quotes = databaseQuoteStore(purpose);
+    const mode = INTAKE_DESK_MODE[purpose];
+    const desk = new Desk({ mode, log, quoting: { store: quotes, drafter: chainDrafter(quotes, purpose) }, scheduling: { diary: databaseDiary(purpose) } });
+    log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
+    return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log });
+}
+
+/** The intake gateway where one is already built, with the purpose it was built for; never builds one. */
+export function builtIntakeGateway(): { purpose: Purpose | 'any'; gateway: GatewayT } | null {
+    return live?.ready ? { purpose: live.purpose, gateway: live.ready } : null;
 }
 
 /** A number that is ours, keyed the way server/internal-numbers.ts keys it (commsPhoneKey: national digits, no leading 0), with why. */
@@ -187,4 +236,4 @@ export async function forwardNow(event: IntakeEvent): Promise<IntakeReport> {
 }
 
 /** For tests: forget the live gateway, or put a scripted one in its place. */
-export function resetLiveChannelGateway(gateway?: import('./channel-gateway').ChannelGateway): void { live = gateway ? Promise.resolve(gateway) : null; }
+export function resetLiveChannelGateway(gateway?: GatewayT, purpose: Purpose | 'any' = 'any'): void { live = gateway ? { purpose, gateway: Promise.resolve(gateway), ready: gateway } : null; }

@@ -18,7 +18,7 @@
  * who answers real customers, so the body must carry `confirm: 'LIVE'`; the route additionally runs
  * the go-live check before a live flip and refuses on any NO-GO (server/spine/golive-check.ts).
  */
-import { DESK_BEHAVIOURS, isDeskBehaviour, VIDEO_MAX_PER_RUN, type SpineConfig } from './config';
+import { COMMS_DESKS, DESK_BEHAVIOURS, isCommsDesk, isDeskBehaviour, VIDEO_MAX_PER_RUN, type SpineConfig } from './config';
 import { isSpineMode, type SpineMode } from './switch';
 import { senderSwitchKeys } from '../sender-registry';
 
@@ -49,7 +49,7 @@ export interface SpinePatchVerdict {
 }
 export interface PatchRefusal { ok: false; errors: string[] }
 
-const SPINE_KEYS = ['mode', 'desk', 'agents', 'senders', 'asks', 'autonomy', 'sampler', 'video', 'confirm'] as const;
+const SPINE_KEYS = ['mode', 'desk', 'commsDesk', 'agents', 'senders', 'asks', 'autonomy', 'sampler', 'video', 'confirm'] as const;
 const AGENT_KEYS = ['scoper', 'quote_clerk', 'recovery', 'contractor_liaison', 'verifier', 'triage'] as const;
 
 function boolField(obj: unknown, key: string, errors: string[], label: string): boolean | undefined {
@@ -101,6 +101,15 @@ export function validateSpineConfigPatch(body: unknown): SpinePatchVerdict | Pat
     if (b.desk !== undefined) {
         if (!isDeskBehaviour(b.desk)) errors.push(`desk must be ${DESK_BEHAVIOURS.map((d) => `'${d}'`).join(' or ')}`);
         else { patch.desk = b.desk; needs = 'owner'; changes.push(`desk → ${b.desk}`); }
+    }
+    // The switch-over's desk switch: which desk answers a customer. Owner-only, and choosing the new
+    // desk carries the typed confirm word, because with the intake and the new desk's sender switch
+    // on it hands real customers to it. It is not the old spine going live, so the old go-live check
+    // does not run; going back to the old desk is the roll-back and needs no word.
+    let commsDeskNeedsConfirm = false;
+    if (b.commsDesk !== undefined) {
+        if (!isCommsDesk(b.commsDesk)) errors.push(`commsDesk must be ${COMMS_DESKS.map((d) => `'${d}'`).join(' or ')}`);
+        else { patch.commsDesk = b.commsDesk; needs = 'owner'; commsDeskNeedsConfirm = b.commsDesk === 'comms_v2'; changes.push(`commsDesk → ${b.commsDesk}`); }
     }
     if (b.autonomy !== undefined) {
         const v = boolField(b.autonomy, 'enabled', errors, 'autonomy');
@@ -161,6 +170,7 @@ export function validateSpineConfigPatch(body: unknown): SpinePatchVerdict | Pat
     if (b.confirm !== undefined && typeof b.confirm !== 'string') errors.push('confirm must be a string');
     const confirmed = b.confirm === LIVE_CONFIRM_WORD;
     if (goesLive && !confirmed) errors.push(`going live needs confirm: '${LIVE_CONFIRM_WORD}' (typed, exactly)`);
+    if (commsDeskNeedsConfirm && !confirmed) errors.push(`choosing the new comms desk needs confirm: '${LIVE_CONFIRM_WORD}' (typed, exactly)`);
     if (!errors.length && !changes.length) errors.push('nothing to change');
     if (errors.length) return { ok: false, errors };
     return { ok: true, patch, needs, goesLive, confirmed, changes };
@@ -219,7 +229,7 @@ export interface ConfigChangeEvent {
 export interface LastChange { at: string; by: string; summary: string }
 
 /** The controls the strip shows, keyed the way the client addresses them. */
-export const SPINE_CONTROLS = ['mode', 'desk', 'asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun', 'agents.scoper', 'agents.quote_clerk', 'agents.recovery', 'agents.verifier', 'agents.triage'] as const;
+export const SPINE_CONTROLS = ['mode', 'desk', 'commsDesk', 'asks', 'autonomy', 'sampler', 'video', 'video.images', 'video.maxPerRun', 'agents.scoper', 'agents.quote_clerk', 'agents.recovery', 'agents.verifier', 'agents.triage'] as const;
 export const COMMS_CONTROLS = ['autosend', 'onInbound'] as const;
 export type ControlKey = (typeof SPINE_CONTROLS)[number] | (typeof COMMS_CONTROLS)[number];
 
@@ -239,6 +249,8 @@ function controlValue(control: ControlKey, cfg: unknown): unknown {
         }
         // 0.5: `desk` is a plain value, not an `.enabled` switch (like the two video sub-controls).
         case 'desk': return get(cfg, 'desk');
+        // The switch-over's desk switch is a plain value too.
+        case 'commsDesk': return get(cfg, 'commsDesk');
         case 'asks': case 'autonomy': case 'sampler': case 'video': return get(cfg, `${control}.enabled`);
         // T7: the two video sub-controls are plain values, not `.enabled` switches.
         case 'video.images': case 'video.maxPerRun': return get(cfg, control);
