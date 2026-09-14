@@ -12,6 +12,8 @@ loop has it to read from the repo instead of from outside sources.
 - `contracts.md` is what a goal loop builds against: the contracts, each a record shape, its
   named calls, what each call refuses, and the invariants a test can check; then how a goal is
   validated.
+- `cutover.md` is the switch-over: the switches, what has to be true before the flip, the flip,
+  and the one-switch roll-back.
 
 Each goal is validated by the no-mistakes pipeline's end-to-end test step against the desk's
 sandbox door, with recorded evidence in the PR; the goal's checklist lines are the scenarios it

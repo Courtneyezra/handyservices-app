@@ -69,11 +69,17 @@ export async function fromWebForm(lead: WebFormLead, deps: FormAdapterDeps = {})
     return turn;
 }
 
-export interface DoorForm { name?: string | null; phone?: string | null; email?: string | null; job: string; postcode?: string | null; at?: string; media?: Array<{ bytes: Buffer; mime: string }> }
+export interface DoorForm {
+    name?: string | null; phone?: string | null; email?: string | null; job: string; postcode?: string | null; at?: string;
+    /** Uploaded on the door itself: the bytes handed over directly. */
+    media?: Array<{ bytes: Buffer; mime: string }>;
+    /** As the web form posts them: base64 with a claimed mime, through the same server-side checks as POST /api/leads. */
+    photos?: WebFormLead['photos'];
+}
 
-/** The sandbox door's form: the same envelope, the bytes handed over directly. */
+/** The sandbox door's form: the same envelope; web form photos take the web form's own checks, door uploads are handed over directly. */
 export async function fromDoorForm(input: DoorForm, deps: FormAdapterDeps = {}): Promise<InboundEnvelope> {
-    const env = await fromWebForm({ customerName: input.name, phone: input.phone, email: input.email, jobDescription: input.job, postcode: input.postcode, source: 'sandbox', at: input.at }, deps);
+    const env = await fromWebForm({ customerName: input.name, phone: input.phone, email: input.email, jobDescription: input.job, postcode: input.postcode, source: 'sandbox', at: input.at, photos: input.photos }, deps);
     env.via = 'door';
     for (const m of input.media ?? []) {
         const w = writeInboundMedia(m.bytes, m.mime, deps);

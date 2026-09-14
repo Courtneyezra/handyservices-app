@@ -2,18 +2,22 @@
  * Ben's chase (checklist 7.5): a held thread Ben has not acted on is chased after one interval,
  * and escalated to the owner after a second. Both are desk-started template sends through the
  * sender's initiate path (desk/sender.ts): template only, approver and run id on each, nothing
- * freeform. The recipients are approvers, not parties, so the record lives here in the chase
- * ledger and not on the file's thread; the run id is still spent on the file.
+ * freeform. The recipients are approvers, not parties, so the record is not a turn on the file's
+ * thread: it is the file's own `chase` record, and the run id is spent on the file.
+ *
+ * The record lives on the case file, so the durable store (desk/database-store.ts) keeps it with
+ * the thread: a restart or a redeploy never chases Ben or tells the owner again about a hold that
+ * was already chased.
  *
  * A live chase goes through the same deliverer and gates as a reply, but under its own purpose, so
  * it is labelled and recorded as a chase or an escalation and never as a customer service reply.
- * Nothing calls it live until cutover; a refused live delivery is recorded on the chase ledger like
- * any other refusal.
+ * Every attempt records its mode and the label the deliverer carried it under, refused ones
+ * included, so a live chase stopped at a gate is on the record with what it would have gone as.
  *
  * The intervals and the recipients are configuration: the sandbox door sets test values
- * (service-door.ts, POST /chase-intervals) and drama numbers for Ben and the owner, and the
- * production values land at cutover with the caller that reads them. A missing address is a
- * refusal that is recorded, never a silent skip.
+ * (service-door.ts, POST /chase-intervals) and drama numbers for Ben and the owner; the live intake
+ * reads Ben's and the owner's numbers from the environment (`chaseStateFromEnv`), never the repo. A
+ * missing address is a refusal that is recorded, never a silent skip.
  *
  * The chase runs on the desk's clock pass (desk.ts clockPass), the one pass that never messages a
  * customer. A released hold clears the record on that pass, whichever surface released it, and the
@@ -21,7 +25,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { CaseFile } from '../desk/case-file';
-import { DESK_APPROVER, initiate, liveTemplateStatus, type InitiatedSend, type InitiatePurpose, type SenderDeps, type TemplateDefinition, type TemplateStatusSource } from '../desk/sender';
+import { DESK_APPROVER, initiate, liveTemplateStatus, type InitiatedSend, type InitiatePurpose, type OutboundLabel, type SenderDeps, type TemplateDefinition, type TemplateStatusSource } from '../desk/sender';
 
 export interface ChaseRecipient { address: string | null; name: string | null }
 
@@ -37,6 +41,10 @@ export interface ChaseConfig {
 export const DEFAULT_CHASE_AFTER_MS = 30 * 60_000;
 export const DEFAULT_ESCALATE_AFTER_MS = 60 * 60_000;
 
+/** Where the live intake reads Ben's and the owner's numbers (E.164). Placed on Railway; never committed. */
+export const CHASE_BEN_ENV = 'COMMS_V2_CHASE_BEN_E164';
+export const CHASE_OWNER_ENV = 'COMMS_V2_CHASE_OWNER_E164';
+
 /**
  * The desk's own templates for a desk-started send. Defined here (they go to an approver, never a
  * customer, so they are not customer window templates in server/window-templates.ts); approval
@@ -48,6 +56,17 @@ export const CHASE_TEMPLATES: Record<InitiatePurpose, TemplateDefinition> = {
     owner_escalation: { name: 'desk_owner_escalation_v1', language: 'en_GB', body: 'Hi {{1}}, a customer thread has been waiting on Ben and he has not picked it up: {{2}}. It needs a look.', variables: { '1': 'there', '2': 'a complaint from Sam' } },
 };
 
+export interface ChaseAttempt {
+    purpose: InitiatePurpose;
+    at: string;
+    ok: boolean;
+    reason: string | null;
+    runId: string;
+    mode: 'dry_run' | 'live';
+    /** How the one outbound send labels, gates and records it (desk/sender.ts `outboundLabelFor`), as the deliverer carried it. */
+    label: OutboundLabel | null;
+}
+
 export interface ChaseRecord {
     caseId: string;
     /** How many releases the file had when this hold was raised: a later hold has more, and starts a fresh record. Timestamps are not the key because the sandbox ages them. */
@@ -55,21 +74,29 @@ export interface ChaseRecord {
     chased: InitiatedSend | null;
     escalated: InitiatedSend | null;
     /** Every attempt, refused ones included, so a chase that could not go is on the record; the same refusal repeated on later passes is recorded once. */
-    attempts: Array<{ purpose: InitiatePurpose; at: string; ok: boolean; reason: string | null; runId: string }>;
+    attempts: ChaseAttempt[];
 }
 
-/** Per file, for the length of the process, like the case files themselves in Goal 1. */
-export class ChaseLedger {
-    private records = new Map<string, ChaseRecord>();
-    get(caseId: string): ChaseRecord | null { return this.records.get(caseId) ?? null; }
-    put(r: ChaseRecord): void { this.records.set(r.caseId, r); }
-    clear(caseId?: string): void { if (caseId) this.records.delete(caseId); else this.records.clear(); }
-}
-
-export interface ChaseState { config: ChaseConfig; ledger: ChaseLedger }
+export interface ChaseState { config: ChaseConfig }
 
 export function createChaseState(config: Partial<ChaseConfig> = {}): ChaseState {
-    return { config: { chaseAfterMs: DEFAULT_CHASE_AFTER_MS, escalateAfterMs: DEFAULT_ESCALATE_AFTER_MS, ben: { address: null, name: 'Ben' }, owner: { address: null, name: null }, ...config }, ledger: new ChaseLedger() };
+    return { config: { chaseAfterMs: DEFAULT_CHASE_AFTER_MS, escalateAfterMs: DEFAULT_ESCALATE_AFTER_MS, ben: { address: null, name: 'Ben' }, owner: { address: null, name: null }, ...config } };
+}
+
+/** The live intake's chase: the default intervals, Ben's and the owner's numbers from the environment. A number that is not set is a recorded refusal on the first due chase. */
+export function chaseStateFromEnv(env: NodeJS.ProcessEnv = process.env): ChaseState {
+    const read = (key: string) => (env[key] ?? '').trim() || null;
+    return createChaseState({ ben: { address: read(CHASE_BEN_ENV), name: 'Ben' }, owner: { address: read(CHASE_OWNER_ENV), name: null } });
+}
+
+/** The file's chase record, or null. */
+export function chaseRecordOf(file: CaseFile): ChaseRecord | null {
+    return file.chase ?? null;
+}
+
+/** Forget the file's chase record: its hold was released. */
+export function clearChaseRecord(file: CaseFile): void {
+    file.chase = null;
 }
 
 export type ChaseOutcome =
@@ -103,17 +130,18 @@ function topicOf(file: CaseFile): string {
  */
 export async function chaseIfDue(file: CaseFile, state: ChaseState, deps: ChaseDeps = {}): Promise<ChaseOutcome> {
     const now = deps.now ?? (() => new Date());
-    if (!file.hold) { state.ledger.clear(file.id); return { action: 'none', reason: 'the file is not held', record: null }; }
-    let record = state.ledger.get(file.id);
-    if (!record || record.releasesBefore !== file.releases.length) { record = { caseId: file.id, releasesBefore: file.releases.length, chased: null, escalated: null, attempts: [] }; state.ledger.put(record); }
+    const mode = deps.mode ?? 'dry_run';
+    if (!file.hold) { clearChaseRecord(file); return { action: 'none', reason: 'the file is not held', record: null }; }
+    let record = chaseRecordOf(file);
+    if (!record || record.releasesBefore !== file.releases.length) { record = { caseId: file.id, releasesBefore: file.releases.length, chased: null, escalated: null, attempts: [] }; file.chase = record; }
     const age = now().getTime() - Date.parse(file.hold.since);
     const cfg = state.config;
     const attempt = async (purpose: InitiatePurpose, to: { address: string | null; name: string | null }): Promise<ChaseOutcome> => {
         const runId = `chase_${randomUUID()}`;
         const template = CHASE_TEMPLATES[purpose];
-        const out = await initiate({ file, to: { address: to.address ?? '', name: to.name }, purpose, template: { ...template, variables: { '1': to.name ?? 'there', '2': topicOf(file) } }, runId, approver: DESK_APPROVER, mode: deps.mode ?? 'dry_run' }, { ...deps.sender, now, templates: deps.templates ?? liveTemplateStatus });
+        const out = await initiate({ file, to: { address: to.address ?? '', name: to.name }, purpose, template: { ...template, variables: { '1': to.name ?? 'there', '2': topicOf(file) } }, runId, approver: DESK_APPROVER, mode }, { ...deps.sender, now, templates: deps.templates ?? liveTemplateStatus });
         const previous = record!.attempts.filter((a) => a.purpose === purpose).pop();
-        if (out.ok || !previous || previous.ok || previous.reason !== out.reason) record!.attempts.push({ purpose, at: now().toISOString(), ok: out.ok, reason: out.ok ? null : out.reason, runId });
+        if (out.ok || !previous || previous.ok || previous.reason !== out.reason) record!.attempts.push({ purpose, at: now().toISOString(), ok: out.ok, reason: out.ok ? null : out.reason, runId, mode, label: out.ok ? out.send.label : out.label ?? null });
         if (!out.ok) return { action: 'refused', purpose, reason: out.reason, record: record! };
         if (purpose === 'approver_chase') record!.chased = out.send; else record!.escalated = out.send;
         return { action: purpose === 'approver_chase' ? 'chased' : 'escalated', send: out.send, record: record! };

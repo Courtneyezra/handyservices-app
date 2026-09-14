@@ -58,6 +58,18 @@ export function setupCronJobs() {
     // itself (drafts go through the approval gate). Gated on appSettings 'comms_agent'
     // .enabled, which ships false — flip it via scripts/_comms-agent-config.ts.
     // ==========================================
+    // COMMS-V2 LIVE CLOCK — every minute. The new desk's clock pass (Ben's chase, the owner's
+    // escalation, the unpriced draft's chase); every tick asks commsV2Live() first and does nothing
+    // while any switch-over switch is off (server/comms-v2/channels/live-clock.ts).
+    gateCustomerLoop('cron: comms-v2 live clock (every minute)', () => cron.schedule("* * * * *", async () => {
+        try {
+            const { runLiveClockTick } = await import('./comms-v2/channels/live-clock');
+            await runLiveClockTick();
+        } catch (error) {
+            console.error("[Cron] comms-v2 live clock failed:", error);
+        }
+    }));
+
     gateCustomerLoop('cron: comms agent SLA sweep (Mon-Fri 8-18)', () => cron.schedule("*/30 8-17 * * 1-5", async () => {
         try {
             // Phase 3: in live mode the spine owns the customer lane; legacy runCommsAgent is never called.

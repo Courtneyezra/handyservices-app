@@ -49,11 +49,15 @@ type Purpose = import('../live-database').DatabasePurpose;
 type GatewayT = import('./channel-gateway').ChannelGateway;
 
 /**
- * How the intake's desk delivers, by the purpose its store and tools were built for. The live
- * intake still runs dry: turning its delivery on, with the old desk's replies off at the same
- * moment, is the switch-over's delivery change, and until it lands nothing the intake decides leaves.
+ * How the intake's desk delivers, by the purpose its store and tools were built for. The live desk
+ * delivers: its sends go through the one outbound send under `agent.comms_v2`, and the old desk's
+ * automatic senders are refused at that same moment (server/comms-v2/old-desk.ts), because both
+ * follow `commsV2Live()`. The sandbox purpose never delivers.
  */
-export const INTAKE_DESK_MODE: Record<Purpose, 'dry_run' | 'live'> = { sandbox: 'dry_run', live: 'dry_run' };
+export const INTAKE_DESK_MODE: Record<Purpose, 'dry_run' | 'live'> = { sandbox: 'dry_run', live: 'live' };
+
+/** Said once per process: every switch is on but this is not the comms worker, so nothing here is the live desk. */
+let warnedNotWorker = false;
 
 /** The gateway in use: the purpose it was built for (`any` is a scripted one from a test), and the gateway once built. */
 let live: { purpose: Purpose | 'any'; gateway: Promise<GatewayT>; ready: GatewayT | null } | null = null;
@@ -85,6 +89,10 @@ export async function liveChannelGateway(deps: IntakeGatewayDeps = {}): Promise<
     const readState = deps.liveState ?? (async () => (await import('../switch')).commsV2LiveState());
     const state = await readState();
     const purpose: Purpose = state.live ? 'live' : 'sandbox';
+    if (!state.live && state.off.length === 1 && /COMMS_WORKER/.test(state.off[0]) && !warnedNotWorker) {
+        warnedNotWorker = true;
+        console.warn('[comms-v2 intake] every switch for the live desk is on, but this process is not the comms worker (COMMS_WORKER=1), where the desk\'s clock runs: the live gateway is not built here and nothing is delivered from this process');
+    }
     // Checked and set with no await between them, so two forwards arriving together share one build.
     if (live && (live.purpose === 'any' || live.purpose === purpose)) return live.gateway;
     if (live) console.log(`[comms-v2 intake] the switches changed: the ${live.purpose} gateway is set aside and a ${purpose} one is built${state.live ? '' : ` (off: ${state.off.join('; ')})`}`);
@@ -109,6 +117,7 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const { databaseQuoteStore } = await import('../quoting/quote-store');
     const { chainDrafter } = await import('../quoting/draft-quote');
     const { databaseDiary } = await import('../scheduling/diary');
+    const { chaseStateFromEnv } = await import('../service/chase');
     const log = (line: string) => console.log(`[comms-v2 intake] ${line}`);
     const store = await openCaseFileStore({ log }, caseFileRowsFor(purpose));
     const identity = identityFromCaseFiles(store.all());
@@ -116,7 +125,7 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     log(`identity: ${seeded.registered} internal keys registered${seeded.refused ? `; ${seeded.refused} refused because a case file already holds them as a customer` : ''}`);
     const quotes = databaseQuoteStore(purpose);
     const mode = INTAKE_DESK_MODE[purpose];
-    const desk = new Desk({ mode, log, quoting: { store: quotes, drafter: chainDrafter(quotes, purpose) }, scheduling: { diary: databaseDiary(purpose) } });
+    const desk = new Desk({ mode, log, quoting: { store: quotes, drafter: chainDrafter(quotes, purpose) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
     log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
     return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log });
 }

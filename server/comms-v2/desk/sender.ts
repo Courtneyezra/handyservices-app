@@ -58,9 +58,12 @@ const INITIATE_PURPOSES: readonly DeliveryPurpose[] = ['approver_chase', 'owner_
  * fail-closed `marketing` class at the opt-out ledger, where a plain STOP blocks it, and carries its
  * own purpose in the context the ledger and the logs record.
  */
-export function outboundLabelFor(purpose: DeliveryPurpose): { purpose: OutboundPurpose; context: string } {
+export function outboundLabelFor(purpose: DeliveryPurpose): OutboundLabel {
     return INITIATE_PURPOSES.includes(purpose) ? { purpose: 'marketing', context: `comms_v2:${purpose}` } : { purpose: 'service_reply', context: 'comms_v2' };
 }
+
+/** The class the opt-out ledger gates a send under, and the context the ledger and the logs record it with. */
+export interface OutboundLabel { purpose: OutboundPurpose; context: string }
 
 // ---------------------------------------------------------------- choose_channel
 
@@ -324,28 +327,30 @@ export interface Deliverer {
     deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; purpose: DeliveryPurpose }): Promise<DeliveryOutcome>;
 }
 
-/** A failure names the bubbles that had already reached the customer, so the file can record them. */
-export type DeliveryOutcome = { ok: true; sid: string | null } | { ok: false; reason: string; delivered: RenderedBubble[] };
+/** A failure names the bubbles that had already reached the customer, so the file can record them. Both carry the label the delivery was, or would have been, sent under. */
+export type DeliveryOutcome = { ok: true; sid: string | null; label?: OutboundLabel } | { ok: false; reason: string; delivered: RenderedBubble[]; label?: OutboundLabel };
 
 /**
  * The surviving outbound send. The registry gate inside it refuses an unknown or switched-off
  * approver; the desk adds one rule of its own on top: its switch is off until someone writes
  * `spine.senders.comms_v2.enabled = true`, because an absent switch is on for every other sender
  * and the new desk must not go live by default. Every send is labelled, gated at the opt-out ledger
- * and recorded under its own purpose (`outboundLabelFor`), never as a customer reply by default.
+ * and recorded under its own purpose (`outboundLabelFor`), never as a customer reply by default; the
+ * label is decided before any gate and returned on every outcome, a refusal included, so a send the
+ * switch stopped is on the record with what it would have gone as.
  */
 export const liveDeliverer: Deliverer = {
     async deliver(input) {
         const delivered: RenderedBubble[] = [];
+        const label = outboundLabelFor(input.purpose);
         const { registryEntryFor } = await import('../../sender-registry');
         const entry = registryEntryFor(input.approver);
-        if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered };
+        if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered, label };
         const { getSpineConfig } = await import('../../spine/config');
         const cfg = await getSpineConfig();
-        if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered };
-        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered };
+        if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
+        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered, label };
         const { sendCustomerMessage } = await import('../../outbound');
-        const label = outboundLabelFor(input.purpose);
         let sid: string | null = null;
         for (const b of input.bubbles) {
             if (b.gapMs > 0) await new Promise((r) => setTimeout(r, b.gapMs));
@@ -354,11 +359,11 @@ export const liveDeliverer: Deliverer = {
                 ...(input.template && input.channel === 'whatsapp' ? templateWire(input.transport, input.template) : {}),
                 ...(input.channel === 'whatsapp' ? { via: input.transport } : {}),
             });
-            if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed', delivered };
+            if (!res.ok) return { ok: false, reason: res.error ?? res.reason ?? 'delivery failed', delivered, label };
             delivered.push(b);
             sid = res.sid ?? sid;
         }
-        return { ok: true, sid };
+        return { ok: true, sid, label };
     },
 };
 
@@ -470,9 +475,11 @@ export interface InitiatedSend {
     sid: string | null;
     at: string;
     mode: 'dry_run' | 'live';
+    /** The label it went under: the deliverer's own on a live send, the one it would carry in dry run. */
+    label: OutboundLabel;
 }
 
-export type InitiateOutcome = { ok: true; send: InitiatedSend } | { ok: false; reason: string };
+export type InitiateOutcome = { ok: true; send: InitiatedSend } | { ok: false; reason: string; label?: OutboundLabel };
 
 export interface InitiateDeps extends SenderDeps {
     templates?: TemplateStatusSource;
@@ -502,14 +509,16 @@ export async function initiate(input: InitiateInput, deps: InitiateDeps = {}): P
     const body = input.template.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => input.template.variables[n] ?? '');
     const template: TemplateSend = { name: input.template.name, language: input.template.language, contentSid: live.contentSid, variables: input.template.variables };
     let sid: string | null = null;
+    let label = outboundLabelFor(input.purpose);
     if (input.mode === 'live') {
         const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: input.to.address, channel: 'whatsapp', transport: 'twilio', bubbles: [{ text: body, gapMs: 0 }], template, runId: input.runId, approver: input.approver, purpose: input.purpose });
+        label = delivered.label ?? label;
         if (!delivered.ok) {
             if (delivered.delivered.length) input.file.sentRunIds.push(input.runId);
-            return { ok: false, reason: delivered.reason };
+            return { ok: false, reason: delivered.reason, label };
         }
         sid = delivered.sid;
     }
     input.file.sentRunIds.push(input.runId);
-    return { ok: true, send: { runId: input.runId, approver: input.approver, purpose: input.purpose, to: { address: input.to.address, name: input.to.name }, templateId: template.name, contentSid: template.contentSid, body, sid, at: now().toISOString(), mode: input.mode } };
+    return { ok: true, send: { runId: input.runId, approver: input.approver, purpose: input.purpose, to: { address: input.to.address, name: input.to.name }, templateId: template.name, contentSid: template.contentSid, body, sid, at: now().toISOString(), mode: input.mode, label } };
 }

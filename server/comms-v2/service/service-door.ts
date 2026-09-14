@@ -1,16 +1,16 @@
 /**
  * Goal 6's actions on the desk's sandbox door (desk/sandbox-door.ts mounts this): the fixture,
  * "Ben replies" (return to automation, checklist 7.4), the chase intervals (7.5), and the chase
- * ledger. Everything here goes through the same case file and desk the customer's turns do.
+ * record. Everything here goes through the same case file and desk the customer's turns do.
  *
  *   POST /fixture           write the knowledge-base rows and chase template approvals on the branch
  *   POST /ben-replies       { text } Ben's reply goes out through desk/human-reply.ts and releases the hold
  *   POST /chase-intervals   { chaseAfterMinutes, escalateAfterMinutes } test values; then /age and /run
- *   GET  /chase             the chase ledger for the current thread
+ *   GET  /chase             the chase record for the current thread
  */
 import { Router, type Request } from 'express';
 import type { ApproverSlot, CaseFile, CaseFileDeps } from '../desk/case-file';
-import type { ChaseState } from './chase';
+import { chaseRecordOf, clearChaseRecord, type ChaseState } from './chase';
 import { humanReply } from '../desk/human-reply';
 import { applySandboxFixture } from './fixture';
 import { automationState } from './return-to-automation';
@@ -50,7 +50,7 @@ export function serviceDoorRouter(deps: ServiceDoorDeps): Router {
         const user = (req as any).user;
         const out = await humanReply({ file, approver, person: user?.email ?? user?.id ?? approver.id, words: String(req.body?.text ?? '') }, { now: deps.now, newId: deps.newId });
         if (!out.ok) { res.status(400).json({ error: out.reason }); return; }
-        if (out.release) deps.chase.ledger.clear(file.id);
+        if (out.release) clearChaseRecord(file);
         res.json({ ok: true, event: 'return_to_automation', turnId: out.result.turnId, approver: out.result.approver, channel: out.result.channel, released: out.release, automation: automationState(file), state: deps.stateOf() });
     });
 
@@ -65,7 +65,7 @@ export function serviceDoorRouter(deps: ServiceDoorDeps): Router {
 
     router.get('/chase', (_req, res) => {
         const file = deps.currentFile();
-        res.json({ ok: true, intervals: { chaseAfterMinutes: deps.chase.config.chaseAfterMs / 60_000, escalateAfterMinutes: deps.chase.config.escalateAfterMs / 60_000 }, recipients: { ben: deps.chase.config.ben, owner: deps.chase.config.owner }, record: file ? deps.chase.ledger.get(file.id) : null, automation: file ? automationState(file) : null });
+        res.json({ ok: true, intervals: { chaseAfterMinutes: deps.chase.config.chaseAfterMs / 60_000, escalateAfterMinutes: deps.chase.config.escalateAfterMs / 60_000 }, recipients: { ben: deps.chase.config.ben, owner: deps.chase.config.owner }, record: file ? chaseRecordOf(file) : null, automation: file ? automationState(file) : null });
     });
 
     return router;

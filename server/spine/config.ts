@@ -311,6 +311,8 @@ export async function isSpineEnabled(agent?: SpineAgentKey): Promise<boolean> {
     const cfg = await getSpineConfig();
     if (cfg.enabled !== true) return false;
     if (agent && cfg.agents[agent] && cfg.agents[agent]!.enabled === false) return false;
+    // The switch-over: the old spine stands down while the new desk is the live desk (server/comms-v2/old-desk.ts).
+    if ((await import('../comms-v2/old-desk')).oldDeskStandsDownFrom(cfg)) return false;
     return true;
 }
 

@@ -75,8 +75,8 @@ describe('the intake switch', () => {
         expect(built).toEqual(['sandbox', 'live', 'sandbox']);
         resetLiveChannelGateway();
     });
-    it('keeps the intake desk in dry run for both purposes until live delivery lands', () => {
-        expect(INTAKE_DESK_MODE).toEqual({ sandbox: 'dry_run', live: 'dry_run' });
+    it('delivers only from the live desk: the sandbox purpose never delivers', () => {
+        expect(INTAKE_DESK_MODE).toEqual({ sandbox: 'dry_run', live: 'live' });
     });
     it('forwards into the gateway when on', async () => {
         resetLiveChannelGateway(new ChannelGateway({ desk: fakeDesk }));

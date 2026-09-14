@@ -101,10 +101,13 @@ export function channelDoors(ctx: ChannelDoorContext): Router {
             } else if (door === 'form') {
                 if (!text) { res.status(400).json({ error: 'text (the job) is required' }); return; }
                 const email = str(req.body?.email) || SANDBOX_EMAIL;
-                const env = await fromDoorForm({ name, phone: ctx.phone, email, job: text, postcode: str(req.body?.postcode) || null, at, media: filesOf(req) }, { mediaDir: ctx.mediaDir });
+                // `photos` is the web form's own shape (base64 with a claimed mime), which takes the
+                // server-side checks POST /api/leads takes; multipart `media` is the door's upload.
+                const photos = Array.isArray(req.body?.photos) ? (req.body.photos as Array<{ contentBase64?: string | null; mime?: string | null }>) : undefined;
+                const env = await fromDoorForm({ name, phone: ctx.phone, email, job: text, postcode: str(req.body?.postcode) || null, at, media: filesOf(req), photos }, { mediaDir: ctx.mediaDir });
                 const out = await gateway.inbound(env, seed);
                 if (!handled(res, out)) return;
-                ctx.respond(res, out.file, out.result, { door, entry: { kind: 'form', text, postcode: str(req.body?.postcode) || null, email }, media: env.media.map((m) => ({ id: m.id, kind: m.kind })) });
+                ctx.respond(res, out.file, out.result, { door, entry: { kind: 'form', text, postcode: str(req.body?.postcode) || null, email }, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, bytes: m.bytes })), mediaFailures: env.mediaFailures });
             } else if (door === 'email') {
                 if (!text) { res.status(400).json({ error: 'text is required' }); return; }
                 const env = fromDoorEmail({ address: SANDBOX_EMAIL, name, subject: str(req.body?.subject) || null, text, at, media: filesOf(req) }, { mediaDir: ctx.mediaDir });

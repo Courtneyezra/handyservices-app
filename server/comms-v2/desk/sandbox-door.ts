@@ -33,7 +33,7 @@ import { ChannelGateway } from '../channels/channel-gateway';
 import { schedulingDoor, withScheduling } from '../scheduling/scheduling-door';
 import { createQuotingDoor } from '../quoting/quoting-door';
 import { quoteStateOf } from '../quoting/quoting-specialist';
-import { createChaseState } from '../service/chase';
+import { chaseRecordOf, createChaseState, type ChaseState } from '../service/chase';
 import { automationState } from '../service/return-to-automation';
 import { serviceDoorRouter, type ApproverForRequest } from '../service/service-door';
 import { sessionApprover } from '../api/approvers';
@@ -51,6 +51,26 @@ export interface DoorDeps extends DeskDeps {
     mediaDir?: string;
     /** Who may release a hold here. Left unset, it is the signed-in session's slot, the rule every app-mounted router follows. */
     approver?: ApproverForRequest;
+    /** Why `POST /run { live: true }` may not run here, or null. Left unset, `doorLiveRunRefusal`. */
+    liveRunGate?: (chase: ChaseState) => Promise<string | null>;
+}
+
+/**
+ * The door's live clock pass runs only where nothing it does can reach a person: on the branch
+ * database, in a process where the new desk is not the live desk, with the new desk's own sender
+ * switch off (so the live deliverer stops the send at that switch), and with the door's own drama
+ * numbers as Ben and the owner.
+ */
+export async function doorLiveRunRefusal(chase: ChaseState, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+    const { commsV2DatabaseCheck } = await import('../live-database');
+    const db = commsV2DatabaseCheck(env);
+    if (!db.ok) return `a live clock pass on the door runs only on the branch database: ${db.message}`;
+    const { commsV2LiveState } = await import('../switch');
+    if ((await commsV2LiveState(env)).live) return 'the new desk is the live desk in this process, so the door runs no live pass';
+    const { getSpineConfig } = await import('../../spine/config');
+    if ((await getSpineConfig()).senders?.comms_v2?.enabled === true) return 'spine.senders.comms_v2.enabled is on for this database, so a live pass here would really send; the door drives the live path only while that switch stops it';
+    if (chase.config.ben.address !== SANDBOX_BEN_E164 || chase.config.owner.address !== SANDBOX_OWNER_E164) return 'the chase recipients are not the door\'s own drama numbers';
+    return null;
 }
 
 // ---------------------------------------------------------------- the planned send the desk emits
@@ -101,7 +121,6 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
         deps.scheduling.diary.emptied = false;
         gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
         registerInternal(gateway);
-        chase.ledger.clear();
     };
     const router = Router();
     router.use((req, _res, next) => { (req as any).v2Gateway = gateway; next(); });
@@ -129,7 +148,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
             lastCall: null,
             caseFile: file ? snapshot(file) : null,
             automation: file ? automationState(file) : null,
-            chase: file ? chase.ledger.get(file.id) : null,
+            chase: file ? chaseRecordOf(file) : null,
         };
     };
 
@@ -193,6 +212,19 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
         try {
             const file = currentFile();
             if (!file) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
+            // `{ "live": true }`: the same clock pass with the desk in live mode, so a due chase or
+            // escalation goes through the real live deliverer and is stopped at the new desk's own
+            // switch, labelled and recorded under its own purpose (the switch-over's live test). A
+            // clock pass never addresses a customer; the gate below keeps it on the branch, with the
+            // switch off and the door's own drama numbers as the only recipients.
+            if (req.body?.live === true) {
+                const refused = await (deps.liveRunGate ?? doorLiveRunRefusal)(chase);
+                if (refused) { res.status(409).json({ error: refused }); return; }
+                let result: DeskResult;
+                try { result = await new Desk({ ...deskDeps, mode: 'live' }).clockPass(file); } finally { gateway.store.put(file); }
+                respond(res, file, result, { trigger: req.body?.trigger ?? 'manual', live: true });
+                return;
+            }
             const result = await gateway.clock(file.id);
             if (!result) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
             respond(res, file, result, { trigger: req.body?.trigger ?? 'manual' });

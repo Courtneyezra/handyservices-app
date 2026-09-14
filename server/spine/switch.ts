@@ -41,7 +41,12 @@ export function spineModeFrom(cfg: Partial<SpineConfig> | null | undefined): Spi
 
 export async function spineMode(): Promise<SpineMode> {
     try {
-        return spineModeFrom(await getSpineConfig());
+        const cfg = await getSpineConfig();
+        // The switch-over: while the new desk under server/comms-v2 is the live desk the old spine
+        // stands down and reads as off (server/comms-v2/old-desk.ts). The row is untouched, so
+        // flipping the new desk off gives back exactly the mode it holds.
+        if ((await import('../comms-v2/old-desk')).oldDeskStandsDownFrom(cfg)) return 'off';
+        return spineModeFrom(cfg);
     } catch (error: any) {
         console.error('[Spine] mode unreadable, treating as off:', error?.message ?? error);
         return 'off';

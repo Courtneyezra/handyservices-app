@@ -202,7 +202,21 @@ export function useProcessLocalCommsConfig(seed?: Partial<CommsAgentConfig>): Co
     return structuredClone(localConfig);
 }
 
+/**
+ * The config every reader acts on. The switch-over: while the new desk under server/comms-v2 is the
+ * live desk (server/comms-v2/old-desk.ts) the legacy agent reads as disabled with its inbound lane
+ * off, so it drafts nothing for Ben's old queue and sends nothing. The row is untouched:
+ * setCommsAgentConfig merges over the stored value, never over this one.
+ */
 export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
+    const config = await readCommsAgentConfig();
+    if (!config.enabled && !config.onInbound) return config;
+    const { oldDeskStandsDown } = await import('../comms-v2/old-desk');
+    return (await oldDeskStandsDown()) ? { ...config, enabled: false, onInbound: false } : config;
+}
+
+/** The stored config (or the process-local / env seam), exactly as written. */
+async function readCommsAgentConfig(): Promise<CommsAgentConfig> {
     if (localConfig) return structuredClone(localConfig);
     // Test isolation (older seam): a suite process sets COMMS_CONFIG_OVERRIDE (JSON) instead of
     // writing the shared DB row, so parallel test runs can't flip live flags. Some suites reassign
@@ -233,7 +247,7 @@ export async function getCommsAgentConfig(): Promise<CommsAgentConfig> {
 }
 
 export async function setCommsAgentConfig(patch: Partial<CommsAgentConfig>, by: string = 'system'): Promise<CommsAgentConfig> {
-    const current = await getCommsAgentConfig();
+    const current = await readCommsAgentConfig();
     const next: CommsAgentConfig = {
         ...current,
         ...patch,
