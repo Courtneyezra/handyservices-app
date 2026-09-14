@@ -77,6 +77,19 @@ describe('the live intake identity is seeded with the numbers that are ours', ()
         expect(await classifyNonCustomerNumber('+447700900606')).toEqual({ code: 'INTERNAL_STAFF', detail: INTERNAL_NUMBERS_ENV });
     });
 
+    it('resolves an international number placed in INTERNAL_PHONE_NUMBERS in +<country code> form as internal when a WhatsApp arrives from it, and the outbound check agrees', async () => {
+        // +84 then 0 is never allocated: Vietnam's national numbers do not begin with the trunk 0.
+        vi.stubEnv(INTERNAL_NUMBERS_ENV, '+84000000042');
+        const identity = await seeded();
+        expect(roleOf(identity, 'whatsapp', 'whatsapp:+84000000042')).toEqual({ role: 'internal', isNew: false });
+        expect(roleOf(identity, 'whatsapp', '84000000042')).toEqual({ role: 'internal', isNew: false });
+        expect(await classifyNonCustomerNumber('whatsapp:+84000000042')).toEqual({ code: 'INTERNAL_STAFF', detail: INTERNAL_NUMBERS_ENV });
+        const gateway = new ChannelGateway({ desk: fakeDesk, identity });
+        resetLiveChannelGateway(gateway);
+        expect(await forwardNow({ kind: 'twilio_incoming', body: { From: 'whatsapp:+84000000042', Body: 'hi', NumMedia: '0' } })).toEqual({ forwarded: 0, skipped: ['an internal number is not a customer; nothing to scope'] });
+        expect(gateway.store.all()).toEqual([]);
+    });
+
     it('still resolves a number that is not ours as a new homeowner', async () => {
         vi.stubEnv('TWILIO_WHATSAPP_NUMBER', 'whatsapp:+447700900101');
         vi.stubEnv(INTERNAL_NUMBERS_ENV, '+447700900505');

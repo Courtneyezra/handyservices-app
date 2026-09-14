@@ -398,7 +398,8 @@ Nothing in the desk loads a file of its own or prints a value.
 `INTERNAL_PHONE_NUMBERS` holds the numbers that are ours but are in no table and must never be in
 the repo: Ben's own handset and any staff number the database does not hold. Ben or the captain
 sets it on Railway (the service's Variables), as numbers separated by commas, each `+44...` or
-`07...`, for example `INTERNAL_PHONE_NUMBERS=+447700900001,+447700900002`. Unset means none. It is
+`07...` for a UK number, or `+<country code>...` for an international one (for example a `+84`
+number), for example `INTERNAL_PHONE_NUMBERS=+447700900001,+447700900002`. Unset means none. It is
 read by server/internal-numbers.ts, so the outbound call check honours it too; the intake picks up
 a change on its next restart.
 

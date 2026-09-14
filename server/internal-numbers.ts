@@ -69,8 +69,9 @@ export function ownNumberKeys(): Set<string> {
  *
  *   INTERNAL_PHONE_NUMBERS=+447700900001,+447700900002
  *
- * One or more numbers separated by commas (spaces, semicolons and new lines also work), each in
- * international form (+44...) or UK national form (07...). Unset or empty means none. A change takes
+ * One or more numbers separated by commas (spaces, semicolons and new lines also work). A UK number
+ * as +44... or 07...; an international number in +<country code> form (+84..., +1...). Unset or
+ * empty means none. A change takes
  * effect on the next outbound call check, and in the comms-v2 intake on its next restart, because
  * the intake reads the list once when it starts (server/comms-v2/channels/intake.ts).
  */
