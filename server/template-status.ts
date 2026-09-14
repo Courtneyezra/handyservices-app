@@ -36,7 +36,7 @@ export interface ExpectedTemplate {
  * The names the code reads today, by purpose. Kept as data so the staff page and the go-live check
  * share one list; the source preference arrays stay where they are (they carry the copy).
  *
- * 4.1's window-shut five are appended below rather than typed out again, so there is one registry.
+ * 4.1's window-shut rows are appended below rather than typed out again, so there is one registry.
  */
 const LIVE_TEMPLATES: ExpectedTemplate[] = [
     { purpose: 'holding line (silence / flag / draft expiry)', usedBy: 'server/rules-layer.ts HOLDING_TEMPLATE_PREFERENCE', names: ['holding_line_v1', 'holding_line'], required: true },
@@ -49,9 +49,9 @@ const LIVE_TEMPLATES: ExpectedTemplate[] = [
 ];
 
 /**
- * The live list plus build-plan 4.1's window-shut five (server/window-templates.ts), which carry
- * their own category and trigger and are all `required: false` — nothing reads them until 4.2, and
- * a name still in Meta's queue must not turn the go-live check to NO-GO.
+ * The live list plus every row of build-plan 4.1's window-shut registry (server/window-templates.ts),
+ * which carry their own category and trigger and are all `required: false` — nothing reads them
+ * until 4.2, and a name still in Meta's queue must not turn the go-live check to NO-GO.
  *
  * A window template whose first name is already a row above (web_enquiry_ack_context is both the
  * first-contact ack and 4.1's webform carrier) is folded into that row instead of duplicating it:

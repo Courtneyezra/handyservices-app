@@ -16,7 +16,7 @@
  *
  * WHERE THIS SITS IN THE EXISTING SHAPE, because there must not be a second registry:
  *   · `server/template-status.ts` EXPECTED_TEMPLATES is the list of names the code expects, and it
- *     now derives its five window-shut rows from `WINDOW_TEMPLATES` below (`expectedFromWindowTemplates`).
+ *     derives its window-shut rows from `WINDOW_TEMPLATES` below (`expectedFromWindowTemplates`).
  *     That is still the one registry; this file is where its rows get their category and wording.
  *   · `server/whatsapp-template-sync.ts` polls Twilio hourly and caches the live status; every read
  *     ("is it approved yet?") goes through `findApprovedTemplate` against that cache, never here.
