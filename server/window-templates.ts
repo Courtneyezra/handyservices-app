@@ -1,9 +1,11 @@
 /**
  * The Meta templates for a SHUT WhatsApp window: build plan v2 item 4.1's five, the two the
- * clean-sheet desk's other channels need (server/comms-v2/channels/templates.ts), and the
- * clean-sheet desk's quote-accepted acknowledgement. There is one registry, so a template that
- * sends unattended is visible on the go-live surface; a second list somewhere else would hide a
- * live send from it.
+ * clean-sheet desk's other channels need (server/comms-v2/channels/templates.ts), the clean-sheet
+ * desk's quote-accepted acknowledgement, and two approver-facing rows for the desk's own chase and
+ * owner-escalation sends (server/comms-v2/service/chase.ts). Most rows here go to a customer; the
+ * two chase rows never do — see `audience` below. There is one registry, so a template that sends
+ * unattended is visible on the go-live surface; a second list somewhere else would hide a live send
+ * from it.
  *
  * WhatsApp only carries free text for 24 hours after the customer's own last message. Outside that
  * window nothing but a template Meta approved in advance may leave, and approval takes days to
@@ -14,7 +16,7 @@
  *
  * WHERE THIS SITS IN THE EXISTING SHAPE, because there must not be a second registry:
  *   · `server/template-status.ts` EXPECTED_TEMPLATES is the list of names the code expects, and it
- *     now derives its five window-shut rows from `WINDOW_TEMPLATES` below (`expectedFromWindowTemplates`).
+ *     derives its window-shut rows from `WINDOW_TEMPLATES` below (`expectedFromWindowTemplates`).
  *     That is still the one registry; this file is where its rows get their category and wording.
  *   · `server/whatsapp-template-sync.ts` polls Twilio hourly and caches the live status; every read
  *     ("is it approved yet?") goes through `findApprovedTemplate` against that cache, never here.
@@ -47,7 +49,7 @@ export type MetaTemplateCategory = 'UTILITY' | 'MARKETING';
 /** The named thing that fires a template send. 4.2 wires these; nothing here does. */
 export interface WindowTemplateTrigger {
     /** Stable id, so 4.2's send rule and the checklist can name the same thing. */
-    id: 'quote_ready' | 'question_unanswered' | 'webform_first_contact' | 'webform_first_contact_no_call' | 'post_call_followup' | 'missed_call' | 'enquiry_chase' | 'quote_accepted';
+    id: 'quote_ready' | 'question_unanswered' | 'webform_first_contact' | 'webform_first_contact_no_call' | 'post_call_followup' | 'missed_call' | 'enquiry_chase' | 'quote_accepted' | 'desk_approver_chase' | 'desk_owner_escalation';
     /** When it fires, in one sentence a person can check against a thread. */
     when: string;
     /** The code that fires it (or, when `wired` is false, the code 4.2 will fire it from). */
@@ -68,6 +70,14 @@ export interface WindowTemplateRung {
     variableMeanings: Record<string, string>;
 }
 
+/**
+ * Who a row's rungs may reach. 'customer' is every row the STOP gate governs, via `purpose` below.
+ * 'approver' is Ben or the owner on the desk's own chase/escalation send (server/comms-v2/service/
+ * chase.ts) — it never reaches a customer, so a customer's STOP has nothing to do with it and must
+ * never be asked about it.
+ */
+export type TemplateAudience = 'customer' | 'approver';
+
 export interface WindowTemplate {
     /**
      * The rungs, best first. A second rung is a fallback for when Meta rejects or has not yet
@@ -76,11 +86,16 @@ export interface WindowTemplate {
      */
     rungs: [WindowTemplateRung, ...WindowTemplateRung[]];
     category: MetaTemplateCategory;
+    /** Who receives this template. See `TemplateAudience`. */
+    audience: TemplateAudience;
     /**
-     * How the send gate must treat it. 'marketing' is the field that distinguishes the chase from
-     * the four service templates — not its name, and not a reading of its wording.
+     * How the customer-opt-out send gate must treat it ('audience: customer' rows only). 'marketing'
+     * is the field that distinguishes the chase from the four service templates — not its name, and
+     * not a reading of its wording. Null on an 'audience: approver' row: it is not customer-facing,
+     * so OutboundPurpose (which exists only for the STOP gate) does not describe it and must not be
+     * force-fit onto it — read `audience` first.
      */
-    purpose: OutboundPurpose;
+    purpose: OutboundPurpose | null;
     /** Twilio's `language` on the Content resource. Matches what each name was submitted under. */
     language: 'en' | 'en_GB';
     trigger: WindowTemplateTrigger;
@@ -94,8 +109,9 @@ export interface WindowTemplate {
 }
 
 /**
- * The rows. Order is the plan's order (4.1), then the clean-sheet desk's two, then the quote-accepted
- * acknowledgement, not a priority.
+ * The rows. Order is the plan's order (4.1), then the clean-sheet desk's two, then the
+ * quote-accepted acknowledgement, then the desk's own approver-facing chase and escalation, not a
+ * priority.
  *
  * Every body is written to the house voice rules in `shared/chat-voice.ts` (no em dash, no spaced
  * hyphen, no scheduling ping-pong closer) and to pass `checkDraft` with its sample values filled
@@ -112,6 +128,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'the quote link, https://handyservices.app/quote/<slug>' },
         }],
         category: 'UTILITY',
+        audience: 'customer',
         purpose: 'service_reply',
         language: 'en_GB',
         trigger: {
@@ -136,6 +153,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'a short noun phrase for what they asked about, from their own message' },
         }],
         category: 'UTILITY',
+        audience: 'customer',
         purpose: 'service_reply',
         language: 'en_GB',
         trigger: {
@@ -162,6 +180,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             },
         }],
         category: 'UTILITY',
+        audience: 'customer',
         purpose: 'service_reply',
         language: 'en',
         trigger: {
@@ -194,6 +213,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             variableMeanings: { '1': "the customer's first name, or 'there'" },
         }],
         category: 'UTILITY',
+        audience: 'customer',
         purpose: 'service_reply',
         language: 'en_GB',
         trigger: {
@@ -227,6 +247,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             },
         }],
         category: 'UTILITY',
+        audience: 'customer',
         purpose: 'service_reply',
         language: 'en_GB',
         trigger: {
@@ -252,6 +273,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             variableMeanings: { '1': "the customer's first name, or 'there'" },
         }],
         category: 'UTILITY',
+        audience: 'customer',
         purpose: 'service_reply',
         language: 'en_GB',
         trigger: {
@@ -276,6 +298,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             variableMeanings: { '1': "the customer's first name, or 'there'", '2': 'a short noun phrase for the job they enquired about' },
         }],
         category: 'MARKETING',
+        audience: 'customer',
         purpose: 'marketing',
         language: 'en_GB',
         trigger: {
@@ -303,6 +326,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             },
         }],
         category: 'UTILITY',
+        audience: 'customer',
         purpose: 'service_reply',
         language: 'en_GB',
         trigger: {
@@ -323,6 +347,62 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'NOT SUBMITTED: the captain reads the wording first, and a bare --submit would take this row with the '
             + 'others, so use --only until he gives the word. If Meta rejects it as a near-duplicate of '
             + 'quote_ready_link, the hold for Ben stands rather than a reworded twin.',
+    },
+    {
+        rungs: [{
+            name: 'desk_approver_chase_v1',
+            body: 'Hi {{1}}, a customer thread is waiting on you: {{2}}. Open the desk to pick it up.',
+            variables: { '1': 'Ben', '2': 'a complaint from Sam' },
+            variableMeanings: {
+                '1': "the approver's first name — always 'Ben' for this row",
+                '2': "the chase topic (server/comms-v2/service/chase.ts topicOf): the hold's exception, the customer's name and the job type",
+            },
+        }],
+        category: 'UTILITY',
+        audience: 'approver',
+        purpose: null,
+        language: 'en_GB',
+        trigger: {
+            id: 'desk_approver_chase',
+            when: 'A held thread has had no action from Ben for the configured chase interval (checklist 7.5).',
+            source: 'server/comms-v2/service/chase.ts chaseIfDue → initiate (desk/sender.ts), dry run only until cutover',
+            wired: true,
+        },
+        submission: 'new',
+        notes: 'TO BEN, NEVER A CUSTOMER. This and desk_owner_escalation_v1 are desk-started sends the customer '
+            + 'never sees, so `audience: approver` and `purpose: null` keep them out of the customer opt-out gate '
+            + '(server/opt-out.ts): OutboundPurpose exists only to decide whether a customer who wrote STOP still '
+            + 'gets this, which has no meaning for a message that goes to Ben. Wording matches '
+            + 'server/comms-v2/service/chase.ts word for word; chase.ts reads this row rather than keeping its own '
+            + 'copy, so there is one source of truth for what Ben is sent. The captain submits both to Meta himself '
+            + '(answer 2A); nothing here submits.',
+    },
+    {
+        rungs: [{
+            name: 'desk_owner_escalation_v1',
+            body: 'Hi {{1}}, a customer thread has been waiting on Ben and he has not picked it up: {{2}}. It needs a look.',
+            variables: { '1': 'there', '2': 'a complaint from Sam' },
+            variableMeanings: {
+                '1': "the owner's first name, or 'there' — no name is on file for the owner today",
+                '2': "the chase topic (server/comms-v2/service/chase.ts topicOf): the hold's exception, the customer's name and the job type",
+            },
+        }],
+        category: 'UTILITY',
+        audience: 'approver',
+        purpose: null,
+        language: 'en_GB',
+        trigger: {
+            id: 'desk_owner_escalation',
+            when: 'A held thread chased to Ben has had no action for a further configured interval (checklist 7.5).',
+            source: 'server/comms-v2/service/chase.ts chaseIfDue → initiate (desk/sender.ts), dry run only until cutover',
+            wired: true,
+        },
+        submission: 'new',
+        notes: 'TO THE OWNER, NEVER A CUSTOMER. Same reasoning as desk_approver_chase_v1: `audience: approver` and '
+            + '`purpose: null` because the customer opt-out gate has nothing to say about a message the customer '
+            + 'never receives. Wording matches server/comms-v2/service/chase.ts word for word, read from this row '
+            + 'rather than a second local copy. The captain submits both to Meta himself (answer 2A); nothing here '
+            + 'submits.',
     },
 ];
 

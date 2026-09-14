@@ -1,6 +1,7 @@
 /**
- * Build plan v2, 4.1's five window-shut Meta templates, the clean-sheet desk's two, and its
- * quote-accepted acknowledgement. Pure — no DB, no network, nothing sent.
+ * Build plan v2, 4.1's five window-shut Meta templates, the clean-sheet desk's two, its
+ * quote-accepted acknowledgement, and the desk's own approver-facing chase and escalation. Pure —
+ * no DB, no network, nothing sent.
  *
  * What this proves is what a submission would otherwise only discover from Meta days later, or a
  * customer would discover on receipt: every definition is the shape Twilio's Content API and the
@@ -31,11 +32,12 @@ const byTrigger = (id: WindowTemplate['trigger']['id']) => {
 const ALL_RUNGS = WINDOW_TEMPLATES.flatMap((t) => t.rungs.map((r) => ({ row: t, rung: r })));
 
 describe('the window-shut templates', () => {
-    it('is exactly the plan\'s five triggers, the clean-sheet desk\'s two and the quote-accepted acknowledgement, once each', () => {
-        expect(WINDOW_TEMPLATES).toHaveLength(8);
+    it('is exactly the plan\'s five triggers, the clean-sheet desk\'s two, the quote-accepted acknowledgement, and the desk\'s own chase and escalation, once each', () => {
+        expect(WINDOW_TEMPLATES).toHaveLength(10);
         expect(WINDOW_TEMPLATES.map((t) => t.trigger.id)).toEqual([
             'quote_ready', 'question_unanswered', 'webform_first_contact', 'post_call_followup',
             'webform_first_contact_no_call', 'missed_call', 'enquiry_chase', 'quote_accepted',
+            'desk_approver_chase', 'desk_owner_escalation',
         ]);
     });
 
@@ -56,12 +58,31 @@ describe('the window-shut templates', () => {
         expect(marketing[0].trigger.id).toBe('enquiry_chase');
         // purpose is the field a send path branches on: a plain STOP blocks 'marketing' only.
         expect(marketing[0].purpose).toBe('marketing');
-        for (const t of WINDOW_TEMPLATES.filter((x) => x.category === 'UTILITY')) {
+        for (const t of WINDOW_TEMPLATES.filter((x) => x.category === 'UTILITY' && x.audience === 'customer')) {
             expect(t.purpose).toBe('service_reply');
         }
         // Naming is not the discriminator: strip the names and the categories still separate.
-        const withoutNames = WINDOW_TEMPLATES.map(({ purpose, category }) => ({ purpose, category }));
+        const customerOnly = WINDOW_TEMPLATES.filter((t) => t.audience === 'customer');
+        const withoutNames = customerOnly.map(({ purpose, category }) => ({ purpose, category }));
         expect(withoutNames.filter((t) => t.purpose === 'marketing')).toEqual([{ purpose: 'marketing', category: 'MARKETING' }]);
+    });
+
+    it('the desk\'s chase and escalation go to an approver, never a customer, and carry no OutboundPurpose', () => {
+        const approverRows = WINDOW_TEMPLATES.filter((t) => t.audience === 'approver');
+        expect(approverRows.map((t) => t.trigger.id)).toEqual(['desk_approver_chase', 'desk_owner_escalation']);
+        for (const t of approverRows) {
+            expect(t.category).toBe('UTILITY');
+            expect(t.language).toBe('en_GB');
+            expect(t.submission).toBe('new');
+            // Not customer-facing, so the STOP gate's field must not be force-fit onto it.
+            expect(t.purpose).toBeNull();
+            expect(t.notes).toMatch(/never a customer/i);
+        }
+        // Every other row is customer-facing.
+        for (const t of WINDOW_TEMPLATES.filter((x) => !approverRows.includes(x))) {
+            expect(t.audience).toBe('customer');
+            expect(t.purpose).not.toBeNull();
+        }
     });
 
     it('the marketing one carries a way to stop, and no utility one does', () => {

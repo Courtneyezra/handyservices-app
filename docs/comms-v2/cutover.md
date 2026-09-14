@@ -51,9 +51,9 @@ Each of these is checked by hand; none is enforced by the code except where it s
       (`server/comms-v2/api/approvers.ts` has the insert). With no row nobody can release or answer
       from the board.
 - [ ] **The two chase templates are submitted to Meta and approved:** `desk_approver_chase_v1` and
-      `desk_owner_escalation_v1` (`server/comms-v2/service/chase.ts`). Until then every live chase and
-      escalation is refused and recorded on the file, and Ben is not chased. Known go-live item: not
-      yet submitted.
+      `desk_owner_escalation_v1`, rows in `server/window-templates.ts` (`audience: 'approver'`).
+      Until then every live chase and escalation is refused and recorded on the file, and Ben is not
+      chased. Known go-live item: not yet submitted.
 - [ ] Ben's four fixed lines are reviewed rows in the knowledge base (`/admin/knowledge`). Live, a
       default line he has not reviewed is refused by the sender and the thread holds for him.
 - [ ] Production runs one service with `COMMS_WORKER=1` (docs/RUNBOOK.md). A process without it is
