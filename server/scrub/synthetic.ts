@@ -1,0 +1,338 @@
+/**
+ * Deterministic synthetic values for the database scrub (scripts/scrub-database.ts).
+ *
+ * Three properties every generator here holds, and the scrub depends on all three:
+ *
+ *   deterministic  a value is a pure function of (seed, input), so the same real person becomes
+ *                  the same fake person on every run and on every machine.
+ *   valid          the product parses phone numbers, postcodes and e-mail addresses, so a fake
+ *                  one keeps the shape the parser expects: a UK mobile stays a UK mobile, a
+ *                  Nottingham postcode stays a Nottingham postcode.
+ *   a fixed point  every generator maps its own output back to itself (`isSynthetic*` says so),
+ *                  which is what makes the whole scrub idempotent: a second run reads synthetic
+ *                  values, recognises them, and writes nothing.
+ *
+ * The reserved ranges are the ones the regulators set aside precisely so that fiction cannot
+ * reach a real person: Ofcom's drama numbers (07700 900xxx and friends) and the reserved
+ * `.invalid` top-level domain (RFC 2606). A scrubbed database therefore cannot message anybody
+ * even if a switch is left on by mistake.
+ *
+ * Nothing in this file reads or writes a database, and nothing in it logs.
+ */
+import { createHash } from 'crypto';
+
+/**
+ * Separates the seed from the parts inside the hash so that two different calls cannot collide by
+ * running their arguments together. Written as an escape rather than as a literal, because a
+ * literal control character would make this a binary file to git and to every editor.
+ */
+const SEPARATOR = '\u0000';
+
+/** Stable 48-bit integer from a seed and any number of parts. */
+export function digest(seed: string, ...parts: string[]): number {
+    const h = createHash('sha256').update(seed).update(SEPARATOR).update(parts.join(SEPARATOR)).digest();
+    // 6 bytes keeps the result inside Number.MAX_SAFE_INTEGER.
+    return h.readUIntBE(0, 6);
+}
+
+function pick<T>(pool: readonly T[], seed: string, ...parts: string[]): T {
+    return pool[digest(seed, ...parts) % pool.length];
+}
+
+// ---------------------------------------------------------------------------- names
+
+/**
+ * Deliberately uncommon-but-plausible given names. Rare enough that a real customer colliding
+ * with the pool is unlikely, common enough that a screenshot reads as a real thread.
+ */
+export const FIRST_NAMES = [
+    'Ada', 'Bryn', 'Cerys', 'Dilys', 'Eryl', 'Ffion', 'Gethin', 'Hywel', 'Idris', 'Jolyon',
+    'Kerensa', 'Lowri', 'Meirion', 'Nerys', 'Orla', 'Peredur', 'Quenby', 'Rhodri', 'Seren', 'Tegan',
+    'Ulric', 'Vaughan', 'Wynne', 'Yestin', 'Zennor', 'Alwyn', 'Bethan', 'Carwyn', 'Delyth', 'Emrys',
+    'Fenella', 'Gwilym', 'Heulwen', 'Iolo', 'Jocasta', 'Kelvin', 'Llinos', 'Maelor', 'Nesta', 'Osian',
+    'Petroc', 'Rowena', 'Sulwyn', 'Tomos', 'Ursel', 'Verity', 'Wilf', 'Anwen', 'Bevis', 'Catrin',
+    'Dyfan', 'Eluned', 'Gareth', 'Hafwen', 'Ivor', 'Jessamy', 'Keturah', 'Lachlan', 'Morwenna', 'Nolwenn',
+    'Ottoline', 'Pascoe', 'Rhian', 'Torin',
+] as const;
+
+/** Surnames from the same register: recognisably British, rare as an exact match. */
+export const LAST_NAMES = [
+    'Ashbourne', 'Brindley', 'Chatterton', 'Daubney', 'Eastgate', 'Fernyhough', 'Greatorex', 'Hallam',
+    'Ilkeston', 'Jessop', 'Kedleston', 'Littlewood', 'Marlock', 'Newbold', 'Ollerton', 'Pinxton',
+    'Quorndon', 'Radford', 'Sherbrook', 'Thurgarton', 'Underwood', 'Vollans', 'Wollaton', 'Yeardley',
+    'Arkwright', 'Beeston', 'Codnor', 'Duffield', 'Edwalton', 'Farnsfield', 'Gotham', 'Hucknall',
+    'Ireton', 'Jacksdale', 'Kirkby', 'Lambley', 'Mapperley', 'Normanton', 'Oxton', 'Papplewick',
+    'Ravenshead', 'Strelley', 'Toton', 'Upminster', 'Verney', 'Wilford', 'Yelverton', 'Awsworth',
+    'Bramcote', 'Cossall', 'Denby', 'Etwall', 'Findern', 'Gedling', 'Hoveringham', 'Ingoldsby',
+    'Keyworth', 'Linby', 'Mickleover', 'Netherfield', 'Osmaston', 'Plumtree', 'Ruddington', 'Spondon',
+] as const;
+
+const FIRST_SET = new Set<string>(FIRST_NAMES);
+const LAST_SET = new Set<string>(LAST_NAMES);
+
+/** True when every word of `value` comes from the synthetic name pools, so rewriting is a no-op. */
+export function isSyntheticName(value: string): boolean {
+    const words = value.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return false;
+    return words.every((w) => FIRST_SET.has(w) || LAST_SET.has(w));
+}
+
+/** A full name. `parts` keys the person, so the same real name is the same fake person everywhere. */
+export function fakeFullName(seed: string, ...parts: string[]): string {
+    return `${pick(FIRST_NAMES, seed, 'first', ...parts)} ${pick(LAST_NAMES, seed, 'last', ...parts)}`;
+}
+
+export function fakeFirstName(seed: string, ...parts: string[]): string {
+    return pick(FIRST_NAMES, seed, 'first', ...parts);
+}
+
+export function fakeLastName(seed: string, ...parts: string[]): string {
+    return pick(LAST_NAMES, seed, 'last', ...parts);
+}
+
+const TRADES = ['Joinery', 'Maintenance', 'Property Care', 'Interiors', 'Home Services', 'Repairs'] as const;
+const TRADE_SET = new Set<string>(TRADES);
+
+/** A trading name. Still a fixed point, because both halves come from the pools. */
+export function fakeBusinessName(seed: string, ...parts: string[]): string {
+    return `${pick(LAST_NAMES, seed, 'trading', ...parts)} ${pick(TRADES, seed, 'trade', ...parts)}`;
+}
+
+export function isSyntheticBusinessName(value: string): boolean {
+    const t = value.trim();
+    for (const trade of TRADES) {
+        if (t.endsWith(` ${trade}`) && LAST_SET.has(t.slice(0, -trade.length - 1))) return true;
+    }
+    return TRADE_SET.has(t);
+}
+
+// ---------------------------------------------------------------------------- telephone numbers
+
+/**
+ * Ofcom's drama ranges ("Telephone numbers for drama use"). Every block below is reserved and
+ * unallocated, so a number built from one can never reach a person. `tail` is how many digits
+ * follow the prefix, so each block holds 10^tail numbers.
+ */
+export const DRAMA_BLOCKS = [
+    { prefix: '07700900', tail: 3 },   // mobile, 07700 900000-900999
+    { prefix: '07700910', tail: 3 },   // mobile, reserved alongside the block above
+    { prefix: '07700920', tail: 3 },   // mobile, reserved alongside the block above
+    { prefix: '01632960', tail: 3 },   // "no area" drama landline, 01632 960000-960999
+    { prefix: '01159960', tail: 3 },   // Nottingham-shaped drama landline
+    { prefix: '01332960', tail: 3 },   // Derby-shaped drama landline
+] as const;
+
+const MOBILE_BLOCK_COUNT = 3;
+
+/** Total distinct synthetic numbers available, mobiles first. */
+export const DRAMA_CAPACITY = DRAMA_BLOCKS.reduce((n, b) => n + 10 ** b.tail, 0);
+export const DRAMA_MOBILE_CAPACITY = DRAMA_BLOCKS.slice(0, MOBILE_BLOCK_COUNT)
+    .reduce((n, b) => n + 10 ** b.tail, 0);
+
+/** Render a UK number as its national form (leading zero), or null if it is not one. */
+export function nationalDigits(raw: string): string | null {
+    const digits = raw.replace(/[^\d+]/g, '');
+    if (!digits) return null;
+    if (digits.startsWith('+44')) return '0' + digits.slice(3);
+    if (digits.startsWith('0044')) return '0' + digits.slice(4);
+    if (digits.startsWith('44') && digits.length >= 12) return '0' + digits.slice(2);
+    if (digits.startsWith('0')) return digits;
+    return null;
+}
+
+/** True when a number sits inside a reserved drama block, in any of the formats we write. */
+export function isSyntheticPhone(raw: string): boolean {
+    const national = nationalDigits(raw);
+    if (!national) return false;
+    return DRAMA_BLOCKS.some((b) => national.startsWith(b.prefix) && national.length === b.prefix.length + b.tail);
+}
+
+/** The n-th synthetic number in national form, mobiles used before landlines. */
+export function dramaNumberAt(index: number): string {
+    let i = ((index % DRAMA_CAPACITY) + DRAMA_CAPACITY) % DRAMA_CAPACITY;
+    for (const block of DRAMA_BLOCKS) {
+        const size = 10 ** block.tail;
+        if (i < size) return block.prefix + String(i).padStart(block.tail, '0');
+        i -= size;
+    }
+    return DRAMA_BLOCKS[0].prefix + '0'.repeat(DRAMA_BLOCKS[0].tail);
+}
+
+/** E.164 form of a national number: 07700900123 becomes +447700900123. */
+export function toE164(national: string): string {
+    return '+44' + national.replace(/^0/, '');
+}
+
+// ---------------------------------------------------------------------------- e-mail
+
+/** RFC 2606 reserves `.invalid`: nothing addressed there can leave the machine. */
+export const SYNTHETIC_EMAIL_DOMAIN = 'example.invalid';
+
+export function isSyntheticEmail(value: string): boolean {
+    return value.trim().toLowerCase().endsWith('@' + SYNTHETIC_EMAIL_DOMAIN);
+}
+
+export function fakeEmail(seed: string, ...parts: string[]): string {
+    const first = pick(FIRST_NAMES, seed, 'first', ...parts).toLowerCase();
+    const last = pick(LAST_NAMES, seed, 'last', ...parts).toLowerCase();
+    const n = digest(seed, 'emailtag', ...parts) % 1000;
+    return `${first}.${last}${String(n).padStart(3, '0')}@${SYNTHETIC_EMAIL_DOMAIN}`;
+}
+
+// ---------------------------------------------------------------------------- postcodes and addresses
+
+/** Genuine outward codes for Nottingham and Derby: the two areas this business covers. */
+export const OUTWARD_CODES = [
+    'NG1', 'NG2', 'NG3', 'NG4', 'NG5', 'NG6', 'NG7', 'NG8', 'NG9', 'NG10',
+    'NG11', 'NG12', 'NG13', 'NG14', 'NG15', 'NG16', 'NG17', 'NG18', 'NG19', 'NG20',
+    'DE1', 'DE3', 'DE21', 'DE22', 'DE23', 'DE24', 'DE55', 'DE56', 'DE65', 'DE72', 'DE73', 'DE74',
+] as const;
+
+/**
+ * The inward letter pairs a synthetic postcode may end in.
+ *
+ * This list is what makes a scrubbed postcode recognisable on a second run, and picking it needs
+ * care: the obvious approach of "any two valid final letters" would call `NG7 2QX` synthetic, and
+ * `NG7 2QX` is somebody's house. Royal Mail allocates inward codes densely from the start of the
+ * alphabet and does not allocate these pairs in NG or DE, so a postcode ending in one is
+ * format-valid, parses, geocodes to nothing, and belongs to nobody.
+ */
+const SYNTHETIC_INWARD_PAIRS = ['ZX', 'ZY', 'XZ', 'YZ', 'ZQ', 'QZ'] as const;
+
+const OUTWARD_SET = new Set<string>(OUTWARD_CODES);
+const INWARD_PAIR_SET = new Set<string>(SYNTHETIC_INWARD_PAIRS);
+
+export function isSyntheticPostcode(value: string): boolean {
+    const t = value.replace(/\s+/g, '').toUpperCase();
+    if (t.length < 5) return false;
+    const outward = t.slice(0, -3);
+    const inward = t.slice(-3);
+    if (!OUTWARD_SET.has(outward)) return false;
+    return /^\d[A-Z]{2}$/.test(inward) && INWARD_PAIR_SET.has(inward.slice(1));
+}
+
+export function fakePostcode(seed: string, ...parts: string[]): string {
+    const outward = pick(OUTWARD_CODES, seed, 'outward', ...parts);
+    const n = digest(seed, 'inward', ...parts);
+    return `${outward} ${n % 10}${pick(SYNTHETIC_INWARD_PAIRS, seed, 'pair', ...parts)}`;
+}
+
+export const STREET_NAMES = [
+    'Sherbrook Road', 'Ashbourne Rise', 'Brindley Close', 'Chatterton Way', 'Daubney Street',
+    'Eastgate Terrace', 'Fernyhough Avenue', 'Greatorex Lane', 'Hallam Grove', 'Jessop Walk',
+    'Kedleston Drive', 'Littlewood Crescent', 'Newbold Court', 'Ollerton Row', 'Pinxton Gardens',
+    'Radford Mount', 'Thurgarton Place', 'Underwood Croft', 'Wollaton Vale', 'Yeardley Square',
+] as const;
+
+export const TOWNS = [
+    'Nottingham', 'Beeston', 'Arnold', 'Carlton', 'Hucknall', 'West Bridgford',
+    'Derby', 'Mickleover', 'Spondon', 'Ilkeston', 'Long Eaton', 'Belper',
+] as const;
+
+const STREET_SET = new Set<string>(STREET_NAMES);
+const TOWN_SET = new Set<string>(TOWNS);
+
+export function isSyntheticTown(value: string): boolean {
+    return TOWN_SET.has(value.trim());
+}
+
+export function fakeTown(seed: string, ...parts: string[]): string {
+    return pick(TOWNS, seed, 'town', ...parts);
+}
+
+export function fakeAddressLine1(seed: string, ...parts: string[]): string {
+    const number = 1 + (digest(seed, 'houseno', ...parts) % 180);
+    return `${number} ${pick(STREET_NAMES, seed, 'street', ...parts)}`;
+}
+
+/** `12 Sherbrook Road, Beeston, NG9 4TR` — one line, the shape the address parsers expect. */
+export function fakeAddress(seed: string, ...parts: string[]): string {
+    return `${fakeAddressLine1(seed, ...parts)}, ${fakeTown(seed, ...parts)}, ${fakePostcode(seed, ...parts)}`;
+}
+
+export function isSyntheticAddress(value: string): boolean {
+    const t = value.trim();
+    if (!t) return false;
+    for (const street of STREET_NAMES) if (t.includes(street)) return true;
+    return false;
+}
+
+/** Nottingham and Derby sit inside this box, so a scrubbed coordinate still maps to the patch. */
+export function fakeCoordinate(seed: string, ...parts: string[]): { lat: number; lng: number } {
+    const lat = 52.85 + (digest(seed, 'lat', ...parts) % 60000) / 100000;   // 52.85 .. 53.45
+    const lng = -1.65 + (digest(seed, 'lng', ...parts) % 60000) / 100000;   // -1.65 .. -1.05
+    return { lat: Number(lat.toFixed(5)), lng: Number(lng.toFixed(5)) };
+}
+
+// ---------------------------------------------------------------------------- opaque values
+
+/** Reserved by RFC 6761: a URL under it cannot resolve, so no fake media can be fetched. */
+export const SYNTHETIC_HOST = 'media.example.invalid';
+
+export function isSyntheticUrl(value: string): boolean {
+    return value.includes(SYNTHETIC_HOST);
+}
+
+/** A media or document URL of the same shape, pointing nowhere. */
+export function fakeUrl(seed: string, ext: string, ...parts: string[]): string {
+    const id = digest(seed, 'url', ext, ...parts).toString(36);
+    return `https://${SYNTHETIC_HOST}/${id}.${ext}`;
+}
+
+/** Marker every opaque synthetic token carries, so a second run leaves it alone. */
+export const SYNTHETIC_TOKEN_MARK = 'scrubbed';
+
+export function isSyntheticToken(value: string): boolean {
+    return value.includes(SYNTHETIC_TOKEN_MARK);
+}
+
+/** An opaque secret of roughly the original length, recognisable as fake to this script only. */
+export function fakeToken(seed: string, ...parts: string[]): string {
+    const a = digest(seed, 'token', ...parts).toString(36);
+    const b = digest(seed, 'token2', ...parts).toString(36);
+    return `${SYNTHETIC_TOKEN_MARK}_${a}${b}`;
+}
+
+/**
+ * An external reference of the provider's shape (`pi_`, `acct_`, `SM...` and so on). The prefix
+ * is kept because code branches on it; everything after it is synthetic. Idempotent because the
+ * synthetic tail always carries the token mark.
+ */
+export function fakeExternalId(seed: string, original: string, ...parts: string[]): string {
+    const m = /^([A-Za-z]{2,8}_)/.exec(original);
+    const prefix = m ? m[1] : /^[A-Z]{2}[0-9a-f]{20,}$/.test(original) ? original.slice(0, 2) : '';
+    const body = digest(seed, 'extid', ...parts).toString(36) + digest(seed, 'extid2', ...parts).toString(36);
+    return `${prefix}${SYNTHETIC_TOKEN_MARK}${body}`;
+}
+
+export function isSyntheticExternalId(value: string): boolean {
+    return value.includes(SYNTHETIC_TOKEN_MARK);
+}
+
+// ---------------------------------------------------------------------------- collisions
+
+/**
+ * Every word this file can write into a synthetic value.
+ *
+ * The sweep in detect.ts hunts for real strings inside free text, and it must never hunt for one
+ * of these. A real customer in Nottingham makes "Nottingham" a real collected value, but
+ * "Nottingham" is also what the generators write, so sweeping it would corrupt invented text and
+ * counting it would report a leak that is not there. Such a term is recorded as unswept instead,
+ * which is honest: a town name on its own identifies nobody, and a surname that collides with the
+ * pool is already handled by the first run rewriting every classified column unconditionally.
+ */
+export const RESERVED_WORDS: ReadonlySet<string> = new Set<string>([
+    ...FIRST_NAMES,
+    ...LAST_NAMES,
+    ...TOWNS,
+    ...TRADES,
+    ...STREET_NAMES,
+    // Street names are written as "Sherbrook Road", so the individual words matter too.
+    ...STREET_NAMES.flatMap((s) => s.split(/\s+/)),
+    ...TOWNS.flatMap((t) => t.split(/\s+/)),
+].map((w) => w.toLowerCase()));
+
+/** True when `value` is a word the generators themselves can produce. */
+export function isReservedWord(value: string): boolean {
+    return RESERVED_WORDS.has(value.trim().toLowerCase());
+}

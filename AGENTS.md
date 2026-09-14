@@ -18,6 +18,7 @@ shared/schema.ts   eval-cases/   scripts/   migrations/   docs/
 npm run dev / build / seed   # dev, production build, seed the SKU table
 npm run gate:prompts         # prompt/eval-case gate (see the spine-prompt-change skill)
 npx tsx scripts/_apply-migration.ts migrations/<file>.sql   # apply a migration
+npm run db:scrub -- --dry-run / --confirm / --verify   # synthetic-ise a non-production database
 npx tsx scripts/_spine-mode.ts --status   # read the comms desk switches
 npm run comms-v2:door        # serve the new desk's sandbox door on a loopback port (branch database only)
 ```
@@ -35,6 +36,13 @@ Operational utility before AI autonomy: invoicing and payments, dispatch and cal
 
 ## Database
 Key tables: `users`, `leads`, `calls`, `messages`, `personalized_quotes`, `productized_services` (SKUs), `handyman_profiles`, `message_drafts`, `draft_verdicts`, `kb_entries`, `eval_runs`, `app_settings`. Never `db:push`; migrations are idempotent SQL applied with the runner above.
+**Nothing on a non-production database may identify a real person.** The pipeline drives the
+product live against the branch and attaches sandbox evidence to every PR, so the branch is
+synthetic: `server/scrub/` rewrites every identifying value and refuses to run against production
+or against a schema carrying a column it does not classify. A new column forces a decision in
+`server/scrub/plan.ts`: `server/scrub/__tests__/plan.test.ts` fails on it, and so does the next
+scrub. Read `server/scrub/README.md` before adding one, before changing what a column holds, or
+when asked whether some data is safe to publish.
 
 ## API Routes
 - `/api/quotes`, `/api/calls`, `/api/leads` — quote, call, lead CRUD; `/api/twilio/*` webhooks

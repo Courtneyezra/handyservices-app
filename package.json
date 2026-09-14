@@ -19,6 +19,7 @@
     "test:e2e": "playwright test",
     "reconcile:stripe": "tsx scripts/reconcile-stripe.ts",
     "gate:prompts": "tsx scripts/check-prompt-gate.ts",
+    "db:scrub": "tsx scripts/scrub-database.ts",
     "evals": "tsx scripts/eval-comms.ts",
     "evals:scoreboard": "tsx scripts/_eval-scoreboard.ts",
     "comms-v2:door": "tsx server/comms-v2/door-cli.ts"
