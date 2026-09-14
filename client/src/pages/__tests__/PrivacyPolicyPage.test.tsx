@@ -27,7 +27,7 @@ describe('the privacy notice renders', () => {
     it('has its heading and an updated date', () => {
         render(<PrivacyPolicyPage />);
         expect(screen.getByRole('heading', { name: 'Privacy Policy', level: 1 })).toBeInTheDocument();
-        expect(screen.getByText(/Last updated 8 September 2026/)).toBeInTheDocument();
+        expect(screen.getByText(/Last updated 14 September 2026/)).toBeInTheDocument();
     });
 
     it('keeps the sections a reader needs', () => {
@@ -81,6 +81,13 @@ describe('every processor that receives customer data is named, with a purpose',
     it('says information leaves the UK and on what footing', () => {
         render(<PrivacyPolicyPage />);
         expect(within(section('Who we share it with')).getByText(/outside the UK/i)).toBeInTheDocument();
+    });
+
+    it('says the model that writes the reply keeps data for up to 30 days (answer 30)', () => {
+        render(<PrivacyPolicyPage />);
+        const item = within(section('Who we share it with')).getByText('Anthropic').closest('li');
+        expect(item, 'no bullet for Anthropic').not.toBeNull();
+        expect(item!.textContent).toMatch(/Fable 5\.1.*30 days/i);
     });
 });
 
