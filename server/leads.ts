@@ -71,7 +71,7 @@ leadsRouter.post('/api/leads', async (req, res) => {
         await db.insert(leads).values({ ...newLead, ...(leadClientId ? { clientId: leadClientId } : {}) });
 
         // comms-v2 (Goal 3): the form also reaches the new desk's gateway behind COMMS_V2_INTAKE; off by default, never blocks.
-        forwardToCommsV2({ kind: 'web_form', lead: { customerName: newLead.customerName, phone: newLead.phone, email: newLead.email, jobDescription: newLead.jobDescription, postcode: newLead.postcode, address: newLead.address, source: newLead.source, leadId: newLead.id } });
+        forwardToCommsV2({ kind: 'web_form', lead: { customerName: newLead.customerName, phone: newLead.phone, email: newLead.email, jobDescription: newLead.jobDescription, postcode: newLead.postcode, address: newLead.address, source: newLead.source, leadId: newLead.id, photos: Array.isArray(inputData.photos) ? inputData.photos : undefined } });
 
         // A lead posted AFTER a successful payment (quote-page booking tracking) is not a
         // new enquiry — the payment flow already fires its own "quote accepted" alert, so
