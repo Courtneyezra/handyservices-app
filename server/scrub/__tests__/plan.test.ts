@@ -190,9 +190,13 @@ describe('the comms desk case file', () => {
         ['path', 'url'],
         ['approver', 'actor'],
         ['by', 'actor'],
-        // The ask ledger's enumeration and the desk's own words: read back by the desk, so kept.
+        // The ask ledger's enumeration and the desk's own words about a stage move: read back by
+        // the desk, so kept.
         ['subject', null],
-        ['reason', 'keep'],
+        ['why', null],
+        // A hold or release reason can carry a customer's own new address or e-mail off a change
+        // of details, so it is free text, not kept.
+        ['reason', 'note'],
         ['kind', 'keep'],
         ['party_id', 'keep'],
         ['run_id', 'keep'],

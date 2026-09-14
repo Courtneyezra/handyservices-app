@@ -149,8 +149,12 @@ describe('the comms desk case file', () => {
         stageHistory: [{ from: null, to: 'first_contact', at: '2026-09-13T10:00:00.000Z', why: 'opened' }],
         facts: [{ id: 'fact_1', key: 'postcode', value: 'NG8 3EY', source: { kind: 'thread', turnId: 'turn_1' }, at: '2026-09-13T10:00:00.000Z', by: 'specialist:scoper' }],
         ledger: [{ subject: 'media', askedAt: null, answeredAt: null, thankedAt: '2026-09-13T10:00:02.000Z', askCount: 0 }],
-        hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money beyond a quote line', exception: null, since: '2026-09-13T10:00:02.000Z', notedOn: false, draft: 'Thanks Margaret, Ben will price 14 Beechdale Road.', failures: [], superseded: [] },
-        releases: [{ approver: { kind: 'human', id: 'ben' }, words: 'Fine, tell Margaret Wilkinson Tuesday', at: '2026-09-13T10:05:00.000Z', reason: 'money beyond a quote line', turnsBefore: 1, asksBefore: { media: 0 } }],
+        // A hold reason a specialist writes verbatim onto the file, in the shape
+        // `changeOfDetails` (server/comms-v2/service/service-tools.ts) actually raises: the new
+        // address rides on it unmasked. Nowhere else in this fixture is this address a classified
+        // value, so only regenerating this leaf (not the sweep) can catch it.
+        hold: { approver: { kind: 'human', id: 'ben' }, reason: 'change_of_details: address -> 19 Sourdough Lane, Ruddington', exception: null, since: '2026-09-13T10:00:02.000Z', notedOn: false, draft: 'Thanks Margaret, Ben will price 14 Beechdale Road.', failures: [], superseded: [] },
+        releases: [{ approver: { kind: 'human', id: 'ben' }, words: 'Fine, tell Margaret Wilkinson Tuesday', at: '2026-09-13T10:05:00.000Z', reason: 'change_of_details: address -> 19 Sourdough Lane, Ruddington', turnsBefore: 1, asksBefore: { media: 0 } }],
         scopingFrom: 1,
         job: { type: 'tap repair', location: 'NG8 3EY', quoteRef: null, bookingRef: null },
         sends: [{ runId: 'run_1', approver: 'human:u-123', partyId: 'person_1', channel: 'whatsapp', windowState: 'open', templateId: null, bubbles: [{ text: 'Thanks Margaret, we will be in touch about 14 Beechdale Road.', gapMs: 0 }], factIds: ['fact_1'], kbIds: [], calls: [], at: '2026-09-13T10:00:03.000Z', mode: 'dry_run', partial: false, turnId: null }],
@@ -190,7 +194,7 @@ describe('the comms desk case file', () => {
         const after = JSON.parse(update.params![0] as string) as typeof REAL_FILE;
         const text = JSON.stringify(after);
 
-        for (const real of ['Margaret', 'Wilkinson', 'Beechdale', 'NG8 3EY', '07812345678', '7812345678']) {
+        for (const real of ['Margaret', 'Wilkinson', 'Beechdale', 'NG8 3EY', '07812345678', '7812345678', 'Sourdough', 'Ruddington']) {
             expect(text).not.toContain(real);
         }
         expect(residualsIn(text)).toEqual([]);
@@ -210,7 +214,10 @@ describe('the comms desk case file', () => {
         expect(party.personId).toBe('person_1');
         expect(after.stage).toBe('scoping');
         expect(after.ledger[0].subject).toBe('media');
-        expect(after.hold!.reason).toBe('money beyond a quote line');
+        // The hold and release reason are free text, not kept: a customer's own words (here, a
+        // change-of-details address) never survive into them.
+        expect(after.hold!.reason).not.toBe(REAL_FILE.hold.reason);
+        expect(after.releases[0].reason).not.toBe(REAL_FILE.releases[0].reason);
         expect(after.sends[0].approver).toBe('human:u-123');
         expect(after.sends[0].factIds).toEqual(['fact_1']);
         expect(after.turns[0].partyId).toBe('person_1');

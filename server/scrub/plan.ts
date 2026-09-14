@@ -281,8 +281,12 @@ const OVERRIDES: Record<string, Treatment> = {
     'comms_v2_case_files.value': 'note',                // a fact's value: a postcode, access, the job
     'comms_v2_case_files.path': 'url',                  // a downloaded photo's local path
     'comms_v2_case_files.approver': 'actor',            // `human:<email or user id>` on a turn or send
-    // `reason` and `why` are the desk's own words, and `subject` is also the ask ledger's
-    // enumeration, which the desk reads back, so all three are kept and swept.
+    // `why` is the desk's own words about a stage move, and `subject` is the ask ledger's
+    // enumeration the desk reads back, so both are kept and swept. `reason` is not: a hold or
+    // release reason can carry a customer's own new address or e-mail read straight off a change
+    // of details (server/comms-v2/service/service-tools.ts `changeOfDetails`), so it is a free-text
+    // leaf like a note, regenerated rather than trusted to the sweep.
+    'comms_v2_case_files.reason': 'note',
 
     // --- names the rules would miss
     'tenants.name': 'person_name',

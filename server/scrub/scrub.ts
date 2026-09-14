@@ -106,7 +106,7 @@ export function refusalFor(opts: ScrubOptions): string | null {
 /** Treatments whose real values are worth collecting for the sweep in pass 3. */
 const COLLECTED: ReadonlySet<Treatment> = new Set<Treatment>([
     'person_name', 'first_name', 'last_name', 'business_name', 'phone', 'phone_e164', 'phone_key',
-    'email', 'address', 'address_line', 'postcode', 'town',
+    'email', 'contact', 'address', 'address_line', 'postcode', 'town',
 ]);
 
 export async function scrubDatabase(client: Client, opts: ScrubOptions): Promise<ScrubReport> {
@@ -310,12 +310,15 @@ async function collectOthers(
             for (const row of r.rows) {
                 const raw = String(row.v ?? '').trim();
                 if (!raw) continue;
+                // A `contact` column's phone-shaped values are already collected by collectPhones;
+                // only its e-mail-shaped values still need to reach the sweep.
+                if (t === 'contact' && !raw.includes('@')) continue;
                 const ctx = { ...valueContext(seed, table.table, col.column, 'collect', subs, phoneMap), force };
                 const fake = scrubScalar(t, raw, ctx);
                 if (!fake || fake === raw) continue;
                 if (t === 'person_name' || t === 'first_name' || t === 'last_name' || t === 'business_name') {
                     subs.addName(raw, fake);
-                } else if (t === 'email') {
+                } else if (t === 'email' || t === 'contact') {
                     if (preserveEmail && raw.toLowerCase() === preserveEmail) continue;
                     subs.add(raw, fake);
                     subs.add(raw.toLowerCase(), fake);
