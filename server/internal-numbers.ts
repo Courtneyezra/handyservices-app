@@ -10,12 +10,14 @@
  * reason to believe this number is not a customer? Silence (null) means "no reason found", never
  * "confirmed customer". The caller decides what to do with that.
  *
- * Two kinds of evidence, deliberately kept apart:
+ * Three kinds of evidence, deliberately kept apart:
  *
  *   SHAPE      — decidable from the digits alone, no database, no failure mode. UK non-geographic
  *                service ranges (0800/0808 freephone, 03xx, 084x/087x, 09xx premium) cannot be a
  *                residential customer's line; they are companies by definition. Plus our own
  *                numbers, which we must never open a card about.
+ *   CONFIGURED — numbers placed in the `INTERNAL_PHONE_NUMBERS` env var: Ben's own handset and any
+ *                staff number the database does not hold. No database either, never committed.
  *   DIRECTORY  — who we have on file as staff or contractor. Needs the DB and may be incomplete.
  *
  * ⚠️ The directory half is currently near-empty, and that is a finding rather than a bug in this
@@ -46,7 +48,7 @@ export type NonCustomerReason = {
  * (+447700100917 — note this is NOT in the Ofcom 07700 900xxx test range, so nothing else catches
  * it). The env vars cover whatever else is configured on the account without needing a code change.
  */
-function ownNumberKeys(): Set<string> {
+export function ownNumberKeys(): Set<string> {
     const raw = [
         '+447449501762',
         '+447700100917',
@@ -57,6 +59,30 @@ function ownNumberKeys(): Set<string> {
     const keys = new Set<string>();
     for (const n of raw) {
         const k = commsPhoneKey((n ?? '').replace(/^whatsapp:/, ''));
+        if (k) keys.add(k);
+    }
+    return keys;
+}
+
+/**
+ * Numbers that are ours but are not in the repo and not in any table: Ben's own handset, and any
+ * staff number the database does not hold. They are personal numbers, so they are never committed;
+ * they are placed as an environment variable where the app runs (Railway, the service's Variables).
+ *
+ *   INTERNAL_PHONE_NUMBERS=+447700900001,+447700900002
+ *
+ * One or more numbers separated by commas (spaces, semicolons and new lines also work). A UK number
+ * as +44... or 07...; an international number in +<country code> form (+84..., +1...). Unset or
+ * empty means none. A change takes
+ * effect on the next outbound call check, and in the comms-v2 intake on its next restart, because
+ * the intake reads the list once when it starts (server/comms-v2/channels/intake.ts).
+ */
+export const INTERNAL_NUMBERS_ENV = 'INTERNAL_PHONE_NUMBERS';
+
+export function configuredInternalKeys(env: NodeJS.ProcessEnv = process.env): Set<string> {
+    const keys = new Set<string>();
+    for (const n of (env[INTERNAL_NUMBERS_ENV] ?? '').split(/[,;\s]+/)) {
+        const k = commsPhoneKey(n);
         if (k) keys.add(k);
     }
     return keys;
@@ -124,7 +150,7 @@ const INTERNAL_ROLES = ['contractor', 'va', 'admin', 'handyman'];
  * tables are tens of rows, and a stale cache that lets a contractor's call open a customer card is
  * a worse trade than three small selects.
  */
-async function internalDirectory(): Promise<Map<string, NonCustomerReason>> {
+export async function internalDirectory(): Promise<Map<string, NonCustomerReason>> {
     const out = new Map<string, NonCustomerReason>();
 
     const staff = await db.select({ phone: users.phone, role: users.role, first: users.firstName, last: users.lastName })
@@ -159,8 +185,25 @@ async function internalDirectory(): Promise<Map<string, NonCustomerReason>> {
     return out;
 }
 
+const CONFIGURED_REASON: NonCustomerReason = { code: 'INTERNAL_STAFF', detail: INTERNAL_NUMBERS_ENV };
+
 /**
- * Full check: shape first (free, never fails), then the directory.
+ * Every number that is ours, as comms keys: the business's own, the ones placed in
+ * INTERNAL_PHONE_NUMBERS, and the directory. For a caller that needs the whole list rather than one
+ * number checked (the comms-v2 intake seeds its identity from it). Unlike the check below this one
+ * throws when the directory cannot be read, so that caller can refuse to start on a partial list.
+ */
+export async function internalNumberKeys(env: NodeJS.ProcessEnv = process.env): Promise<Map<string, NonCustomerReason>> {
+    const out = new Map<string, NonCustomerReason>();
+    for (const k of Array.from(ownNumberKeys())) out.set(k, { code: 'OWN_NUMBER', detail: 'one of the business\'s own numbers' });
+    for (const k of Array.from(configuredInternalKeys(env))) if (!out.has(k)) out.set(k, CONFIGURED_REASON);
+    for (const [k, reason] of Array.from(await internalDirectory())) if (!out.has(k)) out.set(k, reason);
+    return out;
+}
+
+/**
+ * Full check: shape first (free, never fails), then the numbers placed in INTERNAL_PHONE_NUMBERS
+ * (no database either), then the directory.
  *
  * Never throws. A database wobble must not be able to break call ingest, and the honest answer when
  * we cannot read the directory is "no positive reason found" — the same answer as for a genuine
@@ -173,6 +216,7 @@ export async function classifyNonCustomerNumber(phone: string | null | undefined
 
     const key = commsPhoneKey(phone);
     if (!key) return null;
+    if (configuredInternalKeys().has(key)) return CONFIGURED_REASON;
 
     try {
         return (await internalDirectory()).get(key) ?? null;

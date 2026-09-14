@@ -2,7 +2,7 @@
  * The old inputs behind the one switch: off means nothing runs; on means each event becomes the
  * matching envelope and reaches the gateway.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from './channel-gateway';
@@ -15,6 +15,7 @@ const fakeDesk: DeskLike = {
 };
 
 describe('the intake switch', () => {
+    afterEach(() => { vi.unstubAllEnvs(); });
     it('is off unless COMMS_V2_INTAKE is exactly 1, the way COMMS_WORKER is read, and off means a forward does nothing', () => {
         expect(intakeEnabled({})).toBe(false);
         for (const v of ['0', 'false', 'true', 'on', 'yes', 'TRUE', '11']) expect({ v, on: intakeEnabled({ [INTAKE_ENV]: v }) }).toEqual({ v, on: false });
@@ -23,12 +24,12 @@ describe('the intake switch', () => {
         forwardToCommsV2({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } }, {});
         expect(turns.length).toBe(before);
     });
-    it('refuses to start while a requirement is outstanding: nothing is read, nothing reaches a desk, and the refusal names what is missing', async () => {
-        expect(INTAKE_REQUIREMENTS.length).toBeGreaterThan(0);
+    it('has no requirement outstanding once the internal-number directory landed, and a build without the branch database still refuses: nothing reaches a desk', async () => {
+        expect(INTAKE_REQUIREMENTS).toEqual([]);
+        vi.stubEnv('COMMS_V2_DATABASE_URL', undefined);
         resetLiveChannelGateway();
         const before = turns.length;
-        await expect(forwardNow({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } })).rejects.toThrow(new RegExp(`${INTAKE_ENV} is on but the intake refuses to start`));
-        await expect(forwardNow({ kind: 'call_finished', callRecordId: 'c1' })).rejects.toThrow(/internal-number directory/);
+        await expect(forwardNow({ kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'hi' } })).rejects.toThrow(/COMMS_V2_DATABASE_URL/);
         expect(turns.length).toBe(before);
         resetLiveChannelGateway();
     });
@@ -42,11 +43,8 @@ describe('the intake switch', () => {
         const form = await envelopesOf({ kind: 'web_form', lead: { customerName: 'P', phone: '07700900942', email: 'p@x.co', jobDescription: 'fan', postcode: 'NG9 2AB', source: 'web_quote', leadId: 'lead_1' } });
         expect(form.envelopes[0]).toMatchObject({ channel: 'form', kind: 'form', providerMessageId: 'lead_1' });
     });
-    it('no longer waits on a persistent case file store: that requirement has landed, and the internal-number directory is what is left', () => {
-        expect(INTAKE_REQUIREMENTS.some((r) => /persistent case file store/.test(r))).toBe(false);
-        expect(INTAKE_REQUIREMENTS.some((r) => /internal-number directory/.test(r))).toBe(true);
-    });
     it('forgets a build that failed, so the next forward builds again rather than repeating the failure for the life of the process', async () => {
+        vi.stubEnv('COMMS_V2_DATABASE_URL', undefined);
         resetLiveChannelGateway();
         const first = liveChannelGateway();
         await expect(first).rejects.toThrow();

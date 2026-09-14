@@ -78,11 +78,18 @@ runs in dry run: everything up to delivery, nothing leaves. The cutover that tur
 off and this desk's delivery on is a later task.
 
 **The switch alone does not start it.** `INTAKE_REQUIREMENTS` (`channels/intake.ts`) is what the
-intake must have before it reads one live turn. One entry is outstanding: a populated
-internal-number directory, because the identity here has never been told which numbers are ours, so
-Ben's own handset would resolve as a customer (server/internal-numbers.ts already holds the
-numbers). Until it lands the gateway refuses to be built and every forward logs what is missing; a
-build that fails is forgotten, so the next forward tries again.
+intake must have before it reads one live turn. None is outstanding; while one is, the gateway
+refuses to be built and every forward logs what is missing, and a build that fails is forgotten, so
+the next forward tries again.
+
+**The numbers that are ours resolve internal.** When the gateway is built, `seedInternalNumbers`
+(`channels/intake.ts`) registers every number server/internal-numbers.ts knows with the identity's
+`registerInternal`: the business's own lines, the staff and contractor numbers in the database
+(`users.phone`, `handyman_profiles.whatsapp_number`, `contractor_job_links.contractor_phone`), and
+the numbers in the `INTERNAL_PHONE_NUMBERS` environment variable. An internal key resolves ahead of
+every other role and the gateway refuses the turn, so no case file opens. The build refuses when the
+database cannot be read. The list is read once a build, so a number added later counts after a
+restart. A key a case file already holds as a customer is refused and counted in the log line.
 
 **Persistence has landed.** The intake's case files live in the `comms_v2_case_files` table
 (`desk/database-store.ts`, migration `migrations/20260913_comms_v2_case_files.sql`), so a restart or
@@ -387,6 +394,14 @@ knowledge-base readers and Ben's board reading its own `comms_v2_approvers` row 
 the desk switch. The pipeline's run copies inherit a non-production environment through direnv from
 their run root (see `.no-mistakes.yaml`, `test.instructions`); a developer's shell carries its own.
 Nothing in the desk loads a file of its own or prints a value.
+
+`INTERNAL_PHONE_NUMBERS` holds the numbers that are ours but are in no table and must never be in
+the repo: Ben's own handset and any staff number the database does not hold. Ben or the captain
+sets it on Railway (the service's Variables), as numbers separated by commas, each `+44...` or
+`07...` for a UK number, or `+<country code>...` for an international one (for example a `+84`
+number), for example `INTERNAL_PHONE_NUMBERS=+447700900001,+447700900002`. Unset means none. It is
+read by server/internal-numbers.ts, so the outbound call check honours it too; the intake picks up
+a change on its next restart.
 
 ## Tests
 
