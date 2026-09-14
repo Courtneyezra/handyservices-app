@@ -34,16 +34,15 @@ Hi {{1}}, your quote is ready. Everything is on the link, the itemised price and
 (`https://handyservices.app/quote/<slug>`).
 Samples: `Courtnee` · `https://handyservices.app/quote/ab12cd34`. Language `en_GB`.
 
-**The new desk still needs it wired (a cutover item).** `server/comms-v2/desk/sender.ts` picks a
-window-shut template by `purpose`, and the only purpose it knows is `service_reply`, whose body is a
-generic re-open nudge with no link. So when Ben prices a quote on a shut WhatsApp thread the
-customer wrote on, the new desk holds for him and leaves the quote a draft, rather than delivering a
-nudge while recording every figure as live (`server/comms-v2/quoting/quoting-door.ts`). A WhatsApp
+**Wired into the new desk.** `server/comms-v2/desk/sender.ts` carries its own purpose for this,
+`quote_ready`, whose second variable is the quote link rather than a topic
+(`server/comms-v2/quoting/deliver-quote.ts`). When Ben prices a quote on a shut WhatsApp thread the
+customer wrote on, this template carries the link, sent under the person who licensed it, never
+composed; not approved, or with nowhere to put the link, the new desk holds for him and leaves the
+quote a draft rather than delivering a nudge while recording every figure as live. A WhatsApp
 record nobody has ever written on, which is what a form or a call lead is given for a number known
 to be on WhatsApp, is skipped for the next channel in the order instead, because holding a link
-there would keep it from the lead who has no other way to receive it. Giving this template its own purpose in
-`server/window-templates.ts`, with the quote URL as `{{2}}`, is the fix, and it belongs with cutover
-because it is the old price screen's send path being re-pointed at the new sender.
+there would keep it from the lead who has no other way to receive it.
 
 **Why this name and not a new one.** It is already a Content resource on the account
 (`scripts/archive/_wa-templates-submit.ts` submitted it) and it is already the name the price screen

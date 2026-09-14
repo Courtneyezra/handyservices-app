@@ -343,7 +343,11 @@ async function isSandboxQuoteSlug(slug: string): Promise<boolean> {
  * 1. confirmPrices: 409 if the draft was superseded / sent / revoked or the version differs (a new
  *    scope arrived), 400 on a bad price; otherwise writes the customer-visible prices onto the
  *    draft and one quote_price_verdicts row per line under human:<id>.
- * 2. draftQuoteSendMessage + deliverQuoteLink: the EXISTING quote-send path (the one the legacy
+ * 2. sendPricedQuoteThroughDesk: while the new desk is the live desk and an open case file of its
+ *    own carries this quote, the new desk's own sender delivers it (comms-v2/quoting/price-screen-send.ts)
+ *    and this route returns early. Every other quote, and every quote while any switch is off, falls
+ *    through to step 3.
+ * 3. draftQuoteSendMessage + deliverQuoteLink: the EXISTING quote-send path (the one the legacy
  *    card uses), approver human:<id>, one run id for the whole burst. The outcome (sent /
  *    template / queued for the window) is reported as it happened. Nothing sends without this tap.
  */
