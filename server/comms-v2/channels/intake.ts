@@ -125,7 +125,9 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     log(`identity: ${seeded.registered} internal keys registered${seeded.refused ? `; ${seeded.refused} refused because a case file already holds them as a customer` : ''}`);
     const quotes = databaseQuoteStore(purpose);
     const mode = INTAKE_DESK_MODE[purpose];
-    const desk = new Desk({ mode, log, quoting: { store: quotes, drafter: chainDrafter(quotes, purpose) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
+    // Ben's quote notifications go to his phone only from the live desk, and only while it is live (quoting/ben-notifier.ts).
+    const notifier = purpose === 'live' ? (await import('../quoting/ben-notifier')).liveBenNotifier() : undefined;
+    const desk = new Desk({ mode, log, quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
     log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
     return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log });
 }
