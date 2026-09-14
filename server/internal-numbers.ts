@@ -10,12 +10,14 @@
  * reason to believe this number is not a customer? Silence (null) means "no reason found", never
  * "confirmed customer". The caller decides what to do with that.
  *
- * Two kinds of evidence, deliberately kept apart:
+ * Three kinds of evidence, deliberately kept apart:
  *
  *   SHAPE      — decidable from the digits alone, no database, no failure mode. UK non-geographic
  *                service ranges (0800/0808 freephone, 03xx, 084x/087x, 09xx premium) cannot be a
  *                residential customer's line; they are companies by definition. Plus our own
  *                numbers, which we must never open a card about.
+ *   CONFIGURED — numbers placed in the `INTERNAL_PHONE_NUMBERS` env var: Ben's own handset and any
+ *                staff number the database does not hold. No database either, never committed.
  *   DIRECTORY  — who we have on file as staff or contractor. Needs the DB and may be incomplete.
  *
  * ⚠️ The directory half is currently near-empty, and that is a finding rather than a bug in this
