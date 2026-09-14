@@ -24,7 +24,7 @@ import { classify, REGENERATING_TREATMENTS, type Treatment } from './plan';
 import { readSchema, textualColumns, needsClassification, rowKeyColumns, type ColumnInfo, type TableInfo } from './introspect';
 import { Substitutions, residualsIn, type IdentifierKind } from './detect';
 import { scrubScalar, EMPTY_SESSION, type ValueContext } from './values';
-import { scrubJson } from './json-walk';
+import { scrubJson, phoneLeavesIn } from './json-walk';
 import {
     DRAMA_CAPACITY, dramaNumberAt, digest, fakeEmail, fakeFullName, fakePostcode, fakeTown,
     isSyntheticPhone, nationalDigits,
@@ -232,20 +232,40 @@ async function collectPhones(
     client: Client, tables: TableInfo[], seed: string, phoneMap: Map<string, string>,
 ): Promise<void> {
     const real = new Set<string>();
+    const note = (raw: string) => {
+        const stripped = raw.trim().replace(/^[a-z]+:/, '');
+        if (isSyntheticPhone(stripped)) return;
+        const national = nationalDigits(stripped);
+        if (national) real.add(national);
+    };
     for (const table of tables) {
         for (const col of table.columns) {
             if (!needsClassification(col)) continue;
             const t = classify(col.table, col.column);
-            if (t !== 'phone' && t !== 'phone_e164' && t !== 'phone_key') continue;
+            if ((col.dataType === 'json' || col.dataType === 'jsonb') && t === 'json_deep') {
+                // A number held only inside json still needs a reserved one, or it survives.
+                const order = rowKeyColumns(table).map(ident).join(', ');
+                for (let offset = 0; ; offset += PAGE) {
+                    const r = await client.query(
+                        `select ${ident(col.column)}::text as v from ${ident(table.table)} where ${ident(col.column)} is not null `
+                        + `order by ${order} limit ${PAGE} offset ${offset}`,
+                    );
+                    for (const row of r.rows) {
+                        const parsed = safeParse(String(row.v ?? ''));
+                        for (const leaf of phoneLeavesIn(table.table, parsed)) note(leaf);
+                    }
+                    if (r.rows.length < PAGE) break;
+                }
+                continue;
+            }
+            if (t !== 'phone' && t !== 'phone_e164' && t !== 'phone_key' && t !== 'contact') continue;
             const r = await client.query(
                 `select distinct ${ident(col.column)}::text as v from ${ident(table.table)} where ${ident(col.column)} is not null`,
             );
             for (const row of r.rows) {
                 const raw = String(row.v ?? '');
-                const stripped = t === 'phone_key' ? raw.replace(/^[a-z]+:/, '') : raw;
-                if (isSyntheticPhone(stripped)) continue;
-                const national = nationalDigits(stripped);
-                if (national) real.add(national);
+                if (t === 'contact' && raw.includes('@')) continue;
+                note(raw);
             }
         }
     }

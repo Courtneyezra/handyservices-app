@@ -136,6 +136,20 @@ export function scrubScalar(treatment: Treatment, value: string | null, ctx: Val
             return fake ? `${prefix}${fake}` : raw;
         }
 
+        case 'contact': {
+            // A channel address or an identity key (server/comms-v2/desk/identity.ts): a telephone
+            // number or an e-mail address, with or without a `phone:` / `email:` prefix.
+            const m = /^([a-z]+:)?([\s\S]*)$/.exec(raw.trim());
+            const prefix = m?.[1] ?? '';
+            const rest = m?.[2] ?? raw.trim();
+            if (rest.includes('@')) {
+                return settled(isSyntheticEmail(rest)) ? raw : `${prefix}${fakeEmail(seed, 'email', rest.toLowerCase())}`;
+            }
+            return prefix
+                ? scrubScalar('phone_key', raw, ctx)
+                : scrubScalar('phone', raw, ctx);
+        }
+
         case 'email':
             return settled(isSyntheticEmail(raw)) ? raw : fakeEmail(seed, 'email', raw.trim().toLowerCase());
 

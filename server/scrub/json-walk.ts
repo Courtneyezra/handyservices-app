@@ -72,6 +72,32 @@ function scrubJsonLeaf(key: string, value: unknown, ctx: ValueContext, path: str
     return scrubJson(value, ctx, path, depth + 1);
 }
 
+const PHONE_LEAF_TREATMENTS = new Set(['phone', 'phone_e164', 'phone_key', 'contact']);
+
+/**
+ * Every string leaf in `value` whose key classifies as a telephone number, as written. Pass 1 needs
+ * these so that a number held only inside json (a case file's channel address, say) is allocated a
+ * reserved number like any other and does not survive the rewrite for want of one. A `contact`
+ * leaf holding an e-mail address is not a telephone number and is left out.
+ */
+export function phoneLeavesIn(table: string, value: unknown, depth = 0): string[] {
+    if (value === null || typeof value !== 'object' || depth > MAX_DEPTH) return [];
+    const out: string[] = [];
+    const entries: Array<[string | null, unknown]> = Array.isArray(value)
+        ? value.map((v) => [null, v])
+        : Object.entries(value as Record<string, unknown>);
+    for (const [key, v] of entries) {
+        if (typeof v === 'string') {
+            if (key === null || v.includes('@')) continue;
+            const treatment = classify(table, toSnake(key));
+            if (treatment && PHONE_LEAF_TREATMENTS.has(treatment)) out.push(v);
+        } else {
+            out.push(...phoneLeavesIn(table, v, depth + 1));
+        }
+    }
+    return out;
+}
+
 /** `customerName` and `customer_name` are the same key as far as the classifier is concerned. */
 export function toSnake(key: string): string {
     return key

@@ -39,8 +39,10 @@ for logs elsewhere in the repository, and which carries no credentials.
 
 Not from a list somebody remembered. The scrub reads `information_schema` on the target and asks
 `plan.ts` about **every column that can hold text** — text, varchar, char, arrays of those, and
-json/jsonb — and **refuses to run if one comes back unclassified**. On the current schema that is
-1,099 columns across 116 tables.
+json/jsonb — and **refuses to run if one comes back unclassified**. On `shared/schema.ts` as of
+14 September 2026 that is 1,103 columns across 117 tables, and `__tests__/plan.test.ts` holds the
+same rule over that file without a database, so a new column fails the tests before it can fail a
+scrub.
 
 Postgres enum columns are excluded before that point, because an enum can only ever hold one of
 its declared labels and so cannot hold a name.
@@ -73,12 +75,19 @@ Testimonials and reviews are *not* kept: `content_testimonials`, `quote_platform
 `contractor_reviews` and `handyman_profiles.reviews` are real customers saying real things under
 their own names, and they are treated as personal data.
 
+The new comms desk's case files (`comms_v2_case_files`) keep a whole thread in one jsonb column,
+`file`. Its leaves are classified by key through overrides scoped to that table: a party's name,
+its `canonical` identity key and its channel addresses (a `contact`: a telephone number or an
+e-mail address, prefix kept), turn bodies, sent bubbles, held drafts, release words, fact values,
+the job's location and media paths are all rewritten. Ids, the stage, the ask ledger's subjects and
+the desk's own hold reasons are kept, because the desk reads them back.
+
 ## The five passes
 
 | Pass | What it does |
 |---|---|
 | 0 refuse | The gates above, including the unclassified-column check. |
-| 1 collect | Read the real identifiers out of the classified columns; allocate one reserved telephone number per distinct real one. Held in memory for the run, written nowhere. |
+| 1 collect | Read the real identifiers out of the classified columns, and the telephone numbers out of json leaves too; allocate one reserved telephone number per distinct real one. Held in memory for the run, written nowhere. |
 | 2 rewrite | Table by table, replace the classified values. |
 | 3 sweep | Go back over every kept column and replace any of the literal strings collected in pass 1 that turn up in them. |
 | 4 prove | Scan every textual column twice: once for those literal strings, once for anything that still pattern-matches a real UK telephone number, e-mail address or postcode. Report what is left, by count. |
@@ -165,5 +174,10 @@ npx vitest run --project server server/scrub
 ```
 
 They cover the three properties above, the classifier from both ends (a column that carries a
-person must reach a treatment; a catalogue column must be kept), the fail-closed rule, the
-word-boundary sweep, and the two bugs named above by the case that caught them.
+person must reach a treatment; a catalogue column must be kept), the fail-closed rule over every
+column in `shared/schema.ts`, the word-boundary sweep, and the two bugs named above by the case
+that caught them. `__tests__/scrub.test.ts` holds the refusals against a stand-in client that
+records every statement: production, an unconfirmed run and an unclassified column each stop with
+nothing written, and the CLI exits 3 on production and without `--confirm` before it connects. It
+also runs a confirmed scrub over one case file and checks what was rewritten and what was kept.
+No test opens a database connection.

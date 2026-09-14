@@ -40,8 +40,9 @@ Key tables: `users`, `leads`, `calls`, `messages`, `personalized_quotes`, `produ
 product live against the branch and attaches sandbox evidence to every PR, so the branch is
 synthetic: `server/scrub/` rewrites every identifying value and refuses to run against production
 or against a schema carrying a column it does not classify. A new column forces a decision in
-`server/scrub/plan.ts` before the next scrub can run. Read `server/scrub/README.md` before adding
-one, before changing what a column holds, or when asked whether some data is safe to publish.
+`server/scrub/plan.ts`: `server/scrub/__tests__/plan.test.ts` fails on it, and so does the next
+scrub. Read `server/scrub/README.md` before adding one, before changing what a column holds, or
+when asked whether some data is safe to publish.
 
 ## API Routes
 - `/api/quotes`, `/api/calls`, `/api/leads` — quote, call, lead CRUD; `/api/twilio/*` webhooks

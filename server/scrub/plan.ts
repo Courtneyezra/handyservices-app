@@ -26,6 +26,7 @@ export type Treatment =
     | 'phone'              // national or however it was stored, shape preserved
     | 'phone_e164'         // always +44...
     | 'phone_key'          // the `phone:<national>` key convention (server/clients.ts)
+    | 'contact'            // a telephone number OR an e-mail address, decided per value, prefix kept
     | 'email'
     | 'address'            // one-line street address
     | 'address_line'       // just "12 Sherbrook Road"
@@ -263,6 +264,25 @@ const OVERRIDES: Record<string, Treatment> = {
     'kb_entries.status': 'keep',
     'kb_entries.approved_words': 'keep',
     'kb_entries.banned_words': 'keep',
+
+    // --- the new comms desk's case files (server/comms-v2/desk/case-file.ts). The row's own
+    //     columns are keys and copies of the record's stage; `person_ids` are minted
+    //     `person_<uuid>` ids, never a telephone number. The whole thread lives in `file`, and its
+    //     leaves are classified by key through the entries below, which apply only inside this
+    //     table because the table has no real column of those names.
+    'comms_v2_case_files.file': 'json_deep',
+    'comms_v2_case_files.name': 'person_name',          // a party's name
+    'comms_v2_case_files.canonical': 'contact',         // `phone:<national>` or `email:<address>`
+    'comms_v2_case_files.address': 'contact',           // a channel address: E.164 or an e-mail
+    'comms_v2_case_files.location': 'postcode',         // the job's postcode, outward code or area
+    'comms_v2_case_files.text': 'message_body',         // a bubble the desk sent
+    'comms_v2_case_files.draft': 'message_body',        // a held reply
+    'comms_v2_case_files.words': 'note',                // what the approver said releasing a hold
+    'comms_v2_case_files.value': 'note',                // a fact's value: a postcode, access, the job
+    'comms_v2_case_files.path': 'url',                  // a downloaded photo's local path
+    'comms_v2_case_files.approver': 'actor',            // `human:<email or user id>` on a turn or send
+    // `reason` and `why` are the desk's own words, and `subject` is also the ask ledger's
+    // enumeration, which the desk reads back, so all three are kept and swept.
 
     // --- names the rules would miss
     'tenants.name': 'person_name',
@@ -605,7 +625,7 @@ export function classify(table: string, column: string): Treatment | null {
 /** Treatments that replace the whole value, so the later sweep has nothing left to find there. */
 export const REGENERATING_TREATMENTS: ReadonlySet<Treatment> = new Set<Treatment>([
     'person_name', 'first_name', 'last_name', 'business_name', 'phone', 'phone_e164', 'phone_key',
-    'email', 'address', 'address_line', 'postcode', 'town', 'latitude', 'longitude', 'coords_json',
+    'contact', 'email', 'address', 'address_line', 'postcode', 'town', 'latitude', 'longitude', 'coords_json',
     'url', 'url_list', 'data_url', 'token', 'password', 'external_id', 'message_body', 'preview',
     'narrative', 'note', 'transcript', 'session_blob',
 ]);
