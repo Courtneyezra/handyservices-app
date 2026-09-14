@@ -26,6 +26,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CaseFile } from '../desk/case-file';
 import { DESK_APPROVER, initiate, liveTemplateStatus, type InitiatedSend, type InitiatePurpose, type OutboundLabel, type SenderDeps, type TemplateDefinition, type TemplateStatusSource } from '../desk/sender';
+import { windowTemplateFor, type WindowTemplateTrigger } from '../../window-templates';
 
 export interface ChaseRecipient { address: string | null; name: string | null }
 
@@ -46,14 +47,31 @@ export const CHASE_BEN_ENV = 'COMMS_V2_CHASE_BEN_E164';
 export const CHASE_OWNER_ENV = 'COMMS_V2_CHASE_OWNER_E164';
 
 /**
- * The desk's own templates for a desk-started send. Defined here (they go to an approver, never a
- * customer, so they are not customer window templates in server/window-templates.ts); approval
- * still comes only from the live sync by name, and the sandbox fixture marks them approved on the
- * branch database only. Bodies carry no date, time, duration, figure or commitment.
+ * Which registry row (server/window-templates.ts) carries each desk-started send. The bodies live
+ * in that one registry now, marked `audience: 'approver'` there because they go to Ben or the
+ * owner, never a customer — this file no longer keeps its own copy of the wording.
+ */
+const CHASE_TRIGGER_FOR_PURPOSE: Record<InitiatePurpose, WindowTemplateTrigger['id']> = {
+    approver_chase: 'desk_approver_chase',
+    owner_escalation: 'desk_owner_escalation',
+};
+
+function chaseTemplateDefinition(purpose: InitiatePurpose): TemplateDefinition {
+    const triggerId = CHASE_TRIGGER_FOR_PURPOSE[purpose];
+    const row = windowTemplateFor(triggerId);
+    if (!row) throw new Error(`no window template registered for trigger ${triggerId}`);
+    const rung = row.rungs[0];
+    return { name: rung.name, language: row.language, body: rung.body, variables: rung.variables };
+}
+
+/**
+ * The desk's own templates for a desk-started send, read from the one registry. Approval still
+ * comes only from the live sync by name, and the sandbox fixture marks them approved on the branch
+ * database only. Bodies carry no date, time, duration, figure or commitment.
  */
 export const CHASE_TEMPLATES: Record<InitiatePurpose, TemplateDefinition> = {
-    approver_chase: { name: 'desk_approver_chase_v1', language: 'en_GB', body: 'Hi {{1}}, a customer thread is waiting on you: {{2}}. Open the desk to pick it up.', variables: { '1': 'Ben', '2': 'a complaint from Sam' } },
-    owner_escalation: { name: 'desk_owner_escalation_v1', language: 'en_GB', body: 'Hi {{1}}, a customer thread has been waiting on Ben and he has not picked it up: {{2}}. It needs a look.', variables: { '1': 'there', '2': 'a complaint from Sam' } },
+    approver_chase: chaseTemplateDefinition('approver_chase'),
+    owner_escalation: chaseTemplateDefinition('owner_escalation'),
 };
 
 export interface ChaseAttempt {
