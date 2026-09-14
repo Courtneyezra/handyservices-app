@@ -39,7 +39,7 @@ export const INTAKE_REQUIREMENTS: readonly string[] = [
 export type IntakeEvent =
     | { kind: 'twilio_incoming'; body: Record<string, unknown> }
     | { kind: 'meta_webhook'; payload: unknown }
-    | { kind: 'web_form'; lead: { customerName?: string | null; phone?: string | null; email?: string | null; jobDescription?: string | null; postcode?: string | null; address?: string | null; source?: string | null; leadId?: string | null } }
+    | { kind: 'web_form'; lead: { customerName?: string | null; phone?: string | null; email?: string | null; jobDescription?: string | null; postcode?: string | null; address?: string | null; source?: string | null; leadId?: string | null; photos?: Array<{ contentBase64?: string | null; mime?: string | null }> } }
     | { kind: 'call_finished'; callRecordId: string };
 
 export interface IntakeReport { forwarded: number; skipped: string[] }

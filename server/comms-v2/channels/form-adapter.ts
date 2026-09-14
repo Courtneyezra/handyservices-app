@@ -13,7 +13,7 @@ import { e164FromWhatsApp } from '../desk/whatsapp-adapter';
 import { canonical } from '../desk/identity';
 import { parseLocation } from '../desk/lexicon';
 import type { InboundEnvelope, IntakeFact } from './envelope';
-import { isRefused, writeInboundMedia, type MediaWriteDeps } from './media';
+import { isRefused, MAX_WEB_FORM_PHOTOS, writeInboundMedia, writeVerifiedPhoto, type MediaWriteDeps } from './media';
 
 export interface WebFormLead {
     customerName?: string | null;
@@ -53,10 +53,16 @@ export async function fromWebForm(lead: WebFormLead, deps: FormAdapterDeps = {})
         channel: 'form', address: phone ?? email!, name, text: job || 'No description provided', media: [], at: lead.at ?? now().toISOString(),
         providerMessageId: lead.leadId ?? null, via: 'webform', mediaFailures: [], kind: 'form', hints: { email, phone, postcode: lead.postcode ?? null }, reach, facts,
     };
-    for (const p of lead.photos ?? []) {
+    const photos = lead.photos ?? [];
+    if (photos.length > MAX_WEB_FORM_PHOTOS) {
+        turn.mediaFailures.push({ ref: '(photo)', reason: `too many photos (${photos.length}), kept the first ${MAX_WEB_FORM_PHOTOS}` });
+    }
+    for (const p of photos.slice(0, MAX_WEB_FORM_PHOTOS)) {
         const bytes = p.contentBase64 ? Buffer.from(p.contentBase64, 'base64') : null;
         if (!bytes) { turn.mediaFailures.push({ ref: '(photo)', reason: 'photo with no content' }); continue; }
-        const m = writeInboundMedia(bytes, p.mime || 'image/jpeg', deps);
+        // POST /api/leads is public and unauthenticated: verify the bytes themselves rather than
+        // trusting the caller's claimed mime, and cap the size before anything is written to disk.
+        const m = writeVerifiedPhoto(bytes, deps);
         if (isRefused(m)) turn.mediaFailures.push({ ref: '(photo)', reason: m.refused });
         else turn.media.push(m);
     }

@@ -1,11 +1,11 @@
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, ArrowRight } from "lucide-react";
+import { Loader2, ArrowRight, Camera, X } from "lucide-react";
 
 import Autocomplete from "react-google-autocomplete";
 
@@ -13,6 +13,27 @@ import Autocomplete from "react-google-autocomplete";
 // input are pixel-identical — the user never sees a swap.
 const POSTCODE_INPUT_CLASS =
     "flex h-12 w-full rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-2 text-lg text-white ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+
+// Photos travel as bytes in the lead payload, never as a URL the server fetches.
+// Kept small: 4 photos at up to 6MB each stays inside /api/leads' 40mb JSON limit
+// once base64-encoded (server/index.ts).
+const MAX_PHOTOS = 4;
+const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
+
+interface PendingPhoto {
+    dataUrl: string;
+    contentBase64: string;
+    mime: string;
+}
+
+function readPhotoAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(new Error("Could not read that photo"));
+        r.readAsDataURL(file);
+    });
+}
 
 export function DesktopLeadForm() {
     const [loading, setLoading] = useState(false);
@@ -35,7 +56,42 @@ export function DesktopLeadForm() {
         }
         return { jobDescription, postcode: "", phone: "" };
     });
+    const [photos, setPhotos] = useState<PendingPhoto[]>([]);
+    const [photoError, setPhotoError] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const { toast } = useToast();
+
+    const addPhotos = async (files: FileList | null) => {
+        if (!files || !files.length) return;
+        setPhotoError(null);
+        const room = MAX_PHOTOS - photos.length;
+        const picked = Array.from(files).slice(0, room);
+        if (files.length > room) {
+            setPhotoError(`Up to ${MAX_PHOTOS} photos.`);
+        }
+        const next: PendingPhoto[] = [];
+        for (const file of picked) {
+            if (!file.type.startsWith("image/")) {
+                setPhotoError("Only photos, please.");
+                continue;
+            }
+            if (file.size > MAX_PHOTO_BYTES) {
+                setPhotoError("That photo is too large — try a smaller one.");
+                continue;
+            }
+            try {
+                const dataUrl = await readPhotoAsDataUrl(file);
+                const [, base64] = dataUrl.split(",", 2);
+                if (!base64) continue;
+                next.push({ dataUrl, contentBase64: base64, mime: file.type });
+            } catch {
+                setPhotoError("Could not add that photo.");
+            }
+        }
+        if (next.length) setPhotos((p) => [...p, ...next].slice(0, MAX_PHOTOS));
+    };
+
+    const removePhoto = (idx: number) => setPhotos((p) => p.filter((_, i) => i !== idx));
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -57,7 +113,10 @@ export function DesktopLeadForm() {
                 jobDescription: formData.jobDescription,
                 postcode: formData.postcode, // Make sure backend handles this or adds to description
                 source: "desktop_hero_flow",
-                outcome: "new_lead"
+                outcome: "new_lead",
+                photos: photos.length
+                    ? photos.map((p) => ({ contentBase64: p.contentBase64, mime: p.mime }))
+                    : undefined,
             });
 
             setSuccess(true);
@@ -92,6 +151,8 @@ export function DesktopLeadForm() {
                         onClick={() => {
                             setSuccess(false);
                             setFormData({ jobDescription: "", postcode: "", phone: "" });
+                            setPhotos([]);
+                            setPhotoError(null);
                         }}
                         variant="outline"
                         className="mt-4 border-slate-600 text-slate-300 hover:text-white"
@@ -170,6 +231,46 @@ export function DesktopLeadForm() {
                         value={formData.phone}
                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     />
+                </div>
+
+                <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {photos.map((p, idx) => (
+                            <div key={idx} className="relative w-14 h-14 rounded-xl overflow-hidden border border-slate-700">
+                                <img src={p.dataUrl} alt="" className="w-full h-full object-cover" />
+                                <button
+                                    type="button"
+                                    onClick={() => removePhoto(idx)}
+                                    aria-label="Remove photo"
+                                    className="absolute top-0.5 right-0.5 bg-slate-900/80 rounded-full p-0.5 text-white"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        ))}
+                        {photos.length < MAX_PHOTOS && (
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                data-testid="button-add-photo"
+                                className="w-14 h-14 rounded-xl bg-slate-800/50 border border-dashed border-slate-600 flex flex-col items-center justify-center text-slate-400 hover:text-emerald-400 hover:border-emerald-500 transition-colors"
+                                aria-label="Add a photo"
+                            >
+                                <Camera className="w-5 h-5" />
+                            </button>
+                        )}
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            capture="environment"
+                            className="hidden"
+                            onChange={(e) => { void addPhotos(e.target.files); e.currentTarget.value = ""; }}
+                        />
+                        <span className="text-sm text-slate-400">Add a photo (optional)</span>
+                    </div>
+                    {photoError && <p className="text-xs text-rose-400 mt-1.5">{photoError}</p>}
                 </div>
 
                 <Button
