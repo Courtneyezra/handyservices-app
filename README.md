@@ -8,6 +8,7 @@ This project isolates the "High IQ" components from the V5 legacy system:
 1.  **The Monitor**: A Twilio Realtime WebSocket server that listens to calls, transcribes them using OpenAI Whisper, and logs them.
 2.  **The Brain**: The `skuDetector` that analyzes transcripts to suggest "Tap Repair" or "TV Mounting" SKUs.
 3.  **The Face**: The `HandymanLanding` page optimized for conversion.
+4.  **The comms desk**: The customer-messaging pipeline under `server/spine/` (case file → triage → policy pack → agent → guards → decision → exit), now the largest surface in the app, plus the in-progress `server/comms-v2/` rebuild. See `AGENTS.md`'s "Key Documentation" section for the authoritative deep links.
 
 ## 📂 Project Structure
 
@@ -17,7 +18,7 @@ This project isolates the "High IQ" components from the V5 legacy system:
     *   `twilio-realtime.ts`: Handles WebSocket audio streams.
     *   `skuDetector.ts`: AI logic for pricing.
 *   `shared/`: Shared Types & Schema
-    *   `schema.ts`: Drizzle ORM definitions (Pruned to essentials).
+    *   `schema.ts`: Drizzle ORM definitions (around 117 tables and growing; run `grep -c "= pgTable(" shared/schema.ts` for the current count).
 
 ## 🛠️ Setup & Installation
 
@@ -53,8 +54,8 @@ npm run dev
 To connect "The Monitor" to real calls:
 1.  Go to Twilio Console > Voice > TwiML Apps.
 2.  Create a new App (or update existing).
-3.  Set the **Voice Configuration Request URL** to your backend URL (e.g., `https://your-app.replit.app/api/twilio/voice`).
-4.  The backend will return TwiML to `<Connect><Stream url="wss://your-app.replit.app/api/twilio/realtime" /></Connect>`.
+3.  Set the **Voice Configuration Request URL** to your backend URL (e.g., `https://your-app-domain.example/api/twilio/voice`).
+4.  The backend will return TwiML to `<Connect><Stream url="wss://your-app-domain.example/api/twilio/realtime" /></Connect>`.
 
 ## 🧠 SKU Logic
 The system uses a hybrid approach:
