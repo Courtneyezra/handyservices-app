@@ -129,6 +129,13 @@ describe('pickTemplate', () => {
         const marketingOnly = await pickTemplate('service_reply', { name: null, topic: 'x', at: AT }, { async approved(name) { return name === 'enquiry_followup_optin_v1' ? { contentSid: 'HX_mkt' } : null; } });
         expect(marketingOnly.ok).toBe(false);
     });
+    it('reaches the quote-accepted acknowledgement from no purpose yet, even once it is approved: wiring it is a cutover item', async () => {
+        const approvedAccepted = { async approved(name: string) { return name === 'quote_accepted_ack_v1' ? { contentSid: 'HX_accepted' } : null; } };
+        for (const purpose of ['service_reply', 'web_form_ack', 'web_form_ack_no_call', 'post_call_followup', 'missed_call'] as const) {
+            const pick = await pickTemplate(purpose, { name: 'Jo', topic: 'the garden gate', at: AT }, approvedAccepted);
+            expect({ purpose, ok: pick.ok }).toEqual({ purpose, ok: false });
+        }
+    });
     it('sends the words and the variables of the rung that is actually approved, not the best rung\'s', async () => {
         const vars = { name: 'Marc', topic: 'the kitchen door', at: AT };
         const first = await pickTemplate('post_call_followup', vars, { async approved(name) { return name === 'post_call_followup_v1' ? { contentSid: 'HX_v1' } : null; } });
