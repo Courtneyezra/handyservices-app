@@ -98,6 +98,32 @@ export function phoneLeavesIn(table: string, value: unknown, depth = 0): string[
     return out;
 }
 
+const EMAIL_LEAF_TREATMENTS = new Set(['email', 'contact']);
+
+/**
+ * Every string leaf in `value` whose key classifies as an e-mail address, as written (any
+ * `email:`/`phone:`-style prefix included). Pass 1 needs these so an address held only inside json
+ * (a case file's channel address, say) still reaches the pass-3 sweep like any classified column.
+ * A `contact` leaf holding a telephone number is not an e-mail address and is left out.
+ */
+export function emailLeavesIn(table: string, value: unknown, depth = 0): string[] {
+    if (value === null || typeof value !== 'object' || depth > MAX_DEPTH) return [];
+    const out: string[] = [];
+    const entries: Array<[string | null, unknown]> = Array.isArray(value)
+        ? value.map((v) => [null, v])
+        : Object.entries(value as Record<string, unknown>);
+    for (const [key, v] of entries) {
+        if (typeof v === 'string') {
+            if (key === null || !v.includes('@')) continue;
+            const treatment = classify(table, toSnake(key));
+            if (treatment && EMAIL_LEAF_TREATMENTS.has(treatment)) out.push(v);
+        } else {
+            out.push(...emailLeavesIn(table, v, depth + 1));
+        }
+    }
+    return out;
+}
+
 /** `customerName` and `customer_name` are the same key as far as the classifier is concerned. */
 export function toSnake(key: string): string {
     return key

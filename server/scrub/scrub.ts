@@ -24,10 +24,10 @@ import { classify, REGENERATING_TREATMENTS, type Treatment } from './plan';
 import { readSchema, textualColumns, needsClassification, rowKeyColumns, type ColumnInfo, type TableInfo } from './introspect';
 import { Substitutions, residualsIn, type IdentifierKind } from './detect';
 import { scrubScalar, EMPTY_SESSION, type ValueContext } from './values';
-import { scrubJson, phoneLeavesIn } from './json-walk';
+import { scrubJson, phoneLeavesIn, emailLeavesIn } from './json-walk';
 import {
     DRAMA_CAPACITY, dramaNumberAt, digest, fakeEmail, fakeFullName, fakePostcode, fakeTown,
-    isSyntheticPhone, nationalDigits,
+    isSyntheticEmail, isSyntheticPhone, nationalDigits,
 } from './synthetic';
 
 const PAGE = 500;
@@ -106,7 +106,7 @@ export function refusalFor(opts: ScrubOptions): string | null {
 /** Treatments whose real values are worth collecting for the sweep in pass 3. */
 const COLLECTED: ReadonlySet<Treatment> = new Set<Treatment>([
     'person_name', 'first_name', 'last_name', 'business_name', 'phone', 'phone_e164', 'phone_key',
-    'email', 'contact', 'address', 'address_line', 'postcode', 'town',
+    'email', 'address', 'address_line', 'postcode', 'town',
 ]);
 
 export async function scrubDatabase(client: Client, opts: ScrubOptions): Promise<ScrubReport> {
@@ -301,8 +301,34 @@ async function collectOthers(
     for (const table of tables) {
         for (const col of table.columns) {
             if (!needsClassification(col)) continue;
-            if (col.dataType === 'json' || col.dataType === 'jsonb' || col.dataType === 'ARRAY') continue;
             const t = classify(col.table, col.column);
+            if ((col.dataType === 'json' || col.dataType === 'jsonb') && t === 'json_deep') {
+                // An e-mail address held only inside json still needs collecting, or it survives
+                // wherever else in the database the sweep is the only thing protecting.
+                const order = rowKeyColumns(table).map(ident).join(', ');
+                for (let offset = 0; ; offset += PAGE) {
+                    const r = await client.query(
+                        `select ${ident(col.column)}::text as v from ${ident(table.table)} where ${ident(col.column)} is not null `
+                        + `order by ${order} limit ${PAGE} offset ${offset}`,
+                    );
+                    for (const row of r.rows) {
+                        const parsed = safeParse(String(row.v ?? ''));
+                        for (const leaf of emailLeavesIn(table.table, parsed)) {
+                            const raw = leaf.trim().replace(/^[a-z]+:/, '');
+                            if (!raw || isSyntheticEmail(raw)) continue;
+                            if (preserveEmail && raw.toLowerCase() === preserveEmail) continue;
+                            const ctx = { ...valueContext(seed, table.table, col.column, 'collect', subs, phoneMap), force };
+                            const fake = scrubScalar('email', raw, ctx);
+                            if (!fake || fake === raw) continue;
+                            subs.add(raw, fake);
+                            subs.add(raw.toLowerCase(), fake);
+                        }
+                    }
+                    if (r.rows.length < PAGE) break;
+                }
+                continue;
+            }
+            if (col.dataType === 'json' || col.dataType === 'jsonb' || col.dataType === 'ARRAY') continue;
             if (!t || !COLLECTED.has(t) || t === 'phone' || t === 'phone_e164' || t === 'phone_key') continue;
             const r = await client.query(
                 `select distinct ${ident(col.column)}::text as v from ${ident(table.table)} where ${ident(col.column)} is not null`,
@@ -310,15 +336,12 @@ async function collectOthers(
             for (const row of r.rows) {
                 const raw = String(row.v ?? '').trim();
                 if (!raw) continue;
-                // A `contact` column's phone-shaped values are already collected by collectPhones;
-                // only its e-mail-shaped values still need to reach the sweep.
-                if (t === 'contact' && !raw.includes('@')) continue;
                 const ctx = { ...valueContext(seed, table.table, col.column, 'collect', subs, phoneMap), force };
                 const fake = scrubScalar(t, raw, ctx);
                 if (!fake || fake === raw) continue;
                 if (t === 'person_name' || t === 'first_name' || t === 'last_name' || t === 'business_name') {
                     subs.addName(raw, fake);
-                } else if (t === 'email' || t === 'contact') {
+                } else if (t === 'email') {
                     if (preserveEmail && raw.toLowerCase() === preserveEmail) continue;
                     subs.add(raw, fake);
                     subs.add(raw.toLowerCase(), fake);

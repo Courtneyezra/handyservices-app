@@ -79,15 +79,16 @@ The new comms desk's case files (`comms_v2_case_files`) keep a whole thread in o
 `file`. Its leaves are classified by key through overrides scoped to that table: a party's name,
 its `canonical` identity key and its channel addresses (a `contact`: a telephone number or an
 e-mail address, prefix kept), turn bodies, sent bubbles, held drafts, release words, fact values,
-the job's location and media paths are all rewritten. Ids, the stage, the ask ledger's subjects and
-the desk's own hold reasons are kept, because the desk reads them back.
+a hold or release reason (free text: a specialist can write a customer's own new address or
+e-mail from a change of details onto it), the job's location and media paths are all rewritten.
+Ids, the stage and the ask ledger's subjects are kept, because the desk reads them back.
 
 ## The five passes
 
 | Pass | What it does |
 |---|---|
 | 0 refuse | The gates above, including the unclassified-column check. |
-| 1 collect | Read the real identifiers out of the classified columns, and the telephone numbers out of json leaves too; allocate one reserved telephone number per distinct real one. Held in memory for the run, written nowhere. |
+| 1 collect | Read the real identifiers out of the classified columns, and the telephone numbers and e-mail addresses out of json leaves too; allocate one reserved telephone number per distinct real one. Held in memory for the run, written nowhere. |
 | 2 rewrite | Table by table, replace the classified values. |
 | 3 sweep | Go back over every kept column and replace any of the literal strings collected in pass 1 that turn up in them. |
 | 4 prove | Scan every textual column twice: once for those literal strings, once for anything that still pattern-matches a real UK telephone number, e-mail address or postcode. Report what is left, by count. |

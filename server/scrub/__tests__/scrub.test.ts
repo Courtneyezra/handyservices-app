@@ -223,6 +223,43 @@ describe('the comms desk case file', () => {
         expect(after.turns[0].partyId).toBe('person_1');
         expect(after.turns[0].media[0].url).not.toBe(REAL_FILE.turns[0].media[0].url);
     });
+
+    const REAL_EMAIL = 'margaret.wilkinson@example.co.uk';
+
+    /** A real e-mail held only as a party's channel address, and again in `why` — kept, sweep-only. */
+    const fileWithEmailInAKeptLeaf = () => ({
+        ...structuredClone(REAL_FILE),
+        parties: [
+            ...structuredClone(REAL_FILE.parties),
+            {
+                personId: 'person_2', role: 'homeowner', name: null, canonical: `email:${REAL_EMAIL}`,
+                channels: [{ kind: 'email', address: REAL_EMAIL, lastInboundAt: '2026-09-13T10:01:00.000Z' }],
+                prefersText: true, alreadyRung: false, callOffered: false,
+            },
+        ],
+        stageHistory: [{ from: null, to: 'first_contact', at: '2026-09-13T10:00:00.000Z', why: `first contact from ${REAL_EMAIL}` }],
+    });
+
+    const caseFileTableWith = (file: unknown): Table => ({
+        ...caseFileTable(),
+        rows: [{ id: 'case_1', stage: 'scoping', person_ids: ['person_1', 'person_2'], file }],
+    });
+
+    it('sweeps a real e-mail held only in the file into a kept leaf elsewhere', async () => {
+        const { client, writes } = fakeClient([caseFileTableWith(fileWithEmailInAKeptLeaf())]);
+        await scrubDatabase(client, options());
+        const update = writes().find((w) => w.sql.startsWith('update "comms_v2_case_files"'))!;
+        const after = JSON.parse(update.params![0] as string) as ReturnType<typeof fileWithEmailInAKeptLeaf>;
+        expect(after.stageHistory[0].why).not.toContain(REAL_EMAIL);
+    });
+
+    it('never collects the preserved login e-mail for the sweep', async () => {
+        const { client, writes } = fakeClient([caseFileTableWith(fileWithEmailInAKeptLeaf())]);
+        await scrubDatabase(client, options({ preserveLoginEmail: REAL_EMAIL }));
+        const update = writes().find((w) => w.sql.startsWith('update "comms_v2_case_files"'))!;
+        const after = JSON.parse(update.params![0] as string) as ReturnType<typeof fileWithEmailInAKeptLeaf>;
+        expect(after.stageHistory[0].why).toBe(`first contact from ${REAL_EMAIL}`);
+    });
 });
 
 describe('the CLI refuses before it connects', () => {
