@@ -162,8 +162,10 @@ pre-existing failures (pricing engine, segment classifier, contractor pay). The 
    (the fake URL keeps `server/db.ts` from throwing; `server/__tests__/setup.ts` refuses the
    production host outright). This runs three projects (`vitest.config.ts`): `server` (the 42
    baseline live here), `comms-v2` (the new desk under `server/comms-v2/`; see
-   `server/comms-v2/README.md`) and `client` (jsdom + Testing
-   Library for the admin UI, must be green).
+   `server/comms-v2/README.md`, green) and `client` (jsdom + Testing Library for the admin UI; one
+   pre-existing failure today in `client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx`, 5
+   tests — the .github/workflows/unit-tests.yml PR gate runs only `comms-v2` and `server/scrub`
+   for that reason).
    `npm run test:client` runs the client project alone; new UI needs a test beside it under
    `client/src/**/__tests__/`, helpers in `client/test-utils.tsx`, jsdom gaps in `client/test-setup.ts`.
 3. **esbuild succeeds**: `npx esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=/tmp/esb.js`.
