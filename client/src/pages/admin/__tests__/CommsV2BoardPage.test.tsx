@@ -33,6 +33,7 @@ function card(over: Partial<BoardCard> = {}): BoardCard {
         lastCustomerMessageAt: new Date().toISOString(),
         replyChannel: 'whatsapp',
         openedAt: new Date().toISOString(),
+        benToRequest: [],
         ...over,
     };
 }

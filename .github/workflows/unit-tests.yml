@@ -2,10 +2,10 @@
 #
 # vitest.config.ts defines three projects: `server` (the original node suite; docs/RUNBOOK.md
 # "Verification rule" documents 42+ pre-existing failures there), `comms-v2`
-# (server/comms-v2/**, green), and `client` (jsdom; also has a pre-existing failure today, in
-# client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx). This gate runs only what is
+# (server/comms-v2/**, green), and `client` (jsdom, green). This gate runs only what is
 # actually green on main right now:
 #   - the `comms-v2` project in full
+#   - the `client` project in full
 #   - server/scrub (part of the `server` project, run by path filter rather than the whole
 #     project, since the rest of `server` is red)
 #
@@ -36,5 +36,7 @@ jobs:
       - run: npm ci
       - name: comms-v2 suite
         run: npx vitest run --project comms-v2
+      - name: client suite
+        run: npx vitest run --project client
       - name: scrub suite
         run: npx vitest run --project server server/scrub
