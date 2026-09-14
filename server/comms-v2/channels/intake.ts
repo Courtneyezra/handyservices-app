@@ -11,16 +11,19 @@
  *
  * The switch alone does not start the intake: `INTAKE_REQUIREMENTS` below is what the intake must
  * have before it reads one live turn, and until every one of them is met the gateway refuses to be
- * built and every forward says so. Fail closed on purpose: with the switch flipped early the intake
- * would otherwise run live traffic against an identity that has never been told which numbers are
- * ours. The case files it opens are kept in the durable store (desk/database-store.ts), read in
- * full when the gateway is built, so a restart or a redeploy loses no thread.
+ * built and every forward says so. Fail closed on purpose. The case files it opens are kept in the
+ * durable store (desk/database-store.ts), read in full when the gateway is built, so a restart or a
+ * redeploy loses no thread. Its identity is told which numbers are ours when it is built
+ * (`seedInternalNumbers`), so Ben's handset, staff and the business's own lines resolve internal and
+ * the gateway refuses them before a case file opens.
  *
  * `forwardToCommsV2` never throws and never blocks: an old handler's response does not wait on
  * the new desk, and a failure here is one log line. No value from an event is logged, only the
  * case id and the decision.
  */
 import type { InboundEnvelope } from './envelope';
+import type { Identity } from '../desk/identity';
+import type { NonCustomerReason } from '../../internal-numbers';
 
 export const INTAKE_ENV = 'COMMS_V2_INTAKE';
 
@@ -32,9 +35,7 @@ export function intakeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * What the intake must have before it may read a live turn, each outstanding. A line is deleted
  * here by the task that satisfies it, and the intake starts when the list is empty.
  */
-export const INTAKE_REQUIREMENTS: readonly string[] = [
-    'a populated internal-number directory: the identity here has never been told which numbers are the business\'s own or its staff, so Ben\'s own handset would resolve as a customer and open a case file (server/internal-numbers.ts holds the numbers; registerInternal takes them)',
-];
+export const INTAKE_REQUIREMENTS: readonly string[] = [];
 
 export type IntakeEvent =
     | { kind: 'twilio_incoming'; body: Record<string, unknown> }
@@ -50,8 +51,9 @@ let live: Promise<import('./channel-gateway').ChannelGateway> | null = null;
  * The one live gateway, built on first use. Refuses while any of `INTAKE_REQUIREMENTS` is
  * outstanding, so a switch flipped before they land forwards nothing and says what is missing.
  * Its case files are the durable store's, read in full before the first turn, and its identity is
- * rebuilt from the parties on them; the store refuses unless the database in use is the branch
- * COMMS_V2_DATABASE_URL names. A build that fails is forgotten, so the next forward tries again
+ * rebuilt from the parties on them and then told which numbers are ours; the store refuses unless
+ * the database in use is the branch COMMS_V2_DATABASE_URL names, and the build refuses when the
+ * staff directory cannot be read. A build that fails is forgotten, so the next forward tries again
  * rather than repeating a passing failure for the life of the process.
  */
 export function liveChannelGateway(): Promise<import('./channel-gateway').ChannelGateway> {
@@ -64,12 +66,54 @@ export function liveChannelGateway(): Promise<import('./channel-gateway').Channe
             const { identityFromCaseFiles, openCaseFileStore } = await import('../desk/database-store');
             const log = (line: string) => console.log(`[comms-v2 intake] ${line}`);
             const store = await openCaseFileStore({ log });
-            return new ChannelGateway({ desk: new ChannelDesk(new Desk({ mode: 'dry_run', log }), { mode: 'dry_run', log }), identity: identityFromCaseFiles(store.all()), store, presence: messagesPresence, log });
+            const identity = identityFromCaseFiles(store.all());
+            const seeded = await seedInternalNumbers(identity);
+            log(`identity: ${seeded.registered} internal keys registered${seeded.refused ? `; ${seeded.refused} refused because a case file already holds them as a customer` : ''}`);
+            return new ChannelGateway({ desk: new ChannelDesk(new Desk({ mode: 'dry_run', log }), { mode: 'dry_run', log }), identity, store, presence: messagesPresence, log });
         })();
         live = building;
         building.catch(() => { if (live === building) live = null; });
     }
     return live;
+}
+
+/** A number that is ours, keyed the way server/internal-numbers.ts keys it (commsPhoneKey: national digits, no leading 0), with why. */
+export type InternalNumbers = Map<string, NonCustomerReason>;
+
+/**
+ * Every number that is ours, from server/internal-numbers.ts, the one list: the business's own
+ * lines, the numbers placed in the INTERNAL_PHONE_NUMBERS environment variable (Ben's handset and
+ * any staff number the database does not hold; never committed), and the staff and contractor
+ * numbers in the database. Throws when the database cannot be read, so the build refuses rather
+ * than starting on a partial list.
+ */
+export async function readInternalNumbers(): Promise<InternalNumbers> {
+    const { internalNumberKeys } = await import('../../internal-numbers');
+    return internalNumberKeys();
+}
+
+/**
+ * Tells the identity which numbers are ours, once per gateway build. An internal key resolves
+ * internal ahead of every other role, and the gateway refuses an internal turn before a case file
+ * opens. The list's keys are commsPhoneKey digits; the identity's are `canonical` keys, which spell
+ * a UK landline differently when it arrives as +44 and as 0, so each number is registered under
+ * both spellings. A key a loaded case file already holds as a customer is refused by
+ * `registerInternal` and counted; no value is logged.
+ */
+export async function seedInternalNumbers(identity: Identity, read: () => Promise<InternalNumbers> = readInternalNumbers): Promise<{ registered: number; refused: number }> {
+    const { e164FromCommsKey } = await import('../../phone-utils');
+    const { canonical } = await import('../desk/identity');
+    let registered = 0;
+    let refused = 0;
+    for (const [key, reason] of Array.from(await read())) {
+        const spellings = new Set([canonical(e164FromCommsKey(key)), /^[1237]\d{9}$/.test(key) ? canonical(`0${key}`) : null]);
+        for (const spelling of Array.from(spellings)) {
+            if (!spelling) continue;
+            if (identity.registerInternal(spelling, reason.detail).ok) registered++;
+            else refused++;
+        }
+    }
+    return { registered, refused };
 }
 
 /** Whether a number is on WhatsApp, from the messages the business already holds: an inbound WhatsApp message from it. */
