@@ -98,7 +98,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
     let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
     registerInternal(gateway);
     const reset = () => {
-        deps.scheduling.diaryMode.completed = 'diary';
+        deps.scheduling.diary.emptied = false;
         gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
         registerInternal(gateway);
         chase.ledger.clear();

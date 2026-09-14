@@ -18,7 +18,7 @@ import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
 import { MemoryDiary } from './diary';
 import { linkFixture } from './scheduling-door';
-import { MemoryFixture } from './fixture';
+import { FixtureDiary, MemoryFixture } from './fixture';
 
 const NOW = Date.parse('2026-09-11T10:00:00.000Z');
 
@@ -45,7 +45,7 @@ function specialists(schedulingAsks: string[], requestedChange: string | null = 
     };
 }
 
-function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], diary: MemoryDiary, extra: Partial<DeskDeps> = {}, mode: 'diary' | 'none' = 'diary') {
+function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], diary: MemoryDiary, extra: Partial<DeskDeps> = {}, emptied = false) {
     const client = new FakeModelClient(handlers);
     const clock = { t: NOW };
     const now = () => new Date(clock.t += 1000);
@@ -55,7 +55,7 @@ function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], diary:
         const row = (await store.read(ref)) as Record<string, any> | null;
         return row ? { id: String(row.id), slug: String(row.shortSlug), isDraft: row.isDraft !== false, supersededAt: row.supersededAt ?? null, revokedAt: row.revokedAt ?? null, expiresAt: row.expiresAt ?? null } : null;
     };
-    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' }, scheduling: { diary, diaryMode: { completed: mode }, baseUrl: 'https://example.test' }, ...extra });
+    const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' }, scheduling: { diary: Object.assign(new FixtureDiary(diary), { emptied }), baseUrl: 'https://example.test' }, ...extra });
     return { client, gateway: new Gateway({ desk: d, now }), now };
 }
 
@@ -72,7 +72,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         let leadFactId = '';
         const { client, gateway } = desk({
             router: ({ n }) => n === 1 ? scoping() : scheduling({ subjects: ['scoping', 'scheduling'] }),
-            specialist: specialists(['lead_time']),
+            specialist: specialists(['availability']),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain('Notes from scheduling');
@@ -104,7 +104,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         const { diary } = await seededDiary(0);
         const { gateway } = desk({
             router: ({ n }) => n === 1 ? scoping() : scheduling({ subjects: ['scoping', 'scheduling'] }),
-            specialist: specialists(['lead_time']),
+            specialist: specialists(['availability']),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain(DEFAULT_FIXED_LINES.dates_with_quote);
@@ -129,14 +129,14 @@ describe('the desk with Scheduling (Goal 5)', () => {
         const { diary } = await seededDiary(6);
         const { gateway } = desk({
             router: ({ n }) => n === 1 ? scoping() : scheduling(),
-            specialist: specialists(['lead_time']),
+            specialist: specialists(['availability']),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain(DEFAULT_FIXED_LINES.dates_with_quote);
                 expect(user).not.toMatch(/say exactly "about/);
                 return { reply: 'Dates come with your quote.', factIds: [], kbIds: [] };
             },
-        }, diary, {}, 'none');
+        }, diary, {}, true);
         await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
         const second = await gateway.inbound(turn('When can you come?', '2026-09-11T10:05:00.000Z'));
         if (second.kind !== 'handled') throw new Error(second.kind);
@@ -367,7 +367,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         pool.assignmentStatus = 'unassigned';
         const { gateway } = desk({
             router: ({ n }) => n === 1 ? scoping() : scheduling({ proposedStage: 'booked' }),
-            specialist: specialists(['booked_date', 'lead_time']),
+            specialist: specialists(['booked_date', 'availability']),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
@@ -473,9 +473,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
         const { diary } = await seededDiary(6);
         const { client, gateway } = desk({
             router: () => scoping(),
-            specialist: specialists(['lead_time']),
+            specialist: specialists(['availability']),
             composer: ({ n }) => n === 1 ? { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] } : { reply: 'Dates come with your quote.', factIds: [], kbIds: [] },
-        }, diary, {}, 'none');
+        }, diary, {}, true);
         await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
         await gateway.inbound(turn('When could you come out?', '2026-09-11T10:05:00.000Z'));
         expect(client.calls.filter((c) => c.role === 'specialist' && c.system.includes('Scheduling specialist'))).toHaveLength(1);
