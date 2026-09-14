@@ -2664,7 +2664,7 @@ quotesRouter.patch('/api/personalized-quotes/:id/update-date', async (req, res) 
 // PAYMENT ANALYTICS ENDPOINTS
 // ==========================================
 
-import { and, gte, isNotNull, sql, count, sum } from "drizzle-orm";
+import { and, gte, isNotNull, count, sum } from "drizzle-orm";
 
 // GET /api/admin/payments/summary
 // Aggregate payment stats (today, week, month)
@@ -2893,7 +2893,6 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
 // ==========================================
 
 import { twilioClient } from './twilio-client';
-import { sendCustomerMessage } from './outbound';
 import { getWhatsAppValueLines } from '@shared/hassle-comparisons';
 import { verticalConfig } from '@shared/verticals';
 import { calls } from '@shared/schema';
