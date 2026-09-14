@@ -269,12 +269,23 @@ export async function priceQuote(file: CaseFile, input: Omit<PriceInput, 'by'> &
     const by = input.by ?? 'human:ben';
     const r = await d.store.price(file.job.quoteRef, { ...input, by });
     if (!r.ok) return r;
+    return pricedQuoteOf(file, r.quoteUrl, r.totals, deps);
+}
+
+/**
+ * A quote the price screen has already priced (its own `confirmPrices`, as Ben's live price screen
+ * does before it sends), read back as the delivery needs it: the record and the ids of the facts the
+ * file holds about it. Writes nothing to the row.
+ */
+export async function pricedQuoteOf(file: CaseFile, quoteUrl: string, totals: { totalPence: number; depositPence: number }, deps: QuotingDeps = {}): Promise<PriceQuoteOutcome> {
+    const d = resolveQuotingDeps(deps);
+    if (!file.job.quoteRef) return { ok: false, status: 409, reason: 'no quote on the file' };
     const row = await d.store.read(file.job.quoteRef);
     if (!row) return { ok: false, status: 500, reason: 'the priced row could not be read back' };
     const record = quoteRecordOf(row, d.now());
     const ids = recordQuoteFacts(file, record, deps);
     const factIds = [ids.status, ids.link, ...Object.values(ids.lines)].filter((x): x is string => !!x);
-    return { ok: true, record, quoteUrl: r.quoteUrl, totals: { totalPence: r.totals.totalPence, depositPence: r.totals.depositPence }, factIds };
+    return { ok: true, record, quoteUrl, totals: { totalPence: totals.totalPence, depositPence: totals.depositPence }, factIds };
 }
 
 export type MarkSentOutcome =

@@ -8,7 +8,8 @@
  * confidence, flags). The screen shows the suggestion prefilled in an editable field; Ben's tap on
  * "Send quote" posts his final per-line prices to `POST /api/spine/price/:slug/send`, which is the
  * only thing that writes a customer-visible price (`confirmPrices`) and then hands the quote link to
- * the EXISTING send path (server/agent-staff.ts deliverQuoteLink) under approver human:<id>.
+ * the new desk's sender while it is live and holds this quote's case file (comms-v2/quoting/price-screen-send.ts),
+ * else the EXISTING send path (server/agent-staff.ts deliverQuoteLink), under approver human:<id>.
  *
  * Shapes this module reads are P8 / A's (BRIEF-P8-chain.md §1, §3, §4). They were not in this
  * worktree when it was written, so every read is defensive: the row comes in as `to_jsonb(row)` so a

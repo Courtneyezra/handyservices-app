@@ -222,10 +222,12 @@ no message body, so the delivery is written by the desk's own composer from the 
 quote link, and Contract 4 checks it like any other composed reply. The composer is told the
 channel the send goes out on rather than resolving one of its own, so the shape it writes to is the
 shape the render wants. The quote leaves draft only once that send has landed: a shut window on a
-channel the customer chose (no approved template carries a quote link, so wiring
-`quote_ready_link` into the desk's sender is a cutover item), a guard failure or a refused send all
-hold for Ben and leave the quote a draft he can price again, rather than recording figures as live
-that the customer was never shown. One channel is skipped rather than held on: a channel the
+channel the customer chose with no approved `quote_ready_link` template, a guard failure or a refused
+send all hold for Ben and leave the quote a draft he can price again, rather than recording figures
+as live that the customer was never shown. With `quote_ready_link` approved a shut window takes that
+template, its second variable the link, sent under the person who licensed it: its approved wording
+is the delivery. Ben's live price screen takes this same delivery for a quote a live case file
+carries (`server/comms-v2/quoting/price-screen-send.ts`); every other quote keeps the old send. One channel is skipped rather than held on: a channel the
 customer has never written on whose window is shut, which is the WhatsApp record a form or a call
 lead is given for a number known to be on WhatsApp. Holding on that never-opened window would keep
 the link from the lead the fallback order was written for, so the delivery takes the next channel

@@ -343,7 +343,11 @@ async function isSandboxQuoteSlug(slug: string): Promise<boolean> {
  * 1. confirmPrices: 409 if the draft was superseded / sent / revoked or the version differs (a new
  *    scope arrived), 400 on a bad price; otherwise writes the customer-visible prices onto the
  *    draft and one quote_price_verdicts row per line under human:<id>.
- * 2. draftQuoteSendMessage + deliverQuoteLink: the EXISTING quote-send path (the one the legacy
+ * 2. sendPricedQuoteThroughDesk: while the new desk is the live desk and an open case file of its
+ *    own carries this quote, the new desk's own sender delivers it (comms-v2/quoting/price-screen-send.ts)
+ *    and this route returns early. Every other quote, and every quote while any switch is off, falls
+ *    through to step 3.
+ * 3. draftQuoteSendMessage + deliverQuoteLink: the EXISTING quote-send path (the one the legacy
  *    card uses), approver human:<id>, one run id for the whole burst. The outcome (sent /
  *    template / queued for the window) is reported as it happened. Nothing sends without this tap.
  */
@@ -360,6 +364,16 @@ spineRouter.post('/price/:slug/send', async (req, res) => {
         const u = sessionUser(req);
         const c = await confirmPrices(slug, req.body, { id: u.id ?? null, email: u.email ?? null });
         if (!c.ok) return res.status(c.status).json({ ok: false, errors: c.errors, status: c.payload?.status ?? null, version: c.payload?.version ?? null });
+        // The switch-over: while the new desk is the live desk, a quote an open case file of the new
+        // desk carries is sent by the new desk's own sender under this approver, with the approved
+        // quote_ready_link template on a shut window (server/comms-v2/quoting/price-screen-send.ts).
+        // Every other quote, and every quote while any switch is off, takes the path below unchanged.
+        const { sendPricedQuoteThroughDesk } = await import('../comms-v2/quoting/price-screen-send');
+        const viaDesk = await sendPricedQuoteThroughDesk({ slug, approver: c.approver, quoteUrl: c.payload.quoteUrl, totals: c.totals });
+        if (viaDesk) {
+            const sentOk = viaDesk.status >= 200 && viaDesk.status < 300;
+            return res.status(viaDesk.status).json({ verdicts: c.verdicts, ...viaDesk.json, nextSteps: sentOk ? c.nextSteps(viaDesk.json.mode === 'template' ? 'template' : 'sent') : undefined, nextWaiting: c.payload.nextWaiting });
+        }
         const conversationId = c.payload.conversationId;
         if (!conversationId) {
             return res.status(422).json({ ok: false, priced: true, errors: ['Prices are saved on the quote, but no thread matches this customer, so the link could not be sent from here. Send it from the builder.'], quoteUrl: c.payload.quoteUrl });

@@ -117,7 +117,7 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
         trigger: {
             id: 'quote_ready',
             when: 'Ben sends the finished quote from the price screen and the WhatsApp window is shut.',
-            source: 'server/agent-staff.ts deliverQuoteLink (QUOTE_LINK_TEMPLATE / QUOTE_LINK_TEMPLATE_NAME)',
+            source: 'server/agent-staff.ts deliverQuoteLink (QUOTE_LINK_TEMPLATE / QUOTE_LINK_TEMPLATE_NAME); the new desk: server/comms-v2/quoting/deliver-quote.ts (purpose quote_ready)',
             wired: true,
         },
         submission: 'existing',
