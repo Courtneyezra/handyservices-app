@@ -31,7 +31,9 @@ While it is live, at the same moment and on the same read:
   job-pack asks after a deposit, invoices, the price screen and every person's own send carry on;
 - the live clock runs every minute (`server/comms-v2/channels/live-clock.ts`): Ben's chase, the
   owner's escalation and the unpriced draft's chase;
-- Ben's board reads the live case files.
+- Ben's board reads the live case files;
+- Ben's quote notifications (ready to price, chase, accepted) reach his phone through Pushover
+  (`quoting/ben-notifier.ts` `liveBenNotifier`), asked at every notice rather than latched once.
 
 With any one of them off, none of that happens, and the old desk answers exactly as it does today.
 A switch read that fails counts as off: the old desk answers, and the new desk's delivery refuses on
