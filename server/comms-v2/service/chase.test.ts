@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { hold, noteOnHold, open, release, type CaseFile } from '../desk/case-file';
 import { BEN } from '../desk/guards';
 import { noTemplateApproved } from '../desk/sender';
-import { CHASE_TEMPLATES, chaseIfDue, createChaseState } from './chase';
+import { CHASE_TEMPLATES, chaseIfDue, chaseRecordOf, createChaseState } from './chase';
 
 function held(at = '2026-09-11T10:00:00.000Z'): CaseFile {
     const r = open({
@@ -44,7 +44,7 @@ describe('chaseIfDue', () => {
         expect(escalated.send.body).toMatch(/waiting on Ben/);
         const after = await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T13:00:00.000Z') });
         expect(after.action).toBe('none');
-        expect(s.ledger.get(file.id)?.attempts.map((a) => a.ok)).toEqual([true, true]);
+        expect(chaseRecordOf(file)?.attempts.map((a) => a.ok)).toEqual([true, true]);
         expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
     });
     it('a missing address or an unapproved template is refused on the record; the hold still stands', async () => {
@@ -53,9 +53,9 @@ describe('chaseIfDue', () => {
         const r1 = await chaseIfDue(file, noBen, { templates: approved, now: at('2026-09-11T10:31:00.000Z') });
         expect(r1).toMatchObject({ action: 'refused', purpose: 'approver_chase' });
         expect((r1 as any).reason).toMatch(/no address/);
-        expect(noBen.ledger.get(file.id)?.attempts[0]).toMatchObject({ ok: false, purpose: 'approver_chase' });
+        expect(chaseRecordOf(file)?.attempts[0]).toMatchObject({ ok: false, purpose: 'approver_chase' });
         for (const t of ['2026-09-11T10:32:00.000Z', '2026-09-11T10:33:00.000Z']) expect((await chaseIfDue(file, noBen, { templates: approved, now: at(t) })).action).toBe('refused');
-        expect(noBen.ledger.get(file.id)?.attempts).toHaveLength(1);
+        expect(chaseRecordOf(file)?.attempts).toHaveLength(1);
         const r2 = await chaseIfDue(held(), state(), { templates: noTemplateApproved, now: at('2026-09-11T10:31:00.000Z') });
         expect((r2 as any).reason).toMatch(/not approved/);
         expect(file.hold).not.toBeNull();
@@ -68,16 +68,16 @@ describe('chaseIfDue', () => {
         for (const t of file.turns) t.at = '2026-09-11T08:00:00.000Z';
         const next = await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T10:32:00.000Z') });
         expect(next.action).toBe('escalated');
-        expect(s.ledger.get(file.id)?.attempts).toHaveLength(2);
+        expect(chaseRecordOf(file)?.attempts).toHaveLength(2);
     });
     it('a released hold clears the record and a new hold starts afresh', async () => {
         const file = held();
         const s = state();
         await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T10:31:00.000Z') });
-        expect(s.ledger.get(file.id)?.chased).not.toBeNull();
+        expect(chaseRecordOf(file)?.chased).not.toBeNull();
         release(file, BEN, 'Sorry Sam, ringing you now.', { now: at('2026-09-11T10:40:00.000Z') });
         expect((await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T10:41:00.000Z') })).action).toBe('none');
-        expect(s.ledger.get(file.id)).toBeNull();
+        expect(chaseRecordOf(file)).toBeNull();
         hold(file, { approver: BEN, reason: 'refund', exception: 'refund' }, { now: at('2026-09-11T12:00:00.000Z') });
         expect((await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T12:10:00.000Z') })).action).toBe('none');
         expect((await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T12:31:00.000Z') })).action).toBe('chased');
@@ -89,7 +89,7 @@ describe('chaseIfDue', () => {
         const off = await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T10:31:00.000Z'), mode: 'live', sender: { deliverer: { async deliver() { return { ok: false, reason: 'spine.senders.comms_v2.enabled is not true', delivered: [] }; } } } });
         expect(off).toMatchObject({ action: 'refused', purpose: 'approver_chase', reason: 'spine.senders.comms_v2.enabled is not true' });
         expect(file.sentRunIds).toHaveLength(0);
-        expect(s.ledger.get(file.id)?.attempts[0]).toMatchObject({ purpose: 'approver_chase', ok: false });
+        expect(chaseRecordOf(file)?.attempts[0]).toMatchObject({ purpose: 'approver_chase', ok: false });
         const deliverer = { async deliver(i: { purpose: string }) { purposes.push(i.purpose); return { ok: true as const, sid: 'SM1' }; } };
         const out = await chaseIfDue(file, s, { templates: approved, now: at('2026-09-11T10:32:00.000Z'), mode: 'live', sender: { deliverer } });
         expect(out.action).toBe('chased');

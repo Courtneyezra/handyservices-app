@@ -47,6 +47,7 @@ To debug "What the user sees":
 ## 4. Comms desk (the spine) — operations
 
 Design: `docs/COMMS_AGENTS_V3_DESIGN.md`. Switching: `docs/comms-build/CUTOVER.md`. People: `docs/comms-build/HANDOVER.md`.
+Switching from this desk to the new one under `server/comms-v2/`, and rolling back: `docs/comms-v2/cutover.md`.
 
 ### Health
 - `GET /api/health/comms-worker` — 200 with `status: "ok"` while the worker's heartbeat is fresh, 503 with `status: "stale"` when the heartbeat is older than 10 min, has never been written, or is unreadable (then `error` carries the reason). Point uptime checks and the platform healthcheck here. The same payload is on `/admin/staff` (strip at the top).

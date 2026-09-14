@@ -242,6 +242,21 @@ export async function sendCustomerMessage(input: SendCustomerMessageInput): Prom
         });
         return { ok: false, error: 'SENDER_SWITCHED_OFF', reason: 'SWITCHED_OFF', attempts: [], fellBack: false };
     }
+    // The switch-over: while the new desk is the live desk the old desk stands down, and its own
+    // automatic senders are refused here, at the one exit, so a customer never gets two answers
+    // (server/comms-v2/old-desk.ts). A read that fails refuses nothing: the new desk's delivery reads
+    // the same row fail closed, so on a bad read the old desk is the one that answers.
+    const standDown = await import('./comms-v2/old-desk').then((m) => m.oldDeskRefusal(approver)).catch(() => null);
+    if (standDown) {
+        const summary = `Send refused: ${standDown}`;
+        console.warn(`[Outbound] ${summary} — ${input.context ?? 'no context'}`);
+        void logSystemEvent({
+            kind: 'send_refused', phone: e164Quietly(input.to), summary,
+            detail: { approver, runId, context: input.context ?? null, oldDeskStoodDown: true },
+            source: 'outbound',
+        });
+        return { ok: false, error: 'OLD_DESK_STOOD_DOWN', reason: 'SWITCHED_OFF', attempts: [], fellBack: false };
+    }
 
     let e164: string;
     try {

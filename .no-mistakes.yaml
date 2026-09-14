@@ -205,6 +205,25 @@ test:
     and expect a delivered composed reply with no hold, not the not-converging line again. Ben's
     chase and escalation are dry-run template sends to drama numbers; nothing leaves.
 
+    The switch-over, on the app's own comms-v2 door (POST http://127.0.0.1:$PORT/api/comms-v2/sandbox/...
+    as Ben), never flipping a switch: never write spine.commsDesk or spine.senders.comms_v2, never
+    set COMMS_V2_INTAKE, and stop if GET /api/spine/controls shows either row key set. Live-mode
+    chases and escalations labelled, gated and recorded under their own purpose (answer 48): POST
+    /fixture, start a thread and send "How much roughly?" so it holds for ben, POST
+    /chase-intervals {chaseAfterMinutes: 1, escalateAfterMinutes: 2}, POST /age {hours: 0.05}, POST
+    /run {live: true}: expect chase.action refused, purpose approver_chase, a reason naming
+    spine.senders.comms_v2.enabled, and GET /chase showing that attempt with mode live and label
+    {purpose: marketing, context: comms_v2:approver_chase}, with no chase_ run id in
+    state.caseFile.sentRunIds. Then POST /run {} (Ben chased in dry run), POST /age {hours: 0.06},
+    POST /run {live: true}: the same for owner_escalation with context comms_v2:owner_escalation.
+    A second copy of the app started with COMMS_V2_DATABASE_URL removed answers 409 to POST /run
+    {live: true} naming the branch database. The web form's server-side photo checks (answer 50):
+    four fresh POST /start {door: form, text, name, postcode, seed: {whatsapp: false}, photos:
+    [{contentBase64, mime}]}: five small JPEGs give media of four and mediaFailures "too many photos
+    (5), kept the first 4"; one JPEG over 6 MB gives no media and "photo too large"; plain text
+    labelled image/jpeg gives no media and "not a recognised image"; one valid JPEG labelled
+    image/png gives one image typed image/jpeg and no failures.
+
     Evidence is screenshots of the sandbox thread, the sandbox data pages and Ben's board
     (/admin/comms-v2) only; never screenshot another admin list or page, and never attach the
     server log. The board is permitted because it reads the board's own sandbox door store, so

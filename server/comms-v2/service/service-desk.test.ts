@@ -22,7 +22,7 @@ import { BEN } from '../desk/guards';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
-import { CHASE_TEMPLATES, createChaseState } from './chase';
+import { CHASE_TEMPLATES, chaseRecordOf, clearChaseRecord, createChaseState } from './chase';
 import { humanReply } from '../desk/human-reply';
 
 const INSURED = "Yes, we're fully insured, with public liability cover in place for every job.";
@@ -403,7 +403,7 @@ describe('the Service specialist on the desk', () => {
         expect(escalated?.chase?.action).toBe('escalated');
         expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
         await humanReply({ file: a.file, approver: BEN, person: 'ben', words: 'Refund on its way, sorry.' }, { now: () => new Date(clock.t += 1000) });
-        chase.ledger.clear(a.file.id);
+        clearChaseRecord(a.file);
         const after = await gateway.clock(a.file.id);
         expect(after?.chase).toBeNull();
     });
@@ -415,12 +415,12 @@ describe('the Service specialist on the desk', () => {
         if (a.kind !== 'handled') throw new Error(a.kind);
         clock.t += 31 * 60_000;
         expect((await gateway.clock(a.file.id))?.chase?.action).toBe('chased');
-        expect(chase.ledger.get(a.file.id)).not.toBeNull();
+        expect(chaseRecordOf(a.file)).not.toBeNull();
         // The board releases the hold and nothing else: server/comms-v2/api/routes.ts calls release directly.
         const released = release(a.file, BEN, 'picked up, I will call them', { now: () => new Date(clock.t += 1000) });
         expect(released.ok).toBe(true);
         const after = await gateway.clock(a.file.id);
         expect(after?.chase).toBeNull();
-        expect(chase.ledger.get(a.file.id)).toBeNull();
+        expect(chaseRecordOf(a.file)).toBeNull();
     });
 });

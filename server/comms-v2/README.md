@@ -74,9 +74,9 @@ turn to the channel gateway; the old handler still runs. The forwarding call is 
 code: server/whatsapp-api.ts `/incoming` (Twilio, WhatsApp and SMS), server/meta-whatsapp.ts
 `/webhook`, server/leads.ts `POST /api/leads` (the web form), and server/call-logger.ts
 `finalizeCall` (a finished call; the call row is read for its outcome). The desk behind the intake
-runs in dry run: everything up to delivery, nothing leaves. The switch-over re-points its store and
-tools at the live database behind the desk switch ("Which database the intake opens", below); turning
-the old handler's replies off and this desk's delivery on is its delivery change.
+runs in dry run, everything up to delivery with nothing leaving, until the new desk is the live desk
+("Which database the intake opens", below): then it delivers and the old desk stands down at the
+same moment. docs/comms-v2/cutover.md is the flip and the roll-back.
 
 **The switch alone does not start it.** `INTAKE_REQUIREMENTS` (`channels/intake.ts`) is what the
 intake must have before it reads one live turn. None is outstanding; while one is, the gateway
@@ -120,9 +120,27 @@ open the database in use, production included, and every call asks the switches 
 one back refuses the very next write and the next forward builds a sandbox gateway instead (the set
 aside store keeps retrying its unwritten files, and lands them if the switches come back on). The
 sandbox door always asks the branch question, whatever the switches say, so it never writes
-production. The live intake's desk still runs in dry run (`INTAKE_DESK_MODE`): its delivery, the
-old desk's replies going off at the same moment and the roll-back are the switch-over's delivery
-change, and until it lands no switch here is to be flipped in production.
+production.
+
+**What live means.** Everything below follows the same `commsV2Live()`, so it all turns on and off
+together, on the next read, with nothing written to any row:
+
+- The intake's desk delivers (`INTAKE_DESK_MODE`: `live` for the live purpose, never for the sandbox),
+  through the one outbound send under `agent.comms_v2`, and a board answer goes out the same way.
+- The old desk stands down (`old-desk.ts`): every sender in `OLD_DESK_SENDERS` (the legacy agent and
+  its autosend, the spine's lane agents, the SLA chase, the rules layer's replies, the webform chase,
+  the lead automations) is refused at server/outbound.ts with a `send_refused` event; the spine's
+  `spineMode()` and `isSpineEnabled()` read as off; the legacy agent's `getCommsAgentConfig()` reads
+  as disabled with its inbound lane off (`setCommsAgentConfig` still merges over the stored row).
+  A read that fails is not live, so the old desk answers; the new desk's delivery refuses on it.
+- The live clock (`channels/live-clock.ts`, registered in server/cron.ts for the comms worker only)
+  passes every held file, every file with a quote and every file with a chase record once a minute;
+  a pass never messages a customer. Ticks never overlap.
+- Ben's chase goes to `COMMS_V2_CHASE_BEN_E164` and the owner's escalation to
+  `COMMS_V2_CHASE_OWNER_E164` (`chaseStateFromEnv`); a number not set is a refusal on the record.
+
+With any switch off none of it runs. A process that has every switch on but is not the comms worker
+logs once that it is not the live desk and builds no live gateway.
 
 ### Inbound email
 
@@ -288,7 +306,7 @@ the customer's own words ask to change a detail on their record, whatever the ro
 | the specialist | `service/service-specialist.ts` | Sonnet 5 returns selections only: which looked-up row answers which question by id, which record field, a requested change, a complaint, refund or trust doubt. The tool server checks each selection (an id it did not return is no source), records each answer as a fact whose value is the row's body verbatim, and writes the composer's brief. Never a sentence for the customer. The model sees the customer's name and phone, and only that an email or address is held, never its value, so a customer asking what we hold for either holds for Ben as `no_source` with that reason on his card. |
 | the hold vocabulary | `service/hold-reasons.ts`, `desk/fixed-lines.ts` | `HoldException` (desk/router.ts) is the router's exceptions plus `no_source`, `not_converging`, `change_of_details`; `callback` joins the router's own. Fixed line only (no composer, no specialist until Ben releases): complaint, refund, trust doubt, gas, not converging. Answer the rest (the fixed line rides in the reply): money, date change, callback, no source, change of details. Goal 6's lines are checklist wording and send live; only the four Ben reviews are read from the knowledge base. |
 | return to automation | `desk/human-reply.ts`, `service/return-to-automation.ts` | One path for a human's reply: `humanReply` sends the words through the one sender under a `human:<person>` approver on the thread's own channel, records what they asked on the ask ledger, and releases the hold with those words. Ben's board and the door's "Ben replies" both call it; `automationState` reads where the thread is. The release records how many turns the thread had (`turnsBefore`) and each subject's ask count (`asksBefore`), so `convergence` counts both replies and job asks from there and a released thread can make progress; the ledger itself is untouched, so a subject is still never asked twice. The kanban (Goal 2) can also release the hold directly, which brings the thread back to automation without posting Ben's words to the customer. |
-| Ben's chase | `service/chase.ts`, `desk/sender.ts` `initiate` | On the desk's clock pass a held thread chases Ben after one interval and the owner after a second, each a template send through `initiate` (template only, approver and run id, never freeform, never on the thread; the run id is spent on the file; a live pass carries the chase's own purpose to the deliverer and a refused delivery is on the record; nothing runs it live until cutover). Intervals and addresses are configuration (a missing address is a refusal on the record, never a silent skip); the door sets test values and drama numbers, and production values land at cutover with the caller that reads them. The two templates are defined in `chase.ts` and have not been submitted to Meta; approval is read from the live sync by name like any other. |
+| Ben's chase | `service/chase.ts`, `desk/sender.ts` `initiate` | On the desk's clock pass a held thread chases Ben after one interval and the owner after a second, each a template send through `initiate` (template only, approver and run id, never freeform, never on the thread; the run id is spent on the file; a live pass carries the chase's own purpose to the deliverer and a refused delivery is on the record). The record is the file's own `chase` field, so the durable store keeps it and a restart never chases again; every attempt records its mode and the label the deliverer carried it under (`outboundLabelFor`: the fail-closed `marketing` class, context `comms_v2:<purpose>`), refused ones included. Intervals and addresses are configuration (a missing address is a refusal on the record, never a silent skip); the door sets test values and drama numbers, and the live intake reads the numbers from the environment (`chaseStateFromEnv`) and runs on the live clock. The two templates are defined in `chase.ts` and have not been submitted to Meta; approval is read from the live sync by name like any other. |
 | the fixture | `service/fixture.ts` | Reviewed and unreviewed knowledge-base rows (`sandbox-kb-*`, reviewed as `human:sandbox-fixture`) written through the old store's own admin writes, and the two chase templates marked approved in the sync cache with a sandbox content SID. Branch database only; refused on production. |
 | the door actions | `service/service-door.ts` | Mounted by `desk/sandbox-door.ts`: `POST /fixture`, `POST /ben-replies` (`{ text }`; the approver is the signed-in session's slot, never the body, so an unlisted session gets 403; the standalone door host has no session and runs as Ben), `POST /chase-intervals` (`{ chaseAfterMinutes, escalateAfterMinutes }`), `GET /chase`. Every `/run` response carries `chase`; the state carries `automation` and `chase`. |
 
@@ -354,6 +372,24 @@ board's authenticated route, which only his approver slot may call.
 Goal 6 adds `POST /fixture`, `POST /ben-replies`, `POST /chase-intervals` and `GET /chase`
 (above): the chase is driven with `/chase-intervals`, then `/age` and `/run`, and "Ben replies"
 brings a held thread back to automation.
+
+The switch-over adds two things to drive without sending anything (docs/comms-v2/cutover.md):
+
+- `POST /run { "live": true }`: the same clock pass with the desk in live mode and the real live
+  deliverer, so a due chase or escalation is stopped at the new desk's own switch and recorded under
+  its own purpose. The door refuses it (409) off the branch database, where the new desk is the live
+  desk, while `spine.senders.comms_v2.enabled` is on, and for any recipient but its drama numbers.
+  After `POST /fixture` (the chase template approvals), on a held thread: `/chase-intervals {1, 2}`,
+  `/age {hours: 0.05}`, `/run {live: true}` answers `chase.action` refused for `approver_chase` with a
+  reason naming `spine.senders.comms_v2.enabled`, and `GET /chase` shows the attempt with `mode: live`
+  and `label: { purpose: marketing, context: comms_v2:approver_chase }`. For the owner: `/run {}` chases
+  Ben in dry run, `/age {hours: 0.06}`, then `/run {live: true}` records the same for
+  `owner_escalation`. Nothing is sent and no chase run id is spent.
+- A form start with `photos: [{ contentBase64, mime }]`, the web form's own shape, takes the server-side
+  photo checks `POST /api/leads` takes (`channels/media.ts`): the response's `mediaFailures` says
+  `too many photos (5), kept the first 4` for five, `photo too large` for one over 6 MB, `not a
+  recognised image` for bytes that are not an image whatever the mime says, and `media` holds a valid
+  photo typed by its bytes. The app's own door takes a 10 MB body and the door host 12 MB.
 
 This is the surface the no-mistakes pipeline's end-to-end test step drives to validate a goal. The
 checklist lines for the goal (docs/comms-v2/design.md, Goal 1's stop condition) are the scenarios
@@ -431,7 +467,9 @@ the door driven over HTTP the way the test step drives it, the door host's refus
 database refusal every live writer makes (`live-database.test.ts`, including each method of the
 live quote store on a production-shaped connection, and every live dependency refusing production
 while the switches are at their defaults), the switches and the one live question (`switch.test.ts`),
-a person's reply through the one sender with
+the old desk standing down (`old-desk.test.ts`), the live clock (`channels/live-clock.test.ts`), the
+chase record surviving the durable store (`service/chase-record.test.ts`), the door's live pass and
+the form's photo checks (`desk/switchover-door.test.ts`), a person's reply through the one sender with
 no guards over it, and the board's queries, approver mapping and routes. The page's own test is
 `npx vitest run --project client client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx`.
 None of them needs a key or a database; a live desk test reads its keys from the environment.

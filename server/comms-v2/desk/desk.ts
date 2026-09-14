@@ -32,7 +32,7 @@ import { AnthropicModelClient, type ModelClient } from './models';
 import type { Exception, HoldException, Route } from './router';
 import { matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
-import { chaseIfDue, type ChaseState } from '../service/chase';
+import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase';
 import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { asksToChangeDetails } from '../service/service-tools';
@@ -91,7 +91,7 @@ export class Desk implements DeskLike {
         if (!chase) return { ...base, chase: null };
         // A release from any surface, the board included, leaves the old record behind: clear it here,
         // the one pass that runs whether or not the file is held.
-        if (!file.hold) { chase.ledger.clear(file.id); return { ...base, chase: null }; }
+        if (!file.hold) { clearChaseRecord(file); return { ...base, chase: null }; }
         const outcome = await chaseIfDue(file, chase, { templates: this.deps.templates, sender: { ...this.deps.sender, now: this.now, newId: this.deps.newId }, mode: this.deps.mode ?? 'dry_run', now: this.now });
         const note = outcome.action === 'none' ? `chase: ${outcome.reason}` : outcome.action === 'refused' ? `chase ${outcome.purpose} refused: ${outcome.reason}` : `${outcome.action === 'chased' ? 'Ben chased' : 'escalated to the owner'} by template ${outcome.send.templateId} (${outcome.send.runId})`;
         return { ...base, note: `${base.note}; ${note}`, chase: outcome };

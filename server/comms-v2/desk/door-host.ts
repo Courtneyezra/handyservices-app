@@ -93,7 +93,8 @@ export async function openDoorHost(opts: DoorHostOptions = {}): Promise<DoorHost
     }
     const express = (await import('express')).default;
     const app = express();
-    app.use(express.json({ limit: '1mb' }));
+    // Room for the web form's photo checks: a photo over the 6 MB cap, base64, in one JSON body.
+    app.use(express.json({ limit: '12mb' }));
     app.use(DOOR_MOUNT, router as any);
     const server = await new Promise<import('node:http').Server>((resolve, reject) => {
         const s = app.listen(opts.port ?? 0, '127.0.0.1', () => resolve(s));

@@ -14,6 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CanonicalKey, ChannelKind, ResolveResult, Role } from './identity';
 import type { HoldException } from './router';
+import type { ChaseRecord } from '../service/chase';
 
 // ---------------------------------------------------------------- the record
 
@@ -241,6 +242,8 @@ export interface CaseFile {
     sends: SendRecord[];
     /** Run ids that have been sent, so one run id sends once. */
     sentRunIds: string[];
+    /** Ben's chase on the standing hold (service/chase.ts), kept with the file so a restart never chases again. Absent or null when nothing is being chased. */
+    chase?: ChaseRecord | null;
 }
 
 export type Refusal = { ok: false; reason: string };
