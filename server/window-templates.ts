@@ -109,8 +109,9 @@ export interface WindowTemplate {
 }
 
 /**
- * The rows. Order is the plan's order (4.1), then the clean-sheet desk's two, then the quote-accepted
- * acknowledgement, not a priority.
+ * The rows. Order is the plan's order (4.1), then the clean-sheet desk's two, then the
+ * quote-accepted acknowledgement, then the desk's own approver-facing chase and escalation, not a
+ * priority.
  *
  * Every body is written to the house voice rules in `shared/chat-voice.ts` (no em dash, no spaced
  * hyphen, no scheduling ping-pong closer) and to pass `checkDraft` with its sample values filled
